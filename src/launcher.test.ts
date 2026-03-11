@@ -1,0 +1,503 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+// Mock child_process before importing launcher
+const mockExecSync = vi.fn();
+vi.mock("node:child_process", () => ({
+  execSync: (...args: unknown[]) => mockExecSync(...args),
+}));
+
+// Mock config
+const mockReadKVFile = vi.fn((_path: string) => new Map<string, string>());
+vi.mock("./config.js", () => ({
+  getConfig: vi.fn(),
+  readKVFile: (path: string) => mockReadKVFile(path),
+}));
+
+// Mock fs.existsSync for directory and Ghostty.app checks
+vi.mock("node:fs", () => ({
+  existsSync: vi.fn(() => true),
+}));
+
+// Mock readline for prompt tests
+const mockQuestion = vi.fn();
+vi.mock("node:readline", () => ({
+  createInterface: () => ({
+    question: (_q: string, cb: (a: string) => void) => mockQuestion(_q, cb),
+    close: vi.fn(),
+  }),
+}));
+
+// Mock script generator to isolate launcher logic
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockGenerateAppleScript = vi.fn((..._args: any[]) => 'tell application "Ghostty"\nend tell');
+vi.mock("./script.js", () => ({
+  generateAppleScript: (...args: unknown[]) => mockGenerateAppleScript(...args),
+}));
+
+// Import after mocks are set up
+const { launch, resolveConfig } = await import("./launcher.js");
+const { getConfig } = await import("./config.js");
+const { existsSync } = await import("node:fs");
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  // Default: all commands are installed
+  mockExecSync.mockImplementation((cmd: string) => {
+    if (typeof cmd === "string" && cmd.startsWith("command -v "))
+      return Buffer.from("/usr/bin/stub");
+    return "";
+  });
+  vi.mocked(existsSync).mockReturnValue(true);
+  mockReadKVFile.mockReturnValue(new Map<string, string>());
+  mockGenerateAppleScript.mockReturnValue('tell application "Ghostty"\nend tell');
+});
+
+describe("Ghostty detection", () => {
+  it("exits with error if directory does not exist", async () => {
+    vi.mocked(existsSync).mockReturnValue(false);
+    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("process.exit");
+    });
+
+    await expect(launch("/nonexistent")).rejects.toThrow("process.exit");
+    expect(mockExit).toHaveBeenCalledWith(1);
+    mockExit.mockRestore();
+  });
+
+  it("exits with error if Ghostty.app is not found", async () => {
+    vi.mocked(existsSync).mockImplementation((path) => {
+      if (String(path) === "/Applications/Ghostty.app") return false;
+      return true;
+    });
+    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("process.exit");
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
+    expect(mockExit).toHaveBeenCalledWith(1);
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Ghostty.app not found"),
+    );
+    mockExit.mockRestore();
+    errorSpy.mockRestore();
+  });
+});
+
+describe("script execution", () => {
+  it("executes generated script via osascript", async () => {
+    vi.mocked(getConfig).mockReturnValue(undefined);
+
+    await launch("/tmp/workspace");
+
+    expect(mockExecSync).toHaveBeenCalledWith(
+      "osascript",
+      expect.objectContaining({ input: 'tell application "Ghostty"\nend tell' }),
+    );
+  });
+
+  it("passes correct plan and directory to generateAppleScript", async () => {
+    vi.mocked(getConfig).mockReturnValue(undefined);
+
+    await launch("/tmp/workspace", { layout: "minimal" });
+
+    expect(mockGenerateAppleScript).toHaveBeenCalledWith(
+      expect.objectContaining({
+        leftColumnCount: 1,
+        rightColumnEditorCount: 0,
+        hasServer: false,
+      }),
+      "/tmp/workspace",
+    );
+  });
+});
+
+describe("config resolution", () => {
+  it("project config overrides global config", () => {
+    vi.mocked(getConfig).mockImplementation((key: string) => {
+      if (key === "editor") return "claude";
+      return undefined;
+    });
+    mockReadKVFile.mockReturnValue(new Map([["editor", "vim"]]));
+
+    const { opts } = resolveConfig("/tmp/workspace", {});
+    expect(opts.editor).toBe("vim");
+  });
+
+  it("CLI overrides project config", () => {
+    mockReadKVFile.mockReturnValue(new Map([["editor", "vim"]]));
+
+    const { opts } = resolveConfig("/tmp/workspace", { editor: "nano" });
+    expect(opts.editor).toBe("nano");
+  });
+
+  it("preset expansion with individual key overrides", () => {
+    mockReadKVFile.mockReturnValue(
+      new Map([
+        ["layout", "minimal"],
+        ["panes", "4"],
+      ]),
+    );
+    vi.mocked(getConfig).mockReturnValue(undefined);
+
+    const { opts } = resolveConfig("/tmp/workspace", {});
+    // Preset minimal sets editorPanes=1, but project overrides to 4
+    expect(opts.editorPanes).toBe(4);
+    // Preset minimal sets server=false, no override → stays false
+    expect(opts.server).toBe("false");
+  });
+
+  it("unknown preset warns and falls through to defaults", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockReadKVFile.mockReturnValue(new Map([["layout", "bogus"]]));
+    vi.mocked(getConfig).mockReturnValue(undefined);
+
+    const { opts } = resolveConfig("/tmp/workspace", {});
+    expect(warnSpy).toHaveBeenCalledWith(
+      'Unknown layout preset: "bogus". Valid presets: minimal, full, pair, cli, mtop. Using defaults.',
+    );
+    expect(opts.editorPanes).toBeUndefined();
+    warnSpy.mockRestore();
+  });
+
+  it("unknown preset warning lists all valid presets", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockReadKVFile.mockReturnValue(new Map([["layout", "invalid"]]));
+    vi.mocked(getConfig).mockReturnValue(undefined);
+
+    resolveConfig("/tmp/workspace", {});
+
+    const warnMsg = warnSpy.mock.calls[0]![0] as string;
+    expect(warnMsg).toContain("minimal");
+    expect(warnMsg).toContain("full");
+    expect(warnMsg).toContain("pair");
+    expect(warnMsg).toContain("cli");
+    expect(warnMsg).toContain("mtop");
+    warnSpy.mockRestore();
+  });
+});
+
+describe("command dependency checks", () => {
+  it("checks editor and sidebar commands before launching", async () => {
+    vi.mocked(getConfig).mockReturnValue(undefined);
+
+    await launch("/tmp/workspace");
+
+    // Default editor=claude, sidebar=lazygit
+    expect(mockExecSync).toHaveBeenCalledWith("command -v claude", {
+      stdio: "ignore",
+    });
+    expect(mockExecSync).toHaveBeenCalledWith("command -v lazygit", {
+      stdio: "ignore",
+    });
+  });
+
+  it("already-installed commands proceed without prompting", async () => {
+    vi.mocked(getConfig).mockReturnValue(undefined);
+
+    await launch("/tmp/workspace");
+
+    expect(mockQuestion).not.toHaveBeenCalled();
+  });
+
+  it("offers to install a known missing command (claude)", async () => {
+    let claudeCallCount = 0;
+    mockExecSync.mockImplementation((cmd: string) => {
+      if (cmd === "command -v claude") {
+        claudeCallCount++;
+        if (claudeCallCount <= 1) throw new Error("not found");
+        return Buffer.from("/usr/bin/claude");
+      }
+      if (typeof cmd === "string" && cmd.startsWith("command -v "))
+        return Buffer.from("/usr/bin/stub");
+      return "";
+    });
+    vi.mocked(getConfig).mockReturnValue(undefined);
+
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      cb("y");
+    });
+
+    await launch("/tmp/workspace");
+
+    expect(mockQuestion).toHaveBeenCalledTimes(1);
+    expect(mockQuestion.mock.calls[0]![0]).toContain(
+      "npm install -g @anthropic-ai/claude-code",
+    );
+    expect(mockExecSync).toHaveBeenCalledWith(
+      "npm install -g @anthropic-ai/claude-code",
+      { stdio: "inherit" },
+    );
+  });
+
+  it("exits when unknown command is missing", async () => {
+    mockExecSync.mockImplementation((cmd: string) => {
+      if (cmd === "command -v obscure-tool") throw new Error("not found");
+      if (typeof cmd === "string" && cmd.startsWith("command -v "))
+        return Buffer.from("/usr/bin/stub");
+      return "";
+    });
+    vi.mocked(getConfig).mockImplementation((key: string) => {
+      if (key === "editor") return "obscure-tool";
+      if (key === "sidebar") return "htop";
+      return undefined;
+    });
+
+    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("process.exit");
+    });
+
+    await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
+    expect(mockExit).toHaveBeenCalledWith(1);
+    mockExit.mockRestore();
+  });
+
+  it("shows correct CLI syntax in error message", async () => {
+    mockExecSync.mockImplementation((cmd: string) => {
+      if (cmd === "command -v obscure-tool") throw new Error("not found");
+      if (typeof cmd === "string" && cmd.startsWith("command -v "))
+        return Buffer.from("/usr/bin/stub");
+      return "";
+    });
+    vi.mocked(getConfig).mockImplementation((key: string) => {
+      if (key === "editor") return "obscure-tool";
+      if (key === "sidebar") return "htop";
+      return undefined;
+    });
+
+    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("process.exit");
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
+
+    const errorMessages = errorSpy.mock.calls.map((c) => c[0] as string);
+    const configMsg = errorMessages.find((m) => m.includes("summon"));
+    expect(configMsg).toBeDefined();
+    expect(configMsg).toContain("summon set editor <command>");
+
+    mockExit.mockRestore();
+    errorSpy.mockRestore();
+  });
+
+  it("skips check when editor and sidebar are empty strings", async () => {
+    vi.mocked(getConfig).mockImplementation((key: string) => {
+      if (key === "editor") return "";
+      if (key === "sidebar") return "";
+      return undefined;
+    });
+
+    await launch("/tmp/workspace");
+
+    const commandChecks = mockExecSync.mock.calls
+      .map((c) => c[0] as string)
+      .filter((c) => typeof c === "string" && c.startsWith("command -v "));
+    expect(commandChecks).toEqual([]);
+  });
+
+  it("exits when user declines install", async () => {
+    mockExecSync.mockImplementation((cmd: string) => {
+      if (cmd === "command -v claude") throw new Error("not found");
+      if (typeof cmd === "string" && cmd.startsWith("command -v "))
+        return Buffer.from("/usr/bin/stub");
+      return "";
+    });
+    vi.mocked(getConfig).mockReturnValue(undefined);
+
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      cb("n");
+    });
+
+    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("process.exit");
+    });
+
+    await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
+    expect(mockExit).toHaveBeenCalledWith(1);
+    mockExit.mockRestore();
+  });
+});
+
+describe("secondaryEditor binary check", () => {
+  it("checks secondaryEditor binary when mtop preset is used", async () => {
+    vi.mocked(getConfig).mockReturnValue(undefined);
+
+    await launch("/tmp/workspace", { layout: "mtop" });
+
+    expect(mockExecSync).toHaveBeenCalledWith("command -v mtop", {
+      stdio: "ignore",
+    });
+  });
+});
+
+describe("ensureCommand error paths", () => {
+  it("exits when install command throws an error", async () => {
+    mockExecSync.mockImplementation((cmd: string) => {
+      if (cmd === "command -v claude") throw new Error("not found");
+      if (typeof cmd === "string" && cmd.startsWith("command -v "))
+        return Buffer.from("/usr/bin/stub");
+      if (typeof cmd === "string" && cmd.includes("npm install -g"))
+        throw new Error("install failed");
+      return "";
+    });
+    vi.mocked(getConfig).mockReturnValue(undefined);
+
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      cb("y");
+    });
+
+    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("process.exit");
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
+    expect(mockExit).toHaveBeenCalledWith(1);
+    expect(errorSpy).toHaveBeenCalledWith(
+      "Failed to install `claude`. Please install it manually and try again.",
+    );
+    mockExit.mockRestore();
+    errorSpy.mockRestore();
+  });
+
+  it("exits when command still not found after successful install", async () => {
+    mockExecSync.mockImplementation((cmd: string) => {
+      if (cmd === "command -v claude") throw new Error("not found");
+      if (typeof cmd === "string" && cmd.startsWith("command -v "))
+        return Buffer.from("/usr/bin/stub");
+      if (typeof cmd === "string" && cmd.includes("npm install -g"))
+        return Buffer.from("");
+      return "";
+    });
+    vi.mocked(getConfig).mockReturnValue(undefined);
+
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      cb("y");
+    });
+
+    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("process.exit");
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
+    expect(mockExit).toHaveBeenCalledWith(1);
+    expect(errorSpy).toHaveBeenCalledWith(
+      "`claude` still not found after install. Please check your PATH.",
+    );
+    mockExit.mockRestore();
+    errorSpy.mockRestore();
+  });
+});
+
+describe("lazygit install handler", () => {
+  it("offers to install lazygit via brew when missing and brew is available", async () => {
+    let lazygitCallCount = 0;
+    mockExecSync.mockImplementation((cmd: string) => {
+      if (cmd === "command -v lazygit") {
+        lazygitCallCount++;
+        if (lazygitCallCount <= 1) throw new Error("not found");
+        return Buffer.from("/usr/bin/lazygit");
+      }
+      if (typeof cmd === "string" && cmd.startsWith("command -v "))
+        return Buffer.from("/usr/bin/stub");
+      return "";
+    });
+    vi.mocked(getConfig).mockReturnValue(undefined);
+
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      cb("y");
+    });
+
+    await launch("/tmp/workspace");
+
+    expect(mockQuestion).toHaveBeenCalledTimes(1);
+    expect(mockQuestion.mock.calls[0]![0]).toContain("brew install lazygit");
+    expect(mockExecSync).toHaveBeenCalledWith("brew install lazygit", {
+      stdio: "inherit",
+    });
+  });
+});
+
+describe("input validation", () => {
+  it("warns and uses default when panes is NaN", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.mocked(getConfig).mockReturnValue(undefined);
+
+    const { opts } = resolveConfig("/tmp/workspace", { panes: "abc" });
+    expect(opts.editorPanes).toBe(3);
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it("warns and uses default when panes is zero", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.mocked(getConfig).mockReturnValue(undefined);
+
+    const { opts } = resolveConfig("/tmp/workspace", { panes: "0" });
+    expect(opts.editorPanes).toBe(3);
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it("warns and uses default when panes is negative", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.mocked(getConfig).mockReturnValue(undefined);
+
+    const { opts } = resolveConfig("/tmp/workspace", { panes: "-2" });
+    expect(opts.editorPanes).toBe(3);
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it("warns and uses default when editorSize is 0", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.mocked(getConfig).mockReturnValue(undefined);
+
+    const { opts } = resolveConfig("/tmp/workspace", { "editor-size": "0" });
+    expect(opts.editorSize).toBe(75);
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it("warns and uses default when editorSize is out of range", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.mocked(getConfig).mockReturnValue(undefined);
+
+    const { opts } = resolveConfig("/tmp/workspace", { "editor-size": "150" });
+    expect(opts.editorSize).toBe(75);
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it("warns and uses default when editorSize is NaN", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.mocked(getConfig).mockReturnValue(undefined);
+
+    const { opts } = resolveConfig("/tmp/workspace", { "editor-size": "big" });
+    expect(opts.editorSize).toBe(75);
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it("accepts valid panes value", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.mocked(getConfig).mockReturnValue(undefined);
+
+    const { opts } = resolveConfig("/tmp/workspace", { panes: "5" });
+    expect(opts.editorPanes).toBe(5);
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it("accepts valid editorSize value", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.mocked(getConfig).mockReturnValue(undefined);
+
+    const { opts } = resolveConfig("/tmp/workspace", { "editor-size": "60" });
+    expect(opts.editorSize).toBe(60);
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+});
