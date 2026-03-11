@@ -124,7 +124,20 @@ summon set layout minimal           # default to minimal preset
 
 - [Architecture](docs/architecture.md) -- module map, AppleScript generation, layout algorithm
 - [User Manual](docs/user-manual.md) -- full command reference, walkthrough, troubleshooting
+- [Changelog](CHANGELOG.md) -- release history
 - [Publishing](docs/publishing.md) -- npm publish checklist
+
+## Contributing
+
+Contributions are welcome! Please read the [Contributing Guide](CONTRIBUTING.md) for details on the development workflow, commit conventions, and PR guidelines.
+
+## Code of Conduct
+
+This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.md). By participating, you are expected to uphold this code.
+
+## Security
+
+To report a vulnerability, please follow the [Security Policy](SECURITY.md). Do not open a public issue.
 
 ## License
 
