@@ -50,7 +50,7 @@ CLI invocation
                 -> planLayout(resolvedOpts) -- compute pane counts and sizes
                 -> ensureCommand() for editor, sidebar, secondaryEditor, serverCommand
                 -> generateAppleScript(plan, targetDir) -- build script string
-                -> execute via: osascript -e "<script>"
+                -> execute via: execSync("osascript", { input: script })
 ```
 
 ## AppleScript Generation

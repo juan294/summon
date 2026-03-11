@@ -133,10 +133,10 @@ describe("generateAppleScript")
 ## Success Criteria
 
 ### Automated
-- [ ] `pnpm typecheck` -- no errors
-- [ ] `pnpm lint` -- no errors
-- [ ] `pnpm test` -- all script tests pass
-- [ ] Generated AppleScript is syntactically valid (verified by structure checks in tests)
+- [x] `pnpm typecheck` -- no errors
+- [x] `pnpm lint` -- no errors
+- [x] `pnpm test` -- all script tests pass
+- [x] Generated AppleScript is syntactically valid (verified by structure checks in tests)
 
 ### Manual
 None for this phase. The generated script will be tested against real Ghostty in Phase 5.

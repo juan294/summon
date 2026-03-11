@@ -87,9 +87,9 @@ Adapted from termplex tests. Changes:
 ## Success Criteria
 
 ### Automated
-- [ ] `pnpm typecheck` -- no errors
-- [ ] `pnpm lint` -- no errors
-- [ ] `pnpm test` -- all launcher tests pass
+- [x] `pnpm typecheck` -- no errors
+- [x] `pnpm lint` -- no errors
+- [x] `pnpm test` -- all launcher tests pass
 
 ### Manual
 None for this phase.

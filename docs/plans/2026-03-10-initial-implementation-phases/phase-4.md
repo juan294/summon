@@ -97,12 +97,12 @@ chmod +x dist/index.js
 ## Success Criteria
 
 ### Automated
-- [ ] `pnpm typecheck` -- no errors
-- [ ] `pnpm lint` -- no errors
-- [ ] `pnpm test` -- ALL tests pass (config + layout + script + launcher)
-- [ ] `pnpm build` -- succeeds, produces `dist/index.js` with shebang
-- [ ] `./dist/index.js --help` -- outputs correct help text
-- [ ] `./dist/index.js --version` -- outputs `0.1.0`
+- [x] `pnpm typecheck` -- no errors
+- [x] `pnpm lint` -- no errors
+- [x] `pnpm test` -- ALL tests pass (config + layout + script + launcher)
+- [x] `pnpm build` -- succeeds, produces `dist/index.js` with shebang
+- [x] `./dist/index.js --help` -- outputs correct help text
+- [x] `./dist/index.js --version` -- outputs `0.1.0`
 
 ### Manual
 None for this phase.

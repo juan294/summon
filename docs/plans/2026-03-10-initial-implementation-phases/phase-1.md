@@ -57,9 +57,9 @@ declare const __VERSION__: string;
 ## Success Criteria
 
 ### Automated
-- [ ] `pnpm typecheck` -- no errors
-- [ ] `pnpm lint` -- no errors
-- [ ] `pnpm test` -- all config + layout tests pass
+- [x] `pnpm typecheck` -- no errors
+- [x] `pnpm lint` -- no errors
+- [x] `pnpm test` -- all config + layout tests pass
 
 ### Manual
 None for this phase.

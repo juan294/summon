@@ -101,8 +101,8 @@ List all registered projects.
 ```bash
 $ summon list
 Registered projects:
-  myapp -> /Users/juan/code/myapp
-  api -> /Users/juan/code/backend/api
+  myapp → /Users/juan/code/myapp
+  api → /Users/juan/code/backend/api
 ```
 
 ### `summon set <key> [value]`
@@ -126,10 +126,10 @@ Show current machine configuration.
 ```bash
 $ summon config
 Machine config:
-  editor -> claude
-  sidebar -> lazygit
-  panes -> 3
-  editor-size -> 75
+  editor → claude
+  sidebar → lazygit
+  panes → 3
+  editor-size → 75
 ```
 
 ### CLI Flags
@@ -305,7 +305,7 @@ All files use `key=value` format, one entry per line.
 
 ### Ghostty not found
 
-Summon requires Ghostty to be installed and running (or launchable). If you see an error, ensure Ghostty.app is installed.
+Summon checks that `/Applications/Ghostty.app` exists. If you see an error, ensure Ghostty is installed at that path.
 
 ### macOS Automation permission
 
