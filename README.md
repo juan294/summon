@@ -1,5 +1,6 @@
 # summon — Native Ghostty workspace launcher
 
+![Chapa Badge](https://chapa.thecreativetoken.com/u/juan294/badge.svg)
 [![CI](https://github.com/juan294/summon/actions/workflows/ci.yml/badge.svg)](https://github.com/juan294/summon/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/juan294/summon/actions/workflows/codeql.yml/badge.svg)](https://github.com/juan294/summon/actions/workflows/codeql.yml)
 [![npm version](https://img.shields.io/npm/v/summon-ws)](https://www.npmjs.com/package/summon-ws)
