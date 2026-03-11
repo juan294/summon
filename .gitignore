@@ -1,0 +1,27 @@
+node_modules/
+dist/
+*.tgz
+.DS_Store
+.env
+.env.*
+.claude/*
+!.claude/settings.json
+!.claude/commands/
+!.claude/hooks/
+!.claude/skills/
+!.claude/agents/
+.claude/settings.local.json
+.vscode/
+CLAUDE.local.md
+.worktrees/
+coverage/
+logs/
+
+# iCloud sync artifacts
+node_modules.nosync/
+node_modules 2
+
+# Security-sensitive files
+.npmrc
+*.pem
+*.key

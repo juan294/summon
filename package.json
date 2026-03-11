@@ -1,0 +1,66 @@
+{
+  "name": "summon-ws",
+  "version": "0.1.0",
+  "description": "Launch configurable multi-pane Ghostty workspaces with one command",
+  "type": "module",
+  "packageManager": "pnpm@10.29.2",
+  "bin": {
+    "summon": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src/",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "prepublishOnly": "pnpm run build",
+    "prepare": "husky"
+  },
+  "keywords": [
+    "ghostty",
+    "terminal",
+    "workspace",
+    "splits",
+    "applescript",
+    "developer-tools",
+    "cli",
+    "macos"
+  ],
+  "author": "juan294",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/juan294/summon.git"
+  },
+  "homepage": "https://github.com/juan294/summon#readme",
+  "bugs": {
+    "url": "https://github.com/juan294/summon/issues"
+  },
+  "files": [
+    "dist"
+  ],
+  "os": [
+    "darwin"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^25.2.3",
+    "@vitest/coverage-v8": "^3.0.0",
+    "eslint": "^10.0.2",
+    "husky": "^9.1.7",
+    "tsup": "^8.0.0",
+    "typescript": "^5.7.0",
+    "typescript-eslint": "^8.56.1",
+    "vitest": "^3.0.0"
+  }
+}
