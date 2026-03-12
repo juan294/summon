@@ -37,16 +37,16 @@ vi.mock("./script.js", () => ({
 }));
 
 // Import after mocks are set up
-const { launch, resolveConfig, resolveFullPath } = await import("./launcher.js");
+const { launch, resolveConfig } = await import("./launcher.js");
 const { getConfig } = await import("./config.js");
 const { existsSync } = await import("node:fs");
 
 beforeEach(() => {
   vi.clearAllMocks();
-  // Default: all commands are installed
+  // Default: all commands are installed (resolveCommand uses encoding: "utf-8")
   mockExecSync.mockImplementation((cmd: string) => {
     if (typeof cmd === "string" && cmd.startsWith("command -v "))
-      return Buffer.from("/usr/bin/stub");
+      return "/usr/bin/stub\n";
     return "";
   });
   vi.mocked(existsSync).mockReturnValue(true);
@@ -202,10 +202,10 @@ describe("command dependency checks", () => {
 
     // Default editor=claude, sidebar=lazygit
     expect(mockExecSync).toHaveBeenCalledWith("command -v claude", {
-      stdio: "ignore",
+      encoding: "utf-8",
     });
     expect(mockExecSync).toHaveBeenCalledWith("command -v lazygit", {
-      stdio: "ignore",
+      encoding: "utf-8",
     });
   });
 
@@ -223,10 +223,10 @@ describe("command dependency checks", () => {
       if (cmd === "command -v claude") {
         claudeCallCount++;
         if (claudeCallCount <= 1) throw new Error("not found");
-        return Buffer.from("/usr/bin/claude");
+        return "/usr/bin/claude\n";
       }
       if (typeof cmd === "string" && cmd.startsWith("command -v "))
-        return Buffer.from("/usr/bin/stub");
+        return "/usr/bin/stub\n";
       return "";
     });
     vi.mocked(getConfig).mockReturnValue(undefined);
@@ -252,7 +252,7 @@ describe("command dependency checks", () => {
     mockExecSync.mockImplementation((cmd: string) => {
       if (cmd === "command -v obscure-tool") throw new Error("not found");
       if (typeof cmd === "string" && cmd.startsWith("command -v "))
-        return Buffer.from("/usr/bin/stub");
+        return "/usr/bin/stub\n";
       return "";
     });
     vi.mocked(getConfig).mockImplementation((key: string) => {
@@ -274,7 +274,7 @@ describe("command dependency checks", () => {
     mockExecSync.mockImplementation((cmd: string) => {
       if (cmd === "command -v obscure-tool") throw new Error("not found");
       if (typeof cmd === "string" && cmd.startsWith("command -v "))
-        return Buffer.from("/usr/bin/stub");
+        return "/usr/bin/stub\n";
       return "";
     });
     vi.mocked(getConfig).mockImplementation((key: string) => {
@@ -318,7 +318,7 @@ describe("command dependency checks", () => {
     mockExecSync.mockImplementation((cmd: string) => {
       if (cmd === "command -v claude") throw new Error("not found");
       if (typeof cmd === "string" && cmd.startsWith("command -v "))
-        return Buffer.from("/usr/bin/stub");
+        return "/usr/bin/stub\n";
       return "";
     });
     vi.mocked(getConfig).mockReturnValue(undefined);
@@ -344,7 +344,7 @@ describe("secondaryEditor binary check", () => {
     await launch("/tmp/workspace", { layout: "mtop" });
 
     expect(mockExecSync).toHaveBeenCalledWith("command -v mtop", {
-      stdio: "ignore",
+      encoding: "utf-8",
     });
   });
 });
@@ -354,7 +354,7 @@ describe("ensureCommand error paths", () => {
     mockExecSync.mockImplementation((cmd: string) => {
       if (cmd === "command -v claude") throw new Error("not found");
       if (typeof cmd === "string" && cmd.startsWith("command -v "))
-        return Buffer.from("/usr/bin/stub");
+        return "/usr/bin/stub\n";
       return "";
     });
     mockExecFileSync.mockImplementation(() => {
@@ -384,7 +384,7 @@ describe("ensureCommand error paths", () => {
     mockExecSync.mockImplementation((cmd: string) => {
       if (cmd === "command -v claude") throw new Error("not found");
       if (typeof cmd === "string" && cmd.startsWith("command -v "))
-        return Buffer.from("/usr/bin/stub");
+        return "/usr/bin/stub\n";
       return "";
     });
     mockExecFileSync.mockReturnValue(Buffer.from(""));
@@ -416,10 +416,10 @@ describe("lazygit install handler", () => {
       if (cmd === "command -v lazygit") {
         lazygitCallCount++;
         if (lazygitCallCount <= 1) throw new Error("not found");
-        return Buffer.from("/usr/bin/lazygit");
+        return "/usr/bin/lazygit\n";
       }
       if (typeof cmd === "string" && cmd.startsWith("command -v "))
-        return Buffer.from("/usr/bin/stub");
+        return "/usr/bin/stub\n";
       return "";
     });
     vi.mocked(getConfig).mockReturnValue(undefined);
@@ -488,7 +488,7 @@ describe("command name validation", () => {
     await launch("/tmp/workspace");
 
     expect(mockExecSync).toHaveBeenCalledWith("command -v my-editor.v2", {
-      stdio: "ignore",
+      encoding: "utf-8",
     });
   });
 });
@@ -575,40 +575,44 @@ describe("input validation", () => {
   });
 });
 
-describe("resolveFullPath", () => {
-  it("resolves a simple command to its full path", () => {
+describe("path resolution", () => {
+  it("passes resolved full paths to generateAppleScript", async () => {
     mockExecSync.mockImplementation((cmd: string) => {
       if (cmd === "command -v claude") return "/Users/me/.local/bin/claude\n";
+      if (cmd === "command -v lazygit") return "/opt/homebrew/bin/lazygit\n";
+      if (typeof cmd === "string" && cmd.startsWith("command -v "))
+        return "/usr/bin/stub\n";
       return "";
     });
+    vi.mocked(getConfig).mockReturnValue(undefined);
 
-    expect(resolveFullPath("claude")).toBe("/Users/me/.local/bin/claude");
+    await launch("/tmp/workspace");
+
+    expect(mockGenerateAppleScript).toHaveBeenCalledWith(
+      expect.objectContaining({
+        editor: "/Users/me/.local/bin/claude",
+        sidebarCommand: "/opt/homebrew/bin/lazygit",
+      }),
+      "/tmp/workspace",
+    );
   });
 
-  it("resolves only the binary part of a compound command", () => {
+  it("resolves only the binary part of compound server commands", async () => {
     mockExecSync.mockImplementation((cmd: string) => {
       if (cmd === "command -v npm") return "/usr/local/bin/npm\n";
-      return "";
-    });
-
-    expect(resolveFullPath("npm run dev")).toBe("/usr/local/bin/npm run dev");
-  });
-
-  it("returns original command when resolution fails", () => {
-    mockExecSync.mockImplementation((cmd: string) => {
       if (typeof cmd === "string" && cmd.startsWith("command -v "))
-        throw new Error("not found");
+        return "/usr/bin/stub\n";
       return "";
     });
+    vi.mocked(getConfig).mockReturnValue(undefined);
 
-    expect(resolveFullPath("nonexistent")).toBe("nonexistent");
-  });
+    await launch("/tmp/workspace", { server: "npm run dev" });
 
-  it("skips resolution for unsafe command names", () => {
-    expect(resolveFullPath("foo; rm -rf /")).toBe("foo; rm -rf /");
-    expect(mockExecSync).not.toHaveBeenCalledWith(
-      expect.stringContaining("command -v foo;"),
-      expect.anything(),
+    expect(mockGenerateAppleScript).toHaveBeenCalledWith(
+      expect.objectContaining({
+        serverCommand: "/usr/local/bin/npm run dev",
+      }),
+      "/tmp/workspace",
     );
   });
 });

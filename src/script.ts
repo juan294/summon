@@ -52,11 +52,6 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string): string
   }
   add(1, "set paneSidebar to split paneRoot direction right with configuration cfg");
 
-  // Track panes for command assignment
-  const leftPanes: string[] = ["paneRoot"];
-  const rightEditorPanes: string[] = [];
-  let _serverPane: string | null = null;
-
   const needsRightColumn = plan.rightColumnEditorCount > 0 || plan.hasServer;
 
   if (needsRightColumn) {
@@ -69,7 +64,6 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string): string
         clearConfigCommand();
       }
       add(1, "set paneRightCol to split paneRoot direction right with configuration cfg");
-      rightEditorPanes.push("paneRightCol");
     } else {
       // Right column exists only for server
       if (plan.serverCommand) {
@@ -78,7 +72,6 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string): string
         clearConfigCommand();
       }
       add(1, "set paneRightCol to split paneRoot direction right with configuration cfg");
-      _serverPane = "paneRightCol";
     }
   }
 
@@ -91,7 +84,6 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string): string
     const name = `paneLeft${i}`;
     blank();
     add(1, `set ${name} to split ${lastLeftPane} direction down with configuration cfg`);
-    leftPanes.push(name);
     lastLeftPane = name;
   }
 
@@ -108,7 +100,6 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string): string
       const name = `paneRight${nextRight}`;
       blank();
       add(1, `set ${name} to split ${lastRightPane} direction down with configuration cfg`);
-      rightEditorPanes.push(name);
       lastRightPane = name;
       nextRight++;
     }
@@ -123,7 +114,6 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string): string
         clearConfigCommand();
       }
       add(1, `set ${name} to split ${lastRightPane} direction down with configuration cfg`);
-      _serverPane = name;
     }
   }
 

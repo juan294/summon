@@ -32,30 +32,27 @@ function executeScript(script: string): void {
   execSync("osascript", { input: script, encoding: "utf-8" });
 }
 
-export function resolveFullPath(cmdString: string): string {
-  const parts = cmdString.split(" ");
-  const bin = parts[0]!;
-  if (!SAFE_COMMAND_RE.test(bin)) return cmdString;
-  try {
-    const fullPath = execSync(`command -v ${bin}`, { encoding: "utf-8" }).trim();
-    parts[0] = fullPath;
-    return parts.join(" ");
-  } catch {
-    return cmdString;
-  }
-}
-
-function isCommandInstalled(cmd: string): boolean {
+/** Resolve a command name to its full path, or return null if not found. */
+function resolveCommand(cmd: string): string | null {
   if (!SAFE_COMMAND_RE.test(cmd)) {
     console.error(`Invalid command name: "${cmd}". Command names may only contain letters, digits, hyphens, dots, underscores, and plus signs.`);
     process.exit(1);
   }
   try {
-    execSync(`command -v ${cmd}`, { stdio: "ignore" });
-    return true;
+    return execSync(`command -v ${cmd}`, { encoding: "utf-8" }).trim();
   } catch {
-    return false;
+    return null;
   }
+}
+
+/** Resolve the binary in a command string (e.g. "npm run dev" → "/usr/local/bin/npm run dev"). */
+function resolveFullPath(cmdString: string): string {
+  const parts = cmdString.split(" ");
+  const bin = parts[0]!;
+  const fullPath = resolveCommand(bin);
+  if (!fullPath) return cmdString;
+  parts[0] = fullPath;
+  return parts.join(" ");
 }
 
 function prompt(question: string): Promise<string> {
@@ -81,7 +78,7 @@ const KNOWN_INSTALL_COMMANDS: Record<string, () => [string, string[]] | null> = 
 };
 
 async function ensureCommand(cmd: string): Promise<void> {
-  if (isCommandInstalled(cmd)) return;
+  if (resolveCommand(cmd)) return;
 
   const getInstall = KNOWN_INSTALL_COMMANDS[cmd];
   const installCmd = getInstall ? getInstall() : null;
@@ -117,7 +114,7 @@ async function ensureCommand(cmd: string): Promise<void> {
     process.exit(1);
   }
 
-  if (!isCommandInstalled(cmd)) {
+  if (!resolveCommand(cmd)) {
     console.error(`\`${cmd}\` still not found after install. Please check your PATH.`);
     process.exit(1);
   }
