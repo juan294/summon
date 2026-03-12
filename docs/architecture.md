@@ -4,16 +4,15 @@ Technical reference for contributors.
 
 ## Module Map
 
-```
-src/
-  index.ts       CLI entry point -- parseArgs, subcommand dispatch, CLI overrides
-  config.ts      Config file read/write (~/.config/summon/ and .summon)
-  layout.ts      Layout calculation, presets (pure functions, no side effects)
-  script.ts      AppleScript generator (pure function -- builds script string from LayoutPlan)
-  launcher.ts    Orchestrator: config resolution, command checks, script execution via osascript
-  globals.d.ts   Build-time constant declarations (__VERSION__)
-  *.test.ts      Co-located unit tests (vitest)
-```
+| Module | Role | Side Effects | Dependencies |
+|--------|------|:------------:|--------------|
+| `index.ts` | CLI entry point — parseArgs, subcommand dispatch, CLI overrides | yes | config, launcher |
+| `launcher.ts` | Orchestrator — config resolution, command checks, script execution via osascript | yes | config, layout, script |
+| `config.ts` | Config file read/write (`~/.config/summon/` and `.summon`) | yes | Node stdlib only |
+| `layout.ts` | Layout calculation and presets | **pure** | none |
+| `script.ts` | AppleScript generator — builds script string from LayoutPlan | **pure** | none |
+| `globals.d.ts` | Build-time constant declarations (`__VERSION__`) | — | — |
+| `*.test.ts` | Co-located unit tests (Vitest) | — | — |
 
 ### Dependency Graph
 
