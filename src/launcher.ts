@@ -111,7 +111,7 @@ async function ensureCommand(cmd: string): Promise<void> {
   console.log(`\`${cmd}\` installed successfully!\n`);
 }
 
-export interface ResolvedConfig {
+interface ResolvedConfig {
   opts: Partial<LayoutOptions>;
 }
 
