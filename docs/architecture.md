@@ -147,6 +147,81 @@ Defined in `layout.ts` as a `Record<PresetName, Partial<LayoutOptions>>`:
 | `cli` | 1 | `"npm login"` | |
 | `mtop` | 2 | `"true"` | `"mtop"` |
 
+### Preset Layouts
+
+Each diagram shows the resulting Ghostty window. The sidebar (lazygit) is always on the right at `100 - editorSize`% width.
+
+#### `minimal` — single editor, no server
+
+```
+┌─────────────────────────────┬───────────┐
+│                             │           │
+│                             │           │
+│           editor            │  lazygit  │
+│                             │           │
+│                             │           │
+└─────────────────────────────┴───────────┘
+            75%                    25%
+```
+
+#### `full` — 3 editors + server (default)
+
+```
+┌──────────────┬──────────────┬───────────┐
+│              │              │           │
+│   editor 1   │   editor 3   │           │
+│              │              │           │
+├──────────────┼──────────────┤  lazygit  │
+│              │              │           │
+│   editor 2   │    server    │           │
+│              │              │           │
+└──────────────┴──────────────┴───────────┘
+         75% (2 columns)           25%
+```
+
+#### `pair` — 2 editors + server
+
+```
+┌──────────────┬──────────────┬───────────┐
+│              │              │           │
+│              │   editor 2   │           │
+│              │              │           │
+│   editor 1   ├──────────────┤  lazygit  │
+│              │              │           │
+│              │    server    │           │
+│              │              │           │
+└──────────────┴──────────────┴───────────┘
+         75% (2 columns)           25%
+```
+
+#### `cli` — single editor + custom server command
+
+```
+┌──────────────┬──────────────┬───────────┐
+│              │              │           │
+│              │              │           │
+│    editor    │  npm login   │  lazygit  │
+│              │              │           │
+│              │              │           │
+└──────────────┴──────────────┴───────────┘
+         75% (2 columns)           25%
+```
+
+#### `mtop` — editor + mtop + server
+
+```
+┌──────────────┬──────────────┬───────────┐
+│              │              │           │
+│              │     mtop     │           │
+│              │              │           │
+│    editor    ├──────────────┤  lazygit  │
+│              │              │           │
+│              │    server    │           │
+│              │              │           │
+└──────────────┴──────────────┴───────────┘
+         75% (2 columns)           25%
+```
+
 ## Layout Algorithm
 
 Given `N` editor panes (default 3) and server toggle:
