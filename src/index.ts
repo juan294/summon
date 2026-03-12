@@ -31,6 +31,7 @@ Options:
   --editor-size <n>           Override editor width %
   --sidebar <cmd>             Override sidebar command
   --server <value>            Server pane: true, false, or a command
+  -n, --dry-run               Print generated AppleScript without executing
 
 Config keys:
   editor        Command for coding panes (default: claude)
@@ -81,6 +82,7 @@ const parseOpts = {
     "editor-size": { type: "string" },
     sidebar: { type: "string" },
     server: { type: "string" },
+    "dry-run": { type: "boolean", short: "n" },
   },
 } as const;
 
@@ -214,6 +216,7 @@ switch (subcommand) {
     if (values["editor-size"]) overrides["editor-size"] = values["editor-size"];
     if (values.sidebar) overrides.sidebar = values.sidebar;
     if (values.server) overrides.server = values.server;
+    if (values["dry-run"]) overrides.dryRun = true;
 
     await launch(targetDir, overrides);
   }

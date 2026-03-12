@@ -16,6 +16,7 @@ export interface CLIOverrides {
   "editor-size"?: string;
   sidebar?: string;
   server?: string;
+  dryRun?: boolean;
 }
 
 function ensureGhostty(): void {
@@ -194,5 +195,11 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
   }
 
   const script = generateAppleScript(plan, targetDir);
+
+  if (cliOverrides?.dryRun) {
+    console.log(script);
+    return;
+  }
+
   executeScript(script);
 }
