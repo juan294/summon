@@ -44,7 +44,7 @@ const PRESETS: Record<PresetName, Partial<LayoutOptions>> = {
   minimal: { editorPanes: 1, server: "false" },
   full: { editorPanes: 3, server: "true" },
   pair: { editorPanes: 2, server: "true" },
-  cli: { editorPanes: 1, server: "npm login" },
+  cli: { editorPanes: 1, server: "true" },
   mtop: { editorPanes: 2, server: "true", secondaryEditor: "mtop" },
 };
 

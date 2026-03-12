@@ -127,12 +127,12 @@ describe("layout presets", () => {
     expect(plan.hasServer).toBe(true);
   });
 
-  it("cli preset: 1 editor pane, server runs npm login", () => {
+  it("cli preset: 1 editor pane, server as plain shell", () => {
     const plan = planLayout(getPreset("cli"));
     expect(plan.leftColumnCount).toBe(1);
     expect(plan.rightColumnEditorCount).toBe(0);
     expect(plan.hasServer).toBe(true);
-    expect(plan.serverCommand).toBe("npm login");
+    expect(plan.serverCommand).toBeNull();
   });
 
   it("mtop preset: 2 editor panes with mtop as secondary editor, server enabled", () => {
