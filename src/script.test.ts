@@ -96,10 +96,10 @@ describe("generateAppleScript", () => {
     const plan = planLayout({ server: "true" });
     const script = generateAppleScript(plan, "/tmp");
 
-    // 3 editors (2 left + 1 right) + 1 sidebar = 4 input texts
+    // 2 editors (1 left + 1 right) + 1 sidebar = 3 input texts
     // Server pane exists but no command sent
     const inputTexts = (script.match(/input text/g) ?? []).length;
-    expect(inputTexts).toBe(4);
+    expect(inputTexts).toBe(3);
   });
 
   it("skips command for empty editor", () => {

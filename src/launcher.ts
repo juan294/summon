@@ -148,9 +148,9 @@ export function resolveConfig(targetDir: string, cliOverrides: CLIOverrides): Re
     const parsed = parseInt(panes, 10);
     if (Number.isNaN(parsed) || parsed < 1) {
       console.warn(
-        `Invalid panes value: "${panes}". Must be a positive integer. Using default (3).`,
+        `Invalid panes value: "${panes}". Must be a positive integer. Using default (2).`,
       );
-      result.editorPanes = 3;
+      result.editorPanes = 2;
     } else {
       result.editorPanes = parsed;
     }

@@ -484,7 +484,7 @@ describe("input validation", () => {
     vi.mocked(getConfig).mockReturnValue(undefined);
 
     const { opts } = resolveConfig("/tmp/workspace", { panes: "abc" });
-    expect(opts.editorPanes).toBe(3);
+    expect(opts.editorPanes).toBe(2);
     expect(warnSpy).toHaveBeenCalled();
     warnSpy.mockRestore();
   });
@@ -494,7 +494,7 @@ describe("input validation", () => {
     vi.mocked(getConfig).mockReturnValue(undefined);
 
     const { opts } = resolveConfig("/tmp/workspace", { panes: "0" });
-    expect(opts.editorPanes).toBe(3);
+    expect(opts.editorPanes).toBe(2);
     expect(warnSpy).toHaveBeenCalled();
     warnSpy.mockRestore();
   });
@@ -504,7 +504,7 @@ describe("input validation", () => {
     vi.mocked(getConfig).mockReturnValue(undefined);
 
     const { opts } = resolveConfig("/tmp/workspace", { panes: "-2" });
-    expect(opts.editorPanes).toBe(3);
+    expect(opts.editorPanes).toBe(2);
     expect(warnSpy).toHaveBeenCalled();
     warnSpy.mockRestore();
   });
