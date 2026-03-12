@@ -38,7 +38,7 @@ function parseServer(value: string): { hasServer: boolean; serverCommand: string
   return { hasServer: true, serverCommand: value };
 }
 
-export type PresetName = "minimal" | "full" | "pair" | "cli" | "mtop";
+type PresetName = "minimal" | "full" | "pair" | "cli" | "mtop";
 
 const PRESETS: Record<PresetName, Partial<LayoutOptions>> = {
   minimal: { editorPanes: 1, server: "false" },
