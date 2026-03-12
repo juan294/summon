@@ -112,8 +112,8 @@ if (values.help) {
 const [subcommand, ...args] = positionals;
 
 if (!subcommand) {
-  showHelp();
-  process.exit(0);
+  console.error(HELP);
+  process.exit(1);
 }
 
 switch (subcommand) {
