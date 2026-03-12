@@ -102,6 +102,24 @@ async function ensureCommand(cmd: string): Promise<void> {
   console.log(`\`${cmd}\` installed successfully!\n`);
 }
 
+function parseIntOption(
+  raw: string | undefined,
+  name: string,
+  min: number,
+  max: number,
+  defaultVal?: number,
+): number | undefined {
+  if (raw === undefined) return defaultVal;
+  const parsed = parseInt(raw, 10);
+  if (Number.isNaN(parsed) || parsed < min || parsed > max) {
+    const range = max === Infinity ? `a positive integer` : `${min}-${max}`;
+    const def = defaultVal ?? (name === "panes" ? 3 : 75);
+    console.warn(`Invalid ${name} value: "${raw}". Must be ${range}. Using default (${def}).`);
+    return def;
+  }
+  return parsed;
+}
+
 export interface ResolvedConfig {
   opts: Partial<LayoutOptions>;
 }
@@ -135,28 +153,8 @@ export function resolveConfig(targetDir: string, cliOverrides: CLIOverrides): Re
   const result: Partial<LayoutOptions> = { ...base };
   if (editor !== undefined) result.editor = editor;
   if (sidebar !== undefined) result.sidebarCommand = sidebar;
-  if (panes !== undefined) {
-    const parsed = parseInt(panes, 10);
-    if (Number.isNaN(parsed) || parsed < 1) {
-      console.warn(
-        `Invalid panes value: "${panes}". Must be a positive integer. Using default (3).`,
-      );
-      result.editorPanes = 3;
-    } else {
-      result.editorPanes = parsed;
-    }
-  }
-  if (editorSize !== undefined) {
-    const parsed = parseInt(editorSize, 10);
-    if (Number.isNaN(parsed) || parsed < 1 || parsed > 99) {
-      console.warn(
-        `Invalid editor-size value: "${editorSize}". Must be 1-99. Using default (75).`,
-      );
-      result.editorSize = 75;
-    } else {
-      result.editorSize = parsed;
-    }
-  }
+  result.editorPanes = parseIntOption(panes, "panes", 1, Infinity, result.editorPanes);
+  result.editorSize = parseIntOption(editorSize, "editor-size", 1, 99, result.editorSize);
   if (server !== undefined) result.server = server;
 
   return { opts: result };

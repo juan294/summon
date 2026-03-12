@@ -1,7 +1,10 @@
 import type { LayoutPlan } from "./layout.js";
 
+const RE_BACKSLASH = /\\/g;
+const RE_QUOTE = /"/g;
+
 function escapeAppleScript(s: string): string {
-  return s.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  return s.replace(RE_BACKSLASH, "\\\\").replace(RE_QUOTE, '\\"');
 }
 
 export function generateAppleScript(plan: LayoutPlan, targetDir: string): string {
