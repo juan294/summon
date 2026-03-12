@@ -32,10 +32,10 @@ describe("CLI integration", () => {
     expect(result.stdout.trim()).toMatch(/^\d+\.\d+\.\d+$/);
   });
 
-  it("shows help and exits 0 with no arguments", () => {
+  it("shows help and exits 1 with no arguments", () => {
     const result = run();
-    expect(result.status).toBe(0);
-    expect(result.stdout).toContain("Usage:");
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("Usage:");
   });
 
   it("errors on invalid flag and exits 1", () => {
