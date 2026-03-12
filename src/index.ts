@@ -44,7 +44,7 @@ Layout presets:
   minimal       1 editor pane, no server
   full          3 editor panes + server (default)
   pair          2 editor panes + server
-  cli           1 editor pane + server (npm login)
+  cli           1 editor pane + server
   mtop          editor + mtop + server + lazygit sidebar
 
 Per-project config:
