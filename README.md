@@ -1,5 +1,6 @@
 # summon — Native Ghostty workspace launcher
 
+![Chapa Badge](https://chapa.thecreativetoken.com/u/juan294/badge.svg)
 [![CI](https://github.com/juan294/summon/actions/workflows/ci.yml/badge.svg)](https://github.com/juan294/summon/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/juan294/summon/actions/workflows/codeql.yml/badge.svg)](https://github.com/juan294/summon/actions/workflows/codeql.yml)
 [![npm version](https://img.shields.io/npm/v/summon-ws)](https://www.npmjs.com/package/summon-ws)
@@ -31,18 +32,18 @@ summon myapp                      # launch by project name
 
 Summon generates and executes AppleScript that drives Ghostty's native split system. No terminal multiplexer -- just native Ghostty panes with commands running in each one.
 
-## Default Layout (full preset)
+## Default Layout
 
 ```
-summon .    (panes=3, editor=claude, sidebar=lazygit, server=true)
+summon .    (panes=2, editor=claude, sidebar=lazygit, server=true)
 
 +-------------------- 75% ---------------------+------ 25% ------+
 |                    |                          |                 |
-|    claude (1)      |    claude (3)            |    lazygit      |
+|                    |    claude (2)            |                 |
+|    claude (1)      |                          |    lazygit      |
+|                    +--------------------------+                 |
 |                    |                          |                 |
-+--------------------+--------------------------+                 |
-|                    |                          |                 |
-|    claude (2)      |    server (shell)        |                 |
+|                    |    server (shell)        |                 |
 |                    |                          |                 |
 +--------------------+--------------------------+-----------------+
       left col             right col                sidebar
@@ -52,10 +53,10 @@ summon .    (panes=3, editor=claude, sidebar=lazygit, server=true)
 
 | Preset | Panes | Server | Use case |
 |---|---|---|---|
-| `full` | 3 | yes | Default -- multi-agent coding + dev server |
+| `full` | 3 | yes | Multi-agent coding + dev server |
 | `pair` | 2 | yes | Two editors + dev server |
 | `minimal` | 1 | no | Simple editor + sidebar only |
-| `cli` | 1 | yes | CLI tool development -- editor + npm login |
+| `cli` | 1 | yes | CLI tool development -- editor + server |
 | `mtop` | 2 | yes | System monitoring -- editor + mtop + server |
 
 ```bash
@@ -97,6 +98,7 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 | `--editor-size <n>` | Override editor width percentage |
 | `--sidebar <cmd>` | Override sidebar command |
 | `--server <value>` | Server pane: `true`, `false`, or a command |
+| `-n, --dry-run` | Print generated AppleScript without executing |
 | `-h, --help` | Show help message |
 | `-v, --version` | Show version number |
 
@@ -106,7 +108,7 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 |---|---|---|
 | `editor` | `claude` | Command launched in editor panes |
 | `sidebar` | `lazygit` | Command launched in the sidebar pane |
-| `panes` | `3` | Number of editor panes |
+| `panes` | `2` | Number of editor panes |
 | `editor-size` | `75` | Width percentage for the editor grid |
 | `server` | `true` | Server pane: `true` (shell), `false` (none), or a command |
 | `layout` | | Default layout preset |
@@ -123,7 +125,20 @@ summon set layout minimal           # default to minimal preset
 
 - [Architecture](docs/architecture.md) -- module map, AppleScript generation, layout algorithm
 - [User Manual](docs/user-manual.md) -- full command reference, walkthrough, troubleshooting
+- [Changelog](CHANGELOG.md) -- release history
 - [Publishing](docs/publishing.md) -- npm publish checklist
+
+## Contributing
+
+Contributions are welcome! Please read the [Contributing Guide](CONTRIBUTING.md) for details on the development workflow, commit conventions, and PR guidelines.
+
+## Code of Conduct
+
+This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.md). By participating, you are expected to uphold this code.
+
+## Security
+
+To report a vulnerability, please follow the [Security Policy](SECURITY.md). Do not open a public issue.
 
 ## License
 

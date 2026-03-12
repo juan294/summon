@@ -21,6 +21,13 @@ logs/
 node_modules.nosync/
 node_modules 2
 
+# Internal docs (agent reports, plans, research, decisions, PRs)
+docs/agents/
+docs/plans/
+docs/research/
+docs/decisions/
+docs/prs/
+
 # Security-sensitive files
 .npmrc
 *.pem

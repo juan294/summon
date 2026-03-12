@@ -49,7 +49,7 @@ cd ~/code/myapp
 summon .
 
 # 3. A new Ghostty window opens with:
-#    - 3 editor panes running 'claude'
+#    - 2 editor panes running 'claude'
 #    - 1 server pane (plain shell for dev servers)
 #    - 1 sidebar pane running 'lazygit'
 
@@ -101,8 +101,8 @@ List all registered projects.
 ```bash
 $ summon list
 Registered projects:
-  myapp -> /Users/juan/code/myapp
-  api -> /Users/juan/code/backend/api
+  myapp → /Users/juan/code/myapp
+  api → /Users/juan/code/backend/api
 ```
 
 ### `summon set <key> [value]`
@@ -126,10 +126,10 @@ Show current machine configuration.
 ```bash
 $ summon config
 Machine config:
-  editor -> claude
-  sidebar -> lazygit
-  panes -> 3
-  editor-size -> 75
+  editor → claude
+  sidebar → lazygit
+  panes → 2
+  editor-size → 75
 ```
 
 ### CLI Flags
@@ -144,6 +144,8 @@ Flags override both machine and per-project config for a single launch.
 | `--editor-size <n>` | Override editor width percentage |
 | `--sidebar <cmd>` | Override sidebar command |
 | `--server <value>` | Server pane: `true`, `false`, or a command |
+| `-n`, `--dry-run` | Print generated AppleScript without executing |
+| `-n`, `--dry-run` | Print generated AppleScript without executing |
 | `-h`, `--help` | Show help message |
 | `-v`, `--version` | Show version number |
 
@@ -159,10 +161,10 @@ Presets are named shortcuts for common layout configurations.
 
 | Preset | Editor panes | Server pane | Description |
 |---|---|---|---|
-| `full` | 3 | yes (shell) | Default -- multi-agent coding + dev server |
+| `full` | 3 | yes (shell) | Multi-agent coding + dev server |
 | `pair` | 2 | yes (shell) | Two editors + dev server |
 | `minimal` | 1 | no | Simple editor + sidebar |
-| `cli` | 1 | yes (`npm login`) | CLI tool development -- editor + npm login |
+| `cli` | 1 | yes (shell) | CLI tool development -- editor + server |
 | `mtop` | 2 | yes (shell) | System monitoring -- editor + mtop + server |
 
 Use a preset via CLI flag, per-project config, or machine config:
@@ -225,7 +227,7 @@ When summon launches, config values are resolved in this order (first wins):
 2. **Project config** (`.summon` in the target directory)
 3. **Machine config** (`~/.config/summon/config`)
 4. **Preset expansion** (if a `layout` key resolved above)
-5. **Built-in defaults** (`editor=claude`, `panes=3`, etc.)
+5. **Built-in defaults** (`editor=claude`, `panes=2`, etc.)
 
 ## Config Reference
 
@@ -233,7 +235,7 @@ When summon launches, config values are resolved in this order (first wins):
 |---|---|---|---|
 | `editor` | string | `claude` | Command launched in each editor pane. Set to empty for a plain shell. |
 | `sidebar` | string | `lazygit` | Command launched in the sidebar pane. Set to empty for a plain shell. |
-| `panes` | integer | `3` | Number of editor panes. |
+| `panes` | integer | `2` | Number of editor panes. |
 | `editor-size` | integer | `75` | Width percentage allocated to the editor grid. The sidebar gets the remainder. |
 | `server` | string | `true` | Server pane toggle: `true` (shell), `false` (none), or a command to run. |
 | `layout` | string | | Default layout preset (`minimal`, `full`, `pair`, `cli`, or `mtop`). |
@@ -246,7 +248,7 @@ All files use `key=value` format, one entry per line.
 
 ## Layout Diagrams
 
-### full preset / panes=3 (default)
+### full preset / panes=3
 
 ```
 +-------------------- 75% ---------------------+------ 25% ------+
@@ -305,7 +307,7 @@ All files use `key=value` format, one entry per line.
 
 ### Ghostty not found
 
-Summon requires Ghostty to be installed and running (or launchable). If you see an error, ensure Ghostty.app is installed.
+Summon checks that `/Applications/Ghostty.app` exists. If you see an error, ensure Ghostty is installed at that path.
 
 ### macOS Automation permission
 
