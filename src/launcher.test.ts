@@ -2,8 +2,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // Mock child_process before importing launcher
 const mockExecSync = vi.fn();
+const mockExecFileSync = vi.fn();
 vi.mock("node:child_process", () => ({
   execSync: (...args: unknown[]) => mockExecSync(...args),
+  execFileSync: (...args: unknown[]) => mockExecFileSync(...args),
 }));
 
 // Mock config
@@ -224,8 +226,9 @@ describe("command dependency checks", () => {
     expect(mockQuestion.mock.calls[0]![0]).toContain(
       "npm install -g @anthropic-ai/claude-code",
     );
-    expect(mockExecSync).toHaveBeenCalledWith(
-      "npm install -g @anthropic-ai/claude-code",
+    expect(mockExecFileSync).toHaveBeenCalledWith(
+      "npm",
+      ["install", "-g", "@anthropic-ai/claude-code"],
       { stdio: "inherit" },
     );
   });
@@ -337,9 +340,10 @@ describe("ensureCommand error paths", () => {
       if (cmd === "command -v claude") throw new Error("not found");
       if (typeof cmd === "string" && cmd.startsWith("command -v "))
         return Buffer.from("/usr/bin/stub");
-      if (typeof cmd === "string" && cmd.includes("npm install -g"))
-        throw new Error("install failed");
       return "";
+    });
+    mockExecFileSync.mockImplementation(() => {
+      throw new Error("install failed");
     });
     vi.mocked(getConfig).mockReturnValue(undefined);
 
@@ -366,10 +370,9 @@ describe("ensureCommand error paths", () => {
       if (cmd === "command -v claude") throw new Error("not found");
       if (typeof cmd === "string" && cmd.startsWith("command -v "))
         return Buffer.from("/usr/bin/stub");
-      if (typeof cmd === "string" && cmd.includes("npm install -g"))
-        return Buffer.from("");
       return "";
     });
+    mockExecFileSync.mockReturnValue(Buffer.from(""));
     vi.mocked(getConfig).mockReturnValue(undefined);
 
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
@@ -414,8 +417,63 @@ describe("lazygit install handler", () => {
 
     expect(mockQuestion).toHaveBeenCalledTimes(1);
     expect(mockQuestion.mock.calls[0]![0]).toContain("brew install lazygit");
-    expect(mockExecSync).toHaveBeenCalledWith("brew install lazygit", {
-      stdio: "inherit",
+    expect(mockExecFileSync).toHaveBeenCalledWith(
+      "brew",
+      ["install", "lazygit"],
+      { stdio: "inherit" },
+    );
+  });
+});
+
+describe("command name validation", () => {
+  it("rejects command names with shell injection characters", async () => {
+    vi.mocked(getConfig).mockImplementation((key: string) => {
+      if (key === "editor") return "foo; rm -rf /";
+      return undefined;
+    });
+
+    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("process.exit");
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
+    expect(mockExit).toHaveBeenCalledWith(1);
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Invalid command name"),
+    );
+    mockExit.mockRestore();
+    errorSpy.mockRestore();
+  });
+
+  it("rejects command names with backticks", async () => {
+    vi.mocked(getConfig).mockImplementation((key: string) => {
+      if (key === "editor") return "`evil`";
+      return undefined;
+    });
+
+    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("process.exit");
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
+    expect(mockExit).toHaveBeenCalledWith(1);
+    mockExit.mockRestore();
+    errorSpy.mockRestore();
+  });
+
+  it("accepts valid command names with dots and hyphens", async () => {
+    vi.mocked(getConfig).mockImplementation((key: string) => {
+      if (key === "editor") return "my-editor.v2";
+      if (key === "sidebar") return "htop";
+      return undefined;
+    });
+
+    await launch("/tmp/workspace");
+
+    expect(mockExecSync).toHaveBeenCalledWith("command -v my-editor.v2", {
+      stdio: "ignore",
     });
   });
 });

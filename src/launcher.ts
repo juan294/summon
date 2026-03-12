@@ -1,11 +1,13 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
-import { execSync } from "node:child_process";
+import { execSync, execFileSync } from "node:child_process";
 import { planLayout, isPresetName, getPreset } from "./layout.js";
 import type { LayoutOptions } from "./layout.js";
 import { getConfig, readKVFile } from "./config.js";
 import { generateAppleScript } from "./script.js";
+
+const SAFE_COMMAND_RE = /^[a-zA-Z0-9_][a-zA-Z0-9_.+-]*$/;
 
 export interface CLIOverrides {
   layout?: string;
@@ -30,6 +32,10 @@ function executeScript(script: string): void {
 }
 
 function isCommandInstalled(cmd: string): boolean {
+  if (!SAFE_COMMAND_RE.test(cmd)) {
+    console.error(`Invalid command name: "${cmd}". Command names may only contain letters, digits, hyphens, dots, underscores, and plus signs.`);
+    process.exit(1);
+  }
   try {
     execSync(`command -v ${cmd}`, { stdio: "ignore" });
     return true;
@@ -48,12 +54,12 @@ function prompt(question: string): Promise<string> {
   });
 }
 
-const KNOWN_INSTALL_COMMANDS: Record<string, () => string | null> = {
-  claude: () => "npm install -g @anthropic-ai/claude-code",
+const KNOWN_INSTALL_COMMANDS: Record<string, () => [string, string[]] | null> = {
+  claude: () => ["npm", ["install", "-g", "@anthropic-ai/claude-code"]],
   lazygit: () => {
     try {
       execSync("command -v brew", { stdio: "ignore" });
-      return "brew install lazygit";
+      return ["brew", ["install", "lazygit"]];
     } catch {
       return null;
     }
@@ -76,17 +82,20 @@ async function ensureCommand(cmd: string): Promise<void> {
     process.exit(1);
   }
 
+  const [installBin, installArgs] = installCmd;
+  const installDisplay = [installBin, ...installArgs].join(" ");
+
   console.log(`\`${cmd}\` is required but not installed on this machine.`);
-  const answer = await prompt(`Install it now with \`${installCmd}\`? [Y/n] `);
+  const answer = await prompt(`Install it now with \`${installDisplay}\`? [Y/n] `);
 
   if (answer && answer !== "y" && answer !== "yes") {
     console.log(`\`${cmd}\` is required for this workspace layout. Exiting.`);
     process.exit(1);
   }
 
-  console.log(`Running: ${installCmd}`);
+  console.log(`Running: ${installDisplay}`);
   try {
-    execSync(installCmd, { stdio: "inherit" });
+    execFileSync(installBin, installArgs, { stdio: "inherit" });
   } catch {
     console.error(
       `Failed to install \`${cmd}\`. Please install it manually and try again.`,
