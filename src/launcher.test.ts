@@ -98,6 +98,21 @@ describe("script execution", () => {
     );
   });
 
+  it("prints script to stdout in dry-run mode without executing", async () => {
+    vi.mocked(getConfig).mockReturnValue(undefined);
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await launch("/tmp/workspace", { dryRun: true });
+
+    expect(logSpy).toHaveBeenCalledWith('tell application "Ghostty"\nend tell');
+    // osascript should NOT have been called
+    expect(mockExecSync).not.toHaveBeenCalledWith(
+      "osascript",
+      expect.anything(),
+    );
+    logSpy.mockRestore();
+  });
+
   it("passes correct plan and directory to generateAppleScript", async () => {
     vi.mocked(getConfig).mockReturnValue(undefined);
 
