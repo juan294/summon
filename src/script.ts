@@ -1,7 +1,11 @@
 import type { LayoutPlan } from "./layout.js";
 
 function escapeAppleScript(s: string): string {
-  return s.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  return s
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, "\\n")
+    .replace(/\r/g, "\\r");
 }
 
 export function generateAppleScript(plan: LayoutPlan, targetDir: string): string {

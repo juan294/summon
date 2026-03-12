@@ -138,4 +138,12 @@ describe("generateAppleScript", () => {
     expect(script).toContain('vim \\"test\\"');
     expect(script).toContain("path\\\\to\\\\bin");
   });
+
+  it("escapes newlines and carriage returns in commands", () => {
+    const plan = planLayout({ editor: "vim", sidebarCommand: "cmd\ninjection\rtest" });
+    const script = generateAppleScript(plan, "/tmp");
+
+    expect(script).toContain("cmd\\ninjection\\rtest");
+    expect(script).not.toContain("\n" + "injection");
+  });
 });
