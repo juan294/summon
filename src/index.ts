@@ -36,14 +36,14 @@ Options:
 Config keys:
   editor        Command for coding panes (default: claude)
   sidebar       Command for sidebar pane (default: lazygit)
-  panes         Number of editor panes (default: 3)
+  panes         Number of editor panes (default: 2)
   editor-size   Width % for editor grid (default: 75)
   server        Server pane toggle (default: true)
   layout        Default layout preset
 
 Layout presets:
   minimal       1 editor pane, no server
-  full          3 editor panes + server (default)
+  full          3 editor panes + server
   pair          2 editor panes + server
   cli           1 editor pane + server
   mtop          editor + mtop + server + lazygit sidebar

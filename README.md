@@ -32,18 +32,18 @@ summon myapp                      # launch by project name
 
 Summon generates and executes AppleScript that drives Ghostty's native split system. No terminal multiplexer -- just native Ghostty panes with commands running in each one.
 
-## Default Layout (full preset)
+## Default Layout
 
 ```
-summon .    (panes=3, editor=claude, sidebar=lazygit, server=true)
+summon .    (panes=2, editor=claude, sidebar=lazygit, server=true)
 
 +-------------------- 75% ---------------------+------ 25% ------+
 |                    |                          |                 |
-|    claude (1)      |    claude (3)            |    lazygit      |
+|                    |    claude (2)            |                 |
+|    claude (1)      |                          |    lazygit      |
+|                    +--------------------------+                 |
 |                    |                          |                 |
-+--------------------+--------------------------+                 |
-|                    |                          |                 |
-|    claude (2)      |    server (shell)        |                 |
+|                    |    server (shell)        |                 |
 |                    |                          |                 |
 +--------------------+--------------------------+-----------------+
       left col             right col                sidebar
@@ -53,10 +53,10 @@ summon .    (panes=3, editor=claude, sidebar=lazygit, server=true)
 
 | Preset | Panes | Server | Use case |
 |---|---|---|---|
-| `full` | 3 | yes | Default -- multi-agent coding + dev server |
+| `full` | 3 | yes | Multi-agent coding + dev server |
 | `pair` | 2 | yes | Two editors + dev server |
 | `minimal` | 1 | no | Simple editor + sidebar only |
-| `cli` | 1 | yes | CLI tool development -- editor + npm login |
+| `cli` | 1 | yes | CLI tool development -- editor + server |
 | `mtop` | 2 | yes | System monitoring -- editor + mtop + server |
 
 ```bash
@@ -98,6 +98,7 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 | `--editor-size <n>` | Override editor width percentage |
 | `--sidebar <cmd>` | Override sidebar command |
 | `--server <value>` | Server pane: `true`, `false`, or a command |
+| `-n, --dry-run` | Print generated AppleScript without executing |
 | `-h, --help` | Show help message |
 | `-v, --version` | Show version number |
 
@@ -107,7 +108,7 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 |---|---|---|
 | `editor` | `claude` | Command launched in editor panes |
 | `sidebar` | `lazygit` | Command launched in the sidebar pane |
-| `panes` | `3` | Number of editor panes |
+| `panes` | `2` | Number of editor panes |
 | `editor-size` | `75` | Width percentage for the editor grid |
 | `server` | `true` | Server pane: `true` (shell), `false` (none), or a command |
 | `layout` | | Default layout preset |
