@@ -12,7 +12,7 @@ import { launch } from "./launcher.js";
 import type { CLIOverrides } from "./launcher.js";
 
 const HELP = `
-summon -- Summon your Ghostty workspace
+summon -- Launch multi-pane Ghostty workspaces
 
 Usage:
   summon <target>             Launch workspace (project name, path, or '.')
@@ -138,6 +138,7 @@ switch (subcommand) {
       console.log(`Removed: ${name}`);
     } else {
       console.error(`Project not found: ${name}`);
+      console.error("Run 'summon list' to see registered projects.");
       process.exit(1);
     }
     break;
