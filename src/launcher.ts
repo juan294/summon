@@ -32,6 +32,19 @@ function executeScript(script: string): void {
   execSync("osascript", { input: script, encoding: "utf-8" });
 }
 
+export function resolveFullPath(cmdString: string): string {
+  const parts = cmdString.split(" ");
+  const bin = parts[0]!;
+  if (!SAFE_COMMAND_RE.test(bin)) return cmdString;
+  try {
+    const fullPath = execSync(`command -v ${bin}`, { encoding: "utf-8" }).trim();
+    parts[0] = fullPath;
+    return parts.join(" ");
+  } catch {
+    return cmdString;
+  }
+}
+
 function isCommandInstalled(cmd: string): boolean {
   if (!SAFE_COMMAND_RE.test(cmd)) {
     console.error(`Invalid command name: "${cmd}". Command names may only contain letters, digits, hyphens, dots, underscores, and plus signs.`);
@@ -193,6 +206,12 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
     const serverBin = plan.serverCommand.split(" ")[0]!;
     await ensureCommand(serverBin);
   }
+
+  // Resolve to full paths — Ghostty's config-launched panes use non-login shells without PATH
+  if (plan.editor) plan.editor = resolveFullPath(plan.editor);
+  if (plan.sidebarCommand) plan.sidebarCommand = resolveFullPath(plan.sidebarCommand);
+  if (plan.secondaryEditor) plan.secondaryEditor = resolveFullPath(plan.secondaryEditor);
+  if (plan.serverCommand) plan.serverCommand = resolveFullPath(plan.serverCommand);
 
   const script = generateAppleScript(plan, targetDir);
 

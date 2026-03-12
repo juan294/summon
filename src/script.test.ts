@@ -9,7 +9,9 @@ describe("generateAppleScript", () => {
 
     expect(script).toContain('tell application "Ghostty"');
     expect(script).toContain("new surface configuration");
-    expect(script).toContain("new window with configuration cfg");
+    expect(script).not.toContain("new window");
+    expect(script).toContain("front window");
+    expect(script).toContain("selected tab");
     expect(script).toContain("end tell");
   });
 
@@ -69,58 +71,80 @@ describe("generateAppleScript", () => {
     expect(script).toContain("paneRightCol");
   });
 
-  it("sends editor command to editor panes", () => {
+  it("sends editor command to root pane via input text", () => {
     const plan = planLayout();
     const script = generateAppleScript(plan, "/tmp");
 
+    // Root pane gets command via input text (buffered until summon exits)
     expect(script).toContain('input text "claude" to paneRoot');
     expect(script).toContain('send key "enter" to paneRoot');
   });
 
-  it("sends sidebar command", () => {
+  it("sets sidebar command on config before split", () => {
     const plan = planLayout();
     const script = generateAppleScript(plan, "/tmp");
 
-    expect(script).toContain('input text "lazygit" to paneSidebar');
-    expect(script).toContain('send key "enter" to paneSidebar');
+    // Sidebar command set on cfg before the split creates the pane
+    expect(script).toContain('set command of cfg to "lazygit"');
+    const cmdIndex = script.indexOf('set command of cfg to "lazygit"');
+    const splitIndex = script.indexOf("paneSidebar to split");
+    expect(cmdIndex).toBeLessThan(splitIndex);
   });
 
-  it("sends custom server command", () => {
+  it("sets editor command on config for split editor panes", () => {
+    const plan = planLayout(getPreset("pair"));
+    const script = generateAppleScript(plan, "/tmp");
+
+    // Right column editor gets command via config
+    expect(script).toContain('set command of cfg to "claude"');
+    const cmdIndex = script.indexOf('set command of cfg to "claude"');
+    const splitIndex = script.indexOf("paneRightCol to split");
+    expect(cmdIndex).toBeLessThan(splitIndex);
+  });
+
+  it("sends custom server command via config", () => {
     const plan = planLayout({ server: "npm run dev" });
     const script = generateAppleScript(plan, "/tmp");
 
-    expect(script).toContain('input text "npm run dev"');
+    expect(script).toContain('set command of cfg to "npm run dev"');
+  });
+
+  it("does not use delay for pane initialization", () => {
+    const plan = planLayout();
+    const script = generateAppleScript(plan, "/tmp");
+
+    // No fixed delay — commands set via config, not input text
+    expect(script).not.toContain("delay");
   });
 
   it("skips command for plain shell server", () => {
     const plan = planLayout({ server: "true" });
     const script = generateAppleScript(plan, "/tmp");
 
-    // 2 editors (1 left + 1 right) + 1 sidebar = 3 input texts
-    // Server pane exists but no command sent
+    // Only root pane gets input text (for editor command)
+    // Sidebar and right editor get commands via config
+    // Server pane has no command (plain shell)
     const inputTexts = (script.match(/input text/g) ?? []).length;
-    expect(inputTexts).toBe(3);
+    expect(inputTexts).toBe(1); // just root pane editor
   });
 
   it("skips command for empty editor", () => {
     const plan = planLayout({ editor: "" });
     const script = generateAppleScript(plan, "/tmp");
 
-    // No editor commands sent
+    // No editor commands sent to root pane
     expect(script).not.toContain('input text "" to paneRoot');
-    // Sidebar still gets a command
-    expect(script).toContain('input text "lazygit" to paneSidebar');
   });
 
-  it("mtop preset uses secondary editor in right column", () => {
+  it("mtop preset uses secondary editor in right column via config", () => {
     const plan = planLayout(getPreset("mtop"));
     const script = generateAppleScript(plan, "/tmp");
 
-    // Left column gets primary editor
+    // Left column root pane gets primary editor via input text
     expect(script).toContain('input text "claude" to paneRoot');
 
-    // Right column gets secondary editor (mtop)
-    expect(script).toContain('input text "mtop" to paneRightCol');
+    // Right column gets secondary editor (mtop) via config
+    expect(script).toContain('set command of cfg to "mtop"');
   });
 
   it("focuses root pane", () => {
@@ -128,6 +152,15 @@ describe("generateAppleScript", () => {
     const script = generateAppleScript(plan, "/tmp");
 
     expect(script).toContain("focus paneRoot");
+  });
+
+  it("uses current tab in front window instead of new window", () => {
+    const plan = planLayout();
+    const script = generateAppleScript(plan, "/tmp");
+
+    expect(script).toContain("front window");
+    expect(script).toContain("selected tab");
+    expect(script).not.toContain("new window");
   });
 
   it("escapes special characters in paths and commands", () => {

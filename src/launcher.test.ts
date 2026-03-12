@@ -37,7 +37,7 @@ vi.mock("./script.js", () => ({
 }));
 
 // Import after mocks are set up
-const { launch, resolveConfig } = await import("./launcher.js");
+const { launch, resolveConfig, resolveFullPath } = await import("./launcher.js");
 const { getConfig } = await import("./config.js");
 const { existsSync } = await import("node:fs");
 
@@ -572,5 +572,43 @@ describe("input validation", () => {
     expect(opts.editorSize).toBe(60);
     expect(warnSpy).not.toHaveBeenCalled();
     warnSpy.mockRestore();
+  });
+});
+
+describe("resolveFullPath", () => {
+  it("resolves a simple command to its full path", () => {
+    mockExecSync.mockImplementation((cmd: string) => {
+      if (cmd === "command -v claude") return "/Users/me/.local/bin/claude\n";
+      return "";
+    });
+
+    expect(resolveFullPath("claude")).toBe("/Users/me/.local/bin/claude");
+  });
+
+  it("resolves only the binary part of a compound command", () => {
+    mockExecSync.mockImplementation((cmd: string) => {
+      if (cmd === "command -v npm") return "/usr/local/bin/npm\n";
+      return "";
+    });
+
+    expect(resolveFullPath("npm run dev")).toBe("/usr/local/bin/npm run dev");
+  });
+
+  it("returns original command when resolution fails", () => {
+    mockExecSync.mockImplementation((cmd: string) => {
+      if (typeof cmd === "string" && cmd.startsWith("command -v "))
+        throw new Error("not found");
+      return "";
+    });
+
+    expect(resolveFullPath("nonexistent")).toBe("nonexistent");
+  });
+
+  it("skips resolution for unsafe command names", () => {
+    expect(resolveFullPath("foo; rm -rf /")).toBe("foo; rm -rf /");
+    expect(mockExecSync).not.toHaveBeenCalledWith(
+      expect.stringContaining("command -v foo;"),
+      expect.anything(),
+    );
   });
 });
