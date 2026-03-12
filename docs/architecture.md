@@ -17,40 +17,70 @@ src/
 
 ### Dependency Graph
 
-```
-index.ts
-  +-- config.ts      (addProject, removeProject, getProject, listProjects, setConfig, listConfig)
-  +-- launcher.ts    (launch, CLIOverrides)
-        +-- config.ts   (getConfig, readKVFile)
-        +-- layout.ts   (planLayout, isPresetName, getPreset, LayoutOptions, LayoutPlan)
-        +-- script.ts   (generateAppleScript)
+```mermaid
+graph TD
+    index[index.ts] --> config[config.ts]
+    index --> launcher[launcher.ts]
+    launcher --> config
+    launcher --> layout[layout.ts]
+    launcher --> script[script.ts]
+
+    config -.- cfg_fns["addProject, removeProject,
+    getProject, listProjects,
+    setConfig, listConfig,
+    getConfig, readKVFile"]
+    layout -.- lay_fns["planLayout, isPresetName,
+    getPreset, LayoutOptions,
+    LayoutPlan"]
+    script -.- scr_fns["generateAppleScript"]
+
+    style cfg_fns fill:none,stroke-dasharray:5
+    style lay_fns fill:none,stroke-dasharray:5
+    style scr_fns fill:none,stroke-dasharray:5
 ```
 
 `layout.ts` and `script.ts` are pure modules with no imports from the project. `config.ts` only uses Node stdlib. `launcher.ts` depends on `config.ts`, `layout.ts`, and `script.ts`.
 
 ## Data Flow
 
-```
-CLI invocation
-  -> node:util parseArgs
-      flags: --help, --version, --layout, --editor, --panes, --editor-size, --sidebar, --server
-      positionals: subcommand + args
-  -> subcommand dispatch (switch/case)
-      +-- add/remove/list/set/config -> config.ts read/write
-      +-- default (launch target)
-            -> resolve target directory (., absolute path, or project name lookup)
-            -> build CLIOverrides from parsed flags
-            -> launcher.launch(targetDir, cliOverrides)
-                -> ensureGhostty() -- check Ghostty is running
-                -> resolveConfig(targetDir, cliOverrides)
-                    -> readKVFile(targetDir/.summon)  -- project config
-                    -> resolve layout key (CLI > project > global)
-                    -> expand preset if layout is a valid preset name
-                    -> layer each key: CLI > project > global > preset
-                -> planLayout(resolvedOpts) -- compute pane counts and sizes
-                -> ensureCommand() for editor, sidebar, secondaryEditor, serverCommand
-                -> generateAppleScript(plan, targetDir) -- build script string
-                -> execute via: execSync("osascript", { input: script })
+```mermaid
+flowchart TD
+    cli["CLI invocation"] --> parse["parseArgs
+    flags: --help, --version, --layout,
+    --editor, --panes, --editor-size,
+    --sidebar, --server"]
+    parse --> dispatch{"subcommand dispatch"}
+
+    dispatch -->|"add / remove / list
+    set / config"| configrw["config.ts
+    read/write"]
+    dispatch -->|"default (launch target)"| resolve["resolve target directory
+    (., absolute path, or project name)"]
+
+    resolve --> overrides["build CLIOverrides
+    from parsed flags"]
+    overrides --> launch["launcher.launch(targetDir, cliOverrides)"]
+
+    launch --> ghostty["ensureGhostty()
+    check Ghostty is running"]
+    ghostty --> resolvecfg["resolveConfig(targetDir, cliOverrides)"]
+
+    resolvecfg --> readkv["readKVFile(targetDir/.summon)"]
+    resolvecfg --> resolvekey["resolve layout key
+    CLI > project > global"]
+    resolvecfg --> expand["expand preset if layout
+    is a valid preset name"]
+    resolvecfg --> layer["layer each key:
+    CLI > project > global > preset"]
+
+    layer --> plan["planLayout(resolvedOpts)
+    compute pane counts and sizes"]
+    plan --> ensure["ensureCommand() for editor,
+    sidebar, secondaryEditor, serverCommand"]
+    ensure --> gen["generateAppleScript(plan, targetDir)
+    build script string"]
+    gen --> exec["execute via
+    execSync('osascript', { input: script })"]
 ```
 
 ## AppleScript Generation
@@ -69,11 +99,12 @@ CLI invocation
 
 ### AppleScript Object Model
 
-```
-application "Ghostty"
-  +-- windows
-        +-- tabs
-              +-- terminals (= individual panes/splits)
+```mermaid
+graph TD
+    app["application 'Ghostty'"] --> windows
+    windows --> tabs
+    tabs --> terminals["terminals
+    (individual panes/splits)"]
 ```
 
 Key commands used:
@@ -92,9 +123,12 @@ Unlike termplex, summon does not create persistent sessions. Each `summon` invoc
 
 `resolveConfig()` in `launcher.ts` merges configuration from multiple sources:
 
-```
-CLI flags  >  .summon  >  ~/.config/summon/config  >  preset expansion  >  built-in defaults
-(highest)                                                                    (lowest)
+```mermaid
+flowchart LR
+    cli["CLI flags"] -->|overrides| summon[".summon"] -->|overrides| global["~/.config/summon/config"] -->|overrides| preset["preset expansion"] -->|overrides| defaults["built-in defaults"]
+
+    style cli fill:#4a9,color:#fff
+    style defaults fill:#888,color:#fff
 ```
 
 1. Read project `.summon` file via `readKVFile(join(targetDir, ".summon"))`
