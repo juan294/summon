@@ -1,17 +1,20 @@
-import { spawnSync } from "node:child_process";
+import { spawnSync, execSync } from "node:child_process";
+import { resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, it, expect, beforeAll } from "vitest";
-import { execSync } from "node:child_process";
+
+const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 function run(...args: string[]) {
   return spawnSync("node", ["dist/index.js", ...args], {
     encoding: "utf-8",
-    cwd: "/tmp/summon-wt-6",
+    cwd: PROJECT_ROOT,
     env: { ...process.env, HOME: process.env.HOME },
   });
 }
 
 beforeAll(() => {
-  execSync("pnpm build", { cwd: "/tmp/summon-wt-6", stdio: "ignore" });
+  execSync("pnpm build", { cwd: PROJECT_ROOT, stdio: "ignore" });
 });
 
 describe("CLI integration", () => {
