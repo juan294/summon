@@ -710,11 +710,11 @@ describe("input validation", () => {
 });
 
 describe("osascript error handling", () => {
-  it("shows user-friendly error when osascript execution fails", async () => {
+  it("includes osascript error detail in the failure message", async () => {
     vi.mocked(listConfig).mockReturnValue(new Map());
     mockExecSync.mockImplementation((cmd: string, opts?: Record<string, unknown>) => {
       if (cmd === "osascript" && opts?.input) {
-        throw new Error("osascript execution failed");
+        throw new Error("execution error: Ghostty got an error: connection is invalid (-609)");
       }
       if (typeof cmd === "string" && cmd.startsWith("command -v "))
         return "/usr/bin/stub\n";
@@ -729,7 +729,33 @@ describe("osascript error handling", () => {
     await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
     expect(mockExit).toHaveBeenCalledWith(1);
     expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining("Failed to execute workspace script"),
+      expect.stringContaining("connection is invalid (-609)"),
+    );
+    expect(errorSpy).toHaveBeenCalledWith("Is Ghostty running?");
+    mockExit.mockRestore();
+    errorSpy.mockRestore();
+  });
+
+  it("handles non-Error thrown values gracefully", async () => {
+    vi.mocked(listConfig).mockReturnValue(new Map());
+    mockExecSync.mockImplementation((cmd: string, opts?: Record<string, unknown>) => {
+      if (cmd === "osascript" && opts?.input) {
+        throw "string error";
+      }
+      if (typeof cmd === "string" && cmd.startsWith("command -v "))
+        return "/usr/bin/stub\n";
+      return "";
+    });
+
+    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("process.exit");
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
+    expect(mockExit).toHaveBeenCalledWith(1);
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("string error"),
     );
     mockExit.mockRestore();
     errorSpy.mockRestore();
