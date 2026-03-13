@@ -219,7 +219,7 @@ Defined in `layout.ts` as a `Record<PresetName, Partial<LayoutOptions>>`:
 | `minimal` | 1 | `"false"` | |
 | `full` | 3 | `"true"` | |
 | `pair` | 2 | `"true"` | |
-| `cli` | 1 | `"npm login"` | |
+| `cli` | 1 | `"true"` | |
 | `btop` | 2 | `"true"` | `"btop"` |
 
 ### Preset Layouts
@@ -269,13 +269,13 @@ Each diagram shows the resulting Ghostty window. The sidebar (lazygit) is always
          75% (2 columns)           25%
 ```
 
-#### `cli` — single editor + custom server command
+#### `cli` — single editor + server
 
 ```
 ┌──────────────┬──────────────┬───────────┐
 │              │              │           │
 │              │              │           │
-│    editor    │  npm login   │  lazygit  │
+│    editor    │    server    │  lazygit  │
 │              │              │           │
 │              │              │           │
 └──────────────┴──────────────┴───────────┘

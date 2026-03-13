@@ -99,6 +99,7 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 | `summon list` | List all registered projects |
 | `summon set <key> [value]` | Set a machine-level config value |
 | `summon config` | Show current machine configuration |
+| `summon completions <shell>` | Generate shell completion script (`zsh`, `bash`) |
 
 ## CLI Flags
 
