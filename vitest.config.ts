@@ -12,10 +12,10 @@ export default defineConfig({
         "src/globals.d.ts", // type-only file — no runtime code to cover
       ],
       thresholds: {
-        statements: 60,
-        branches: 55,
-        functions: 85,
-        lines: 60,
+        statements: 95,
+        branches: 90,
+        functions: 95,
+        lines: 95,
       },
     },
   },
