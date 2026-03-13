@@ -87,4 +87,43 @@ describe("CLI integration", () => {
     // Will either fail as unknown project or fail because Ghostty isn't available
     expect(result.status).not.toBe(0);
   });
+
+  describe("per-subcommand --help", () => {
+    it("shows help for 'add' subcommand with --help", () => {
+      const result = run("add", "--help");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("Usage: summon add <name> <path>");
+    });
+
+    it("shows help for 'add' subcommand with -h", () => {
+      const result = run("add", "-h");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("Usage: summon add <name> <path>");
+    });
+
+    it("shows help for 'remove' subcommand with --help", () => {
+      const result = run("remove", "--help");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("Usage: summon remove <name>");
+    });
+
+    it("shows help for 'set' subcommand with --help", () => {
+      const result = run("set", "--help");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("Usage: summon set <key> [value]");
+      expect(result.stdout).toContain("Valid keys:");
+    });
+
+    it("shows help for 'list' subcommand with --help", () => {
+      const result = run("list", "--help");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("Usage: summon list");
+    });
+
+    it("shows help for 'config' subcommand with --help", () => {
+      const result = run("config", "--help");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("Usage: summon config");
+    });
+  });
 });

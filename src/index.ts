@@ -65,6 +65,32 @@ Examples:
   summon . --server "npm run dev" Launch with custom server command
 `.trim();
 
+const VALID_KEYS = ["editor", "sidebar", "panes", "editor-size", "server", "layout", "auto-resize"];
+
+const SUBCOMMAND_HELP: Record<string, string> = {
+  add: `Usage: summon add <name> <path>
+
+Register a project directory with a short name for quick launching.`,
+
+  remove: `Usage: summon remove <name>
+
+Remove a previously registered project by name.`,
+
+  set: `Usage: summon set <key> [value]
+
+Set a machine-level config value. Omit value to reset to empty.
+
+Valid keys: ${VALID_KEYS.join(", ")}`,
+
+  list: `Usage: summon list
+
+List all registered projects and their paths.`,
+
+  config: `Usage: summon config
+
+Show all current machine-level configuration values.`,
+};
+
 function showHelp(): void {
   console.log(HELP);
 }
@@ -107,12 +133,16 @@ if (values.version) {
   process.exit(0);
 }
 
+const [subcommand, ...args] = positionals;
+
 if (values.help) {
+  if (subcommand && subcommand in SUBCOMMAND_HELP) {
+    console.log(SUBCOMMAND_HELP[subcommand]);
+    process.exit(0);
+  }
   showHelp();
   process.exit(0);
 }
-
-const [subcommand, ...args] = positionals;
 
 if (!subcommand) {
   console.error(HELP);
@@ -168,7 +198,6 @@ switch (subcommand) {
       console.error("Usage: summon set <key> [value]");
       process.exit(1);
     }
-    const VALID_KEYS = ["editor", "sidebar", "panes", "editor-size", "server", "layout", "auto-resize"];
     if (!VALID_KEYS.includes(key)) {
       console.error(`Unknown config key "${key}". Valid keys: ${VALID_KEYS.join(", ")}`);
       process.exit(1);
