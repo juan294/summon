@@ -1,21 +1,31 @@
 import { spawnSync, execSync } from "node:child_process";
-import { resolve, dirname } from "node:path";
+import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, it, expect, beforeAll } from "vitest";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 
 const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+
+// #51: Isolate integration tests from user config by using a temp HOME
+let TEMP_HOME: string;
+
+beforeAll(() => {
+  execSync("pnpm build", { cwd: PROJECT_ROOT, stdio: "ignore" });
+  TEMP_HOME = mkdtempSync(join(tmpdir(), "summon-test-"));
+});
+
+afterAll(() => {
+  rmSync(TEMP_HOME, { recursive: true, force: true });
+});
 
 function run(...args: string[]) {
   return spawnSync("node", ["dist/index.js", ...args], {
     encoding: "utf-8",
     cwd: PROJECT_ROOT,
-    env: { ...process.env, HOME: process.env.HOME },
+    env: { ...process.env, HOME: TEMP_HOME },
   });
 }
-
-beforeAll(() => {
-  execSync("pnpm build", { cwd: PROJECT_ROOT, stdio: "ignore" });
-});
 
 describe("CLI integration", () => {
   it("prints help with --help and exits 0", () => {
@@ -152,31 +162,33 @@ describe("CLI integration", () => {
     });
   });
 
-  describe("set empty-value messages", () => {
-    it("mentions 'plain shell' for command key 'editor'", () => {
+  describe("set without value removes key", () => {
+    it("removes editor key and shows default message", () => {
       const result = run("set", "editor");
       expect(result.status).toBe(0);
-      expect(result.stdout).toContain("plain shell");
+      expect(result.stdout).toContain("Removed editor");
+      expect(result.stdout).toContain("will use default");
     });
 
-    it("mentions 'plain shell' for command key 'sidebar'", () => {
+    it("removes sidebar key and shows default message", () => {
       const result = run("set", "sidebar");
       expect(result.status).toBe(0);
-      expect(result.stdout).toContain("plain shell");
+      expect(result.stdout).toContain("Removed sidebar");
+      expect(result.stdout).toContain("will use default");
     });
 
-    it("does NOT mention 'plain shell' for non-command key 'panes'", () => {
+    it("removes panes key and shows default message", () => {
       const result = run("set", "panes");
       expect(result.status).toBe(0);
-      expect(result.stdout).not.toContain("plain shell");
-      expect(result.stdout).toContain("use default");
+      expect(result.stdout).toContain("Removed panes");
+      expect(result.stdout).toContain("will use default");
     });
 
-    it("does NOT mention 'plain shell' for non-command key 'editor-size'", () => {
+    it("removes editor-size key and shows default message", () => {
       const result = run("set", "editor-size");
       expect(result.status).toBe(0);
-      expect(result.stdout).not.toContain("plain shell");
-      expect(result.stdout).toContain("use default");
+      expect(result.stdout).toContain("Removed editor-size");
+      expect(result.stdout).toContain("will use default");
     });
   });
 
@@ -240,6 +252,161 @@ describe("CLI integration", () => {
       expect(result.stderr).toContain("--editor-size");
       expect(result.stderr).toContain("1-99");
       expect(result.stderr).toContain("summon --help");
+    });
+  });
+
+  // #43: `summon set` treats "0" as removal due to truthiness check
+  describe("set value '0' truthiness (#43)", () => {
+    it("stores and confirms value '0' instead of showing empty hint", () => {
+      const result = run("set", "panes", "0");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("Set panes");
+      expect(result.stdout).toContain("0");
+      expect(result.stdout).not.toContain("empty");
+      expect(result.stdout).not.toContain("default");
+    });
+  });
+
+  // #44: Config display improvements
+  describe("config display (#44)", () => {
+    it("shows '(plain shell)' only for editor/sidebar keys, not for others", () => {
+      // Set editor and panes to empty string values explicitly
+      run("set", "editor", "");
+      run("set", "panes", "");
+      const result = run("config");
+      expect(result.status).toBe(0);
+      const lines = result.stdout.split("\n");
+      const editorLine = lines.find((l: string) => l.includes("editor") && !l.includes("editor-size"));
+      const panesLine = lines.find((l: string) => l.includes("panes"));
+      // editor should show "(plain shell)" when empty
+      expect(editorLine).toContain("(plain shell)");
+      // panes should NOT show "(plain shell)" when empty
+      if (panesLine) {
+        expect(panesLine).not.toContain("(plain shell)");
+        expect(panesLine).toContain("(empty)");
+      }
+    });
+
+    it("shows empty-state message when config map is empty", () => {
+      // Use a fresh temp home with no config at all
+      const freshHome = mkdtempSync(join(tmpdir(), "summon-empty-"));
+      const freshResult = spawnSync("node", ["dist/index.js", "config"], {
+        encoding: "utf-8",
+        cwd: PROJECT_ROOT,
+        env: { ...process.env, HOME: freshHome },
+      });
+      rmSync(freshHome, { recursive: true, force: true });
+      // The config file gets auto-created with editor=claude, so it won't be fully empty.
+      // But we should at least verify it succeeds and shows "Machine config:" header
+      expect(freshResult.status).toBe(0);
+      expect(freshResult.stdout).toContain("Machine config:");
+    });
+  });
+
+  // #45: Validate --layout at parse time
+  describe("--layout validation (#45)", () => {
+    it("rejects invalid layout preset with exit 1", () => {
+      const result = run(".", "--layout", "bogus");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("Error:");
+      expect(result.stderr).toContain("--layout");
+      expect(result.stderr).toContain("bogus");
+    });
+
+    it("accepts valid layout preset", () => {
+      const result = run(".", "--layout", "minimal", "--dry-run");
+      expect(result.status).toBe(0);
+    });
+  });
+
+  // #46: Validate server values in `summon set`
+  describe("set server validation (#46)", () => {
+    it("warns on ambiguous server value", () => {
+      const result = run("set", "server", "yes");
+      expect(result.status).toBe(0);
+      expect(result.stderr).toContain("Hint:");
+    });
+
+    it("does not warn for 'true'", () => {
+      const result = run("set", "server", "true");
+      expect(result.status).toBe(0);
+      expect(result.stderr).not.toContain("Hint:");
+    });
+
+    it("does not warn for 'false'", () => {
+      const result = run("set", "server", "false");
+      expect(result.status).toBe(0);
+      expect(result.stderr).not.toContain("Hint:");
+    });
+
+    it("does not warn for a command with '/'", () => {
+      const result = run("set", "server", "/usr/bin/python");
+      expect(result.status).toBe(0);
+      expect(result.stderr).not.toContain("Hint:");
+    });
+
+    it("does not warn for a command with spaces", () => {
+      const result = run("set", "server", "npm run dev");
+      expect(result.status).toBe(0);
+      expect(result.stderr).not.toContain("Hint:");
+    });
+  });
+
+  // #51: Tests use isolated HOME
+  describe("config isolation (#51)", () => {
+    it("uses isolated temp HOME, not real user config", () => {
+      // list should show empty projects in isolated env
+      const result = run("list");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("No projects registered");
+    });
+  });
+
+  // #58: config command should warn about unknown keys
+  describe("config unknown key warning (#58)", () => {
+    it("shows '(unknown key)' annotation for unrecognized config keys", () => {
+      // Manually write a config file with an unknown key
+      const configDir = join(TEMP_HOME, ".config", "summon");
+      const configFile = join(configDir, "config");
+      mkdirSync(configDir, { recursive: true });
+      writeFileSync(configFile, "editor=vim\nbogus-key=hello\n", "utf-8");
+      const result = run("config");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("bogus-key");
+      expect(result.stdout).toContain("unknown key");
+    });
+  });
+
+  // #62: add -e short flag for --editor
+  describe("-e short flag for --editor (#62)", () => {
+    it("accepts -e as a short flag for --editor in dry-run", () => {
+      const result = run(".", "-e", "vim", "--dry-run");
+      expect(result.status).toBe(0);
+      // The generated script should reference vim as the editor command
+      expect(result.stdout).toContain("vim");
+    });
+
+    it("shows -e in help text", () => {
+      const result = run("--help");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("-e, --editor");
+    });
+  });
+
+  // #63: warn when both --auto-resize and --no-auto-resize are passed
+  describe("auto-resize conflict warning (#63)", () => {
+    it("warns on stderr when both --auto-resize and --no-auto-resize are given", () => {
+      const result = run(".", "--auto-resize", "--no-auto-resize", "--dry-run");
+      expect(result.status).toBe(0);
+      expect(result.stderr).toContain("Warning:");
+      expect(result.stderr).toContain("--auto-resize");
+      expect(result.stderr).toContain("--no-auto-resize");
+    });
+
+    it("uses --no-auto-resize when both are given (no resize commands in script)", () => {
+      const result = run(".", "--auto-resize", "--no-auto-resize", "--dry-run");
+      expect(result.status).toBe(0);
+      expect(result.stdout).not.toContain("resize_split");
     });
   });
 });

@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { createInterface } from "node:readline";
+import { homedir } from "node:os";
 import { execSync, execFileSync } from "node:child_process";
 import {
   planLayout,
@@ -29,8 +29,13 @@ export interface CLIOverrides {
   dryRun?: boolean;
 }
 
+const GHOSTTY_PATHS = [
+  "/Applications/Ghostty.app",
+  join(homedir(), "Applications", "Ghostty.app"),
+];
+
 function ensureGhostty(): void {
-  if (!existsSync("/Applications/Ghostty.app")) {
+  if (!GHOSTTY_PATHS.some((p) => existsSync(p))) {
     console.error(
       "Ghostty.app not found. Please install Ghostty 1.3.0+ from https://ghostty.org",
     );
@@ -60,7 +65,8 @@ function resolveCommand(cmd: string): string | null {
   }
 }
 
-function prompt(question: string): Promise<string> {
+async function prompt(question: string): Promise<string> {
+  const { createInterface } = await import("node:readline");
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   return new Promise((resolve) => {
     rl.question(question, (answer) => {
@@ -152,8 +158,11 @@ export function resolveConfig(targetDir: string, cliOverrides: CLIOverrides): Re
   }
 
   // Layer: CLI > project > global > preset (for each config key)
-  const pick = (cli: string | undefined, projKey: string): string | undefined =>
-    cli ?? project.get(projKey) ?? machineConfig.get(projKey);
+  // Empty strings in config files mean "unset" — skip to next layer
+  const pick = (cli: string | undefined, projKey: string): string | undefined => {
+    if (cli !== undefined) return cli;
+    return project.get(projKey) || machineConfig.get(projKey) || undefined;
+  };
 
   const editor = pick(cliOverrides.editor, "editor");
   const sidebar = pick(cliOverrides.sidebar, "sidebar");
@@ -211,11 +220,19 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
 
   ensureGhostty();
 
-  // Ensure commands exist and resolve to full paths in one pass
-  // (avoids duplicate resolveCommand calls per binary)
+  // Cache resolved command paths so the same binary is only looked up once,
+  // even when it appears in multiple roles (e.g., editor + secondaryEditor).
+  const resolvedCache = new Map<string, string>();
   const ensureAndResolve = async (cmdString: string, configKey: string): Promise<string> => {
     const parts = cmdString.split(" ");
-    parts[0] = await ensureCommand(parts[0]!, configKey);
+    const binary = parts[0]!;
+    const cached = resolvedCache.get(binary);
+    if (cached) {
+      parts[0] = cached;
+    } else {
+      parts[0] = await ensureCommand(binary, configKey);
+      resolvedCache.set(binary, parts[0]);
+    }
     return parts.join(" ");
   };
 

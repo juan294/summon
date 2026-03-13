@@ -68,9 +68,10 @@ describe("Ghostty detection", () => {
     mockExit.mockRestore();
   });
 
-  it("exits with error if Ghostty.app is not found", async () => {
+  it("exits with error if Ghostty.app is not found at any known path", async () => {
     vi.mocked(existsSync).mockImplementation((path) => {
-      if (String(path) === "/Applications/Ghostty.app") return false;
+      // Ghostty not found anywhere
+      if (String(path).endsWith("Ghostty.app")) return false;
       return true;
     });
     const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
@@ -85,6 +86,26 @@ describe("Ghostty detection", () => {
     );
     mockExit.mockRestore();
     errorSpy.mockRestore();
+  });
+
+  it("finds Ghostty in ~/Applications (Homebrew)", async () => {
+    vi.mocked(existsSync).mockImplementation((path) => {
+      if (String(path) === "/Applications/Ghostty.app") return false;
+      return true;
+    });
+
+    await launch("/tmp/workspace");
+    expect(mockGenerateAppleScript).toHaveBeenCalled();
+  });
+
+  it("finds Ghostty in /Applications even if ~/Applications is missing", async () => {
+    vi.mocked(existsSync).mockImplementation((path) => {
+      if (String(path).endsWith("/Applications/Ghostty.app") && String(path) !== "/Applications/Ghostty.app") return false;
+      return true;
+    });
+
+    await launch("/tmp/workspace");
+    expect(mockGenerateAppleScript).toHaveBeenCalled();
   });
 });
 
@@ -171,6 +192,49 @@ describe("config resolution", () => {
     expect(opts.editorPanes).toBe(4);
     // Preset minimal sets server=false, no override → stays false
     expect(opts.server).toBe("false");
+  });
+
+  it("empty config strings do not override preset values", () => {
+    // Bug: machine config with panes= and editor-size= (empty strings)
+    // should not override the preset's values
+    vi.mocked(listConfig).mockReturnValue(
+      new Map([
+        ["panes", ""],
+        ["editor-size", ""],
+        ["editor", ""],
+        ["sidebar", ""],
+      ]),
+    );
+    mockReadKVFile.mockReturnValue(new Map());
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { opts } = resolveConfig("/tmp/workspace", { layout: "cli" });
+
+    // cli preset: editorPanes=1, server="true"
+    // Empty config strings should NOT override these
+    expect(opts.editorPanes).toBe(1);
+    expect(opts.editorSize).toBeUndefined(); // fall through to planLayout default
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it("empty project config strings do not override preset values", () => {
+    vi.mocked(listConfig).mockReturnValue(new Map());
+    mockReadKVFile.mockReturnValue(
+      new Map([
+        ["layout", "full"],
+        ["panes", ""],
+        ["editor-size", ""],
+      ]),
+    );
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { opts } = resolveConfig("/tmp/workspace", {});
+
+    // full preset: editorPanes=3
+    expect(opts.editorPanes).toBe(3);
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
   });
 
   it("unknown preset warns and falls through to defaults", () => {
@@ -350,15 +414,18 @@ describe("command dependency checks", () => {
     errorSpy.mockRestore();
   });
 
-  it("skips check when editor and sidebar are empty strings", async () => {
+  it("falls through to defaults when editor and sidebar are empty strings in config", async () => {
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", ""], ["sidebar", ""]]));
 
     await launch("/tmp/workspace");
 
-    const commandChecks = mockExecSync.mock.calls
-      .map((c) => c[0] as string)
-      .filter((c) => typeof c === "string" && c.startsWith("command -v "));
-    expect(commandChecks).toEqual([]);
+    // Empty config values are treated as "unset" — defaults (claude, lazygit) are used
+    expect(mockExecSync).toHaveBeenCalledWith("command -v claude", {
+      encoding: "utf-8",
+    });
+    expect(mockExecSync).toHaveBeenCalledWith("command -v lazygit", {
+      encoding: "utf-8",
+    });
   });
 
   it("exits when user declines install", async () => {
@@ -669,6 +736,41 @@ describe("osascript error handling", () => {
   });
 });
 
+describe("autoResize config resolution", () => {
+  it("sets autoResize to false when auto-resize is 'false'", () => {
+    vi.mocked(listConfig).mockReturnValue(new Map());
+    mockReadKVFile.mockReturnValue(new Map<string, string>());
+
+    const { opts } = resolveConfig("/tmp/workspace", { "auto-resize": "false" });
+    expect(opts.autoResize).toBe(false);
+  });
+
+  it("sets autoResize to true when auto-resize is 'true'", () => {
+    vi.mocked(listConfig).mockReturnValue(new Map());
+    mockReadKVFile.mockReturnValue(new Map<string, string>());
+
+    const { opts } = resolveConfig("/tmp/workspace", { "auto-resize": "true" });
+    expect(opts.autoResize).toBe(true);
+  });
+});
+
+describe("falsy sidebarCommand guard", () => {
+  it("launches successfully when sidebar is not set (uses default)", async () => {
+    vi.mocked(listConfig).mockReturnValue(new Map([["sidebar", ""]]));
+
+    await launch("/tmp/workspace");
+
+    // Empty sidebar falls through to default (lazygit), which gets resolved
+    expect(mockGenerateAppleScript).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sidebarCommand: "/usr/bin/stub",
+      }),
+      "/tmp/workspace",
+      expect.any(String),
+    );
+  });
+});
+
 describe("config read caching (#31)", () => {
   it("reads machine config once via listConfig instead of per-key getConfig calls", () => {
     vi.mocked(listConfig).mockReturnValue(
@@ -745,6 +847,60 @@ describe("command resolution deduplication (#32)", () => {
       (c) => c[0] === "command -v npm",
     );
     expect(npmCalls).toHaveLength(1);
+  });
+});
+
+describe("command resolution cache for shared binaries (#61)", () => {
+  it("resolves the same binary only once when used in multiple roles", async () => {
+    // Set both editor and sidebar to "claude" so the same binary appears in two roles
+    vi.mocked(listConfig).mockReturnValue(
+      new Map([["editor", "claude"], ["sidebar", "claude"]]),
+    );
+    mockExecSync.mockImplementation((cmd: string) => {
+      if (cmd === "command -v claude") return "/usr/bin/claude\n";
+      if (typeof cmd === "string" && cmd.startsWith("command -v "))
+        return "/usr/bin/stub\n";
+      return "";
+    });
+
+    await launch("/tmp/workspace");
+
+    // "command -v claude" should be called only once, even though claude
+    // is used for both editor and sidebarCommand roles
+    const claudeCalls = mockExecSync.mock.calls.filter(
+      (c) => c[0] === "command -v claude",
+    );
+    expect(claudeCalls).toHaveLength(1);
+  });
+
+  it("reuses cached path for duplicate binaries across roles", async () => {
+    vi.mocked(listConfig).mockReturnValue(
+      new Map([["editor", "vim"], ["sidebar", "vim"]]),
+    );
+    mockExecSync.mockImplementation((cmd: string) => {
+      if (cmd === "command -v vim") return "/usr/local/bin/vim\n";
+      if (typeof cmd === "string" && cmd.startsWith("command -v "))
+        return "/usr/bin/stub\n";
+      return "";
+    });
+
+    await launch("/tmp/workspace");
+
+    // "command -v vim" should be called only once
+    const vimCalls = mockExecSync.mock.calls.filter(
+      (c) => c[0] === "command -v vim",
+    );
+    expect(vimCalls).toHaveLength(1);
+
+    // Both editor and sidebarCommand should use the resolved path
+    expect(mockGenerateAppleScript).toHaveBeenCalledWith(
+      expect.objectContaining({
+        editor: "/usr/local/bin/vim",
+        sidebarCommand: "/usr/local/bin/vim",
+      }),
+      "/tmp/workspace",
+      expect.any(String),
+    );
   });
 });
 

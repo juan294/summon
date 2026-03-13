@@ -1,16 +1,19 @@
 import { parseArgs } from "node:util";
 import { resolve } from "node:path";
+import { homedir } from "node:os";
 import {
   addProject,
   removeProject,
   getProject,
   listProjects,
   setConfig,
+  removeConfig,
   listConfig,
 } from "./config.js";
 import { launch } from "./launcher.js";
 import type { CLIOverrides } from "./launcher.js";
-import { PANES_MIN, EDITOR_SIZE_MIN, EDITOR_SIZE_MAX } from "./layout.js";
+import { PANES_MIN, EDITOR_SIZE_MIN, EDITOR_SIZE_MAX, isPresetName } from "./layout.js";
+import { parseIntInRange } from "./validation.js";
 
 const HELP = `
 summon -- Launch multi-pane Ghostty workspaces
@@ -27,7 +30,7 @@ Options:
   -h, --help                  Show this help message
   -v, --version               Show version number
   -l, --layout <preset>       Use a layout preset (minimal, full, pair, cli, mtop)
-  --editor <cmd>              Override editor command
+  -e, --editor <cmd>          Override editor command
   --panes <n>                 Override number of editor panes
   --editor-size <n>           Override editor width %
   --sidebar <cmd>             Override sidebar command
@@ -55,6 +58,8 @@ Layout presets:
 Per-project config:
   Place a .summon file in your project root with key=value pairs.
   Project config overrides machine config; CLI flags override both.
+  Note: .summon files can specify commands that will be executed.
+  Review .summon files before running summon in untrusted directories.
 
 Requires: macOS, Ghostty 1.3.0+
 
@@ -81,7 +86,7 @@ Remove a previously registered project by name.`,
 
   set: `Usage: summon set <key> [value]
 
-Set a machine-level config value. Omit value to reset to empty.
+Set a machine-level config value. Omit value to remove the key (resets to default).
 
 Valid keys: ${VALID_KEYS.join(", ")}`,
 
@@ -99,7 +104,7 @@ function showHelp(): void {
 }
 
 function expandHome(p: string): string {
-  return resolve(p.replace(/^~/, process.env.HOME ?? ""));
+  return resolve(p.replace(/^~/, homedir()));
 }
 
 const parseOpts = {
@@ -108,7 +113,7 @@ const parseOpts = {
     help: { type: "boolean", short: "h" },
     version: { type: "boolean", short: "v" },
     layout: { type: "string", short: "l" },
-    editor: { type: "string" },
+    editor: { type: "string", short: "e" },
     panes: { type: "string" },
     "editor-size": { type: "string" },
     sidebar: { type: "string" },
@@ -134,8 +139,7 @@ const { values, positionals } = safeParse();
 
 // Validate numeric flags at parse time
 if (values.panes !== undefined) {
-  const parsed = parseInt(values.panes, 10);
-  if (Number.isNaN(parsed) || parsed < PANES_MIN) {
+  if (!parseIntInRange(values.panes, PANES_MIN).ok) {
     console.error(`Error: --panes must be a positive integer, got "${values.panes}".`);
     console.error(`Run 'summon --help' for usage information.`);
     process.exit(1);
@@ -143,12 +147,22 @@ if (values.panes !== undefined) {
 }
 
 if (values["editor-size"] !== undefined) {
-  const parsed = parseInt(values["editor-size"], 10);
-  if (Number.isNaN(parsed) || parsed < EDITOR_SIZE_MIN || parsed > EDITOR_SIZE_MAX) {
+  if (!parseIntInRange(values["editor-size"], EDITOR_SIZE_MIN, EDITOR_SIZE_MAX).ok) {
     console.error(`Error: --editor-size must be an integer between ${EDITOR_SIZE_MIN}-${EDITOR_SIZE_MAX}, got "${values["editor-size"]}".`);
     console.error(`Run 'summon --help' for usage information.`);
     process.exit(1);
   }
+}
+
+if (values.layout !== undefined && !isPresetName(values.layout)) {
+  console.error(`Error: --layout must be a valid preset name, got "${values.layout}".`);
+  console.error(`Valid presets: minimal, full, pair, cli, mtop`);
+  console.error(`Run 'summon --help' for usage information.`);
+  process.exit(1);
+}
+
+if (values["auto-resize"] && values["no-auto-resize"]) {
+  console.error("Warning: both --auto-resize and --no-auto-resize specified; using --no-auto-resize.");
 }
 
 if (values.version) {
@@ -225,23 +239,35 @@ switch (subcommand) {
       console.error(`Unknown config key "${key}". Valid keys: ${VALID_KEYS.join(", ")}`);
       process.exit(1);
     }
-    setConfig(key, value ?? "");
-    if (value) {
+    if (key === "server" && value !== undefined && value !== "true" && value !== "false" && !value.includes("/") && !value.includes(" ")) {
+      console.error(`Hint: server accepts "true", "false", or a command (e.g. "npm run dev"). Got "${value}".`);
+    }
+    if (value !== undefined) {
+      setConfig(key, value);
       console.log(`Set ${key} → ${value}`);
     } else {
-      const hint = COMMAND_KEYS.includes(key)
-        ? "(empty, will open plain shell)"
-        : "(empty, will use default)";
-      console.log(`Set ${key} → ${hint}`);
+      removeConfig(key);
+      console.log(`Removed ${key} (will use default)`);
     }
     break;
   }
 
   case "config": {
     const config = listConfig();
-    console.log("Machine config:");
-    for (const [key, value] of config) {
-      console.log(`  ${key} → ${value || "(plain shell)"}`);
+    if (config.size === 0) {
+      console.log("No machine config set. Use: summon set <key> <value>");
+    } else {
+      console.log("Machine config:");
+      for (const [key, value] of config) {
+        const unknownSuffix = VALID_KEYS.includes(key) ? "" : "  (unknown key — will be ignored)";
+        if (value) {
+          console.log(`  ${key} → ${value}${unknownSuffix}`);
+        } else if (COMMAND_KEYS.includes(key)) {
+          console.log(`  ${key} → (plain shell)${unknownSuffix}`);
+        } else {
+          console.log(`  ${key} → (empty)${unknownSuffix}`);
+        }
+      }
     }
     break;
   }
