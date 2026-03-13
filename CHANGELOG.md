@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-03-13
+
+### Added
+
+- Pane titles: each pane now displays a human-readable title (`role · command`) via Ghostty 1.3.1's `set_surface_title` action
+- Tab title: set to the project directory basename on launch via `set_tab_title`
+- Environment Variables section in README and user manual documenting `SHELL` and `NO_COLOR`
+
+### Fixed
+
+- Bash completions now include all short flags (`-h`, `-v`, `-l`, `-e`, `-n`) — previously only `-p` and `-s` were completable (#93)
+- Removed unused `printBanner` export from setup module (#94)
+
+### Changed
+
+- Minimum Ghostty version bumped from 1.3.0 to 1.3.1 (required for `set_surface_title` / `set_tab_title`)
+
 ## [0.4.1] - 2026-03-13
 
 ### Fixed
@@ -165,7 +182,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CodeQL security scanning
 - Dependabot for npm and GitHub Actions
 
-[Unreleased]: https://github.com/juan294/summon/compare/v0.4.1...develop
+[Unreleased]: https://github.com/juan294/summon/compare/v0.5.0...develop
+[0.5.0]: https://github.com/juan294/summon/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/juan294/summon/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/juan294/summon/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/juan294/summon/compare/v0.3.1...v0.3.2
