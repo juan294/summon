@@ -1,7 +1,7 @@
 import { spawnSync, execSync } from "node:child_process";
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 
@@ -359,6 +359,54 @@ describe("CLI integration", () => {
       const result = run("list");
       expect(result.status).toBe(0);
       expect(result.stdout).toContain("No projects registered");
+    });
+  });
+
+  // #58: config command should warn about unknown keys
+  describe("config unknown key warning (#58)", () => {
+    it("shows '(unknown key)' annotation for unrecognized config keys", () => {
+      // Manually write a config file with an unknown key
+      const configDir = join(TEMP_HOME, ".config", "summon");
+      const configFile = join(configDir, "config");
+      mkdirSync(configDir, { recursive: true });
+      writeFileSync(configFile, "editor=vim\nbogus-key=hello\n", "utf-8");
+      const result = run("config");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("bogus-key");
+      expect(result.stdout).toContain("unknown key");
+    });
+  });
+
+  // #62: add -e short flag for --editor
+  describe("-e short flag for --editor (#62)", () => {
+    it("accepts -e as a short flag for --editor in dry-run", () => {
+      const result = run(".", "-e", "vim", "--dry-run");
+      expect(result.status).toBe(0);
+      // The generated script should reference vim as the editor command
+      expect(result.stdout).toContain("vim");
+    });
+
+    it("shows -e in help text", () => {
+      const result = run("--help");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("-e, --editor");
+    });
+  });
+
+  // #63: warn when both --auto-resize and --no-auto-resize are passed
+  describe("auto-resize conflict warning (#63)", () => {
+    it("warns on stderr when both --auto-resize and --no-auto-resize are given", () => {
+      const result = run(".", "--auto-resize", "--no-auto-resize", "--dry-run");
+      expect(result.status).toBe(0);
+      expect(result.stderr).toContain("Warning:");
+      expect(result.stderr).toContain("--auto-resize");
+      expect(result.stderr).toContain("--no-auto-resize");
+    });
+
+    it("uses --no-auto-resize when both are given (no resize commands in script)", () => {
+      const result = run(".", "--auto-resize", "--no-auto-resize", "--dry-run");
+      expect(result.status).toBe(0);
+      expect(result.stdout).not.toContain("resize_split");
     });
   });
 });
