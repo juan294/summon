@@ -2,7 +2,16 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { execSync, execFileSync } from "node:child_process";
-import { planLayout, isPresetName, getPreset } from "./layout.js";
+import {
+  planLayout,
+  isPresetName,
+  getPreset,
+  PANES_MIN,
+  PANES_DEFAULT,
+  EDITOR_SIZE_MIN,
+  EDITOR_SIZE_MAX,
+  EDITOR_SIZE_DEFAULT,
+} from "./layout.js";
 import type { LayoutOptions } from "./layout.js";
 import { listConfig, readKVFile } from "./config.js";
 import { generateAppleScript } from "./script.js";
@@ -158,22 +167,22 @@ export function resolveConfig(targetDir: string, cliOverrides: CLIOverrides): Re
   if (sidebar !== undefined) result.sidebarCommand = sidebar;
   if (panes !== undefined) {
     const parsed = parseInt(panes, 10);
-    if (Number.isNaN(parsed) || parsed < 1) {
+    if (Number.isNaN(parsed) || parsed < PANES_MIN) {
       console.warn(
-        `Invalid panes value: "${panes}". Must be a positive integer. Using default (2).`,
+        `Invalid panes value: "${panes}". Must be a positive integer. Using default (${PANES_DEFAULT}).`,
       );
-      result.editorPanes = 2;
+      result.editorPanes = PANES_DEFAULT;
     } else {
       result.editorPanes = parsed;
     }
   }
   if (editorSize !== undefined) {
     const parsed = parseInt(editorSize, 10);
-    if (Number.isNaN(parsed) || parsed < 1 || parsed > 99) {
+    if (Number.isNaN(parsed) || parsed < EDITOR_SIZE_MIN || parsed > EDITOR_SIZE_MAX) {
       console.warn(
-        `Invalid editor-size value: "${editorSize}". Must be 1-99. Using default (75).`,
+        `Invalid editor-size value: "${editorSize}". Must be ${EDITOR_SIZE_MIN}-${EDITOR_SIZE_MAX}. Using default (${EDITOR_SIZE_DEFAULT}).`,
       );
-      result.editorSize = 75;
+      result.editorSize = EDITOR_SIZE_DEFAULT;
     } else {
       result.editorSize = parsed;
     }
