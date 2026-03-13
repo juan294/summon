@@ -67,6 +67,7 @@ Examples:
 `.trim();
 
 const VALID_KEYS = ["editor", "sidebar", "panes", "editor-size", "server", "layout", "auto-resize"];
+const COMMAND_KEYS = ["editor", "sidebar"];
 
 const SUBCOMMAND_HELP: Record<string, string> = {
   add: `Usage: summon add <name> <path>
@@ -227,7 +228,10 @@ switch (subcommand) {
     if (value) {
       console.log(`Set ${key} → ${value}`);
     } else {
-      console.log(`Set ${key} → (empty, will open plain shell)`);
+      const hint = COMMAND_KEYS.includes(key)
+        ? "(empty, will open plain shell)"
+        : "(empty, will use default)";
+      console.log(`Set ${key} → ${hint}`);
     }
     break;
   }
