@@ -90,26 +90,21 @@ describe("Ghostty detection", () => {
 
   it("finds Ghostty in ~/Applications (Homebrew)", async () => {
     vi.mocked(existsSync).mockImplementation((path) => {
-      const p = String(path);
-      if (p === "/Applications/Ghostty.app") return false;
-      // Found in ~/Applications
+      if (String(path) === "/Applications/Ghostty.app") return false;
       return true;
     });
 
     await launch("/tmp/workspace");
-
     expect(mockGenerateAppleScript).toHaveBeenCalled();
   });
 
   it("finds Ghostty in /Applications even if ~/Applications is missing", async () => {
     vi.mocked(existsSync).mockImplementation((path) => {
-      const p = String(path);
-      if (p.includes("/Applications/Ghostty.app") && !p.startsWith("/Applications")) return false;
+      if (String(path).endsWith("/Applications/Ghostty.app") && String(path) !== "/Applications/Ghostty.app") return false;
       return true;
     });
 
     await launch("/tmp/workspace");
-
     expect(mockGenerateAppleScript).toHaveBeenCalled();
   });
 });

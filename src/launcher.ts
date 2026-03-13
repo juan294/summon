@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { homedir } from "node:os";
 import { execSync, execFileSync } from "node:child_process";
 import {
   planLayout,
@@ -30,7 +31,7 @@ export interface CLIOverrides {
 
 const GHOSTTY_PATHS = [
   "/Applications/Ghostty.app",
-  `${process.env.HOME}/Applications/Ghostty.app`,
+  join(homedir(), "Applications", "Ghostty.app"),
 ];
 
 function ensureGhostty(): void {
