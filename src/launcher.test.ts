@@ -130,7 +130,8 @@ describe("script execution", () => {
 
     await launch("/tmp/workspace", { dryRun: true });
 
-    expect(logSpy).toHaveBeenCalledWith('tell application "Ghostty"\nend tell');
+    const output = logSpy.mock.calls[0]![0] as string;
+    expect(output).toContain('tell application "Ghostty"\nend tell');
     // osascript should NOT have been called
     expect(mockExecFileSync).not.toHaveBeenCalledWith(
       "osascript",
@@ -959,6 +960,167 @@ describe("command resolution cache for shared binaries (#61)", () => {
       "/tmp/workspace",
       expect.any(String),
     );
+  });
+});
+
+describe("SHELL validation (#84)", () => {
+  it("falls back to /bin/bash and warns when SHELL contains injection characters", async () => {
+    const origShell = process.env.SHELL;
+    process.env.SHELL = "/bin/bash; rm -rf /";
+    vi.mocked(listConfig).mockReturnValue(new Map());
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    try {
+      await launch("/tmp/workspace", { dryRun: true });
+      const shellArg = mockGenerateAppleScript.mock.calls[0]![2];
+      expect(shellArg).toBe("/bin/bash");
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("SHELL"),
+      );
+    } finally {
+      process.env.SHELL = origShell;
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("falls back to /bin/bash and warns when SHELL has backticks", async () => {
+    const origShell = process.env.SHELL;
+    process.env.SHELL = "`evil`";
+    vi.mocked(listConfig).mockReturnValue(new Map());
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    try {
+      await launch("/tmp/workspace", { dryRun: true });
+      const shellArg = mockGenerateAppleScript.mock.calls[0]![2];
+      expect(shellArg).toBe("/bin/bash");
+      expect(warnSpy).toHaveBeenCalled();
+    } finally {
+      process.env.SHELL = origShell;
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("falls back to /bin/bash and warns when SHELL has spaces", async () => {
+    const origShell = process.env.SHELL;
+    process.env.SHELL = "/bin/my shell";
+    vi.mocked(listConfig).mockReturnValue(new Map());
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    try {
+      await launch("/tmp/workspace", { dryRun: true });
+      const shellArg = mockGenerateAppleScript.mock.calls[0]![2];
+      expect(shellArg).toBe("/bin/bash");
+      expect(warnSpy).toHaveBeenCalled();
+    } finally {
+      process.env.SHELL = origShell;
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("accepts valid SHELL paths", async () => {
+    const origShell = process.env.SHELL;
+    process.env.SHELL = "/usr/local/bin/zsh";
+    vi.mocked(listConfig).mockReturnValue(new Map());
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    try {
+      await launch("/tmp/workspace", { dryRun: true });
+      const shellArg = mockGenerateAppleScript.mock.calls[0]![2];
+      expect(shellArg).toBe("/usr/local/bin/zsh");
+      expect(warnSpy).not.toHaveBeenCalled();
+    } finally {
+      process.env.SHELL = origShell;
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("falls back to /bin/bash when SHELL does not start with /", async () => {
+    const origShell = process.env.SHELL;
+    process.env.SHELL = "zsh";
+    vi.mocked(listConfig).mockReturnValue(new Map());
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    try {
+      await launch("/tmp/workspace", { dryRun: true });
+      const shellArg = mockGenerateAppleScript.mock.calls[0]![2];
+      expect(shellArg).toBe("/bin/bash");
+      expect(warnSpy).toHaveBeenCalled();
+    } finally {
+      process.env.SHELL = origShell;
+      warnSpy.mockRestore();
+    }
+  });
+});
+
+describe("dry-run summary header (#85)", () => {
+  it("prefixes dry-run output with AppleScript-style summary comments", async () => {
+    vi.mocked(listConfig).mockReturnValue(new Map());
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await launch("/tmp/workspace", { dryRun: true });
+
+    const output = logSpy.mock.calls[0]![0] as string;
+    expect(output).toMatch(/^-- summon dry-run/);
+    expect(output).toContain("-- Layout:");
+    expect(output).toContain("-- Target: /tmp/workspace");
+    // The AppleScript should follow after the header
+    expect(output).toContain('tell application "Ghostty"');
+    logSpy.mockRestore();
+  });
+
+  it("includes editor pane count in the summary", async () => {
+    vi.mocked(listConfig).mockReturnValue(new Map());
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await launch("/tmp/workspace", { dryRun: true, panes: "3" });
+
+    const output = logSpy.mock.calls[0]![0] as string;
+    expect(output).toContain("3 editor panes");
+    logSpy.mockRestore();
+  });
+
+  it("includes editor command in the summary", async () => {
+    vi.mocked(listConfig).mockReturnValue(new Map());
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await launch("/tmp/workspace", { dryRun: true, editor: "vim" });
+
+    const output = logSpy.mock.calls[0]![0] as string;
+    expect(output).toContain("editor=vim");
+    logSpy.mockRestore();
+  });
+
+  it("includes sidebar command in the summary", async () => {
+    vi.mocked(listConfig).mockReturnValue(new Map());
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await launch("/tmp/workspace", { dryRun: true, sidebar: "htop" });
+
+    const output = logSpy.mock.calls[0]![0] as string;
+    expect(output).toContain("sidebar=htop");
+    logSpy.mockRestore();
+  });
+
+  it("includes server=true in the summary when server is enabled", async () => {
+    vi.mocked(listConfig).mockReturnValue(new Map());
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await launch("/tmp/workspace", { dryRun: true });
+
+    const output = logSpy.mock.calls[0]![0] as string;
+    expect(output).toContain("server=true");
+    logSpy.mockRestore();
+  });
+
+  it("includes server=false in the summary when server is disabled", async () => {
+    vi.mocked(listConfig).mockReturnValue(new Map());
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await launch("/tmp/workspace", { dryRun: true, layout: "minimal" });
+
+    const output = logSpy.mock.calls[0]![0] as string;
+    expect(output).toContain("server=false");
+    logSpy.mockRestore();
   });
 });
 
