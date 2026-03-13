@@ -147,3 +147,25 @@ describe("ensureConfig caching (#25)", () => {
     expect(mkdirSpy).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("writeKV newline sanitization (#26)", () => {
+  it("strips newlines from config values", () => {
+    setConfig("key", "value\ninjected=evil");
+    expect(getConfig("key")).toBe("valueinjected=evil");
+  });
+
+  it("strips newlines from config keys", () => {
+    setConfig("bad\nkey", "value");
+    expect(getConfig("badkey")).toBe("value");
+  });
+
+  it("strips carriage returns from values", () => {
+    setConfig("key", "value\r\nwith-cr");
+    expect(getConfig("key")).toBe("valuewith-cr");
+  });
+
+  it("strips newlines from project names and paths", () => {
+    addProject("my\napp", "/home/\nuser/app");
+    expect(getProject("myapp")).toBe("/home/user/app");
+  });
+});

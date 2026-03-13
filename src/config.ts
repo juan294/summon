@@ -42,7 +42,10 @@ function readKV(file: string): Map<string, string> {
 }
 
 function writeKV(file: string, map: Map<string, string>): void {
-  const lines = [...map.entries()].map(([k, v]) => `${k}=${v}`);
+  const lines = [...map.entries()].map(
+    ([k, v]) =>
+      `${k.replace(/[\n\r]/g, "")}=${v.replace(/[\n\r]/g, "")}`,
+  );
   writeFileSync(file, lines.join("\n") + "\n");
 }
 
