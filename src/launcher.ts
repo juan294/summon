@@ -28,8 +28,13 @@ export interface CLIOverrides {
   dryRun?: boolean;
 }
 
+const GHOSTTY_PATHS = [
+  "/Applications/Ghostty.app",
+  `${process.env.HOME}/Applications/Ghostty.app`,
+];
+
 function ensureGhostty(): void {
-  if (!existsSync("/Applications/Ghostty.app")) {
+  if (!GHOSTTY_PATHS.some((p) => existsSync(p))) {
     console.error(
       "Ghostty.app not found. Please install Ghostty 1.3.0+ from https://ghostty.org",
     );

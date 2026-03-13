@@ -68,9 +68,10 @@ describe("Ghostty detection", () => {
     mockExit.mockRestore();
   });
 
-  it("exits with error if Ghostty.app is not found", async () => {
+  it("exits with error if Ghostty.app is not found at any known path", async () => {
     vi.mocked(existsSync).mockImplementation((path) => {
-      if (String(path) === "/Applications/Ghostty.app") return false;
+      // Ghostty not found anywhere
+      if (String(path).endsWith("Ghostty.app")) return false;
       return true;
     });
     const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
@@ -85,6 +86,31 @@ describe("Ghostty detection", () => {
     );
     mockExit.mockRestore();
     errorSpy.mockRestore();
+  });
+
+  it("finds Ghostty in ~/Applications (Homebrew)", async () => {
+    vi.mocked(existsSync).mockImplementation((path) => {
+      const p = String(path);
+      if (p === "/Applications/Ghostty.app") return false;
+      // Found in ~/Applications
+      return true;
+    });
+
+    await launch("/tmp/workspace");
+
+    expect(mockGenerateAppleScript).toHaveBeenCalled();
+  });
+
+  it("finds Ghostty in /Applications even if ~/Applications is missing", async () => {
+    vi.mocked(existsSync).mockImplementation((path) => {
+      const p = String(path);
+      if (p.includes("/Applications/Ghostty.app") && !p.startsWith("/Applications")) return false;
+      return true;
+    });
+
+    await launch("/tmp/workspace");
+
+    expect(mockGenerateAppleScript).toHaveBeenCalled();
   });
 });
 
