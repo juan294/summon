@@ -10,6 +10,7 @@ import {
   removeConfig,
   listConfig,
   isFirstRun,
+  VALID_KEYS,
 } from "./config.js";
 import { launch } from "./launcher.js";
 import type { CLIOverrides } from "./launcher.js";
@@ -75,7 +76,6 @@ Examples:
   summon . --server "npm run dev" Launch with custom server command
 `.trim();
 
-const VALID_KEYS = ["editor", "sidebar", "panes", "editor-size", "server", "layout", "auto-resize"];
 const COMMAND_KEYS = ["editor", "sidebar"];
 
 const SUBCOMMAND_HELP: Record<string, string> = {
@@ -335,12 +335,9 @@ switch (subcommand) {
       console.error("Supported shells: zsh, bash");
       process.exit(1);
     }
-    if (shell === "zsh") {
-      const { generateZshCompletion } = await import("./completions.js");
-      console.log(generateZshCompletion());
-    } else if (shell === "bash") {
-      const { generateBashCompletion } = await import("./completions.js");
-      console.log(generateBashCompletion());
+    if (shell === "zsh" || shell === "bash") {
+      const { generateZshCompletion, generateBashCompletion } = await import("./completions.js");
+      console.log(shell === "zsh" ? generateZshCompletion() : generateBashCompletion());
     } else {
       console.error(`Unsupported shell: ${shell}`);
       console.error("Supported shells: zsh, bash");

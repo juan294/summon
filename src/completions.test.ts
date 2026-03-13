@@ -1,5 +1,7 @@
 import { describe, test, expect } from "vitest";
 import { generateZshCompletion, generateBashCompletion } from "./completions.js";
+import { VALID_KEYS, CLI_FLAGS } from "./config.js";
+import { getPresetNames } from "./layout.js";
 
 describe("generateZshCompletion", () => {
   test("returns a string starting with #compdef summon", () => {
@@ -16,14 +18,14 @@ describe("generateZshCompletion", () => {
 
   test("contains all config keys", () => {
     const result = generateZshCompletion();
-    for (const key of ["editor", "sidebar", "panes", "editor-size", "server", "layout", "auto-resize"]) {
+    for (const key of VALID_KEYS) {
       expect(result).toContain(key);
     }
   });
 
   test("contains all layout presets", () => {
     const result = generateZshCompletion();
-    for (const preset of ["minimal", "full", "pair", "cli", "btop"]) {
+    for (const preset of getPresetNames()) {
       expect(result).toContain(preset);
     }
   });
@@ -35,11 +37,7 @@ describe("generateZshCompletion", () => {
 
   test("contains all CLI flags", () => {
     const result = generateZshCompletion();
-    for (const flag of [
-      "--help", "--version", "--layout", "--editor", "--panes",
-      "--editor-size", "--sidebar", "--server", "--auto-resize",
-      "--no-auto-resize", "--dry-run",
-    ]) {
+    for (const flag of CLI_FLAGS) {
       expect(result).toContain(flag);
     }
   });
@@ -84,11 +82,7 @@ describe("generateBashCompletion", () => {
 
   test("contains all CLI flags", () => {
     const result = generateBashCompletion();
-    for (const flag of [
-      "--help", "--version", "--layout", "--editor", "--panes",
-      "--editor-size", "--sidebar", "--server", "--auto-resize",
-      "--no-auto-resize", "--dry-run",
-    ]) {
+    for (const flag of CLI_FLAGS) {
       expect(result).toContain(flag);
     }
   });

@@ -1,3 +1,10 @@
+import { getPresetNames } from "./layout.js";
+import { VALID_KEYS, CLI_FLAGS } from "./config.js";
+
+const presets = () => getPresetNames().join(" ");
+const configKeys = () => VALID_KEYS.join(" ");
+const flags = () => CLI_FLAGS.join(" ");
+
 export function generateZshCompletion(): string {
   return `#compdef summon
 
@@ -12,8 +19,8 @@ _summon() {
     'completions:Generate shell completions'
   )
 
-  local -a config_keys=(editor sidebar panes editor-size server layout auto-resize)
-  local -a layout_presets=(minimal full pair cli btop)
+  local -a config_keys=(${configKeys()})
+  local -a layout_presets=(${presets()})
   local projects_file="\${HOME}/.config/summon/projects"
 
   # Read project names dynamically
@@ -25,7 +32,7 @@ _summon() {
   _arguments -C \\
     '(-h --help)'{-h,--help}'[Show help]' \\
     '(-v --version)'{-v,--version}'[Show version]' \\
-    '(-l --layout)'{-l,--layout}'[Layout preset]:preset:(minimal full pair cli btop)' \\
+    '(-l --layout)'{-l,--layout}'[Layout preset]:preset:(${presets()})' \\
     '(-e --editor)'{-e,--editor}'[Editor command]:command:' \\
     '--panes[Editor panes]:count:' \\
     '--editor-size[Editor width %]:percent:' \\
@@ -83,8 +90,8 @@ export function generateBashCompletion(): string {
   _init_completion || return
 
   local subcommands="add remove list set config setup completions"
-  local config_keys="editor sidebar panes editor-size server layout auto-resize"
-  local layout_presets="minimal full pair cli btop"
+  local config_keys="${configKeys()}"
+  local layout_presets="${presets()}"
   local projects_file="\${HOME}/.config/summon/projects"
 
   local project_names=""
@@ -106,7 +113,7 @@ export function generateBashCompletion(): string {
   esac
 
   if [[ "$cur" == -* ]]; then
-    COMPREPLY=($(compgen -W "--help --version --layout --editor --panes --editor-size --sidebar --server --auto-resize --no-auto-resize --dry-run" -- "$cur"))
+    COMPREPLY=($(compgen -W "${flags()}" -- "$cur"))
     return
   fi
 
