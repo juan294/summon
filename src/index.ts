@@ -1,5 +1,6 @@
 import { parseArgs } from "node:util";
 import { resolve } from "node:path";
+import { homedir } from "node:os";
 import {
   addProject,
   removeProject,
@@ -12,6 +13,7 @@ import {
 import { launch } from "./launcher.js";
 import type { CLIOverrides } from "./launcher.js";
 import { PANES_MIN, EDITOR_SIZE_MIN, EDITOR_SIZE_MAX, isPresetName } from "./layout.js";
+import { parseIntInRange } from "./validation.js";
 
 const HELP = `
 summon -- Launch multi-pane Ghostty workspaces
@@ -28,7 +30,7 @@ Options:
   -h, --help                  Show this help message
   -v, --version               Show version number
   -l, --layout <preset>       Use a layout preset (minimal, full, pair, cli, mtop)
-  --editor <cmd>              Override editor command
+  -e, --editor <cmd>          Override editor command
   --panes <n>                 Override number of editor panes
   --editor-size <n>           Override editor width %
   --sidebar <cmd>             Override sidebar command
@@ -100,7 +102,7 @@ function showHelp(): void {
 }
 
 function expandHome(p: string): string {
-  return resolve(p.replace(/^~/, process.env.HOME ?? ""));
+  return resolve(p.replace(/^~/, homedir()));
 }
 
 const parseOpts = {
@@ -109,7 +111,7 @@ const parseOpts = {
     help: { type: "boolean", short: "h" },
     version: { type: "boolean", short: "v" },
     layout: { type: "string", short: "l" },
-    editor: { type: "string" },
+    editor: { type: "string", short: "e" },
     panes: { type: "string" },
     "editor-size": { type: "string" },
     sidebar: { type: "string" },
@@ -135,8 +137,7 @@ const { values, positionals } = safeParse();
 
 // Validate numeric flags at parse time
 if (values.panes !== undefined) {
-  const parsed = parseInt(values.panes, 10);
-  if (Number.isNaN(parsed) || parsed < PANES_MIN) {
+  if (!parseIntInRange(values.panes, PANES_MIN).ok) {
     console.error(`Error: --panes must be a positive integer, got "${values.panes}".`);
     console.error(`Run 'summon --help' for usage information.`);
     process.exit(1);
@@ -144,8 +145,7 @@ if (values.panes !== undefined) {
 }
 
 if (values["editor-size"] !== undefined) {
-  const parsed = parseInt(values["editor-size"], 10);
-  if (Number.isNaN(parsed) || parsed < EDITOR_SIZE_MIN || parsed > EDITOR_SIZE_MAX) {
+  if (!parseIntInRange(values["editor-size"], EDITOR_SIZE_MIN, EDITOR_SIZE_MAX).ok) {
     console.error(`Error: --editor-size must be an integer between ${EDITOR_SIZE_MIN}-${EDITOR_SIZE_MAX}, got "${values["editor-size"]}".`);
     console.error(`Run 'summon --help' for usage information.`);
     process.exit(1);
@@ -157,6 +157,10 @@ if (values.layout !== undefined && !isPresetName(values.layout)) {
   console.error(`Valid presets: minimal, full, pair, cli, mtop`);
   console.error(`Run 'summon --help' for usage information.`);
   process.exit(1);
+}
+
+if (values["auto-resize"] && values["no-auto-resize"]) {
+  console.error("Warning: both --auto-resize and --no-auto-resize specified; using --no-auto-resize.");
 }
 
 if (values.version) {
@@ -253,12 +257,13 @@ switch (subcommand) {
     } else {
       console.log("Machine config:");
       for (const [key, value] of config) {
+        const unknownSuffix = VALID_KEYS.includes(key) ? "" : "  (unknown key — will be ignored)";
         if (value) {
-          console.log(`  ${key} → ${value}`);
+          console.log(`  ${key} → ${value}${unknownSuffix}`);
         } else if (COMMAND_KEYS.includes(key)) {
-          console.log(`  ${key} → (plain shell)`);
+          console.log(`  ${key} → (plain shell)${unknownSuffix}`);
         } else {
-          console.log(`  ${key} → (empty)`);
+          console.log(`  ${key} → (empty)${unknownSuffix}`);
         }
       }
     }
