@@ -1,11 +1,10 @@
 import { getPresetNames } from "./layout.js";
 import { VALID_KEYS, CLI_FLAGS } from "./config.js";
 
-const presets = () => getPresetNames().join(" ");
-const configKeys = () => VALID_KEYS.join(" ");
-const flags = () => CLI_FLAGS.join(" ");
-
 export function generateZshCompletion(): string {
+  const presetNames = getPresetNames().join(" ");
+  const configKeys = VALID_KEYS.join(" ");
+
   return `#compdef summon
 
 _summon() {
@@ -19,8 +18,8 @@ _summon() {
     'completions:Generate shell completions'
   )
 
-  local -a config_keys=(${configKeys()})
-  local -a layout_presets=(${presets()})
+  local -a config_keys=(${configKeys})
+  local -a layout_presets=(${presetNames})
   local projects_file="\${HOME}/.config/summon/projects"
 
   # Read project names dynamically
@@ -32,7 +31,7 @@ _summon() {
   _arguments -C \\
     '(-h --help)'{-h,--help}'[Show help]' \\
     '(-v --version)'{-v,--version}'[Show version]' \\
-    '(-l --layout)'{-l,--layout}'[Layout preset]:preset:(${presets()})' \\
+    '(-l --layout)'{-l,--layout}'[Layout preset]:preset:(${presetNames})' \\
     '(-e --editor)'{-e,--editor}'[Editor command]:command:' \\
     '--panes[Editor panes]:count:' \\
     '--editor-size[Editor width %]:percent:' \\
@@ -85,13 +84,17 @@ _summon "$@"
 }
 
 export function generateBashCompletion(): string {
+  const configKeys = VALID_KEYS.join(" ");
+  const presetNames = getPresetNames().join(" ");
+  const flagsList = CLI_FLAGS.join(" ");
+
   return `_summon() {
   local cur prev words cword
   _init_completion || return
 
   local subcommands="add remove list set config setup completions"
-  local config_keys="${configKeys()}"
-  local layout_presets="${presets()}"
+  local config_keys="${configKeys}"
+  local layout_presets="${presetNames}"
   local projects_file="\${HOME}/.config/summon/projects"
 
   local project_names=""
@@ -113,7 +116,7 @@ export function generateBashCompletion(): string {
   esac
 
   if [[ "$cur" == -* ]]; then
-    COMPREPLY=($(compgen -W "${flags()}" -- "$cur"))
+    COMPREPLY=($(compgen -W "${flagsList}" -- "$cur"))
     return
   fi
 
