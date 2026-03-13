@@ -24,6 +24,17 @@ Requires Node >= 18, macOS, and [Ghostty](https://ghostty.org) 1.3.0+.
 
 ```bash
 summon .                          # launch workspace in current directory
+```
+
+On first run, an interactive setup wizard guides you through choosing your editor, sidebar, layout, and server preferences. You can re-run it anytime:
+
+```bash
+summon setup                      # reconfigure workspace defaults
+```
+
+Register projects for quick access:
+
+```bash
 summon add myapp ~/code/myapp     # register a project
 summon myapp                      # launch by project name
 ```
@@ -82,6 +93,7 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 | Command | Description |
 |---|---|
 | `summon <target>` | Launch workspace (project name, path, or `.`) |
+| `summon setup` | Interactive setup wizard — choose editor, sidebar, layout, server |
 | `summon add <name> <path>` | Register a project name to a directory |
 | `summon remove <name>` | Remove a registered project |
 | `summon list` | List all registered projects |

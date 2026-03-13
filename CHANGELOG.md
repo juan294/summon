@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Interactive setup wizard (`summon setup`) for first-run onboarding — choose layout, editor, sidebar, and server preferences with numbered selection
+- First-run auto-trigger: setup wizard launches automatically when no config file exists (TTY only)
+- Tool detection during setup — checks if chosen commands (editor, sidebar, Ghostty) are installed, shows install hints for missing tools
+- `NO_COLOR` support in setup wizard — respects the `NO_COLOR` environment variable per https://no-color.org/
+- Shared `utils.ts` module with `SAFE_COMMAND_RE`, `GHOSTTY_PATHS`, and `resolveCommand` (extracted from launcher.ts and setup.ts)
+
+### Changed
+
+- `ensureConfig()` creates empty config file instead of hardcoded `editor=claude` — runtime defaults in `layout.ts` still apply
+- `isFirstRun()` export in config.ts for checking whether config file exists without creating it
+- `executeScript` uses `execFileSync` instead of `execSync` for osascript (defense-in-depth)
+- `resolveCommand` in utils.ts validates command names against `SAFE_COMMAND_RE` before shell execution
+
 ## [0.3.2] - 2026-03-13
 
 ### Fixed

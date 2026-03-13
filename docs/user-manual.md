@@ -39,26 +39,52 @@ Check your current version:
 summon --version
 ```
 
-## First Launch Walkthrough
+## First Launch — Setup Wizard
+
+The first time you run summon (when no config file exists at `~/.config/summon/config`), an interactive setup wizard launches automatically:
 
 ```bash
-# 1. Navigate to your project
 cd ~/code/myapp
-
-# 2. Launch a workspace
 summon .
+```
 
-# 3. A new Ghostty window opens with:
-#    - 2 editor panes running 'claude'
-#    - 1 server pane (plain shell for dev servers)
-#    - 1 sidebar pane running 'lazygit'
+The wizard walks you through four choices:
 
-# 4. Navigate between panes
-#    Use Ghostty's native split navigation keybindings
-#    Default: Ctrl+Shift+Arrow keys (or your custom keybindings)
+1. **Layout** — choose from 5 presets (minimal, pair, full, cli, mtop) with ASCII diagrams
+2. **Editor** — pick from detected editors (claude, nvim, vim, code, etc.) or enter a custom command
+3. **Sidebar** — pick from detected tools (lazygit, gitui, tig, btop, etc.) or enter a custom command
+4. **Server pane** — plain shell, disabled, or a custom command (e.g. `npm run dev`)
 
-# 5. Zoom a pane
-#    Use Ghostty's toggle_split_zoom keybinding
+After confirming, the wizard:
+- Saves your choices to `~/.config/summon/config`
+- Checks that your chosen tools are installed (shows install hints for missing ones)
+- Continues to launch your workspace with the new settings
+
+You can re-run the wizard anytime with `summon setup`.
+
+### Skipping the wizard
+
+The wizard only auto-triggers when:
+- No config file exists AND stdin is a TTY
+
+In non-interactive environments (CI, piped input), summon uses runtime defaults without prompting. You can also skip the wizard entirely by setting config values directly:
+
+```bash
+summon set editor vim
+summon set sidebar lazygit
+summon set layout pair
+summon .
+```
+
+### After setup
+
+```bash
+# Navigate between panes
+#   Use Ghostty's native split navigation keybindings
+#   Default: Ctrl+Shift+Arrow keys (or your custom keybindings)
+
+# Zoom a pane
+#   Use Ghostty's toggle_split_zoom keybinding
 ```
 
 ## Command Reference
@@ -104,6 +130,23 @@ Registered projects:
   myapp → /Users/juan/code/myapp
   api → /Users/juan/code/backend/api
 ```
+
+### `summon setup`
+
+Launch the interactive setup wizard. Guides you through choosing your preferred layout, editor, sidebar, and server configuration.
+
+```bash
+summon setup
+```
+
+The wizard:
+- Shows all 5 layout presets with ASCII diagrams
+- Detects which editors and sidebar tools are installed on your system
+- Lets you enter custom commands for any pane
+- Validates chosen tools and shows install hints for missing ones
+- Saves settings to `~/.config/summon/config`
+
+Requires an interactive terminal (TTY). In non-interactive environments, configure manually with `summon set`.
 
 ### `summon set <key> [value]`
 

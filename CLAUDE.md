@@ -30,6 +30,9 @@ src/
   layout.ts        Layout calculation (pure function)
   script.ts        AppleScript generator (pure function — builds script string)
   launcher.ts      Orchestrator: resolve config, generate script, execute via osascript
+  setup.ts         Interactive setup wizard (first-run onboarding, tool detection, TUI)
+  utils.ts         Shared utilities (SAFE_COMMAND_RE, GHOSTTY_PATHS, resolveCommand)
+  validation.ts    Input validation helpers (parseIntInRange)
   globals.d.ts     Build-time constants (__VERSION__)
   *.test.ts        Co-located unit tests
 ```
