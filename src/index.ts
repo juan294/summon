@@ -128,6 +128,25 @@ function safeParse() {
 
 const { values, positionals } = safeParse();
 
+// Validate numeric flags at parse time
+if (values.panes !== undefined) {
+  const parsed = parseInt(values.panes, 10);
+  if (Number.isNaN(parsed) || parsed < 1) {
+    console.error(`Error: --panes must be a positive integer, got "${values.panes}".`);
+    console.error(`Run 'summon --help' for usage information.`);
+    process.exit(1);
+  }
+}
+
+if (values["editor-size"] !== undefined) {
+  const parsed = parseInt(values["editor-size"], 10);
+  if (Number.isNaN(parsed) || parsed < 1 || parsed > 99) {
+    console.error(`Error: --editor-size must be an integer between 1-99, got "${values["editor-size"]}".`);
+    console.error(`Run 'summon --help' for usage information.`);
+    process.exit(1);
+  }
+}
+
 if (values.version) {
   console.log(__VERSION__);
   process.exit(0);
