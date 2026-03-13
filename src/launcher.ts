@@ -20,6 +20,12 @@ import { parseIntInRange } from "./validation.js";
 
 const SAFE_SHELL_RE = /^\/[a-zA-Z0-9_/.-]+$/;
 
+/** Shell metacharacters that indicate potentially dangerous commands. */
+const SHELL_META_RE = /[;|&`]|\$\(|[><]/;
+
+/** Keys in .summon files that hold command values (as opposed to config like layout/panes). */
+const COMMAND_KEYS = new Set(["editor", "sidebar", "server"]);
+
 /**
  * Read and validate process.env.SHELL.
  * Falls back to /bin/bash with a warning if undefined or unsafe.
@@ -84,6 +90,35 @@ async function prompt(question: string): Promise<string> {
   return answer.toLowerCase();
 }
 
+/**
+ * Check if any command values from the .summon project file contain shell metacharacters.
+ * If so, warn the user and prompt for confirmation (or refuse on non-TTY).
+ * Skips if dryRun is set (dry-run doesn't execute anything).
+ */
+async function confirmDangerousCommands(projectOverrides: Map<string, string>): Promise<void> {
+  const dangerous: Array<[string, string]> = [];
+  for (const [key, value] of projectOverrides) {
+    if (COMMAND_KEYS.has(key) && SHELL_META_RE.test(value)) {
+      dangerous.push([key, value]);
+    }
+  }
+  if (dangerous.length === 0) return;
+
+  const lines = dangerous.map(([key, value]) => `  ${key} = ${value}`).join("\n");
+  const message = `Warning: .summon file contains commands with shell metacharacters:\n${lines}`;
+  console.warn(message);
+
+  if (!process.stdin.isTTY) {
+    console.warn("Non-interactive shell detected. Refusing to execute.");
+    process.exit(1);
+  }
+
+  const answer = await prompt("Continue? [y/N] ");
+  if (answer !== "y" && answer !== "yes") {
+    process.exit(1);
+  }
+}
+
 const KNOWN_INSTALL_COMMANDS: Record<string, () => [string, string[]] | null> = {
   claude: () => ["npm", ["install", "-g", "@anthropic-ai/claude-code"]],
   lazygit: () => {
@@ -146,6 +181,7 @@ async function ensureCommand(cmd: string, configKey: string): Promise<string> {
 
 interface ResolvedConfig {
   opts: Partial<LayoutOptions>;
+  projectOverrides: Map<string, string>;
 }
 
 export function resolveConfig(targetDir: string, cliOverrides: CLIOverrides): ResolvedConfig {
@@ -207,7 +243,7 @@ export function resolveConfig(targetDir: string, cliOverrides: CLIOverrides): Re
   if (server !== undefined) result.server = server;
   if (autoResize !== undefined) result.autoResize = autoResize === "true";
 
-  return { opts: result };
+  return { opts: result, projectOverrides: project };
 }
 
 export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Promise<void> {
@@ -216,7 +252,12 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
     process.exit(1);
   }
 
-  const { opts } = resolveConfig(targetDir, cliOverrides ?? {});
+  const { opts, projectOverrides } = resolveConfig(targetDir, cliOverrides ?? {});
+
+  if (!cliOverrides?.dryRun) {
+    await confirmDangerousCommands(projectOverrides);
+  }
+
   const plan = planLayout(opts);
   const loginShell = getLoginShell();
 

