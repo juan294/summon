@@ -80,6 +80,17 @@ describe("generateAppleScript", () => {
     expect(script).toContain('send key "enter" to paneRoot');
   });
 
+  it("sends cd to root pane before editor command", () => {
+    const plan = planLayout();
+    const script = generateAppleScript(plan, "/Users/me/code/myapp");
+
+    // Root pane must cd into the project directory first
+    expect(script).toContain('input text "cd \\"/Users/me/code/myapp\\"" to paneRoot');
+    const cdIndex = script.indexOf('input text "cd \\"/Users/me/code/myapp\\"" to paneRoot');
+    const editorIndex = script.indexOf('input text "claude" to paneRoot');
+    expect(cdIndex).toBeLessThan(editorIndex);
+  });
+
   it("sets sidebar command on config before split", () => {
     const plan = planLayout();
     const script = generateAppleScript(plan, "/tmp");
@@ -121,11 +132,11 @@ describe("generateAppleScript", () => {
     const plan = planLayout({ server: "true" });
     const script = generateAppleScript(plan, "/tmp");
 
-    // Only root pane gets input text (for editor command)
+    // Root pane gets cd + editor command via input text
     // Sidebar and right editor get commands via config
     // Server pane has no command (plain shell)
     const inputTexts = (script.match(/input text/g) ?? []).length;
-    expect(inputTexts).toBe(1); // just root pane editor
+    expect(inputTexts).toBe(2); // cd + editor on root pane
   });
 
   it("skips command for empty editor", () => {
@@ -178,5 +189,79 @@ describe("generateAppleScript", () => {
 
     expect(script).toContain("cmd\\ninjection\\rtest");
     expect(script).not.toContain("\n" + "injection");
+  });
+
+  it("generates resize commands when autoResize is enabled", () => {
+    const plan = planLayout({ autoResize: true, editorSize: 85 });
+    const script = generateAppleScript(plan, "/tmp");
+
+    expect(script).toContain("-- Auto-resize sidebar (experimental)");
+    expect(script).toContain("delay 0.3");
+    expect(script).toContain("set windowBounds to bounds of win");
+    expect(script).toContain("set windowWidth to (item 3 of windowBounds) - (item 1 of windowBounds)");
+    expect(script).toContain("set resizeAmount to round (windowWidth * 0.35)");
+    expect(script).toContain('set resizeAction to "resize_split:right," & (resizeAmount as text)');
+    expect(script).toContain("perform action resizeAction on paneRightCol");
+  });
+
+  it("does not generate resize commands when autoResize is disabled", () => {
+    const plan = planLayout({ editorSize: 85 });
+    const script = generateAppleScript(plan, "/tmp");
+
+    expect(script).not.toContain("resize_split");
+    expect(script).not.toContain("perform action");
+  });
+
+  it("uses paneRoot for resize when no right column exists", () => {
+    const plan = planLayout({ autoResize: true, editorSize: 80, editorPanes: 1, server: "false" });
+    const script = generateAppleScript(plan, "/tmp");
+
+    expect(script).toContain("perform action resizeAction on paneRoot");
+  });
+
+  it("does not generate resize commands when editorSize is 50", () => {
+    const plan = planLayout({ autoResize: true, editorSize: 50 });
+    const script = generateAppleScript(plan, "/tmp");
+
+    expect(script).not.toContain("resize_split");
+  });
+
+  it("cli preset creates server-only right column with no editor panes", () => {
+    const plan = planLayout(getPreset("cli"));
+    const script = generateAppleScript(plan, "/tmp");
+
+    // 2 right splits: sidebar + right column (server-only)
+    const rightSplits = (script.match(/direction right/g) ?? []).length;
+    expect(rightSplits).toBe(2);
+
+    // No down splits — single server pane, no editors in right column
+    const downSplits = (script.match(/direction down/g) ?? []).length;
+    expect(downSplits).toBe(0);
+
+    // Right column exists but has no editor panes
+    expect(script).toContain("paneRightCol");
+    expect(script).not.toContain("paneRight2");
+
+    // Server pane uses cleared command (plain shell, server="true")
+    expect(script).toContain('set command of cfg to ""');
+  });
+
+  it("multi-pane right column creates additional down splits", () => {
+    const plan = planLayout({ editorPanes: 4 });
+    const script = generateAppleScript(plan, "/tmp");
+
+    // 2 right splits: sidebar + right column
+    const rightSplits = (script.match(/direction right/g) ?? []).length;
+    expect(rightSplits).toBe(2);
+
+    // 2 down splits: paneLeft2 + paneRight2 (2 editors per column)
+    // Plus 1 server pane = 3 down splits total
+    const downSplits = (script.match(/direction down/g) ?? []).length;
+    expect(downSplits).toBe(3);
+
+    expect(script).toContain("paneRight2");
+    expect(script).toContain("paneLeft2");
+    // Server pane at bottom of right column
+    expect(script).toContain("paneRight3");
   });
 });

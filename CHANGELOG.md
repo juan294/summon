@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Experimental `--auto-resize` flag to resize sidebar to match editor-size
+
+### Fixed
+
+- Root pane now `cd`s into the project directory before launching editor
+
+## [0.1.0] - 2026-03-13
+
+### Added
+
 - CLI entry point with subcommand dispatch (launch, add, remove, list, set, config)
 - Config system: machine-level (`~/.config/summon/`) and per-project (`.summon`)
 - Layout planner with 5 presets: minimal, full, pair, cli, mtop
@@ -26,4 +36,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CodeQL security scanning
 - Dependabot for npm and GitHub Actions
 
-[Unreleased]: https://github.com/juan294/summon/commits/develop
+[Unreleased]: https://github.com/juan294/summon/compare/v0.1.0...develop
+[0.1.0]: https://github.com/juan294/summon/releases/tag/v0.1.0

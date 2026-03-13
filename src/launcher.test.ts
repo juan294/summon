@@ -438,6 +438,36 @@ describe("lazygit install handler", () => {
       { stdio: "inherit" },
     );
   });
+
+  it("shows no-known-install-method error when lazygit missing and brew unavailable", async () => {
+    mockExecSync.mockImplementation((cmd: string) => {
+      if (cmd === "command -v lazygit") throw new Error("not found");
+      // brew check (called without encoding, with stdio: "ignore")
+      if (cmd === "command -v brew") throw new Error("not found");
+      if (typeof cmd === "string" && cmd.startsWith("command -v "))
+        return "/usr/bin/stub\n";
+      if (typeof cmd === "string" && cmd === "osascript")
+        return "";
+      return "";
+    });
+    vi.mocked(getConfig).mockReturnValue(undefined);
+
+    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("process.exit");
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
+
+    expect(mockExit).toHaveBeenCalledWith(1);
+    const errorMessages = errorSpy.mock.calls.map((c) => c[0] as string);
+    expect(errorMessages).toContainEqual(
+      expect.stringContaining("no known install method"),
+    );
+
+    mockExit.mockRestore();
+    errorSpy.mockRestore();
+  });
 });
 
 describe("command name validation", () => {
@@ -572,6 +602,33 @@ describe("input validation", () => {
     expect(opts.editorSize).toBe(60);
     expect(warnSpy).not.toHaveBeenCalled();
     warnSpy.mockRestore();
+  });
+});
+
+describe("osascript error handling", () => {
+  it("shows user-friendly error when osascript execution fails", async () => {
+    vi.mocked(getConfig).mockReturnValue(undefined);
+    mockExecSync.mockImplementation((cmd: string, opts?: Record<string, unknown>) => {
+      if (cmd === "osascript" && opts?.input) {
+        throw new Error("osascript execution failed");
+      }
+      if (typeof cmd === "string" && cmd.startsWith("command -v "))
+        return "/usr/bin/stub\n";
+      return "";
+    });
+
+    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("process.exit");
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
+    expect(mockExit).toHaveBeenCalledWith(1);
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Failed to execute workspace script"),
+    );
+    mockExit.mockRestore();
+    errorSpy.mockRestore();
   });
 });
 

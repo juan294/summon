@@ -98,6 +98,7 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 | `--editor-size <n>` | Override editor width percentage |
 | `--sidebar <cmd>` | Override sidebar command |
 | `--server <value>` | Server pane: `true`, `false`, or a command |
+| `--auto-resize` | **Experimental:** resize sidebar to match editor-size |
 | `-n, --dry-run` | Print generated AppleScript without executing |
 | `-h, --help` | Show help message |
 | `-v, --version` | Show version number |
@@ -112,6 +113,7 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 | `editor-size` | `75` | Width percentage for the editor grid |
 | `server` | `true` | Server pane: `true` (shell), `false` (none), or a command |
 | `layout` | | Default layout preset |
+| `auto-resize` | `false` | **Experimental:** auto-resize sidebar to match editor-size |
 
 Machine config is stored at `~/.config/summon/config`:
 

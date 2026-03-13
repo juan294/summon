@@ -28,6 +28,9 @@ docs/research/
 docs/decisions/
 docs/prs/
 
+# Local summon config
+.summon
+
 # Security-sensitive files
 .npmrc
 *.pem

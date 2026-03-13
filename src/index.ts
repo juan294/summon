@@ -31,6 +31,7 @@ Options:
   --editor-size <n>           Override editor width %
   --sidebar <cmd>             Override sidebar command
   --server <value>            Server pane: true, false, or a command
+  --auto-resize               Experimental: resize sidebar to match editor-size
   -n, --dry-run               Print generated AppleScript without executing
 
 Config keys:
@@ -40,6 +41,7 @@ Config keys:
   editor-size   Width % for editor grid (default: 75)
   server        Server pane toggle (default: true)
   layout        Default layout preset
+  auto-resize   Experimental: auto-resize sidebar (default: false)
 
 Layout presets:
   minimal       1 editor pane, no server
@@ -82,6 +84,7 @@ const parseOpts = {
     "editor-size": { type: "string" },
     sidebar: { type: "string" },
     server: { type: "string" },
+    "auto-resize": { type: "boolean" },
     "dry-run": { type: "boolean", short: "n" },
   },
 } as const;
@@ -165,9 +168,10 @@ switch (subcommand) {
       console.error("Usage: summon set <key> [value]");
       process.exit(1);
     }
-    const VALID_KEYS = ["editor", "sidebar", "panes", "editor-size", "server", "layout"];
+    const VALID_KEYS = ["editor", "sidebar", "panes", "editor-size", "server", "layout", "auto-resize"];
     if (!VALID_KEYS.includes(key)) {
-      console.warn(`Warning: unknown config key "${key}". Valid keys: ${VALID_KEYS.join(", ")}`);
+      console.error(`Unknown config key "${key}". Valid keys: ${VALID_KEYS.join(", ")}`);
+      process.exit(1);
     }
     setConfig(key, value ?? "");
     if (value) {
@@ -216,6 +220,7 @@ switch (subcommand) {
     if (values["editor-size"]) overrides["editor-size"] = values["editor-size"];
     if (values.sidebar) overrides.sidebar = values.sidebar;
     if (values.server) overrides.server = values.server;
+    if (values["auto-resize"]) overrides["auto-resize"] = "true";
     if (values["dry-run"]) overrides.dryRun = true;
 
     await launch(targetDir, overrides);

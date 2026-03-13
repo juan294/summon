@@ -5,6 +5,7 @@ export interface LayoutOptions {
   sidebarCommand: string;
   server: string;
   secondaryEditor: string;
+  autoResize: boolean;
 }
 
 const DEFAULT_OPTIONS: LayoutOptions = {
@@ -14,6 +15,7 @@ const DEFAULT_OPTIONS: LayoutOptions = {
   sidebarCommand: "lazygit",
   server: "true",
   secondaryEditor: "",
+  autoResize: false,
 };
 
 export interface LayoutPlan {
@@ -26,6 +28,7 @@ export interface LayoutPlan {
   hasServer: boolean;
   serverCommand: string | null;
   secondaryEditor: string | null;
+  autoResize: boolean;
 }
 
 function parseServer(value: string): { hasServer: boolean; serverCommand: string | null } {
@@ -70,5 +73,6 @@ export function planLayout(partial?: Partial<LayoutOptions>): LayoutPlan {
     hasServer,
     serverCommand,
     secondaryEditor: opts.secondaryEditor || null,
+    autoResize: opts.autoResize,
   };
 }

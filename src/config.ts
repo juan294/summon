@@ -6,10 +6,19 @@ const CONFIG_DIR = join(homedir(), ".config", "summon");
 const PROJECTS_FILE = join(CONFIG_DIR, "projects");
 const CONFIG_FILE = join(CONFIG_DIR, "config");
 
+let configEnsured = false;
+
 function ensureConfig(): void {
+  if (configEnsured) return;
   mkdirSync(CONFIG_DIR, { recursive: true });
   if (!existsSync(PROJECTS_FILE)) writeFileSync(PROJECTS_FILE, "");
   if (!existsSync(CONFIG_FILE)) writeFileSync(CONFIG_FILE, "editor=claude\n");
+  configEnsured = true;
+}
+
+/** Reset the ensureConfig cache — for test cleanup only. */
+export function resetConfigCache(): void {
+  configEnsured = false;
 }
 
 // --- Per-project config ---
@@ -33,7 +42,10 @@ function readKV(file: string): Map<string, string> {
 }
 
 function writeKV(file: string, map: Map<string, string>): void {
-  const lines = [...map.entries()].map(([k, v]) => `${k}=${v}`);
+  const lines = [...map.entries()].map(
+    ([k, v]) =>
+      `${k.replace(/[\n\r]/g, "")}=${v.replace(/[\n\r]/g, "")}`,
+  );
   writeFileSync(file, lines.join("\n") + "\n");
 }
 

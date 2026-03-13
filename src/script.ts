@@ -119,9 +119,24 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string): string
 
   blank();
 
-  // Root pane: send command via input text (buffered until summon exits)
+  // Root pane: cd into project directory, then launch editor
+  sendCommand("paneRoot", `cd "${targetDir}"`);
   if (editorCmd) {
     sendCommand("paneRoot", editorCmd);
+  }
+
+  // Experimental: auto-resize sidebar to match editorSize
+  if (plan.autoResize && plan.editorSize > 50) {
+    const fraction = (plan.editorSize - 50) / 100;
+    const resizePane = needsRightColumn ? "paneRightCol" : "paneRoot";
+    blank();
+    add(1, "-- Auto-resize sidebar (experimental)");
+    add(1, "delay 0.3");
+    add(1, "set windowBounds to bounds of win");
+    add(1, "set windowWidth to (item 3 of windowBounds) - (item 1 of windowBounds)");
+    add(1, `set resizeAmount to round (windowWidth * ${fraction})`);
+    add(1, `set resizeAction to "resize_split:right," & (resizeAmount as text)`);
+    add(1, `perform action resizeAction on ${resizePane}`);
   }
 
   blank();

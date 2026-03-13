@@ -69,6 +69,13 @@ describe("CLI integration", () => {
     expect(result.stderr).toContain("Usage: summon set");
   });
 
+  it("rejects unknown config key with exit code 1", () => {
+    const result = run("set", "bogus-key", "somevalue");
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("Unknown config key");
+    expect(result.stderr).toContain("bogus-key");
+  });
+
   it("shows empty project list", () => {
     const result = run("list");
     // May show projects or empty message depending on user's config
