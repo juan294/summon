@@ -8,6 +8,11 @@ function escapeAppleScript(s: string): string {
     .replace(/\r/g, "\\r");
 }
 
+/** POSIX single-quote escaping: wrap in single quotes, escape embedded single quotes. */
+function shellQuote(s: string): string {
+  return `'${s.replace(/'/g, "'\\''")}'`;
+}
+
 export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginShell = "/bin/bash"): string {
   const lines: string[] = [];
 
@@ -25,8 +30,7 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginSh
   // Wrap in the user's login shell so commands like npm can find their interpreters.
   // Input-text commands (root pane) run in an already-initialized shell — no wrapping needed.
   const wrapForConfig = (cmd: string): string => {
-    const escaped = cmd.replace(/'/g, "'\\''");
-    return `${loginShell} -lc '${escaped}'`;
+    return `${loginShell} -lc ${shellQuote(cmd)}`;
   };
 
   const setConfigCommand = (cmd: string) => {
@@ -128,7 +132,7 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginSh
   blank();
 
   // Root pane: cd into project directory, then launch editor
-  sendCommand("paneRoot", `cd "${targetDir}"`);
+  sendCommand("paneRoot", `cd ${shellQuote(targetDir)}`);
   if (editorCmd) {
     sendCommand("paneRoot", editorCmd);
   }
