@@ -304,10 +304,9 @@ describe("CLI integration", () => {
         env: { ...process.env, HOME: freshHome },
       });
       rmSync(freshHome, { recursive: true, force: true });
-      // The config file gets auto-created with editor=claude, so it won't be fully empty.
-      // But we should at least verify it succeeds and shows "Machine config:" header
+      // ensureConfig creates an empty config file, so listConfig() returns empty map
       expect(freshResult.status).toBe(0);
-      expect(freshResult.stdout).toContain("Machine config:");
+      expect(freshResult.stdout).toContain("No machine config set.");
     });
   });
 

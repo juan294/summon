@@ -31,6 +31,9 @@ docs/prs/
 # Local summon config
 .summon
 
+# Launch content (local only)
+content/
+
 # Security-sensitive files
 .npmrc
 *.pem

@@ -9,6 +9,7 @@ import {
   setConfig,
   removeConfig,
   listConfig,
+  isFirstRun,
 } from "./config.js";
 import { launch } from "./launcher.js";
 import type { CLIOverrides } from "./launcher.js";
@@ -20,6 +21,7 @@ summon -- Launch multi-pane Ghostty workspaces
 
 Usage:
   summon <target>             Launch workspace (project name, path, or '.')
+  summon setup                Configure workspace defaults interactively
   summon add <name> <path>    Register a project name -> path mapping
   summon remove <name>        Remove a registered project
   summon list                 List all registered projects
@@ -97,6 +99,12 @@ List all registered projects and their paths.`,
   config: `Usage: summon config
 
 Show all current machine-level configuration values.`,
+
+  setup: `Usage: summon setup
+
+Interactively configure your workspace defaults (editor, sidebar, layout, server).
+Settings are saved to ~/.config/summon/config.
+You can also set individual values with: summon set <key> <value>`,
 };
 
 function showHelp(): void {
@@ -171,6 +179,17 @@ if (values.version) {
 }
 
 const [subcommand, ...args] = positionals;
+
+// Auto-trigger setup wizard on first run (config file doesn't exist)
+if (isFirstRun() && process.stdin.isTTY) {
+  if (!subcommand || !(subcommand in SUBCOMMAND_HELP)) {
+    const { runSetup } = await import("./setup.js");
+    await runSetup();
+    if (!subcommand) {
+      process.exit(0);
+    }
+  }
+}
 
 if (values.help) {
   if (subcommand && subcommand in SUBCOMMAND_HELP) {
@@ -291,6 +310,12 @@ switch (subcommand) {
         }
       }
     }
+    break;
+  }
+
+  case "setup": {
+    const { runSetup } = await import("./setup.js");
+    await runSetup();
     break;
   }
 

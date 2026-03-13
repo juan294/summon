@@ -1,0 +1,709 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+// Mock child_process for tool detection
+const mockExecFileSync = vi.fn();
+vi.mock("node:child_process", () => ({
+  execFileSync: (...args: unknown[]) => mockExecFileSync(...args),
+}));
+
+// Mock readline for interactive input
+const mockQuestion = vi.fn();
+vi.mock("node:readline", () => ({
+  createInterface: () => ({
+    question: (_q: string, cb: (a: string) => void) => mockQuestion(_q, cb),
+    close: vi.fn(),
+  }),
+}));
+
+// Mock config for runSetup
+const mockSetConfig = vi.fn();
+vi.mock("./config.js", () => ({
+  setConfig: (key: string, value: string) => mockSetConfig(key, value),
+  listConfig: vi.fn(() => new Map<string, string>()),
+}));
+
+// Mock fs for validateSetup's Ghostty check
+const mockExistsSync = vi.fn((_path: string) => false);
+vi.mock("node:fs", () => ({
+  existsSync: (path: string) => mockExistsSync(path),
+}));
+
+// Import after mocks
+const {
+  resolveCommandPath,
+  detectTools,
+  numberedSelect,
+  textInput,
+  confirm,
+  bold,
+  dim,
+  green,
+  yellow,
+  cyan,
+  printBanner,
+  printSection,
+  // Phase 2 additions:
+  EDITOR_CATALOG,
+  SIDEBAR_CATALOG,
+  LAYOUT_INFO,
+  SAFE_COMMAND_RE,
+  selectLayout,
+  selectToolFromCatalog,
+  selectServer,
+  validateSetup,
+  runSetup,
+} = await import("./setup.js");
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  mockExecFileSync.mockImplementation(() => "/usr/bin/stub\n");
+});
+
+describe("resolveCommandPath", () => {
+  it("returns path when command is found", () => {
+    mockExecFileSync.mockReturnValue("/usr/bin/vim\n");
+    expect(resolveCommandPath("vim")).toBe("/usr/bin/vim");
+  });
+
+  it("returns null when command is not found", () => {
+    mockExecFileSync.mockImplementation(() => {
+      throw new Error("not found");
+    });
+    expect(resolveCommandPath("nonexistent")).toBeNull();
+  });
+
+  it("trims trailing newline from path", () => {
+    mockExecFileSync.mockReturnValue("/usr/local/bin/nvim\n");
+    expect(resolveCommandPath("nvim")).toBe("/usr/local/bin/nvim");
+  });
+});
+
+describe("detectTools", () => {
+  it("marks available tools with available: true", () => {
+    mockExecFileSync.mockReturnValue("/usr/bin/vim\n");
+    const result = detectTools([{ cmd: "vim", name: "Vim", desc: "Editor" }]);
+    expect(result[0]!.available).toBe(true);
+  });
+
+  it("marks missing tools with available: false", () => {
+    mockExecFileSync.mockImplementation(() => {
+      throw new Error("not found");
+    });
+    const result = detectTools([{ cmd: "vim", name: "Vim", desc: "Editor" }]);
+    expect(result[0]!.available).toBe(false);
+  });
+
+  it("handles empty catalog", () => {
+    expect(detectTools([])).toEqual([]);
+  });
+
+  it("handles all-missing catalog", () => {
+    mockExecFileSync.mockImplementation(() => {
+      throw new Error("not found");
+    });
+    const catalog = [
+      { cmd: "a", name: "A", desc: "a" },
+      { cmd: "b", name: "B", desc: "b" },
+    ];
+    const result = detectTools(catalog);
+    expect(result.every((t) => !t.available)).toBe(true);
+  });
+
+  it("handles all-available catalog", () => {
+    mockExecFileSync.mockReturnValue("/usr/bin/stub\n");
+    const catalog = [
+      { cmd: "a", name: "A", desc: "a" },
+      { cmd: "b", name: "B", desc: "b" },
+    ];
+    const result = detectTools(catalog);
+    expect(result.every((t) => t.available)).toBe(true);
+  });
+});
+
+describe("numberedSelect", () => {
+  it("returns index for valid selection", async () => {
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) =>
+      cb("2"),
+    );
+    const options = [
+      { label: "A", value: "a" },
+      { label: "B", value: "b" },
+    ];
+    const result = await numberedSelect(options, "Pick: ");
+    expect(result).toBe(1); // 0-based index for selection "2"
+  });
+
+  it("uses default when input is empty", async () => {
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) =>
+      cb(""),
+    );
+    const options = [
+      { label: "A", value: "a" },
+      { label: "B", value: "b" },
+    ];
+    const result = await numberedSelect(options, "Pick: ", 1);
+    expect(result).toBe(1);
+  });
+
+  it("re-prompts on out-of-range input", async () => {
+    let callCount = 0;
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      callCount++;
+      if (callCount === 1) cb("5"); // out of range
+      else cb("1");
+    });
+    const options = [
+      { label: "A", value: "a" },
+      { label: "B", value: "b" },
+    ];
+    const result = await numberedSelect(options, "Pick: ");
+    expect(result).toBe(0);
+    expect(callCount).toBe(2);
+  });
+
+  it("re-prompts on non-numeric input", async () => {
+    let callCount = 0;
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      callCount++;
+      if (callCount === 1) cb("abc");
+      else cb("1");
+    });
+    const options = [
+      { label: "A", value: "a" },
+      { label: "B", value: "b" },
+    ];
+    const result = await numberedSelect(options, "Pick: ");
+    expect(result).toBe(0);
+    expect(callCount).toBe(2);
+  });
+
+  it("handles single option", async () => {
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) =>
+      cb("1"),
+    );
+    const options = [{ label: "Only", value: "only" }];
+    const result = await numberedSelect(options, "Pick: ");
+    expect(result).toBe(0);
+  });
+});
+
+describe("textInput", () => {
+  it("returns user input", async () => {
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) =>
+      cb("hello"),
+    );
+    const result = await textInput("Name: ");
+    expect(result).toBe("hello");
+  });
+
+  it("returns default when input is empty", async () => {
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) =>
+      cb(""),
+    );
+    const result = await textInput("Name: ", "world");
+    expect(result).toBe("world");
+  });
+
+  it("trims whitespace from input", async () => {
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) =>
+      cb("  hello  "),
+    );
+    const result = await textInput("Name: ");
+    expect(result).toBe("hello");
+  });
+});
+
+describe("confirm", () => {
+  it("returns true for 'y'", async () => {
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) =>
+      cb("y"),
+    );
+    expect(await confirm("OK?")).toBe(true);
+  });
+
+  it("returns true for 'yes'", async () => {
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) =>
+      cb("yes"),
+    );
+    expect(await confirm("OK?")).toBe(true);
+  });
+
+  it("returns true for empty input (default yes)", async () => {
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) =>
+      cb(""),
+    );
+    expect(await confirm("OK?")).toBe(true);
+  });
+
+  it("returns false for 'n'", async () => {
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) =>
+      cb("n"),
+    );
+    expect(await confirm("OK?")).toBe(false);
+  });
+
+  it("returns false for 'no'", async () => {
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) =>
+      cb("no"),
+    );
+    expect(await confirm("OK?")).toBe(false);
+  });
+
+  it("is case-insensitive", async () => {
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) =>
+      cb("YES"),
+    );
+    expect(await confirm("OK?")).toBe(true);
+  });
+});
+
+describe("ANSI helpers", () => {
+  it("bold wraps string in ANSI bold codes when color enabled", () => {
+    // In test env, process.stdout.isTTY may be falsy, so bold may return plain
+    // We test the function exists and returns a string containing the input
+    const result = bold("test");
+    expect(result).toContain("test");
+  });
+
+  it("returns plain string when NO_COLOR is set", () => {
+    // Since useColor is set at module load and tests run in non-TTY,
+    // the ANSI functions should return plain strings
+    expect(bold("test")).toBe("test");
+    expect(dim("test")).toBe("test");
+    expect(green("test")).toBe("test");
+    expect(yellow("test")).toBe("test");
+    expect(cyan("test")).toBe("test");
+  });
+});
+
+describe("printBanner", () => {
+  it("prints a boxed banner with correct box-drawing characters", () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    printBanner(["Hello", "World"]);
+
+    const output = logSpy.mock.calls.map((c) => c[0] as string);
+    // Top border should contain ╭ and ╮
+    expect(output[0]).toContain("╭");
+    expect(output[0]).toContain("╮");
+    // Content lines should contain │
+    expect(output[1]).toContain("│");
+    expect(output[1]).toContain("Hello");
+    expect(output[2]).toContain("│");
+    expect(output[2]).toContain("World");
+    // Bottom border should contain ╰ and ╯
+    expect(output[3]).toContain("╰");
+    expect(output[3]).toContain("╯");
+
+    logSpy.mockRestore();
+  });
+});
+
+describe("printSection", () => {
+  it("prints a section header with dashes and title", () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    printSection("Editor");
+
+    const output = logSpy.mock.calls[0]![0] as string;
+    expect(output).toContain("Editor");
+    expect(output).toContain("──");
+
+    logSpy.mockRestore();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 2 Tests
+// ---------------------------------------------------------------------------
+
+describe("EDITOR_CATALOG", () => {
+  it("contains at least 5 editor entries", () => {
+    expect(EDITOR_CATALOG.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it("each entry has cmd, name, desc fields", () => {
+    for (const entry of EDITOR_CATALOG) {
+      expect(entry.cmd).toBeTruthy();
+      expect(entry.name).toBeTruthy();
+      expect(entry.desc).toBeTruthy();
+    }
+  });
+
+  it("all cmd values match SAFE_COMMAND_RE", () => {
+    for (const entry of EDITOR_CATALOG) {
+      expect(SAFE_COMMAND_RE.test(entry.cmd)).toBe(true);
+    }
+  });
+});
+
+describe("SIDEBAR_CATALOG", () => {
+  it("contains at least 3 sidebar entries", () => {
+    expect(SIDEBAR_CATALOG.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("each entry has cmd, name, desc fields", () => {
+    for (const entry of SIDEBAR_CATALOG) {
+      expect(entry.cmd).toBeTruthy();
+      expect(entry.name).toBeTruthy();
+      expect(entry.desc).toBeTruthy();
+    }
+  });
+});
+
+describe("LAYOUT_INFO", () => {
+  it("has entries for all 5 presets", () => {
+    expect(Object.keys(LAYOUT_INFO)).toEqual(
+      expect.arrayContaining(["minimal", "pair", "full", "cli", "mtop"]),
+    );
+    expect(Object.keys(LAYOUT_INFO)).toHaveLength(5);
+  });
+
+  it("each entry has desc and diagram fields", () => {
+    for (const [, info] of Object.entries(LAYOUT_INFO)) {
+      expect(info.desc).toBeTruthy();
+      expect(info.diagram).toBeTruthy();
+      expect(info.diagram).toContain("┌");
+    }
+  });
+});
+
+describe("selectLayout", () => {
+  it("returns preset name for valid selection", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) =>
+      cb("1"),
+    );
+    const result = await selectLayout();
+    expect(result).toBe("minimal");
+    logSpy.mockRestore();
+  });
+
+  it("returns 'pair' for default (empty input)", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) =>
+      cb(""),
+    );
+    const result = await selectLayout();
+    expect(result).toBe("pair");
+    logSpy.mockRestore();
+  });
+});
+
+describe("selectToolFromCatalog", () => {
+  it("returns detected tool when selected by number", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    // All tools detected (default mock returns path)
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) =>
+      cb("1"),
+    );
+    const result = await selectToolFromCatalog(
+      [
+        { cmd: "vim", name: "Vim", desc: "Editor" },
+        { cmd: "nano", name: "Nano", desc: "Simple" },
+      ],
+      "Editor",
+      "vim",
+    );
+    expect(result).toBe("vim");
+    logSpy.mockRestore();
+  });
+
+  it("returns custom command when 'c' is selected", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    let callCount = 0;
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      callCount++;
+      if (callCount === 1) cb("c");
+      else cb("my-editor");
+    });
+    const result = await selectToolFromCatalog(
+      [{ cmd: "vim", name: "Vim", desc: "Editor" }],
+      "Editor",
+      "vim",
+    );
+    expect(result).toBe("my-editor");
+    logSpy.mockRestore();
+  });
+
+  it("sorts detected tools before undetected", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    // Make "nano" available but "vim" not
+    mockExecFileSync.mockImplementation((_bin: string, args?: string[]) => {
+      if (Array.isArray(args) && args[3] === "nano") return "/usr/bin/nano\n";
+      throw new Error("not found");
+    });
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) =>
+      cb("1"),
+    );
+    const result = await selectToolFromCatalog(
+      [
+        { cmd: "vim", name: "Vim", desc: "Editor" },
+        { cmd: "nano", name: "Nano", desc: "Simple" },
+      ],
+      "Editor",
+      "vim",
+    );
+    // First option should be nano (detected), so selecting "1" gives nano
+    expect(result).toBe("nano");
+    logSpy.mockRestore();
+  });
+
+  it("defaults to first detected tool", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    // Make "nano" available but "vim" not
+    mockExecFileSync.mockImplementation((_bin: string, args?: string[]) => {
+      if (Array.isArray(args) && args[3] === "nano") return "/usr/bin/nano\n";
+      throw new Error("not found");
+    });
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) =>
+      cb(""),
+    );
+    const result = await selectToolFromCatalog(
+      [
+        { cmd: "vim", name: "Vim", desc: "Editor" },
+        { cmd: "nano", name: "Nano", desc: "Simple" },
+      ],
+      "Editor",
+      "vim",
+    );
+    expect(result).toBe("nano");
+    logSpy.mockRestore();
+  });
+
+  it("defaults to fallback when no tools detected", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockExecFileSync.mockImplementation(() => {
+      throw new Error("not found");
+    });
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) =>
+      cb(""),
+    );
+    const result = await selectToolFromCatalog(
+      [
+        { cmd: "vim", name: "Vim", desc: "Editor" },
+        { cmd: "nano", name: "Nano", desc: "Simple" },
+      ],
+      "Editor",
+      "claude",
+    );
+    expect(result).toBe("claude");
+    logSpy.mockRestore();
+  });
+});
+
+describe("selectServer", () => {
+  it("returns 'true' for Shell selection", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) =>
+      cb("1"),
+    );
+    const result = await selectServer();
+    expect(result).toBe("true");
+    logSpy.mockRestore();
+  });
+
+  it("returns 'false' for Disabled selection", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) =>
+      cb("2"),
+    );
+    const result = await selectServer();
+    expect(result).toBe("false");
+    logSpy.mockRestore();
+  });
+
+  it("returns command string for Custom selection", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    let callCount = 0;
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      callCount++;
+      if (callCount === 1) cb("3"); // Select "Command"
+      else cb("npm run dev"); // Enter custom command
+    });
+    const result = await selectServer();
+    expect(result).toBe("npm run dev");
+    logSpy.mockRestore();
+  });
+
+  it("defaults to 'true' (Shell)", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) =>
+      cb(""),
+    );
+    const result = await selectServer();
+    expect(result).toBe("true");
+    logSpy.mockRestore();
+  });
+});
+
+describe("validateSetup", () => {
+  it("returns no warnings when all tools are available", () => {
+    mockExecFileSync.mockReturnValue("/usr/bin/stub\n");
+    mockExistsSync.mockReturnValue(true);
+    const result = validateSetup({
+      layout: "pair",
+      editor: "vim",
+      sidebar: "lazygit",
+      server: "true",
+    });
+    expect(result.warnings).toHaveLength(0);
+    expect(result.ghosttyFound).toBe(true);
+  });
+
+  it("returns warning for missing editor", () => {
+    mockExecFileSync.mockImplementation((_bin: string, args?: string[]) => {
+      if (Array.isArray(args) && args[3] === "vim") throw new Error("not found");
+      return "/usr/bin/stub\n";
+    });
+    mockExistsSync.mockReturnValue(true);
+    const result = validateSetup({
+      layout: "pair",
+      editor: "vim",
+      sidebar: "lazygit",
+      server: "true",
+    });
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]!.key).toBe("editor");
+    expect(result.warnings[0]!.cmd).toBe("vim");
+  });
+
+  it("returns warning for missing sidebar", () => {
+    mockExecFileSync.mockImplementation((_bin: string, args?: string[]) => {
+      if (Array.isArray(args) && args[3] === "lazygit")
+        throw new Error("not found");
+      return "/usr/bin/stub\n";
+    });
+    mockExistsSync.mockReturnValue(true);
+    const result = validateSetup({
+      layout: "pair",
+      editor: "vim",
+      sidebar: "lazygit",
+      server: "true",
+    });
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]!.key).toBe("sidebar");
+  });
+
+  it("returns warning for missing server command", () => {
+    mockExecFileSync.mockImplementation((_bin: string, args?: string[]) => {
+      if (Array.isArray(args) && args[3] === "npm")
+        throw new Error("not found");
+      return "/usr/bin/stub\n";
+    });
+    mockExistsSync.mockReturnValue(true);
+    const result = validateSetup({
+      layout: "pair",
+      editor: "vim",
+      sidebar: "lazygit",
+      server: "npm run dev",
+    });
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]!.key).toBe("server");
+    expect(result.warnings[0]!.cmd).toBe("npm");
+  });
+
+  it("skips validation for server='true' and server='false'", () => {
+    mockExecFileSync.mockReturnValue("/usr/bin/stub\n");
+    mockExistsSync.mockReturnValue(true);
+    const trueResult = validateSetup({
+      layout: "pair",
+      editor: "vim",
+      sidebar: "lazygit",
+      server: "true",
+    });
+    const falseResult = validateSetup({
+      layout: "pair",
+      editor: "vim",
+      sidebar: "lazygit",
+      server: "false",
+    });
+    expect(trueResult.warnings).toHaveLength(0);
+    expect(falseResult.warnings).toHaveLength(0);
+  });
+
+  it("includes install hint when available", () => {
+    mockExecFileSync.mockImplementation((_bin: string, args?: string[]) => {
+      if (Array.isArray(args) && args[3] === "lazygit")
+        throw new Error("not found");
+      return "/usr/bin/stub\n";
+    });
+    mockExistsSync.mockReturnValue(true);
+    const result = validateSetup({
+      layout: "pair",
+      editor: "vim",
+      sidebar: "lazygit",
+      server: "true",
+    });
+    expect(result.warnings[0]!.installHint).toBe("brew install lazygit");
+  });
+
+  it("reports ghosttyFound correctly", () => {
+    mockExecFileSync.mockReturnValue("/usr/bin/stub\n");
+    mockExistsSync.mockReturnValue(false);
+    const result = validateSetup({
+      layout: "pair",
+      editor: "vim",
+      sidebar: "lazygit",
+      server: "true",
+    });
+    expect(result.ghosttyFound).toBe(false);
+  });
+});
+
+describe("runSetup", () => {
+  it("saves all settings to config on completion", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      const q = _q;
+      // Confirm prompt contains [Y/n]
+      if (q.includes("[Y/n]")) {
+        cb("y");
+      } else {
+        cb("1"); // Select first option for all selection prompts
+      }
+    });
+
+    const origIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", {
+      value: true,
+      writable: true,
+    });
+
+    await runSetup();
+
+    expect(mockSetConfig).toHaveBeenCalledWith("layout", "minimal"); // "1" selects minimal
+    expect(mockSetConfig).toHaveBeenCalledWith("editor", expect.any(String));
+    expect(mockSetConfig).toHaveBeenCalledWith("sidebar", expect.any(String));
+    expect(mockSetConfig).toHaveBeenCalledWith("server", expect.any(String));
+
+    Object.defineProperty(process.stdin, "isTTY", {
+      value: origIsTTY,
+      writable: true,
+    });
+    logSpy.mockRestore();
+  });
+
+  it("skips server step for minimal layout", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      if (_q.includes("[Y/n]")) cb("y");
+      else cb("1"); // First option (minimal for layout)
+    });
+
+    const origIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", {
+      value: true,
+      writable: true,
+    });
+
+    await runSetup();
+
+    // Server should be "false" for minimal
+    expect(mockSetConfig).toHaveBeenCalledWith("server", "false");
+
+    Object.defineProperty(process.stdin, "isTTY", {
+      value: origIsTTY,
+      writable: true,
+    });
+    logSpy.mockRestore();
+  });
+});

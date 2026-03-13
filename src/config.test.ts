@@ -10,6 +10,7 @@ import {
   listConfig,
   readKVFile,
   resetConfigCache,
+  isFirstRun,
 } from "./config.js";
 
 // Mock the filesystem — config.ts uses module-level constants derived from
@@ -225,5 +226,34 @@ describe("writeKV newline sanitization (#26)", () => {
   it("strips newlines from project names and paths", () => {
     addProject("my\napp", "/home/\nuser/app");
     expect(getProject("myapp")).toBe("/home/user/app");
+  });
+});
+
+describe("isFirstRun", () => {
+  it("returns true when config file does not exist", () => {
+    // store is empty after beforeEach clear + resetConfigCache
+    expect(isFirstRun()).toBe(true);
+  });
+
+  it("returns false when config file exists", () => {
+    setConfig("editor", "vim"); // triggers ensureConfig, creates config file
+    expect(isFirstRun()).toBe(false);
+  });
+
+  it("does not create config file as side effect", async () => {
+    const store = await getStore();
+    const sizeBefore = store.size;
+    isFirstRun();
+    expect(store.size).toBe(sizeBefore);
+  });
+});
+
+describe("ensureConfig initial content", () => {
+  it("creates empty config file on first run", async () => {
+    const store = await getStore();
+    getConfig("editor"); // triggers ensureConfig
+    const configPath = [...store.keys()].find((k) => k.endsWith("/config"));
+    expect(configPath).toBeDefined();
+    expect(store.get(configPath!)).toBe("");
   });
 });
