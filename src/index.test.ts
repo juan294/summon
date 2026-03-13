@@ -256,11 +256,19 @@ describe("CLI integration", () => {
   });
 
   // #43: `summon set` treats "0" as removal due to truthiness check
+  // Updated for #68: panes=0 is now rejected by validation (min is 1)
   describe("set value '0' truthiness (#43)", () => {
-    it("stores and confirms value '0' instead of showing empty hint", () => {
+    it("rejects panes '0' with validation error (#68 supersedes)", () => {
       const result = run("set", "panes", "0");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("Error:");
+      expect(result.stderr).toContain("panes");
+    });
+
+    it("stores and confirms value '0' for editor (no numeric validation)", () => {
+      const result = run("set", "editor", "0");
       expect(result.status).toBe(0);
-      expect(result.stdout).toContain("Set panes");
+      expect(result.stdout).toContain("Set editor");
       expect(result.stdout).toContain("0");
       expect(result.stdout).not.toContain("empty");
       expect(result.stdout).not.toContain("default");
@@ -352,19 +360,20 @@ describe("CLI integration", () => {
           cwd: PROJECT_ROOT,
           env: { ...process.env, HOME: freshHome },
         });
-      runFresh("set", "panes", "0");
+      // Use "editor" key — it accepts any string value including "0"
+      runFresh("set", "editor", "0");
       const result = runFresh("config");
       rmSync(freshHome, { recursive: true, force: true });
       expect(result.status).toBe(0);
       const lines = result.stdout.split("\n");
-      const panesLine = lines.find((l: string) =>
-        l.trimStart().startsWith("panes"),
+      const editorLine = lines.find((l: string) =>
+        l.trimStart().startsWith("editor"),
       );
-      expect(panesLine).toBeDefined();
+      expect(editorLine).toBeDefined();
       // The actual value "0" must appear, not the fallback labels
-      expect(panesLine).toContain("→ 0");
-      expect(panesLine).not.toContain("(empty)");
-      expect(panesLine).not.toContain("(plain shell)");
+      expect(editorLine).toContain("→ 0");
+      expect(editorLine).not.toContain("(empty)");
+      expect(editorLine).not.toContain("(plain shell)");
     });
   });
 
@@ -380,6 +389,100 @@ describe("CLI integration", () => {
       expect(result.status).toBe(0);
       expect(result.stdout).toContain("bogus-key");
       expect(result.stdout).toContain("unknown key");
+    });
+  });
+
+  // #68: validate panes/editor-size/layout/auto-resize in set subcommand
+  describe("set value validation (#68)", () => {
+    describe("panes validation", () => {
+      it("rejects non-numeric panes value", () => {
+        const result = run("set", "panes", "abc");
+        expect(result.status).toBe(1);
+        expect(result.stderr).toContain("Error:");
+        expect(result.stderr).toContain("panes");
+        expect(result.stderr).toContain("positive integer");
+      });
+
+      it("rejects zero panes", () => {
+        const result = run("set", "panes", "0");
+        expect(result.status).toBe(1);
+        expect(result.stderr).toContain("Error:");
+        expect(result.stderr).toContain("panes");
+      });
+
+      it("accepts valid panes value", () => {
+        const result = run("set", "panes", "3");
+        expect(result.status).toBe(0);
+        expect(result.stdout).toContain("Set panes");
+      });
+    });
+
+    describe("editor-size validation", () => {
+      it("rejects non-numeric editor-size value", () => {
+        const result = run("set", "editor-size", "abc");
+        expect(result.status).toBe(1);
+        expect(result.stderr).toContain("Error:");
+        expect(result.stderr).toContain("editor-size");
+      });
+
+      it("rejects out-of-range editor-size value", () => {
+        const result = run("set", "editor-size", "200");
+        expect(result.status).toBe(1);
+        expect(result.stderr).toContain("Error:");
+        expect(result.stderr).toContain("editor-size");
+      });
+
+      it("rejects zero editor-size", () => {
+        const result = run("set", "editor-size", "0");
+        expect(result.status).toBe(1);
+        expect(result.stderr).toContain("Error:");
+        expect(result.stderr).toContain("editor-size");
+      });
+
+      it("accepts valid editor-size value", () => {
+        const result = run("set", "editor-size", "75");
+        expect(result.status).toBe(0);
+        expect(result.stdout).toContain("Set editor-size");
+      });
+    });
+
+    describe("layout validation", () => {
+      it("rejects invalid layout preset", () => {
+        const result = run("set", "layout", "bogus");
+        expect(result.status).toBe(1);
+        expect(result.stderr).toContain("Error:");
+        expect(result.stderr).toContain("layout");
+        expect(result.stderr).toContain("bogus");
+        expect(result.stderr).toContain("Valid presets:");
+      });
+
+      it("accepts valid layout preset", () => {
+        const result = run("set", "layout", "minimal");
+        expect(result.status).toBe(0);
+        expect(result.stdout).toContain("Set layout");
+      });
+    });
+
+    describe("auto-resize validation", () => {
+      it("rejects non-boolean auto-resize value", () => {
+        const result = run("set", "auto-resize", "yes");
+        expect(result.status).toBe(1);
+        expect(result.stderr).toContain("Error:");
+        expect(result.stderr).toContain("auto-resize");
+        expect(result.stderr).toContain('"true" or "false"');
+      });
+
+      it("accepts 'true' for auto-resize", () => {
+        const result = run("set", "auto-resize", "true");
+        expect(result.status).toBe(0);
+        expect(result.stdout).toContain("Set auto-resize");
+      });
+
+      it("accepts 'false' for auto-resize", () => {
+        const result = run("set", "auto-resize", "false");
+        expect(result.status).toBe(0);
+        expect(result.stdout).toContain("Set auto-resize");
+      });
     });
   });
 
