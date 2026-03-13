@@ -55,7 +55,7 @@ const {
   SAFE_COMMAND_RE,
   selectLayout,
   selectToolFromCatalog,
-  selectServer,
+  selectShell,
   validateSetup,
   runSetup,
 } = await import("./setup.js");
@@ -617,13 +617,13 @@ describe("selectToolFromCatalog", () => {
   });
 });
 
-describe("selectServer", () => {
+describe("selectShell", () => {
   it("returns 'true' for Shell selection", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) =>
       cb("1"),
     );
-    const result = await selectServer();
+    const result = await selectShell();
     expect(result).toBe("true");
     logSpy.mockRestore();
   });
@@ -633,7 +633,7 @@ describe("selectServer", () => {
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) =>
       cb("2"),
     );
-    const result = await selectServer();
+    const result = await selectShell();
     expect(result).toBe("false");
     logSpy.mockRestore();
   });
@@ -646,7 +646,7 @@ describe("selectServer", () => {
       if (callCount === 1) cb("3"); // Select "Command"
       else cb("npm run dev"); // Enter custom command
     });
-    const result = await selectServer();
+    const result = await selectShell();
     expect(result).toBe("npm run dev");
     logSpy.mockRestore();
   });
@@ -656,7 +656,7 @@ describe("selectServer", () => {
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) =>
       cb(""),
     );
-    const result = await selectServer();
+    const result = await selectShell();
     expect(result).toBe("true");
     logSpy.mockRestore();
   });
@@ -670,7 +670,7 @@ describe("validateSetup", () => {
       layout: "pair",
       editor: "vim",
       sidebar: "lazygit",
-      server: "true",
+      shell: "true",
     });
     expect(result.warnings).toHaveLength(0);
     expect(result.ghosttyFound).toBe(true);
@@ -686,7 +686,7 @@ describe("validateSetup", () => {
       layout: "pair",
       editor: "vim",
       sidebar: "lazygit",
-      server: "true",
+      shell: "true",
     });
     expect(result.warnings).toHaveLength(1);
     expect(result.warnings[0]!.key).toBe("editor");
@@ -704,13 +704,13 @@ describe("validateSetup", () => {
       layout: "pair",
       editor: "vim",
       sidebar: "lazygit",
-      server: "true",
+      shell: "true",
     });
     expect(result.warnings).toHaveLength(1);
     expect(result.warnings[0]!.key).toBe("sidebar");
   });
 
-  it("returns warning for missing server command", () => {
+  it("returns warning for missing shell command", () => {
     mockExecFileSync.mockImplementation((_bin: string, args?: string[]) => {
       if (Array.isArray(args) && args[3] === "npm")
         throw new Error("not found");
@@ -721,27 +721,27 @@ describe("validateSetup", () => {
       layout: "pair",
       editor: "vim",
       sidebar: "lazygit",
-      server: "npm run dev",
+      shell: "npm run dev",
     });
     expect(result.warnings).toHaveLength(1);
-    expect(result.warnings[0]!.key).toBe("server");
+    expect(result.warnings[0]!.key).toBe("shell");
     expect(result.warnings[0]!.cmd).toBe("npm");
   });
 
-  it("skips validation for server='true' and server='false'", () => {
+  it("skips validation for shell='true' and shell='false'", () => {
     mockExecFileSync.mockReturnValue("/usr/bin/stub\n");
     mockExistsSync.mockReturnValue(true);
     const trueResult = validateSetup({
       layout: "pair",
       editor: "vim",
       sidebar: "lazygit",
-      server: "true",
+      shell: "true",
     });
     const falseResult = validateSetup({
       layout: "pair",
       editor: "vim",
       sidebar: "lazygit",
-      server: "false",
+      shell: "false",
     });
     expect(trueResult.warnings).toHaveLength(0);
     expect(falseResult.warnings).toHaveLength(0);
@@ -758,7 +758,7 @@ describe("validateSetup", () => {
       layout: "pair",
       editor: "vim",
       sidebar: "lazygit",
-      server: "true",
+      shell: "true",
     });
     expect(result.warnings[0]!.installHint).toBe("brew install lazygit");
   });
@@ -770,7 +770,7 @@ describe("validateSetup", () => {
       layout: "pair",
       editor: "vim",
       sidebar: "lazygit",
-      server: "true",
+      shell: "true",
     });
     expect(result.ghosttyFound).toBe(false);
   });
@@ -906,7 +906,7 @@ describe("runSetup", () => {
     expect(mockSetConfig).toHaveBeenCalledWith("layout", "minimal"); // "1" selects minimal
     expect(mockSetConfig).toHaveBeenCalledWith("editor", expect.any(String));
     expect(mockSetConfig).toHaveBeenCalledWith("sidebar", expect.any(String));
-    expect(mockSetConfig).toHaveBeenCalledWith("server", expect.any(String));
+    expect(mockSetConfig).toHaveBeenCalledWith("shell", expect.any(String));
 
     Object.defineProperty(process.stdin, "isTTY", {
       value: origIsTTY,
@@ -915,7 +915,7 @@ describe("runSetup", () => {
     logSpy.mockRestore();
   });
 
-  it("skips server step for minimal layout", async () => {
+  it("skips shell step for minimal layout", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
       if (_q.includes("[Y/n]")) cb("y");
@@ -930,8 +930,8 @@ describe("runSetup", () => {
 
     await runSetup();
 
-    // Server should be "false" for minimal
-    expect(mockSetConfig).toHaveBeenCalledWith("server", "false");
+    // Shell should be "false" for minimal
+    expect(mockSetConfig).toHaveBeenCalledWith("shell", "false");
 
     Object.defineProperty(process.stdin, "isTTY", {
       value: origIsTTY,
@@ -1010,7 +1010,7 @@ describe("runSetup", () => {
     logSpy.mockRestore();
   });
 
-  it("prints dim message when minimal layout skips server", async () => {
+  it("prints dim message when minimal layout skips shell", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
       if (_q.includes("[Y/n]")) cb("y");
@@ -1027,7 +1027,7 @@ describe("runSetup", () => {
 
     const allOutput = logSpy.mock.calls.map((c) => String(c[0]));
     expect(
-      allOutput.some((s) => s.includes("Minimal layout has no server pane")),
+      allOutput.some((s) => s.includes("Minimal layout has no shell pane")),
     ).toBe(true);
 
     Object.defineProperty(process.stdin, "isTTY", {
@@ -1080,6 +1080,101 @@ describe("runSetup", () => {
 
     const allOutput = logSpy.mock.calls.map((c) => String(c[0]));
     expect(allOutput.some((s) => s.includes("Tip:"))).toBe(true);
+
+    Object.defineProperty(process.stdin, "isTTY", {
+      value: origIsTTY,
+      writable: true,
+    });
+    logSpy.mockRestore();
+  });
+
+  it("prints 'enabled (plain shell)' in summary for non-minimal layout with shell=true", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockExecFileSync.mockReturnValue("/usr/bin/stub\n");
+    mockExistsSync.mockReturnValue(true);
+
+    // runSetup question sequence for pair layout:
+    // 1. selectLayout (numberedSelect) → "Select [1-5]" → "2" (pair)
+    // 2. selectEditor (selectToolFromCatalog) → "Select (default:" → "1"
+    // 3. selectSidebar (selectToolFromCatalog) → "Select (default:" → "1"
+    // 4. selectShell (numberedSelect) → "Select [1-3]" → "1" (plain shell)
+    // 5. confirm → "[Y/n]" → "y"
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      if (_q.includes("[Y/n]")) {
+        cb("y");
+      } else if (_q.includes("Select [1-5]")) {
+        cb("2"); // pair layout
+      } else if (_q.includes("Select [1-3]")) {
+        cb("1"); // plain shell
+      } else {
+        cb("1"); // editor and sidebar selections
+      }
+    });
+
+    const origIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", {
+      value: true,
+      writable: true,
+    });
+
+    await runSetup();
+
+    const allOutput = logSpy.mock.calls.map((c) => String(c[0]));
+    // printSummary should show "enabled" and "plain shell" for shell="true"
+    expect(
+      allOutput.some((s) => s.includes("enabled") && s.includes("plain shell")),
+    ).toBe(true);
+    // Shell config should be saved as "true"
+    expect(mockSetConfig).toHaveBeenCalledWith("shell", "true");
+
+    Object.defineProperty(process.stdin, "isTTY", {
+      value: origIsTTY,
+      writable: true,
+    });
+    logSpy.mockRestore();
+  });
+
+  it("prints custom shell command in summary for non-minimal layout with shell command", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockExecFileSync.mockReturnValue("/usr/bin/stub\n");
+    mockExistsSync.mockReturnValue(true);
+
+    // runSetup question sequence for pair layout with custom shell:
+    // 1. selectLayout (numberedSelect) → "Select [1-5]" → "2" (pair)
+    // 2. selectEditor (selectToolFromCatalog) → "Select (default:" → "1"
+    // 3. selectSidebar (selectToolFromCatalog) → "Select (default:" → "1"
+    // 4. selectShell (numberedSelect) → "Select [1-3]" → "3" (command)
+    // 5. textInput → "Enter shell command" → "npm run dev"
+    // 6. confirm → "[Y/n]" → "y"
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      if (_q.includes("[Y/n]")) {
+        cb("y");
+      } else if (_q.includes("Select [1-5]")) {
+        cb("2"); // pair layout
+      } else if (_q.includes("Select [1-3]")) {
+        cb("3"); // custom command
+      } else if (_q.includes("Enter shell command")) {
+        cb("npm run dev");
+      } else {
+        cb("1"); // editor and sidebar selections
+      }
+    });
+
+    const origIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", {
+      value: true,
+      writable: true,
+    });
+
+    await runSetup();
+
+    const allOutput = logSpy.mock.calls.map((c) => String(c[0]));
+    // printSummary should show the custom shell command
+    expect(
+      allOutput.some((s) => s.includes("Shell:") && s.includes("npm run dev")),
+    ).toBe(true);
+    // Shell config should be saved as the custom command
+    expect(mockSetConfig).toHaveBeenCalledWith("shell", "npm run dev");
 
     Object.defineProperty(process.stdin, "isTTY", {
       value: origIsTTY,

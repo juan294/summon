@@ -172,8 +172,6 @@ export async function numberedSelect(
   promptText: string,
   defaultIdx?: number,
 ): Promise<number> {
-  const { createInterface } = await import("node:readline");
-
   // Display options
   for (let i = 0; i < options.length; i++) {
     const opt = options[i]!;
@@ -182,35 +180,25 @@ export async function numberedSelect(
     console.log(`${marker}${i + 1}) ${opt.label}${detail}`);
   }
 
-  const ask = (): Promise<number> =>
-    new Promise((resolve) => {
-      const rl = createInterface({
-        input: process.stdin,
-        output: process.stdout,
-      });
-      rl.question(promptText, (answer: string) => {
-        rl.close();
-        const trimmed = answer.trim();
+  const ask = async (): Promise<number> => {
+    const trimmed = await promptUser(promptText);
 
-        if (trimmed === "" && defaultIdx !== undefined) {
-          resolve(defaultIdx);
-          return;
-        }
+    if (trimmed === "" && defaultIdx !== undefined) {
+      return defaultIdx;
+    }
 
-        const num = parseInt(trimmed, 10);
-        if (Number.isNaN(num) || num < 1 || num > options.length) {
-          console.log(
-            yellow(
-              `  Invalid selection. Please enter a number between 1 and ${options.length}.`,
-            ),
-          );
-          resolve(ask());
-          return;
-        }
+    const num = parseInt(trimmed, 10);
+    if (Number.isNaN(num) || num < 1 || num > options.length) {
+      console.log(
+        yellow(
+          `  Invalid selection. Please enter a number between 1 and ${options.length}.`,
+        ),
+      );
+      return ask();
+    }
 
-        resolve(num - 1);
-      });
-    });
+    return num - 1;
+  };
 
   return ask();
 }
@@ -244,32 +232,20 @@ export async function textInput(
  * Returns boolean.
  */
 export async function confirm(question: string): Promise<boolean> {
-  const { createInterface } = await import("node:readline");
+  const ask = async (): Promise<boolean> => {
+    const trimmed = (await promptUser(`${question} [Y/n] `)).toLowerCase();
 
-  const ask = (): Promise<boolean> =>
-    new Promise((resolve) => {
-      const rl = createInterface({
-        input: process.stdin,
-        output: process.stdout,
-      });
-      rl.question(`${question} [Y/n] `, (answer: string) => {
-        rl.close();
-        const trimmed = answer.trim().toLowerCase();
+    if (trimmed === "" || trimmed === "y" || trimmed === "yes") {
+      return true;
+    }
+    if (trimmed === "n" || trimmed === "no") {
+      return false;
+    }
 
-        if (trimmed === "" || trimmed === "y" || trimmed === "yes") {
-          resolve(true);
-          return;
-        }
-        if (trimmed === "n" || trimmed === "no") {
-          resolve(false);
-          return;
-        }
-
-        // Re-prompt on invalid input
-        console.log(yellow("  Please enter y or n."));
-        resolve(ask());
-      });
-    });
+    // Re-prompt on invalid input
+    console.log(yellow("  Please enter y or n."));
+    return ask();
+  };
 
   return ask();
 }
@@ -282,7 +258,7 @@ interface SetupResult {
   layout: string;
   editor: string;
   sidebar: string;
-  server: string;
+  shell: string;
 }
 
 interface ValidationWarning {
@@ -333,40 +309,40 @@ export const LAYOUT_INFO: Record<string, { desc: string; diagram: string }> = {
     ].join("\n"),
   },
   pair: {
-    desc: "Two editors + sidebar + server",
+    desc: "Two editors + sidebar + shell",
     diagram: [
       "  ┌────────┬────────┬──────┐",
       "  │ editor │ editor │ side │",
       "  ├────────┴────────┤      │",
-      "  │ server          │      │",
+      "  │ shell           │      │",
       "  └─────────────────┴──────┘",
     ].join("\n"),
   },
   full: {
-    desc: "Three editors + sidebar + server",
+    desc: "Three editors + sidebar + shell",
     diagram: [
       "  ┌────────┬────────┬──────┐",
       "  │ editor │ editor │ side │",
       "  ├────────┼────────┤      │",
-      "  │ editor │ server │      │",
+      "  │ editor │ shell  │      │",
       "  └────────┴────────┴──────┘",
     ].join("\n"),
   },
   cli: {
-    desc: "Single editor + sidebar + server",
+    desc: "Single editor + sidebar + shell",
     diagram: [
       "  ┌────────┬────────┬──────┐",
-      "  │ editor │ server │ side │",
+      "  │ editor │ shell  │ side │",
       "  └────────┴────────┴──────┘",
     ].join("\n"),
   },
   btop: {
-    desc: "Editor + system monitor + sidebar + server",
+    desc: "Editor + system monitor + sidebar + shell",
     diagram: [
       "  ┌────────┬────────┬──────┐",
       "  │ editor │  btop  │ side │",
       "  ├────────┼────────┤      │",
-      "  │ (shell)│ server │      │",
+      "  │ (term) │ shell  │      │",
       "  └────────┴────────┴──────┘",
     ].join("\n"),
   },
@@ -476,8 +452,6 @@ export async function selectToolFromCatalog(
       : sorted.findIndex((t) => t.cmd === fallbackCmd);
   const defaultDisplay = defaultIdx >= 0 ? defaultIdx + 1 : 1;
 
-  const { createInterface } = await import("node:readline");
-
   const askCustom = async (): Promise<string> => {
     const cmd = await textInput("  Enter command name:");
     if (!SAFE_COMMAND_RE.test(cmd)) {
@@ -491,41 +465,25 @@ export async function selectToolFromCatalog(
     return cmd;
   };
 
-  const askTool = (): Promise<string> =>
-    new Promise((resolve) => {
-      const rl = createInterface({
-        input: process.stdin,
-        output: process.stdout,
-      });
-      rl.question(
-        `  Select (default: ${defaultDisplay}): `,
-        (answer: string) => {
-          rl.close();
-          const trimmed = answer.trim().toLowerCase();
-          if (trimmed === "") {
-            resolve(
-              defaultIdx >= 0 ? sorted[defaultIdx]!.cmd : fallbackCmd,
-            );
-            return;
-          }
-          if (trimmed === "c") {
-            resolve(askCustom());
-            return;
-          }
-          const num = parseInt(trimmed, 10);
-          if (Number.isNaN(num) || num < 1 || num > sorted.length) {
-            console.log(
-              yellow(
-                `  Invalid selection. Please enter a number between 1 and ${sorted.length}, or "c" for custom.`,
-              ),
-            );
-            resolve(askTool());
-            return;
-          }
-          resolve(sorted[num - 1]!.cmd);
-        },
+  const askTool = async (): Promise<string> => {
+    const trimmed = (await promptUser(`  Select (default: ${defaultDisplay}): `)).toLowerCase();
+    if (trimmed === "") {
+      return defaultIdx >= 0 ? sorted[defaultIdx]!.cmd : fallbackCmd;
+    }
+    if (trimmed === "c") {
+      return askCustom();
+    }
+    const num = parseInt(trimmed, 10);
+    if (Number.isNaN(num) || num < 1 || num > sorted.length) {
+      console.log(
+        yellow(
+          `  Invalid selection. Please enter a number between 1 and ${sorted.length}, or "c" for custom.`,
+        ),
       );
-    });
+      return askTool();
+    }
+    return sorted[num - 1]!.cmd;
+  };
 
   return askTool();
 }
@@ -538,14 +496,14 @@ async function selectSidebar(): Promise<string> {
   return selectToolFromCatalog(SIDEBAR_CATALOG, "Sidebar", "lazygit");
 }
 
-export async function selectServer(): Promise<string> {
-  printSection("Server Pane");
+export async function selectShell(): Promise<string> {
+  printSection("Shell Pane");
   const options: SelectOption[] = [
     {
       label: "Shell".padEnd(12) + "Plain terminal (run commands manually)",
       value: "true",
     },
-    { label: "Disabled".padEnd(12) + "No server pane", value: "false" },
+    { label: "Disabled".padEnd(12) + "No shell pane", value: "false" },
     {
       label: "Command".padEnd(12) + "Auto-run a command (e.g. npm run dev)",
       value: "__custom__",
@@ -554,7 +512,7 @@ export async function selectServer(): Promise<string> {
   const idx = await numberedSelect(options, "  Select [1-3] (default: 1): ", 0);
   const chosen = options[idx]!;
   if (chosen.value === "__custom__") {
-    return textInput("  Enter server command:");
+    return textInput("  Enter shell command:");
   }
   return chosen.value;
 }
@@ -565,12 +523,12 @@ function printSummary(result: SetupResult): void {
   console.log(`  Layout:    ${bold(result.layout)} (${layoutDesc})`);
   console.log(`  Editor:    ${bold(result.editor)}`);
   console.log(`  Sidebar:   ${bold(result.sidebar)}`);
-  if (result.server === "true") {
-    console.log(`  Server:    ${bold("enabled")} (plain shell)`);
-  } else if (result.server === "false") {
-    console.log(`  Server:    ${bold("disabled")}`);
+  if (result.shell === "true") {
+    console.log(`  Shell:     ${bold("enabled")} (plain shell)`);
+  } else if (result.shell === "false") {
+    console.log(`  Shell:     ${bold("disabled")}`);
   } else {
-    console.log(`  Server:    ${bold(result.server)}`);
+    console.log(`  Shell:     ${bold(result.shell)}`);
   }
   console.log();
 }
@@ -596,14 +554,14 @@ export function validateSetup(result: SetupResult): ValidationResult {
     });
   }
 
-  // Check server (only if it's a custom command, not "true"/"false")
-  if (result.server !== "true" && result.server !== "false") {
-    const serverBin = result.server.split(" ")[0]!;
-    if (resolveCommandPath(serverBin) === null) {
+  // Check shell (only if it's a custom command, not "true"/"false")
+  if (result.shell !== "true" && result.shell !== "false") {
+    const shellBin = result.shell.split(" ")[0]!;
+    if (resolveCommandPath(shellBin) === null) {
       warnings.push({
-        key: "server",
-        cmd: serverBin,
-        installHint: INSTALL_HINTS[serverBin],
+        key: "shell",
+        cmd: shellBin,
+        installHint: INSTALL_HINTS[shellBin],
       });
     }
   }
@@ -655,15 +613,15 @@ export async function runSetup(): Promise<void> {
     const editor = await selectEditor();
     const sidebar = await selectSidebar();
 
-    let server = "false";
+    let shell = "false";
     if (layout === "minimal") {
-      console.log(dim("  Minimal layout has no server pane."));
+      console.log(dim("  Minimal layout has no shell pane."));
       console.log();
     } else {
-      server = await selectServer();
+      shell = await selectShell();
     }
 
-    const result: SetupResult = { layout, editor, sidebar, server };
+    const result: SetupResult = { layout, editor, sidebar, shell };
     printSummary(result);
 
     const accepted = await confirm("  Save these settings?");
@@ -671,7 +629,7 @@ export async function runSetup(): Promise<void> {
       setConfig("layout", result.layout);
       setConfig("editor", result.editor);
       setConfig("sidebar", result.sidebar);
-      setConfig("server", result.server);
+      setConfig("shell", result.shell);
 
       const validation = validateSetup(result);
       printValidation(validation);

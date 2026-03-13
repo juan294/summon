@@ -339,12 +339,12 @@ describe("CLI integration", () => {
     });
   });
 
-  // #46: Validate server values in `summon set`
-  describe("set server validation (#46)", () => {
-    // #67: Hint removed — all valid server values are accepted without warning
-    it("does not show a hint for any server value", () => {
+  // #46: Validate shell values in `summon set`
+  describe("set shell validation (#46)", () => {
+    // #67: Hint removed — all valid shell values are accepted without warning
+    it("does not show a hint for any shell value", () => {
       for (const val of ["true", "false", "python", "yes", "/usr/bin/python", "npm run dev"]) {
-        const result = run("set", "server", val);
+        const result = run("set", "shell", val);
         expect(result.status).toBe(0);
         expect(result.stderr).not.toContain("Hint:");
       }
@@ -524,13 +524,13 @@ describe("CLI integration", () => {
     });
   });
 
-  // #82: Fix server config key description
-  describe("server config key description (#82)", () => {
-    it("shows correct server description in Config keys section", () => {
+  // #82: Fix shell config key description
+  describe("shell config key description (#82)", () => {
+    it("shows correct shell description in Config keys section", () => {
       const result = run("--help");
       expect(result.status).toBe(0);
-      expect(result.stdout).toContain("Server pane: true, false, or command");
-      expect(result.stdout).not.toContain("Server pane toggle");
+      expect(result.stdout).toContain("Shell pane: true, false, or command");
+      expect(result.stdout).not.toContain("Shell pane toggle");
     });
   });
 

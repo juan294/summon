@@ -38,7 +38,7 @@ Options:
   -p, --panes <n>             Override number of editor panes
   --editor-size <n>           Override editor width %
   -s, --sidebar <cmd>         Override sidebar command
-  --server <value>            Server pane: true, false, or a command
+  --shell <value>             Shell pane: true, false, or a command
   --auto-resize               Resize sidebar to match editor-size (default: on)
   --no-auto-resize            Disable auto-resize
   -n, --dry-run               Print generated AppleScript without executing
@@ -48,16 +48,16 @@ Config keys:
   sidebar       Command for sidebar pane (default: lazygit)
   panes         Number of editor panes (default: 2)
   editor-size   Width % for editor grid (default: 75)
-  server        Server pane: true, false, or command (default: true)
+  shell         Shell pane: true, false, or command (default: true)
   layout        Default layout preset
   auto-resize   Resize sidebar to match editor-size (default: true)
 
 Layout presets:
-  minimal       1 editor pane, no server
-  full          3 editor panes + server
-  pair          2 editor panes + server
-  cli           1 editor pane + server
-  btop          editor + btop + server + lazygit sidebar
+  minimal       1 editor pane, no shell
+  full          3 editor panes + shell
+  pair          2 editor panes + shell
+  cli           1 editor pane + shell
+  btop          editor + btop + shell + lazygit sidebar
 
 Per-project config:
   Place a .summon file in your project root with key=value pairs.
@@ -73,10 +73,10 @@ Examples:
   summon add myapp ~/code/app     Register a project
   summon set editor claude        Set the editor command
   summon . --layout minimal       Launch with minimal preset
-  summon . --server "npm run dev" Launch with custom server command
+  summon . --shell "npm run dev"  Launch with custom shell command
 `.trim();
 
-const COMMAND_KEYS = ["editor", "sidebar"];
+const DISPLAY_COMMAND_KEYS = ["editor", "sidebar"];
 
 const SUBCOMMAND_HELP: Record<string, string> = {
   add: `Usage: summon add <name> <path>
@@ -103,7 +103,7 @@ Show all current machine-level configuration values.`,
 
   setup: `Usage: summon setup
 
-Interactively configure your workspace defaults (editor, sidebar, layout, server).
+Interactively configure your workspace defaults (editor, sidebar, layout, shell).
 Settings are saved to ~/.config/summon/config.
 You can also set individual values with: summon set <key> <value>`,
 
@@ -134,7 +134,7 @@ const parseOpts = {
     panes: { type: "string", short: "p" },
     "editor-size": { type: "string" },
     sidebar: { type: "string", short: "s" },
-    server: { type: "string" },
+    shell: { type: "string" },
     "auto-resize": { type: "boolean" },
     "no-auto-resize": { type: "boolean" },
     "dry-run": { type: "boolean", short: "n" },
@@ -189,6 +189,15 @@ if (values.version) {
 
 const [subcommand, ...args] = positionals;
 
+if (values.help) {
+  if (subcommand && subcommand in SUBCOMMAND_HELP) {
+    console.log(SUBCOMMAND_HELP[subcommand]);
+    process.exit(0);
+  }
+  showHelp();
+  process.exit(0);
+}
+
 // Auto-trigger setup wizard on first run (config file doesn't exist)
 if (isFirstRun() && process.stdin.isTTY) {
   if (!subcommand || !(subcommand in SUBCOMMAND_HELP)) {
@@ -198,15 +207,6 @@ if (isFirstRun() && process.stdin.isTTY) {
       process.exit(0);
     }
   }
-}
-
-if (values.help) {
-  if (subcommand && subcommand in SUBCOMMAND_HELP) {
-    console.log(SUBCOMMAND_HELP[subcommand]);
-    process.exit(0);
-  }
-  showHelp();
-  process.exit(0);
 }
 
 if (!subcommand) {
@@ -312,7 +312,7 @@ switch (subcommand) {
         const unknownSuffix = VALID_KEYS.includes(key) ? "" : "  (unknown key — will be ignored)";
         if (value !== "") {
           console.log(`  ${key} → ${value}${unknownSuffix}`);
-        } else if (COMMAND_KEYS.includes(key)) {
+        } else if (DISPLAY_COMMAND_KEYS.includes(key)) {
           console.log(`  ${key} → (plain shell)${unknownSuffix}`);
         } else {
           console.log(`  ${key} → (empty)${unknownSuffix}`);
@@ -380,7 +380,7 @@ switch (subcommand) {
     if (values.panes) overrides.panes = values.panes;
     if (values["editor-size"]) overrides["editor-size"] = values["editor-size"];
     if (values.sidebar) overrides.sidebar = values.sidebar;
-    if (values.server) overrides.server = values.server;
+    if (values.shell) overrides.shell = values.shell;
     if (values["auto-resize"]) overrides["auto-resize"] = "true";
     if (values["no-auto-resize"]) overrides["auto-resize"] = "false";
     if (values["dry-run"]) overrides.dryRun = true;

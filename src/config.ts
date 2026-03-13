@@ -104,11 +104,11 @@ export function listConfig(): Map<string, string> {
   return readKV(CONFIG_FILE);
 }
 
-export const VALID_KEYS = ["editor", "sidebar", "panes", "editor-size", "server", "layout", "auto-resize"];
+export const VALID_KEYS = ["editor", "sidebar", "panes", "editor-size", "shell", "layout", "auto-resize"];
 
 export const CLI_FLAGS = [
   "--help", "--version", "--layout", "--editor", "--panes",
-  "--editor-size", "--sidebar", "--server", "--auto-resize",
+  "--editor-size", "--sidebar", "--shell", "--auto-resize",
   "--no-auto-resize", "--dry-run",
   "-p", "-s",
 ];

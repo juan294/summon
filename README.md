@@ -26,11 +26,15 @@ Requires Node >= 18, macOS, and [Ghostty](https://ghostty.org) 1.3.0+.
 summon .                          # launch workspace in current directory
 ```
 
-On first run, an interactive setup wizard guides you through choosing your editor, sidebar, layout, and server preferences. You can re-run it anytime:
+On first run, an interactive setup wizard guides you through choosing your editor, sidebar, layout, and shell preferences. You can re-run it anytime:
 
 ```bash
 summon setup                      # reconfigure workspace defaults
 ```
+
+<p align="center">
+  <img src="assets/setup-wizard.png" alt="summon setup wizard" width="600">
+</p>
 
 Register projects for quick access:
 
@@ -46,7 +50,7 @@ Summon generates and executes AppleScript that drives Ghostty's native split sys
 ## Default Layout
 
 ```
-summon .    (panes=2, editor=claude, sidebar=lazygit, server=true)
+summon .    (panes=2, editor=claude, sidebar=lazygit, shell=true)
 
 +-------------------- 75% ---------------------+------ 25% ------+
 |                    |                          |                 |
@@ -54,7 +58,7 @@ summon .    (panes=2, editor=claude, sidebar=lazygit, server=true)
 |    claude (1)      |                          |    lazygit      |
 |                    +--------------------------+                 |
 |                    |                          |                 |
-|                    |    server (shell)        |                 |
+|                    |    shell                 |                 |
 |                    |                          |                 |
 +--------------------+--------------------------+-----------------+
       left col             right col                sidebar
@@ -62,17 +66,17 @@ summon .    (panes=2, editor=claude, sidebar=lazygit, server=true)
 
 ## Layout Presets
 
-| Preset | Panes | Server | Use case |
+| Preset | Panes | Shell | Use case |
 |---|---|---|---|
-| `full` | 3 | yes | Multi-agent coding + dev server |
-| `pair` | 2 | yes | Two editors + dev server |
+| `full` | 3 | yes | Multi-agent coding + shell |
+| `pair` | 2 | yes | Two editors + shell |
 | `minimal` | 1 | no | Simple editor + sidebar only |
-| `cli` | 1 | yes | CLI tool development -- editor + server |
-| `btop` | 2 | yes | System monitoring -- editor + btop + server |
+| `cli` | 1 | yes | CLI tool development -- editor + shell |
+| `btop` | 2 | yes | System monitoring -- editor + btop + shell |
 
 ```bash
-summon . --layout minimal         # 1 editor pane, no server
-summon . -l pair                  # 2 editors + server
+summon . --layout minimal         # 1 editor pane, no shell
+summon . -l pair                  # 2 editors + shell
 ```
 
 ## Per-project Config
@@ -83,7 +87,7 @@ Drop a `.summon` file in your project root to override machine-level config:
 # .summon
 layout=minimal
 editor=vim
-server=npm run dev
+shell=npm run dev
 ```
 
 Config resolution order: **CLI flags > .summon > machine config > preset > defaults**
@@ -93,7 +97,7 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 | Command | Description |
 |---|---|
 | `summon <target>` | Launch workspace (project name, path, or `.`) |
-| `summon setup` | Interactive setup wizard — choose editor, sidebar, layout, server |
+| `summon setup` | Interactive setup wizard — choose editor, sidebar, layout, shell |
 | `summon add <name> <path>` | Register a project name to a directory |
 | `summon remove <name>` | Remove a registered project |
 | `summon list` | List all registered projects |
@@ -107,10 +111,10 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 |---|---|
 | `-l, --layout <preset>` | Use a layout preset (`minimal`, `full`, `pair`, `cli`, `btop`) |
 | `-e, --editor <cmd>` | Override editor command |
-| `--panes <n>` | Override number of editor panes |
+| `-p, --panes <n>` | Override number of editor panes |
 | `--editor-size <n>` | Override editor width percentage |
-| `--sidebar <cmd>` | Override sidebar command |
-| `--server <value>` | Server pane: `true`, `false`, or a command |
+| `-s, --sidebar <cmd>` | Override sidebar command |
+| `--shell <value>` | Shell pane: `true`, `false`, or a command |
 | `--auto-resize` | Resize sidebar to match editor-size (default: on) |
 | `--no-auto-resize` | Disable auto-resize |
 | `-n, --dry-run` | Print generated AppleScript without executing |
@@ -125,7 +129,7 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 | `sidebar` | `lazygit` | Command launched in the sidebar pane |
 | `panes` | `2` | Number of editor panes |
 | `editor-size` | `75` | Width percentage for the editor grid |
-| `server` | `true` | Server pane: `true` (shell), `false` (none), or a command |
+| `shell` | `true` | Shell pane: `true` (shell), `false` (none), or a command |
 | `layout` | | Default layout preset |
 | `auto-resize` | `true` | Auto-resize sidebar to match editor-size |
 
@@ -133,7 +137,7 @@ Machine config is stored at `~/.config/summon/config`:
 
 ```bash
 summon set editor vim               # use vim as the editor
-summon set server "npm run dev"     # run dev server automatically
+summon set shell "npm run dev"      # run a command in the shell pane
 summon set layout minimal           # default to minimal preset
 ```
 
@@ -154,7 +158,9 @@ This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.
 
 ## Trust Model
 
-`.summon` files configure commands that summon executes in each pane (`editor`, `sidebar`, `server`). Running `summon .` in a directory will execute whatever commands its `.summon` file specifies -- this is the same trust model as `Makefile`, direnv `.envrc`, or VS Code `.vscode/tasks.json`.
+`.summon` files configure commands that summon executes in each pane (`editor`, `sidebar`, `shell`). Running `summon .` in a directory will execute whatever commands its `.summon` file specifies -- this is the same trust model as `Makefile`, direnv `.envrc`, or VS Code `.vscode/tasks.json`.
+
+When a `.summon` file contains command values with shell metacharacters (`;`, `|`, `&`, `` ` ``, `$(`, `<`, `>`), summon displays the commands and prompts for confirmation before executing. In non-interactive environments (piped input, CI), execution is refused outright. This check is skipped for `--dry-run` since no commands are executed.
 
 **Always review `.summon` files before running summon in untrusted repositories.**
 

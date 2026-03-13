@@ -63,7 +63,7 @@ describe("generateBashCompletion", () => {
 
   test("contains all config keys", () => {
     const result = generateBashCompletion();
-    for (const key of ["editor", "sidebar", "panes", "editor-size", "server", "layout", "auto-resize"]) {
+    for (const key of ["editor", "sidebar", "panes", "editor-size", "shell", "layout", "auto-resize"]) {
       expect(result).toContain(key);
     }
   });

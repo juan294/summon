@@ -74,35 +74,35 @@ describe("planLayout", () => {
   });
 });
 
-describe("server pane toggle", () => {
-  it("defaults to hasServer true with no serverCommand", () => {
+describe("shell pane toggle", () => {
+  it("defaults to hasShell true with no shellCommand", () => {
     const plan = planLayout();
-    expect(plan.hasServer).toBe(true);
-    expect(plan.serverCommand).toBeNull();
+    expect(plan.hasShell).toBe(true);
+    expect(plan.shellCommand).toBeNull();
   });
 
-  it('server: "true" → plain shell', () => {
-    const plan = planLayout({ server: "true" });
-    expect(plan.hasServer).toBe(true);
-    expect(plan.serverCommand).toBeNull();
+  it('shell: "true" → plain shell', () => {
+    const plan = planLayout({ shell: "true" });
+    expect(plan.hasShell).toBe(true);
+    expect(plan.shellCommand).toBeNull();
   });
 
-  it('server: "false" → no server', () => {
-    const plan = planLayout({ server: "false" });
-    expect(plan.hasServer).toBe(false);
-    expect(plan.serverCommand).toBeNull();
+  it('shell: "false" → no shell', () => {
+    const plan = planLayout({ shell: "false" });
+    expect(plan.hasShell).toBe(false);
+    expect(plan.shellCommand).toBeNull();
   });
 
-  it('server: "" → no server', () => {
-    const plan = planLayout({ server: "" });
-    expect(plan.hasServer).toBe(false);
-    expect(plan.serverCommand).toBeNull();
+  it('shell: "" → no shell', () => {
+    const plan = planLayout({ shell: "" });
+    expect(plan.hasShell).toBe(false);
+    expect(plan.shellCommand).toBeNull();
   });
 
-  it('server: "npm run dev" → custom command', () => {
-    const plan = planLayout({ server: "npm run dev" });
-    expect(plan.hasServer).toBe(true);
-    expect(plan.serverCommand).toBe("npm run dev");
+  it('shell: "npm run dev" → custom command', () => {
+    const plan = planLayout({ shell: "npm run dev" });
+    expect(plan.hasShell).toBe(true);
+    expect(plan.shellCommand).toBe("npm run dev");
   });
 });
 
@@ -120,49 +120,49 @@ describe("layout presets", () => {
     expect(isPresetName("unknown")).toBe(false);
   });
 
-  it("minimal preset: 1 editor pane, no server", () => {
+  it("minimal preset: 1 editor pane, no shell", () => {
     const plan = planLayout(getPreset("minimal"));
     expect(plan.leftColumnCount).toBe(1);
     expect(plan.rightColumnEditorCount).toBe(0);
-    expect(plan.hasServer).toBe(false);
+    expect(plan.hasShell).toBe(false);
   });
 
-  it("full preset: 3 editor panes, server enabled", () => {
+  it("full preset: 3 editor panes, shell enabled", () => {
     const plan = planLayout(getPreset("full"));
     expect(plan.leftColumnCount).toBe(2);
     expect(plan.rightColumnEditorCount).toBe(1);
-    expect(plan.hasServer).toBe(true);
+    expect(plan.hasShell).toBe(true);
   });
 
-  it("pair preset: 2 editor panes, server enabled", () => {
+  it("pair preset: 2 editor panes, shell enabled", () => {
     const plan = planLayout(getPreset("pair"));
     expect(plan.leftColumnCount).toBe(1);
     expect(plan.rightColumnEditorCount).toBe(1);
-    expect(plan.hasServer).toBe(true);
+    expect(plan.hasShell).toBe(true);
   });
 
-  it("cli preset: 1 editor pane, server as plain shell", () => {
+  it("cli preset: 1 editor pane, shell as plain shell", () => {
     const plan = planLayout(getPreset("cli"));
     expect(plan.leftColumnCount).toBe(1);
     expect(plan.rightColumnEditorCount).toBe(0);
-    expect(plan.hasServer).toBe(true);
-    expect(plan.serverCommand).toBeNull();
+    expect(plan.hasShell).toBe(true);
+    expect(plan.shellCommand).toBeNull();
   });
 
-  it("btop preset: 2 editor panes with btop as secondary editor, server enabled", () => {
+  it("btop preset: 2 editor panes with btop as secondary editor, shell enabled", () => {
     const plan = planLayout(getPreset("btop"));
     expect(plan.leftColumnCount).toBe(1);
     expect(plan.rightColumnEditorCount).toBe(1);
-    expect(plan.hasServer).toBe(true);
+    expect(plan.hasShell).toBe(true);
     expect(plan.secondaryEditor).toBe("btop");
   });
 
   it("individual keys override preset values", () => {
     const preset = getPreset("minimal");
-    const plan = planLayout({ ...preset, editorPanes: 4, server: "true" });
+    const plan = planLayout({ ...preset, editorPanes: 4, shell: "true" });
     expect(plan.leftColumnCount).toBe(2);
     expect(plan.rightColumnEditorCount).toBe(2);
-    expect(plan.hasServer).toBe(true);
+    expect(plan.hasShell).toBe(true);
   });
 });
 

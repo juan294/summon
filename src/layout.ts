@@ -18,7 +18,7 @@ export interface LayoutOptions {
   editorPanes: number;
   editorSize: number;
   sidebarCommand: string;
-  server: string;
+  shell: string;
   secondaryEditor: string;
   autoResize: boolean;
 }
@@ -28,7 +28,7 @@ const DEFAULT_OPTIONS: LayoutOptions = {
   editorPanes: PANES_DEFAULT,
   editorSize: EDITOR_SIZE_DEFAULT,
   sidebarCommand: "lazygit",
-  server: "true",
+  shell: "true",
   secondaryEditor: "",
   autoResize: true,
 };
@@ -40,30 +40,30 @@ export interface LayoutPlan {
   rightColumnEditorCount: number;
   editor: string;
   sidebarCommand: string;
-  hasServer: boolean;
-  serverCommand: string | null;
+  hasShell: boolean;
+  shellCommand: string | null;
   secondaryEditor: string | null;
   autoResize: boolean;
 }
 
-function parseServer(value: string): { hasServer: boolean; serverCommand: string | null } {
+function parseShell(value: string): { hasShell: boolean; shellCommand: string | null } {
   if (value === "false" || value === "") {
-    return { hasServer: false, serverCommand: null };
+    return { hasShell: false, shellCommand: null };
   }
   if (value === "true") {
-    return { hasServer: true, serverCommand: null };
+    return { hasShell: true, shellCommand: null };
   }
-  return { hasServer: true, serverCommand: value };
+  return { hasShell: true, shellCommand: value };
 }
 
 type PresetName = "minimal" | "full" | "pair" | "cli" | "btop";
 
 const PRESETS: Record<PresetName, Partial<LayoutOptions>> = {
-  minimal: { editorPanes: 1, server: "false" },
-  full: { editorPanes: 3, server: "true" },
-  pair: { editorPanes: 2, server: "true" },
-  cli: { editorPanes: 1, server: "true" },
-  btop: { editorPanes: 2, server: "true", secondaryEditor: "btop" },
+  minimal: { editorPanes: 1, shell: "false" },
+  full: { editorPanes: 3, shell: "true" },
+  pair: { editorPanes: 2, shell: "true" },
+  cli: { editorPanes: 1, shell: "true" },
+  btop: { editorPanes: 2, shell: "true", secondaryEditor: "btop" },
 };
 
 export function getPresetNames(): string[] {
@@ -81,7 +81,7 @@ export function getPreset(name: PresetName): Partial<LayoutOptions> {
 export function planLayout(partial?: Partial<LayoutOptions>): LayoutPlan {
   const opts = { ...DEFAULT_OPTIONS, ...partial };
   const leftColumnCount = Math.ceil(opts.editorPanes / 2);
-  const { hasServer, serverCommand } = parseServer(opts.server);
+  const { hasShell, shellCommand } = parseShell(opts.shell);
   return {
     editorSize: opts.editorSize,
     sidebarSize: 100 - opts.editorSize,
@@ -89,8 +89,8 @@ export function planLayout(partial?: Partial<LayoutOptions>): LayoutPlan {
     rightColumnEditorCount: opts.editorPanes - leftColumnCount,
     editor: opts.editor,
     sidebarCommand: opts.sidebarCommand,
-    hasServer,
-    serverCommand,
+    hasShell,
+    shellCommand,
     secondaryEditor: opts.secondaryEditor || null,
     autoResize: opts.autoResize,
   };
