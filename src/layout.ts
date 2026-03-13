@@ -15,7 +15,7 @@ const DEFAULT_OPTIONS: LayoutOptions = {
   sidebarCommand: "lazygit",
   server: "true",
   secondaryEditor: "",
-  autoResize: false,
+  autoResize: true,
 };
 
 export interface LayoutPlan {

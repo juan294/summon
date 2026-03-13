@@ -120,12 +120,20 @@ describe("generateAppleScript", () => {
     expect(script).toContain("set command of cfg to \"/bin/bash -lc 'npm run dev'\"");
   });
 
-  it("does not use delay for pane initialization", () => {
-    const plan = planLayout();
+  it("does not use delay for pane initialization when auto-resize is off", () => {
+    const plan = planLayout({ autoResize: false });
     const script = generateAppleScript(plan, "/tmp");
 
     // No fixed delay — commands set via config, not input text
     expect(script).not.toContain("delay");
+  });
+
+  it("includes resize by default with editorSize > 50", () => {
+    const plan = planLayout();
+    const script = generateAppleScript(plan, "/tmp");
+
+    expect(script).toContain("-- Resize editor/sidebar split");
+    expect(script).toContain("perform action resizeAction on paneRoot");
   });
 
   it("skips command for plain shell server", () => {
@@ -195,7 +203,7 @@ describe("generateAppleScript", () => {
     const plan = planLayout({ autoResize: true, editorSize: 85 });
     const script = generateAppleScript(plan, "/tmp");
 
-    expect(script).toContain("-- Auto-resize sidebar (experimental)");
+    expect(script).toContain("-- Resize editor/sidebar split");
     expect(script).toContain("delay 0.3");
     expect(script).toContain('tell application "System Events"');
     expect(script).toContain('tell process "Ghostty"');
@@ -203,11 +211,11 @@ describe("generateAppleScript", () => {
     expect(script).toContain("set windowWidth to item 1 of windowSize");
     expect(script).toContain("set resizeAmount to round (windowWidth * 0.35)");
     expect(script).toContain('set resizeAction to "resize_split:right," & (resizeAmount as text)');
-    expect(script).toContain("perform action resizeAction on paneRightCol");
+    expect(script).toContain("perform action resizeAction on paneRoot");
   });
 
   it("does not generate resize commands when autoResize is disabled", () => {
-    const plan = planLayout({ editorSize: 85 });
+    const plan = planLayout({ editorSize: 85, autoResize: false });
     const script = generateAppleScript(plan, "/tmp");
 
     expect(script).not.toContain("resize_split");
@@ -219,6 +227,17 @@ describe("generateAppleScript", () => {
     const script = generateAppleScript(plan, "/tmp");
 
     expect(script).toContain("perform action resizeAction on paneRoot");
+  });
+
+  it("resizes before editor column split for equal columns", () => {
+    const plan = planLayout({ autoResize: true, editorSize: 75 });
+    const script = generateAppleScript(plan, "/tmp");
+
+    const resizeIndex = script.indexOf("perform action resizeAction");
+    const rightColIndex = script.indexOf("paneRightCol to split");
+    expect(resizeIndex).toBeGreaterThan(-1);
+    expect(rightColIndex).toBeGreaterThan(-1);
+    expect(resizeIndex).toBeLessThan(rightColIndex);
   });
 
   it("does not generate resize commands when editorSize is 50", () => {

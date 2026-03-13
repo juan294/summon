@@ -31,7 +31,7 @@ Options:
   --editor-size <n>           Override editor width %
   --sidebar <cmd>             Override sidebar command
   --server <value>            Server pane: true, false, or a command
-  --auto-resize               Experimental: resize sidebar to match editor-size
+  --auto-resize               Resize sidebar to match editor-size (default: on)
   -n, --dry-run               Print generated AppleScript without executing
 
 Config keys:
@@ -41,7 +41,7 @@ Config keys:
   editor-size   Width % for editor grid (default: 75)
   server        Server pane toggle (default: true)
   layout        Default layout preset
-  auto-resize   Experimental: auto-resize sidebar (default: false)
+  auto-resize   Resize sidebar to match editor-size (default: true)
 
 Layout presets:
   minimal       1 editor pane, no server

@@ -64,6 +64,26 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginSh
   }
   add(1, "set paneSidebar to split paneRoot direction right with configuration cfg");
 
+  // Resize editor/sidebar split to match editorSize.
+  // Done here (before editor column splits) so the subsequent 50/50 split
+  // of paneRoot produces two equal editor columns within the resized area.
+  if (plan.autoResize && plan.editorSize > 50) {
+    const fraction = (plan.editorSize - 50) / 100;
+    blank();
+    add(1, "-- Resize editor/sidebar split");
+    add(1, "delay 0.3");
+    add(1, 'tell application "System Events"');
+    add(2, 'tell process "Ghostty"');
+    add(3, "set windowSize to size of front window");
+    add(3, "set windowWidth to item 1 of windowSize");
+    add(2, "end tell");
+    add(1, "end tell");
+    add(1, `set resizeAmount to round (windowWidth * ${fraction})`);
+    add(1, `set resizeAction to "resize_split:right," & (resizeAmount as text)`);
+    add(1, "perform action resizeAction on paneRoot");
+    add(1, "delay 0.2");
+  }
+
   const needsRightColumn = plan.rightColumnEditorCount > 0 || plan.hasServer;
 
   if (needsRightColumn) {
@@ -135,24 +155,6 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginSh
   sendCommand("paneRoot", `cd ${shellQuote(targetDir)}`);
   if (editorCmd) {
     sendCommand("paneRoot", editorCmd);
-  }
-
-  // Experimental: auto-resize sidebar to match editorSize
-  if (plan.autoResize && plan.editorSize > 50) {
-    const fraction = (plan.editorSize - 50) / 100;
-    const resizePane = needsRightColumn ? "paneRightCol" : "paneRoot";
-    blank();
-    add(1, "-- Auto-resize sidebar (experimental)");
-    add(1, "delay 0.3");
-    add(1, 'tell application "System Events"');
-    add(2, 'tell process "Ghostty"');
-    add(3, "set windowSize to size of front window");
-    add(3, "set windowWidth to item 1 of windowSize");
-    add(2, "end tell");
-    add(1, "end tell");
-    add(1, `set resizeAmount to round (windowWidth * ${fraction})`);
-    add(1, `set resizeAction to "resize_split:right," & (resizeAmount as text)`);
-    add(1, `perform action resizeAction on ${resizePane}`);
   }
 
   blank();
