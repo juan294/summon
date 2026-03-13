@@ -1,94 +1,95 @@
 # Pre-Launch Audit Report
-> Generated on 2026-03-13 | Branch: `develop` | Commit: `15fc8cb` + uncommitted | 6 parallel specialists
+> Generated on 2026-03-13 | Branch: `develop` | Commit: `54217cb` + uncommitted lazygit fix | 6 parallel specialists
 
 ## Verdict: CONDITIONAL
 
-1 blocker (UX), 16 warnings across all domains, no security or architecture blockers.
+No blockers. 2 uncommitted files (lazygit working-directory fix). All checks pass: typecheck, lint, 197 tests, build (24.11 KB).
 
 ## Blockers (must fix before release)
 
-| # | Issue | Found by | Fix |
-|---|-------|----------|-----|
-| B1 | `summon set <key> "0"` removes key instead of storing value — `if (value)` treats `"0"` as falsy | ux-reviewer | Change `index.ts:228` from `if (value)` to `if (value !== undefined)` |
+None.
 
 ## Warnings
 
 | # | Issue | Severity | Found by | Risk |
 |---|-------|----------|----------|------|
-| W1 | `config` subcommand shows "(plain shell)" for non-command keys | Medium | ux-reviewer | Confusing output |
-| W2 | `config` subcommand has no empty-state message | Medium | ux-reviewer | UX gap |
-| W3 | `--layout` not validated at parse time (unlike `--panes`/`--editor-size`) | Medium | ux-reviewer | Inconsistent error behavior |
-| W4 | Uncommitted changes on `develop` (6 files, 95 insertions) | Medium | devops | Risk of loss |
-| W5 | `index.ts` reports 0% coverage (integration tests only) | Medium | qa-lead | Coverage gap |
-| W6 | Config dir created without explicit permission mode | Low | security | World-readable on shared machines |
+| W1 | Uncommitted changes on `develop` (lazygit fix: `script.ts`, `script.test.ts`) | High | devops | Must commit before release |
+| W2 | `config` subcommand: `if (value)` treats `"0"` as falsy in display | Low | ux-reviewer | Cosmetic — `"0"` is not valid for any config key |
+| W3 | `summon set server` hint triggers for valid single-word commands | Low | ux-reviewer | Slightly misleading hint |
+| W4 | `summon set panes`/`editor-size`/`layout` accept invalid values | Low | ux-reviewer | Error deferred to launch time |
+| W5 | `executeScript` swallows osascript error details | Low | ux-reviewer | Harder to debug AppleScript failures |
+| W6 | `.summon` trust model is advisory only (no confirmation prompt) | Low | security | Documented tradeoff (like Makefiles) |
 | W7 | `command -v` via `execSync` string (mitigated by SAFE_COMMAND_RE) | Low | security | Defense-in-depth |
-| W8 | Top-level `readline` import loaded on every invocation | Low | performance-eng | ~2-5ms wasted on non-launch paths |
-| W9 | Outdated dev deps: vitest 4.0.18→4.1.0, @types/node 25.4.0→25.5.0 | Low | architect | Minor bumps |
-| W10 | `getConfig()` has no production caller after #31 refactor | Low | architect | Dead code |
-| W11 | Integration tests use real `~/.config/summon/` directory | Low | qa-lead | Non-hermetic |
-| W12 | `set server` accepts any string without validation | Low | ux-reviewer | Surprising behavior |
-| W13 | No branch protection on `develop` | Low | devops | Collaboration risk |
-| W14 | `dismiss_stale_reviews` disabled on `main` | Low | devops | Review bypass |
-| W15 | Uncovered branches in launcher.ts:194,207,226 and script.ts:102 | Low | qa-lead | Minor coverage gaps |
-| W16 | Duplicate panes/editor-size validation in index.ts and launcher.ts | Low | architect, ux-reviewer | Maintenance surface |
+| W8 | Coverage thresholds conservative (branches: 55%) | Low | qa-lead | Acceptable given index.ts exclusion |
+| W9 | All modules loaded eagerly for `--version`/`--help` | Low | performance | ~few ms, negligible for CLI |
+| W10 | `getConfig()` has no production caller after #31 refactor | Low | architect | Dead code (test-only) |
 
 ## Detailed Findings
 
 ### 1. Quality Assurance (qa-lead) -- GREEN
 
-- **159/159 tests passing** across 5 test files (1.36s)
-- Typecheck: clean. Lint: clean.
-- Coverage: 69.8% stmts, 57.3% branches, 93.2% functions, 70.4% lines (all above thresholds)
-- Critical paths (config, layout, script, launcher) all have 98-100% coverage
-- `index.ts` at 0% unit coverage is the main gap — exercised by 31 integration tests via `spawnSync`
-- Error handling is consistently actionable with suggested next steps
+- **197/197 tests passing** across 6 test files (1.93s)
+- **Typecheck**: zero errors
+- **Lint**: zero warnings
+- **Build**: 24.11 KB, 7ms
+- Coverage thresholds met: statements 60%, branches 55%, functions 85%, lines 60%
+- Critical paths (config, layout, script, launcher) all have high coverage
+- `index.ts` excluded from v8 coverage — tested via 47 subprocess integration tests
+- Minor untested branches: empty KV file content, lines without `=`, `..` target resolution, `expandHome` in `add` subcommand
 
 ### 2. Security (security-reviewer) -- GREEN
 
-- `pnpm audit`: 0 vulnerabilities
-- Zero runtime dependencies — all deps are devDependencies
-- All licenses permissive (MIT, Apache-2.0, ISC, BlueOak-1.0.0)
-- No hardcoded secrets found
-- AppleScript escaping (`escapeAppleScript`, `shellQuote`) thoroughly tested including adversarial inputs
-- `SAFE_COMMAND_RE` gates shell-interpolated `command -v` calls
-- `execFileSync` with argument arrays used for installs
+- `pnpm audit`: **0 vulnerabilities**
+- **Zero runtime dependencies** — all deps are devDependencies
+- All licenses permissive (MIT, Apache-2.0, BSD-2/3-Clause, ISC, BlueOak-1.0.0)
+- No hardcoded secrets found anywhere in `src/`
+- `.gitignore` excludes `.env`, `.env.*`, `.npmrc`, `*.pem`, `*.key`
+- AppleScript injection defenses: `escapeAppleScript()` + `shellQuote()` thoroughly tested with adversarial inputs (`$()`, backticks, `$(rm -rf /)`, single quotes, newline injection)
+- `SAFE_COMMAND_RE` validates binary names before `execSync` interpolation
+- `execFileSync` with argument arrays used for install commands
 - osascript receives script via stdin (not CLI args)
-- Defense-in-depth concerns only — no exploitable vulnerabilities
+- Config file newline injection prevented by `writeKV` sanitization
+- File permissions: 0o700 for config dir, 0o600 for config files
 
 ### 3. Infrastructure (devops) -- YELLOW
 
-- Build: PASS (22.04 KB, 7ms)
-- CI: all recent runs on `develop` are green
-- Git: 6 uncommitted files (the bug fix from this session)
-- Package: correctly configured (name, version, files, os, engines, license, prepublishOnly)
-- Already published as `summon-ws@0.3.0` on npm
-- Branch protection on `main`: CI required + 1 review, force push disabled
-- `develop` has no branch protection (local hooks only)
+- **Build**: PASS (24.11 KB single ESM file, 7ms)
+- **CI**: all 5 recent runs on `develop` are green (completed successfully)
+- **Git**: 2 uncommitted files — the lazygit working-directory fix (`script.ts`, `script.test.ts`)
+- **Dependencies**: all up to date (`pnpm outdated` shows nothing)
+- **Package**: correctly configured (name, version, files, os, engines, license, prepublishOnly)
+- **Branch protection on `main`**: CI required + 1 review, force push disabled
+- `develop` has no branch protection (local hooks only — pre-commit: typecheck + lint + test)
 
 ### 4. Architecture (architect) -- GREEN
 
-- Typecheck: zero errors
-- No circular dependencies — clean DAG
-- Dead code: `resetConfigCache` (test-only, documented), `getConfig` (orphaned after #31 refactor)
-- Duplicate code: panes/editor-size validation in two places (intentionally different behavior)
-- Dev deps have minor updates available (non-blocking)
-- `files` field in package.json correctly restricts to `dist/` only
+- **Typecheck**: zero errors
+- **No circular dependencies** — clean DAG (layout.ts and script.ts are pure with no project imports)
+- **No outdated dependencies**
+- **Dead code**: `resetConfigCache` (test-only, documented), `getConfig` (orphaned after #31 refactor — test-only)
+- **Bundle**: correctly restricted to `dist/` only via `files` field in package.json
+- **Module structure**: clean separation — pure functions (layout, script, validation), side-effecting modules (config, launcher), CLI entry point (index)
+- 2 test-only exports (`resetConfigCache`, `getConfig`) included in bundle but combined ~100 bytes — negligible
 
 ### 5. Performance (performance-eng) -- GREEN
 
-- Bundle: 22.04 KB single ESM file, zero runtime deps
-- Tree-shaking works: test-only exports (`resetConfigCache`, `getConfig`) eliminated
-- Startup: fast exit paths for `--help`/`--version` before any I/O
-- Config reads: exactly 2 per launch, no redundancy
-- Command resolution: deduplicated per binary
-- Only concern: top-level `readline` import (~2-5ms) on non-launch paths
+- **Bundle**: 24.11 KB single ESM file, zero runtime dependencies — excellent for CLI
+- **Build time**: 7ms (tsup/esbuild)
+- **String building**: efficient array-push + join pattern in `generateAppleScript`
+- **Config reads**: exactly 2 per launch, no redundancy
+- **Command resolution**: deduplicated per binary via cache
+- **`prompt()` uses dynamic import** — `readline` only loaded when needed (missing command prompt)
+- Eager module loading for `--version`/`--help` is the only optimization opportunity (~few ms, not worth the complexity)
+- `shellQuote(targetDir)` hoisted to avoid recomputation in closures (applied via /simplify)
 
-### 6. UX/CLI (ux-reviewer) -- YELLOW
+### 6. UX/CLI (ux-reviewer) -- GREEN
 
-- Help text: clear, well-structured, covers all subcommands
-- Error messages: actionable with suggested commands
-- Flag consistency: short flags for common options, kebab-case longs, `--no-auto-resize` variant
-- Exit codes: consistent (0 success, 1 error)
-- **Blocker:** `if (value)` truthiness bug in `set` command — `"0"` treated as falsy
-- **Gap:** `--layout` validated differently than `--panes`/`--editor-size` (warn vs error)
-- **Gap:** `config` empty-state and non-command key labels
+- **Help text**: well-structured with clear sections (Usage, Options, Config keys, Presets, Per-project config, Requirements, Examples)
+- **Security note**: `.summon` trust warning in help text
+- **Error messages**: actionable with suggested commands (e.g., "Register it with: summon add")
+- **Flag consistency**: short flags for common options (`-l`, `-e`, `-n`, `-h`, `-v`), kebab-case longs, `--no-auto-resize` boolean variant
+- **Exit codes**: consistent (0 success, 1 error), `--help`/`--version` exit 0, no-args exits 1
+- **Subcommand help**: all 5 subcommands have per-subcommand `--help`
+- **`--no-auto-resize` wins** when both `--auto-resize` and `--no-auto-resize` given (with warning)
+- **`--dry-run` output goes to stdout** (correct for piping)
+- Minor gaps: `set` doesn't validate values at write time (deferred to launch), server hint triggers for valid single-word commands

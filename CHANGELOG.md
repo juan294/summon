@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-03-13
+
+### Fixed
+
+- Config-launched panes (lazygit, editors, server) now cd into the project directory before running commands
+- Config display no longer treats `"0"` as falsy (#66)
+- Removed misleading server hint for valid single-word commands (#67)
+- `summon set` now validates panes, editor-size, layout, and auto-resize values at write time (#68)
+- osascript errors now surface their actual message instead of generic fallback (#69)
+
+### Changed
+
+- `command -v` lookup uses `execFileSync` with argument array for defense-in-depth (#71)
+- Coverage thresholds raised from 60/55/85/60 to 95/90/95/95 (#72)
+- Added `@internal` annotation to `resetConfigCache` for consistency (#74)
+
 ## [0.3.1] - 2026-03-13
 
 ### Fixed
@@ -94,7 +110,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CodeQL security scanning
 - Dependabot for npm and GitHub Actions
 
-[Unreleased]: https://github.com/juan294/summon/compare/v0.3.1...develop
+[Unreleased]: https://github.com/juan294/summon/compare/v0.3.2...develop
+[0.3.2]: https://github.com/juan294/summon/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/juan294/summon/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/juan294/summon/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/juan294/summon/compare/v0.1.0...v0.2.0
