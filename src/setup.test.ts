@@ -42,6 +42,12 @@ const {
   cyan,
   printBanner,
   printSection,
+  magenta,
+  brightCyan,
+  WIZARD_MASCOT,
+  SUMMON_LOGO,
+  TIPS,
+  getRandomTip,
   // Phase 2 additions:
   EDITOR_CATALOG,
   SIDEBAR_CATALOG,
@@ -306,6 +312,72 @@ describe("ANSI helpers", () => {
     expect(green("test")).toBe("test");
     expect(yellow("test")).toBe("test");
     expect(cyan("test")).toBe("test");
+  });
+
+  it("magenta returns plain string in non-TTY", () => {
+    expect(magenta("test")).toBe("test");
+  });
+
+  it("brightCyan returns plain string in non-TTY", () => {
+    expect(brightCyan("test")).toBe("test");
+  });
+});
+
+describe("WIZARD_MASCOT", () => {
+  it("has 6 lines", () => {
+    expect(WIZARD_MASCOT).toHaveLength(6);
+  });
+
+  it("each line is <= 12 visual characters", () => {
+    for (const line of WIZARD_MASCOT) {
+      expect(line.length).toBeLessThanOrEqual(12);
+    }
+  });
+});
+
+describe("SUMMON_LOGO", () => {
+  it("has 3 lines", () => {
+    expect(SUMMON_LOGO).toHaveLength(3);
+  });
+
+  it("each line is <= 22 characters", () => {
+    for (const line of SUMMON_LOGO) {
+      expect(line.length).toBeLessThanOrEqual(22);
+    }
+  });
+
+  it("all lines are the same width", () => {
+    const widths = SUMMON_LOGO.map((l) => l.length);
+    expect(new Set(widths).size).toBe(1);
+  });
+});
+
+describe("TIPS", () => {
+  it("has at least 5 tips", () => {
+    expect(TIPS.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it("all tips are under 80 characters", () => {
+    for (const tip of TIPS) {
+      expect(tip.length).toBeLessThan(80);
+    }
+  });
+
+  it("no duplicate tips", () => {
+    expect(new Set(TIPS).size).toBe(TIPS.length);
+  });
+
+  it("no tips are empty strings", () => {
+    for (const tip of TIPS) {
+      expect(tip.trim().length).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe("getRandomTip", () => {
+  it("returns a string from the TIPS array", () => {
+    const tip = getRandomTip();
+    expect(TIPS).toContain(tip);
   });
 });
 
@@ -957,6 +1029,82 @@ describe("runSetup", () => {
     expect(
       allOutput.some((s) => s.includes("Minimal layout has no server pane")),
     ).toBe(true);
+
+    Object.defineProperty(process.stdin, "isTTY", {
+      value: origIsTTY,
+      writable: true,
+    });
+    logSpy.mockRestore();
+  });
+
+  it("prints wizard mascot art in welcome screen", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      if (_q.includes("[Y/n]")) cb("y");
+      else cb("1");
+    });
+
+    const origIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", {
+      value: true,
+      writable: true,
+    });
+
+    await runSetup();
+
+    const allOutput = logSpy.mock.calls.map((c) => String(c[0]));
+    expect(allOutput.some((s) => s.includes("█"))).toBe(true);
+    expect(allOutput.some((s) => s.includes("◠"))).toBe(true);
+
+    Object.defineProperty(process.stdin, "isTTY", {
+      value: origIsTTY,
+      writable: true,
+    });
+    logSpy.mockRestore();
+  });
+
+  it("prints a tip line in welcome screen", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      if (_q.includes("[Y/n]")) cb("y");
+      else cb("1");
+    });
+
+    const origIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", {
+      value: true,
+      writable: true,
+    });
+
+    await runSetup();
+
+    const allOutput = logSpy.mock.calls.map((c) => String(c[0]));
+    expect(allOutput.some((s) => s.includes("Tip:"))).toBe(true);
+
+    Object.defineProperty(process.stdin, "isTTY", {
+      value: origIsTTY,
+      writable: true,
+    });
+    logSpy.mockRestore();
+  });
+
+  it("prints SUMMON logo in welcome screen", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      if (_q.includes("[Y/n]")) cb("y");
+      else cb("1");
+    });
+
+    const origIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", {
+      value: true,
+      writable: true,
+    });
+
+    await runSetup();
+
+    const allOutput = logSpy.mock.calls.map((c) => String(c[0]));
+    expect(allOutput.some((s) => s.includes("╔") && s.includes("╗"))).toBe(true);
 
     Object.defineProperty(process.stdin, "isTTY", {
       value: origIsTTY,

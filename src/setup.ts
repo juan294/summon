@@ -58,6 +58,56 @@ export function cyan(s: string): string {
   return wrap("36", s);
 }
 
+export function magenta(s: string): string {
+  return wrap("35", s);
+}
+
+export function brightCyan(s: string): string {
+  return wrap("96", s);
+}
+
+// ---------------------------------------------------------------------------
+// Mascot & Logo
+// ---------------------------------------------------------------------------
+
+// Wizard mascot — hat with bent tip + face (retro pixel art)
+export const WIZARD_MASCOT: readonly string[] = [
+  "    ▄▀▀",
+  "   ▄██",
+  "  ████",
+  " ██████",
+  "▀▀▀▀▀▀▀▀",
+  " ◠    ◠",
+];
+
+// Pre-rendered "SUMMON" in box-drawing Unicode font (3 lines)
+export const SUMMON_LOGO: readonly string[] = [
+  "╔═╗╦ ╦╔╦╗╔╦╗╔═╗╔╗╔",
+  "╚═╗║ ║║║║║║║║ ║║║║",
+  "╚═╝╚═╝╩ ╩╩ ╩╚═╝╝╚╝",
+];
+
+// ---------------------------------------------------------------------------
+// Tips
+// ---------------------------------------------------------------------------
+
+export const TIPS: readonly string[] = [
+  "Use summon add <name> <path> to register projects for quick launching",
+  "Create a .summon file in any project root for per-project config",
+  "Try --layout minimal for a focused single-editor workspace",
+  "Use summon set editor <cmd> to change your default editor",
+  "Run summon --dry-run to preview the AppleScript without launching",
+  "Project config (.summon) overrides machine config; CLI flags override both",
+  "Use summon completions zsh to enable tab completion",
+  "Try --layout btop for an editor + system monitor workspace",
+  "Use summon config to see all your current settings",
+  "The --editor-size flag controls what % of width goes to editors",
+];
+
+export function getRandomTip(): string {
+  return TIPS[Math.floor(Math.random() * TIPS.length)]!;
+}
+
 // ---------------------------------------------------------------------------
 // Banner & Section
 // ---------------------------------------------------------------------------
@@ -341,12 +391,34 @@ const INSTALL_HINTS: Record<string, string> = {
 
 function printWelcome(): void {
   console.log();
-  printBanner([
-    "Welcome to summon!",
-    "Let's set up your workspace defaults.",
-  ]);
+
+  // Color functions for the logo gradient: cyan → brightCyan → green
+  const logoColors = [cyan, brightCyan, green];
+
+  // Compose mascot (left) + logo (right) side by side
+  const mascotWidth = 10; // pad mascot lines to this width for alignment
+  const gap = "   ";
+
+  // Mascot is 6 lines, logo is 3 lines — tagline starts after a 1-line gap
+  const taglineIdx = SUMMON_LOGO.length + 1; // line after blank spacer
+  const subtitleIdx = taglineIdx + 1;
+
+  for (let i = 0; i < WIZARD_MASCOT.length; i++) {
+    const mascotLine = magenta(WIZARD_MASCOT[i]!.padEnd(mascotWidth));
+    if (i < SUMMON_LOGO.length) {
+      const colorFn = logoColors[i] ?? cyan;
+      console.log(`  ${mascotLine}${gap}${colorFn(SUMMON_LOGO[i]!)}`);
+    } else if (i === taglineIdx) {
+      console.log(`  ${mascotLine}${gap}Summon your Ghostty workspace.`);
+    } else if (i === subtitleIdx) {
+      console.log(`  ${mascotLine}${gap}Let's set up your defaults.`);
+    } else {
+      console.log(`  ${mascotLine}`);
+    }
+  }
+
   console.log();
-  console.log(dim("  You can change these later with: summon set <key> <value>"));
+  console.log(`  ${bold(cyan("Tip:"))} ${dim(getRandomTip())}`);
   console.log();
 }
 
