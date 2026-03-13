@@ -1,5 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { planLayout, isPresetName, getPreset } from "./layout.js";
+import {
+  planLayout,
+  isPresetName,
+  getPreset,
+  PANES_MIN,
+  EDITOR_SIZE_MIN,
+  EDITOR_SIZE_MAX,
+  EDITOR_SIZE_DEFAULT,
+  PANES_DEFAULT,
+} from "./layout.js";
 
 describe("planLayout", () => {
   it("returns defaults when called with no options", () => {
@@ -149,5 +158,32 @@ describe("layout presets", () => {
     expect(plan.leftColumnCount).toBe(2);
     expect(plan.rightColumnEditorCount).toBe(2);
     expect(plan.hasServer).toBe(true);
+  });
+});
+
+describe("validation constants", () => {
+  it("PANES_MIN is 1", () => {
+    expect(PANES_MIN).toBe(1);
+  });
+
+  it("EDITOR_SIZE_MIN is 1", () => {
+    expect(EDITOR_SIZE_MIN).toBe(1);
+  });
+
+  it("EDITOR_SIZE_MAX is 99", () => {
+    expect(EDITOR_SIZE_MAX).toBe(99);
+  });
+
+  it("EDITOR_SIZE_DEFAULT is 75", () => {
+    expect(EDITOR_SIZE_DEFAULT).toBe(75);
+  });
+
+  it("PANES_DEFAULT is 2", () => {
+    expect(PANES_DEFAULT).toBe(2);
+  });
+
+  it("defaults in planLayout match exported constants", () => {
+    const plan = planLayout();
+    expect(plan.editorSize).toBe(EDITOR_SIZE_DEFAULT);
   });
 });

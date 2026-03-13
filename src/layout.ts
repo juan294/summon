@@ -1,3 +1,18 @@
+/** Minimum number of editor panes. */
+export const PANES_MIN = 1;
+
+/** Default number of editor panes. */
+export const PANES_DEFAULT = 2;
+
+/** Minimum editor width percentage. */
+export const EDITOR_SIZE_MIN = 1;
+
+/** Maximum editor width percentage. */
+export const EDITOR_SIZE_MAX = 99;
+
+/** Default editor width percentage. */
+export const EDITOR_SIZE_DEFAULT = 75;
+
 export interface LayoutOptions {
   editor: string;
   editorPanes: number;
@@ -10,8 +25,8 @@ export interface LayoutOptions {
 
 const DEFAULT_OPTIONS: LayoutOptions = {
   editor: "claude",
-  editorPanes: 2,
-  editorSize: 75,
+  editorPanes: PANES_DEFAULT,
+  editorSize: EDITOR_SIZE_DEFAULT,
   sidebarCommand: "lazygit",
   server: "true",
   secondaryEditor: "",
