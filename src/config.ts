@@ -10,9 +10,9 @@ let configEnsured = false;
 
 function ensureConfig(): void {
   if (configEnsured) return;
-  mkdirSync(CONFIG_DIR, { recursive: true });
-  if (!existsSync(PROJECTS_FILE)) writeFileSync(PROJECTS_FILE, "");
-  if (!existsSync(CONFIG_FILE)) writeFileSync(CONFIG_FILE, "editor=claude\n");
+  mkdirSync(CONFIG_DIR, { recursive: true, mode: 0o700 });
+  if (!existsSync(PROJECTS_FILE)) writeFileSync(PROJECTS_FILE, "", { mode: 0o600 });
+  if (!existsSync(CONFIG_FILE)) writeFileSync(CONFIG_FILE, "editor=claude\n", { mode: 0o600 });
   configEnsured = true;
 }
 
@@ -46,7 +46,7 @@ function writeKV(file: string, map: Map<string, string>): void {
     ([k, v]) =>
       `${k.replace(/[\n\r]/g, "")}=${v.replace(/[\n\r]/g, "")}`,
   );
-  writeFileSync(file, lines.join("\n") + "\n");
+  writeFileSync(file, lines.join("\n") + "\n", { mode: 0o600 });
 }
 
 // --- Projects ---
@@ -80,6 +80,7 @@ export function setConfig(key: string, value: string): void {
   writeKV(CONFIG_FILE, config);
 }
 
+/** @internal — test-only, not used in production */
 export function getConfig(key: string): string | undefined {
   return readKV(CONFIG_FILE).get(key);
 }
