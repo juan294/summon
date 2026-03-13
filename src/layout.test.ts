@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   planLayout,
   isPresetName,
+  getPresetNames,
   getPreset,
   PANES_MIN,
   EDITOR_SIZE_MIN,
@@ -106,6 +107,10 @@ describe("server pane toggle", () => {
 });
 
 describe("layout presets", () => {
+  it("getPresetNames returns all preset names", () => {
+    expect(getPresetNames()).toEqual(["minimal", "full", "pair", "cli", "btop"]);
+  });
+
   it("isPresetName recognizes valid presets", () => {
     expect(isPresetName("minimal")).toBe(true);
     expect(isPresetName("full")).toBe(true);

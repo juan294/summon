@@ -13,7 +13,7 @@ import {
 } from "./config.js";
 import { launch } from "./launcher.js";
 import type { CLIOverrides } from "./launcher.js";
-import { PANES_MIN, EDITOR_SIZE_MIN, EDITOR_SIZE_MAX, isPresetName } from "./layout.js";
+import { PANES_MIN, EDITOR_SIZE_MIN, EDITOR_SIZE_MAX, isPresetName, getPresetNames } from "./layout.js";
 import { parseIntInRange } from "./validation.js";
 
 const HELP = `
@@ -164,7 +164,7 @@ if (values["editor-size"] !== undefined) {
 
 if (values.layout !== undefined && !isPresetName(values.layout)) {
   console.error(`Error: --layout must be a valid preset name, got "${values.layout}".`);
-  console.error(`Valid presets: minimal, full, pair, cli, btop`);
+  console.error(`Valid presets: ${getPresetNames().join(", ")}`);
   console.error(`Run 'summon --help' for usage information.`);
   process.exit(1);
 }
@@ -273,7 +273,7 @@ switch (subcommand) {
     if (key === "layout" && value !== undefined) {
       if (!isPresetName(value)) {
         console.error(`Error: layout must be a valid preset name, got "${value}".`);
-        console.error(`Valid presets: minimal, full, pair, cli, btop`);
+        console.error(`Valid presets: ${getPresetNames().join(", ")}`);
         process.exit(1);
       }
     }

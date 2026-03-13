@@ -4,6 +4,7 @@ import { execFileSync } from "node:child_process";
 import {
   planLayout,
   isPresetName,
+  getPresetNames,
   getPreset,
   PANES_MIN,
   PANES_DEFAULT,
@@ -147,7 +148,7 @@ export function resolveConfig(targetDir: string, cliOverrides: CLIOverrides): Re
       base = getPreset(layoutKey);
     } else {
       console.warn(
-        `Unknown layout preset: "${layoutKey}". Valid presets: minimal, full, pair, cli, btop. Using defaults.`,
+        `Unknown layout preset: "${layoutKey}". Valid presets: ${getPresetNames().join(", ")}. Using defaults.`,
       );
     }
   }

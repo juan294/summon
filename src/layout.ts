@@ -66,6 +66,10 @@ const PRESETS: Record<PresetName, Partial<LayoutOptions>> = {
   btop: { editorPanes: 2, server: "true", secondaryEditor: "btop" },
 };
 
+export function getPresetNames(): string[] {
+  return Object.keys(PRESETS);
+}
+
 export function isPresetName(value: string): value is PresetName {
   return value in PRESETS;
 }
