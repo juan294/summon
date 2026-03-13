@@ -18,7 +18,7 @@ Summon your Ghostty workspace with one command. Native splits, no tmux.
 npm i -g summon-ws
 ```
 
-Requires Node >= 18, macOS, and [Ghostty](https://ghostty.org) 1.3.0+.
+Requires Node >= 18, macOS, and [Ghostty](https://ghostty.org) 1.3.1+.
 
 ## Quick Start
 
