@@ -280,7 +280,7 @@ describe("command dependency checks", () => {
     mockExit.mockRestore();
   });
 
-  it("shows correct CLI syntax in error message", async () => {
+  it("shows correct CLI syntax in error message for editor", async () => {
     mockExecSync.mockImplementation((cmd: string) => {
       if (cmd === "command -v obscure-tool") throw new Error("not found");
       if (typeof cmd === "string" && cmd.startsWith("command -v "))
@@ -304,6 +304,62 @@ describe("command dependency checks", () => {
     const configMsg = errorMessages.find((m) => m.includes("summon"));
     expect(configMsg).toBeDefined();
     expect(configMsg).toContain("summon set editor <command>");
+
+    mockExit.mockRestore();
+    errorSpy.mockRestore();
+  });
+
+  it("shows correct CLI syntax in error message for sidebar", async () => {
+    mockExecSync.mockImplementation((cmd: string) => {
+      if (cmd === "command -v unknown-sidebar") throw new Error("not found");
+      if (typeof cmd === "string" && cmd.startsWith("command -v "))
+        return "/usr/bin/stub\n";
+      return "";
+    });
+    vi.mocked(getConfig).mockImplementation((key: string) => {
+      if (key === "sidebar") return "unknown-sidebar";
+      return undefined;
+    });
+
+    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("process.exit");
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
+
+    const errorMessages = errorSpy.mock.calls.map((c) => c[0] as string);
+    const configMsg = errorMessages.find((m) => m.includes("summon"));
+    expect(configMsg).toBeDefined();
+    expect(configMsg).toContain("summon set sidebar <command>");
+
+    mockExit.mockRestore();
+    errorSpy.mockRestore();
+  });
+
+  it("shows correct CLI syntax in error message for server", async () => {
+    mockExecSync.mockImplementation((cmd: string) => {
+      if (cmd === "command -v unknown-server") throw new Error("not found");
+      if (typeof cmd === "string" && cmd.startsWith("command -v "))
+        return "/usr/bin/stub\n";
+      return "";
+    });
+    vi.mocked(getConfig).mockImplementation((key: string) => {
+      if (key === "server") return "unknown-server run dev";
+      return undefined;
+    });
+
+    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("process.exit");
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
+
+    const errorMessages = errorSpy.mock.calls.map((c) => c[0] as string);
+    const configMsg = errorMessages.find((m) => m.includes("summon"));
+    expect(configMsg).toBeDefined();
+    expect(configMsg).toContain("summon set server <command>");
 
     mockExit.mockRestore();
     errorSpy.mockRestore();
