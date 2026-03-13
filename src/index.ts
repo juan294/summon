@@ -27,6 +27,7 @@ Usage:
   summon list                 List all registered projects
   summon set <key> [value]    Set a machine-level config value
   summon config               Show current machine configuration
+  summon completions <shell>   Generate shell completion script (zsh, bash)
 
 Options:
   -h, --help                  Show this help message
@@ -105,6 +106,14 @@ Show all current machine-level configuration values.`,
 Interactively configure your workspace defaults (editor, sidebar, layout, server).
 Settings are saved to ~/.config/summon/config.
 You can also set individual values with: summon set <key> <value>`,
+
+  completions: `Usage: summon completions <shell>
+
+Generate shell completion script. Supported shells: zsh, bash.
+
+Setup (add to your shell config):
+  zsh:   eval "$(summon completions zsh)"
+  bash:  eval "$(summon completions bash)"`,
 };
 
 function showHelp(): void {
@@ -316,6 +325,27 @@ switch (subcommand) {
   case "setup": {
     const { runSetup } = await import("./setup.js");
     await runSetup();
+    break;
+  }
+
+  case "completions": {
+    const [shell] = args;
+    if (!shell) {
+      console.error("Usage: summon completions <shell>");
+      console.error("Supported shells: zsh, bash");
+      process.exit(1);
+    }
+    if (shell === "zsh") {
+      const { generateZshCompletion } = await import("./completions.js");
+      console.log(generateZshCompletion());
+    } else if (shell === "bash") {
+      const { generateBashCompletion } = await import("./completions.js");
+      console.log(generateBashCompletion());
+    } else {
+      console.error(`Unsupported shell: ${shell}`);
+      console.error("Supported shells: zsh, bash");
+      process.exit(1);
+    }
     break;
   }
 

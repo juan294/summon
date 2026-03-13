@@ -199,6 +199,44 @@ summon . -l pair --server "npm run dev"
 summon . --editor vim --panes 2
 ```
 
+## Shell Completions
+
+Summon supports tab completion for project names, subcommands, flags, config keys, and layout presets.
+
+### Setup
+
+#### zsh (macOS default)
+
+Add to your `~/.zshrc`:
+
+```bash
+eval "$(summon completions zsh)"
+```
+
+Then reload: `source ~/.zshrc`
+
+#### bash
+
+Add to your `~/.bashrc` or `~/.bash_profile`:
+
+```bash
+eval "$(summon completions bash)"
+```
+
+Then reload: `source ~/.bashrc`
+
+### What gets completed
+
+- `summon <TAB>` — subcommands, registered project names, directories
+- `summon remove <TAB>` — registered project names
+- `summon set <TAB>` — config keys
+- `summon set layout <TAB>` — layout presets
+- `summon --layout <TAB>` — layout presets
+- `summon --<TAB>` — all CLI flags
+
+Project names are read dynamically from `~/.config/summon/projects`,
+so newly added projects are immediately completable.
+
 ## Layout Presets
 
 Presets are named shortcuts for common layout configurations.
