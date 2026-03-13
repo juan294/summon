@@ -45,10 +45,9 @@ _summon() {
 
   case "$state" in
     cmd)
-      _alternative \\
-        'commands:command:_describe "command" subcommands' \\
-        'projects:project:compadd -a project_names' \\
-        'directories:directory:_directories'
+      _describe 'command' subcommands
+      compadd -a project_names
+      _files -/
       ;;
     args)
       case "\${words[1]}" in
@@ -79,7 +78,7 @@ _summon() {
   esac
 }
 
-_summon "$@"
+compdef _summon summon
 `;
 }
 
