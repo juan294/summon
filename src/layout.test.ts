@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   planLayout,
   isPresetName,
+  getPresetNames,
   getPreset,
   PANES_MIN,
   EDITOR_SIZE_MIN,
@@ -106,12 +107,16 @@ describe("server pane toggle", () => {
 });
 
 describe("layout presets", () => {
+  it("getPresetNames returns all preset names", () => {
+    expect(getPresetNames()).toEqual(["minimal", "full", "pair", "cli", "btop"]);
+  });
+
   it("isPresetName recognizes valid presets", () => {
     expect(isPresetName("minimal")).toBe(true);
     expect(isPresetName("full")).toBe(true);
     expect(isPresetName("pair")).toBe(true);
     expect(isPresetName("cli")).toBe(true);
-    expect(isPresetName("mtop")).toBe(true);
+    expect(isPresetName("btop")).toBe(true);
     expect(isPresetName("unknown")).toBe(false);
   });
 
@@ -144,12 +149,12 @@ describe("layout presets", () => {
     expect(plan.serverCommand).toBeNull();
   });
 
-  it("mtop preset: 2 editor panes with mtop as secondary editor, server enabled", () => {
-    const plan = planLayout(getPreset("mtop"));
+  it("btop preset: 2 editor panes with btop as secondary editor, server enabled", () => {
+    const plan = planLayout(getPreset("btop"));
     expect(plan.leftColumnCount).toBe(1);
     expect(plan.rightColumnEditorCount).toBe(1);
     expect(plan.hasServer).toBe(true);
-    expect(plan.secondaryEditor).toBe("mtop");
+    expect(plan.secondaryEditor).toBe("btop");
   });
 
   it("individual keys override preset values", () => {

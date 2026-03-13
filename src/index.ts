@@ -9,10 +9,12 @@ import {
   setConfig,
   removeConfig,
   listConfig,
+  isFirstRun,
+  VALID_KEYS,
 } from "./config.js";
 import { launch } from "./launcher.js";
 import type { CLIOverrides } from "./launcher.js";
-import { PANES_MIN, EDITOR_SIZE_MIN, EDITOR_SIZE_MAX, isPresetName } from "./layout.js";
+import { PANES_MIN, EDITOR_SIZE_MIN, EDITOR_SIZE_MAX, isPresetName, getPresetNames } from "./layout.js";
 import { parseIntInRange } from "./validation.js";
 
 const HELP = `
@@ -20,20 +22,22 @@ summon -- Launch multi-pane Ghostty workspaces
 
 Usage:
   summon <target>             Launch workspace (project name, path, or '.')
+  summon setup                Configure workspace defaults interactively
   summon add <name> <path>    Register a project name -> path mapping
   summon remove <name>        Remove a registered project
   summon list                 List all registered projects
   summon set <key> [value]    Set a machine-level config value
   summon config               Show current machine configuration
+  summon completions <shell>   Generate shell completion script (zsh, bash)
 
 Options:
   -h, --help                  Show this help message
   -v, --version               Show version number
-  -l, --layout <preset>       Use a layout preset (minimal, full, pair, cli, mtop)
+  -l, --layout <preset>       Use a layout preset (minimal, full, pair, cli, btop)
   -e, --editor <cmd>          Override editor command
-  --panes <n>                 Override number of editor panes
+  -p, --panes <n>             Override number of editor panes
   --editor-size <n>           Override editor width %
-  --sidebar <cmd>             Override sidebar command
+  -s, --sidebar <cmd>         Override sidebar command
   --server <value>            Server pane: true, false, or a command
   --auto-resize               Resize sidebar to match editor-size (default: on)
   --no-auto-resize            Disable auto-resize
@@ -44,7 +48,7 @@ Config keys:
   sidebar       Command for sidebar pane (default: lazygit)
   panes         Number of editor panes (default: 2)
   editor-size   Width % for editor grid (default: 75)
-  server        Server pane toggle (default: true)
+  server        Server pane: true, false, or command (default: true)
   layout        Default layout preset
   auto-resize   Resize sidebar to match editor-size (default: true)
 
@@ -53,7 +57,7 @@ Layout presets:
   full          3 editor panes + server
   pair          2 editor panes + server
   cli           1 editor pane + server
-  mtop          editor + mtop + server + lazygit sidebar
+  btop          editor + btop + server + lazygit sidebar
 
 Per-project config:
   Place a .summon file in your project root with key=value pairs.
@@ -72,7 +76,6 @@ Examples:
   summon . --server "npm run dev" Launch with custom server command
 `.trim();
 
-const VALID_KEYS = ["editor", "sidebar", "panes", "editor-size", "server", "layout", "auto-resize"];
 const COMMAND_KEYS = ["editor", "sidebar"];
 
 const SUBCOMMAND_HELP: Record<string, string> = {
@@ -97,6 +100,20 @@ List all registered projects and their paths.`,
   config: `Usage: summon config
 
 Show all current machine-level configuration values.`,
+
+  setup: `Usage: summon setup
+
+Interactively configure your workspace defaults (editor, sidebar, layout, server).
+Settings are saved to ~/.config/summon/config.
+You can also set individual values with: summon set <key> <value>`,
+
+  completions: `Usage: summon completions <shell>
+
+Generate shell completion script. Supported shells: zsh, bash.
+
+Setup (add to your shell config):
+  zsh:   eval "$(summon completions zsh)"
+  bash:  eval "$(summon completions bash)"`,
 };
 
 function showHelp(): void {
@@ -114,9 +131,9 @@ const parseOpts = {
     version: { type: "boolean", short: "v" },
     layout: { type: "string", short: "l" },
     editor: { type: "string", short: "e" },
-    panes: { type: "string" },
+    panes: { type: "string", short: "p" },
     "editor-size": { type: "string" },
-    sidebar: { type: "string" },
+    sidebar: { type: "string", short: "s" },
     server: { type: "string" },
     "auto-resize": { type: "boolean" },
     "no-auto-resize": { type: "boolean" },
@@ -156,7 +173,7 @@ if (values["editor-size"] !== undefined) {
 
 if (values.layout !== undefined && !isPresetName(values.layout)) {
   console.error(`Error: --layout must be a valid preset name, got "${values.layout}".`);
-  console.error(`Valid presets: minimal, full, pair, cli, mtop`);
+  console.error(`Valid presets: ${getPresetNames().join(", ")}`);
   console.error(`Run 'summon --help' for usage information.`);
   process.exit(1);
 }
@@ -172,6 +189,17 @@ if (values.version) {
 
 const [subcommand, ...args] = positionals;
 
+// Auto-trigger setup wizard on first run (config file doesn't exist)
+if (isFirstRun() && process.stdin.isTTY) {
+  if (!subcommand || !(subcommand in SUBCOMMAND_HELP)) {
+    const { runSetup } = await import("./setup.js");
+    await runSetup();
+    if (!subcommand) {
+      process.exit(0);
+    }
+  }
+}
+
 if (values.help) {
   if (subcommand && subcommand in SUBCOMMAND_HELP) {
     console.log(SUBCOMMAND_HELP[subcommand]);
@@ -182,7 +210,7 @@ if (values.help) {
 }
 
 if (!subcommand) {
-  console.error(HELP);
+  console.error("Usage: summon <target>\n\nRun 'summon --help' for usage information.");
   process.exit(1);
 }
 
@@ -254,7 +282,7 @@ switch (subcommand) {
     if (key === "layout" && value !== undefined) {
       if (!isPresetName(value)) {
         console.error(`Error: layout must be a valid preset name, got "${value}".`);
-        console.error(`Valid presets: minimal, full, pair, cli, mtop`);
+        console.error(`Valid presets: ${getPresetNames().join(", ")}`);
         process.exit(1);
       }
     }
@@ -290,6 +318,30 @@ switch (subcommand) {
           console.log(`  ${key} → (empty)${unknownSuffix}`);
         }
       }
+    }
+    break;
+  }
+
+  case "setup": {
+    const { runSetup } = await import("./setup.js");
+    await runSetup();
+    break;
+  }
+
+  case "completions": {
+    const [shell] = args;
+    if (!shell) {
+      console.error("Usage: summon completions <shell>");
+      console.error("Supported shells: zsh, bash");
+      process.exit(1);
+    }
+    if (shell === "zsh" || shell === "bash") {
+      const { generateZshCompletion, generateBashCompletion } = await import("./completions.js");
+      console.log(shell === "zsh" ? generateZshCompletion() : generateBashCompletion());
+    } else {
+      console.error(`Unsupported shell: ${shell}`);
+      console.error("Supported shells: zsh, bash");
+      process.exit(1);
     }
     break;
   }

@@ -1,10 +1,10 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { homedir } from "node:os";
-import { execSync, execFileSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import {
   planLayout,
   isPresetName,
+  getPresetNames,
   getPreset,
   PANES_MIN,
   PANES_DEFAULT,
@@ -15,8 +15,31 @@ import {
 import type { LayoutOptions } from "./layout.js";
 import { listConfig, readKVFile } from "./config.js";
 import { generateAppleScript } from "./script.js";
+import { SAFE_COMMAND_RE, GHOSTTY_PATHS, resolveCommand as resolveCommandPath, promptUser } from "./utils.js";
+import { parseIntInRange } from "./validation.js";
 
-const SAFE_COMMAND_RE = /^[a-zA-Z0-9_][a-zA-Z0-9_.+-]*$/;
+const SAFE_SHELL_RE = /^\/[a-zA-Z0-9_/.-]+$/;
+
+/** Shell metacharacters that indicate potentially dangerous commands. */
+const SHELL_META_RE = /[;|&`]|\$\(|[><]/;
+
+/** Keys in .summon files that hold command values (as opposed to config like layout/panes). */
+const COMMAND_KEYS = new Set(["editor", "sidebar", "server"]);
+
+/**
+ * Read and validate process.env.SHELL.
+ * Falls back to /bin/bash with a warning if undefined or unsafe.
+ */
+function getLoginShell(): string {
+  const shell = process.env.SHELL;
+  if (shell === undefined || !SAFE_SHELL_RE.test(shell)) {
+    if (shell !== undefined) {
+      console.warn(`Unsafe SHELL value: "${shell}". Falling back to /bin/bash.`);
+    }
+    return "/bin/bash";
+  }
+  return shell;
+}
 
 export interface CLIOverrides {
   layout?: string;
@@ -29,11 +52,6 @@ export interface CLIOverrides {
   dryRun?: boolean;
 }
 
-const GHOSTTY_PATHS = [
-  "/Applications/Ghostty.app",
-  join(homedir(), "Applications", "Ghostty.app"),
-];
-
 function ensureGhostty(): void {
   if (!GHOSTTY_PATHS.some((p) => existsSync(p))) {
     console.error(
@@ -45,7 +63,7 @@ function ensureGhostty(): void {
 
 function executeScript(script: string): void {
   try {
-    execSync("osascript", { input: script, encoding: "utf-8" });
+    execFileSync("osascript", [], { input: script, encoding: "utf-8" });
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     console.error(`Failed to execute workspace script: ${detail}`);
@@ -54,28 +72,51 @@ function executeScript(script: string): void {
   }
 }
 
-/** Resolve a command name to its full path, or return null if not found. */
+/**
+ * Resolve a command name to its full path.
+ * Exits with an error if the command name is invalid (defense-in-depth).
+ * Returns null if the command is not found on the system.
+ */
 function resolveCommand(cmd: string): string | null {
   if (!SAFE_COMMAND_RE.test(cmd)) {
     console.error(`Invalid command name: "${cmd}". Command names may only contain letters, digits, hyphens, dots, underscores, and plus signs.`);
     process.exit(1);
   }
-  try {
-    return execFileSync("/bin/sh", ["-c", `command -v "$1"`, "--", cmd], { encoding: "utf-8" }).trim();
-  } catch {
-    return null;
-  }
+  return resolveCommandPath(cmd);
 }
 
 async function prompt(question: string): Promise<string> {
-  const { createInterface } = await import("node:readline");
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-  return new Promise((resolve) => {
-    rl.question(question, (answer) => {
-      rl.close();
-      resolve(answer.trim().toLowerCase());
-    });
-  });
+  const answer = await promptUser(question);
+  return answer.toLowerCase();
+}
+
+/**
+ * Check if any command values from the .summon project file contain shell metacharacters.
+ * If so, warn the user and prompt for confirmation (or refuse on non-TTY).
+ * Skips if dryRun is set (dry-run doesn't execute anything).
+ */
+async function confirmDangerousCommands(projectOverrides: Map<string, string>): Promise<void> {
+  const dangerous: Array<[string, string]> = [];
+  for (const [key, value] of projectOverrides) {
+    if (COMMAND_KEYS.has(key) && SHELL_META_RE.test(value)) {
+      dangerous.push([key, value]);
+    }
+  }
+  if (dangerous.length === 0) return;
+
+  const lines = dangerous.map(([key, value]) => `  ${key} = ${value}`).join("\n");
+  const message = `Warning: .summon file contains commands with shell metacharacters:\n${lines}`;
+  console.warn(message);
+
+  if (!process.stdin.isTTY) {
+    console.warn("Non-interactive shell detected. Refusing to execute.");
+    process.exit(1);
+  }
+
+  const answer = await prompt("Continue? [y/N] ");
+  if (answer !== "y" && answer !== "yes") {
+    process.exit(1);
+  }
 }
 
 const KNOWN_INSTALL_COMMANDS: Record<string, () => [string, string[]] | null> = {
@@ -140,6 +181,7 @@ async function ensureCommand(cmd: string, configKey: string): Promise<string> {
 
 interface ResolvedConfig {
   opts: Partial<LayoutOptions>;
+  projectOverrides: Map<string, string>;
 }
 
 export function resolveConfig(targetDir: string, cliOverrides: CLIOverrides): ResolvedConfig {
@@ -154,7 +196,7 @@ export function resolveConfig(targetDir: string, cliOverrides: CLIOverrides): Re
       base = getPreset(layoutKey);
     } else {
       console.warn(
-        `Unknown layout preset: "${layoutKey}". Valid presets: minimal, full, pair, cli, mtop. Using defaults.`,
+        `Unknown layout preset: "${layoutKey}". Valid presets: ${getPresetNames().join(", ")}. Using defaults.`,
       );
     }
   }
@@ -177,31 +219,31 @@ export function resolveConfig(targetDir: string, cliOverrides: CLIOverrides): Re
   if (editor !== undefined) result.editor = editor;
   if (sidebar !== undefined) result.sidebarCommand = sidebar;
   if (panes !== undefined) {
-    const parsed = parseInt(panes, 10);
-    if (Number.isNaN(parsed) || parsed < PANES_MIN) {
+    const parsed = parseIntInRange(panes, PANES_MIN);
+    if (parsed.ok) {
+      result.editorPanes = parsed.value;
+    } else {
       console.warn(
         `Invalid panes value: "${panes}". Must be a positive integer. Using default (${PANES_DEFAULT}).`,
       );
       result.editorPanes = PANES_DEFAULT;
-    } else {
-      result.editorPanes = parsed;
     }
   }
   if (editorSize !== undefined) {
-    const parsed = parseInt(editorSize, 10);
-    if (Number.isNaN(parsed) || parsed < EDITOR_SIZE_MIN || parsed > EDITOR_SIZE_MAX) {
+    const parsed = parseIntInRange(editorSize, EDITOR_SIZE_MIN, EDITOR_SIZE_MAX);
+    if (parsed.ok) {
+      result.editorSize = parsed.value;
+    } else {
       console.warn(
         `Invalid editor-size value: "${editorSize}". Must be ${EDITOR_SIZE_MIN}-${EDITOR_SIZE_MAX}. Using default (${EDITOR_SIZE_DEFAULT}).`,
       );
       result.editorSize = EDITOR_SIZE_DEFAULT;
-    } else {
-      result.editorSize = parsed;
     }
   }
   if (server !== undefined) result.server = server;
   if (autoResize !== undefined) result.autoResize = autoResize === "true";
 
-  return { opts: result };
+  return { opts: result, projectOverrides: project };
 }
 
 export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Promise<void> {
@@ -210,13 +252,24 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
     process.exit(1);
   }
 
-  const { opts } = resolveConfig(targetDir, cliOverrides ?? {});
+  const { opts, projectOverrides } = resolveConfig(targetDir, cliOverrides ?? {});
+
+  if (!cliOverrides?.dryRun) {
+    await confirmDangerousCommands(projectOverrides);
+  }
+
   const plan = planLayout(opts);
-  const loginShell = process.env.SHELL ?? "/bin/bash";
+  const loginShell = getLoginShell();
 
   if (cliOverrides?.dryRun) {
     const script = generateAppleScript(plan, targetDir, loginShell);
-    console.log(script);
+    const totalPanes = plan.leftColumnCount + plan.rightColumnEditorCount;
+    const header = [
+      "-- summon dry-run",
+      `-- Layout: ${totalPanes} editor panes, editor=${plan.editor}, sidebar=${plan.sidebarCommand}, server=${plan.hasServer}`,
+      `-- Target: ${targetDir}`,
+    ].join("\n");
+    console.log(`${header}\n${script}`);
     return;
   }
 

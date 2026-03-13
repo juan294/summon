@@ -6,11 +6,14 @@ Technical reference for contributors.
 
 | Module | Role | Side Effects | Dependencies |
 |--------|------|:------------:|--------------|
-| `index.ts` | CLI entry point — parseArgs, subcommand dispatch, CLI overrides | yes | config, launcher |
-| `launcher.ts` | Orchestrator — config resolution, command checks, script execution via osascript | yes | config, layout, script |
-| `config.ts` | Config file read/write (`~/.config/summon/` and `.summon`) | yes | Node stdlib only |
+| `index.ts` | CLI entry point — parseArgs, subcommand dispatch, first-run detection | yes | config, launcher, setup (dynamic) |
+| `launcher.ts` | Orchestrator — config resolution, command checks, script execution via osascript | yes | config, layout, script, utils |
+| `config.ts` | Config file read/write (`~/.config/summon/` and `.summon`), first-run detection | yes | Node stdlib only |
+| `setup.ts` | Interactive setup wizard — TUI primitives, tool catalogs, numbered-selection flow | yes | config, utils |
+| `utils.ts` | Shared utilities — `SAFE_COMMAND_RE`, `GHOSTTY_PATHS`, `resolveCommand` | yes | Node stdlib only |
 | `layout.ts` | Layout calculation and presets | **pure** | none |
 | `script.ts` | AppleScript generator — builds script string from LayoutPlan | **pure** | none |
+| `validation.ts` | Input validation helpers (`parseIntInRange`) | **pure** | none |
 | `globals.d.ts` | Build-time constant declarations (`__VERSION__`) | — | — |
 | `*.test.ts` | Co-located unit tests (Vitest) | — | — |
 
@@ -20,25 +23,37 @@ Technical reference for contributors.
 graph TD
     index[index.ts] --> config[config.ts]
     index --> launcher[launcher.ts]
+    index -.->|dynamic import| setup[setup.ts]
     launcher --> config
     launcher --> layout[layout.ts]
     launcher --> script[script.ts]
+    launcher --> utils[utils.ts]
+    setup --> config
+    setup --> utils
 
     config -.- cfg_fns["addProject, removeProject,
     getProject, listProjects,
     setConfig, listConfig,
-    getConfig, readKVFile"]
+    isFirstRun, readKVFile"]
     layout -.- lay_fns["planLayout, isPresetName,
     getPreset, LayoutOptions,
     LayoutPlan"]
     script -.- scr_fns["generateAppleScript"]
+    utils -.- util_fns["SAFE_COMMAND_RE,
+    GHOSTTY_PATHS,
+    resolveCommand"]
+    setup -.- setup_fns["runSetup, detectTools,
+    validateSetup, EDITOR_CATALOG,
+    SIDEBAR_CATALOG"]
 
     style cfg_fns fill:none,stroke-dasharray:5
     style lay_fns fill:none,stroke-dasharray:5
     style scr_fns fill:none,stroke-dasharray:5
+    style util_fns fill:none,stroke-dasharray:5
+    style setup_fns fill:none,stroke-dasharray:5
 ```
 
-`layout.ts` and `script.ts` are pure modules with no imports from the project. `config.ts` only uses Node stdlib. `launcher.ts` depends on `config.ts`, `layout.ts`, and `script.ts`.
+`layout.ts`, `script.ts`, and `validation.ts` are pure modules with no project imports. `config.ts` and `utils.ts` only use Node stdlib. `setup.ts` is loaded via dynamic import from `index.ts` — it's only parsed when the setup wizard is needed (first run or `summon setup`), keeping normal launch times unaffected.
 
 ## Data Flow
 
@@ -49,11 +64,27 @@ flowchart TD
     --editor, --panes, --editor-size,
     --sidebar, --server, --auto-resize,
     --no-auto-resize, --dry-run"]
-    parse --> dispatch{"subcommand dispatch"}
+    parse --> firstrun{"isFirstRun()
+    && stdin.isTTY?"}
+
+    firstrun -->|yes| wizard["setup.ts: runSetup()
+    interactive wizard
+    (layout, editor, sidebar, server)"]
+    wizard --> wizardsave["setConfig() for each choice
+    + validateSetup() tool checks"]
+    wizardsave --> wizardcont{"subcommand
+    provided?"}
+    wizardcont -->|no| exit0["exit 0
+    (bare summon)"]
+    wizardcont -->|yes| dispatch
+
+    firstrun -->|no| dispatch{"subcommand dispatch"}
 
     dispatch -->|"add / remove / list
     set / config"| configrw["config.ts
     read/write"]
+    dispatch -->|"setup"| wizardexplicit["setup.ts: runSetup()
+    (explicit invocation)"]
     dispatch -->|"default (launch target)"| resolve["resolve target directory
     (., absolute path, or project name)"]
 
@@ -80,8 +111,51 @@ flowchart TD
     ensure --> gen["generateAppleScript(plan, targetDir)
     build script string"]
     gen --> exec["execute via
-    execSync('osascript', { input: script })"]
+    execFileSync('osascript', { input: script })"]
 ```
+
+## Setup Wizard
+
+`setup.ts` implements the interactive first-run onboarding wizard. It is loaded via dynamic `import()` from `index.ts` to avoid adding to the startup cost of normal launches.
+
+### First-Run Detection
+
+`isFirstRun()` in `config.ts` checks whether `~/.config/summon/config` exists. It does NOT call `ensureConfig()` — the check must not create the file as a side effect.
+
+The auto-trigger in `index.ts` fires when:
+1. `isFirstRun()` returns `true` (no config file)
+2. `process.stdin.isTTY` is truthy (interactive terminal)
+3. The subcommand is not a config management command (add, remove, list, set, config, setup)
+
+### Wizard Flow
+
+1. **Welcome banner** — box-drawn border using Unicode characters
+2. **Layout selection** — numbered list of 5 presets with ASCII diagrams
+3. **Editor selection** — catalog of common editors, detected via `resolveCommand()`, sorted available-first
+4. **Sidebar selection** — catalog of common sidebar tools, same detection pattern
+5. **Server selection** — plain shell, disabled, or custom command
+6. **Summary** — display chosen configuration
+7. **Confirmation** — Y/n; declining loops back to step 2
+8. **Validation** — check each chosen command with `resolveCommand()`, check Ghostty installation, show install hints for missing tools
+9. **Save** — write each key via `setConfig()`
+
+### Tool Catalogs
+
+Editors and sidebar tools are defined as `ToolEntry[]` catalogs in `setup.ts`. Each entry has `cmd` (binary name), `name` (display name), and `desc` (description). The `detectTools()` function runs `resolveCommand()` against each catalog entry and returns `DetectedTool[]` with an `available` boolean.
+
+### Color Support
+
+ANSI colors are controlled by the `useColor` flag, computed at module load:
+
+```typescript
+const useColor = !!(process.stdout.isTTY && !process.env.NO_COLOR);
+```
+
+All color functions (`bold`, `dim`, `green`, `yellow`, `cyan`) pass through when `useColor` is false, per the [no-color.org](https://no-color.org/) convention.
+
+### Code Splitting
+
+tsup automatically code-splits `setup.ts` into a separate chunk (`setup-*.js`, ~15 KB). This chunk is only loaded when the setup wizard is needed, keeping the main entry point lean for normal workspace launches.
 
 ## AppleScript Generation
 
@@ -145,8 +219,8 @@ Defined in `layout.ts` as a `Record<PresetName, Partial<LayoutOptions>>`:
 | `minimal` | 1 | `"false"` | |
 | `full` | 3 | `"true"` | |
 | `pair` | 2 | `"true"` | |
-| `cli` | 1 | `"npm login"` | |
-| `mtop` | 2 | `"true"` | `"mtop"` |
+| `cli` | 1 | `"true"` | |
+| `btop` | 2 | `"true"` | `"btop"` |
 
 ### Preset Layouts
 
@@ -195,25 +269,25 @@ Each diagram shows the resulting Ghostty window. The sidebar (lazygit) is always
          75% (2 columns)           25%
 ```
 
-#### `cli` — single editor + custom server command
+#### `cli` — single editor + server
 
 ```
 ┌──────────────┬──────────────┬───────────┐
 │              │              │           │
 │              │              │           │
-│    editor    │  npm login   │  lazygit  │
+│    editor    │    server    │  lazygit  │
 │              │              │           │
 │              │              │           │
 └──────────────┴──────────────┴───────────┘
          75% (2 columns)           25%
 ```
 
-#### `mtop` — editor + mtop + server
+#### `btop` — editor + btop + server
 
 ```
 ┌──────────────┬──────────────┬───────────┐
 │              │              │           │
-│              │     mtop     │           │
+│              │     btop     │           │
 │              │              │           │
 │    editor    ├──────────────┤  lazygit  │
 │              │              │           │
@@ -241,7 +315,7 @@ Given `N` editor panes (default 3) and server toggle:
 
 ### Secondary Editor
 
-`secondaryEditor` allows a preset to specify a different command for right-column editor panes. Used by the `mtop` preset to run `mtop` in the right column while the left column runs the primary editor.
+`secondaryEditor` allows a preset to specify a different command for right-column editor panes. Used by the `btop` preset to run `btop` in the right column while the left column runs the primary editor.
 
 ### Split Percentage Formula
 

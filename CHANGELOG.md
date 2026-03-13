@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-03-13
+
+### Added
+
+- Interactive setup wizard (`summon setup`) for first-run onboarding — choose layout, editor, sidebar, and server preferences with numbered selection
+- First-run auto-trigger: setup wizard launches automatically when no config file exists (TTY only)
+- Tool detection during setup — checks if chosen commands (editor, sidebar, Ghostty) are installed, shows install hints for missing tools
+- Shell tab completion for zsh and bash (`summon completions <shell>`)
+- Short flags `-p` for `--panes` and `-s` for `--sidebar`
+- Brief usage hint on no-argument invocation instead of full help dump
+- Security confirmation prompt for `.summon` files containing shell metacharacters
+- `SHELL` environment variable validation with safe fallback to `/bin/bash`
+- Dry-run output includes layout summary header
+- `NO_COLOR` support in setup wizard — respects the `NO_COLOR` environment variable per https://no-color.org/
+- Invalid input feedback in setup wizard prompts
+
+### Changed
+
+- Renamed `mtop` layout preset to `btop` to match the actual binary name
+- Server config key description clarified: "Server pane: true, false, or command"
+- Shared `utils.ts` module with `SAFE_COMMAND_RE`, `GHOSTTY_PATHS`, `resolveCommand`, and `promptUser`
+- Shared readline prompt helper extracted from launcher and setup
+- `parseIntInRange` from `validation.ts` reused in launcher (replaced hand-rolled parseInt)
+- `ensureConfig()` creates empty config file instead of hardcoded `editor=claude` — runtime defaults in `layout.ts` still apply
+- `isFirstRun()` export in config.ts for checking whether config file exists without creating it
+- `executeScript` uses `execFileSync` instead of `execSync` for osascript (defense-in-depth)
+- `resolveCommand` in utils.ts validates command names against `SAFE_COMMAND_RE` before shell execution
+
+### Tests
+
+- 377 tests (up from 244 in v0.3.2) — extensive coverage for setup wizard, completions, launcher, utils, and security features
+- Setup wizard coverage: non-TTY guard, user-decline loop, display paths, input feedback
+- Sidebar-is-falsy branch in script generation covered
+
 ## [0.3.2] - 2026-03-13
 
 ### Fixed
@@ -95,7 +129,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - CLI entry point with subcommand dispatch (launch, add, remove, list, set, config)
 - Config system: machine-level (`~/.config/summon/`) and per-project (`.summon`)
-- Layout planner with 5 presets: minimal, full, pair, cli, mtop
+- Layout planner with 5 presets: minimal, full, pair, cli, btop
 - AppleScript generator for Ghostty native splits
 - Launcher orchestrator with config resolution and command dependency checks
 - Auto-install prompts for missing commands (claude, lazygit)
@@ -110,7 +144,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CodeQL security scanning
 - Dependabot for npm and GitHub Actions
 
-[Unreleased]: https://github.com/juan294/summon/compare/v0.3.2...develop
+[Unreleased]: https://github.com/juan294/summon/compare/v0.4.0...develop
+[0.4.0]: https://github.com/juan294/summon/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/juan294/summon/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/juan294/summon/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/juan294/summon/compare/v0.2.0...v0.3.0

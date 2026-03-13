@@ -42,10 +42,23 @@ describe("CLI integration", () => {
     expect(result.stdout.trim()).toMatch(/^\d+\.\d+\.\d+$/);
   });
 
-  it("shows help and exits 1 with no arguments", () => {
-    const result = run();
-    expect(result.status).toBe(1);
-    expect(result.stderr).toContain("Usage:");
+  // #80: Brief usage hint on no-args invocation
+  describe("no-args usage hint (#80)", () => {
+    it("prints brief usage hint (not full help) to stderr with no arguments", () => {
+      const result = run();
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("Usage: summon <target>");
+      expect(result.stderr).toContain("summon --help");
+      // Must NOT contain the full help text (e.g., Options section)
+      expect(result.stderr).not.toContain("Options:");
+    });
+
+    it("still prints full help to stdout with --help", () => {
+      const result = run("--help");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("Options:");
+      expect(result.stdout).toContain("Config keys:");
+    });
   });
 
   it("errors on invalid flag and exits 1", () => {
@@ -304,10 +317,9 @@ describe("CLI integration", () => {
         env: { ...process.env, HOME: freshHome },
       });
       rmSync(freshHome, { recursive: true, force: true });
-      // The config file gets auto-created with editor=claude, so it won't be fully empty.
-      // But we should at least verify it succeeds and shows "Machine config:" header
+      // ensureConfig creates an empty config file, so listConfig() returns empty map
       expect(freshResult.status).toBe(0);
-      expect(freshResult.stdout).toContain("Machine config:");
+      expect(freshResult.stdout).toContain("No machine config set.");
     });
   });
 
@@ -483,6 +495,42 @@ describe("CLI integration", () => {
         expect(result.status).toBe(0);
         expect(result.stdout).toContain("Set auto-resize");
       });
+    });
+  });
+
+  // #81: Add short flags -p and -s
+  describe("short flags -p and -s (#81)", () => {
+    it("accepts -p as a short flag for --panes in dry-run", () => {
+      const result = run(".", "-p", "3", "--dry-run");
+      expect(result.status).toBe(0);
+    });
+
+    it("accepts -s as a short flag for --sidebar in dry-run", () => {
+      const result = run(".", "-s", "htop", "--dry-run");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("htop");
+    });
+
+    it("shows -p in help text", () => {
+      const result = run("--help");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("-p, --panes");
+    });
+
+    it("shows -s in help text", () => {
+      const result = run("--help");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("-s, --sidebar");
+    });
+  });
+
+  // #82: Fix server config key description
+  describe("server config key description (#82)", () => {
+    it("shows correct server description in Config keys section", () => {
+      const result = run("--help");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("Server pane: true, false, or command");
+      expect(result.stdout).not.toContain("Server pane toggle");
     });
   });
 

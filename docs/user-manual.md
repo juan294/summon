@@ -39,26 +39,52 @@ Check your current version:
 summon --version
 ```
 
-## First Launch Walkthrough
+## First Launch — Setup Wizard
+
+The first time you run summon (when no config file exists at `~/.config/summon/config`), an interactive setup wizard launches automatically:
 
 ```bash
-# 1. Navigate to your project
 cd ~/code/myapp
-
-# 2. Launch a workspace
 summon .
+```
 
-# 3. A new Ghostty window opens with:
-#    - 2 editor panes running 'claude'
-#    - 1 server pane (plain shell for dev servers)
-#    - 1 sidebar pane running 'lazygit'
+The wizard walks you through four choices:
 
-# 4. Navigate between panes
-#    Use Ghostty's native split navigation keybindings
-#    Default: Ctrl+Shift+Arrow keys (or your custom keybindings)
+1. **Layout** — choose from 5 presets (minimal, pair, full, cli, btop) with ASCII diagrams
+2. **Editor** — pick from detected editors (claude, nvim, vim, code, etc.) or enter a custom command
+3. **Sidebar** — pick from detected tools (lazygit, gitui, tig, btop, etc.) or enter a custom command
+4. **Server pane** — plain shell, disabled, or a custom command (e.g. `npm run dev`)
 
-# 5. Zoom a pane
-#    Use Ghostty's toggle_split_zoom keybinding
+After confirming, the wizard:
+- Saves your choices to `~/.config/summon/config`
+- Checks that your chosen tools are installed (shows install hints for missing ones)
+- Continues to launch your workspace with the new settings
+
+You can re-run the wizard anytime with `summon setup`.
+
+### Skipping the wizard
+
+The wizard only auto-triggers when:
+- No config file exists AND stdin is a TTY
+
+In non-interactive environments (CI, piped input), summon uses runtime defaults without prompting. You can also skip the wizard entirely by setting config values directly:
+
+```bash
+summon set editor vim
+summon set sidebar lazygit
+summon set layout pair
+summon .
+```
+
+### After setup
+
+```bash
+# Navigate between panes
+#   Use Ghostty's native split navigation keybindings
+#   Default: Ctrl+Shift+Arrow keys (or your custom keybindings)
+
+# Zoom a pane
+#   Use Ghostty's toggle_split_zoom keybinding
 ```
 
 ## Command Reference
@@ -105,6 +131,23 @@ Registered projects:
   api → /Users/juan/code/backend/api
 ```
 
+### `summon setup`
+
+Launch the interactive setup wizard. Guides you through choosing your preferred layout, editor, sidebar, and server configuration.
+
+```bash
+summon setup
+```
+
+The wizard:
+- Shows all 5 layout presets with ASCII diagrams
+- Detects which editors and sidebar tools are installed on your system
+- Lets you enter custom commands for any pane
+- Validates chosen tools and shows install hints for missing ones
+- Saves settings to `~/.config/summon/config`
+
+Requires an interactive terminal (TTY). In non-interactive environments, configure manually with `summon set`.
+
 ### `summon set <key> [value]`
 
 Set a machine-level config value. Omit the value to reset to a plain shell.
@@ -138,7 +181,7 @@ Flags override both machine and per-project config for a single launch.
 
 | Flag | Description |
 |---|---|
-| `-l`, `--layout <preset>` | Use a layout preset (`minimal`, `full`, `pair`, `cli`, `mtop`) |
+| `-l`, `--layout <preset>` | Use a layout preset (`minimal`, `full`, `pair`, `cli`, `btop`) |
 | `-e`, `--editor <cmd>` | Override editor command |
 | `--panes <n>` | Override number of editor panes |
 | `--editor-size <n>` | Override editor width percentage |
@@ -156,6 +199,44 @@ summon . -l pair --server "npm run dev"
 summon . --editor vim --panes 2
 ```
 
+## Shell Completions
+
+Summon supports tab completion for project names, subcommands, flags, config keys, and layout presets.
+
+### Setup
+
+#### zsh (macOS default)
+
+Add to your `~/.zshrc`:
+
+```bash
+eval "$(summon completions zsh)"
+```
+
+Then reload: `source ~/.zshrc`
+
+#### bash
+
+Add to your `~/.bashrc` or `~/.bash_profile`:
+
+```bash
+eval "$(summon completions bash)"
+```
+
+Then reload: `source ~/.bashrc`
+
+### What gets completed
+
+- `summon <TAB>` — subcommands, registered project names, directories
+- `summon remove <TAB>` — registered project names
+- `summon set <TAB>` — config keys
+- `summon set layout <TAB>` — layout presets
+- `summon --layout <TAB>` — layout presets
+- `summon --<TAB>` — all CLI flags
+
+Project names are read dynamically from `~/.config/summon/projects`,
+so newly added projects are immediately completable.
+
 ## Layout Presets
 
 Presets are named shortcuts for common layout configurations.
@@ -166,7 +247,7 @@ Presets are named shortcuts for common layout configurations.
 | `pair` | 2 | yes (shell) | Two editors + dev server |
 | `minimal` | 1 | no | Simple editor + sidebar |
 | `cli` | 1 | yes (shell) | CLI tool development -- editor + server |
-| `mtop` | 2 | yes (shell) | System monitoring -- editor + mtop + server |
+| `btop` | 2 | yes (shell) | System monitoring -- editor + btop + server |
 
 Use a preset via CLI flag, per-project config, or machine config:
 
@@ -239,7 +320,7 @@ When summon launches, config values are resolved in this order (first wins):
 | `panes` | integer | `2` | Number of editor panes. |
 | `editor-size` | integer | `75` | Width percentage allocated to the editor grid. The sidebar gets the remainder. |
 | `server` | string | `true` | Server pane toggle: `true` (shell), `false` (none), or a command to run. |
-| `layout` | string | | Default layout preset (`minimal`, `full`, `pair`, `cli`, or `mtop`). |
+| `layout` | string | | Default layout preset (`minimal`, `full`, `pair`, `cli`, or `btop`). |
 | `auto-resize` | boolean | `true` | Auto-resize sidebar to match editor-size. |
 
 Machine config: `~/.config/summon/config`

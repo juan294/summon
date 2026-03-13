@@ -31,6 +31,12 @@ docs/prs/
 # Local summon config
 .summon
 
+# Launch content (local only)
+content/
+
+# Manual testbed
+MANUAL_TESTBED.md
+
 # Security-sensitive files
 .npmrc
 *.pem

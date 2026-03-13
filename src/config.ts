@@ -12,13 +12,21 @@ function ensureConfig(): void {
   if (configEnsured) return;
   mkdirSync(CONFIG_DIR, { recursive: true, mode: 0o700 });
   if (!existsSync(PROJECTS_FILE)) writeFileSync(PROJECTS_FILE, "", { mode: 0o600 });
-  if (!existsSync(CONFIG_FILE)) writeFileSync(CONFIG_FILE, "editor=claude\n", { mode: 0o600 });
+  if (!existsSync(CONFIG_FILE)) writeFileSync(CONFIG_FILE, "", { mode: 0o600 });
   configEnsured = true;
 }
 
 /** @internal — test-only, reset the ensureConfig cache */
 export function resetConfigCache(): void {
   configEnsured = false;
+}
+
+/**
+ * Check if this is a first-run scenario (config file does not exist yet).
+ * Does NOT call ensureConfig() — must not create the file as a side effect.
+ */
+export function isFirstRun(): boolean {
+  return !existsSync(CONFIG_FILE);
 }
 
 // --- Per-project config ---
@@ -95,3 +103,12 @@ export function getConfig(key: string): string | undefined {
 export function listConfig(): Map<string, string> {
   return readKV(CONFIG_FILE);
 }
+
+export const VALID_KEYS = ["editor", "sidebar", "panes", "editor-size", "server", "layout", "auto-resize"];
+
+export const CLI_FLAGS = [
+  "--help", "--version", "--layout", "--editor", "--panes",
+  "--editor-size", "--sidebar", "--server", "--auto-resize",
+  "--no-auto-resize", "--dry-run",
+  "-p", "-s",
+];

@@ -157,15 +157,15 @@ describe("generateAppleScript", () => {
     expect(script).not.toContain('input text "" to paneRoot');
   });
 
-  it("mtop preset uses secondary editor in right column via config", () => {
-    const plan = planLayout(getPreset("mtop"));
+  it("btop preset uses secondary editor in right column via config", () => {
+    const plan = planLayout(getPreset("btop"));
     const script = generateAppleScript(plan, "/tmp");
 
     // Left column root pane gets primary editor via input text
     expect(script).toContain('input text "claude" to paneRoot');
 
-    // Right column gets secondary editor (mtop) via config
-    expect(script).toContain("set command of cfg to \"/bin/bash -lc 'cd '\\\\''/tmp'\\\\'' && mtop'\"");
+    // Right column gets secondary editor (btop) via config
+    expect(script).toContain("set command of cfg to \"/bin/bash -lc 'cd '\\\\''/tmp'\\\\'' && btop'\"");
   });
 
   it("focuses root pane", () => {
@@ -374,6 +374,40 @@ describe("generateAppleScript", () => {
     expect(clearIndex).toBeGreaterThan(-1);
     expect(rightColIndex).toBeGreaterThan(-1);
     expect(clearIndex).toBeLessThan(rightColIndex);
+  });
+
+  it("sets server command on config for server-only right column", () => {
+    // editorPanes=1 → rightColumnEditorCount=0, server="npm run dev" → serverCommand="npm run dev"
+    const plan = planLayout({ editorPanes: 1, server: "npm run dev" });
+    const script = generateAppleScript(plan, "/tmp");
+
+    // Right column exists only for server, and server has a specific command
+    expect(script).toContain("paneRightCol");
+    // The server command should be set via config before the right column split
+    expect(script).toContain("set command of cfg to \"/bin/bash -lc 'cd '\\\\''/tmp'\\\\'' && npm run dev'\"");
+    const cmdIndex = script.indexOf("npm run dev");
+    const splitIndex = script.indexOf("paneRightCol to split");
+    expect(cmdIndex).toBeLessThan(splitIndex);
+  });
+
+  it("skips sidebar config command when sidebarCommand is empty", () => {
+    const plan = planLayout({ sidebarCommand: "" });
+    const script = generateAppleScript(plan, "/tmp");
+
+    // The sidebar split should still happen
+    expect(script).toContain("paneSidebar to split paneRoot direction right");
+
+    // No "set command of cfg" should appear before the sidebar split line,
+    // because an empty sidebarCommand means the config command is skipped.
+    const lines = script.split("\n");
+    const sidebarSplitIndex = lines.findIndex((l) => l.includes("paneSidebar to split"));
+    expect(sidebarSplitIndex).toBeGreaterThan(-1);
+
+    // Find any "set command of cfg" lines before the sidebar split
+    const configCmdBeforeSidebar = lines
+      .slice(0, sidebarSplitIndex)
+      .filter((l) => l.includes("set command of cfg to"));
+    expect(configCmdBeforeSidebar).toHaveLength(0);
   });
 
   it("multi-pane right column creates additional down splits", () => {
