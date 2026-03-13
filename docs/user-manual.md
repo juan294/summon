@@ -386,6 +386,13 @@ All files use `key=value` format, one entry per line.
 | Navigation | tmux keybindings | Ghostty split keybindings |
 | Platform | Anywhere tmux runs | macOS only |
 
+## Environment Variables
+
+| Variable | Description |
+|---|---|
+| `SHELL` | Login shell used to execute pane commands. Must be an absolute path (e.g., `/bin/zsh`). Falls back to `/bin/bash` if unset or invalid. |
+| `NO_COLOR` | When set, disables ANSI colors in the setup wizard. Follows the [NO_COLOR](https://no-color.org) standard. |
+
 ## Troubleshooting
 
 ### Ghostty not found

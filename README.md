@@ -156,6 +156,13 @@ Contributions are welcome! Please read the [Contributing Guide](CONTRIBUTING.md)
 
 This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.md). By participating, you are expected to uphold this code.
 
+## Environment Variables
+
+| Variable | Description |
+|---|---|
+| `SHELL` | Login shell used to execute pane commands. Must be an absolute path. Falls back to `/bin/bash` if unset or invalid. |
+| `NO_COLOR` | When set, disables ANSI colors in the setup wizard. Follows the [NO_COLOR](https://no-color.org) standard. |
+
 ## Trust Model
 
 `.summon` files configure commands that summon executes in each pane (`editor`, `sidebar`, `shell`). Running `summon .` in a directory will execute whatever commands its `.summon` file specifies -- this is the same trust model as `Makefile`, direnv `.envrc`, or VS Code `.vscode/tasks.json`.

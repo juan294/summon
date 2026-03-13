@@ -112,20 +112,6 @@ export function getRandomTip(): string {
 // Banner & Section
 // ---------------------------------------------------------------------------
 
-export function printBanner(lines: string[]): void {
-  if (lines.length === 0) return;
-  const maxLen = Math.max(...lines.map((l) => l.length));
-  const width = maxLen + 4; // 2 padding on each side
-  const top = `╭${"─".repeat(width)}╮`;
-  const bottom = `╰${"─".repeat(width)}╯`;
-
-  console.log(top);
-  for (const line of lines) {
-    const padded = line.padEnd(maxLen);
-    console.log(`│  ${padded}  │`);
-  }
-  console.log(bottom);
-}
 
 export function printSection(title: string): void {
   const PREFIX_DASHES = 2;

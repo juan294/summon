@@ -40,7 +40,6 @@ const {
   green,
   yellow,
   cyan,
-  printBanner,
   printSection,
   magenta,
   brightCyan,
@@ -378,28 +377,6 @@ describe("getRandomTip", () => {
   it("returns a string from the TIPS array", () => {
     const tip = getRandomTip();
     expect(TIPS).toContain(tip);
-  });
-});
-
-describe("printBanner", () => {
-  it("prints a boxed banner with correct box-drawing characters", () => {
-    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-    printBanner(["Hello", "World"]);
-
-    const output = logSpy.mock.calls.map((c) => c[0] as string);
-    // Top border should contain ╭ and ╮
-    expect(output[0]).toContain("╭");
-    expect(output[0]).toContain("╮");
-    // Content lines should contain │
-    expect(output[1]).toContain("│");
-    expect(output[1]).toContain("Hello");
-    expect(output[2]).toContain("│");
-    expect(output[2]).toContain("World");
-    // Bottom border should contain ╰ and ╯
-    expect(output[3]).toContain("╰");
-    expect(output[3]).toContain("╯");
-
-    logSpy.mockRestore();
   });
 });
 
