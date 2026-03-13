@@ -1,6 +1,5 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { createInterface } from "node:readline";
 import { execSync, execFileSync } from "node:child_process";
 import {
   planLayout,
@@ -60,7 +59,8 @@ function resolveCommand(cmd: string): string | null {
   }
 }
 
-function prompt(question: string): Promise<string> {
+async function prompt(question: string): Promise<string> {
+  const { createInterface } = await import("node:readline");
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   return new Promise((resolve) => {
     rl.question(question, (answer) => {

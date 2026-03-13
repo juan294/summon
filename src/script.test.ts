@@ -347,6 +347,20 @@ describe("generateAppleScript", () => {
     expect(script3).toContain("cd '/Users/me/it'\\\\''s a project'");
   });
 
+  it("clears config command for right column when both editors are empty", () => {
+    const plan = planLayout({ editorPanes: 2, editor: "", secondaryEditor: "" });
+    const script = generateAppleScript(plan, "/tmp");
+
+    // With both editors empty, secondaryCmd is "" (falsy), so clearConfigCommand is called
+    // before the right column split
+    const lines = script.split("\n");
+    const clearIndex = lines.findIndex((l) => l.includes('set command of cfg to ""'));
+    const rightColIndex = lines.findIndex((l) => l.includes("paneRightCol to split"));
+    expect(clearIndex).toBeGreaterThan(-1);
+    expect(rightColIndex).toBeGreaterThan(-1);
+    expect(clearIndex).toBeLessThan(rightColIndex);
+  });
+
   it("multi-pane right column creates additional down splits", () => {
     const plan = planLayout({ editorPanes: 4 });
     const script = generateAppleScript(plan, "/tmp");
