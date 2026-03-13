@@ -6,6 +6,7 @@ import {
   getProject,
   listProjects,
   setConfig,
+  removeConfig,
   listConfig,
 } from "./config.js";
 import { launch } from "./launcher.js";
@@ -68,7 +69,6 @@ Examples:
 `.trim();
 
 const VALID_KEYS = ["editor", "sidebar", "panes", "editor-size", "server", "layout", "auto-resize"];
-const COMMAND_KEYS = ["editor", "sidebar"];
 
 const SUBCOMMAND_HELP: Record<string, string> = {
   add: `Usage: summon add <name> <path>
@@ -81,7 +81,7 @@ Remove a previously registered project by name.`,
 
   set: `Usage: summon set <key> [value]
 
-Set a machine-level config value. Omit value to reset to empty.
+Set a machine-level config value. Omit value to remove the key (resets to default).
 
 Valid keys: ${VALID_KEYS.join(", ")}`,
 
@@ -225,14 +225,12 @@ switch (subcommand) {
       console.error(`Unknown config key "${key}". Valid keys: ${VALID_KEYS.join(", ")}`);
       process.exit(1);
     }
-    setConfig(key, value ?? "");
     if (value) {
+      setConfig(key, value);
       console.log(`Set ${key} → ${value}`);
     } else {
-      const hint = COMMAND_KEYS.includes(key)
-        ? "(empty, will open plain shell)"
-        : "(empty, will use default)";
-      console.log(`Set ${key} → ${hint}`);
+      removeConfig(key);
+      console.log(`Removed ${key} (will use default)`);
     }
     break;
   }

@@ -5,6 +5,7 @@ import {
   getProject,
   listProjects,
   setConfig,
+  removeConfig,
   getConfig,
   listConfig,
   readKVFile,
@@ -101,6 +102,18 @@ describe("machine config", () => {
     setConfig("editor", "vim");
     setConfig("editor", "nano");
     expect(getConfig("editor")).toBe("nano");
+  });
+
+  it("removes a config key", () => {
+    setConfig("editor", "vim");
+    const result = removeConfig("editor");
+    expect(result).toBe(true);
+    expect(getConfig("editor")).toBeUndefined();
+  });
+
+  it("returns false when removing non-existent config key", () => {
+    const result = removeConfig("nonexistent");
+    expect(result).toBe(false);
   });
 });
 

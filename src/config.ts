@@ -60,7 +60,7 @@ export function addProject(name: string, path: string): void {
 export function removeProject(name: string): boolean {
   const projects = readKV(PROJECTS_FILE);
   const existed = projects.delete(name);
-  writeKV(PROJECTS_FILE, projects);
+  if (existed) writeKV(PROJECTS_FILE, projects);
   return existed;
 }
 
@@ -78,6 +78,13 @@ export function setConfig(key: string, value: string): void {
   const config = readKV(CONFIG_FILE);
   config.set(key, value);
   writeKV(CONFIG_FILE, config);
+}
+
+export function removeConfig(key: string): boolean {
+  const config = readKV(CONFIG_FILE);
+  const existed = config.delete(key);
+  if (existed) writeKV(CONFIG_FILE, config);
+  return existed;
 }
 
 export function getConfig(key: string): string | undefined {

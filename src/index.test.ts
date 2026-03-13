@@ -152,31 +152,33 @@ describe("CLI integration", () => {
     });
   });
 
-  describe("set empty-value messages", () => {
-    it("mentions 'plain shell' for command key 'editor'", () => {
+  describe("set without value removes key", () => {
+    it("removes editor key and shows default message", () => {
       const result = run("set", "editor");
       expect(result.status).toBe(0);
-      expect(result.stdout).toContain("plain shell");
+      expect(result.stdout).toContain("Removed editor");
+      expect(result.stdout).toContain("will use default");
     });
 
-    it("mentions 'plain shell' for command key 'sidebar'", () => {
+    it("removes sidebar key and shows default message", () => {
       const result = run("set", "sidebar");
       expect(result.status).toBe(0);
-      expect(result.stdout).toContain("plain shell");
+      expect(result.stdout).toContain("Removed sidebar");
+      expect(result.stdout).toContain("will use default");
     });
 
-    it("does NOT mention 'plain shell' for non-command key 'panes'", () => {
+    it("removes panes key and shows default message", () => {
       const result = run("set", "panes");
       expect(result.status).toBe(0);
-      expect(result.stdout).not.toContain("plain shell");
-      expect(result.stdout).toContain("use default");
+      expect(result.stdout).toContain("Removed panes");
+      expect(result.stdout).toContain("will use default");
     });
 
-    it("does NOT mention 'plain shell' for non-command key 'editor-size'", () => {
+    it("removes editor-size key and shows default message", () => {
       const result = run("set", "editor-size");
       expect(result.status).toBe(0);
-      expect(result.stdout).not.toContain("plain shell");
-      expect(result.stdout).toContain("use default");
+      expect(result.stdout).toContain("Removed editor-size");
+      expect(result.stdout).toContain("will use default");
     });
   });
 

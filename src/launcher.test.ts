@@ -173,6 +173,49 @@ describe("config resolution", () => {
     expect(opts.server).toBe("false");
   });
 
+  it("empty config strings do not override preset values", () => {
+    // Bug: machine config with panes= and editor-size= (empty strings)
+    // should not override the preset's values
+    vi.mocked(listConfig).mockReturnValue(
+      new Map([
+        ["panes", ""],
+        ["editor-size", ""],
+        ["editor", ""],
+        ["sidebar", ""],
+      ]),
+    );
+    mockReadKVFile.mockReturnValue(new Map());
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { opts } = resolveConfig("/tmp/workspace", { layout: "cli" });
+
+    // cli preset: editorPanes=1, server="true"
+    // Empty config strings should NOT override these
+    expect(opts.editorPanes).toBe(1);
+    expect(opts.editorSize).toBeUndefined(); // fall through to planLayout default
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it("empty project config strings do not override preset values", () => {
+    vi.mocked(listConfig).mockReturnValue(new Map());
+    mockReadKVFile.mockReturnValue(
+      new Map([
+        ["layout", "full"],
+        ["panes", ""],
+        ["editor-size", ""],
+      ]),
+    );
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { opts } = resolveConfig("/tmp/workspace", {});
+
+    // full preset: editorPanes=3
+    expect(opts.editorPanes).toBe(3);
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
   it("unknown preset warns and falls through to defaults", () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     mockReadKVFile.mockReturnValue(new Map([["layout", "bogus"]]));
@@ -350,15 +393,18 @@ describe("command dependency checks", () => {
     errorSpy.mockRestore();
   });
 
-  it("skips check when editor and sidebar are empty strings", async () => {
+  it("falls through to defaults when editor and sidebar are empty strings in config", async () => {
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", ""], ["sidebar", ""]]));
 
     await launch("/tmp/workspace");
 
-    const commandChecks = mockExecSync.mock.calls
-      .map((c) => c[0] as string)
-      .filter((c) => typeof c === "string" && c.startsWith("command -v "));
-    expect(commandChecks).toEqual([]);
+    // Empty config values are treated as "unset" — defaults (claude, lazygit) are used
+    expect(mockExecSync).toHaveBeenCalledWith("command -v claude", {
+      encoding: "utf-8",
+    });
+    expect(mockExecSync).toHaveBeenCalledWith("command -v lazygit", {
+      encoding: "utf-8",
+    });
   });
 
   it("exits when user declines install", async () => {

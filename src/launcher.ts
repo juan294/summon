@@ -152,8 +152,11 @@ export function resolveConfig(targetDir: string, cliOverrides: CLIOverrides): Re
   }
 
   // Layer: CLI > project > global > preset (for each config key)
-  const pick = (cli: string | undefined, projKey: string): string | undefined =>
-    cli ?? project.get(projKey) ?? machineConfig.get(projKey);
+  // Empty strings in config files mean "unset" — skip to next layer
+  const pick = (cli: string | undefined, projKey: string): string | undefined => {
+    if (cli !== undefined) return cli;
+    return project.get(projKey) || machineConfig.get(projKey) || undefined;
+  };
 
   const editor = pick(cliOverrides.editor, "editor");
   const sidebar = pick(cliOverrides.sidebar, "sidebar");
