@@ -234,7 +234,7 @@ describe("generateAppleScript", () => {
     const script = generateAppleScript(plan, "/tmp");
 
     expect(script).not.toContain("resize_split");
-    expect(script).not.toContain("perform action");
+    expect(script).not.toContain("perform action resizeAction");
   });
 
   it("uses paneRoot for resize when no right column exists", () => {
@@ -462,5 +462,100 @@ describe("generateAppleScript", () => {
     expect(script).toContain("paneLeft2");
     // Shell pane at bottom of right column
     expect(script).toContain("paneRight3");
+  });
+
+  // --- Pane & tab title tests ---
+
+  it("sets pane titles for default layout", () => {
+    const plan = planLayout();
+    const script = generateAppleScript(plan, "/tmp/myproject");
+
+    // Tab title from basename of target dir
+    expect(script).toContain('perform action "set_tab_title:myproject" on paneRoot');
+    // Comment marker
+    expect(script).toContain("-- Set pane and tab titles");
+    // Surface titles for all 4 panes (root, sidebar, right col editor, shell)
+    expect(script).toContain('perform action "set_surface_title:editor \u00B7 claude" on paneRoot');
+    expect(script).toContain('perform action "set_surface_title:sidebar \u00B7 lazygit" on paneSidebar');
+    expect(script).toContain('perform action "set_surface_title:editor \u00B7 claude" on paneRightCol');
+    expect(script).toContain('perform action "set_surface_title:server" on paneRight2');
+  });
+
+  it("pane titles appear before focus", () => {
+    const plan = planLayout();
+    const script = generateAppleScript(plan, "/tmp/myproject");
+
+    const titlesIndex = script.indexOf("-- Set pane and tab titles");
+    const focusIndex = script.indexOf("focus paneRoot");
+    expect(titlesIndex).toBeGreaterThan(-1);
+    expect(focusIndex).toBeGreaterThan(-1);
+    expect(titlesIndex).toBeLessThan(focusIndex);
+  });
+
+  it("minimal preset sets only root and sidebar titles", () => {
+    const plan = planLayout(getPreset("minimal"));
+    const script = generateAppleScript(plan, "/tmp/proj");
+
+    expect(script).toContain('perform action "set_surface_title:editor \u00B7 claude" on paneRoot');
+    expect(script).toContain('perform action "set_surface_title:sidebar \u00B7 lazygit" on paneSidebar');
+    // No right column panes
+    expect(script).not.toContain("set_surface_title:editor" + '" on paneRightCol');
+    expect(script).not.toContain("set_surface_title:server" + '" on paneRight');
+  });
+
+  it("full preset sets titles for all panes", () => {
+    const plan = planLayout(getPreset("full"));
+    const script = generateAppleScript(plan, "/tmp/proj");
+
+    expect(script).toContain('perform action "set_surface_title:editor \u00B7 claude" on paneRoot');
+    expect(script).toContain('perform action "set_surface_title:sidebar \u00B7 lazygit" on paneSidebar');
+    expect(script).toContain('perform action "set_surface_title:editor \u00B7 claude" on paneRightCol');
+    expect(script).toContain('perform action "set_surface_title:editor \u00B7 claude" on paneLeft2');
+    expect(script).toContain('perform action "set_surface_title:server" on paneRight2');
+  });
+
+  it("btop preset shows secondary editor in right column title", () => {
+    const plan = planLayout(getPreset("btop"));
+    const script = generateAppleScript(plan, "/tmp/proj");
+
+    expect(script).toContain('perform action "set_surface_title:editor \u00B7 btop" on paneRightCol');
+  });
+
+  it("custom shell command appears in server title", () => {
+    const plan = planLayout({ shell: "npm run dev" });
+    const script = generateAppleScript(plan, "/tmp/proj");
+
+    expect(script).toContain('perform action "set_surface_title:server \u00B7 npm run dev" on paneRight2');
+  });
+
+  it("tab title uses basename of target directory", () => {
+    const plan = planLayout();
+    const script = generateAppleScript(plan, "/Users/me/code/my-app");
+
+    expect(script).toContain('perform action "set_tab_title:my-app" on paneRoot');
+  });
+
+  it("escapes special characters in titles", () => {
+    const plan = planLayout({ editor: 'vim "test"', sidebarCommand: "path\\to" });
+    const script = generateAppleScript(plan, "/tmp/proj");
+
+    expect(script).toContain('set_surface_title:editor \u00B7 vim \\"test\\"');
+    expect(script).toContain('set_surface_title:sidebar \u00B7 path\\\\to');
+  });
+
+  it("empty sidebar command shows role only in title", () => {
+    const plan = planLayout({ sidebarCommand: "" });
+    const script = generateAppleScript(plan, "/tmp/proj");
+
+    // Sidebar title should be just "sidebar" without " · "
+    expect(script).toContain('perform action "set_surface_title:sidebar" on paneSidebar');
+    expect(script).not.toContain('set_surface_title:sidebar \u00B7');
+  });
+
+  it("cli preset shell-only right column gets server title", () => {
+    const plan = planLayout(getPreset("cli"));
+    const script = generateAppleScript(plan, "/tmp/proj");
+
+    expect(script).toContain('perform action "set_surface_title:server" on paneRightCol');
   });
 });

@@ -55,7 +55,7 @@ export interface CLIOverrides {
 function ensureGhostty(): void {
   if (!GHOSTTY_PATHS.some((p) => existsSync(p))) {
     console.error(
-      "Ghostty.app not found. Please install Ghostty 1.3.0+ from https://ghostty.org",
+      "Ghostty.app not found. Please install Ghostty 1.3.1+ from https://ghostty.org",
     );
     process.exit(1);
   }

@@ -6,7 +6,7 @@ Complete usage reference for summon.
 
 - **Node.js >= 18**
 - **macOS** (AppleScript is macOS-only)
-- **[Ghostty](https://ghostty.org) 1.3.0+** with AppleScript enabled (default)
+- **[Ghostty](https://ghostty.org) 1.3.1+** with AppleScript enabled (default)
 
 ### Ghostty Configuration
 
