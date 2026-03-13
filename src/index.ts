@@ -32,6 +32,7 @@ Options:
   --sidebar <cmd>             Override sidebar command
   --server <value>            Server pane: true, false, or a command
   --auto-resize               Resize sidebar to match editor-size (default: on)
+  --no-auto-resize            Disable auto-resize
   -n, --dry-run               Print generated AppleScript without executing
 
 Config keys:
@@ -111,6 +112,7 @@ const parseOpts = {
     sidebar: { type: "string" },
     server: { type: "string" },
     "auto-resize": { type: "boolean" },
+    "no-auto-resize": { type: "boolean" },
     "dry-run": { type: "boolean", short: "n" },
   },
 } as const;
@@ -269,6 +271,7 @@ switch (subcommand) {
     if (values.sidebar) overrides.sidebar = values.sidebar;
     if (values.server) overrides.server = values.server;
     if (values["auto-resize"]) overrides["auto-resize"] = "true";
+    if (values["no-auto-resize"]) overrides["auto-resize"] = "false";
     if (values["dry-run"]) overrides.dryRun = true;
 
     await launch(targetDir, overrides);
