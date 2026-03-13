@@ -850,6 +850,60 @@ describe("command resolution deduplication (#32)", () => {
   });
 });
 
+describe("command resolution cache for shared binaries (#61)", () => {
+  it("resolves the same binary only once when used in multiple roles", async () => {
+    // Set both editor and sidebar to "claude" so the same binary appears in two roles
+    vi.mocked(listConfig).mockReturnValue(
+      new Map([["editor", "claude"], ["sidebar", "claude"]]),
+    );
+    mockExecSync.mockImplementation((cmd: string) => {
+      if (cmd === "command -v claude") return "/usr/bin/claude\n";
+      if (typeof cmd === "string" && cmd.startsWith("command -v "))
+        return "/usr/bin/stub\n";
+      return "";
+    });
+
+    await launch("/tmp/workspace");
+
+    // "command -v claude" should be called only once, even though claude
+    // is used for both editor and sidebarCommand roles
+    const claudeCalls = mockExecSync.mock.calls.filter(
+      (c) => c[0] === "command -v claude",
+    );
+    expect(claudeCalls).toHaveLength(1);
+  });
+
+  it("reuses cached path for duplicate binaries across roles", async () => {
+    vi.mocked(listConfig).mockReturnValue(
+      new Map([["editor", "vim"], ["sidebar", "vim"]]),
+    );
+    mockExecSync.mockImplementation((cmd: string) => {
+      if (cmd === "command -v vim") return "/usr/local/bin/vim\n";
+      if (typeof cmd === "string" && cmd.startsWith("command -v "))
+        return "/usr/bin/stub\n";
+      return "";
+    });
+
+    await launch("/tmp/workspace");
+
+    // "command -v vim" should be called only once
+    const vimCalls = mockExecSync.mock.calls.filter(
+      (c) => c[0] === "command -v vim",
+    );
+    expect(vimCalls).toHaveLength(1);
+
+    // Both editor and sidebarCommand should use the resolved path
+    expect(mockGenerateAppleScript).toHaveBeenCalledWith(
+      expect.objectContaining({
+        editor: "/usr/local/bin/vim",
+        sidebarCommand: "/usr/local/bin/vim",
+      }),
+      "/tmp/workspace",
+      expect.any(String),
+    );
+  });
+});
+
 describe("path resolution", () => {
   it("passes resolved full paths to generateAppleScript", async () => {
     mockExecSync.mockImplementation((cmd: string) => {

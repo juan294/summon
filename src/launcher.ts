@@ -220,11 +220,19 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
 
   ensureGhostty();
 
-  // Ensure commands exist and resolve to full paths in one pass
-  // (avoids duplicate resolveCommand calls per binary)
+  // Cache resolved command paths so the same binary is only looked up once,
+  // even when it appears in multiple roles (e.g., editor + secondaryEditor).
+  const resolvedCache = new Map<string, string>();
   const ensureAndResolve = async (cmdString: string, configKey: string): Promise<string> => {
     const parts = cmdString.split(" ");
-    parts[0] = await ensureCommand(parts[0]!, configKey);
+    const binary = parts[0]!;
+    const cached = resolvedCache.get(binary);
+    if (cached) {
+      parts[0] = cached;
+    } else {
+      parts[0] = await ensureCommand(binary, configKey);
+      resolvedCache.set(binary, parts[0]);
+    }
     return parts.join(" ");
   };
 
