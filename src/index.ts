@@ -10,7 +10,7 @@ import {
 } from "./config.js";
 import { launch } from "./launcher.js";
 import type { CLIOverrides } from "./launcher.js";
-import { PANES_MIN, EDITOR_SIZE_MIN, EDITOR_SIZE_MAX } from "./layout.js";
+import { PANES_MIN, EDITOR_SIZE_MIN, EDITOR_SIZE_MAX, isPresetName } from "./layout.js";
 
 const HELP = `
 summon -- Launch multi-pane Ghostty workspaces
@@ -151,6 +151,13 @@ if (values["editor-size"] !== undefined) {
   }
 }
 
+if (values.layout !== undefined && !isPresetName(values.layout)) {
+  console.error(`Error: --layout must be a valid preset name, got "${values.layout}".`);
+  console.error(`Valid presets: minimal, full, pair, cli, mtop`);
+  console.error(`Run 'summon --help' for usage information.`);
+  process.exit(1);
+}
+
 if (values.version) {
   console.log(__VERSION__);
   process.exit(0);
@@ -225,8 +232,11 @@ switch (subcommand) {
       console.error(`Unknown config key "${key}". Valid keys: ${VALID_KEYS.join(", ")}`);
       process.exit(1);
     }
+    if (key === "server" && value !== undefined && value !== "true" && value !== "false" && !value.includes("/") && !value.includes(" ")) {
+      console.error(`Hint: server accepts "true", "false", or a command (e.g. "npm run dev"). Got "${value}".`);
+    }
     setConfig(key, value ?? "");
-    if (value) {
+    if (value !== undefined) {
       console.log(`Set ${key} → ${value}`);
     } else {
       const hint = COMMAND_KEYS.includes(key)
@@ -239,9 +249,19 @@ switch (subcommand) {
 
   case "config": {
     const config = listConfig();
-    console.log("Machine config:");
-    for (const [key, value] of config) {
-      console.log(`  ${key} → ${value || "(plain shell)"}`);
+    if (config.size === 0) {
+      console.log("No machine config set. Use: summon set <key> <value>");
+    } else {
+      console.log("Machine config:");
+      for (const [key, value] of config) {
+        if (value) {
+          console.log(`  ${key} → ${value}`);
+        } else if (COMMAND_KEYS.includes(key)) {
+          console.log(`  ${key} → (plain shell)`);
+        } else {
+          console.log(`  ${key} → (empty)`);
+        }
+      }
     }
     break;
   }
