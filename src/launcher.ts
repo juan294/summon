@@ -16,6 +16,7 @@ export interface CLIOverrides {
   "editor-size"?: string;
   sidebar?: string;
   server?: string;
+  "auto-resize"?: string;
   dryRun?: boolean;
 }
 
@@ -151,6 +152,7 @@ export function resolveConfig(targetDir: string, cliOverrides: CLIOverrides): Re
   const panes = pick(cliOverrides.panes, "panes");
   const editorSize = pick(cliOverrides["editor-size"], "editor-size");
   const server = pick(cliOverrides.server, "server");
+  const autoResize = pick(cliOverrides["auto-resize"], "auto-resize");
 
   const result: Partial<LayoutOptions> = { ...base };
   if (editor !== undefined) result.editor = editor;
@@ -178,6 +180,7 @@ export function resolveConfig(targetDir: string, cliOverrides: CLIOverrides): Re
     }
   }
   if (server !== undefined) result.server = server;
+  if (autoResize !== undefined) result.autoResize = autoResize === "true";
 
   return { opts: result };
 }
