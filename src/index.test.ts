@@ -127,6 +127,34 @@ describe("CLI integration", () => {
     });
   });
 
+  describe("set empty-value messages", () => {
+    it("mentions 'plain shell' for command key 'editor'", () => {
+      const result = run("set", "editor");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("plain shell");
+    });
+
+    it("mentions 'plain shell' for command key 'sidebar'", () => {
+      const result = run("set", "sidebar");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("plain shell");
+    });
+
+    it("does NOT mention 'plain shell' for non-command key 'panes'", () => {
+      const result = run("set", "panes");
+      expect(result.status).toBe(0);
+      expect(result.stdout).not.toContain("plain shell");
+      expect(result.stdout).toContain("use default");
+    });
+
+    it("does NOT mention 'plain shell' for non-command key 'editor-size'", () => {
+      const result = run("set", "editor-size");
+      expect(result.status).toBe(0);
+      expect(result.stdout).not.toContain("plain shell");
+      expect(result.stdout).toContain("use default");
+    });
+  });
+
   describe("--panes validation", () => {
     it("rejects non-numeric value", () => {
       const result = run(".", "--panes", "foo");
