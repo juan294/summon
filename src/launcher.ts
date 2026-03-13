@@ -59,7 +59,7 @@ function resolveCommand(cmd: string): string | null {
     process.exit(1);
   }
   try {
-    return execSync(`command -v ${cmd}`, { encoding: "utf-8" }).trim();
+    return execFileSync("/bin/sh", ["-c", `command -v "$1"`, "--", cmd], { encoding: "utf-8" }).trim();
   } catch {
     return null;
   }
@@ -80,7 +80,7 @@ const KNOWN_INSTALL_COMMANDS: Record<string, () => [string, string[]] | null> = 
   claude: () => ["npm", ["install", "-g", "@anthropic-ai/claude-code"]],
   lazygit: () => {
     try {
-      execSync("command -v brew", { stdio: "ignore" });
+      execFileSync("/bin/sh", ["-c", "command -v brew"], { stdio: "ignore" });
       return ["brew", ["install", "lazygit"]];
     } catch {
       return null;
