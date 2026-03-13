@@ -16,6 +16,24 @@ import type { LayoutOptions } from "./layout.js";
 import { listConfig, readKVFile } from "./config.js";
 import { generateAppleScript } from "./script.js";
 import { SAFE_COMMAND_RE, GHOSTTY_PATHS, resolveCommand as resolveCommandPath } from "./utils.js";
+import { parseIntInRange } from "./validation.js";
+
+const SAFE_SHELL_RE = /^\/[a-zA-Z0-9_/.-]+$/;
+
+/**
+ * Read and validate process.env.SHELL.
+ * Falls back to /bin/bash with a warning if undefined or unsafe.
+ */
+function getLoginShell(): string {
+  const shell = process.env.SHELL;
+  if (shell === undefined || !SAFE_SHELL_RE.test(shell)) {
+    if (shell !== undefined) {
+      console.warn(`Unsafe SHELL value: "${shell}". Falling back to /bin/bash.`);
+    }
+    return "/bin/bash";
+  }
+  return shell;
+}
 
 export interface CLIOverrides {
   layout?: string;
@@ -171,25 +189,25 @@ export function resolveConfig(targetDir: string, cliOverrides: CLIOverrides): Re
   if (editor !== undefined) result.editor = editor;
   if (sidebar !== undefined) result.sidebarCommand = sidebar;
   if (panes !== undefined) {
-    const parsed = parseInt(panes, 10);
-    if (Number.isNaN(parsed) || parsed < PANES_MIN) {
+    const parsed = parseIntInRange(panes, PANES_MIN);
+    if (parsed.ok) {
+      result.editorPanes = parsed.value;
+    } else {
       console.warn(
         `Invalid panes value: "${panes}". Must be a positive integer. Using default (${PANES_DEFAULT}).`,
       );
       result.editorPanes = PANES_DEFAULT;
-    } else {
-      result.editorPanes = parsed;
     }
   }
   if (editorSize !== undefined) {
-    const parsed = parseInt(editorSize, 10);
-    if (Number.isNaN(parsed) || parsed < EDITOR_SIZE_MIN || parsed > EDITOR_SIZE_MAX) {
+    const parsed = parseIntInRange(editorSize, EDITOR_SIZE_MIN, EDITOR_SIZE_MAX);
+    if (parsed.ok) {
+      result.editorSize = parsed.value;
+    } else {
       console.warn(
         `Invalid editor-size value: "${editorSize}". Must be ${EDITOR_SIZE_MIN}-${EDITOR_SIZE_MAX}. Using default (${EDITOR_SIZE_DEFAULT}).`,
       );
       result.editorSize = EDITOR_SIZE_DEFAULT;
-    } else {
-      result.editorSize = parsed;
     }
   }
   if (server !== undefined) result.server = server;
@@ -206,11 +224,17 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
 
   const { opts } = resolveConfig(targetDir, cliOverrides ?? {});
   const plan = planLayout(opts);
-  const loginShell = process.env.SHELL ?? "/bin/bash";
+  const loginShell = getLoginShell();
 
   if (cliOverrides?.dryRun) {
     const script = generateAppleScript(plan, targetDir, loginShell);
-    console.log(script);
+    const totalPanes = plan.leftColumnCount + plan.rightColumnEditorCount;
+    const header = [
+      "-- summon dry-run",
+      `-- Layout: ${totalPanes} editor panes, editor=${plan.editor}, sidebar=${plan.sidebarCommand}, server=${plan.hasServer}`,
+      `-- Target: ${targetDir}`,
+    ].join("\n");
+    console.log(`${header}\n${script}`);
     return;
   }
 
