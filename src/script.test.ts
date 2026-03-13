@@ -390,6 +390,26 @@ describe("generateAppleScript", () => {
     expect(cmdIndex).toBeLessThan(splitIndex);
   });
 
+  it("skips sidebar config command when sidebarCommand is empty", () => {
+    const plan = planLayout({ sidebarCommand: "" });
+    const script = generateAppleScript(plan, "/tmp");
+
+    // The sidebar split should still happen
+    expect(script).toContain("paneSidebar to split paneRoot direction right");
+
+    // No "set command of cfg" should appear before the sidebar split line,
+    // because an empty sidebarCommand means the config command is skipped.
+    const lines = script.split("\n");
+    const sidebarSplitIndex = lines.findIndex((l) => l.includes("paneSidebar to split"));
+    expect(sidebarSplitIndex).toBeGreaterThan(-1);
+
+    // Find any "set command of cfg" lines before the sidebar split
+    const configCmdBeforeSidebar = lines
+      .slice(0, sidebarSplitIndex)
+      .filter((l) => l.includes("set command of cfg to"));
+    expect(configCmdBeforeSidebar).toHaveLength(0);
+  });
+
   it("multi-pane right column creates additional down splits", () => {
     const plan = planLayout({ editorPanes: 4 });
     const script = generateAppleScript(plan, "/tmp");
