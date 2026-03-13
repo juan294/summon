@@ -33,9 +33,9 @@ _summon() {
     '(-v --version)'{-v,--version}'[Show version]' \\
     '(-l --layout)'{-l,--layout}'[Layout preset]:preset:(${presetNames})' \\
     '(-e --editor)'{-e,--editor}'[Editor command]:command:' \\
-    '--panes[Editor panes]:count:' \\
+    '(-p --panes)'{-p,--panes}'[Editor panes]:count:' \\
     '--editor-size[Editor width %]:percent:' \\
-    '--sidebar[Sidebar command]:command:' \\
+    '(-s --sidebar)'{-s,--sidebar}'[Sidebar command]:command:' \\
     '--server[Server pane]:value:(true false)' \\
     '--auto-resize[Enable auto-resize]' \\
     '--no-auto-resize[Disable auto-resize]' \\

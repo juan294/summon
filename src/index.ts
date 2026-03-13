@@ -35,9 +35,9 @@ Options:
   -v, --version               Show version number
   -l, --layout <preset>       Use a layout preset (minimal, full, pair, cli, btop)
   -e, --editor <cmd>          Override editor command
-  --panes <n>                 Override number of editor panes
+  -p, --panes <n>             Override number of editor panes
   --editor-size <n>           Override editor width %
-  --sidebar <cmd>             Override sidebar command
+  -s, --sidebar <cmd>         Override sidebar command
   --server <value>            Server pane: true, false, or a command
   --auto-resize               Resize sidebar to match editor-size (default: on)
   --no-auto-resize            Disable auto-resize
@@ -48,7 +48,7 @@ Config keys:
   sidebar       Command for sidebar pane (default: lazygit)
   panes         Number of editor panes (default: 2)
   editor-size   Width % for editor grid (default: 75)
-  server        Server pane toggle (default: true)
+  server        Server pane: true, false, or command (default: true)
   layout        Default layout preset
   auto-resize   Resize sidebar to match editor-size (default: true)
 
@@ -131,9 +131,9 @@ const parseOpts = {
     version: { type: "boolean", short: "v" },
     layout: { type: "string", short: "l" },
     editor: { type: "string", short: "e" },
-    panes: { type: "string" },
+    panes: { type: "string", short: "p" },
     "editor-size": { type: "string" },
-    sidebar: { type: "string" },
+    sidebar: { type: "string", short: "s" },
     server: { type: "string" },
     "auto-resize": { type: "boolean" },
     "no-auto-resize": { type: "boolean" },
@@ -210,7 +210,7 @@ if (values.help) {
 }
 
 if (!subcommand) {
-  console.error(HELP);
+  console.error("Usage: summon <target>\n\nRun 'summon --help' for usage information.");
   process.exit(1);
 }
 

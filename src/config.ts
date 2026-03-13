@@ -110,4 +110,5 @@ export const CLI_FLAGS = [
   "--help", "--version", "--layout", "--editor", "--panes",
   "--editor-size", "--sidebar", "--server", "--auto-resize",
   "--no-auto-resize", "--dry-run",
+  "-p", "-s",
 ];
