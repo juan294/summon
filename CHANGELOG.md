@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `--help` now works on first run — moved help check before the setup wizard gate
+
+### Changed
+
+- Consolidated readline boilerplate in `setup.ts` — `numberedSelect`, `confirm`, and `selectToolFromCatalog` now use shared `promptUser()` from `utils.ts`
+- Renamed `COMMAND_KEYS` → `DISPLAY_COMMAND_KEYS` in `index.ts` to avoid naming overlap with the security validation Set in `launcher.ts`
+- Enabled bundle minification via tsup (52 KB → 33 KB total, 36% reduction)
+- Added `"exports"` field to `package.json` for explicit ESM module resolution
+
+### Tests
+
+- 381 tests (up from 377) — 4 new tests closing branch coverage gaps
+- `script.ts` now at 100% branch coverage (was 97.43%) — covered `hasShell` without `shellCommand` and multi-editor right column without shell
+- `setup.ts` coverage improved — covered `printSummary` with `shell="true"` and custom shell commands, non-minimal layout `selectShell()` path
+
 ## [0.4.0] - 2026-03-13
 
 ### Added

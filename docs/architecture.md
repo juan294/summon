@@ -10,7 +10,7 @@ Technical reference for contributors.
 | `launcher.ts` | Orchestrator — config resolution, command checks, script execution via osascript | yes | config, layout, script, utils |
 | `config.ts` | Config file read/write (`~/.config/summon/` and `.summon`), first-run detection | yes | Node stdlib only |
 | `setup.ts` | Interactive setup wizard — TUI primitives, tool catalogs, numbered-selection flow | yes | config, utils |
-| `utils.ts` | Shared utilities — `SAFE_COMMAND_RE`, `GHOSTTY_PATHS`, `resolveCommand` | yes | Node stdlib only |
+| `utils.ts` | Shared utilities — `SAFE_COMMAND_RE`, `GHOSTTY_PATHS`, `resolveCommand`, `promptUser` (shared readline wrapper) | yes | Node stdlib only |
 | `layout.ts` | Layout calculation and presets | **pure** | none |
 | `script.ts` | AppleScript generator — builds script string from LayoutPlan | **pure** | none |
 | `completions.ts` | Shell completion script generator (zsh, bash) | **pure** | config, layout |
@@ -64,6 +64,10 @@ graph TD
 
 `layout.ts`, `script.ts`, `completions.ts`, and `validation.ts` are pure modules with no side effects. `config.ts` and `utils.ts` only use Node stdlib. `setup.ts` and `completions.ts` are loaded via dynamic `import()` from `index.ts` — they're only parsed when needed (`summon setup` or `summon completions`), keeping normal launch times unaffected.
 
+All interactive prompts in `setup.ts` (`numberedSelect`, `confirm`, `selectToolFromCatalog`, `textInput`) use the shared `promptUser()` helper from `utils.ts`, which wraps readline creation, question, close, and trim in a single async call.
+
+Note: `index.ts` defines `DISPLAY_COMMAND_KEYS` (array of `["editor", "sidebar"]`) for config display formatting, while `launcher.ts` defines a separate `COMMAND_KEYS` Set (includes `"shell"`) for security validation of `.summon` file commands. These are intentionally separate with different names to avoid confusion.
+
 ## Data Flow
 
 ```mermaid
@@ -73,7 +77,13 @@ flowchart TD
     --editor, --panes, --editor-size,
     --sidebar, --shell, --auto-resize,
     --no-auto-resize, --dry-run"]
-    parse --> firstrun{"isFirstRun()
+    parse --> helpcheck{"--help flag?"}
+
+    helpcheck -->|yes| showhelp["show help text
+    (subcommand-specific or full)"]
+    showhelp --> exit0h["exit 0"]
+
+    helpcheck -->|no| firstrun{"isFirstRun()
     && stdin.isTTY?"}
 
     firstrun -->|yes| wizard["setup.ts: runSetup()
@@ -403,9 +413,10 @@ A `.summon` file in the project root uses the same `key=value` format.
 
 ## Build Pipeline
 
-1. **tsup** compiles `src/index.ts` to `dist/index.js` (ESM, target node18)
+1. **tsup** compiles `src/index.ts` to `dist/index.js` (ESM, target node18, minified)
 2. **Shebang injection**: `#!/usr/bin/env node` banner prepended
 3. **Version injection**: `__VERSION__` replaced with `package.json` version at build time
-4. **prepublishOnly**: runs `pnpm run build` before any `npm publish`
+4. **Code splitting**: `setup.ts` and `completions.ts` are auto-split into separate chunks via dynamic `import()`
+5. **prepublishOnly**: runs `pnpm run build` before any `npm publish`
 
-The `files` field in package.json limits the published package to `dist/` only.
+The `files` field in package.json limits the published package to `dist/` only. Total bundle size is ~33 KB across 6 chunks.
