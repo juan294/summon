@@ -280,6 +280,37 @@ describe("generateAppleScript", () => {
     expect(script).not.toContain('input text "/bin/zsh');
   });
 
+  it("escapes shell metacharacters in root pane editor command", () => {
+    // $HOME should not expand when typed into the shell
+    const plan1 = planLayout({ editor: "vim $HOME" });
+    const script1 = generateAppleScript(plan1, "/tmp");
+    // The command name stays unquoted, but the argument is shell-quoted
+    expect(script1).toContain("input text \"vim '$HOME'\" to paneRoot");
+
+    // Backtick command substitution should not expand
+    const plan2 = planLayout({ editor: "vim `whoami`" });
+    const script2 = generateAppleScript(plan2, "/tmp");
+    expect(script2).toContain("input text \"vim '`whoami`'\" to paneRoot");
+
+    // $() command substitution should not expand (each word is individually quoted)
+    const plan3 = planLayout({ editor: "vim $(rm -rf /)" });
+    const script3 = generateAppleScript(plan3, "/tmp");
+    expect(script3).toContain("input text \"vim '$(rm' '-rf' '/)'\"" + " to paneRoot");
+  });
+
+  it("escapes single quotes in root pane editor command arguments", () => {
+    const plan = planLayout({ editor: "cmd 'arg'" });
+    const script = generateAppleScript(plan, "/tmp");
+    // Single quotes in the argument are POSIX-escaped, then escapeAppleScript doubles backslashes
+    expect(script).toContain("input text \"cmd ''\\\\''arg'\\\\'''\" to paneRoot");
+  });
+
+  it("leaves plain editor command without arguments unchanged", () => {
+    const plan = planLayout({ editor: "claude" });
+    const script = generateAppleScript(plan, "/tmp");
+    expect(script).toContain('input text "claude" to paneRoot');
+  });
+
   it("escapes shell metacharacters in targetDir cd command", () => {
     const plan = planLayout();
 

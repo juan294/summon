@@ -134,7 +134,13 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginSh
   // Root pane: cd into project directory, then launch editor
   sendCommand("paneRoot", `cd ${shellQuote(targetDir)}`);
   if (editorCmd) {
-    sendCommand("paneRoot", editorCmd);
+    // Shell-quote arguments to prevent metacharacter expansion ($, `, etc.)
+    // The command name is left unquoted so the shell can resolve it.
+    const parts = editorCmd.split(" ");
+    const safeCmd = parts.length > 1
+      ? `${parts[0]} ${parts.slice(1).map((a) => shellQuote(a)).join(" ")}`
+      : editorCmd;
+    sendCommand("paneRoot", safeCmd);
   }
 
   // Experimental: auto-resize sidebar to match editorSize
