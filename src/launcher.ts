@@ -15,7 +15,7 @@ import {
 import type { LayoutOptions } from "./layout.js";
 import { listConfig, readKVFile } from "./config.js";
 import { generateAppleScript } from "./script.js";
-import { SAFE_COMMAND_RE, GHOSTTY_PATHS, resolveCommand as resolveCommandPath } from "./utils.js";
+import { SAFE_COMMAND_RE, GHOSTTY_PATHS, resolveCommand as resolveCommandPath, promptUser } from "./utils.js";
 import { parseIntInRange } from "./validation.js";
 
 const SAFE_SHELL_RE = /^\/[a-zA-Z0-9_/.-]+$/;
@@ -80,14 +80,8 @@ function resolveCommand(cmd: string): string | null {
 }
 
 async function prompt(question: string): Promise<string> {
-  const { createInterface } = await import("node:readline");
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-  return new Promise((resolve) => {
-    rl.question(question, (answer) => {
-      rl.close();
-      resolve(answer.trim().toLowerCase());
-    });
-  });
+  const answer = await promptUser(question);
+  return answer.toLowerCase();
 }
 
 const KNOWN_INSTALL_COMMANDS: Record<string, () => [string, string[]] | null> = {

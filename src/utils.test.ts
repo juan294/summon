@@ -6,8 +6,18 @@ vi.mock("node:child_process", () => ({
   execFileSync: (...args: unknown[]) => mockExecFileSync(...args),
 }));
 
+// Mock readline for promptUser tests
+const mockQuestion = vi.fn();
+const mockClose = vi.fn();
+vi.mock("node:readline", () => ({
+  createInterface: () => ({
+    question: (_q: string, cb: (a: string) => void) => mockQuestion(_q, cb),
+    close: mockClose,
+  }),
+}));
+
 // Import after mocks
-const { SAFE_COMMAND_RE, GHOSTTY_PATHS, resolveCommand } = await import("./utils.js");
+const { SAFE_COMMAND_RE, GHOSTTY_PATHS, resolveCommand, promptUser } = await import("./utils.js");
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -157,5 +167,47 @@ describe("resolveCommand", () => {
     mockExecFileSync.mockReturnValue("/usr/bin/my-editor.v2\n");
     expect(resolveCommand("my-editor.v2")).toBe("/usr/bin/my-editor.v2");
     expect(mockExecFileSync).toHaveBeenCalled();
+  });
+});
+
+describe("promptUser", () => {
+  it("returns trimmed user input", async () => {
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) =>
+      cb("  hello  "),
+    );
+    const result = await promptUser("Enter: ");
+    expect(result).toBe("hello");
+  });
+
+  it("passes the question string to readline", async () => {
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) =>
+      cb("answer"),
+    );
+    await promptUser("What is your name? ");
+    expect(mockQuestion).toHaveBeenCalledWith("What is your name? ", expect.any(Function));
+  });
+
+  it("closes the readline interface after answering", async () => {
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) =>
+      cb("answer"),
+    );
+    await promptUser("Q: ");
+    expect(mockClose).toHaveBeenCalled();
+  });
+
+  it("does NOT lowercase the answer (callers handle that)", async () => {
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) =>
+      cb("YES"),
+    );
+    const result = await promptUser("Confirm? ");
+    expect(result).toBe("YES");
+  });
+
+  it("returns empty string when user enters only whitespace", async () => {
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) =>
+      cb("   "),
+    );
+    const result = await promptUser("Input: ");
+    expect(result).toBe("");
   });
 });

@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { setConfig } from "./config.js";
-import { SAFE_COMMAND_RE, GHOSTTY_PATHS, resolveCommand as resolveCommandPath } from "./utils.js";
+import { SAFE_COMMAND_RE, GHOSTTY_PATHS, resolveCommand as resolveCommandPath, promptUser } from "./utils.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -175,28 +175,16 @@ export async function textInput(
   question: string,
   defaultValue?: string,
 ): Promise<string> {
-  const { createInterface } = await import("node:readline");
-  const rl = createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
-
   const display =
     defaultValue !== undefined
       ? `${question} [${defaultValue}]: `
       : `${question} `;
 
-  return new Promise((resolve) => {
-    rl.question(display, (answer: string) => {
-      rl.close();
-      const trimmed = answer.trim();
-      if (trimmed === "" && defaultValue !== undefined) {
-        resolve(defaultValue);
-      } else {
-        resolve(trimmed);
-      }
-    });
-  });
+  const trimmed = await promptUser(display);
+  if (trimmed === "" && defaultValue !== undefined) {
+    return defaultValue;
+  }
+  return trimmed;
 }
 
 /**

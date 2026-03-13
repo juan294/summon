@@ -12,6 +12,21 @@ export const GHOSTTY_PATHS = [
 ];
 
 /**
+ * Prompt the user with a question via readline and return the trimmed answer.
+ * Dynamically imports node:readline so callers that never prompt pay no cost.
+ */
+export async function promptUser(question: string): Promise<string> {
+  const { createInterface } = await import("node:readline");
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise((resolve) => {
+    rl.question(question, (answer) => {
+      rl.close();
+      resolve(answer.trim());
+    });
+  });
+}
+
+/**
  * Resolve a command name to its full path, or return null if not found.
  * Returns null without calling the shell if the command name is invalid.
  */
