@@ -65,7 +65,7 @@ Per-project config:
   Note: .summon files can specify commands that will be executed.
   Review .summon files before running summon in untrusted directories.
 
-Requires: macOS, Ghostty 1.3.0+
+Requires: macOS, Ghostty 1.3.1+
 
 Examples:
   summon .                        Launch workspace in current directory

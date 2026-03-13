@@ -18,7 +18,7 @@ Summon your Ghostty workspace with one command. Native splits, no tmux.
 npm i -g summon-ws
 ```
 
-Requires Node >= 18, macOS, and [Ghostty](https://ghostty.org) 1.3.0+.
+Requires Node >= 18, macOS, and [Ghostty](https://ghostty.org) 1.3.1+.
 
 ## Quick Start
 
@@ -50,12 +50,12 @@ Summon generates and executes AppleScript that drives Ghostty's native split sys
 ## Default Layout
 
 ```
-summon .    (panes=2, editor=claude, sidebar=lazygit, shell=true)
+summon .    (panes=2, editor=<your editor>, sidebar=<your sidebar>, shell=true)
 
 +-------------------- 75% ---------------------+------ 25% ------+
 |                    |                          |                 |
-|                    |    claude (2)            |                 |
-|    claude (1)      |                          |    lazygit      |
+|                    |    editor (2)            |                 |
+|    editor (1)      |                          |    sidebar      |
 |                    +--------------------------+                 |
 |                    |                          |                 |
 |                    |    shell                 |                 |
@@ -155,6 +155,13 @@ Contributions are welcome! Please read the [Contributing Guide](CONTRIBUTING.md)
 ## Code of Conduct
 
 This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.md). By participating, you are expected to uphold this code.
+
+## Environment Variables
+
+| Variable | Description |
+|---|---|
+| `SHELL` | Login shell used to execute pane commands. Must be an absolute path. Falls back to `/bin/bash` if unset or invalid. |
+| `NO_COLOR` | When set, disables ANSI colors in the setup wizard. Follows the [NO_COLOR](https://no-color.org) standard. |
 
 ## Trust Model
 

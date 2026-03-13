@@ -6,7 +6,7 @@ Complete usage reference for summon.
 
 - **Node.js >= 18**
 - **macOS** (AppleScript is macOS-only)
-- **[Ghostty](https://ghostty.org) 1.3.0+** with AppleScript enabled (default)
+- **[Ghostty](https://ghostty.org) 1.3.1+** with AppleScript enabled (default)
 
 ### Ghostty Configuration
 
@@ -385,6 +385,13 @@ All files use `key=value` format, one entry per line.
 | Colors/rendering | tmux passthrough | Direct GPU rendering |
 | Navigation | tmux keybindings | Ghostty split keybindings |
 | Platform | Anywhere tmux runs | macOS only |
+
+## Environment Variables
+
+| Variable | Description |
+|---|---|
+| `SHELL` | Login shell used to execute pane commands. Must be an absolute path (e.g., `/bin/zsh`). Falls back to `/bin/bash` if unset or invalid. |
+| `NO_COLOR` | When set, disables ANSI colors in the setup wizard. Follows the [NO_COLOR](https://no-color.org) standard. |
 
 ## Troubleshooting
 

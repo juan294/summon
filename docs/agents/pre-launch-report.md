@@ -1,9 +1,9 @@
 # Pre-Launch Audit Report
-> Generated on 2026-03-13 | Branch: `refactor/rename-server-to-shell` | Commit: `da6f625` | 6 parallel specialists
+> Generated on 2026-03-13 | Branch: `develop` | Commit: `8167248` | 6 parallel specialists
 
 ## Verdict: CONDITIONAL
 
-0 blockers, 10 warnings across all domains. All automated checks pass: typecheck clean, lint clean, 377 tests passing, build succeeds (~52 KB across 6 chunks). The branch has not yet been merged to `develop`, and a LICENSE file is missing from the repo root.
+0 blockers, 3 warnings across all domains. All automated checks pass: typecheck clean, lint clean, 391 tests passing (100%), build succeeds (~33.5 KB across 6 chunks). Git state is clean.
 
 ## Blockers (must fix before release)
 
@@ -13,119 +13,108 @@ None found.
 
 | # | Issue | Severity | Found by | Risk |
 |---|-------|----------|----------|------|
-| W1 | Missing LICENSE file at repo root despite `"license": "MIT"` in package.json | Medium | devops | npm audit flag, legal compliance tools will flag this |
-| W2 | `.summon` project files can execute arbitrary commands without metacharacter prompt (e.g., `editor=rm -rf ~`) | Medium | security | Design-inherent trust boundary; mitigated by help text warning |
-| W3 | Custom shell command in setup wizard not validated against `SAFE_COMMAND_RE` (unlike editor/sidebar) | Low | security | User is typing interactively; lower risk but inconsistent |
-| W4 | `editorSize` fraction interpolated into AppleScript relies on upstream validation only | Low | security | No injection possible given current validation, but no defense-in-depth at script layer |
-| W5 | `setup.ts` branch coverage at 87.09% (interactive display/re-prompt paths) | Low | qa-lead | Regression risk for wizard summary display |
-| W6 | `script.ts:141` branch gap -- `hasShell` without `shellCommand` (plain shell pane) untested | Low | qa-lead | Low risk since code path is straightforward |
-| W7 | `--help` flag short-circuited by first-run setup wizard (wizard runs before help is shown) | Low | ux-reviewer | `--version` works on first run but `--help` does not -- inconsistent |
-| W8 | `summon set editor ""` silently stores empty string; validation only at launch time | Low | ux-reviewer | Confusing deferred error |
-| W9 | Shebang `#!/usr/bin/env node` applied to all chunk files, not just entry point | Low | performance | Cosmetic; no runtime impact but technically incorrect |
-| W10 | Current branch `refactor/rename-server-to-shell` not yet merged to `develop` | Medium | devops | Must merge before any release steps |
+| W1 | `CLI_FLAGS` in `config.ts:109-114` missing short flags `-h`, `-v`, `-e`, `-l`, `-n` for bash completions | Low | ux-reviewer | Bash users won't discover short flags via tab completion |
+| W2 | `printBanner` exported from `setup.ts:115` but never called in production code | Low | architect | Dead code; tree-shaking keeps it in lazy setup chunk (~200 bytes) |
+| W3 | `SHELL` and `NO_COLOR` env vars not documented in README | Low | devops | Users won't know what influences summon's behavior |
 
 ## Recommendations
 
-1. **Add a root LICENSE file** matching the MIT declaration in package.json (devops)
-2. **Add `"exports"` field to package.json** -- `{ ".": "./dist/index.js" }` for explicit module resolution (devops)
-3. **Consolidate readline pattern in `setup.ts`** -- `numberedSelect()`, `confirm()`, and `selectToolFromCatalog()` each create readline interfaces independently; extract a shared helper (architect)
-4. **Rename `COMMAND_KEYS`** in `index.ts` or `launcher.ts` to avoid naming overlap with different semantics (architect)
-5. **Add tests for uncovered branches** -- `printSummary` with `shell="true"`, non-minimal layout `runSetup`, `askCustom` invalid input, `generateAppleScript` with `hasShell` + no `shellCommand` (qa-lead)
-6. **Document `.summon` trust model more prominently** in README security section (security)
-7. **Fix shebang banner** in tsup config to target only the entry file (performance)
-8. **Consider enabling minification** -- could reduce 52 KB total to ~30-35 KB (performance)
-9. **Add short flag for `--shell`** (e.g., `-S`) for ergonomic parity with other flags (ux-reviewer)
-10. **Add config key type hints to `--help` output** (e.g., `panes <int>`, `auto-resize <bool>`) (ux-reviewer)
-11. **Consider `treeshake: true`** in tsup config for tighter output (performance)
-12. **Verify CHANGELOG.md `[Unreleased]` section** is correct before next release (devops)
+1. **Add missing short flags to `CLI_FLAGS`** in config.ts for bash completion parity with zsh (ux-reviewer)
+2. **Remove or wire up `printBanner`** -- currently exported but unused in production (architect)
+3. **Add "Environment Variables" section to README** documenting `SHELL` and `NO_COLOR` (devops)
+4. **Consolidate validation logic** in index.ts -- CLI flag validation (lines 158-183) and `set` subcommand validation (lines 270-294) duplicate the same rules (architect)
+5. **Add `develop` branch to CodeQL workflow triggers** for earlier security scanning (devops)
+6. **Standardize error message prefix** -- some `console.error` + `exit(1)` paths in launcher.ts lack the `Error:` prefix used elsewhere (ux-reviewer)
+7. **Soften "Unsafe SHELL" wording** to "Invalid SHELL" in launcher.ts:37 (ux-reviewer)
+8. **Clarify btop layout description** in help text -- btop replaces an editor pane, not a separate pane (ux-reviewer)
 
 ## Detailed Findings
 
-### 1. Architecture (architect) -- GREEN
+### 1. Quality Assurance (qa-lead) -- GREEN
 
-- **Typecheck**: zero errors
-- **Dependencies**: all up to date (`pnpm outdated` shows nothing)
-- **No circular dependencies** -- clean DAG with leaf modules (`config.ts`, `layout.ts`, `utils.ts`, `validation.ts`) having zero internal imports
-- **No dead code**: every export consumed by at least one production module. Two test-only exports (`resetConfigCache`, `getConfig`) properly annotated `@internal`
-- **Near-duplication noted**: `COMMAND_KEYS` defined in both `index.ts:79` (array, for display) and `launcher.ts:27` (Set, for security validation) -- different semantics justify separate definitions but naming overlap could cause confusion
-- **Readline boilerplate** repeated 3 times in `setup.ts` (`numberedSelect`, `confirm`, `selectToolFromCatalog`) -- consolidation opportunity
-- Clean module separation: pure (layout, script, validation), side-effecting (config, launcher), entry (index), lazy (setup, completions)
-
-### 2. Quality Assurance (qa-lead) -- GREEN
-
-- **377/377 tests passing** across 9 test files
+- **391/391 tests passing** across 9 test files (2.80s)
 - **Typecheck**: zero errors
 - **Lint**: zero warnings
-- **Coverage**: 98.95% statements, 94.73% branches, 100% functions, 99.07% lines
-- Critical paths (config, layout, launcher, utils, validation, completions) all at **100% coverage**
-- `script.ts` at 100% statements / 97.43% branches -- gap is `hasShell` without `shellCommand` at line 141
-- `setup.ts` at 97.41% statements / 87.09% branches -- gaps are interactive display paths (lines 484-489, 569, 573, 663)
-- Error handling comprehensive: every `process.exit(1)` preceded by meaningful stderr message
-- No unguarded error paths found
+- **Coverage by module**:
+  - `script.ts`: 38 tests -- all presets, escaping, resize, titles, edge cases
+  - `layout.ts`: 33 tests -- defaults, pane distribution, presets, overrides
+  - `config.ts`: 25 tests -- CRUD, permissions, injection prevention, caching
+  - `launcher.ts`: ~70 tests -- config resolution, command resolution, metacharacter confirmation, SHELL validation
+  - `index.ts`: ~70 integration tests -- all subcommands, flag validation, path resolution
+  - `setup.ts`: ~40 tests -- wizard flow, tool detection, ANSI helpers, banner
+  - `completions.ts`: 14 tests -- zsh/bash generation, subcommands, flags
+  - `validation.ts`: 10 tests -- boundaries, NaN, floats
+  - `utils.ts`: 26 tests -- SAFE_COMMAND_RE, resolveCommand, promptUser
+- Error handling comprehensive across all modules
+- No blockers or warnings
 
-### 3. Security (security-reviewer) -- GREEN
+### 2. Security (security-reviewer) -- GREEN
 
 - `pnpm audit`: **0 vulnerabilities**
 - **Zero runtime dependencies** -- eliminates supply chain risk
-- All devDependency licenses permissive (MIT, Apache-2.0) -- no conflicts
-- No hardcoded secrets found anywhere in source tree
-- **Positive findings**:
-  - `executeScript` passes AppleScript via stdin (not `-e` flag) -- prevents shell interpolation
-  - `resolveCommand` uses `execFileSync` with argument array + `$1` positional parameter
-  - `SAFE_COMMAND_RE` is sound: anchored, no bypasses found, comprehensive test coverage
-  - `SAFE_SHELL_RE` validates `process.env.SHELL` with strict regex, falls back to `/bin/bash`
-  - `escapeAppleScript()` and `shellQuote()` well-implemented, tested with adversarial inputs
+- All devDependency licenses permissive (MIT, Apache-2.0)
+- No hardcoded secrets found
+- **Injection analysis** (all PASS):
+  - `escapeAppleScript()`: correctly escapes `\`, `"`, `\n`, `\r` for AppleScript string contexts
+  - `shellQuote()`: standard POSIX single-quote escaping
+  - `resolveCommand()`: uses `execFileSync` with `$1` positional parameter (no injection)
+  - `executeScript()`: passes script via stdin (not `-e` flag)
+  - `SAFE_COMMAND_RE`: anchored regex, comprehensive test coverage
+  - `SAFE_SHELL_RE`: validates absolute paths, falls back to `/bin/bash`
   - Config file permissions: 0o700 directory, 0o600 files
-  - No `eval()` usage anywhere in codebase
-  - `KNOWN_INSTALL_COMMANDS` limited to hardcoded allowlist (npm/brew)
-  - `writeKV` strips `\n` and `\r` preventing KV line injection
-- `.summon` trust model follows Makefile/direnv pattern -- documented in help text
+  - `writeKV` strips `\n`/`\r` preventing line injection
+  - `.summon` metacharacter confirmation: TTY prompt with deny-default, non-TTY refusal
+- No `eval()` usage anywhere
+- No blockers or warnings
 
-### 4. Performance (performance-eng) -- GREEN
+### 3. Infrastructure (devops) -- GREEN
 
-- **Bundle**: 52 KB across 6 files -- excellent for zero-dep CLI
-  - `dist/index.js`: 24.43 KB (main entry)
-  - `dist/setup-KLZXQUIG.js`: 17.05 KB (lazy-loaded)
-  - `dist/completions-QI5LEGKR.js`: 4.14 KB (lazy-loaded)
-  - Shared chunks: config (2.59 KB), layout (1.74 KB), utils (932 B)
-- **Code splitting working correctly**: setup (17 KB) only loads on first-run/`summon setup`, completions (4 KB) only on `summon completions`
-- **Startup path**: most invocations load ~31 KB (index + 3 shared chunks)
-- **Sync I/O appropriate**: small config files (~100 bytes), `configEnsured` flag prevents redundant calls
-- **Command resolution cached**: `resolvedCache` Map deduplicates lookups
-- **String building efficient**: `lines.join("\n")` pattern (not repeated concatenation)
-- **Tree-shaking effective**: test-only exports (`resetConfigCache`, `getConfig`) stripped from dist
+- **Build**: PASS -- 6 ESM chunks, ~33.5 KB total
+- **CI**: last 5 runs on `develop` all green
+- **Git**: clean working tree, up to date with `origin/develop`
+- **package.json**: correctly configured -- `summon-ws` v0.4.1, `bin`, `files: ["dist"]`, `os: ["darwin"]`, `engines: >=18`, `exports`, `prepublishOnly`
+- **Workflows**: CI (macos-latest, Node 18/20/22), CodeQL (weekly + main push), Dependency Review (PRs)
+- `.gitignore`: comprehensive -- covers `.env*`, `.npmrc`, `*.pem`, `*.key`, sensitive paths
+- WARNING: `SHELL` and `NO_COLOR` env vars undocumented in README
+
+### 4. Architecture (architect) -- GREEN
+
+- **Typecheck**: zero errors
+- **Dependencies**: all up to date (`pnpm outdated` clean)
+- **No circular dependencies** -- clean DAG
+- **Module separation**: pure (layout, script, validation), side-effecting (config, launcher), entry (index), lazy (setup, completions)
+- WARNING: `printBanner` exported but never called in production
+- RECOMMENDATION: Validation logic duplicated between CLI flags and `set` subcommand in index.ts
+- RECOMMENDATION: `SAFE_COMMAND_RE` and `resolveCommandPath` re-exported from setup.ts for test convenience
+
+### 5. Performance (performance-eng) -- GREEN
+
+- **Bundle**: ~33.5 KB total -- excellent for zero-dep CLI
+  - `dist/index.js`: 16.05 KB (main entry)
+  - `dist/setup-*.js`: 10.75 KB (lazy-loaded on first-run/`summon setup`)
+  - `dist/completions-*.js`: 3.83 KB (lazy-loaded on `summon completions`)
+  - Shared chunks: config (1.29 KB), layout (974 B), utils (590 B)
+- **Code splitting well-executed**: setup/completions lazy-loaded, `node:readline` lazy
+- **Startup path**: ~18.9 KB for common code path, no heavy I/O at module load
+- **Command resolution cached**: `resolvedCache` deduplicates `resolveCommand` lookups (2-4 subprocess spawns max)
+- **Tree-shaking effective**: test-only exports stripped from dist
 - No performance anti-patterns detected
 
-### 5. UX/CLI (ux-reviewer) -- GREEN
+### 6. UX/CLI (ux-reviewer) -- GREEN
 
 - **Help text**: well-structured with usage, options, config keys, presets, examples, security note
-- **Error messages**: consistent `Error: <message>` format to stderr with actionable hints
+- **Error messages**: consistent format to stderr with actionable hints
 - **Exit codes**: consistent (0 success, 1 error)
-- **Per-subcommand help**: all subcommands support `--help`
-- **NO_COLOR support**: setup wizard respects `NO_COLOR` environment variable
-- **TTY detection**: setup wizard checks `process.stdin.isTTY` with clear fallback message
-- **Security UX**: `.summon` dangerous command prompt defaults to deny `[y/N]` -- safe default
-- **Setup wizard**: save confirmation defaults to accept `[Y/n]` -- appropriate for settings
-- **Progressive disclosure**: brief usage on no-args vs full `--help`
-- **Shell completions**: both zsh and bash are comprehensive, context-aware, dynamically read project names
-- **Validation at set time**: `summon set panes abc` rejected immediately
-- **Positive**: 10 items of good UX practice documented by reviewer
-
-### 6. Infrastructure (devops) -- GREEN
-
-- **Build**: PASS -- 6 ESM chunks, ~52 KB total, 10ms build time
-- **CI**: last 5 runs on `develop` all green (most recent: 46s, 2026-03-13)
-- **Git**: clean working tree, no uncommitted changes
-- **Package.json**: correctly configured -- `summon-ws` v0.4.0, `files: ["dist"]`, `os: ["darwin"]`, `engines: >=18`, `bin`, `prepublishOnly`
-- **.gitignore**: comprehensive -- covers `node_modules`, `dist`, `.env*`, `.DS_Store`, `*.tgz`, `coverage`, `.npmrc`, `*.pem`, `*.key`, `.vscode`, `.worktrees`, `.claude/*` (with whitelisted exceptions)
-- **Environment variables**: `process.env.NO_COLOR` and `process.env.SHELL` both documented and validated
-- **Workflows**: CI (macos-latest, Node 18/20/22 matrix), CodeQL (weekly + push), Dependency Review (PRs)
-- **Gap**: missing LICENSE file, missing `exports` field in package.json
+- **Per-subcommand help**: all 7 subcommands support `--help`
+- **NO_COLOR support**: setup wizard respects standard
+- **TTY detection**: setup wizard checks `process.stdin.isTTY` with clear fallback
+- **Security UX**: `.summon` dangerous command prompt defaults to deny `[y/N]`
+- **Setup wizard**: polished with tool detection, ASCII diagrams, install hints
+- **Shell completions**: zsh and bash comprehensive, context-aware
+- WARNING: bash completions missing 5 short flags (`-h`, `-v`, `-e`, `-l`, `-n`)
 
 ## Next Steps
 
-1. **W1 (devops)**: Add MIT LICENSE file to repo root before npm publish
-2. **W10 (devops)**: Merge `refactor/rename-server-to-shell` branch to `develop`
-3. **W7 (ux)**: Move `--help` check before first-run wizard gate in `index.ts`
-4. Consider running `/simplify` to address architect recommendations (readline consolidation, naming clarity)
-5. Consider adding the 4 test cases recommended by qa-lead to close branch coverage gaps
+1. Fix W1-W3 warnings if desired before release (all low severity)
+2. `/simplify` is not needed -- code quality findings from the last `/simplify` pass were clean
+3. Manual verification remaining: `summon . --dry-run` and `summon .` in Ghostty 1.3.1 for pane title visual check

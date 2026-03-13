@@ -1,3 +1,4 @@
+import { basename } from "node:path";
 import type { LayoutPlan } from "./layout.js";
 
 function escapeAppleScript(s: string): string {
@@ -15,6 +16,7 @@ function shellQuote(s: string): string {
 
 export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginShell = "/bin/bash"): string {
   const lines: string[] = [];
+  const titles: Array<[string, string]> = [];
 
   const add = (indent: number, line: string) => {
     lines.push("    ".repeat(indent) + line);
@@ -59,11 +61,18 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginSh
   const editorCmd = plan.editor;
   const secondaryCmd = plan.secondaryEditor ?? editorCmd;
 
+  const formatTitle = (role: string, cmd: string | null | undefined): string => {
+    return cmd ? `${role} \u00B7 ${cmd}` : role;
+  };
+
+  titles.push(["paneRoot", formatTitle("editor", editorCmd || null)]);
+
   // Split sidebar (far right) — set command on cfg before split
   if (plan.sidebarCommand) {
     setConfigCommand(plan.sidebarCommand);
   }
   add(1, "set paneSidebar to split paneRoot direction right with configuration cfg");
+  titles.push(["paneSidebar", formatTitle("sidebar", plan.sidebarCommand || null)]);
 
   // Resize editor/sidebar split to match editorSize.
   // Done here (before editor column splits) so the subsequent 50/50 split
@@ -97,6 +106,7 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginSh
         clearConfigCommand();
       }
       add(1, "set paneRightCol to split paneRoot direction right with configuration cfg");
+      titles.push(["paneRightCol", formatTitle("editor", secondaryCmd || null)]);
     } else {
       // Right column exists only for shell
       if (plan.shellCommand) {
@@ -105,6 +115,7 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginSh
         clearConfigCommand();
       }
       add(1, "set paneRightCol to split paneRoot direction right with configuration cfg");
+      titles.push(["paneRightCol", formatTitle("server", plan.shellCommand)]);
     }
   }
 
@@ -117,6 +128,7 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginSh
     const name = `paneLeft${i}`;
     blank();
     add(1, `set ${name} to split ${lastLeftPane} direction down with configuration cfg`);
+    titles.push([name, formatTitle("editor", editorCmd || null)]);
     lastLeftPane = name;
   }
 
@@ -133,6 +145,7 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginSh
       const name = `paneRight${nextRight}`;
       blank();
       add(1, `set ${name} to split ${lastRightPane} direction down with configuration cfg`);
+      titles.push([name, formatTitle("editor", secondaryCmd || null)]);
       lastRightPane = name;
       nextRight++;
     }
@@ -147,6 +160,7 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginSh
         clearConfigCommand();
       }
       add(1, `set ${name} to split ${lastRightPane} direction down with configuration cfg`);
+      titles.push([name, formatTitle("server", plan.shellCommand)]);
     }
   }
 
@@ -162,6 +176,16 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginSh
       ? `${parts[0]} ${parts.slice(1).map((a) => shellQuote(a)).join(" ")}`
       : editorCmd;
     sendCommand("paneRoot", safeCmd);
+  }
+
+  blank();
+
+  // Set pane and tab titles
+  add(1, "-- Set pane and tab titles");
+  const projectName = basename(targetDir);
+  add(1, `perform action "set_tab_title:${escapeAppleScript(projectName)}" on paneRoot`);
+  for (const [pane, title] of titles) {
+    add(1, `perform action "set_surface_title:${escapeAppleScript(title)}" on ${pane}`);
   }
 
   blank();
