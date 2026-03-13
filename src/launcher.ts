@@ -199,10 +199,17 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
     process.exit(1);
   }
 
-  ensureGhostty();
-
   const { opts } = resolveConfig(targetDir, cliOverrides ?? {});
   const plan = planLayout(opts);
+  const loginShell = process.env.SHELL ?? "/bin/bash";
+
+  if (cliOverrides?.dryRun) {
+    const script = generateAppleScript(plan, targetDir, loginShell);
+    console.log(script);
+    return;
+  }
+
+  ensureGhostty();
 
   // Ensure commands exist and resolve to full paths in one pass
   // (avoids duplicate resolveCommand calls per binary)
@@ -217,13 +224,6 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
   if (plan.secondaryEditor) plan.secondaryEditor = await ensureAndResolve(plan.secondaryEditor, "editor");
   if (plan.serverCommand) plan.serverCommand = await ensureAndResolve(plan.serverCommand, "server");
 
-  const loginShell = process.env.SHELL ?? "/bin/bash";
   const script = generateAppleScript(plan, targetDir, loginShell);
-
-  if (cliOverrides?.dryRun) {
-    console.log(script);
-    return;
-  }
-
   executeScript(script);
 }
