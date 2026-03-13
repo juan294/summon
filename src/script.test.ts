@@ -96,8 +96,9 @@ describe("generateAppleScript", () => {
     const script = generateAppleScript(plan, "/tmp");
 
     // Sidebar command set on cfg before the split creates the pane
-    expect(script).toContain("set command of cfg to \"/bin/bash -lc 'lazygit'\"");
-    const cmdIndex = script.indexOf("set command of cfg to \"/bin/bash -lc 'lazygit'\"");
+    const expected = "set command of cfg to \"/bin/bash -lc 'cd '\\\\''/tmp'\\\\'' && lazygit'\"";
+    expect(script).toContain(expected);
+    const cmdIndex = script.indexOf(expected);
     const splitIndex = script.indexOf("paneSidebar to split");
     expect(cmdIndex).toBeLessThan(splitIndex);
   });
@@ -107,8 +108,9 @@ describe("generateAppleScript", () => {
     const script = generateAppleScript(plan, "/tmp");
 
     // Right column editor gets command via config
-    expect(script).toContain("set command of cfg to \"/bin/bash -lc 'claude'\"");
-    const cmdIndex = script.indexOf("set command of cfg to \"/bin/bash -lc 'claude'\"");
+    const expected = "set command of cfg to \"/bin/bash -lc 'cd '\\\\''/tmp'\\\\'' && claude'\"";
+    expect(script).toContain(expected);
+    const cmdIndex = script.indexOf(expected);
     const splitIndex = script.indexOf("paneRightCol to split");
     expect(cmdIndex).toBeLessThan(splitIndex);
   });
@@ -117,7 +119,7 @@ describe("generateAppleScript", () => {
     const plan = planLayout({ server: "npm run dev" });
     const script = generateAppleScript(plan, "/tmp");
 
-    expect(script).toContain("set command of cfg to \"/bin/bash -lc 'npm run dev'\"");
+    expect(script).toContain("set command of cfg to \"/bin/bash -lc 'cd '\\\\''/tmp'\\\\'' && npm run dev'\"");
   });
 
   it("does not use delay for pane initialization when auto-resize is off", () => {
@@ -163,7 +165,7 @@ describe("generateAppleScript", () => {
     expect(script).toContain('input text "claude" to paneRoot');
 
     // Right column gets secondary editor (mtop) via config
-    expect(script).toContain("set command of cfg to \"/bin/bash -lc 'mtop'\"");
+    expect(script).toContain("set command of cfg to \"/bin/bash -lc 'cd '\\\\''/tmp'\\\\'' && mtop'\"");
   });
 
   it("focuses root pane", () => {
@@ -180,6 +182,19 @@ describe("generateAppleScript", () => {
     expect(script).toContain("front window");
     expect(script).toContain("selected tab");
     expect(script).not.toContain("new window");
+  });
+
+  it("config-launched panes cd into target directory", () => {
+    const plan = planLayout();
+    const script = generateAppleScript(plan, "/tmp/project");
+
+    // Every non-empty config command should cd into the target directory
+    const configLines = script.split("\n").filter((l) => l.includes("set command of cfg to"));
+    expect(configLines.length).toBeGreaterThan(0);
+    for (const line of configLines) {
+      if (line.includes('""')) continue; // skip cleared commands (plain shell)
+      expect(line).toContain("/tmp/project");
+    }
   });
 
   it("escapes special characters in paths and commands", () => {
@@ -272,14 +287,14 @@ describe("generateAppleScript", () => {
     const script = generateAppleScript(plan, "/tmp", "/bin/zsh");
 
     // Sidebar command wrapped in login shell
-    expect(script).toContain("set command of cfg to \"/bin/zsh -lc 'lazygit'\"");
+    expect(script).toContain("set command of cfg to \"/bin/zsh -lc 'cd '\\\\''/tmp'\\\\'' && lazygit'\"");
   });
 
   it("wraps server command in login shell", () => {
     const plan = planLayout({ server: "npm run dev" });
     const script = generateAppleScript(plan, "/tmp", "/bin/zsh");
 
-    expect(script).toContain("set command of cfg to \"/bin/zsh -lc 'npm run dev'\"");
+    expect(script).toContain("set command of cfg to \"/bin/zsh -lc 'cd '\\\\''/tmp'\\\\'' && npm run dev'\"");
   });
 
   it("escapes single quotes in wrapped config commands", () => {
@@ -287,7 +302,7 @@ describe("generateAppleScript", () => {
     const script = generateAppleScript(plan, "/tmp", "/bin/bash");
 
     // escapeAppleScript doubles backslashes: '\'' → '\\''
-    expect(script).toContain("set command of cfg to \"/bin/bash -lc 'cmd '\\\\''arg'\\\\'''\"");
+    expect(script).toContain("set command of cfg to \"/bin/bash -lc 'cd '\\\\''/tmp'\\\\'' && cmd '\\\\''arg'\\\\'''\"");
   });
 
   it("does not wrap input text commands with login shell", () => {

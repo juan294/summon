@@ -29,8 +29,9 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginSh
   // Config-launched panes run in a restricted shell without PATH (--noprofile --norc).
   // Wrap in the user's login shell so commands like npm can find their interpreters.
   // Input-text commands (root pane) run in an already-initialized shell — no wrapping needed.
+  const quotedTargetDir = shellQuote(targetDir);
   const wrapForConfig = (cmd: string): string => {
-    return `${loginShell} -lc ${shellQuote(cmd)}`;
+    return `${loginShell} -lc ${shellQuote(`cd ${quotedTargetDir} && ${cmd}`)}`;
   };
 
   const setConfigCommand = (cmd: string) => {
