@@ -46,8 +46,10 @@ function ensureGhostty(): void {
 function executeScript(script: string): void {
   try {
     execSync("osascript", { input: script, encoding: "utf-8" });
-  } catch {
-    console.error("Failed to execute workspace script. Is Ghostty running?");
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    console.error(`Failed to execute workspace script: ${detail}`);
+    console.error("Is Ghostty running?");
     process.exit(1);
   }
 }
