@@ -185,6 +185,25 @@ describe("numberedSelect", () => {
     const result = await numberedSelect(options, "Pick: ");
     expect(result).toBe(0);
   });
+
+  it("prints feedback message on invalid input before re-prompting", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    let callCount = 0;
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      callCount++;
+      if (callCount === 1) cb("abc"); // invalid
+      else cb("1");
+    });
+    const options = [
+      { label: "A", value: "a" },
+      { label: "B", value: "b" },
+    ];
+    await numberedSelect(options, "Pick: ");
+    const allOutput = logSpy.mock.calls.map((c) => String(c[0]));
+    expect(allOutput.some((s) => s.includes("Invalid selection"))).toBe(true);
+    expect(allOutput.some((s) => s.includes("1") && s.includes("2"))).toBe(true);
+    logSpy.mockRestore();
+  });
 });
 
 describe("textInput", () => {
@@ -254,6 +273,20 @@ describe("confirm", () => {
       cb("YES"),
     );
     expect(await confirm("OK?")).toBe(true);
+  });
+
+  it("prints feedback message on invalid input before re-prompting", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    let callCount = 0;
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      callCount++;
+      if (callCount === 1) cb("maybe"); // invalid
+      else cb("y");
+    });
+    await confirm("OK?");
+    const allOutput = logSpy.mock.calls.map((c) => String(c[0]));
+    expect(allOutput.some((s) => s.includes("Please enter y or n"))).toBe(true);
+    logSpy.mockRestore();
   });
 });
 
@@ -488,6 +521,28 @@ describe("selectToolFromCatalog", () => {
     expect(result).toBe("claude");
     logSpy.mockRestore();
   });
+
+  it("prints feedback message on invalid input before re-prompting", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    let callCount = 0;
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      callCount++;
+      if (callCount === 1) cb("xyz"); // invalid
+      else cb("1");
+    });
+    const result = await selectToolFromCatalog(
+      [
+        { cmd: "vim", name: "Vim", desc: "Editor" },
+        { cmd: "nano", name: "Nano", desc: "Simple" },
+      ],
+      "Editor",
+      "vim",
+    );
+    expect(result).toBe("vim");
+    const allOutput = logSpy.mock.calls.map((c) => String(c[0]));
+    expect(allOutput.some((s) => s.includes("Invalid selection"))).toBe(true);
+    logSpy.mockRestore();
+  });
 });
 
 describe("selectServer", () => {
@@ -649,6 +704,112 @@ describe("validateSetup", () => {
   });
 });
 
+describe("printValidation", () => {
+  // Import printValidation — it's not exported, so we test via runSetup side-effects.
+  // We test the display branches via validateSetup + runSetup integration.
+
+  it("prints warning for missing tools with install hints", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    // Make ALL tools missing so that regardless of selection, the chosen tool is missing
+    mockExecFileSync.mockImplementation(() => {
+      throw new Error("not found");
+    });
+    mockExistsSync.mockReturnValue(true); // Ghostty found
+
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      if (_q.includes("[Y/n]")) cb("y");
+      else cb("1");
+    });
+
+    const origIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", {
+      value: true,
+      writable: true,
+    });
+
+    await runSetup();
+
+    const allOutput = logSpy.mock.calls.map((c) => String(c[0]));
+    // Should show the missing tool warning
+    expect(allOutput.some((s) => s.includes("not found"))).toBe(true);
+    // Should show install hint message
+    expect(
+      allOutput.some((s) => s.includes("Some tools are missing")),
+    ).toBe(true);
+
+    Object.defineProperty(process.stdin, "isTTY", {
+      value: origIsTTY,
+      writable: true,
+    });
+    logSpy.mockRestore();
+  });
+
+  it("prints Ghostty not found warning", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockExecFileSync.mockReturnValue("/usr/bin/stub\n"); // all tools found
+    mockExistsSync.mockReturnValue(false); // Ghostty NOT found
+
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      if (_q.includes("[Y/n]")) cb("y");
+      else cb("1");
+    });
+
+    const origIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", {
+      value: true,
+      writable: true,
+    });
+
+    await runSetup();
+
+    const allOutput = logSpy.mock.calls.map((c) => String(c[0]));
+    expect(
+      allOutput.some(
+        (s) => s.includes("Ghostty") && s.includes("not found"),
+      ),
+    ).toBe(true);
+
+    Object.defineProperty(process.stdin, "isTTY", {
+      value: origIsTTY,
+      writable: true,
+    });
+    logSpy.mockRestore();
+  });
+
+  it("prints all tools available when none missing", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockExecFileSync.mockReturnValue("/usr/bin/stub\n");
+    mockExistsSync.mockReturnValue(true); // Ghostty found
+
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      if (_q.includes("[Y/n]")) cb("y");
+      else cb("1");
+    });
+
+    const origIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", {
+      value: true,
+      writable: true,
+    });
+
+    await runSetup();
+
+    const allOutput = logSpy.mock.calls.map((c) => String(c[0]));
+    expect(
+      allOutput.some((s) => s.includes("All selected tools are available")),
+    ).toBe(true);
+    expect(
+      allOutput.some((s) => s.includes("Ghostty") && s.includes("found") && !s.includes("not found")),
+    ).toBe(true);
+
+    Object.defineProperty(process.stdin, "isTTY", {
+      value: origIsTTY,
+      writable: true,
+    });
+    logSpy.mockRestore();
+  });
+});
+
 describe("runSetup", () => {
   it("saves all settings to config on completion", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
@@ -699,6 +860,103 @@ describe("runSetup", () => {
 
     // Server should be "false" for minimal
     expect(mockSetConfig).toHaveBeenCalledWith("server", "false");
+
+    Object.defineProperty(process.stdin, "isTTY", {
+      value: origIsTTY,
+      writable: true,
+    });
+    logSpy.mockRestore();
+  });
+
+  it("prints error and exits when stdin is not a TTY", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation(() => undefined as never);
+
+    const origIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", {
+      value: false,
+      writable: true,
+    });
+
+    await runSetup();
+
+    const allErrors = errorSpy.mock.calls.map((c) => String(c[0]));
+    expect(
+      allErrors.some((s) => s.includes("interactive terminal")),
+    ).toBe(true);
+    expect(
+      allErrors.some((s) => s.includes("summon set")),
+    ).toBe(true);
+    expect(exitSpy).toHaveBeenCalledWith(1);
+
+    Object.defineProperty(process.stdin, "isTTY", {
+      value: origIsTTY,
+      writable: true,
+    });
+    errorSpy.mockRestore();
+    exitSpy.mockRestore();
+  });
+
+  it("loops back to layout selection when user declines to save", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    let confirmCount = 0;
+    let layoutSelectCount = 0;
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      if (_q.includes("[Y/n]")) {
+        confirmCount++;
+        if (confirmCount === 1) cb("n"); // decline first time
+        else cb("y"); // accept second time
+      } else if (_q.includes("Select [1-")) {
+        layoutSelectCount++;
+        cb("1");
+      } else {
+        cb("1");
+      }
+    });
+
+    const origIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", {
+      value: true,
+      writable: true,
+    });
+
+    await runSetup();
+
+    // Layout selection should happen twice (once per loop iteration)
+    expect(layoutSelectCount).toBeGreaterThanOrEqual(2);
+    // Confirm should be called twice
+    expect(confirmCount).toBe(2);
+    // Settings should only be saved once (on the second, accepted pass)
+    expect(mockSetConfig).toHaveBeenCalledTimes(4);
+
+    Object.defineProperty(process.stdin, "isTTY", {
+      value: origIsTTY,
+      writable: true,
+    });
+    logSpy.mockRestore();
+  });
+
+  it("prints dim message when minimal layout skips server", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      if (_q.includes("[Y/n]")) cb("y");
+      else cb("1"); // First option (minimal for layout)
+    });
+
+    const origIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", {
+      value: true,
+      writable: true,
+    });
+
+    await runSetup();
+
+    const allOutput = logSpy.mock.calls.map((c) => String(c[0]));
+    expect(
+      allOutput.some((s) => s.includes("Minimal layout has no server pane")),
+    ).toBe(true);
 
     Object.defineProperty(process.stdin, "isTTY", {
       value: origIsTTY,
