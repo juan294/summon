@@ -170,7 +170,8 @@ switch (subcommand) {
     }
     const VALID_KEYS = ["editor", "sidebar", "panes", "editor-size", "server", "layout", "auto-resize"];
     if (!VALID_KEYS.includes(key)) {
-      console.warn(`Warning: unknown config key "${key}". Valid keys: ${VALID_KEYS.join(", ")}`);
+      console.error(`Unknown config key "${key}". Valid keys: ${VALID_KEYS.join(", ")}`);
+      process.exit(1);
     }
     setConfig(key, value ?? "");
     if (value) {
