@@ -7,16 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-03-13
+
 ### Fixed
 
 - `--help` now works on first run — moved help check before the setup wizard gate
 
 ### Changed
 
+- Renamed "server" pane to "shell" across entire codebase (code, tests, docs, config keys)
 - Consolidated readline boilerplate in `setup.ts` — `numberedSelect`, `confirm`, and `selectToolFromCatalog` now use shared `promptUser()` from `utils.ts`
 - Renamed `COMMAND_KEYS` → `DISPLAY_COMMAND_KEYS` in `index.ts` to avoid naming overlap with the security validation Set in `launcher.ts`
 - Enabled bundle minification via tsup (52 KB → 33 KB total, 36% reduction)
 - Added `"exports"` field to `package.json` for explicit ESM module resolution
+- Updated README, user manual, and architecture docs for v0.4.0 features
 
 ### Tests
 
@@ -161,7 +165,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CodeQL security scanning
 - Dependabot for npm and GitHub Actions
 
-[Unreleased]: https://github.com/juan294/summon/compare/v0.4.0...develop
+[Unreleased]: https://github.com/juan294/summon/compare/v0.4.1...develop
+[0.4.1]: https://github.com/juan294/summon/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/juan294/summon/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/juan294/summon/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/juan294/summon/compare/v0.3.0...v0.3.1
