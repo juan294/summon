@@ -147,6 +147,20 @@ describe("CLI integration", () => {
     });
   });
 
+  describe("--auto-resize / --no-auto-resize", () => {
+    it("accepts --no-auto-resize and produces script WITHOUT resize commands", () => {
+      const result = run(".", "--no-auto-resize", "--dry-run");
+      expect(result.status).toBe(0);
+      expect(result.stdout).not.toContain("resize_split");
+    });
+
+    it("accepts --auto-resize and produces script WITH resize commands", () => {
+      const result = run(".", "--auto-resize", "--dry-run");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("resize_split");
+    });
+  });
+
   describe("--editor-size validation", () => {
     it("rejects non-numeric value", () => {
       const result = run(".", "--editor-size", "abc");
