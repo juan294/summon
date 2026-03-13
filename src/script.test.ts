@@ -376,6 +376,20 @@ describe("generateAppleScript", () => {
     expect(clearIndex).toBeLessThan(rightColIndex);
   });
 
+  it("sets server command on config for server-only right column", () => {
+    // editorPanes=1 → rightColumnEditorCount=0, server="npm run dev" → serverCommand="npm run dev"
+    const plan = planLayout({ editorPanes: 1, server: "npm run dev" });
+    const script = generateAppleScript(plan, "/tmp");
+
+    // Right column exists only for server, and server has a specific command
+    expect(script).toContain("paneRightCol");
+    // The server command should be set via config before the right column split
+    expect(script).toContain("set command of cfg to \"/bin/bash -lc 'cd '\\\\''/tmp'\\\\'' && npm run dev'\"");
+    const cmdIndex = script.indexOf("npm run dev");
+    const splitIndex = script.indexOf("paneRightCol to split");
+    expect(cmdIndex).toBeLessThan(splitIndex);
+  });
+
   it("multi-pane right column creates additional down splits", () => {
     const plan = planLayout({ editorPanes: 4 });
     const script = generateAppleScript(plan, "/tmp");

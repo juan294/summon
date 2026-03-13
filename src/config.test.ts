@@ -131,6 +131,15 @@ describe("readKVFile", () => {
     const map = readKVFile("/nonexistent/.summon");
     expect(map.size).toBe(0);
   });
+
+  it("skips lines without an equals sign", async () => {
+    const store = await getStore();
+    store.set("/tmp/.summon", "editor=vim\ncomment line with no equals\npanes=3\n");
+    const map = readKVFile("/tmp/.summon");
+    expect(map.get("editor")).toBe("vim");
+    expect(map.get("panes")).toBe("3");
+    expect(map.size).toBe(2);
+  });
 });
 
 describe("ensureConfig caching (#25)", () => {

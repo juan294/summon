@@ -162,6 +162,20 @@ describe("script execution", () => {
     const shellArg = mockGenerateAppleScript.mock.calls[0]![2];
     expect(shellArg).toBe(process.env.SHELL ?? "/bin/bash");
   });
+
+  it("falls back to /bin/bash when SHELL env var is undefined", async () => {
+    const origShell = process.env.SHELL;
+    delete process.env.SHELL;
+    vi.mocked(listConfig).mockReturnValue(new Map());
+
+    try {
+      await launch("/tmp/workspace");
+      const shellArg = mockGenerateAppleScript.mock.calls[0]![2];
+      expect(shellArg).toBe("/bin/bash");
+    } finally {
+      process.env.SHELL = origShell;
+    }
+  });
 });
 
 describe("config resolution", () => {
@@ -788,6 +802,22 @@ describe("falsy sidebarCommand guard", () => {
     expect(mockGenerateAppleScript).toHaveBeenCalledWith(
       expect.objectContaining({
         sidebarCommand: "/usr/bin/stub",
+      }),
+      "/tmp/workspace",
+      expect.any(String),
+    );
+  });
+
+  it("skips sidebar resolution when sidebarCommand is empty in the plan", async () => {
+    vi.mocked(listConfig).mockReturnValue(new Map());
+    // Override sidebar to empty string via CLI so planLayout produces sidebarCommand=""
+    await launch("/tmp/workspace", { sidebar: "" });
+
+    // sidebarCommand is "" (falsy), so ensureAndResolve is never called for sidebar.
+    // No resolveCommand call for empty sidebar binary.
+    expect(mockGenerateAppleScript).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sidebarCommand: "",
       }),
       "/tmp/workspace",
       expect.any(String),
