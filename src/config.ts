@@ -16,7 +16,7 @@ function ensureConfig(): void {
   configEnsured = true;
 }
 
-/** Reset the ensureConfig cache — for test cleanup only. */
+/** @internal — test-only, reset the ensureConfig cache */
 export function resetConfigCache(): void {
   configEnsured = false;
 }
