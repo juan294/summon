@@ -30,7 +30,7 @@ describe("generateAppleScript", () => {
     const rightSplits = (script.match(/direction right/g) ?? []).length;
     expect(rightSplits).toBe(2);
 
-    // 2 down splits: paneLeft2 + server pane
+    // 2 down splits: paneLeft2 + shell pane
     const downSplits = (script.match(/direction down/g) ?? []).length;
     expect(downSplits).toBe(2);
 
@@ -63,7 +63,7 @@ describe("generateAppleScript", () => {
     const rightSplits = (script.match(/direction right/g) ?? []).length;
     expect(rightSplits).toBe(2);
 
-    // 1 down split: server below right column editor
+    // 1 down split: shell below right column editor
     const downSplits = (script.match(/direction down/g) ?? []).length;
     expect(downSplits).toBe(1);
 
@@ -115,8 +115,8 @@ describe("generateAppleScript", () => {
     expect(cmdIndex).toBeLessThan(splitIndex);
   });
 
-  it("sends custom server command via config", () => {
-    const plan = planLayout({ server: "npm run dev" });
+  it("sends custom shell command via config", () => {
+    const plan = planLayout({ shell: "npm run dev" });
     const script = generateAppleScript(plan, "/tmp");
 
     expect(script).toContain("set command of cfg to \"/bin/bash -lc 'cd '\\\\''/tmp'\\\\'' && npm run dev'\"");
@@ -138,13 +138,13 @@ describe("generateAppleScript", () => {
     expect(script).toContain("perform action resizeAction on paneRoot");
   });
 
-  it("skips command for plain shell server", () => {
-    const plan = planLayout({ server: "true" });
+  it("skips command for plain shell pane", () => {
+    const plan = planLayout({ shell: "true" });
     const script = generateAppleScript(plan, "/tmp");
 
     // Root pane gets cd + editor command via input text
     // Sidebar and right editor get commands via config
-    // Server pane has no command (plain shell)
+    // Shell pane has no command (plain shell)
     const inputTexts = (script.match(/input text/g) ?? []).length;
     expect(inputTexts).toBe(2); // cd + editor on root pane
   });
@@ -238,7 +238,7 @@ describe("generateAppleScript", () => {
   });
 
   it("uses paneRoot for resize when no right column exists", () => {
-    const plan = planLayout({ autoResize: true, editorSize: 80, editorPanes: 1, server: "false" });
+    const plan = planLayout({ autoResize: true, editorSize: 80, editorPanes: 1, shell: "false" });
     const script = generateAppleScript(plan, "/tmp");
 
     expect(script).toContain("perform action resizeAction on paneRoot");
@@ -262,15 +262,15 @@ describe("generateAppleScript", () => {
     expect(script).not.toContain("resize_split");
   });
 
-  it("cli preset creates server-only right column with no editor panes", () => {
+  it("cli preset creates shell-only right column with no editor panes", () => {
     const plan = planLayout(getPreset("cli"));
     const script = generateAppleScript(plan, "/tmp");
 
-    // 2 right splits: sidebar + right column (server-only)
+    // 2 right splits: sidebar + right column (shell-only)
     const rightSplits = (script.match(/direction right/g) ?? []).length;
     expect(rightSplits).toBe(2);
 
-    // No down splits — single server pane, no editors in right column
+    // No down splits — single shell pane, no editors in right column
     const downSplits = (script.match(/direction down/g) ?? []).length;
     expect(downSplits).toBe(0);
 
@@ -278,7 +278,7 @@ describe("generateAppleScript", () => {
     expect(script).toContain("paneRightCol");
     expect(script).not.toContain("paneRight2");
 
-    // Server pane uses cleared command (plain shell, server="true")
+    // Shell pane uses cleared command (plain shell, shell="true")
     expect(script).toContain('set command of cfg to ""');
   });
 
@@ -290,8 +290,8 @@ describe("generateAppleScript", () => {
     expect(script).toContain("set command of cfg to \"/bin/zsh -lc 'cd '\\\\''/tmp'\\\\'' && lazygit'\"");
   });
 
-  it("wraps server command in login shell", () => {
-    const plan = planLayout({ server: "npm run dev" });
+  it("wraps shell command in login shell", () => {
+    const plan = planLayout({ shell: "npm run dev" });
     const script = generateAppleScript(plan, "/tmp", "/bin/zsh");
 
     expect(script).toContain("set command of cfg to \"/bin/zsh -lc 'cd '\\\\''/tmp'\\\\'' && npm run dev'\"");
@@ -376,14 +376,14 @@ describe("generateAppleScript", () => {
     expect(clearIndex).toBeLessThan(rightColIndex);
   });
 
-  it("sets server command on config for server-only right column", () => {
-    // editorPanes=1 → rightColumnEditorCount=0, server="npm run dev" → serverCommand="npm run dev"
-    const plan = planLayout({ editorPanes: 1, server: "npm run dev" });
+  it("sets shell command on config for shell-only right column", () => {
+    // editorPanes=1 → rightColumnEditorCount=0, shell="npm run dev" → shellCommand="npm run dev"
+    const plan = planLayout({ editorPanes: 1, shell: "npm run dev" });
     const script = generateAppleScript(plan, "/tmp");
 
-    // Right column exists only for server, and server has a specific command
+    // Right column exists only for shell, and shell has a specific command
     expect(script).toContain("paneRightCol");
-    // The server command should be set via config before the right column split
+    // The shell command should be set via config before the right column split
     expect(script).toContain("set command of cfg to \"/bin/bash -lc 'cd '\\\\''/tmp'\\\\'' && npm run dev'\"");
     const cmdIndex = script.indexOf("npm run dev");
     const splitIndex = script.indexOf("paneRightCol to split");
@@ -419,13 +419,13 @@ describe("generateAppleScript", () => {
     expect(rightSplits).toBe(2);
 
     // 2 down splits: paneLeft2 + paneRight2 (2 editors per column)
-    // Plus 1 server pane = 3 down splits total
+    // Plus 1 shell pane = 3 down splits total
     const downSplits = (script.match(/direction down/g) ?? []).length;
     expect(downSplits).toBe(3);
 
     expect(script).toContain("paneRight2");
     expect(script).toContain("paneLeft2");
-    // Server pane at bottom of right column
+    // Shell pane at bottom of right column
     expect(script).toContain("paneRight3");
   });
 });

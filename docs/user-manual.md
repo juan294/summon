@@ -53,7 +53,7 @@ The wizard walks you through four choices:
 1. **Layout** — choose from 5 presets (minimal, pair, full, cli, btop) with ASCII diagrams
 2. **Editor** — pick from detected editors (claude, nvim, vim, code, etc.) or enter a custom command
 3. **Sidebar** — pick from detected tools (lazygit, gitui, tig, btop, etc.) or enter a custom command
-4. **Server pane** — plain shell, disabled, or a custom command (e.g. `npm run dev`)
+4. **Shell pane** — plain shell, disabled, or a custom command (e.g. `npm run dev`)
 
 After confirming, the wizard:
 - Saves your choices to `~/.config/summon/config`
@@ -133,7 +133,7 @@ Registered projects:
 
 ### `summon setup`
 
-Launch the interactive setup wizard. Guides you through choosing your preferred layout, editor, sidebar, and server configuration.
+Launch the interactive setup wizard. Guides you through choosing your preferred layout, editor, sidebar, and shell configuration.
 
 ```bash
 summon setup
@@ -157,8 +157,8 @@ summon set editor vim           # use vim instead of claude
 summon set sidebar              # sidebar becomes a plain shell
 summon set panes 4              # four editor panes
 summon set editor-size 80       # editor grid takes 80% width
-summon set server false         # disable the server pane
-summon set server "npm run dev" # run a command in the server pane
+summon set shell false         # disable the shell pane
+summon set shell "npm run dev" # run a command in the shell pane
 summon set layout minimal       # default to the minimal preset
 ```
 
@@ -186,7 +186,7 @@ Flags override both machine and per-project config for a single launch.
 | `-p`, `--panes <n>` | Override number of editor panes |
 | `--editor-size <n>` | Override editor width percentage |
 | `-s`, `--sidebar <cmd>` | Override sidebar command |
-| `--server <value>` | Server pane: `true`, `false`, or a command |
+| `--shell <value>` | Shell pane: `true`, `false`, or a command |
 | `--auto-resize` | Resize sidebar to match editor-size (default: on) |
 | `--no-auto-resize` | Disable auto-resize |
 | `-n`, `--dry-run` | Print generated AppleScript without executing |
@@ -195,7 +195,7 @@ Flags override both machine and per-project config for a single launch.
 
 ```bash
 summon . --layout minimal
-summon . -l pair --server "npm run dev"
+summon . -l pair --shell "npm run dev"
 summon . --editor vim --panes 2
 ```
 
@@ -241,13 +241,13 @@ so newly added projects are immediately completable.
 
 Presets are named shortcuts for common layout configurations.
 
-| Preset | Editor panes | Server pane | Description |
+| Preset | Editor panes | Shell pane | Description |
 |---|---|---|---|
-| `full` | 3 | yes (shell) | Multi-agent coding + dev server |
-| `pair` | 2 | yes (shell) | Two editors + dev server |
+| `full` | 3 | yes (shell) | Multi-agent coding + shell |
+| `pair` | 2 | yes (shell) | Two editors + shell |
 | `minimal` | 1 | no | Simple editor + sidebar |
-| `cli` | 1 | yes (shell) | CLI tool development -- editor + server |
-| `btop` | 2 | yes (shell) | System monitoring -- editor + btop + server |
+| `cli` | 1 | yes (shell) | CLI tool development -- editor + shell |
+| `btop` | 2 | yes (shell) | System monitoring -- editor + btop + shell |
 
 Use a preset via CLI flag, per-project config, or machine config:
 
@@ -262,27 +262,27 @@ layout=minimal
 summon set layout pair
 ```
 
-Individual keys override preset values. For example, `--layout minimal --server true` gives you 1 editor pane but keeps the server pane.
+Individual keys override preset values. For example, `--layout minimal --shell true` gives you 1 editor pane but keeps the shell pane.
 
-## Server Pane
+## Shell Pane
 
-The server pane sits at the bottom of the right column. It supports three modes:
+The shell pane sits at the bottom of the right column. It supports three modes:
 
 | Value | Behavior |
 |---|---|
 | `true` (default) | Plain shell -- you run commands manually |
-| `false` or empty | No server pane at all |
+| `false` or empty | No shell pane at all |
 | Any other string | Runs that command automatically (e.g. `npm run dev`) |
 
 ```bash
-# Disable the server pane
-summon . --server false
+# Disable the shell pane
+summon . --shell false
 
-# Run a dev server automatically
-summon . --server "npm run dev"
+# Run a command automatically
+summon . --shell "npm run dev"
 
 # Persistent config
-summon set server "python -m http.server"
+summon set shell "python -m http.server"
 ```
 
 ## Per-project Config
@@ -292,7 +292,7 @@ Place a `.summon` file in your project root to override machine-level config for
 ```ini
 # ~/code/myapp/.summon
 layout=pair
-server=npm run dev
+shell=npm run dev
 ```
 
 ```ini
@@ -319,7 +319,7 @@ When summon launches, config values are resolved in this order (first wins):
 | `sidebar` | string | `lazygit` | Command launched in the sidebar pane. Set to empty for a plain shell. |
 | `panes` | integer | `2` | Number of editor panes. |
 | `editor-size` | integer | `75` | Width percentage allocated to the editor grid. The sidebar gets the remainder. |
-| `server` | string | `true` | Server pane toggle: `true` (shell), `false` (none), or a command to run. |
+| `shell` | string | `true` | Shell pane toggle: `true` (shell), `false` (none), or a command to run. |
 | `layout` | string | | Default layout preset (`minimal`, `full`, `pair`, `cli`, or `btop`). |
 | `auto-resize` | boolean | `true` | Auto-resize sidebar to match editor-size. |
 
@@ -340,7 +340,7 @@ All files use `key=value` format, one entry per line.
 |                    |                          |                 |
 +--------------------+--------------------------+                 |
 |                    |                          |                 |
-|    editor (2)      |    server (shell)        |                 |
+|    editor (2)      |    shell                 |                 |
 |                    |                          |                 |
 +--------------------+--------------------------+-----------------+
       left col             right col                sidebar
@@ -355,7 +355,7 @@ All files use `key=value` format, one entry per line.
 |    editor (1)      |                          |    sidebar      |
 |                    +--------------------------+                 |
 |                    |                          |                 |
-|                    |    server (shell)        |                 |
+|                    |    shell                 |                 |
 |                    |                          |                 |
 +--------------------+--------------------------+-----------------+
       left col             right col                sidebar
@@ -422,13 +422,13 @@ Files are plain text (`key=value` format) and safe to edit manually.
 
 ## Security — Shell Metacharacter Detection
 
-When summon reads a `.summon` file from a project directory, it checks the command keys (`editor`, `sidebar`, `server`) for shell metacharacters: `;`, `|`, `&`, `` ` ``, `$(`, `<`, `>`.
+When summon reads a `.summon` file from a project directory, it checks the command keys (`editor`, `sidebar`, `shell`) for shell metacharacters: `;`, `|`, `&`, `` ` ``, `$(`, `<`, `>`.
 
 If any are found, summon displays the suspicious commands and prompts for confirmation:
 
 ```
 ⚠  This .summon file contains commands with shell metacharacters:
-  server = npm run dev && echo "done"
+  shell = npm run dev && echo "done"
 
 Run these commands? [y/N]
 ```

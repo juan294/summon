@@ -24,7 +24,7 @@ const SAFE_SHELL_RE = /^\/[a-zA-Z0-9_/.-]+$/;
 const SHELL_META_RE = /[;|&`]|\$\(|[><]/;
 
 /** Keys in .summon files that hold command values (as opposed to config like layout/panes). */
-const COMMAND_KEYS = new Set(["editor", "sidebar", "server"]);
+const COMMAND_KEYS = new Set(["editor", "sidebar", "shell"]);
 
 /**
  * Read and validate process.env.SHELL.
@@ -47,7 +47,7 @@ export interface CLIOverrides {
   panes?: string;
   "editor-size"?: string;
   sidebar?: string;
-  server?: string;
+  shell?: string;
   "auto-resize"?: string;
   dryRun?: boolean;
 }
@@ -212,7 +212,7 @@ export function resolveConfig(targetDir: string, cliOverrides: CLIOverrides): Re
   const sidebar = pick(cliOverrides.sidebar, "sidebar");
   const panes = pick(cliOverrides.panes, "panes");
   const editorSize = pick(cliOverrides["editor-size"], "editor-size");
-  const server = pick(cliOverrides.server, "server");
+  const shell = pick(cliOverrides.shell, "shell");
   const autoResize = pick(cliOverrides["auto-resize"], "auto-resize");
 
   const result: Partial<LayoutOptions> = { ...base };
@@ -240,7 +240,7 @@ export function resolveConfig(targetDir: string, cliOverrides: CLIOverrides): Re
       result.editorSize = EDITOR_SIZE_DEFAULT;
     }
   }
-  if (server !== undefined) result.server = server;
+  if (shell !== undefined) result.shell = shell;
   if (autoResize !== undefined) result.autoResize = autoResize === "true";
 
   return { opts: result, projectOverrides: project };
@@ -266,7 +266,7 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
     const totalPanes = plan.leftColumnCount + plan.rightColumnEditorCount;
     const header = [
       "-- summon dry-run",
-      `-- Layout: ${totalPanes} editor panes, editor=${plan.editor}, sidebar=${plan.sidebarCommand}, server=${plan.hasServer}`,
+      `-- Layout: ${totalPanes} editor panes, editor=${plan.editor}, sidebar=${plan.sidebarCommand}, shell=${plan.hasShell}`,
       `-- Target: ${targetDir}`,
     ].join("\n");
     console.log(`${header}\n${script}`);
@@ -294,7 +294,7 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
   if (plan.editor) plan.editor = await ensureAndResolve(plan.editor, "editor");
   if (plan.sidebarCommand) plan.sidebarCommand = await ensureAndResolve(plan.sidebarCommand, "sidebar");
   if (plan.secondaryEditor) plan.secondaryEditor = await ensureAndResolve(plan.secondaryEditor, "editor");
-  if (plan.serverCommand) plan.serverCommand = await ensureAndResolve(plan.serverCommand, "server");
+  if (plan.shellCommand) plan.shellCommand = await ensureAndResolve(plan.shellCommand, "shell");
 
   const script = generateAppleScript(plan, targetDir, loginShell);
   executeScript(script);

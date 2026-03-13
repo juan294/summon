@@ -85,11 +85,11 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginSh
     add(1, "delay 0.2");
   }
 
-  const needsRightColumn = plan.rightColumnEditorCount > 0 || plan.hasServer;
+  const needsRightColumn = plan.rightColumnEditorCount > 0 || plan.hasShell;
 
   if (needsRightColumn) {
     blank();
-    // First right column pane: editor or server
+    // First right column pane: editor or shell
     if (plan.rightColumnEditorCount > 0) {
       if (secondaryCmd) {
         setConfigCommand(secondaryCmd);
@@ -98,9 +98,9 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginSh
       }
       add(1, "set paneRightCol to split paneRoot direction right with configuration cfg");
     } else {
-      // Right column exists only for server
-      if (plan.serverCommand) {
-        setConfigCommand(plan.serverCommand);
+      // Right column exists only for shell
+      if (plan.shellCommand) {
+        setConfigCommand(plan.shellCommand);
       } else {
         clearConfigCommand();
       }
@@ -120,7 +120,7 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginSh
     lastLeftPane = name;
   }
 
-  // Split additional right column panes (editors + server)
+  // Split additional right column panes (editors + shell)
   if (needsRightColumn && plan.rightColumnEditorCount > 0) {
     let lastRightPane = "paneRightCol";
     let nextRight = 2;
@@ -137,12 +137,12 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginSh
       nextRight++;
     }
 
-    // Server pane at bottom of right column
-    if (plan.hasServer) {
+    // Shell pane at bottom of right column
+    if (plan.hasShell) {
       const name = `paneRight${nextRight}`;
       blank();
-      if (plan.serverCommand) {
-        setConfigCommand(plan.serverCommand);
+      if (plan.shellCommand) {
+        setConfigCommand(plan.shellCommand);
       } else {
         clearConfigCommand();
       }

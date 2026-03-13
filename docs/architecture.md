@@ -71,14 +71,14 @@ flowchart TD
     cli["CLI invocation"] --> parse["parseArgs
     flags: --help, --version, --layout,
     --editor, --panes, --editor-size,
-    --sidebar, --server, --auto-resize,
+    --sidebar, --shell, --auto-resize,
     --no-auto-resize, --dry-run"]
     parse --> firstrun{"isFirstRun()
     && stdin.isTTY?"}
 
     firstrun -->|yes| wizard["setup.ts: runSetup()
     interactive wizard
-    (layout, editor, sidebar, server)"]
+    (layout, editor, sidebar, shell)"]
     wizard --> wizardsave["setConfig() for each choice
     + validateSetup() tool checks"]
     wizardsave --> wizardcont{"subcommand
@@ -124,7 +124,7 @@ flowchart TD
     security -->|no| plan["planLayout(resolvedOpts)
     compute pane counts and sizes"]
     plan --> ensure["ensureCommand() for editor,
-    sidebar, secondaryEditor, serverCommand"]
+    sidebar, secondaryEditor, shellCommand"]
     ensure --> gen["generateAppleScript(plan, targetDir)
     build script string"]
     gen --> exec["execute via
@@ -150,7 +150,7 @@ The auto-trigger in `index.ts` fires when:
 2. **Layout selection** — numbered list of 5 presets with ASCII diagrams
 3. **Editor selection** — catalog of common editors, detected via `resolveCommand()`, sorted available-first
 4. **Sidebar selection** — catalog of common sidebar tools, same detection pattern
-5. **Server selection** — plain shell, disabled, or custom command
+5. **Shell selection** — plain shell, disabled, or custom command
 6. **Summary** — display chosen configuration
 7. **Confirmation** — Y/n; declining loops back to step 2
 8. **Validation** — check each chosen command with `resolveCommand()`, check Ghostty installation, show install hints for missing tools
@@ -184,7 +184,7 @@ tsup automatically code-splits `setup.ts` and `completions.ts` into separate chu
 4. Splits for sidebar (direction `right`)
 5. Splits for right column editors (direction `right` from root)
 6. Splits left column vertically for additional editor panes (direction `down`)
-7. Splits right column vertically for additional editors + server (direction `down`)
+7. Splits right column vertically for additional editors + shell pane (direction `down`)
 8. Sends commands to each pane via `input text` + `send key "enter"`
 9. Focuses the root editor pane
 
@@ -233,7 +233,7 @@ The module imports `VALID_KEYS` and `CLI_FLAGS` from `config.ts` and `getPresetN
 
 ### Shell Metacharacter Detection
 
-When `launcher.ts` loads a `.summon` project file, it scans command values (`editor`, `sidebar`, `server`) for shell metacharacters: `;`, `|`, `&`, `` ` ``, `$(`, `<`, `>`.
+When `launcher.ts` loads a `.summon` project file, it scans command values (`editor`, `sidebar`, `shell`) for shell metacharacters: `;`, `|`, `&`, `` ` ``, `$(`, `<`, `>`.
 
 If any are found:
 - **TTY**: displays the suspicious commands and prompts for Y/n confirmation (default: no)
@@ -264,14 +264,14 @@ flowchart LR
 
 1. Read project `.summon` file via `readKVFile(join(targetDir, ".summon"))`
 2. Resolve the `layout` key (CLI > project > global) and expand the matching preset as a base
-3. For each config key (`editor`, `sidebar`, `panes`, `editor-size`, `server`), pick the highest-priority value
+3. For each config key (`editor`, `sidebar`, `panes`, `editor-size`, `shell`), pick the highest-priority value
 4. Return partial `LayoutOptions` -- `planLayout()` fills remaining defaults
 
 ## Layout Presets
 
 Defined in `layout.ts` as a `Record<PresetName, Partial<LayoutOptions>>`:
 
-| Preset | `editorPanes` | `server` | `secondaryEditor` |
+| Preset | `editorPanes` | `shell` | `secondaryEditor` |
 |---|---|---|---|
 | `minimal` | 1 | `"false"` | |
 | `full` | 3 | `"true"` | |
@@ -283,7 +283,7 @@ Defined in `layout.ts` as a `Record<PresetName, Partial<LayoutOptions>>`:
 
 Each diagram shows the resulting Ghostty window. The sidebar (lazygit) is always on the right at `100 - editorSize`% width.
 
-#### `minimal` — single editor, no server
+#### `minimal` — single editor, no shell
 
 ```
 ┌─────────────────────────────┬───────────┐
@@ -296,7 +296,7 @@ Each diagram shows the resulting Ghostty window. The sidebar (lazygit) is always
             75%                    25%
 ```
 
-#### `full` — 3 editors + server (default)
+#### `full` — 3 editors + shell (default)
 
 ```
 ┌──────────────┬──────────────┬───────────┐
@@ -305,13 +305,13 @@ Each diagram shows the resulting Ghostty window. The sidebar (lazygit) is always
 │              │              │           │
 ├──────────────┼──────────────┤  lazygit  │
 │              │              │           │
-│   editor 2   │    server    │           │
+│   editor 2   │    shell     │           │
 │              │              │           │
 └──────────────┴──────────────┴───────────┘
          75% (2 columns)           25%
 ```
 
-#### `pair` — 2 editors + server
+#### `pair` — 2 editors + shell
 
 ```
 ┌──────────────┬──────────────┬───────────┐
@@ -320,26 +320,26 @@ Each diagram shows the resulting Ghostty window. The sidebar (lazygit) is always
 │              │              │           │
 │   editor 1   ├──────────────┤  lazygit  │
 │              │              │           │
-│              │    server    │           │
+│              │    shell     │           │
 │              │              │           │
 └──────────────┴──────────────┴───────────┘
          75% (2 columns)           25%
 ```
 
-#### `cli` — single editor + server
+#### `cli` — single editor + shell
 
 ```
 ┌──────────────┬──────────────┬───────────┐
 │              │              │           │
 │              │              │           │
-│    editor    │    server    │  lazygit  │
+│    editor    │    shell     │  lazygit  │
 │              │              │           │
 │              │              │           │
 └──────────────┴──────────────┴───────────┘
          75% (2 columns)           25%
 ```
 
-#### `btop` — editor + btop + server
+#### `btop` — editor + btop + shell
 
 ```
 ┌──────────────┬──────────────┬───────────┐
@@ -348,7 +348,7 @@ Each diagram shows the resulting Ghostty window. The sidebar (lazygit) is always
 │              │              │           │
 │    editor    ├──────────────┤  lazygit  │
 │              │              │           │
-│              │    server    │           │
+│              │    shell     │           │
 │              │              │           │
 └──────────────┴──────────────┴───────────┘
          75% (2 columns)           25%
@@ -356,15 +356,15 @@ Each diagram shows the resulting Ghostty window. The sidebar (lazygit) is always
 
 ## Layout Algorithm
 
-Given `N` editor panes (default 3) and server toggle:
+Given `N` editor panes (default 3) and shell toggle:
 
 1. **Left column**: `ceil(N/2)` editor panes
-2. **Right column**: `N - ceil(N/2)` editor panes + (1 server pane if `hasServer`)
+2. **Right column**: `N - ceil(N/2)` editor panes + (1 shell pane if `hasShell`)
 3. **Sidebar**: separate column at `100 - editorSize`% width
 
-### Server Pane
+### Shell Pane
 
-| Input | `hasServer` | `serverCommand` |
+| Input | `hasShell` | `shellCommand` |
 |---|---|---|
 | `"true"` | `true` | `null` (plain shell) |
 | `"false"` or `""` | `false` | `null` |
@@ -392,7 +392,7 @@ Config files live at `~/.config/summon/`:
 
 | File | Purpose |
 |---|---|
-| `config` | Machine-level settings (editor, sidebar, panes, editor-size, server, layout) |
+| `config` | Machine-level settings (editor, sidebar, panes, editor-size, shell, layout) |
 | `projects` | Project name-to-path mappings |
 
 Both use `key=value` format, one entry per line.

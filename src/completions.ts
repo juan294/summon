@@ -36,7 +36,7 @@ _summon() {
     '(-p --panes)'{-p,--panes}'[Editor panes]:count:' \\
     '--editor-size[Editor width %]:percent:' \\
     '(-s --sidebar)'{-s,--sidebar}'[Sidebar command]:command:' \\
-    '--server[Server pane]:value:(true false)' \\
+    '--shell[Shell pane]:value:(true false)' \\
     '--auto-resize[Enable auto-resize]' \\
     '--no-auto-resize[Disable auto-resize]' \\
     '(-n --dry-run)'{-n,--dry-run}'[Dry run]' \\
@@ -106,7 +106,7 @@ export function generateBashCompletion(): string {
     -l|--layout)
       COMPREPLY=($(compgen -W "$layout_presets" -- "$cur"))
       return ;;
-    --server)
+    --shell)
       COMPREPLY=($(compgen -W "true false" -- "$cur"))
       return ;;
     completions)

@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Interactive setup wizard (`summon setup`) for first-run onboarding — choose layout, editor, sidebar, and server preferences with numbered selection
+- Interactive setup wizard (`summon setup`) for first-run onboarding — choose layout, editor, sidebar, and shell preferences with numbered selection
 - First-run auto-trigger: setup wizard launches automatically when no config file exists (TTY only)
 - Tool detection during setup — checks if chosen commands (editor, sidebar, Ghostty) are installed, shows install hints for missing tools
 - Shell tab completion for zsh and bash (`summon completions <shell>`)
@@ -26,7 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Renamed `mtop` layout preset to `btop` to match the actual binary name
-- Server config key description clarified: "Server pane: true, false, or command"
+- Shell config key description clarified: "Shell pane: true, false, or command"
 - Shared `utils.ts` module with `SAFE_COMMAND_RE`, `GHOSTTY_PATHS`, `resolveCommand`, and `promptUser`
 - Shared readline prompt helper extracted from launcher and setup
 - `parseIntInRange` from `validation.ts` reused in launcher (replaced hand-rolled parseInt)
@@ -45,9 +45,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Config-launched panes (lazygit, editors, server) now cd into the project directory before running commands
+- Config-launched panes (lazygit, editors, shell) now cd into the project directory before running commands
 - Config display no longer treats `"0"` as falsy (#66)
-- Removed misleading server hint for valid single-word commands (#67)
+- Removed misleading shell hint for valid single-word commands (#67)
 - `summon set` now validates panes, editor-size, layout, and auto-resize values at write time (#68)
 - osascript errors now surface their actual message instead of generic fallback (#69)
 
@@ -134,7 +134,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Launcher orchestrator with config resolution and command dependency checks
 - Auto-install prompts for missing commands (claude, lazygit)
 - Ghostty detection (checks `/Applications/Ghostty.app`)
-- CLI flags: `--layout`, `--editor`, `--panes`, `--editor-size`, `--sidebar`, `--server`
+- CLI flags: `--layout`, `--editor`, `--panes`, `--editor-size`, `--sidebar`, `--shell`
 - Config resolution order: CLI > project > machine > preset > defaults
 - README with layout diagrams, command reference, and config documentation
 - Architecture documentation and user manual

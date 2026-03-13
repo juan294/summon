@@ -282,7 +282,7 @@ interface SetupResult {
   layout: string;
   editor: string;
   sidebar: string;
-  server: string;
+  shell: string;
 }
 
 interface ValidationWarning {
@@ -333,40 +333,40 @@ export const LAYOUT_INFO: Record<string, { desc: string; diagram: string }> = {
     ].join("\n"),
   },
   pair: {
-    desc: "Two editors + sidebar + server",
+    desc: "Two editors + sidebar + shell",
     diagram: [
       "  ┌────────┬────────┬──────┐",
       "  │ editor │ editor │ side │",
       "  ├────────┴────────┤      │",
-      "  │ server          │      │",
+      "  │ shell           │      │",
       "  └─────────────────┴──────┘",
     ].join("\n"),
   },
   full: {
-    desc: "Three editors + sidebar + server",
+    desc: "Three editors + sidebar + shell",
     diagram: [
       "  ┌────────┬────────┬──────┐",
       "  │ editor │ editor │ side │",
       "  ├────────┼────────┤      │",
-      "  │ editor │ server │      │",
+      "  │ editor │ shell  │      │",
       "  └────────┴────────┴──────┘",
     ].join("\n"),
   },
   cli: {
-    desc: "Single editor + sidebar + server",
+    desc: "Single editor + sidebar + shell",
     diagram: [
       "  ┌────────┬────────┬──────┐",
-      "  │ editor │ server │ side │",
+      "  │ editor │ shell  │ side │",
       "  └────────┴────────┴──────┘",
     ].join("\n"),
   },
   btop: {
-    desc: "Editor + system monitor + sidebar + server",
+    desc: "Editor + system monitor + sidebar + shell",
     diagram: [
       "  ┌────────┬────────┬──────┐",
       "  │ editor │  btop  │ side │",
       "  ├────────┼────────┤      │",
-      "  │ (shell)│ server │      │",
+      "  │ (term) │ shell  │      │",
       "  └────────┴────────┴──────┘",
     ].join("\n"),
   },
@@ -538,14 +538,14 @@ async function selectSidebar(): Promise<string> {
   return selectToolFromCatalog(SIDEBAR_CATALOG, "Sidebar", "lazygit");
 }
 
-export async function selectServer(): Promise<string> {
-  printSection("Server Pane");
+export async function selectShell(): Promise<string> {
+  printSection("Shell Pane");
   const options: SelectOption[] = [
     {
       label: "Shell".padEnd(12) + "Plain terminal (run commands manually)",
       value: "true",
     },
-    { label: "Disabled".padEnd(12) + "No server pane", value: "false" },
+    { label: "Disabled".padEnd(12) + "No shell pane", value: "false" },
     {
       label: "Command".padEnd(12) + "Auto-run a command (e.g. npm run dev)",
       value: "__custom__",
@@ -554,7 +554,7 @@ export async function selectServer(): Promise<string> {
   const idx = await numberedSelect(options, "  Select [1-3] (default: 1): ", 0);
   const chosen = options[idx]!;
   if (chosen.value === "__custom__") {
-    return textInput("  Enter server command:");
+    return textInput("  Enter shell command:");
   }
   return chosen.value;
 }
@@ -565,12 +565,12 @@ function printSummary(result: SetupResult): void {
   console.log(`  Layout:    ${bold(result.layout)} (${layoutDesc})`);
   console.log(`  Editor:    ${bold(result.editor)}`);
   console.log(`  Sidebar:   ${bold(result.sidebar)}`);
-  if (result.server === "true") {
-    console.log(`  Server:    ${bold("enabled")} (plain shell)`);
-  } else if (result.server === "false") {
-    console.log(`  Server:    ${bold("disabled")}`);
+  if (result.shell === "true") {
+    console.log(`  Shell:     ${bold("enabled")} (plain shell)`);
+  } else if (result.shell === "false") {
+    console.log(`  Shell:     ${bold("disabled")}`);
   } else {
-    console.log(`  Server:    ${bold(result.server)}`);
+    console.log(`  Shell:     ${bold(result.shell)}`);
   }
   console.log();
 }
@@ -596,14 +596,14 @@ export function validateSetup(result: SetupResult): ValidationResult {
     });
   }
 
-  // Check server (only if it's a custom command, not "true"/"false")
-  if (result.server !== "true" && result.server !== "false") {
-    const serverBin = result.server.split(" ")[0]!;
-    if (resolveCommandPath(serverBin) === null) {
+  // Check shell (only if it's a custom command, not "true"/"false")
+  if (result.shell !== "true" && result.shell !== "false") {
+    const shellBin = result.shell.split(" ")[0]!;
+    if (resolveCommandPath(shellBin) === null) {
       warnings.push({
-        key: "server",
-        cmd: serverBin,
-        installHint: INSTALL_HINTS[serverBin],
+        key: "shell",
+        cmd: shellBin,
+        installHint: INSTALL_HINTS[shellBin],
       });
     }
   }
@@ -655,15 +655,15 @@ export async function runSetup(): Promise<void> {
     const editor = await selectEditor();
     const sidebar = await selectSidebar();
 
-    let server = "false";
+    let shell = "false";
     if (layout === "minimal") {
-      console.log(dim("  Minimal layout has no server pane."));
+      console.log(dim("  Minimal layout has no shell pane."));
       console.log();
     } else {
-      server = await selectServer();
+      shell = await selectShell();
     }
 
-    const result: SetupResult = { layout, editor, sidebar, server };
+    const result: SetupResult = { layout, editor, sidebar, shell };
     printSummary(result);
 
     const accepted = await confirm("  Save these settings?");
@@ -671,7 +671,7 @@ export async function runSetup(): Promise<void> {
       setConfig("layout", result.layout);
       setConfig("editor", result.editor);
       setConfig("sidebar", result.sidebar);
-      setConfig("server", result.server);
+      setConfig("shell", result.shell);
 
       const validation = validateSetup(result);
       printValidation(validation);
