@@ -715,6 +715,41 @@ describe("osascript error handling", () => {
   });
 });
 
+describe("autoResize config resolution", () => {
+  it("sets autoResize to false when auto-resize is 'false'", () => {
+    vi.mocked(listConfig).mockReturnValue(new Map());
+    mockReadKVFile.mockReturnValue(new Map<string, string>());
+
+    const { opts } = resolveConfig("/tmp/workspace", { "auto-resize": "false" });
+    expect(opts.autoResize).toBe(false);
+  });
+
+  it("sets autoResize to true when auto-resize is 'true'", () => {
+    vi.mocked(listConfig).mockReturnValue(new Map());
+    mockReadKVFile.mockReturnValue(new Map<string, string>());
+
+    const { opts } = resolveConfig("/tmp/workspace", { "auto-resize": "true" });
+    expect(opts.autoResize).toBe(true);
+  });
+});
+
+describe("falsy sidebarCommand guard", () => {
+  it("launches successfully when sidebar is not set (uses default)", async () => {
+    vi.mocked(listConfig).mockReturnValue(new Map([["sidebar", ""]]));
+
+    await launch("/tmp/workspace");
+
+    // sidebar is empty, so plan.sidebarCommand is empty string, guard skips ensureAndResolve
+    expect(mockGenerateAppleScript).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sidebarCommand: "",
+      }),
+      "/tmp/workspace",
+      expect.any(String),
+    );
+  });
+});
+
 describe("config read caching (#31)", () => {
   it("reads machine config once via listConfig instead of per-key getConfig calls", () => {
     vi.mocked(listConfig).mockReturnValue(
