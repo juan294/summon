@@ -362,6 +362,33 @@ describe("CLI integration", () => {
     });
   });
 
+  // #66: config display treats "0" as falsy
+  describe("config display '0' value (#66)", () => {
+    it("displays value '0' instead of '(empty)' for non-command keys", () => {
+      // Use a fresh HOME to avoid leftover state from other tests
+      const freshHome = mkdtempSync(join(tmpdir(), "summon-66-"));
+      const runFresh = (...a: string[]) =>
+        spawnSync("node", ["dist/index.js", ...a], {
+          encoding: "utf-8",
+          cwd: PROJECT_ROOT,
+          env: { ...process.env, HOME: freshHome },
+        });
+      runFresh("set", "panes", "0");
+      const result = runFresh("config");
+      rmSync(freshHome, { recursive: true, force: true });
+      expect(result.status).toBe(0);
+      const lines = result.stdout.split("\n");
+      const panesLine = lines.find((l: string) =>
+        l.trimStart().startsWith("panes"),
+      );
+      expect(panesLine).toBeDefined();
+      // The actual value "0" must appear, not the fallback labels
+      expect(panesLine).toContain("→ 0");
+      expect(panesLine).not.toContain("(empty)");
+      expect(panesLine).not.toContain("(plain shell)");
+    });
+  });
+
   // #58: config command should warn about unknown keys
   describe("config unknown key warning (#58)", () => {
     it("shows '(unknown key)' annotation for unrecognized config keys", () => {

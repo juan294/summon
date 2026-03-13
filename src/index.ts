@@ -260,7 +260,7 @@ switch (subcommand) {
       console.log("Machine config:");
       for (const [key, value] of config) {
         const unknownSuffix = VALID_KEYS.includes(key) ? "" : "  (unknown key — will be ignored)";
-        if (value) {
+        if (value !== "") {
           console.log(`  ${key} → ${value}${unknownSuffix}`);
         } else if (COMMAND_KEYS.includes(key)) {
           console.log(`  ${key} → (plain shell)${unknownSuffix}`);
