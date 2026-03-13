@@ -50,12 +50,12 @@ Summon generates and executes AppleScript that drives Ghostty's native split sys
 ## Default Layout
 
 ```
-summon .    (panes=2, editor=claude, sidebar=lazygit, shell=true)
+summon .    (panes=2, editor=<your editor>, sidebar=<your sidebar>, shell=true)
 
 +-------------------- 75% ---------------------+------ 25% ------+
 |                    |                          |                 |
-|                    |    claude (2)            |                 |
-|    claude (1)      |                          |    lazygit      |
+|                    |    editor (2)            |                 |
+|    editor (1)      |                          |    sidebar      |
 |                    +--------------------------+                 |
 |                    |                          |                 |
 |                    |    shell                 |                 |
