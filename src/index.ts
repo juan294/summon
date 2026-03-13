@@ -76,7 +76,7 @@ Examples:
   summon . --shell "npm run dev"  Launch with custom shell command
 `.trim();
 
-const COMMAND_KEYS = ["editor", "sidebar"];
+const DISPLAY_COMMAND_KEYS = ["editor", "sidebar"];
 
 const SUBCOMMAND_HELP: Record<string, string> = {
   add: `Usage: summon add <name> <path>
@@ -189,6 +189,15 @@ if (values.version) {
 
 const [subcommand, ...args] = positionals;
 
+if (values.help) {
+  if (subcommand && subcommand in SUBCOMMAND_HELP) {
+    console.log(SUBCOMMAND_HELP[subcommand]);
+    process.exit(0);
+  }
+  showHelp();
+  process.exit(0);
+}
+
 // Auto-trigger setup wizard on first run (config file doesn't exist)
 if (isFirstRun() && process.stdin.isTTY) {
   if (!subcommand || !(subcommand in SUBCOMMAND_HELP)) {
@@ -198,15 +207,6 @@ if (isFirstRun() && process.stdin.isTTY) {
       process.exit(0);
     }
   }
-}
-
-if (values.help) {
-  if (subcommand && subcommand in SUBCOMMAND_HELP) {
-    console.log(SUBCOMMAND_HELP[subcommand]);
-    process.exit(0);
-  }
-  showHelp();
-  process.exit(0);
 }
 
 if (!subcommand) {
@@ -312,7 +312,7 @@ switch (subcommand) {
         const unknownSuffix = VALID_KEYS.includes(key) ? "" : "  (unknown key — will be ignored)";
         if (value !== "") {
           console.log(`  ${key} → ${value}${unknownSuffix}`);
-        } else if (COMMAND_KEYS.includes(key)) {
+        } else if (DISPLAY_COMMAND_KEYS.includes(key)) {
           console.log(`  ${key} → (plain shell)${unknownSuffix}`);
         } else {
           console.log(`  ${key} → (empty)${unknownSuffix}`);

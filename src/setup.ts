@@ -172,8 +172,6 @@ export async function numberedSelect(
   promptText: string,
   defaultIdx?: number,
 ): Promise<number> {
-  const { createInterface } = await import("node:readline");
-
   // Display options
   for (let i = 0; i < options.length; i++) {
     const opt = options[i]!;
@@ -182,35 +180,25 @@ export async function numberedSelect(
     console.log(`${marker}${i + 1}) ${opt.label}${detail}`);
   }
 
-  const ask = (): Promise<number> =>
-    new Promise((resolve) => {
-      const rl = createInterface({
-        input: process.stdin,
-        output: process.stdout,
-      });
-      rl.question(promptText, (answer: string) => {
-        rl.close();
-        const trimmed = answer.trim();
+  const ask = async (): Promise<number> => {
+    const trimmed = await promptUser(promptText);
 
-        if (trimmed === "" && defaultIdx !== undefined) {
-          resolve(defaultIdx);
-          return;
-        }
+    if (trimmed === "" && defaultIdx !== undefined) {
+      return defaultIdx;
+    }
 
-        const num = parseInt(trimmed, 10);
-        if (Number.isNaN(num) || num < 1 || num > options.length) {
-          console.log(
-            yellow(
-              `  Invalid selection. Please enter a number between 1 and ${options.length}.`,
-            ),
-          );
-          resolve(ask());
-          return;
-        }
+    const num = parseInt(trimmed, 10);
+    if (Number.isNaN(num) || num < 1 || num > options.length) {
+      console.log(
+        yellow(
+          `  Invalid selection. Please enter a number between 1 and ${options.length}.`,
+        ),
+      );
+      return ask();
+    }
 
-        resolve(num - 1);
-      });
-    });
+    return num - 1;
+  };
 
   return ask();
 }
@@ -244,32 +232,20 @@ export async function textInput(
  * Returns boolean.
  */
 export async function confirm(question: string): Promise<boolean> {
-  const { createInterface } = await import("node:readline");
+  const ask = async (): Promise<boolean> => {
+    const trimmed = (await promptUser(`${question} [Y/n] `)).toLowerCase();
 
-  const ask = (): Promise<boolean> =>
-    new Promise((resolve) => {
-      const rl = createInterface({
-        input: process.stdin,
-        output: process.stdout,
-      });
-      rl.question(`${question} [Y/n] `, (answer: string) => {
-        rl.close();
-        const trimmed = answer.trim().toLowerCase();
+    if (trimmed === "" || trimmed === "y" || trimmed === "yes") {
+      return true;
+    }
+    if (trimmed === "n" || trimmed === "no") {
+      return false;
+    }
 
-        if (trimmed === "" || trimmed === "y" || trimmed === "yes") {
-          resolve(true);
-          return;
-        }
-        if (trimmed === "n" || trimmed === "no") {
-          resolve(false);
-          return;
-        }
-
-        // Re-prompt on invalid input
-        console.log(yellow("  Please enter y or n."));
-        resolve(ask());
-      });
-    });
+    // Re-prompt on invalid input
+    console.log(yellow("  Please enter y or n."));
+    return ask();
+  };
 
   return ask();
 }
@@ -476,8 +452,6 @@ export async function selectToolFromCatalog(
       : sorted.findIndex((t) => t.cmd === fallbackCmd);
   const defaultDisplay = defaultIdx >= 0 ? defaultIdx + 1 : 1;
 
-  const { createInterface } = await import("node:readline");
-
   const askCustom = async (): Promise<string> => {
     const cmd = await textInput("  Enter command name:");
     if (!SAFE_COMMAND_RE.test(cmd)) {
@@ -491,41 +465,25 @@ export async function selectToolFromCatalog(
     return cmd;
   };
 
-  const askTool = (): Promise<string> =>
-    new Promise((resolve) => {
-      const rl = createInterface({
-        input: process.stdin,
-        output: process.stdout,
-      });
-      rl.question(
-        `  Select (default: ${defaultDisplay}): `,
-        (answer: string) => {
-          rl.close();
-          const trimmed = answer.trim().toLowerCase();
-          if (trimmed === "") {
-            resolve(
-              defaultIdx >= 0 ? sorted[defaultIdx]!.cmd : fallbackCmd,
-            );
-            return;
-          }
-          if (trimmed === "c") {
-            resolve(askCustom());
-            return;
-          }
-          const num = parseInt(trimmed, 10);
-          if (Number.isNaN(num) || num < 1 || num > sorted.length) {
-            console.log(
-              yellow(
-                `  Invalid selection. Please enter a number between 1 and ${sorted.length}, or "c" for custom.`,
-              ),
-            );
-            resolve(askTool());
-            return;
-          }
-          resolve(sorted[num - 1]!.cmd);
-        },
+  const askTool = async (): Promise<string> => {
+    const trimmed = (await promptUser(`  Select (default: ${defaultDisplay}): `)).toLowerCase();
+    if (trimmed === "") {
+      return defaultIdx >= 0 ? sorted[defaultIdx]!.cmd : fallbackCmd;
+    }
+    if (trimmed === "c") {
+      return askCustom();
+    }
+    const num = parseInt(trimmed, 10);
+    if (Number.isNaN(num) || num < 1 || num > sorted.length) {
+      console.log(
+        yellow(
+          `  Invalid selection. Please enter a number between 1 and ${sorted.length}, or "c" for custom.`,
+        ),
       );
-    });
+      return askTool();
+    }
+    return sorted[num - 1]!.cmd;
+  };
 
   return askTool();
 }

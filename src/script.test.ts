@@ -410,6 +410,41 @@ describe("generateAppleScript", () => {
     expect(configCmdBeforeSidebar).toHaveLength(0);
   });
 
+  it("skips shell pane when hasShell is false in multi-editor right column", () => {
+    // editorPanes=2 → rightColumnEditorCount=1, shell="false" → hasShell=false
+    const plan = planLayout({ editorPanes: 2, shell: "false" });
+    const script = generateAppleScript(plan, "/tmp");
+
+    // Right column should exist (for the editor), but no shell pane split
+    expect(script).toContain("paneRightCol");
+    // No paneRight2 (shell pane) should exist since hasShell is false
+    expect(script).not.toContain("paneRight2");
+    // No down splits: leftColumnCount=1 (no paneLeft2), no shell pane
+    const downSplits = (script.match(/direction down/g) ?? []).length;
+    expect(downSplits).toBe(0);
+  });
+
+  it("generates clearConfigCommand for shell pane when hasShell is true without shellCommand", () => {
+    // pair preset: editorPanes=2 → rightColumnEditorCount=1, shell="true" → hasShell=true, shellCommand=null
+    const plan = planLayout({ ...getPreset("pair"), shell: "true" });
+    const script = generateAppleScript(plan, "/tmp");
+
+    // The shell pane at the bottom of the right column should get clearConfigCommand()
+    // which produces: set command of cfg to ""
+    const lines = script.split("\n");
+
+    // Find the shell pane split (paneRight2, since rightColumnEditorCount=1 → nextRight starts at 2)
+    const shellSplitIdx = lines.findIndex((l) => l.includes("paneRight2 to split"));
+    expect(shellSplitIdx).toBeGreaterThan(-1);
+
+    // The clearConfigCommand should appear before this split
+    const clearIdx = lines.findIndex(
+      (l, i) => i < shellSplitIdx && l.includes('set command of cfg to ""'),
+    );
+    expect(clearIdx).toBeGreaterThan(-1);
+    expect(clearIdx).toBeLessThan(shellSplitIdx);
+  });
+
   it("multi-pane right column creates additional down splits", () => {
     const plan = planLayout({ editorPanes: 4 });
     const script = generateAppleScript(plan, "/tmp");

@@ -4,6 +4,9 @@
   "description": "Launch configurable multi-pane Ghostty workspaces with one command",
   "type": "module",
   "packageManager": "pnpm@10.29.2",
+  "exports": {
+    ".": "./dist/index.js"
+  },
   "bin": {
     "summon": "./dist/index.js"
   },

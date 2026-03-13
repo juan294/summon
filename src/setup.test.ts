@@ -1088,6 +1088,101 @@ describe("runSetup", () => {
     logSpy.mockRestore();
   });
 
+  it("prints 'enabled (plain shell)' in summary for non-minimal layout with shell=true", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockExecFileSync.mockReturnValue("/usr/bin/stub\n");
+    mockExistsSync.mockReturnValue(true);
+
+    // runSetup question sequence for pair layout:
+    // 1. selectLayout (numberedSelect) → "Select [1-5]" → "2" (pair)
+    // 2. selectEditor (selectToolFromCatalog) → "Select (default:" → "1"
+    // 3. selectSidebar (selectToolFromCatalog) → "Select (default:" → "1"
+    // 4. selectShell (numberedSelect) → "Select [1-3]" → "1" (plain shell)
+    // 5. confirm → "[Y/n]" → "y"
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      if (_q.includes("[Y/n]")) {
+        cb("y");
+      } else if (_q.includes("Select [1-5]")) {
+        cb("2"); // pair layout
+      } else if (_q.includes("Select [1-3]")) {
+        cb("1"); // plain shell
+      } else {
+        cb("1"); // editor and sidebar selections
+      }
+    });
+
+    const origIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", {
+      value: true,
+      writable: true,
+    });
+
+    await runSetup();
+
+    const allOutput = logSpy.mock.calls.map((c) => String(c[0]));
+    // printSummary should show "enabled" and "plain shell" for shell="true"
+    expect(
+      allOutput.some((s) => s.includes("enabled") && s.includes("plain shell")),
+    ).toBe(true);
+    // Shell config should be saved as "true"
+    expect(mockSetConfig).toHaveBeenCalledWith("shell", "true");
+
+    Object.defineProperty(process.stdin, "isTTY", {
+      value: origIsTTY,
+      writable: true,
+    });
+    logSpy.mockRestore();
+  });
+
+  it("prints custom shell command in summary for non-minimal layout with shell command", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockExecFileSync.mockReturnValue("/usr/bin/stub\n");
+    mockExistsSync.mockReturnValue(true);
+
+    // runSetup question sequence for pair layout with custom shell:
+    // 1. selectLayout (numberedSelect) → "Select [1-5]" → "2" (pair)
+    // 2. selectEditor (selectToolFromCatalog) → "Select (default:" → "1"
+    // 3. selectSidebar (selectToolFromCatalog) → "Select (default:" → "1"
+    // 4. selectShell (numberedSelect) → "Select [1-3]" → "3" (command)
+    // 5. textInput → "Enter shell command" → "npm run dev"
+    // 6. confirm → "[Y/n]" → "y"
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      if (_q.includes("[Y/n]")) {
+        cb("y");
+      } else if (_q.includes("Select [1-5]")) {
+        cb("2"); // pair layout
+      } else if (_q.includes("Select [1-3]")) {
+        cb("3"); // custom command
+      } else if (_q.includes("Enter shell command")) {
+        cb("npm run dev");
+      } else {
+        cb("1"); // editor and sidebar selections
+      }
+    });
+
+    const origIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", {
+      value: true,
+      writable: true,
+    });
+
+    await runSetup();
+
+    const allOutput = logSpy.mock.calls.map((c) => String(c[0]));
+    // printSummary should show the custom shell command
+    expect(
+      allOutput.some((s) => s.includes("Shell:") && s.includes("npm run dev")),
+    ).toBe(true);
+    // Shell config should be saved as the custom command
+    expect(mockSetConfig).toHaveBeenCalledWith("shell", "npm run dev");
+
+    Object.defineProperty(process.stdin, "isTTY", {
+      value: origIsTTY,
+      writable: true,
+    });
+    logSpy.mockRestore();
+  });
+
   it("prints SUMMON logo in welcome screen", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
