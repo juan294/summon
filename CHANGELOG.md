@@ -7,6 +7,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-03-13
+
+### Fixed
+
+- Config warnings, validation, homedir handling, editor flag, and resize conflict (#58, #59, #60, #62, #63)
+- CLI audit fixes for set truthiness, config display, and layout validation (#43, #44, #45, #46, #51)
+- Config hardening: explicit file permissions and getConfig cleanup (#47, #50)
+- Empty config values no longer override preset layouts
+- Detect Ghostty in `~/Applications` for Homebrew installs
+- Exclude subprocess-tested files from v8 coverage (#54)
+
+### Changed
+
+- Cache resolved command paths to avoid duplicate lookups (#61)
+- Lazy-load readline in launcher (#48, #52)
+- Use `homedir()` for Ghostty path detection
+- Updated dev dependencies (#49)
+
+### Added
+
+- Documentation for `.summon` file trust model (#55)
+
+## [0.3.0] - 2026-03-13
+
+### Added
+
+- Auto-resize enabled by default — sidebar auto-resizes to match `editor-size` without needing `--auto-resize` flag
+- `--no-auto-resize` flag to opt out of auto-resize (#37)
+- Relative path resolution for target argument (#38)
+- Per-subcommand `--help` support (#33)
+- Context-aware empty-value messages in `summon set` (#40)
+- Shared validation constants (`PANES_MIN`, `EDITOR_SIZE_MIN/MAX/DEFAULT`) (#42)
+
+### Fixed
+
+- Shell metacharacter escaping in root pane editor command (#39)
+- `--panes` and `--editor-size` validated at parse time (#34)
+- `ensureCommand` error message reflects actual config key (#35)
+- Dry-run skips Ghostty/command checks for CI compatibility
+- Auto-resize repositioned before editor column splits
+
+### Changed
+
+- Config reads cached and command resolution deduplicated (#31, #32)
+
+### Docs
+
+- Publishing guide updated with version placeholders (#41)
+
 ## [0.2.0] - 2026-03-13
 
 ### Added
@@ -45,6 +94,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CodeQL security scanning
 - Dependabot for npm and GitHub Actions
 
-[Unreleased]: https://github.com/juan294/summon/compare/v0.2.0...develop
+[Unreleased]: https://github.com/juan294/summon/compare/v0.3.1...develop
+[0.3.1]: https://github.com/juan294/summon/compare/v0.3.0...v0.3.1
+[0.3.0]: https://github.com/juan294/summon/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/juan294/summon/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/juan294/summon/releases/tag/v0.1.0

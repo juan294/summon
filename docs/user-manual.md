@@ -139,12 +139,13 @@ Flags override both machine and per-project config for a single launch.
 | Flag | Description |
 |---|---|
 | `-l`, `--layout <preset>` | Use a layout preset (`minimal`, `full`, `pair`, `cli`, `mtop`) |
-| `--editor <cmd>` | Override editor command |
+| `-e`, `--editor <cmd>` | Override editor command |
 | `--panes <n>` | Override number of editor panes |
 | `--editor-size <n>` | Override editor width percentage |
 | `--sidebar <cmd>` | Override sidebar command |
 | `--server <value>` | Server pane: `true`, `false`, or a command |
-| `-n`, `--dry-run` | Print generated AppleScript without executing |
+| `--auto-resize` | Resize sidebar to match editor-size (default: on) |
+| `--no-auto-resize` | Disable auto-resize |
 | `-n`, `--dry-run` | Print generated AppleScript without executing |
 | `-h`, `--help` | Show help message |
 | `-v`, `--version` | Show version number |
@@ -239,6 +240,7 @@ When summon launches, config values are resolved in this order (first wins):
 | `editor-size` | integer | `75` | Width percentage allocated to the editor grid. The sidebar gets the remainder. |
 | `server` | string | `true` | Server pane toggle: `true` (shell), `false` (none), or a command to run. |
 | `layout` | string | | Default layout preset (`minimal`, `full`, `pair`, `cli`, or `mtop`). |
+| `auto-resize` | boolean | `true` | Auto-resize sidebar to match editor-size. |
 
 Machine config: `~/.config/summon/config`
 Project config: `.summon` (in project root)
@@ -307,7 +309,7 @@ All files use `key=value` format, one entry per line.
 
 ### Ghostty not found
 
-Summon checks that `/Applications/Ghostty.app` exists. If you see an error, ensure Ghostty is installed at that path.
+Summon checks for Ghostty in `/Applications/Ghostty.app` and `~/Applications/Ghostty.app` (Homebrew). If you see an error, ensure Ghostty is installed at one of those paths.
 
 ### macOS Automation permission
 

@@ -47,7 +47,8 @@ flowchart TD
     cli["CLI invocation"] --> parse["parseArgs
     flags: --help, --version, --layout,
     --editor, --panes, --editor-size,
-    --sidebar, --server"]
+    --sidebar, --server, --auto-resize,
+    --no-auto-resize, --dry-run"]
     parse --> dispatch{"subcommand dispatch"}
 
     dispatch -->|"add / remove / list
