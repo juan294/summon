@@ -20,7 +20,7 @@ vi.mock("node:fs", () => {
     existsSync: (path: string) => store.has(path),
     mkdirSync: vi.fn(),
     readFileSync: (path: string) => store.get(path) ?? "",
-    writeFileSync: (path: string, data: string) => store.set(path, data),
+    writeFileSync: vi.fn((path: string, data: string) => store.set(path, data)),
     __store: store,
   };
 });
@@ -158,6 +158,51 @@ describe("ensureConfig caching (#25)", () => {
     resetConfigCache();
     getConfig("editor");
     expect(mkdirSpy).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("file permissions (#47)", () => {
+  it("creates config directory with mode 0o700", async () => {
+    const fs = await import("node:fs");
+    const mkdirSpy = fs.mkdirSync as ReturnType<typeof vi.fn>;
+    mkdirSpy.mockClear();
+
+    getConfig("editor");
+
+    expect(mkdirSpy).toHaveBeenCalledWith(
+      expect.any(String),
+      { recursive: true, mode: 0o700 },
+    );
+  });
+
+  it("writes config files with mode 0o600 during ensureConfig", async () => {
+    const fs = await import("node:fs");
+    const writeSpy = fs.writeFileSync as ReturnType<typeof vi.fn>;
+    writeSpy.mockClear();
+
+    getConfig("editor");
+
+    // Both initial file writes (projects + config) should include mode 0o600
+    const initWrites = writeSpy.mock.calls.filter(
+      (c: unknown[]) =>
+        String(c[0]).endsWith("/projects") || String(c[0]).endsWith("/config"),
+    );
+    expect(initWrites.length).toBeGreaterThanOrEqual(2);
+    for (const call of initWrites) {
+      expect(call[2]).toEqual({ mode: 0o600 });
+    }
+  });
+
+  it("writes files with mode 0o600 in writeKV", async () => {
+    const fs = await import("node:fs");
+    const writeSpy = fs.writeFileSync as ReturnType<typeof vi.fn>;
+
+    setConfig("editor", "vim");
+
+    // The last writeFileSync call is from writeKV
+    const lastCall = writeSpy.mock.calls[writeSpy.mock.calls.length - 1];
+    expect(String(lastCall![0])).toContain("/config");
+    expect(lastCall![2]).toEqual({ mode: 0o600 });
   });
 });
 
