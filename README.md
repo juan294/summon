@@ -32,6 +32,10 @@ On first run, an interactive setup wizard guides you through choosing your edito
 summon setup                      # reconfigure workspace defaults
 ```
 
+<p align="center">
+  <img src="assets/setup-wizard.png" alt="summon setup wizard" width="600">
+</p>
+
 Register projects for quick access:
 
 ```bash
