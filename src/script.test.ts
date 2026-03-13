@@ -84,9 +84,9 @@ describe("generateAppleScript", () => {
     const plan = planLayout();
     const script = generateAppleScript(plan, "/Users/me/code/myapp");
 
-    // Root pane must cd into the project directory first
-    expect(script).toContain('input text "cd \\"/Users/me/code/myapp\\"" to paneRoot');
-    const cdIndex = script.indexOf('input text "cd \\"/Users/me/code/myapp\\"" to paneRoot');
+    // Root pane must cd into the project directory first (single-quoted to prevent shell expansion)
+    expect(script).toContain("input text \"cd '/Users/me/code/myapp'\" to paneRoot");
+    const cdIndex = script.indexOf("input text \"cd '/Users/me/code/myapp'\" to paneRoot");
     const editorIndex = script.indexOf('input text "claude" to paneRoot');
     expect(cdIndex).toBeLessThan(editorIndex);
   });
@@ -278,6 +278,23 @@ describe("generateAppleScript", () => {
     // Root pane editor is sent via input text, not config — should NOT be wrapped
     expect(script).toContain('input text "claude" to paneRoot');
     expect(script).not.toContain('input text "/bin/zsh');
+  });
+
+  it("escapes shell metacharacters in targetDir cd command", () => {
+    const plan = planLayout();
+
+    // $() command substitution should not expand
+    const script1 = generateAppleScript(plan, "/Users/me/$(whoami)/project");
+    expect(script1).toContain("cd '/Users/me/$(whoami)/project'");
+    expect(script1).not.toContain('cd "');
+
+    // Backtick command substitution should not expand
+    const script2 = generateAppleScript(plan, "/Users/me/`id`/project");
+    expect(script2).toContain("cd '/Users/me/`id`/project'");
+
+    // Single quotes in path are POSIX-escaped (backslash doubled by escapeAppleScript)
+    const script3 = generateAppleScript(plan, "/Users/me/it's a project");
+    expect(script3).toContain("cd '/Users/me/it'\\\\''s a project'");
   });
 
   it("multi-pane right column creates additional down splits", () => {
