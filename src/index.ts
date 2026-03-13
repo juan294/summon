@@ -10,6 +10,7 @@ import {
 } from "./config.js";
 import { launch } from "./launcher.js";
 import type { CLIOverrides } from "./launcher.js";
+import { PANES_MIN, EDITOR_SIZE_MIN, EDITOR_SIZE_MAX } from "./layout.js";
 
 const HELP = `
 summon -- Launch multi-pane Ghostty workspaces
@@ -31,7 +32,8 @@ Options:
   --editor-size <n>           Override editor width %
   --sidebar <cmd>             Override sidebar command
   --server <value>            Server pane: true, false, or a command
-  --auto-resize               Experimental: resize sidebar to match editor-size
+  --auto-resize               Resize sidebar to match editor-size (default: on)
+  --no-auto-resize            Disable auto-resize
   -n, --dry-run               Print generated AppleScript without executing
 
 Config keys:
@@ -41,7 +43,7 @@ Config keys:
   editor-size   Width % for editor grid (default: 75)
   server        Server pane toggle (default: true)
   layout        Default layout preset
-  auto-resize   Experimental: auto-resize sidebar (default: false)
+  auto-resize   Resize sidebar to match editor-size (default: true)
 
 Layout presets:
   minimal       1 editor pane, no server
@@ -65,6 +67,33 @@ Examples:
   summon . --server "npm run dev" Launch with custom server command
 `.trim();
 
+const VALID_KEYS = ["editor", "sidebar", "panes", "editor-size", "server", "layout", "auto-resize"];
+const COMMAND_KEYS = ["editor", "sidebar"];
+
+const SUBCOMMAND_HELP: Record<string, string> = {
+  add: `Usage: summon add <name> <path>
+
+Register a project directory with a short name for quick launching.`,
+
+  remove: `Usage: summon remove <name>
+
+Remove a previously registered project by name.`,
+
+  set: `Usage: summon set <key> [value]
+
+Set a machine-level config value. Omit value to reset to empty.
+
+Valid keys: ${VALID_KEYS.join(", ")}`,
+
+  list: `Usage: summon list
+
+List all registered projects and their paths.`,
+
+  config: `Usage: summon config
+
+Show all current machine-level configuration values.`,
+};
+
 function showHelp(): void {
   console.log(HELP);
 }
@@ -85,6 +114,7 @@ const parseOpts = {
     sidebar: { type: "string" },
     server: { type: "string" },
     "auto-resize": { type: "boolean" },
+    "no-auto-resize": { type: "boolean" },
     "dry-run": { type: "boolean", short: "n" },
   },
 } as const;
@@ -102,17 +132,40 @@ function safeParse() {
 
 const { values, positionals } = safeParse();
 
+// Validate numeric flags at parse time
+if (values.panes !== undefined) {
+  const parsed = parseInt(values.panes, 10);
+  if (Number.isNaN(parsed) || parsed < PANES_MIN) {
+    console.error(`Error: --panes must be a positive integer, got "${values.panes}".`);
+    console.error(`Run 'summon --help' for usage information.`);
+    process.exit(1);
+  }
+}
+
+if (values["editor-size"] !== undefined) {
+  const parsed = parseInt(values["editor-size"], 10);
+  if (Number.isNaN(parsed) || parsed < EDITOR_SIZE_MIN || parsed > EDITOR_SIZE_MAX) {
+    console.error(`Error: --editor-size must be an integer between ${EDITOR_SIZE_MIN}-${EDITOR_SIZE_MAX}, got "${values["editor-size"]}".`);
+    console.error(`Run 'summon --help' for usage information.`);
+    process.exit(1);
+  }
+}
+
 if (values.version) {
   console.log(__VERSION__);
   process.exit(0);
 }
 
+const [subcommand, ...args] = positionals;
+
 if (values.help) {
+  if (subcommand && subcommand in SUBCOMMAND_HELP) {
+    console.log(SUBCOMMAND_HELP[subcommand]);
+    process.exit(0);
+  }
   showHelp();
   process.exit(0);
 }
-
-const [subcommand, ...args] = positionals;
 
 if (!subcommand) {
   console.error(HELP);
@@ -168,7 +221,6 @@ switch (subcommand) {
       console.error("Usage: summon set <key> [value]");
       process.exit(1);
     }
-    const VALID_KEYS = ["editor", "sidebar", "panes", "editor-size", "server", "layout", "auto-resize"];
     if (!VALID_KEYS.includes(key)) {
       console.error(`Unknown config key "${key}". Valid keys: ${VALID_KEYS.join(", ")}`);
       process.exit(1);
@@ -177,7 +229,10 @@ switch (subcommand) {
     if (value) {
       console.log(`Set ${key} → ${value}`);
     } else {
-      console.log(`Set ${key} → (empty, will open plain shell)`);
+      const hint = COMMAND_KEYS.includes(key)
+        ? "(empty, will open plain shell)"
+        : "(empty, will use default)";
+      console.log(`Set ${key} → ${hint}`);
     }
     break;
   }
@@ -196,10 +251,16 @@ switch (subcommand) {
     const target = subcommand;
     let targetDir: string;
 
-    if (target === ".") {
-      targetDir = process.cwd();
+    if (target === "." || target === "..") {
+      targetDir = resolve(target);
     } else if (target.startsWith("/") || target.startsWith("~")) {
       targetDir = expandHome(target);
+    } else if (
+      target.startsWith("./") ||
+      target.startsWith("../") ||
+      target.includes("/")
+    ) {
+      targetDir = resolve(target);
     } else {
       const path = getProject(target);
       if (!path) {
@@ -221,6 +282,7 @@ switch (subcommand) {
     if (values.sidebar) overrides.sidebar = values.sidebar;
     if (values.server) overrides.server = values.server;
     if (values["auto-resize"]) overrides["auto-resize"] = "true";
+    if (values["no-auto-resize"]) overrides["auto-resize"] = "false";
     if (values["dry-run"]) overrides.dryRun = true;
 
     await launch(targetDir, overrides);

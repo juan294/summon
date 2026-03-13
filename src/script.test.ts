@@ -84,9 +84,9 @@ describe("generateAppleScript", () => {
     const plan = planLayout();
     const script = generateAppleScript(plan, "/Users/me/code/myapp");
 
-    // Root pane must cd into the project directory first
-    expect(script).toContain('input text "cd \\"/Users/me/code/myapp\\"" to paneRoot');
-    const cdIndex = script.indexOf('input text "cd \\"/Users/me/code/myapp\\"" to paneRoot');
+    // Root pane must cd into the project directory first (single-quoted to prevent shell expansion)
+    expect(script).toContain("input text \"cd '/Users/me/code/myapp'\" to paneRoot");
+    const cdIndex = script.indexOf("input text \"cd '/Users/me/code/myapp'\" to paneRoot");
     const editorIndex = script.indexOf('input text "claude" to paneRoot');
     expect(cdIndex).toBeLessThan(editorIndex);
   });
@@ -96,8 +96,8 @@ describe("generateAppleScript", () => {
     const script = generateAppleScript(plan, "/tmp");
 
     // Sidebar command set on cfg before the split creates the pane
-    expect(script).toContain('set command of cfg to "lazygit"');
-    const cmdIndex = script.indexOf('set command of cfg to "lazygit"');
+    expect(script).toContain("set command of cfg to \"/bin/bash -lc 'lazygit'\"");
+    const cmdIndex = script.indexOf("set command of cfg to \"/bin/bash -lc 'lazygit'\"");
     const splitIndex = script.indexOf("paneSidebar to split");
     expect(cmdIndex).toBeLessThan(splitIndex);
   });
@@ -107,8 +107,8 @@ describe("generateAppleScript", () => {
     const script = generateAppleScript(plan, "/tmp");
 
     // Right column editor gets command via config
-    expect(script).toContain('set command of cfg to "claude"');
-    const cmdIndex = script.indexOf('set command of cfg to "claude"');
+    expect(script).toContain("set command of cfg to \"/bin/bash -lc 'claude'\"");
+    const cmdIndex = script.indexOf("set command of cfg to \"/bin/bash -lc 'claude'\"");
     const splitIndex = script.indexOf("paneRightCol to split");
     expect(cmdIndex).toBeLessThan(splitIndex);
   });
@@ -117,15 +117,23 @@ describe("generateAppleScript", () => {
     const plan = planLayout({ server: "npm run dev" });
     const script = generateAppleScript(plan, "/tmp");
 
-    expect(script).toContain('set command of cfg to "npm run dev"');
+    expect(script).toContain("set command of cfg to \"/bin/bash -lc 'npm run dev'\"");
   });
 
-  it("does not use delay for pane initialization", () => {
-    const plan = planLayout();
+  it("does not use delay for pane initialization when auto-resize is off", () => {
+    const plan = planLayout({ autoResize: false });
     const script = generateAppleScript(plan, "/tmp");
 
     // No fixed delay — commands set via config, not input text
     expect(script).not.toContain("delay");
+  });
+
+  it("includes resize by default with editorSize > 50", () => {
+    const plan = planLayout();
+    const script = generateAppleScript(plan, "/tmp");
+
+    expect(script).toContain("-- Resize editor/sidebar split");
+    expect(script).toContain("perform action resizeAction on paneRoot");
   });
 
   it("skips command for plain shell server", () => {
@@ -155,7 +163,7 @@ describe("generateAppleScript", () => {
     expect(script).toContain('input text "claude" to paneRoot');
 
     // Right column gets secondary editor (mtop) via config
-    expect(script).toContain('set command of cfg to "mtop"');
+    expect(script).toContain("set command of cfg to \"/bin/bash -lc 'mtop'\"");
   });
 
   it("focuses root pane", () => {
@@ -195,17 +203,19 @@ describe("generateAppleScript", () => {
     const plan = planLayout({ autoResize: true, editorSize: 85 });
     const script = generateAppleScript(plan, "/tmp");
 
-    expect(script).toContain("-- Auto-resize sidebar (experimental)");
+    expect(script).toContain("-- Resize editor/sidebar split");
     expect(script).toContain("delay 0.3");
-    expect(script).toContain("set windowBounds to bounds of win");
-    expect(script).toContain("set windowWidth to (item 3 of windowBounds) - (item 1 of windowBounds)");
+    expect(script).toContain('tell application "System Events"');
+    expect(script).toContain('tell process "Ghostty"');
+    expect(script).toContain("set windowSize to size of front window");
+    expect(script).toContain("set windowWidth to item 1 of windowSize");
     expect(script).toContain("set resizeAmount to round (windowWidth * 0.35)");
     expect(script).toContain('set resizeAction to "resize_split:right," & (resizeAmount as text)');
-    expect(script).toContain("perform action resizeAction on paneRightCol");
+    expect(script).toContain("perform action resizeAction on paneRoot");
   });
 
   it("does not generate resize commands when autoResize is disabled", () => {
-    const plan = planLayout({ editorSize: 85 });
+    const plan = planLayout({ editorSize: 85, autoResize: false });
     const script = generateAppleScript(plan, "/tmp");
 
     expect(script).not.toContain("resize_split");
@@ -217,6 +227,17 @@ describe("generateAppleScript", () => {
     const script = generateAppleScript(plan, "/tmp");
 
     expect(script).toContain("perform action resizeAction on paneRoot");
+  });
+
+  it("resizes before editor column split for equal columns", () => {
+    const plan = planLayout({ autoResize: true, editorSize: 75 });
+    const script = generateAppleScript(plan, "/tmp");
+
+    const resizeIndex = script.indexOf("perform action resizeAction");
+    const rightColIndex = script.indexOf("paneRightCol to split");
+    expect(resizeIndex).toBeGreaterThan(-1);
+    expect(rightColIndex).toBeGreaterThan(-1);
+    expect(resizeIndex).toBeLessThan(rightColIndex);
   });
 
   it("does not generate resize commands when editorSize is 50", () => {
@@ -244,6 +265,86 @@ describe("generateAppleScript", () => {
 
     // Server pane uses cleared command (plain shell, server="true")
     expect(script).toContain('set command of cfg to ""');
+  });
+
+  it("wraps config commands with the specified login shell", () => {
+    const plan = planLayout();
+    const script = generateAppleScript(plan, "/tmp", "/bin/zsh");
+
+    // Sidebar command wrapped in login shell
+    expect(script).toContain("set command of cfg to \"/bin/zsh -lc 'lazygit'\"");
+  });
+
+  it("wraps server command in login shell", () => {
+    const plan = planLayout({ server: "npm run dev" });
+    const script = generateAppleScript(plan, "/tmp", "/bin/zsh");
+
+    expect(script).toContain("set command of cfg to \"/bin/zsh -lc 'npm run dev'\"");
+  });
+
+  it("escapes single quotes in wrapped config commands", () => {
+    const plan = planLayout({ sidebarCommand: "cmd 'arg'" });
+    const script = generateAppleScript(plan, "/tmp", "/bin/bash");
+
+    // escapeAppleScript doubles backslashes: '\'' → '\\''
+    expect(script).toContain("set command of cfg to \"/bin/bash -lc 'cmd '\\\\''arg'\\\\'''\"");
+  });
+
+  it("does not wrap input text commands with login shell", () => {
+    const plan = planLayout();
+    const script = generateAppleScript(plan, "/tmp", "/bin/zsh");
+
+    // Root pane editor is sent via input text, not config — should NOT be wrapped
+    expect(script).toContain('input text "claude" to paneRoot');
+    expect(script).not.toContain('input text "/bin/zsh');
+  });
+
+  it("escapes shell metacharacters in root pane editor command", () => {
+    // $HOME should not expand when typed into the shell
+    const plan1 = planLayout({ editor: "vim $HOME" });
+    const script1 = generateAppleScript(plan1, "/tmp");
+    // The command name stays unquoted, but the argument is shell-quoted
+    expect(script1).toContain("input text \"vim '$HOME'\" to paneRoot");
+
+    // Backtick command substitution should not expand
+    const plan2 = planLayout({ editor: "vim `whoami`" });
+    const script2 = generateAppleScript(plan2, "/tmp");
+    expect(script2).toContain("input text \"vim '`whoami`'\" to paneRoot");
+
+    // $() command substitution should not expand (each word is individually quoted)
+    const plan3 = planLayout({ editor: "vim $(rm -rf /)" });
+    const script3 = generateAppleScript(plan3, "/tmp");
+    expect(script3).toContain("input text \"vim '$(rm' '-rf' '/)'\"" + " to paneRoot");
+  });
+
+  it("escapes single quotes in root pane editor command arguments", () => {
+    const plan = planLayout({ editor: "cmd 'arg'" });
+    const script = generateAppleScript(plan, "/tmp");
+    // Single quotes in the argument are POSIX-escaped, then escapeAppleScript doubles backslashes
+    expect(script).toContain("input text \"cmd ''\\\\''arg'\\\\'''\" to paneRoot");
+  });
+
+  it("leaves plain editor command without arguments unchanged", () => {
+    const plan = planLayout({ editor: "claude" });
+    const script = generateAppleScript(plan, "/tmp");
+    expect(script).toContain('input text "claude" to paneRoot');
+  });
+
+  it("escapes shell metacharacters in targetDir cd command", () => {
+    const plan = planLayout();
+
+    // $() command substitution should not expand
+    const script1 = generateAppleScript(plan, "/Users/me/$(whoami)/project");
+    expect(script1).toContain("cd '/Users/me/$(whoami)/project'");
+    expect(script1).not.toContain('cd "');
+
+    // Backtick command substitution should not expand
+    const script2 = generateAppleScript(plan, "/Users/me/`id`/project");
+    expect(script2).toContain("cd '/Users/me/`id`/project'");
+
+    // Single quotes in path are POSIX-escaped (backslash doubled by escapeAppleScript)
+    const script3 = generateAppleScript(plan, "/Users/me/it's a project");
+    expect(script3).toContain("cd '/Users/me/it'\\\\''s a project'");
   });
 
   it("multi-pane right column creates additional down splits", () => {
