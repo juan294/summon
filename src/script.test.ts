@@ -214,4 +214,43 @@ describe("generateAppleScript", () => {
 
     expect(script).not.toContain("resize_split");
   });
+
+  it("cli preset creates server-only right column with no editor panes", () => {
+    const plan = planLayout(getPreset("cli"));
+    const script = generateAppleScript(plan, "/tmp");
+
+    // 2 right splits: sidebar + right column (server-only)
+    const rightSplits = (script.match(/direction right/g) ?? []).length;
+    expect(rightSplits).toBe(2);
+
+    // No down splits — single server pane, no editors in right column
+    const downSplits = (script.match(/direction down/g) ?? []).length;
+    expect(downSplits).toBe(0);
+
+    // Right column exists but has no editor panes
+    expect(script).toContain("paneRightCol");
+    expect(script).not.toContain("paneRight2");
+
+    // Server pane uses cleared command (plain shell, server="true")
+    expect(script).toContain('set command of cfg to ""');
+  });
+
+  it("multi-pane right column creates additional down splits", () => {
+    const plan = planLayout({ editorPanes: 4 });
+    const script = generateAppleScript(plan, "/tmp");
+
+    // 2 right splits: sidebar + right column
+    const rightSplits = (script.match(/direction right/g) ?? []).length;
+    expect(rightSplits).toBe(2);
+
+    // 2 down splits: paneLeft2 + paneRight2 (2 editors per column)
+    // Plus 1 server pane = 3 down splits total
+    const downSplits = (script.match(/direction down/g) ?? []).length;
+    expect(downSplits).toBe(3);
+
+    expect(script).toContain("paneRight2");
+    expect(script).toContain("paneLeft2");
+    // Server pane at bottom of right column
+    expect(script).toContain("paneRight3");
+  });
 });
