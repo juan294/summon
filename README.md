@@ -111,9 +111,9 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 |---|---|
 | `-l, --layout <preset>` | Use a layout preset (`minimal`, `full`, `pair`, `cli`, `btop`) |
 | `-e, --editor <cmd>` | Override editor command |
-| `--panes <n>` | Override number of editor panes |
+| `-p, --panes <n>` | Override number of editor panes |
 | `--editor-size <n>` | Override editor width percentage |
-| `--sidebar <cmd>` | Override sidebar command |
+| `-s, --sidebar <cmd>` | Override sidebar command |
 | `--server <value>` | Server pane: `true`, `false`, or a command |
 | `--auto-resize` | Resize sidebar to match editor-size (default: on) |
 | `--no-auto-resize` | Disable auto-resize |
@@ -159,6 +159,8 @@ This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.
 ## Trust Model
 
 `.summon` files configure commands that summon executes in each pane (`editor`, `sidebar`, `server`). Running `summon .` in a directory will execute whatever commands its `.summon` file specifies -- this is the same trust model as `Makefile`, direnv `.envrc`, or VS Code `.vscode/tasks.json`.
+
+When a `.summon` file contains command values with shell metacharacters (`;`, `|`, `&`, `` ` ``, `$(`, `<`, `>`), summon displays the commands and prompts for confirmation before executing. In non-interactive environments (piped input, CI), execution is refused outright. This check is skipped for `--dry-run` since no commands are executed.
 
 **Always review `.summon` files before running summon in untrusted repositories.**
 

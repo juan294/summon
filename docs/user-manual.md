@@ -183,9 +183,9 @@ Flags override both machine and per-project config for a single launch.
 |---|---|
 | `-l`, `--layout <preset>` | Use a layout preset (`minimal`, `full`, `pair`, `cli`, `btop`) |
 | `-e`, `--editor <cmd>` | Override editor command |
-| `--panes <n>` | Override number of editor panes |
+| `-p`, `--panes <n>` | Override number of editor panes |
 | `--editor-size <n>` | Override editor width percentage |
-| `--sidebar <cmd>` | Override sidebar command |
+| `-s`, `--sidebar <cmd>` | Override sidebar command |
 | `--server <value>` | Server pane: `true`, `false`, or a command |
 | `--auto-resize` | Resize sidebar to match editor-size (default: on) |
 | `--no-auto-resize` | Disable auto-resize |
@@ -419,3 +419,28 @@ All config files are at `~/.config/summon/`:
 Per-project config lives in your project root as `.summon`.
 
 Files are plain text (`key=value` format) and safe to edit manually.
+
+## Security — Shell Metacharacter Detection
+
+When summon reads a `.summon` file from a project directory, it checks the command keys (`editor`, `sidebar`, `server`) for shell metacharacters: `;`, `|`, `&`, `` ` ``, `$(`, `<`, `>`.
+
+If any are found, summon displays the suspicious commands and prompts for confirmation:
+
+```
+⚠  This .summon file contains commands with shell metacharacters:
+  server = npm run dev && echo "done"
+
+Run these commands? [y/N]
+```
+
+This protects against accidentally executing unreviewed commands from cloned repositories. The behavior depends on the environment:
+
+| Context | Behavior |
+|---|---|
+| Interactive terminal (TTY) | Prompts for confirmation (default: no) |
+| Non-interactive (CI, piped) | Refuses to execute, exits with error |
+| `--dry-run` | Skipped (no commands are executed) |
+| CLI flags | Not checked (you typed them yourself) |
+| Machine config | Not checked (you set them via `summon set`) |
+
+Only `.summon` project files are checked — CLI flags and machine config are trusted sources since you control them directly.

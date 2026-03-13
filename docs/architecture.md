@@ -13,6 +13,7 @@ Technical reference for contributors.
 | `utils.ts` | Shared utilities — `SAFE_COMMAND_RE`, `GHOSTTY_PATHS`, `resolveCommand` | yes | Node stdlib only |
 | `layout.ts` | Layout calculation and presets | **pure** | none |
 | `script.ts` | AppleScript generator — builds script string from LayoutPlan | **pure** | none |
+| `completions.ts` | Shell completion script generator (zsh, bash) | **pure** | config, layout |
 | `validation.ts` | Input validation helpers (`parseIntInRange`) | **pure** | none |
 | `globals.d.ts` | Build-time constant declarations (`__VERSION__`) | — | — |
 | `*.test.ts` | Co-located unit tests (Vitest) | — | — |
@@ -24,36 +25,44 @@ graph TD
     index[index.ts] --> config[config.ts]
     index --> launcher[launcher.ts]
     index -.->|dynamic import| setup[setup.ts]
+    index -.->|dynamic import| completions[completions.ts]
     launcher --> config
     launcher --> layout[layout.ts]
     launcher --> script[script.ts]
     launcher --> utils[utils.ts]
     setup --> config
     setup --> utils
+    completions --> config
+    completions --> layout
 
     config -.- cfg_fns["addProject, removeProject,
     getProject, listProjects,
     setConfig, listConfig,
-    isFirstRun, readKVFile"]
+    isFirstRun, readKVFile,
+    VALID_KEYS, CLI_FLAGS"]
     layout -.- lay_fns["planLayout, isPresetName,
-    getPreset, LayoutOptions,
-    LayoutPlan"]
+    getPreset, getPresetNames,
+    LayoutOptions, LayoutPlan"]
     script -.- scr_fns["generateAppleScript"]
     utils -.- util_fns["SAFE_COMMAND_RE,
     GHOSTTY_PATHS,
-    resolveCommand"]
+    resolveCommand,
+    promptUser"]
     setup -.- setup_fns["runSetup, detectTools,
     validateSetup, EDITOR_CATALOG,
     SIDEBAR_CATALOG"]
+    completions -.- comp_fns["generateZshCompletion,
+    generateBashCompletion"]
 
     style cfg_fns fill:none,stroke-dasharray:5
     style lay_fns fill:none,stroke-dasharray:5
     style scr_fns fill:none,stroke-dasharray:5
     style util_fns fill:none,stroke-dasharray:5
     style setup_fns fill:none,stroke-dasharray:5
+    style comp_fns fill:none,stroke-dasharray:5
 ```
 
-`layout.ts`, `script.ts`, and `validation.ts` are pure modules with no project imports. `config.ts` and `utils.ts` only use Node stdlib. `setup.ts` is loaded via dynamic import from `index.ts` — it's only parsed when the setup wizard is needed (first run or `summon setup`), keeping normal launch times unaffected.
+`layout.ts`, `script.ts`, `completions.ts`, and `validation.ts` are pure modules with no side effects. `config.ts` and `utils.ts` only use Node stdlib. `setup.ts` and `completions.ts` are loaded via dynamic `import()` from `index.ts` — they're only parsed when needed (`summon setup` or `summon completions`), keeping normal launch times unaffected.
 
 ## Data Flow
 
@@ -85,6 +94,8 @@ flowchart TD
     read/write"]
     dispatch -->|"setup"| wizardexplicit["setup.ts: runSetup()
     (explicit invocation)"]
+    dispatch -->|"completions"| compgen["completions.ts:
+    generateZsh/BashCompletion()"]
     dispatch -->|"default (launch target)"| resolve["resolve target directory
     (., absolute path, or project name)"]
 
@@ -104,7 +115,13 @@ flowchart TD
     resolvecfg --> layer["layer each key:
     CLI > project > global > preset"]
 
-    layer --> plan["planLayout(resolvedOpts)
+    layer --> security{"project .summon has
+    shell metacharacters?"}
+    security -->|yes| confirm["prompt user for
+    confirmation (TTY only)"]
+    confirm -->|denied/non-TTY| abort["exit 1"]
+    confirm -->|accepted| plan
+    security -->|no| plan["planLayout(resolvedOpts)
     compute pane counts and sizes"]
     plan --> ensure["ensureCommand() for editor,
     sidebar, secondaryEditor, serverCommand"]
@@ -129,7 +146,7 @@ The auto-trigger in `index.ts` fires when:
 
 ### Wizard Flow
 
-1. **Welcome banner** — box-drawn border using Unicode characters
+1. **Welcome banner** — wizard hat mascot (magenta Unicode art), colored SUMMON logo (cyan→green gradient), and a random rotating tip from 10 feature-discovery hints. Respects `NO_COLOR`.
 2. **Layout selection** — numbered list of 5 presets with ASCII diagrams
 3. **Editor selection** — catalog of common editors, detected via `resolveCommand()`, sorted available-first
 4. **Sidebar selection** — catalog of common sidebar tools, same detection pattern
@@ -155,7 +172,7 @@ All color functions (`bold`, `dim`, `green`, `yellow`, `cyan`) pass through when
 
 ### Code Splitting
 
-tsup automatically code-splits `setup.ts` into a separate chunk (`setup-*.js`, ~15 KB). This chunk is only loaded when the setup wizard is needed, keeping the main entry point lean for normal workspace launches.
+tsup automatically code-splits `setup.ts` and `completions.ts` into separate chunks. These chunks are only loaded when needed (`summon setup` or `summon completions`), keeping the main entry point lean for normal workspace launches.
 
 ## AppleScript Generation
 
@@ -192,6 +209,46 @@ Key commands used:
 ### No tmux, No Session Persistence
 
 Unlike termplex, summon does not create persistent sessions. Each `summon` invocation creates a new Ghostty window with splits. Closing the window ends everything. There is no detach/reattach. This is a Ghostty limitation -- if they add session persistence in the future, summon can adopt it.
+
+## Shell Completions
+
+`completions.ts` generates shell completion scripts for zsh and bash. It is loaded via dynamic `import()` from `index.ts` when the user runs `summon completions <shell>`.
+
+The generated scripts:
+- Complete subcommands, registered project names, and directories for the first positional argument
+- Complete CLI flags when the cursor follows `--`
+- Complete layout preset names after `--layout` or `summon set layout`
+- Complete config keys after `summon set`
+- Complete shell names (`zsh`, `bash`) after `summon completions`
+
+Project names are read dynamically from `~/.config/summon/projects` at completion time — no Node.js process is spawned per tab press, so completions are instant.
+
+The module imports `VALID_KEYS` and `CLI_FLAGS` from `config.ts` and `getPresetNames()` from `layout.ts` to keep completable tokens in sync with the source of truth.
+
+## Security
+
+### Command Name Validation
+
+`SAFE_COMMAND_RE` in `utils.ts` (`/^[a-zA-Z0-9_][a-zA-Z0-9_.+-]*$/`) validates command binary names before they're passed to `command -v` or executed. This prevents injection via crafted command names.
+
+### Shell Metacharacter Detection
+
+When `launcher.ts` loads a `.summon` project file, it scans command values (`editor`, `sidebar`, `server`) for shell metacharacters: `;`, `|`, `&`, `` ` ``, `$(`, `<`, `>`.
+
+If any are found:
+- **TTY**: displays the suspicious commands and prompts for Y/n confirmation (default: no)
+- **Non-TTY**: refuses to execute and exits with an error
+- **Dry-run**: skips the check entirely (no commands are executed)
+
+Only `.summon` files are checked. CLI flags and machine config (`~/.config/summon/config`) are trusted sources.
+
+### SHELL Validation
+
+`launcher.ts` validates `process.env.SHELL` against `/^\/[a-zA-Z0-9_/.-]+$/`. If the value is missing or unsafe, it falls back to `/bin/bash` with a warning.
+
+### osascript Execution
+
+`executeScript` uses `execFileSync` (not `execSync`) to pass the generated AppleScript to `osascript` via stdin, avoiding shell interpretation of the script content.
 
 ## Config Resolution
 
