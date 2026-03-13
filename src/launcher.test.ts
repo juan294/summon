@@ -117,8 +117,9 @@ describe("script execution", () => {
 
     await launch("/tmp/workspace");
 
-    expect(mockExecSync).toHaveBeenCalledWith(
+    expect(mockExecFileSync).toHaveBeenCalledWith(
       "osascript",
+      [],
       expect.objectContaining({ input: 'tell application "Ghostty"\nend tell' }),
     );
   });
@@ -131,8 +132,9 @@ describe("script execution", () => {
 
     expect(logSpy).toHaveBeenCalledWith('tell application "Ghostty"\nend tell');
     // osascript should NOT have been called
-    expect(mockExecSync).not.toHaveBeenCalledWith(
+    expect(mockExecFileSync).not.toHaveBeenCalledWith(
       "osascript",
+      [],
       expect.anything(),
     );
     logSpy.mockRestore();
@@ -726,10 +728,12 @@ describe("input validation", () => {
 describe("osascript error handling", () => {
   it("includes osascript error detail in the failure message", async () => {
     vi.mocked(listConfig).mockReturnValue(new Map());
-    mockExecSync.mockImplementation((cmd: string, opts?: Record<string, unknown>) => {
-      if (cmd === "osascript" && opts?.input) {
+    mockExecFileSync.mockImplementation((bin: string, args?: string[], opts?: Record<string, unknown>) => {
+      if (bin === "osascript" && opts?.input) {
         throw new Error("execution error: Ghostty got an error: connection is invalid (-609)");
       }
+      if (bin === "/bin/sh" && Array.isArray(args) && args[0] === "-c" && typeof args[1] === "string" && args[1].startsWith("command -v"))
+        return "/usr/bin/stub\n";
       return "";
     });
 
@@ -750,11 +754,11 @@ describe("osascript error handling", () => {
 
   it("handles non-Error thrown values gracefully", async () => {
     vi.mocked(listConfig).mockReturnValue(new Map());
-    mockExecSync.mockImplementation((cmd: string, opts?: Record<string, unknown>) => {
-      if (cmd === "osascript" && opts?.input) {
+    mockExecFileSync.mockImplementation((bin: string, args?: string[], opts?: Record<string, unknown>) => {
+      if (bin === "osascript" && opts?.input) {
         throw "string error";
       }
-      if (typeof cmd === "string" && cmd.startsWith("command -v "))
+      if (bin === "/bin/sh" && Array.isArray(args) && args[0] === "-c" && typeof args[1] === "string" && args[1].startsWith("command -v"))
         return "/usr/bin/stub\n";
       return "";
     });

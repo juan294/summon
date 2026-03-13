@@ -1,8 +1,6 @@
-import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
-import { homedir } from "node:os";
 import { setConfig } from "./config.js";
+import { SAFE_COMMAND_RE, GHOSTTY_PATHS, resolveCommand as resolveCommandPath } from "./utils.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -95,22 +93,8 @@ export function printSection(title: string): void {
 // Tool detection
 // ---------------------------------------------------------------------------
 
-/**
- * Check if a command is available on the system.
- * Uses `command -v <cmd>` via execFileSync, same pattern as launcher.ts.
- * Returns the resolved path or null.
- */
-export function resolveCommandPath(cmd: string): string | null {
-  try {
-    return execFileSync(
-      "/bin/sh",
-      ["-c", `command -v "$1"`, "--", cmd],
-      { encoding: "utf-8" },
-    ).trim();
-  } catch {
-    return null;
-  }
-}
+// resolveCommandPath is imported from ./utils.js
+export { resolveCommandPath };
 
 /**
  * Check catalog of tools, return each with `available` flag.
@@ -273,7 +257,8 @@ interface ValidationResult {
 // Phase 2 — Constants
 // ---------------------------------------------------------------------------
 
-export const SAFE_COMMAND_RE = /^[a-zA-Z0-9_][a-zA-Z0-9_.+-]*$/;
+// SAFE_COMMAND_RE is imported from ./utils.js
+export { SAFE_COMMAND_RE };
 
 export const EDITOR_CATALOG: readonly ToolEntry[] = [
   { cmd: "claude", name: "Claude Code", desc: "AI pair programmer" },
@@ -355,10 +340,7 @@ const INSTALL_HINTS: Record<string, string> = {
   hx: "brew install helix",
 };
 
-const GHOSTTY_PATHS = [
-  "/Applications/Ghostty.app",
-  join(homedir(), "Applications", "Ghostty.app"),
-];
+// GHOSTTY_PATHS is imported from ./utils.js
 
 // ---------------------------------------------------------------------------
 // Phase 2 — Wizard functions

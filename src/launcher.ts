@@ -1,7 +1,6 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { homedir } from "node:os";
-import { execSync, execFileSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import {
   planLayout,
   isPresetName,
@@ -15,8 +14,7 @@ import {
 import type { LayoutOptions } from "./layout.js";
 import { listConfig, readKVFile } from "./config.js";
 import { generateAppleScript } from "./script.js";
-
-const SAFE_COMMAND_RE = /^[a-zA-Z0-9_][a-zA-Z0-9_.+-]*$/;
+import { SAFE_COMMAND_RE, GHOSTTY_PATHS, resolveCommand as resolveCommandPath } from "./utils.js";
 
 export interface CLIOverrides {
   layout?: string;
@@ -29,11 +27,6 @@ export interface CLIOverrides {
   dryRun?: boolean;
 }
 
-const GHOSTTY_PATHS = [
-  "/Applications/Ghostty.app",
-  join(homedir(), "Applications", "Ghostty.app"),
-];
-
 function ensureGhostty(): void {
   if (!GHOSTTY_PATHS.some((p) => existsSync(p))) {
     console.error(
@@ -45,7 +38,7 @@ function ensureGhostty(): void {
 
 function executeScript(script: string): void {
   try {
-    execSync("osascript", { input: script, encoding: "utf-8" });
+    execFileSync("osascript", [], { input: script, encoding: "utf-8" });
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     console.error(`Failed to execute workspace script: ${detail}`);
@@ -54,17 +47,17 @@ function executeScript(script: string): void {
   }
 }
 
-/** Resolve a command name to its full path, or return null if not found. */
+/**
+ * Resolve a command name to its full path.
+ * Exits with an error if the command name is invalid (defense-in-depth).
+ * Returns null if the command is not found on the system.
+ */
 function resolveCommand(cmd: string): string | null {
   if (!SAFE_COMMAND_RE.test(cmd)) {
     console.error(`Invalid command name: "${cmd}". Command names may only contain letters, digits, hyphens, dots, underscores, and plus signs.`);
     process.exit(1);
   }
-  try {
-    return execFileSync("/bin/sh", ["-c", `command -v "$1"`, "--", cmd], { encoding: "utf-8" }).trim();
-  } catch {
-    return null;
-  }
+  return resolveCommandPath(cmd);
 }
 
 async function prompt(question: string): Promise<string> {
