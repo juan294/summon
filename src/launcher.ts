@@ -83,7 +83,7 @@ const KNOWN_INSTALL_COMMANDS: Record<string, () => [string, string[]] | null> = 
   },
 };
 
-async function ensureCommand(cmd: string): Promise<void> {
+async function ensureCommand(cmd: string, configKey: string): Promise<void> {
   if (resolveCommand(cmd)) return;
 
   const getInstall = KNOWN_INSTALL_COMMANDS[cmd];
@@ -94,7 +94,7 @@ async function ensureCommand(cmd: string): Promise<void> {
       `\`${cmd}\` is required but not installed, and no known install method was found.`,
     );
     console.error(
-      `Please install \`${cmd}\` manually or change your config with: summon set editor <command>`,
+      `Please install \`${cmd}\` manually or change your config with: summon set ${configKey} <command>`,
     );
     process.exit(1);
   }
@@ -201,15 +201,15 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
   const { opts } = resolveConfig(targetDir, cliOverrides ?? {});
   const plan = planLayout(opts);
 
-  if (plan.editor) await ensureCommand(plan.editor);
-  if (plan.sidebarCommand) await ensureCommand(plan.sidebarCommand);
+  if (plan.editor) await ensureCommand(plan.editor, "editor");
+  if (plan.sidebarCommand) await ensureCommand(plan.sidebarCommand, "sidebar");
   if (plan.secondaryEditor) {
     const secondaryBin = plan.secondaryEditor.split(" ")[0]!;
-    await ensureCommand(secondaryBin);
+    await ensureCommand(secondaryBin, "editor");
   }
   if (plan.serverCommand) {
     const serverBin = plan.serverCommand.split(" ")[0]!;
-    await ensureCommand(serverBin);
+    await ensureCommand(serverBin, "server");
   }
 
   // Resolve to full paths — Ghostty's config-launched panes use non-login shells without PATH
