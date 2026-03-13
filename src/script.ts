@@ -8,7 +8,7 @@ function escapeAppleScript(s: string): string {
     .replace(/\r/g, "\\r");
 }
 
-export function generateAppleScript(plan: LayoutPlan, targetDir: string): string {
+export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginShell = "/bin/bash"): string {
   const lines: string[] = [];
 
   const add = (indent: number, line: string) => {
@@ -21,8 +21,16 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string): string
     add(1, `send key "enter" to ${pane}`);
   };
 
+  // Config-launched panes run in a restricted shell without PATH (--noprofile --norc).
+  // Wrap in the user's login shell so commands like npm can find their interpreters.
+  // Input-text commands (root pane) run in an already-initialized shell — no wrapping needed.
+  const wrapForConfig = (cmd: string): string => {
+    const escaped = cmd.replace(/'/g, "'\\''");
+    return `${loginShell} -lc '${escaped}'`;
+  };
+
   const setConfigCommand = (cmd: string) => {
-    add(1, `set command of cfg to "${escapeAppleScript(cmd)}"`);
+    add(1, `set command of cfg to "${escapeAppleScript(wrapForConfig(cmd))}"`);
   };
 
   const clearConfigCommand = () => {
@@ -132,8 +140,12 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string): string
     blank();
     add(1, "-- Auto-resize sidebar (experimental)");
     add(1, "delay 0.3");
-    add(1, "set windowBounds to bounds of win");
-    add(1, "set windowWidth to (item 3 of windowBounds) - (item 1 of windowBounds)");
+    add(1, 'tell application "System Events"');
+    add(2, 'tell process "Ghostty"');
+    add(3, "set windowSize to size of front window");
+    add(3, "set windowWidth to item 1 of windowSize");
+    add(2, "end tell");
+    add(1, "end tell");
     add(1, `set resizeAmount to round (windowWidth * ${fraction})`);
     add(1, `set resizeAction to "resize_split:right," & (resizeAmount as text)`);
     add(1, `perform action resizeAction on ${resizePane}`);

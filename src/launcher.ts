@@ -218,7 +218,8 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
   if (plan.secondaryEditor) plan.secondaryEditor = resolveFullPath(plan.secondaryEditor);
   if (plan.serverCommand) plan.serverCommand = resolveFullPath(plan.serverCommand);
 
-  const script = generateAppleScript(plan, targetDir);
+  const loginShell = process.env.SHELL ?? "/bin/bash";
+  const script = generateAppleScript(plan, targetDir, loginShell);
 
   if (cliOverrides?.dryRun) {
     console.log(script);

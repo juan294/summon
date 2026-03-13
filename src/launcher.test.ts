@@ -125,7 +125,17 @@ describe("script execution", () => {
         hasServer: false,
       }),
       "/tmp/workspace",
+      expect.any(String),
     );
+  });
+
+  it("passes login shell to generateAppleScript", async () => {
+    vi.mocked(getConfig).mockReturnValue(undefined);
+
+    await launch("/tmp/workspace");
+
+    const shellArg = mockGenerateAppleScript.mock.calls[0]![2];
+    expect(shellArg).toBe(process.env.SHELL ?? "/bin/bash");
   });
 });
 
@@ -651,6 +661,7 @@ describe("path resolution", () => {
         sidebarCommand: "/opt/homebrew/bin/lazygit",
       }),
       "/tmp/workspace",
+      expect.any(String),
     );
   });
 
@@ -670,6 +681,7 @@ describe("path resolution", () => {
         serverCommand: "/usr/local/bin/npm run dev",
       }),
       "/tmp/workspace",
+      expect.any(String),
     );
   });
 });

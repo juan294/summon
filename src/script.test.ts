@@ -96,8 +96,8 @@ describe("generateAppleScript", () => {
     const script = generateAppleScript(plan, "/tmp");
 
     // Sidebar command set on cfg before the split creates the pane
-    expect(script).toContain('set command of cfg to "lazygit"');
-    const cmdIndex = script.indexOf('set command of cfg to "lazygit"');
+    expect(script).toContain("set command of cfg to \"/bin/bash -lc 'lazygit'\"");
+    const cmdIndex = script.indexOf("set command of cfg to \"/bin/bash -lc 'lazygit'\"");
     const splitIndex = script.indexOf("paneSidebar to split");
     expect(cmdIndex).toBeLessThan(splitIndex);
   });
@@ -107,8 +107,8 @@ describe("generateAppleScript", () => {
     const script = generateAppleScript(plan, "/tmp");
 
     // Right column editor gets command via config
-    expect(script).toContain('set command of cfg to "claude"');
-    const cmdIndex = script.indexOf('set command of cfg to "claude"');
+    expect(script).toContain("set command of cfg to \"/bin/bash -lc 'claude'\"");
+    const cmdIndex = script.indexOf("set command of cfg to \"/bin/bash -lc 'claude'\"");
     const splitIndex = script.indexOf("paneRightCol to split");
     expect(cmdIndex).toBeLessThan(splitIndex);
   });
@@ -117,7 +117,7 @@ describe("generateAppleScript", () => {
     const plan = planLayout({ server: "npm run dev" });
     const script = generateAppleScript(plan, "/tmp");
 
-    expect(script).toContain('set command of cfg to "npm run dev"');
+    expect(script).toContain("set command of cfg to \"/bin/bash -lc 'npm run dev'\"");
   });
 
   it("does not use delay for pane initialization", () => {
@@ -155,7 +155,7 @@ describe("generateAppleScript", () => {
     expect(script).toContain('input text "claude" to paneRoot');
 
     // Right column gets secondary editor (mtop) via config
-    expect(script).toContain('set command of cfg to "mtop"');
+    expect(script).toContain("set command of cfg to \"/bin/bash -lc 'mtop'\"");
   });
 
   it("focuses root pane", () => {
@@ -197,8 +197,10 @@ describe("generateAppleScript", () => {
 
     expect(script).toContain("-- Auto-resize sidebar (experimental)");
     expect(script).toContain("delay 0.3");
-    expect(script).toContain("set windowBounds to bounds of win");
-    expect(script).toContain("set windowWidth to (item 3 of windowBounds) - (item 1 of windowBounds)");
+    expect(script).toContain('tell application "System Events"');
+    expect(script).toContain('tell process "Ghostty"');
+    expect(script).toContain("set windowSize to size of front window");
+    expect(script).toContain("set windowWidth to item 1 of windowSize");
     expect(script).toContain("set resizeAmount to round (windowWidth * 0.35)");
     expect(script).toContain('set resizeAction to "resize_split:right," & (resizeAmount as text)');
     expect(script).toContain("perform action resizeAction on paneRightCol");
@@ -244,6 +246,38 @@ describe("generateAppleScript", () => {
 
     // Server pane uses cleared command (plain shell, server="true")
     expect(script).toContain('set command of cfg to ""');
+  });
+
+  it("wraps config commands with the specified login shell", () => {
+    const plan = planLayout();
+    const script = generateAppleScript(plan, "/tmp", "/bin/zsh");
+
+    // Sidebar command wrapped in login shell
+    expect(script).toContain("set command of cfg to \"/bin/zsh -lc 'lazygit'\"");
+  });
+
+  it("wraps server command in login shell", () => {
+    const plan = planLayout({ server: "npm run dev" });
+    const script = generateAppleScript(plan, "/tmp", "/bin/zsh");
+
+    expect(script).toContain("set command of cfg to \"/bin/zsh -lc 'npm run dev'\"");
+  });
+
+  it("escapes single quotes in wrapped config commands", () => {
+    const plan = planLayout({ sidebarCommand: "cmd 'arg'" });
+    const script = generateAppleScript(plan, "/tmp", "/bin/bash");
+
+    // escapeAppleScript doubles backslashes: '\'' → '\\''
+    expect(script).toContain("set command of cfg to \"/bin/bash -lc 'cmd '\\\\''arg'\\\\'''\"");
+  });
+
+  it("does not wrap input text commands with login shell", () => {
+    const plan = planLayout();
+    const script = generateAppleScript(plan, "/tmp", "/bin/zsh");
+
+    // Root pane editor is sent via input text, not config — should NOT be wrapped
+    expect(script).toContain('input text "claude" to paneRoot');
+    expect(script).not.toContain('input text "/bin/zsh');
   });
 
   it("multi-pane right column creates additional down splits", () => {
