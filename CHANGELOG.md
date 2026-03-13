@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Renamed `mtop` layout preset to `btop` to match the actual binary name
 - `ensureConfig()` creates empty config file instead of hardcoded `editor=claude` — runtime defaults in `layout.ts` still apply
 - `isFirstRun()` export in config.ts for checking whether config file exists without creating it
 - `executeScript` uses `execFileSync` instead of `execSync` for osascript (defense-in-depth)
@@ -110,7 +111,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - CLI entry point with subcommand dispatch (launch, add, remove, list, set, config)
 - Config system: machine-level (`~/.config/summon/`) and per-project (`.summon`)
-- Layout planner with 5 presets: minimal, full, pair, cli, mtop
+- Layout planner with 5 presets: minimal, full, pair, cli, btop
 - AppleScript generator for Ghostty native splits
 - Launcher orchestrator with config resolution and command dependency checks
 - Auto-install prompts for missing commands (claude, lazygit)

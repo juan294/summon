@@ -317,11 +317,11 @@ export const LAYOUT_INFO: Record<string, { desc: string; diagram: string }> = {
       "  └────────┴────────┴──────┘",
     ].join("\n"),
   },
-  mtop: {
+  btop: {
     desc: "Editor + system monitor + sidebar + server",
     diagram: [
       "  ┌────────┬────────┬──────┐",
-      "  │ editor │  mtop  │ side │",
+      "  │ editor │  btop  │ side │",
       "  ├────────┼────────┤      │",
       "  │ (shell)│ server │      │",
       "  └────────┴────────┴──────┘",

@@ -147,7 +147,7 @@ export function resolveConfig(targetDir: string, cliOverrides: CLIOverrides): Re
       base = getPreset(layoutKey);
     } else {
       console.warn(
-        `Unknown layout preset: "${layoutKey}". Valid presets: minimal, full, pair, cli, mtop. Using defaults.`,
+        `Unknown layout preset: "${layoutKey}". Valid presets: minimal, full, pair, cli, btop. Using defaults.`,
       );
     }
   }

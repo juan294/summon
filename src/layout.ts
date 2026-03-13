@@ -56,14 +56,14 @@ function parseServer(value: string): { hasServer: boolean; serverCommand: string
   return { hasServer: true, serverCommand: value };
 }
 
-type PresetName = "minimal" | "full" | "pair" | "cli" | "mtop";
+type PresetName = "minimal" | "full" | "pair" | "cli" | "btop";
 
 const PRESETS: Record<PresetName, Partial<LayoutOptions>> = {
   minimal: { editorPanes: 1, server: "false" },
   full: { editorPanes: 3, server: "true" },
   pair: { editorPanes: 2, server: "true" },
   cli: { editorPanes: 1, server: "true" },
-  mtop: { editorPanes: 2, server: "true", secondaryEditor: "mtop" },
+  btop: { editorPanes: 2, server: "true", secondaryEditor: "btop" },
 };
 
 export function isPresetName(value: string): value is PresetName {

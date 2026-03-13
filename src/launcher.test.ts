@@ -262,7 +262,7 @@ describe("config resolution", () => {
 
     const { opts } = resolveConfig("/tmp/workspace", {});
     expect(warnSpy).toHaveBeenCalledWith(
-      'Unknown layout preset: "bogus". Valid presets: minimal, full, pair, cli, mtop. Using defaults.',
+      'Unknown layout preset: "bogus". Valid presets: minimal, full, pair, cli, btop. Using defaults.',
     );
     expect(opts.editorPanes).toBeUndefined();
     warnSpy.mockRestore();
@@ -280,7 +280,7 @@ describe("config resolution", () => {
     expect(warnMsg).toContain("full");
     expect(warnMsg).toContain("pair");
     expect(warnMsg).toContain("cli");
-    expect(warnMsg).toContain("mtop");
+    expect(warnMsg).toContain("btop");
     warnSpy.mockRestore();
   });
 });
@@ -471,13 +471,13 @@ describe("command dependency checks", () => {
 });
 
 describe("secondaryEditor binary check", () => {
-  it("checks secondaryEditor binary when mtop preset is used", async () => {
+  it("checks secondaryEditor binary when btop preset is used", async () => {
     vi.mocked(listConfig).mockReturnValue(new Map());
 
-    await launch("/tmp/workspace", { layout: "mtop" });
+    await launch("/tmp/workspace", { layout: "btop" });
 
     expect(mockExecFileSync).toHaveBeenCalledWith(
-      "/bin/sh", ["-c", 'command -v "$1"', "--", "mtop"], { encoding: "utf-8" },
+      "/bin/sh", ["-c", 'command -v "$1"', "--", "btop"], { encoding: "utf-8" },
     );
   });
 });

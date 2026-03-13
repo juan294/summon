@@ -220,7 +220,7 @@ Defined in `layout.ts` as a `Record<PresetName, Partial<LayoutOptions>>`:
 | `full` | 3 | `"true"` | |
 | `pair` | 2 | `"true"` | |
 | `cli` | 1 | `"npm login"` | |
-| `mtop` | 2 | `"true"` | `"mtop"` |
+| `btop` | 2 | `"true"` | `"btop"` |
 
 ### Preset Layouts
 
@@ -282,12 +282,12 @@ Each diagram shows the resulting Ghostty window. The sidebar (lazygit) is always
          75% (2 columns)           25%
 ```
 
-#### `mtop` — editor + mtop + server
+#### `btop` — editor + btop + server
 
 ```
 ┌──────────────┬──────────────┬───────────┐
 │              │              │           │
-│              │     mtop     │           │
+│              │     btop     │           │
 │              │              │           │
 │    editor    ├──────────────┤  lazygit  │
 │              │              │           │
@@ -315,7 +315,7 @@ Given `N` editor panes (default 3) and server toggle:
 
 ### Secondary Editor
 
-`secondaryEditor` allows a preset to specify a different command for right-column editor panes. Used by the `mtop` preset to run `mtop` in the right column while the left column runs the primary editor.
+`secondaryEditor` allows a preset to specify a different command for right-column editor panes. Used by the `btop` preset to run `btop` in the right column while the left column runs the primary editor.
 
 ### Split Percentage Formula
 

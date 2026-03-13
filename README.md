@@ -68,7 +68,7 @@ summon .    (panes=2, editor=claude, sidebar=lazygit, server=true)
 | `pair` | 2 | yes | Two editors + dev server |
 | `minimal` | 1 | no | Simple editor + sidebar only |
 | `cli` | 1 | yes | CLI tool development -- editor + server |
-| `mtop` | 2 | yes | System monitoring -- editor + mtop + server |
+| `btop` | 2 | yes | System monitoring -- editor + btop + server |
 
 ```bash
 summon . --layout minimal         # 1 editor pane, no server
@@ -104,7 +104,7 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 
 | Flag | Description |
 |---|---|
-| `-l, --layout <preset>` | Use a layout preset (`minimal`, `full`, `pair`, `cli`, `mtop`) |
+| `-l, --layout <preset>` | Use a layout preset (`minimal`, `full`, `pair`, `cli`, `btop`) |
 | `-e, --editor <cmd>` | Override editor command |
 | `--panes <n>` | Override number of editor panes |
 | `--editor-size <n>` | Override editor width percentage |

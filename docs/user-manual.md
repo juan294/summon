@@ -50,7 +50,7 @@ summon .
 
 The wizard walks you through four choices:
 
-1. **Layout** — choose from 5 presets (minimal, pair, full, cli, mtop) with ASCII diagrams
+1. **Layout** — choose from 5 presets (minimal, pair, full, cli, btop) with ASCII diagrams
 2. **Editor** — pick from detected editors (claude, nvim, vim, code, etc.) or enter a custom command
 3. **Sidebar** — pick from detected tools (lazygit, gitui, tig, btop, etc.) or enter a custom command
 4. **Server pane** — plain shell, disabled, or a custom command (e.g. `npm run dev`)
@@ -181,7 +181,7 @@ Flags override both machine and per-project config for a single launch.
 
 | Flag | Description |
 |---|---|
-| `-l`, `--layout <preset>` | Use a layout preset (`minimal`, `full`, `pair`, `cli`, `mtop`) |
+| `-l`, `--layout <preset>` | Use a layout preset (`minimal`, `full`, `pair`, `cli`, `btop`) |
 | `-e`, `--editor <cmd>` | Override editor command |
 | `--panes <n>` | Override number of editor panes |
 | `--editor-size <n>` | Override editor width percentage |
@@ -209,7 +209,7 @@ Presets are named shortcuts for common layout configurations.
 | `pair` | 2 | yes (shell) | Two editors + dev server |
 | `minimal` | 1 | no | Simple editor + sidebar |
 | `cli` | 1 | yes (shell) | CLI tool development -- editor + server |
-| `mtop` | 2 | yes (shell) | System monitoring -- editor + mtop + server |
+| `btop` | 2 | yes (shell) | System monitoring -- editor + btop + server |
 
 Use a preset via CLI flag, per-project config, or machine config:
 
@@ -282,7 +282,7 @@ When summon launches, config values are resolved in this order (first wins):
 | `panes` | integer | `2` | Number of editor panes. |
 | `editor-size` | integer | `75` | Width percentage allocated to the editor grid. The sidebar gets the remainder. |
 | `server` | string | `true` | Server pane toggle: `true` (shell), `false` (none), or a command to run. |
-| `layout` | string | | Default layout preset (`minimal`, `full`, `pair`, `cli`, or `mtop`). |
+| `layout` | string | | Default layout preset (`minimal`, `full`, `pair`, `cli`, or `btop`). |
 | `auto-resize` | boolean | `true` | Auto-resize sidebar to match editor-size. |
 
 Machine config: `~/.config/summon/config`

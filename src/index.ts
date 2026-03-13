@@ -31,7 +31,7 @@ Usage:
 Options:
   -h, --help                  Show this help message
   -v, --version               Show version number
-  -l, --layout <preset>       Use a layout preset (minimal, full, pair, cli, mtop)
+  -l, --layout <preset>       Use a layout preset (minimal, full, pair, cli, btop)
   -e, --editor <cmd>          Override editor command
   --panes <n>                 Override number of editor panes
   --editor-size <n>           Override editor width %
@@ -55,7 +55,7 @@ Layout presets:
   full          3 editor panes + server
   pair          2 editor panes + server
   cli           1 editor pane + server
-  mtop          editor + mtop + server + lazygit sidebar
+  btop          editor + btop + server + lazygit sidebar
 
 Per-project config:
   Place a .summon file in your project root with key=value pairs.
@@ -164,7 +164,7 @@ if (values["editor-size"] !== undefined) {
 
 if (values.layout !== undefined && !isPresetName(values.layout)) {
   console.error(`Error: --layout must be a valid preset name, got "${values.layout}".`);
-  console.error(`Valid presets: minimal, full, pair, cli, mtop`);
+  console.error(`Valid presets: minimal, full, pair, cli, btop`);
   console.error(`Run 'summon --help' for usage information.`);
   process.exit(1);
 }
@@ -273,7 +273,7 @@ switch (subcommand) {
     if (key === "layout" && value !== undefined) {
       if (!isPresetName(value)) {
         console.error(`Error: layout must be a valid preset name, got "${value}".`);
-        console.error(`Valid presets: minimal, full, pair, cli, mtop`);
+        console.error(`Valid presets: minimal, full, pair, cli, btop`);
         process.exit(1);
       }
     }

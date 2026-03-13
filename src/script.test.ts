@@ -157,15 +157,15 @@ describe("generateAppleScript", () => {
     expect(script).not.toContain('input text "" to paneRoot');
   });
 
-  it("mtop preset uses secondary editor in right column via config", () => {
-    const plan = planLayout(getPreset("mtop"));
+  it("btop preset uses secondary editor in right column via config", () => {
+    const plan = planLayout(getPreset("btop"));
     const script = generateAppleScript(plan, "/tmp");
 
     // Left column root pane gets primary editor via input text
     expect(script).toContain('input text "claude" to paneRoot');
 
-    // Right column gets secondary editor (mtop) via config
-    expect(script).toContain("set command of cfg to \"/bin/bash -lc 'cd '\\\\''/tmp'\\\\'' && mtop'\"");
+    // Right column gets secondary editor (btop) via config
+    expect(script).toContain("set command of cfg to \"/bin/bash -lc 'cd '\\\\''/tmp'\\\\'' && btop'\"");
   });
 
   it("focuses root pane", () => {

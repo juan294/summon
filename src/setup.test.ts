@@ -352,7 +352,7 @@ describe("SIDEBAR_CATALOG", () => {
 describe("LAYOUT_INFO", () => {
   it("has entries for all 5 presets", () => {
     expect(Object.keys(LAYOUT_INFO)).toEqual(
-      expect.arrayContaining(["minimal", "pair", "full", "cli", "mtop"]),
+      expect.arrayContaining(["minimal", "pair", "full", "cli", "btop"]),
     );
     expect(Object.keys(LAYOUT_INFO)).toHaveLength(5);
   });
