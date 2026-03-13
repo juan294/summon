@@ -87,4 +87,53 @@ describe("CLI integration", () => {
     // Will either fail as unknown project or fail because Ghostty isn't available
     expect(result.status).not.toBe(0);
   });
+
+  describe("--panes validation", () => {
+    it("rejects non-numeric value", () => {
+      const result = run(".", "--panes", "foo");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("Error:");
+      expect(result.stderr).toContain("--panes");
+      expect(result.stderr).toContain("positive integer");
+      expect(result.stderr).toContain("summon --help");
+    });
+
+    it("rejects zero", () => {
+      const result = run(".", "--panes", "0");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("Error:");
+      expect(result.stderr).toContain("--panes");
+      expect(result.stderr).toContain("positive integer");
+      expect(result.stderr).toContain("summon --help");
+    });
+  });
+
+  describe("--editor-size validation", () => {
+    it("rejects non-numeric value", () => {
+      const result = run(".", "--editor-size", "abc");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("Error:");
+      expect(result.stderr).toContain("--editor-size");
+      expect(result.stderr).toContain("1-99");
+      expect(result.stderr).toContain("summon --help");
+    });
+
+    it("rejects zero", () => {
+      const result = run(".", "--editor-size", "0");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("Error:");
+      expect(result.stderr).toContain("--editor-size");
+      expect(result.stderr).toContain("1-99");
+      expect(result.stderr).toContain("summon --help");
+    });
+
+    it("rejects 100", () => {
+      const result = run(".", "--editor-size", "100");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("Error:");
+      expect(result.stderr).toContain("--editor-size");
+      expect(result.stderr).toContain("1-99");
+      expect(result.stderr).toContain("summon --help");
+    });
+  });
 });
