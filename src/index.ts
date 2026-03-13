@@ -244,10 +244,16 @@ switch (subcommand) {
     const target = subcommand;
     let targetDir: string;
 
-    if (target === ".") {
-      targetDir = process.cwd();
+    if (target === "." || target === "..") {
+      targetDir = resolve(target);
     } else if (target.startsWith("/") || target.startsWith("~")) {
       targetDir = expandHome(target);
+    } else if (
+      target.startsWith("./") ||
+      target.startsWith("../") ||
+      target.includes("/")
+    ) {
+      targetDir = resolve(target);
     } else {
       const path = getProject(target);
       if (!path) {
