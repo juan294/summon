@@ -321,34 +321,13 @@ describe("CLI integration", () => {
 
   // #46: Validate server values in `summon set`
   describe("set server validation (#46)", () => {
-    it("warns on ambiguous server value", () => {
-      const result = run("set", "server", "yes");
-      expect(result.status).toBe(0);
-      expect(result.stderr).toContain("Hint:");
-    });
-
-    it("does not warn for 'true'", () => {
-      const result = run("set", "server", "true");
-      expect(result.status).toBe(0);
-      expect(result.stderr).not.toContain("Hint:");
-    });
-
-    it("does not warn for 'false'", () => {
-      const result = run("set", "server", "false");
-      expect(result.status).toBe(0);
-      expect(result.stderr).not.toContain("Hint:");
-    });
-
-    it("does not warn for a command with '/'", () => {
-      const result = run("set", "server", "/usr/bin/python");
-      expect(result.status).toBe(0);
-      expect(result.stderr).not.toContain("Hint:");
-    });
-
-    it("does not warn for a command with spaces", () => {
-      const result = run("set", "server", "npm run dev");
-      expect(result.status).toBe(0);
-      expect(result.stderr).not.toContain("Hint:");
+    // #67: Hint removed — all valid server values are accepted without warning
+    it("does not show a hint for any server value", () => {
+      for (const val of ["true", "false", "python", "yes", "/usr/bin/python", "npm run dev"]) {
+        const result = run("set", "server", val);
+        expect(result.status).toBe(0);
+        expect(result.stderr).not.toContain("Hint:");
+      }
     });
   });
 

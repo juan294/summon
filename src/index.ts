@@ -239,9 +239,6 @@ switch (subcommand) {
       console.error(`Unknown config key "${key}". Valid keys: ${VALID_KEYS.join(", ")}`);
       process.exit(1);
     }
-    if (key === "server" && value !== undefined && value !== "true" && value !== "false" && !value.includes("/") && !value.includes(" ")) {
-      console.error(`Hint: server accepts "true", "false", or a command (e.g. "npm run dev"). Got "${value}".`);
-    }
     if (value !== undefined) {
       setConfig(key, value);
       console.log(`Set ${key} → ${value}`);
