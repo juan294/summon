@@ -242,6 +242,31 @@ switch (subcommand) {
     if (key === "server" && value !== undefined && value !== "true" && value !== "false" && !value.includes("/") && !value.includes(" ")) {
       console.error(`Hint: server accepts "true", "false", or a command (e.g. "npm run dev"). Got "${value}".`);
     }
+    if (key === "panes" && value !== undefined) {
+      if (!parseIntInRange(value, PANES_MIN).ok) {
+        console.error(`Error: panes must be a positive integer (>= ${PANES_MIN}), got "${value}".`);
+        process.exit(1);
+      }
+    }
+    if (key === "editor-size" && value !== undefined) {
+      if (!parseIntInRange(value, EDITOR_SIZE_MIN, EDITOR_SIZE_MAX).ok) {
+        console.error(`Error: editor-size must be an integer between ${EDITOR_SIZE_MIN}-${EDITOR_SIZE_MAX}, got "${value}".`);
+        process.exit(1);
+      }
+    }
+    if (key === "layout" && value !== undefined) {
+      if (!isPresetName(value)) {
+        console.error(`Error: layout must be a valid preset name, got "${value}".`);
+        console.error(`Valid presets: minimal, full, pair, cli, mtop`);
+        process.exit(1);
+      }
+    }
+    if (key === "auto-resize" && value !== undefined) {
+      if (value !== "true" && value !== "false") {
+        console.error(`Error: auto-resize must be "true" or "false", got "${value}".`);
+        process.exit(1);
+      }
+    }
     if (value !== undefined) {
       setConfig(key, value);
       console.log(`Set ${key} → ${value}`);
