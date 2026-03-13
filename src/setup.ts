@@ -149,7 +149,11 @@ export async function numberedSelect(
 
         const num = parseInt(trimmed, 10);
         if (Number.isNaN(num) || num < 1 || num > options.length) {
-          // Re-prompt
+          console.log(
+            yellow(
+              `  Invalid selection. Please enter a number between 1 and ${options.length}.`,
+            ),
+          );
           resolve(ask());
           return;
         }
@@ -224,6 +228,7 @@ export async function confirm(question: string): Promise<boolean> {
         }
 
         // Re-prompt on invalid input
+        console.log(yellow("  Please enter y or n."));
         resolve(ask());
       });
     });
@@ -449,6 +454,11 @@ export async function selectToolFromCatalog(
           }
           const num = parseInt(trimmed, 10);
           if (Number.isNaN(num) || num < 1 || num > sorted.length) {
+            console.log(
+              yellow(
+                `  Invalid selection. Please enter a number between 1 and ${sorted.length}, or "c" for custom.`,
+              ),
+            );
             resolve(askTool());
             return;
           }
