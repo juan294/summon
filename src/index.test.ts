@@ -127,6 +127,31 @@ describe("CLI integration", () => {
     });
   });
 
+  describe("relative path resolution", () => {
+    it("resolves ./somedir as a path, not a project name", () => {
+      const result = run("./somedir");
+      expect(result.status).not.toBe(0);
+      // Should resolve as a path and fail with "Directory not found",
+      // NOT "Unknown project"
+      expect(result.stderr).not.toContain("Unknown project");
+      expect(result.stderr).toContain("Directory not found");
+    });
+
+    it("resolves ../somedir as a path, not a project name", () => {
+      const result = run("../somedir");
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).not.toContain("Unknown project");
+      expect(result.stderr).toContain("Directory not found");
+    });
+
+    it("resolves somedir/subdir as a path, not a project name", () => {
+      const result = run("somedir/subdir");
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).not.toContain("Unknown project");
+      expect(result.stderr).toContain("Directory not found");
+    });
+  });
+
   describe("--panes validation", () => {
     it("rejects non-numeric value", () => {
       const result = run(".", "--panes", "foo");
