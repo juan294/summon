@@ -30,7 +30,12 @@ function ensureGhostty(): void {
 }
 
 function executeScript(script: string): void {
-  execSync("osascript", { input: script, encoding: "utf-8" });
+  try {
+    execSync("osascript", { input: script, encoding: "utf-8" });
+  } catch {
+    console.error("Failed to execute workspace script. Is Ghostty running?");
+    process.exit(1);
+  }
 }
 
 /** Resolve a command name to its full path, or return null if not found. */

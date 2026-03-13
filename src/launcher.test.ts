@@ -575,6 +575,33 @@ describe("input validation", () => {
   });
 });
 
+describe("osascript error handling", () => {
+  it("shows user-friendly error when osascript execution fails", async () => {
+    vi.mocked(getConfig).mockReturnValue(undefined);
+    mockExecSync.mockImplementation((cmd: string, opts?: Record<string, unknown>) => {
+      if (cmd === "osascript" && opts?.input) {
+        throw new Error("osascript execution failed");
+      }
+      if (typeof cmd === "string" && cmd.startsWith("command -v "))
+        return "/usr/bin/stub\n";
+      return "";
+    });
+
+    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("process.exit");
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
+    expect(mockExit).toHaveBeenCalledWith(1);
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Failed to execute workspace script"),
+    );
+    mockExit.mockRestore();
+    errorSpy.mockRestore();
+  });
+});
+
 describe("path resolution", () => {
   it("passes resolved full paths to generateAppleScript", async () => {
     mockExecSync.mockImplementation((cmd: string) => {
