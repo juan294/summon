@@ -739,10 +739,10 @@ describe("falsy sidebarCommand guard", () => {
 
     await launch("/tmp/workspace");
 
-    // sidebar is empty, so plan.sidebarCommand is empty string, guard skips ensureAndResolve
+    // Empty sidebar falls through to default (lazygit), which gets resolved
     expect(mockGenerateAppleScript).toHaveBeenCalledWith(
       expect.objectContaining({
-        sidebarCommand: "",
+        sidebarCommand: "/usr/bin/stub",
       }),
       "/tmp/workspace",
       expect.any(String),
