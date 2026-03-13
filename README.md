@@ -138,6 +138,12 @@ Contributions are welcome! Please read the [Contributing Guide](CONTRIBUTING.md)
 
 This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.md). By participating, you are expected to uphold this code.
 
+## Trust Model
+
+`.summon` files configure commands that summon executes in each pane (`editor`, `sidebar`, `server`). Running `summon .` in a directory will execute whatever commands its `.summon` file specifies -- this is the same trust model as `Makefile`, direnv `.envrc`, or VS Code `.vscode/tasks.json`.
+
+**Always review `.summon` files before running summon in untrusted repositories.**
+
 ## Security
 
 To report a vulnerability, please follow the [Security Policy](SECURITY.md). Do not open a public issue.

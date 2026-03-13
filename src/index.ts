@@ -56,6 +56,8 @@ Layout presets:
 Per-project config:
   Place a .summon file in your project root with key=value pairs.
   Project config overrides machine config; CLI flags override both.
+  Note: .summon files can specify commands that will be executed.
+  Review .summon files before running summon in untrusted directories.
 
 Requires: macOS, Ghostty 1.3.0+
 
