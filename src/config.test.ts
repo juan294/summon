@@ -8,6 +8,7 @@ import {
   getConfig,
   listConfig,
   readKVFile,
+  resetConfigCache,
 } from "./config.js";
 
 // Mock the filesystem — config.ts uses module-level constants derived from
@@ -32,6 +33,7 @@ async function getStore(): Promise<Map<string, string>> {
 beforeEach(async () => {
   const store = await getStore();
   store.clear();
+  resetConfigCache();
 });
 
 describe("project CRUD", () => {
@@ -114,5 +116,34 @@ describe("readKVFile", () => {
   it("returns empty map for missing file", () => {
     const map = readKVFile("/nonexistent/.summon");
     expect(map.size).toBe(0);
+  });
+});
+
+describe("ensureConfig caching (#25)", () => {
+  it("calls mkdirSync only once across multiple config reads", async () => {
+    const fs = await import("node:fs");
+    const mkdirSpy = fs.mkdirSync as ReturnType<typeof vi.fn>;
+    mkdirSpy.mockClear();
+
+    // Multiple config operations that each call readKV → ensureConfig
+    getConfig("editor");
+    listConfig();
+    listProjects();
+    getProject("foo");
+
+    expect(mkdirSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("re-runs filesystem operations after resetConfigCache()", async () => {
+    const fs = await import("node:fs");
+    const mkdirSpy = fs.mkdirSync as ReturnType<typeof vi.fn>;
+    mkdirSpy.mockClear();
+
+    getConfig("editor");
+    expect(mkdirSpy).toHaveBeenCalledTimes(1);
+
+    resetConfigCache();
+    getConfig("editor");
+    expect(mkdirSpy).toHaveBeenCalledTimes(2);
   });
 });
