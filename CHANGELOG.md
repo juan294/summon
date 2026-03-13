@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-03-13
+
 ### Added
 
 - Experimental `--auto-resize` flag to resize sidebar to match editor-size
@@ -14,6 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Root pane now `cd`s into the project directory before launching editor
+- `summon set` rejects unknown config keys with exit 1
+- osascript execution failures show user-friendly error message
+- Config `writeKV` sanitizes newlines to prevent config file corruption
+
+### Changed
+
+- `ensureConfig` cached to avoid redundant filesystem reads
 
 ## [0.1.0] - 2026-03-13
 
@@ -36,5 +45,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CodeQL security scanning
 - Dependabot for npm and GitHub Actions
 
-[Unreleased]: https://github.com/juan294/summon/compare/v0.1.0...develop
+[Unreleased]: https://github.com/juan294/summon/compare/v0.2.0...develop
+[0.2.0]: https://github.com/juan294/summon/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/juan294/summon/releases/tag/v0.1.0
