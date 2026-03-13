@@ -80,6 +80,17 @@ describe("generateAppleScript", () => {
     expect(script).toContain('send key "enter" to paneRoot');
   });
 
+  it("sends cd to root pane before editor command", () => {
+    const plan = planLayout();
+    const script = generateAppleScript(plan, "/Users/me/code/myapp");
+
+    // Root pane must cd into the project directory first
+    expect(script).toContain('input text "cd \\"/Users/me/code/myapp\\"" to paneRoot');
+    const cdIndex = script.indexOf('input text "cd \\"/Users/me/code/myapp\\"" to paneRoot');
+    const editorIndex = script.indexOf('input text "claude" to paneRoot');
+    expect(cdIndex).toBeLessThan(editorIndex);
+  });
+
   it("sets sidebar command on config before split", () => {
     const plan = planLayout();
     const script = generateAppleScript(plan, "/tmp");
@@ -121,11 +132,11 @@ describe("generateAppleScript", () => {
     const plan = planLayout({ server: "true" });
     const script = generateAppleScript(plan, "/tmp");
 
-    // Only root pane gets input text (for editor command)
+    // Root pane gets cd + editor command via input text
     // Sidebar and right editor get commands via config
     // Server pane has no command (plain shell)
     const inputTexts = (script.match(/input text/g) ?? []).length;
-    expect(inputTexts).toBe(1); // just root pane editor
+    expect(inputTexts).toBe(2); // cd + editor on root pane
   });
 
   it("skips command for empty editor", () => {

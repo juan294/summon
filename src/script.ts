@@ -119,7 +119,8 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string): string
 
   blank();
 
-  // Root pane: send command via input text (buffered until summon exits)
+  // Root pane: cd into project directory, then launch editor
+  sendCommand("paneRoot", `cd "${targetDir}"`);
   if (editorCmd) {
     sendCommand("paneRoot", editorCmd);
   }

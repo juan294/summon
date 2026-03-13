@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Experimental `--auto-resize` flag to resize sidebar to match editor-size
 
+### Fixed
+
+- Root pane now `cd`s into the project directory before launching editor
+
 ## [0.1.0] - 2026-03-13
 
 ### Added
