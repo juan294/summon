@@ -4,7 +4,7 @@ import { createInterface } from "node:readline";
 import { execSync, execFileSync } from "node:child_process";
 import { planLayout, isPresetName, getPreset } from "./layout.js";
 import type { LayoutOptions } from "./layout.js";
-import { getConfig, readKVFile } from "./config.js";
+import { listConfig, readKVFile } from "./config.js";
 import { generateAppleScript } from "./script.js";
 
 const SAFE_COMMAND_RE = /^[a-zA-Z0-9_][a-zA-Z0-9_.+-]*$/;
@@ -51,16 +51,6 @@ function resolveCommand(cmd: string): string | null {
   }
 }
 
-/** Resolve the binary in a command string (e.g. "npm run dev" → "/usr/local/bin/npm run dev"). */
-function resolveFullPath(cmdString: string): string {
-  const parts = cmdString.split(" ");
-  const bin = parts[0]!;
-  const fullPath = resolveCommand(bin);
-  if (!fullPath) return cmdString;
-  parts[0] = fullPath;
-  return parts.join(" ");
-}
-
 function prompt(question: string): Promise<string> {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   return new Promise((resolve) => {
@@ -83,8 +73,9 @@ const KNOWN_INSTALL_COMMANDS: Record<string, () => [string, string[]] | null> = 
   },
 };
 
-async function ensureCommand(cmd: string): Promise<void> {
-  if (resolveCommand(cmd)) return;
+async function ensureCommand(cmd: string): Promise<string> {
+  const resolved = resolveCommand(cmd);
+  if (resolved) return resolved;
 
   const getInstall = KNOWN_INSTALL_COMMANDS[cmd];
   const installCmd = getInstall ? getInstall() : null;
@@ -120,12 +111,14 @@ async function ensureCommand(cmd: string): Promise<void> {
     process.exit(1);
   }
 
-  if (!resolveCommand(cmd)) {
+  const postInstallPath = resolveCommand(cmd);
+  if (!postInstallPath) {
     console.error(`\`${cmd}\` still not found after install. Please check your PATH.`);
     process.exit(1);
   }
 
   console.log(`\`${cmd}\` installed successfully!\n`);
+  return postInstallPath;
 }
 
 interface ResolvedConfig {
@@ -134,9 +127,10 @@ interface ResolvedConfig {
 
 export function resolveConfig(targetDir: string, cliOverrides: CLIOverrides): ResolvedConfig {
   const project = readKVFile(join(targetDir, ".summon"));
+  const machineConfig = listConfig();
 
   // Resolve layout preset: CLI > project > global
-  const layoutKey = cliOverrides.layout ?? project.get("layout") ?? getConfig("layout");
+  const layoutKey = cliOverrides.layout ?? project.get("layout") ?? machineConfig.get("layout");
   let base: Partial<LayoutOptions> = {};
   if (layoutKey) {
     if (isPresetName(layoutKey)) {
@@ -150,7 +144,7 @@ export function resolveConfig(targetDir: string, cliOverrides: CLIOverrides): Re
 
   // Layer: CLI > project > global > preset (for each config key)
   const pick = (cli: string | undefined, projKey: string): string | undefined =>
-    cli ?? project.get(projKey) ?? getConfig(projKey);
+    cli ?? project.get(projKey) ?? machineConfig.get(projKey);
 
   const editor = pick(cliOverrides.editor, "editor");
   const sidebar = pick(cliOverrides.sidebar, "sidebar");
@@ -201,22 +195,18 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
   const { opts } = resolveConfig(targetDir, cliOverrides ?? {});
   const plan = planLayout(opts);
 
-  if (plan.editor) await ensureCommand(plan.editor);
-  if (plan.sidebarCommand) await ensureCommand(plan.sidebarCommand);
-  if (plan.secondaryEditor) {
-    const secondaryBin = plan.secondaryEditor.split(" ")[0]!;
-    await ensureCommand(secondaryBin);
-  }
-  if (plan.serverCommand) {
-    const serverBin = plan.serverCommand.split(" ")[0]!;
-    await ensureCommand(serverBin);
-  }
+  // Ensure commands exist and resolve to full paths in one pass
+  // (avoids duplicate resolveCommand calls per binary)
+  const ensureAndResolve = async (cmdString: string): Promise<string> => {
+    const parts = cmdString.split(" ");
+    parts[0] = await ensureCommand(parts[0]!);
+    return parts.join(" ");
+  };
 
-  // Resolve to full paths — Ghostty's config-launched panes use non-login shells without PATH
-  if (plan.editor) plan.editor = resolveFullPath(plan.editor);
-  if (plan.sidebarCommand) plan.sidebarCommand = resolveFullPath(plan.sidebarCommand);
-  if (plan.secondaryEditor) plan.secondaryEditor = resolveFullPath(plan.secondaryEditor);
-  if (plan.serverCommand) plan.serverCommand = resolveFullPath(plan.serverCommand);
+  if (plan.editor) plan.editor = await ensureAndResolve(plan.editor);
+  if (plan.sidebarCommand) plan.sidebarCommand = await ensureAndResolve(plan.sidebarCommand);
+  if (plan.secondaryEditor) plan.secondaryEditor = await ensureAndResolve(plan.secondaryEditor);
+  if (plan.serverCommand) plan.serverCommand = await ensureAndResolve(plan.serverCommand);
 
   const loginShell = process.env.SHELL ?? "/bin/bash";
   const script = generateAppleScript(plan, targetDir, loginShell);

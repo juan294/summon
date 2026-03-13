@@ -12,6 +12,7 @@ vi.mock("node:child_process", () => ({
 const mockReadKVFile = vi.fn((_path: string) => new Map<string, string>());
 vi.mock("./config.js", () => ({
   getConfig: vi.fn(),
+  listConfig: vi.fn(() => new Map<string, string>()),
   readKVFile: (path: string) => mockReadKVFile(path),
 }));
 
@@ -38,7 +39,7 @@ vi.mock("./script.js", () => ({
 
 // Import after mocks are set up
 const { launch, resolveConfig } = await import("./launcher.js");
-const { getConfig } = await import("./config.js");
+const { getConfig, listConfig } = await import("./config.js");
 const { existsSync } = await import("node:fs");
 
 beforeEach(() => {
@@ -51,6 +52,7 @@ beforeEach(() => {
   });
   vi.mocked(existsSync).mockReturnValue(true);
   mockReadKVFile.mockReturnValue(new Map<string, string>());
+  vi.mocked(listConfig).mockReturnValue(new Map<string, string>());
   mockGenerateAppleScript.mockReturnValue('tell application "Ghostty"\nend tell');
 });
 
@@ -88,7 +90,7 @@ describe("Ghostty detection", () => {
 
 describe("script execution", () => {
   it("executes generated script via osascript", async () => {
-    vi.mocked(getConfig).mockReturnValue(undefined);
+    vi.mocked(listConfig).mockReturnValue(new Map());
 
     await launch("/tmp/workspace");
 
@@ -99,7 +101,7 @@ describe("script execution", () => {
   });
 
   it("prints script to stdout in dry-run mode without executing", async () => {
-    vi.mocked(getConfig).mockReturnValue(undefined);
+    vi.mocked(listConfig).mockReturnValue(new Map());
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
     await launch("/tmp/workspace", { dryRun: true });
@@ -114,7 +116,7 @@ describe("script execution", () => {
   });
 
   it("passes correct plan and directory to generateAppleScript", async () => {
-    vi.mocked(getConfig).mockReturnValue(undefined);
+    vi.mocked(listConfig).mockReturnValue(new Map());
 
     await launch("/tmp/workspace", { layout: "minimal" });
 
@@ -130,7 +132,7 @@ describe("script execution", () => {
   });
 
   it("passes login shell to generateAppleScript", async () => {
-    vi.mocked(getConfig).mockReturnValue(undefined);
+    vi.mocked(listConfig).mockReturnValue(new Map());
 
     await launch("/tmp/workspace");
 
@@ -141,10 +143,7 @@ describe("script execution", () => {
 
 describe("config resolution", () => {
   it("project config overrides global config", () => {
-    vi.mocked(getConfig).mockImplementation((key: string) => {
-      if (key === "editor") return "claude";
-      return undefined;
-    });
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "claude"]]));
     mockReadKVFile.mockReturnValue(new Map([["editor", "vim"]]));
 
     const { opts } = resolveConfig("/tmp/workspace", {});
@@ -165,7 +164,7 @@ describe("config resolution", () => {
         ["panes", "4"],
       ]),
     );
-    vi.mocked(getConfig).mockReturnValue(undefined);
+    vi.mocked(listConfig).mockReturnValue(new Map());
 
     const { opts } = resolveConfig("/tmp/workspace", {});
     // Preset minimal sets editorPanes=1, but project overrides to 4
@@ -177,7 +176,7 @@ describe("config resolution", () => {
   it("unknown preset warns and falls through to defaults", () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     mockReadKVFile.mockReturnValue(new Map([["layout", "bogus"]]));
-    vi.mocked(getConfig).mockReturnValue(undefined);
+    vi.mocked(listConfig).mockReturnValue(new Map());
 
     const { opts } = resolveConfig("/tmp/workspace", {});
     expect(warnSpy).toHaveBeenCalledWith(
@@ -190,7 +189,7 @@ describe("config resolution", () => {
   it("unknown preset warning lists all valid presets", () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     mockReadKVFile.mockReturnValue(new Map([["layout", "invalid"]]));
-    vi.mocked(getConfig).mockReturnValue(undefined);
+    vi.mocked(listConfig).mockReturnValue(new Map());
 
     resolveConfig("/tmp/workspace", {});
 
@@ -206,7 +205,7 @@ describe("config resolution", () => {
 
 describe("command dependency checks", () => {
   it("checks editor and sidebar commands before launching", async () => {
-    vi.mocked(getConfig).mockReturnValue(undefined);
+    vi.mocked(listConfig).mockReturnValue(new Map());
 
     await launch("/tmp/workspace");
 
@@ -220,7 +219,7 @@ describe("command dependency checks", () => {
   });
 
   it("already-installed commands proceed without prompting", async () => {
-    vi.mocked(getConfig).mockReturnValue(undefined);
+    vi.mocked(listConfig).mockReturnValue(new Map());
 
     await launch("/tmp/workspace");
 
@@ -239,7 +238,7 @@ describe("command dependency checks", () => {
         return "/usr/bin/stub\n";
       return "";
     });
-    vi.mocked(getConfig).mockReturnValue(undefined);
+    vi.mocked(listConfig).mockReturnValue(new Map());
 
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
       cb("y");
@@ -265,11 +264,7 @@ describe("command dependency checks", () => {
         return "/usr/bin/stub\n";
       return "";
     });
-    vi.mocked(getConfig).mockImplementation((key: string) => {
-      if (key === "editor") return "obscure-tool";
-      if (key === "sidebar") return "htop";
-      return undefined;
-    });
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "obscure-tool"], ["sidebar", "htop"]]));
 
     const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
       throw new Error("process.exit");
@@ -287,11 +282,7 @@ describe("command dependency checks", () => {
         return "/usr/bin/stub\n";
       return "";
     });
-    vi.mocked(getConfig).mockImplementation((key: string) => {
-      if (key === "editor") return "obscure-tool";
-      if (key === "sidebar") return "htop";
-      return undefined;
-    });
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "obscure-tool"], ["sidebar", "htop"]]));
 
     const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
       throw new Error("process.exit");
@@ -310,11 +301,7 @@ describe("command dependency checks", () => {
   });
 
   it("skips check when editor and sidebar are empty strings", async () => {
-    vi.mocked(getConfig).mockImplementation((key: string) => {
-      if (key === "editor") return "";
-      if (key === "sidebar") return "";
-      return undefined;
-    });
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", ""], ["sidebar", ""]]));
 
     await launch("/tmp/workspace");
 
@@ -331,7 +318,7 @@ describe("command dependency checks", () => {
         return "/usr/bin/stub\n";
       return "";
     });
-    vi.mocked(getConfig).mockReturnValue(undefined);
+    vi.mocked(listConfig).mockReturnValue(new Map());
 
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
       cb("n");
@@ -349,7 +336,7 @@ describe("command dependency checks", () => {
 
 describe("secondaryEditor binary check", () => {
   it("checks secondaryEditor binary when mtop preset is used", async () => {
-    vi.mocked(getConfig).mockReturnValue(undefined);
+    vi.mocked(listConfig).mockReturnValue(new Map());
 
     await launch("/tmp/workspace", { layout: "mtop" });
 
@@ -370,7 +357,7 @@ describe("ensureCommand error paths", () => {
     mockExecFileSync.mockImplementation(() => {
       throw new Error("install failed");
     });
-    vi.mocked(getConfig).mockReturnValue(undefined);
+    vi.mocked(listConfig).mockReturnValue(new Map());
 
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
       cb("y");
@@ -398,7 +385,7 @@ describe("ensureCommand error paths", () => {
       return "";
     });
     mockExecFileSync.mockReturnValue(Buffer.from(""));
-    vi.mocked(getConfig).mockReturnValue(undefined);
+    vi.mocked(listConfig).mockReturnValue(new Map());
 
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
       cb("y");
@@ -432,7 +419,7 @@ describe("lazygit install handler", () => {
         return "/usr/bin/stub\n";
       return "";
     });
-    vi.mocked(getConfig).mockReturnValue(undefined);
+    vi.mocked(listConfig).mockReturnValue(new Map());
 
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
       cb("y");
@@ -460,7 +447,7 @@ describe("lazygit install handler", () => {
         return "";
       return "";
     });
-    vi.mocked(getConfig).mockReturnValue(undefined);
+    vi.mocked(listConfig).mockReturnValue(new Map());
 
     const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
       throw new Error("process.exit");
@@ -482,10 +469,7 @@ describe("lazygit install handler", () => {
 
 describe("command name validation", () => {
   it("rejects command names with shell injection characters", async () => {
-    vi.mocked(getConfig).mockImplementation((key: string) => {
-      if (key === "editor") return "foo; rm -rf /";
-      return undefined;
-    });
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "foo; rm -rf /"]]));
 
     const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
       throw new Error("process.exit");
@@ -502,10 +486,7 @@ describe("command name validation", () => {
   });
 
   it("rejects command names with backticks", async () => {
-    vi.mocked(getConfig).mockImplementation((key: string) => {
-      if (key === "editor") return "`evil`";
-      return undefined;
-    });
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "`evil`"]]));
 
     const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
       throw new Error("process.exit");
@@ -519,11 +500,7 @@ describe("command name validation", () => {
   });
 
   it("accepts valid command names with dots and hyphens", async () => {
-    vi.mocked(getConfig).mockImplementation((key: string) => {
-      if (key === "editor") return "my-editor.v2";
-      if (key === "sidebar") return "htop";
-      return undefined;
-    });
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "my-editor.v2"], ["sidebar", "htop"]]));
 
     await launch("/tmp/workspace");
 
@@ -536,7 +513,7 @@ describe("command name validation", () => {
 describe("input validation", () => {
   it("warns and uses default when panes is NaN", () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    vi.mocked(getConfig).mockReturnValue(undefined);
+    vi.mocked(listConfig).mockReturnValue(new Map());
 
     const { opts } = resolveConfig("/tmp/workspace", { panes: "abc" });
     expect(opts.editorPanes).toBe(2);
@@ -546,7 +523,7 @@ describe("input validation", () => {
 
   it("warns and uses default when panes is zero", () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    vi.mocked(getConfig).mockReturnValue(undefined);
+    vi.mocked(listConfig).mockReturnValue(new Map());
 
     const { opts } = resolveConfig("/tmp/workspace", { panes: "0" });
     expect(opts.editorPanes).toBe(2);
@@ -556,7 +533,7 @@ describe("input validation", () => {
 
   it("warns and uses default when panes is negative", () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    vi.mocked(getConfig).mockReturnValue(undefined);
+    vi.mocked(listConfig).mockReturnValue(new Map());
 
     const { opts } = resolveConfig("/tmp/workspace", { panes: "-2" });
     expect(opts.editorPanes).toBe(2);
@@ -566,7 +543,7 @@ describe("input validation", () => {
 
   it("warns and uses default when editorSize is 0", () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    vi.mocked(getConfig).mockReturnValue(undefined);
+    vi.mocked(listConfig).mockReturnValue(new Map());
 
     const { opts } = resolveConfig("/tmp/workspace", { "editor-size": "0" });
     expect(opts.editorSize).toBe(75);
@@ -576,7 +553,7 @@ describe("input validation", () => {
 
   it("warns and uses default when editorSize is out of range", () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    vi.mocked(getConfig).mockReturnValue(undefined);
+    vi.mocked(listConfig).mockReturnValue(new Map());
 
     const { opts } = resolveConfig("/tmp/workspace", { "editor-size": "150" });
     expect(opts.editorSize).toBe(75);
@@ -586,7 +563,7 @@ describe("input validation", () => {
 
   it("warns and uses default when editorSize is NaN", () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    vi.mocked(getConfig).mockReturnValue(undefined);
+    vi.mocked(listConfig).mockReturnValue(new Map());
 
     const { opts } = resolveConfig("/tmp/workspace", { "editor-size": "big" });
     expect(opts.editorSize).toBe(75);
@@ -596,7 +573,7 @@ describe("input validation", () => {
 
   it("accepts valid panes value", () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    vi.mocked(getConfig).mockReturnValue(undefined);
+    vi.mocked(listConfig).mockReturnValue(new Map());
 
     const { opts } = resolveConfig("/tmp/workspace", { panes: "5" });
     expect(opts.editorPanes).toBe(5);
@@ -606,7 +583,7 @@ describe("input validation", () => {
 
   it("accepts valid editorSize value", () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    vi.mocked(getConfig).mockReturnValue(undefined);
+    vi.mocked(listConfig).mockReturnValue(new Map());
 
     const { opts } = resolveConfig("/tmp/workspace", { "editor-size": "60" });
     expect(opts.editorSize).toBe(60);
@@ -617,7 +594,7 @@ describe("input validation", () => {
 
 describe("osascript error handling", () => {
   it("shows user-friendly error when osascript execution fails", async () => {
-    vi.mocked(getConfig).mockReturnValue(undefined);
+    vi.mocked(listConfig).mockReturnValue(new Map());
     mockExecSync.mockImplementation((cmd: string, opts?: Record<string, unknown>) => {
       if (cmd === "osascript" && opts?.input) {
         throw new Error("osascript execution failed");
@@ -642,6 +619,85 @@ describe("osascript error handling", () => {
   });
 });
 
+describe("config read caching (#31)", () => {
+  it("reads machine config once via listConfig instead of per-key getConfig calls", () => {
+    vi.mocked(listConfig).mockReturnValue(
+      new Map([
+        ["editor", "vim"],
+        ["sidebar", "htop"],
+      ]),
+    );
+    mockReadKVFile.mockReturnValue(new Map<string, string>());
+
+    resolveConfig("/tmp/workspace", {});
+
+    // listConfig should be called exactly once
+    expect(listConfig).toHaveBeenCalledTimes(1);
+    // getConfig should NOT be called at all (replaced by listConfig)
+    expect(getConfig).not.toHaveBeenCalled();
+  });
+
+  it("correctly resolves values from cached config", () => {
+    vi.mocked(listConfig).mockReturnValue(
+      new Map([
+        ["editor", "vim"],
+        ["sidebar", "htop"],
+        ["panes", "3"],
+      ]),
+    );
+    mockReadKVFile.mockReturnValue(new Map<string, string>());
+
+    const { opts } = resolveConfig("/tmp/workspace", {});
+
+    expect(opts.editor).toBe("vim");
+    expect(opts.sidebarCommand).toBe("htop");
+    expect(opts.editorPanes).toBe(3);
+  });
+});
+
+describe("command resolution deduplication (#32)", () => {
+  it("calls resolveCommand only once per binary during launch", async () => {
+    vi.mocked(listConfig).mockReturnValue(new Map());
+    mockExecSync.mockImplementation((cmd: string) => {
+      if (cmd === "command -v claude") return "/usr/bin/claude\n";
+      if (cmd === "command -v lazygit") return "/usr/bin/lazygit\n";
+      if (typeof cmd === "string" && cmd.startsWith("command -v "))
+        return "/usr/bin/stub\n";
+      return "";
+    });
+
+    await launch("/tmp/workspace");
+
+    // Each binary should be resolved exactly once, not twice
+    const claudeCalls = mockExecSync.mock.calls.filter(
+      (c) => c[0] === "command -v claude",
+    );
+    const lazygitCalls = mockExecSync.mock.calls.filter(
+      (c) => c[0] === "command -v lazygit",
+    );
+    expect(claudeCalls).toHaveLength(1);
+    expect(lazygitCalls).toHaveLength(1);
+  });
+
+  it("uses ensureCommand return value for path resolution instead of re-resolving", async () => {
+    vi.mocked(listConfig).mockReturnValue(new Map());
+    mockExecSync.mockImplementation((cmd: string) => {
+      if (cmd === "command -v npm") return "/usr/local/bin/npm\n";
+      if (typeof cmd === "string" && cmd.startsWith("command -v "))
+        return "/usr/bin/stub\n";
+      return "";
+    });
+
+    await launch("/tmp/workspace", { server: "npm run dev" });
+
+    // "command -v npm" should be called only once
+    const npmCalls = mockExecSync.mock.calls.filter(
+      (c) => c[0] === "command -v npm",
+    );
+    expect(npmCalls).toHaveLength(1);
+  });
+});
+
 describe("path resolution", () => {
   it("passes resolved full paths to generateAppleScript", async () => {
     mockExecSync.mockImplementation((cmd: string) => {
@@ -651,7 +707,7 @@ describe("path resolution", () => {
         return "/usr/bin/stub\n";
       return "";
     });
-    vi.mocked(getConfig).mockReturnValue(undefined);
+    vi.mocked(listConfig).mockReturnValue(new Map());
 
     await launch("/tmp/workspace");
 
@@ -672,7 +728,7 @@ describe("path resolution", () => {
         return "/usr/bin/stub\n";
       return "";
     });
-    vi.mocked(getConfig).mockReturnValue(undefined);
+    vi.mocked(listConfig).mockReturnValue(new Map());
 
     await launch("/tmp/workspace", { server: "npm run dev" });
 
