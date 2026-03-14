@@ -57,7 +57,7 @@
 #       <key>TERM</key>
 #       <string>xterm-256color</string>
 #       <key>PATH</key>
-#       <string>/usr/local/bin:/opt/homebrew/bin:/Users/juan/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+#       <string>/opt/homebrew/bin:/usr/local/bin:/Users/juan/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
 #     </dict>
 #     <key>StandardOutPath</key>
 #     <string>/Users/juan/Documents/code/summon/logs/cc-rpi-update.log</string>
@@ -89,7 +89,7 @@ CLAUDE_BIN="${CLAUDE_BIN:-$HOME/.local/bin/claude}"
 # ── Environment setup (required for launchd) ──
 export HOME="${HOME:-$(eval echo ~"$(whoami)")}"
 export TERM="${TERM:-xterm-256color}"
-export PATH="/usr/local/bin:/opt/homebrew/bin:$HOME/.local/bin:$PATH"
+export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$PATH"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
