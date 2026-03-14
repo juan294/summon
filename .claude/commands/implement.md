@@ -14,7 +14,7 @@ Process:
       does the code match what the plan specified? Are all items addressed?
    c. If reviewer requests fixes, send back to implementer.
    d. Repeat until reviewer approves.
-   e. Run `/simplify` on the changed files -- this is Anthropic's native code quality pass
+   e. Run `/simplify` on the changed files — this is Anthropic's native code quality pass
       (reuse, quality, efficiency). It spawns 3 specialized agents and applies fixes.
    f. Run ALL automated verification commands (tests, typecheck, lint, build).
    g. Update checkboxes in the plan file.
