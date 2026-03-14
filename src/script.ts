@@ -57,8 +57,8 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginSh
   if (plan.fontSize !== null) {
     add(1, `set font size of cfg to ${plan.fontSize}`);
   }
-  // Build combined env vars list (Starship + user-defined)
-  const allEnvVars: string[] = [];
+  // Build combined env vars list (workspace marker + Starship + user-defined)
+  const allEnvVars: string[] = ["SUMMON_WORKSPACE=1"];
   if (starshipConfigPath) {
     allEnvVars.push(`STARSHIP_CONFIG=${starshipConfigPath}`);
   }
@@ -67,10 +67,8 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginSh
       allEnvVars.push(`${key}=${value}`);
     }
   }
-  if (allEnvVars.length > 0) {
-    const escaped = allEnvVars.map(e => `"${escapeAppleScript(e)}"`).join(", ");
-    add(1, `set environment variables of cfg to {${escaped}}`);
-  }
+  const escaped = allEnvVars.map(e => `"${escapeAppleScript(e)}"`).join(", ");
+  add(1, `set environment variables of cfg to {${escaped}}`);
   blank();
 
   // Get or create window for workspace
@@ -318,8 +316,8 @@ export function generateTreeAppleScript(
     add(1, `set font size of cfg to ${plan.fontSize}`);
   }
 
-  // Build combined env vars list (Starship + user-defined)
-  const allEnvVars: string[] = [];
+  // Build combined env vars list (workspace marker + Starship + user-defined)
+  const allEnvVars: string[] = ["SUMMON_WORKSPACE=1"];
   if (starshipConfigPath) {
     allEnvVars.push(`STARSHIP_CONFIG=${starshipConfigPath}`);
   }
@@ -328,10 +326,8 @@ export function generateTreeAppleScript(
       allEnvVars.push(`${key}=${value}`);
     }
   }
-  if (allEnvVars.length > 0) {
-    const escaped = allEnvVars.map(e => `"${escapeAppleScript(e)}"`).join(", ");
-    add(1, `set environment variables of cfg to {${escaped}}`);
-  }
+  const escaped = allEnvVars.map(e => `"${escapeAppleScript(e)}"`).join(", ");
+  add(1, `set environment variables of cfg to {${escaped}}`);
   blank();
 
   // Get or create window for workspace

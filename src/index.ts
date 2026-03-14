@@ -306,8 +306,8 @@ if (isFirstRun() && process.stdin.isTTY) {
 }
 
 if (!subcommand) {
-  console.error("Usage: summon <target>\n\nRun 'summon --help' for usage information.");
-  process.exit(1);
+  showHelp();
+  process.exit(0);
 }
 
 function buildOverrides(): CLIOverrides {

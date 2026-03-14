@@ -528,7 +528,7 @@ describe("selectToolFromCatalog", () => {
     logSpy.mockRestore();
   });
 
-  it("sorts detected tools before undetected", async () => {
+  it("shows only detected tools", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     // Make "nano" available but "vim" not
     mockExecFileSync.mockImplementation((_bin: string, args?: string[]) => {
@@ -546,8 +546,16 @@ describe("selectToolFromCatalog", () => {
       "Editor",
       "vim",
     );
-    // First option should be nano (detected), so selecting "1" gives nano
+    // First (and only) listed option should be nano (detected)
     expect(result).toBe("nano");
+    const allOutput = logSpy.mock.calls.map((c) => String(c[0]));
+    // nano should appear in the tool listing
+    expect(allOutput.some((s) => s.includes("nano"))).toBe(true);
+    // vim should NOT appear in the tool listing (it's unavailable)
+    // Use a pattern that matches the numbered list format, not the describe block
+    expect(
+      allOutput.some((s) => s.includes("vim") && s.includes("Editor")),
+    ).toBe(false);
     logSpy.mockRestore();
   });
 
@@ -573,13 +581,13 @@ describe("selectToolFromCatalog", () => {
     logSpy.mockRestore();
   });
 
-  it("defaults to fallback when no tools detected", async () => {
+  it("falls through to custom input when no tools detected", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     mockExecFileSync.mockImplementation(() => {
       throw new Error("not found");
     });
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) =>
-      cb(""),
+      cb("my-tool"),
     );
     const result = await selectToolFromCatalog(
       [
@@ -589,7 +597,11 @@ describe("selectToolFromCatalog", () => {
       "Editor",
       "claude",
     );
-    expect(result).toBe("claude");
+    expect(result).toBe("my-tool");
+    const allOutput = logSpy.mock.calls.map((c) => String(c[0]));
+    expect(
+      allOutput.some((s) => s.includes("No known tools detected")),
+    ).toBe(true);
     logSpy.mockRestore();
   });
 
@@ -612,6 +624,36 @@ describe("selectToolFromCatalog", () => {
     expect(result).toBe("vim");
     const allOutput = logSpy.mock.calls.map((c) => String(c[0]));
     expect(allOutput.some((s) => s.includes("Invalid selection"))).toBe(true);
+    logSpy.mockRestore();
+  });
+
+  it("does not display unavailable tools in the list", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    // Make "nano" available but "vim" not
+    mockExecFileSync.mockImplementation((_bin: string, args?: string[]) => {
+      if (Array.isArray(args) && args[3] === "nano") return "/usr/bin/nano\n";
+      throw new Error("not found");
+    });
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) =>
+      cb("1"),
+    );
+    await selectToolFromCatalog(
+      [
+        { cmd: "vim", name: "Vim", desc: "Editor" },
+        { cmd: "nano", name: "Nano", desc: "Simple" },
+      ],
+      "Editor",
+      "vim",
+    );
+    const allOutput = logSpy.mock.calls.map((c) => String(c[0]));
+    // nano should appear in the numbered list
+    expect(allOutput.some((s) => s.includes("nano"))).toBe(true);
+    // vim should NOT appear in any numbered tool listing line
+    expect(
+      allOutput.some((s) => s.includes("vim") && /\d\)/.test(s)),
+    ).toBe(false);
+    // Custom command option should always be present
+    expect(allOutput.some((s) => s.includes("Custom command"))).toBe(true);
     logSpy.mockRestore();
   });
 });
