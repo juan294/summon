@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-03-14
+
+### Added
+
+- Interactive shell panes now receive a `clear` command after setup, removing the "Last login" message and any `export` commands from view
+
 ## [0.6.1] - 2026-03-14
 
 ### Fixed
@@ -203,7 +209,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CodeQL security scanning
 - Dependabot for npm and GitHub Actions
 
-[Unreleased]: https://github.com/juan294/summon/compare/v0.6.1...develop
+[Unreleased]: https://github.com/juan294/summon/compare/v0.6.2...develop
+[0.6.2]: https://github.com/juan294/summon/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/juan294/summon/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/juan294/summon/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/juan294/summon/compare/v0.4.1...v0.5.0

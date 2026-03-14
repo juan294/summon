@@ -144,9 +144,9 @@ describe("generateAppleScript", () => {
 
     // Root pane gets cd + editor command via input text
     // Sidebar and right editor get commands via config
-    // Shell pane has no command (plain shell)
+    // Shell pane has no command (plain shell) — gets clear instead
     const inputTexts = (script.match(/input text/g) ?? []).length;
-    expect(inputTexts).toBe(2); // cd + editor on root pane
+    expect(inputTexts).toBe(3); // cd + editor on root pane + clear on shell pane
   });
 
   it("skips command for empty editor", () => {
@@ -668,6 +668,47 @@ describe("generateAppleScript", () => {
       // The path should be present in the output (escaped appropriately)
       expect(script).toContain("STARSHIP_CONFIG=");
       expect(script).toContain("starship.toml");
+    });
+
+    it("interactive shell panes receive clear after STARSHIP_CONFIG export", () => {
+      const plan = planLayout(getPreset("cli"));
+      const script = generateAppleScript(plan, "/tmp/proj", "/bin/zsh", configPath);
+      // paneRightCol is an interactive shell pane
+      const lines = script.split("\n");
+      const exportIdx = lines.findIndex(
+        (l) => l.includes("export STARSHIP_CONFIG") && l.includes("paneRightCol"),
+      );
+      const clearIdx = lines.findIndex(
+        (l) => l.includes('input text "clear"') && l.includes("paneRightCol"),
+      );
+      expect(exportIdx).toBeGreaterThan(-1);
+      expect(clearIdx).toBeGreaterThan(-1);
+      expect(clearIdx).toBeGreaterThan(exportIdx);
+    });
+
+    it("interactive shell panes receive clear even without starship config", () => {
+      const plan = planLayout(getPreset("cli"));
+      const script = generateAppleScript(plan, "/tmp/proj", "/bin/zsh");
+      // No starship config, but interactive shell pane should still get clear
+      const lines = script.split("\n");
+      const clearLine = lines.some(
+        (l) => l.includes('input text "clear"') && l.includes("paneRightCol"),
+      );
+      expect(clearLine).toBe(true);
+    });
+
+    it("config-launched panes do not receive clear", () => {
+      const plan = planLayout(getPreset("pair"));
+      const script = generateAppleScript(plan, "/tmp/proj", "/bin/zsh", configPath);
+      // paneSidebar and paneRightCol have commands — they are NOT interactive
+      // Only paneRight2 (plain shell) should get clear
+      expect(script).not.toContain('input text "clear" to paneSidebar');
+      expect(script).not.toContain('input text "clear" to paneRightCol');
+      const lines = script.split("\n");
+      const clearShell = lines.some(
+        (l) => l.includes('input text "clear"') && l.includes("paneRight2"),
+      );
+      expect(clearShell).toBe(true);
     });
 
     it("all existing tests pass with starshipConfigPath omitted (backward compat)", () => {
