@@ -163,6 +163,10 @@ summon set shell false         # disable the shell pane
 summon set shell "npm run dev" # run a command in the shell pane
 summon set layout minimal       # default to the minimal preset
 summon set starship-preset tokyo-night  # per-workspace Starship prompt theme
+summon set font-size 14                # font size for panes
+summon set on-start "npm install"      # run before workspace creation
+summon set new-window true             # always open in a new window
+summon set env.API_URL http://localhost:3000  # per-workspace env var
 ```
 
 ### `summon config`
@@ -176,6 +180,38 @@ Machine config:
   sidebar → lazygit
   panes → 2
   editor-size → 75
+```
+
+### `summon open`
+
+Interactively select and launch a registered project. Lists all projects and prompts you to pick one by number. Any CLI flags passed are forwarded to the launch.
+
+```bash
+summon open
+summon open --layout minimal
+```
+
+### `summon export [path]`
+
+Export the resolved configuration as a `.summon` file. Writes to stdout by default, or to a file path if provided.
+
+```bash
+summon export                    # print to stdout
+summon export .summon            # write to file
+```
+
+### `summon doctor`
+
+Check your Ghostty config for recommended settings. Reports on three settings:
+
+- `window-save-state = always` — restore windows after restart
+- `notify-on-command-finish = unfocused` — notifications for long commands
+- `shell-integration = detect` — shell integration for status tracking
+
+Exits with status 1 if any issues are found.
+
+```bash
+summon doctor
 ```
 
 ### CLI Flags
@@ -193,6 +229,13 @@ Flags override both machine and per-project config for a single launch.
 | `--auto-resize` | Resize sidebar to match editor-size (default: on) |
 | `--no-auto-resize` | Disable auto-resize |
 | `--starship-preset <preset>` | Starship prompt preset name (per-workspace) |
+| `--font-size <n>` | Override font size for workspace panes |
+| `--env KEY=VALUE` | Set environment variable for all panes (repeatable) |
+| `--on-start <cmd>` | Run a command in the target directory before workspace creation |
+| `--new-window` | Open workspace in a new Ghostty window |
+| `--fullscreen` | Start workspace in fullscreen mode |
+| `--maximize` | Start workspace maximized |
+| `--float` | Float workspace window on top |
 | `-n`, `--dry-run` | Print generated AppleScript without executing |
 | `-h`, `--help` | Show help message |
 | `-v`, `--version` | Show version number |
@@ -307,6 +350,14 @@ layout=minimal
 editor=vim
 ```
 
+```ini
+# ~/code/api/.summon
+shell=npm run dev
+on-start=npm install
+env.PORT=3000
+env.NODE_ENV=development
+```
+
 ### Config Resolution Order
 
 When summon launches, config values are resolved in this order (first wins):
@@ -329,6 +380,12 @@ When summon launches, config values are resolved in this order (first wins):
 | `layout` | string | | Default layout preset (`minimal`, `full`, `pair`, `cli`, or `btop`). |
 | `auto-resize` | boolean | `true` | Auto-resize sidebar to match editor-size. |
 | `starship-preset` | string | | Starship prompt theme preset. When set, each workspace launches with `STARSHIP_CONFIG` pointing to a cached preset TOML file at `~/.config/summon/starship/<preset>.toml`. Requires [Starship](https://starship.rs) installed. |
+| `font-size` | number | | Font size for workspace panes (in points). |
+| `on-start` | string | | Command to run in the target directory before workspace creation. |
+| `new-window` | boolean | `false` | Open workspace in a new Ghostty window instead of reusing the front window. |
+| `fullscreen` | boolean | `false` | Start workspace in fullscreen mode. |
+| `maximize` | boolean | `false` | Start workspace maximized. |
+| `float` | boolean | `false` | Float workspace window on top of other windows. |
 
 Machine config: `~/.config/summon/config`
 Project config: `.summon` (in project root)
@@ -439,7 +496,7 @@ Files are plain text (`key=value` format) and safe to edit manually.
 
 ## Security — Shell Metacharacter Detection
 
-When summon reads a `.summon` file from a project directory, it checks the command keys (`editor`, `sidebar`, `shell`) for shell metacharacters: `;`, `|`, `&`, `` ` ``, `$(`, `<`, `>`.
+When summon reads a `.summon` file from a project directory, it checks the command keys (`editor`, `sidebar`, `shell`, `on-start`) for shell metacharacters: `;`, `|`, `&`, `` ` ``, `$(`, `${`, `<`, `>`.
 
 If any are found, summon displays the suspicious commands and prompts for confirmation:
 

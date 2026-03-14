@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-03-14
+
+### Added
+
+- Window management flags: `--new-window`, `--fullscreen`, `--maximize`, `--float` for controlling workspace window behavior
+- Per-workspace environment variables via `--env KEY=VALUE` (repeatable) and `summon set env.<KEY> <VALUE>`
+- Font size override via `--font-size <n>` flag and `font-size` config key
+- Pre-launch hook via `--on-start <cmd>` to run a command before workspace creation
+- `summon doctor` subcommand to check Ghostty config for recommended settings
+- `summon open` subcommand for interactive project selection and launch
+- `summon export [path]` subcommand to export resolved config as a `.summon` file
+- Environment variables and font size now set via Ghostty's `surface configuration` for automatic propagation to all panes
+
+### Fixed
+
+- Shell-quote env var values in root pane exports to prevent injection (#118)
+- `SHELL_META_RE` now catches `${...}` parameter expansion patterns (#119)
+- Env var key names validated against `[a-zA-Z_][a-zA-Z0-9_]*` pattern (#120)
+- Help text column alignment for config keys and window flags (#121)
+- Ambiguous flag hint: suggests `--flag=-value` syntax for values starting with `-` (#122)
+- Warning on empty command values in `summon set` (#123)
+- `summon doctor` exits with status 1 when issues found (#124)
+- Plural mismatch in dry-run output: "1 editor panes" → "1 editor pane" (#125)
+
+### Changed
+
+- Documentation updated: README, user manual, and architecture docs refreshed for all new features, subcommands, and config keys
+- Synced with cc-rpi blueprint v1.8.0 (added `/release`, `/update-docs`, `/detach` commands)
+
 ## [0.6.2] - 2026-03-14
 
 ### Added
@@ -209,7 +238,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CodeQL security scanning
 - Dependabot for npm and GitHub Actions
 
-[Unreleased]: https://github.com/juan294/summon/compare/v0.6.2...develop
+[Unreleased]: https://github.com/juan294/summon/compare/v0.7.0...develop
+[0.7.0]: https://github.com/juan294/summon/compare/v0.6.2...v0.7.0
 [0.6.2]: https://github.com/juan294/summon/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/juan294/summon/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/juan294/summon/compare/v0.5.0...v0.6.0

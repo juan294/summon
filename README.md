@@ -88,6 +88,7 @@ Drop a `.summon` file in your project root to override machine-level config:
 layout=minimal
 editor=vim
 shell=npm run dev
+env.PORT=3000
 ```
 
 Config resolution order: **CLI flags > .summon > machine config > preset > defaults**
@@ -103,6 +104,9 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 | `summon list` | List all registered projects |
 | `summon set <key> [value]` | Set a machine-level config value |
 | `summon config` | Show current machine configuration |
+| `summon open` | Select and launch a registered project interactively |
+| `summon export [path]` | Export resolved config as a `.summon` file |
+| `summon doctor` | Check Ghostty config for recommended settings |
 | `summon completions <shell>` | Generate shell completion script (`zsh`, `bash`) |
 
 ## CLI Flags
@@ -118,6 +122,13 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 | `--auto-resize` | Resize sidebar to match editor-size (default: on) |
 | `--no-auto-resize` | Disable auto-resize |
 | `--starship-preset <preset>` | Starship prompt preset name (per-workspace) |
+| `--font-size <n>` | Override font size for workspace panes |
+| `--env KEY=VALUE` | Set environment variable (repeatable) |
+| `--on-start <cmd>` | Run a command before workspace creation |
+| `--new-window` | Open workspace in a new Ghostty window |
+| `--fullscreen` | Start workspace in fullscreen mode |
+| `--maximize` | Start workspace maximized |
+| `--float` | Float workspace window on top |
 | `-n, --dry-run` | Print generated AppleScript without executing |
 | `-h, --help` | Show help message |
 | `-v, --version` | Show version number |
@@ -134,6 +145,12 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 | `layout` | | Default layout preset |
 | `auto-resize` | `true` | Auto-resize sidebar to match editor-size |
 | `starship-preset` | | Starship prompt theme preset (per-workspace) |
+| `font-size` | | Font size for workspace panes (points) |
+| `on-start` | | Command to run before workspace creation |
+| `new-window` | `false` | Open workspace in a new Ghostty window |
+| `fullscreen` | `false` | Start workspace in fullscreen mode |
+| `maximize` | `false` | Start workspace maximized |
+| `float` | `false` | Float workspace window on top |
 
 Machine config is stored at `~/.config/summon/config`:
 
@@ -142,6 +159,10 @@ summon set editor vim               # use vim as the editor
 summon set shell "npm run dev"      # run a command in the shell pane
 summon set layout minimal           # default to minimal preset
 summon set starship-preset tokyo-night  # per-workspace Starship prompt theme
+summon set font-size 14                # font size for workspace panes
+summon set on-start "npm install"      # run before workspace creation
+summon set new-window true             # always open in a new window
+summon set env.API_KEY sk-123          # per-workspace environment variable
 ```
 
 ## Docs
@@ -169,9 +190,9 @@ This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.
 
 ## Trust Model
 
-`.summon` files configure commands that summon executes in each pane (`editor`, `sidebar`, `shell`). Running `summon .` in a directory will execute whatever commands its `.summon` file specifies -- this is the same trust model as `Makefile`, direnv `.envrc`, or VS Code `.vscode/tasks.json`.
+`.summon` files configure commands that summon executes in each pane (`editor`, `sidebar`, `shell`, `on-start`). Running `summon .` in a directory will execute whatever commands its `.summon` file specifies -- this is the same trust model as `Makefile`, direnv `.envrc`, or VS Code `.vscode/tasks.json`.
 
-When a `.summon` file contains command values with shell metacharacters (`;`, `|`, `&`, `` ` ``, `$(`, `<`, `>`), summon displays the commands and prompts for confirmation before executing. In non-interactive environments (piped input, CI), execution is refused outright. This check is skipped for `--dry-run` since no commands are executed.
+When a `.summon` file contains command values with shell metacharacters (`;`, `|`, `&`, `` ` ``, `$(`, `${`, `<`, `>`), summon displays the commands and prompts for confirmation before executing. In non-interactive environments (piped input, CI), execution is refused outright. This check is skipped for `--dry-run` since no commands are executed.
 
 **Always review `.summon` files before running summon in untrusted repositories.**
 
