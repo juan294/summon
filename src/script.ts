@@ -72,12 +72,17 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginSh
   blank();
 
   // Get or create window for workspace
+  // Note: Ghostty's `make new window` returns an unusable tab-group reference
+  // (AppleScript error -2710), so we use Cmd+N via System Events as a workaround.
   if (plan.newWindow) {
-    add(1, "set win to make new window with configuration cfg");
-    add(1, "delay 0.3");
-  } else {
-    add(1, "set win to front window");
+    add(1, 'tell application "System Events"');
+    add(2, 'tell process "Ghostty"');
+    add(3, 'keystroke "n" using command down');
+    add(2, "end tell");
+    add(1, "end tell");
+    add(1, "delay 0.5");
   }
+  add(1, "set win to front window");
   add(1, "set paneRoot to terminal 1 of selected tab of win");
   blank();
 
@@ -192,11 +197,10 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginSh
 
   blank();
 
-  // Root pane env var exports: only needed when NOT using new-window mode
-  // (root pane from front window was not created with cfg, so it doesn't inherit env vars)
-  // In new-window mode, root pane was created with cfg and inherits env vars automatically.
-  // Split panes always inherit env vars from cfg — no input text needed for them.
-  if (allEnvVars.length > 0 && !plan.newWindow) {
+  // Root pane env var exports: the root pane is never created with cfg
+  // (it's either the existing front window terminal, or a new window via Cmd+N),
+  // so it needs explicit exports. Split panes inherit env vars from cfg automatically.
+  if (allEnvVars.length > 0) {
     for (const envVar of allEnvVars) {
       const eqIdx = envVar.indexOf("=");
       const key = envVar.slice(0, eqIdx);
