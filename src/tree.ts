@@ -234,9 +234,6 @@ export function parseTreeDSL(input: string): LayoutNode {
     throw new Error("Empty tree expression");
   }
   const tokens = tokenize(trimmed);
-  if (tokens.length === 0) {
-    throw new Error("Empty tree expression");
-  }
   const tree = parse(tokens);
   return deduplicateNames(tree);
 }

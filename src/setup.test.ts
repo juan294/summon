@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // Mock child_process for tool detection
 const mockExecFileSync = vi.fn();
@@ -79,6 +79,7 @@ const {
   // Phase 5 additions:
   gridToTree,
   renderLayoutPreview,
+  runLayoutBuilder,
 } = await import("./setup.js");
 
 beforeEach(() => {
@@ -226,7 +227,7 @@ describe("numberedSelect", () => {
       { label: "B", value: "b" },
     ];
     await numberedSelect(options, "Pick: ");
-    const allOutput = logSpy.mock.calls.map((c) => String(c[0]));
+    const allOutput = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
     expect(allOutput.some((s) => s.includes("Invalid selection"))).toBe(true);
     expect(allOutput.some((s) => s.includes("1") && s.includes("2"))).toBe(true);
     logSpy.mockRestore();
@@ -311,7 +312,7 @@ describe("confirm", () => {
       else cb("y");
     });
     await confirm("OK?");
-    const allOutput = logSpy.mock.calls.map((c) => String(c[0]));
+    const allOutput = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
     expect(allOutput.some((s) => s.includes("Please enter y or n"))).toBe(true);
     logSpy.mockRestore();
   });
@@ -610,7 +611,7 @@ describe("selectToolFromCatalog", () => {
       "vim",
     );
     expect(result).toBe("vim");
-    const allOutput = logSpy.mock.calls.map((c) => String(c[0]));
+    const allOutput = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
     expect(allOutput.some((s) => s.includes("Invalid selection"))).toBe(true);
     logSpy.mockRestore();
   });
@@ -800,7 +801,7 @@ describe("printValidation", () => {
 
     await runSetup();
 
-    const allOutput = logSpy.mock.calls.map((c) => String(c[0]));
+    const allOutput = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
     // Should show the missing tool warning
     expect(allOutput.some((s) => s.includes("not found"))).toBe(true);
     // Should show install hint message
@@ -833,7 +834,7 @@ describe("printValidation", () => {
 
     await runSetup();
 
-    const allOutput = logSpy.mock.calls.map((c) => String(c[0]));
+    const allOutput = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
     expect(
       allOutput.some(
         (s) => s.includes("Ghostty") && s.includes("not found"),
@@ -865,7 +866,7 @@ describe("printValidation", () => {
 
     await runSetup();
 
-    const allOutput = logSpy.mock.calls.map((c) => String(c[0]));
+    const allOutput = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
     expect(
       allOutput.some((s) => s.includes("All selected tools are available")),
     ).toBe(true);
@@ -1024,7 +1025,7 @@ describe("runSetup", () => {
 
     await runSetup();
 
-    const allOutput = logSpy.mock.calls.map((c) => String(c[0]));
+    const allOutput = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
     expect(
       allOutput.some((s) => s.includes("Minimal layout has no shell pane")),
     ).toBe(true);
@@ -1051,7 +1052,7 @@ describe("runSetup", () => {
 
     await runSetup();
 
-    const allOutput = logSpy.mock.calls.map((c) => String(c[0]));
+    const allOutput = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
     expect(allOutput.some((s) => s.includes("█"))).toBe(true);
     expect(allOutput.some((s) => s.includes("◠"))).toBe(true);
 
@@ -1077,7 +1078,7 @@ describe("runSetup", () => {
 
     await runSetup();
 
-    const allOutput = logSpy.mock.calls.map((c) => String(c[0]));
+    const allOutput = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
     expect(allOutput.some((s) => s.includes("Tip:"))).toBe(true);
 
     Object.defineProperty(process.stdin, "isTTY", {
@@ -1118,7 +1119,7 @@ describe("runSetup", () => {
 
     await runSetup();
 
-    const allOutput = logSpy.mock.calls.map((c) => String(c[0]));
+    const allOutput = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
     // printSummary should show "enabled" and "plain shell" for shell="true"
     expect(
       allOutput.some((s) => s.includes("enabled") && s.includes("plain shell")),
@@ -1167,7 +1168,7 @@ describe("runSetup", () => {
 
     await runSetup();
 
-    const allOutput = logSpy.mock.calls.map((c) => String(c[0]));
+    const allOutput = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
     // printSummary should show the custom shell command
     expect(
       allOutput.some((s) => s.includes("Shell:") && s.includes("npm run dev")),
@@ -1197,7 +1198,7 @@ describe("runSetup", () => {
 
     await runSetup();
 
-    const allOutput = logSpy.mock.calls.map((c) => String(c[0]));
+    const allOutput = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
     expect(allOutput.some((s) => s.includes("╔") && s.includes("╗"))).toBe(true);
 
     Object.defineProperty(process.stdin, "isTTY", {
@@ -1499,5 +1500,300 @@ describe("renderLayoutPreview", () => {
     const lines = preview.split("\n");
     // Should have top border, content rows for each pane, middle border, and bottom border
     expect(lines.length).toBeGreaterThanOrEqual(5);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runLayoutBuilder Tests (#131 / #132)
+// ---------------------------------------------------------------------------
+
+/** Helper: extract all console.log output strings from a spy */
+function getLogOutput(spy: ReturnType<typeof vi.spyOn>): string[] {
+  return spy.mock.calls.map((c: unknown[]) => String(c[0]));
+}
+
+describe("runLayoutBuilder", () => {
+  let logSpy: ReturnType<typeof vi.spyOn>;
+  let origIsTTY: boolean | undefined;
+
+  beforeEach(() => {
+    logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    origIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", { value: true, writable: true });
+    // Default: name is valid, no existing custom layout
+    mockIsValidLayoutName.mockReturnValue(true);
+    mockIsCustomLayout.mockReturnValue(false);
+  });
+
+  afterEach(() => {
+    Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, writable: true });
+    logSpy.mockRestore();
+  });
+
+  it("happy path: saves layout with correct name, tree, and pane definitions", async () => {
+    // Flow: 1 column (select 1), 1 pane (select 1), pane command "claude",
+    //       sidebar command "lazygit", confirm "y"
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      const q = _q;
+      if (q.includes("[Y/n]")) {
+        cb("y"); // confirm save
+      } else if (q.includes("How many columns") || q.includes("Select [1-3]")) {
+        cb("1"); // 1 column, 1 pane
+      } else if (q.includes("Pane 1")) {
+        cb("claude"); // command for pane
+      } else if (q.includes("Sidebar")) {
+        cb("lazygit"); // sidebar command
+      } else {
+        cb("1");
+      }
+    });
+
+    await runLayoutBuilder("mytest");
+
+    expect(mockSaveCustomLayout).toHaveBeenCalledTimes(1);
+    const [savedName, savedEntries] = mockSaveCustomLayout.mock.calls[0] as [string, Map<string, string>];
+    expect(savedName).toBe("mytest");
+    expect(savedEntries.get("tree")).toBeDefined();
+    expect(savedEntries.get("tree")).toContain("claude");
+    expect(savedEntries.get("tree")).toContain("lazygit");
+    // Pane definitions should be present
+    expect(savedEntries.get("pane.claude")).toBe("claude");
+    expect(savedEntries.get("pane.lazygit")).toBe("lazygit");
+  });
+
+  it("saves layout with 2 columns and multiple panes", async () => {
+    // Flow: 2 columns, col 1: 2 panes, col 2: 1 pane, sidebar, confirm
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      const q = _q;
+      if (q.includes("[Y/n]")) {
+        cb("y");
+      } else if (q.includes("Column 1") && q.includes("how many")) {
+        cb("2");
+      } else if (q.includes("Column 2") && q.includes("how many")) {
+        cb("1");
+      } else if (q.includes("Column 1, Pane 1")) {
+        cb("vim");
+      } else if (q.includes("Column 1, Pane 2")) {
+        cb("shell");
+      } else if (q.includes("Column 2, Pane 1")) {
+        cb("btop");
+      } else if (q.includes("Sidebar")) {
+        cb("lazygit");
+      } else if (q.includes("How many columns") || q.includes("Select [1-3]")) {
+        cb("2"); // 2 columns
+      } else {
+        cb("1");
+      }
+    });
+
+    await runLayoutBuilder("devsetup");
+
+    expect(mockSaveCustomLayout).toHaveBeenCalledTimes(1);
+    const [savedName, savedEntries] = mockSaveCustomLayout.mock.calls[0] as [string, Map<string, string>];
+    expect(savedName).toBe("devsetup");
+    expect(savedEntries.get("tree")).toBeDefined();
+  });
+
+  it("shows preview before saving", async () => {
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      const q = _q;
+      if (q.includes("[Y/n]")) cb("y");
+      else if (q.includes("Pane 1")) cb("claude");
+      else if (q.includes("Sidebar")) cb("lazygit");
+      else cb("1");
+    });
+
+    await runLayoutBuilder("previewtest");
+
+    const allOutput = getLogOutput(logSpy);
+    expect(allOutput.some((s: string) => s.includes("Preview:"))).toBe(true);
+    // Should contain box-drawing characters from renderLayoutPreview
+    expect(allOutput.some((s: string) => s.includes("\u2500") || s.includes("\u250c") || s.includes("\u2502"))).toBe(true);
+  });
+
+  it("prints success message after save", async () => {
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      const q = _q;
+      if (q.includes("[Y/n]")) cb("y");
+      else if (q.includes("Pane 1")) cb("claude");
+      else if (q.includes("Sidebar")) cb("lazygit");
+      else cb("1");
+    });
+
+    await runLayoutBuilder("myname");
+
+    const allOutput = getLogOutput(logSpy);
+    expect(allOutput.some((s: string) => s.includes("Saved!"))).toBe(true);
+    expect(allOutput.some((s: string) => s.includes("summon . --layout myname"))).toBe(true);
+  });
+
+  it("prompts for overwrite when layout already exists and user confirms", async () => {
+    mockIsCustomLayout.mockReturnValue(true); // layout exists
+
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      const q = _q;
+      if (q.includes("[Y/n]")) cb("y"); // confirm overwrite and save
+      else if (q.includes("Pane 1")) cb("claude");
+      else if (q.includes("Sidebar")) cb("lazygit");
+      else cb("1");
+    });
+
+    await runLayoutBuilder("existing");
+
+    // Should still save since user confirmed overwrite
+    expect(mockSaveCustomLayout).toHaveBeenCalledTimes(1);
+  });
+
+  it("cancels when user declines overwrite of existing layout", async () => {
+    mockIsCustomLayout.mockReturnValue(true); // layout exists
+
+    let confirmCount = 0;
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      const q = _q;
+      if (q.includes("[Y/n]")) {
+        confirmCount++;
+        if (confirmCount === 1) cb("n"); // decline overwrite
+        else cb("y");
+      } else {
+        cb("1");
+      }
+    });
+
+    await runLayoutBuilder("existing");
+
+    const allOutput = getLogOutput(logSpy);
+    expect(allOutput.some((s: string) => s.includes("Cancelled"))).toBe(true);
+    expect(mockSaveCustomLayout).not.toHaveBeenCalled();
+  });
+
+  it("rejects invalid layout name and exits", async () => {
+    mockIsValidLayoutName.mockReturnValue(false);
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => undefined as never);
+
+    await runLayoutBuilder("123bad");
+
+    expect(errorSpy).toHaveBeenCalled();
+    const allErrors = getLogOutput(errorSpy);
+    expect(allErrors.some((s: string) => s.includes("Invalid layout name"))).toBe(true);
+    expect(exitSpy).toHaveBeenCalledWith(1);
+
+    errorSpy.mockRestore();
+    exitSpy.mockRestore();
+  });
+
+  it("rejects non-TTY stdin and exits", async () => {
+    Object.defineProperty(process.stdin, "isTTY", { value: false, writable: true });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => undefined as never);
+
+    await runLayoutBuilder("test");
+
+    expect(errorSpy).toHaveBeenCalled();
+    const allErrors = getLogOutput(errorSpy);
+    expect(allErrors.some((s: string) => s.includes("interactive terminal"))).toBe(true);
+    expect(exitSpy).toHaveBeenCalledWith(1);
+
+    errorSpy.mockRestore();
+    exitSpy.mockRestore();
+  });
+
+  it("defaults empty command input to 'shell'", async () => {
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      const q = _q;
+      if (q.includes("[Y/n]")) cb("y");
+      else if (q.includes("Pane 1")) cb(""); // empty → defaults to "shell"
+      else if (q.includes("Sidebar")) cb(""); // empty → defaults to "lazygit"
+      else cb("1");
+    });
+
+    await runLayoutBuilder("shelltest");
+
+    expect(mockSaveCustomLayout).toHaveBeenCalledTimes(1);
+    const [, savedEntries] = mockSaveCustomLayout.mock.calls[0] as [string, Map<string, string>];
+    expect(savedEntries.get("pane.shell")).toBe("shell");
+  });
+
+  it("defaults empty sidebar input to 'lazygit'", async () => {
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      const q = _q;
+      if (q.includes("[Y/n]")) cb("y");
+      else if (q.includes("Pane 1")) cb("vim");
+      else if (q.includes("Sidebar")) cb(""); // empty → defaults to "lazygit"
+      else cb("1");
+    });
+
+    await runLayoutBuilder("sidebardefault");
+
+    const [, savedEntries] = mockSaveCustomLayout.mock.calls[0] as [string, Map<string, string>];
+    expect(savedEntries.get("pane.lazygit")).toBe("lazygit");
+  });
+
+  it("cancels when user declines to save at the end", async () => {
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      const q = _q;
+      if (q.includes("[Y/n]")) cb("n"); // decline save
+      else if (q.includes("Pane 1")) cb("claude");
+      else if (q.includes("Sidebar")) cb("lazygit");
+      else cb("1");
+    });
+
+    await runLayoutBuilder("nope");
+
+    const allOutput = getLogOutput(logSpy);
+    expect(allOutput.some((s: string) => s.includes("Cancelled"))).toBe(true);
+    expect(mockSaveCustomLayout).not.toHaveBeenCalled();
+  });
+
+  it("saves 3-column layout with 3 panes each", async () => {
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      const q = _q;
+      if (q.includes("[Y/n]")) {
+        cb("y");
+      } else if (q.includes("How many columns") || (q.includes("Select [1-3]") && q.includes("default: 1"))) {
+        // Column count select — need to detect which prompt
+        if (q.includes("How many columns")) {
+          cb("3"); // 3 columns
+        } else if (q.includes("how many panes")) {
+          cb("3"); // 3 panes per column
+        } else {
+          cb("3");
+        }
+      } else if (q.includes("how many panes")) {
+        cb("3");
+      } else if (q.includes("Pane")) {
+        cb("vim"); // all panes get vim
+      } else if (q.includes("Sidebar")) {
+        cb("lazygit");
+      } else {
+        cb("3");
+      }
+    });
+
+    await runLayoutBuilder("bigsetup");
+
+    expect(mockSaveCustomLayout).toHaveBeenCalledTimes(1);
+    const [savedName, savedEntries] = mockSaveCustomLayout.mock.calls[0] as [string, Map<string, string>];
+    expect(savedName).toBe("bigsetup");
+    // With 3 columns x 3 panes + sidebar = 10 panes
+    // All "vim" commands will be deduped: vim, vim_2, vim_3, ...
+    const tree = savedEntries.get("tree")!;
+    expect(tree).toContain("vim");
+    expect(tree).toContain("lazygit");
+  });
+
+  it("prints Layout Builder section header", async () => {
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      const q = _q;
+      if (q.includes("[Y/n]")) cb("y");
+      else if (q.includes("Pane 1")) cb("claude");
+      else if (q.includes("Sidebar")) cb("lazygit");
+      else cb("1");
+    });
+
+    await runLayoutBuilder("headertest");
+
+    const allOutput = getLogOutput(logSpy);
+    expect(allOutput.some((s: string) => s.includes("Layout Builder"))).toBe(true);
   });
 });

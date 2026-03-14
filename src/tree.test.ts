@@ -5,6 +5,7 @@ import {
   resolveTreeCommands,
   buildTreePlan,
   collectLeaves,
+  findPaneByName,
 } from "./tree.js";
 import type { LayoutNode, PaneNode, SplitNode } from "./tree.js";
 
@@ -359,5 +360,69 @@ describe("collectLeaves", () => {
       },
     };
     expect(collectLeaves(node)).toEqual(["a", "b", "c", "d"]);
+  });
+});
+
+// ---------- findPaneByName ----------
+
+describe("findPaneByName", () => {
+  it("finds a pane at the root level", () => {
+    const node: LayoutNode = { type: "pane", name: "main", command: "vim" };
+    const result = findPaneByName(node, "main");
+    expect(result).toEqual({ type: "pane", name: "main", command: "vim" });
+  });
+
+  it("returns null when pane is not found", () => {
+    const node: LayoutNode = { type: "pane", name: "main", command: "vim" };
+    const result = findPaneByName(node, "missing");
+    expect(result).toBeNull();
+  });
+
+  it("finds a pane in a nested split tree", () => {
+    const node: LayoutNode = {
+      type: "split",
+      direction: "right",
+      first: {
+        type: "split",
+        direction: "down",
+        first: { type: "pane", name: "editor", command: "vim" },
+        second: { type: "pane", name: "shell", command: "bash" },
+      },
+      second: { type: "pane", name: "sidebar", command: "lazygit" },
+    };
+    const result = findPaneByName(node, "shell");
+    expect(result).toEqual({ type: "pane", name: "shell", command: "bash" });
+  });
+
+  it("returns null when name is not in a nested tree", () => {
+    const node: LayoutNode = {
+      type: "split",
+      direction: "right",
+      first: {
+        type: "split",
+        direction: "down",
+        first: { type: "pane", name: "a", command: "" },
+        second: { type: "pane", name: "b", command: "" },
+      },
+      second: { type: "pane", name: "c", command: "" },
+    };
+    const result = findPaneByName(node, "missing");
+    expect(result).toBeNull();
+  });
+
+  it("finds pane in the second branch of a split", () => {
+    const node: LayoutNode = {
+      type: "split",
+      direction: "right",
+      first: { type: "pane", name: "left", command: "vim" },
+      second: {
+        type: "split",
+        direction: "down",
+        first: { type: "pane", name: "top", command: "htop" },
+        second: { type: "pane", name: "target", command: "lazygit" },
+      },
+    };
+    const result = findPaneByName(node, "target");
+    expect(result).toEqual({ type: "pane", name: "target", command: "lazygit" });
   });
 });
