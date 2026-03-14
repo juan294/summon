@@ -592,15 +592,11 @@ describe("generateAppleScript", () => {
       expect(exportIdx).toBeLessThan(cdIdx);
     });
 
-    it("root pane does NOT receive export when using new-window (inherits from cfg)", () => {
+    it("root pane receives export even in new-window mode (Cmd+N doesn't apply cfg)", () => {
       const plan = planLayout({ newWindow: true });
       const script = generateAppleScript(plan, "/tmp/proj", "/bin/zsh", configPath);
-      // env vars are on surface config, root pane created with cfg
-      const lines = script.split("\n");
-      const inputTextExports = lines.filter(
-        (l) => l.includes("input text") && l.includes("export STARSHIP_CONFIG"),
-      );
-      expect(inputTextExports.length).toBe(0);
+      const exportIdx = script.indexOf("export STARSHIP_CONFIG=");
+      expect(exportIdx).toBeGreaterThan(-1);
     });
 
     it("config-launched panes do NOT embed export in -lc argument (env on surface config)", () => {
@@ -679,19 +675,21 @@ describe("generateAppleScript", () => {
 
   describe("window management flags", () => {
     describe("new-window flag", () => {
-      it("generates 'make new window' when newWindow=true", () => {
+      it("uses System Events Cmd+N when newWindow=true", () => {
         const plan = planLayout({ newWindow: true });
         const script = generateAppleScript(plan, "/tmp/test");
-        expect(script).toContain("make new window with configuration cfg");
-        expect(script).not.toContain("set win to front window");
-        expect(script).toContain("delay 0.3");
+        expect(script).toContain('tell application "System Events"');
+        expect(script).toContain('keystroke "n" using command down');
+        expect(script).toContain("delay 0.5");
+        expect(script).toContain("set win to front window");
+        expect(script).not.toContain("make new window");
       });
 
-      it("uses front window when newWindow=false (default)", () => {
+      it("uses front window without new window when newWindow=false (default)", () => {
         const plan = planLayout();
         const script = generateAppleScript(plan, "/tmp/test");
         expect(script).toContain("set win to front window");
-        expect(script).not.toContain("make new window");
+        expect(script).not.toContain('keystroke "n" using command down');
       });
     });
 
@@ -787,11 +785,11 @@ describe("generateAppleScript", () => {
       expect(script).not.toContain('export FOO=bar; rm -rf /');
     });
 
-    it("skips root pane exports in new-window mode", () => {
+    it("exports env vars to root pane in new-window mode (Cmd+N doesn't apply cfg)", () => {
       const plan = planLayout({ newWindow: true });
       const script = generateAppleScript(plan, "/tmp", "/bin/bash", null,
         { NODE_ENV: "development" });
-      expect(script).not.toContain("export NODE_ENV=");
+      expect(script).toContain("export NODE_ENV=");
     });
 
     it("no env var setup when none configured", () => {

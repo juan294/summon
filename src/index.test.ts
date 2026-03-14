@@ -601,7 +601,7 @@ describe("CLI integration", () => {
     it("--new-window flag accepted in dry-run", () => {
       const result = run(".", "--new-window", "--dry-run");
       expect(result.status).toBe(0);
-      expect(result.stdout).toContain("make new window");
+      expect(result.stdout).toContain('keystroke "n" using command down');
     });
 
     it("--fullscreen flag accepted in dry-run", () => {
