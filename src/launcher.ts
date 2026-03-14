@@ -117,6 +117,7 @@ async function confirmDangerousCommands(projectOverrides: Map<string, string>): 
 
   const answer = await prompt("Continue? [y/N] ");
   if (answer !== "y" && answer !== "yes") {
+    console.error("Aborted.");
     process.exit(1);
   }
 }

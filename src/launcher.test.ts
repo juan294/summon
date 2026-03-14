@@ -1346,12 +1346,15 @@ describe("shell metacharacter confirmation (#90)", () => {
       throw new Error("process.exit");
     });
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
     await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
     expect(mockExit).toHaveBeenCalledWith(1);
+    expect(errorSpy).toHaveBeenCalledWith("Aborted.");
 
     mockExit.mockRestore();
     warnSpy.mockRestore();
+    errorSpy.mockRestore();
   });
 
   it("exits with code 1 when user presses Enter (default is deny)", async () => {
