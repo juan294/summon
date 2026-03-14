@@ -22,7 +22,7 @@ import { isStarshipInstalled, ensurePresetConfig, getPresetConfigPath } from "./
 const SAFE_SHELL_RE = /^\/[a-zA-Z0-9_/.-]+$/;
 
 /** Shell metacharacters that indicate potentially dangerous commands. */
-const SHELL_META_RE = /[;|&`]|\$\(|[><]/;
+const SHELL_META_RE = /[;|&`]|\$[({]|[><]/;
 
 /** Keys in .summon files that hold command values (as opposed to config like layout/panes). */
 const COMMAND_KEYS = new Set(["editor", "sidebar", "shell", "on-start"]);
@@ -197,6 +197,9 @@ interface ResolvedConfig {
   envVars: Record<string, string>;
 }
 
+/** Valid environment variable key name: letters, digits, underscores, starting with letter or underscore. */
+const ENV_KEY_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+
 function collectEnvVars(
   machineConfig: Map<string, string>,
   projectConfig: Map<string, string>,
@@ -207,14 +210,22 @@ function collectEnvVars(
   // Machine config (lowest priority)
   for (const [key, value] of machineConfig) {
     if (key.startsWith("env.")) {
-      envVars[key.slice(4)] = value;
+      const envKey = key.slice(4);
+      if (ENV_KEY_RE.test(envKey)) {
+        envVars[envKey] = value;
+      }
     }
   }
 
   // Project config (overrides machine)
   for (const [key, value] of projectConfig) {
     if (key.startsWith("env.")) {
-      envVars[key.slice(4)] = value;
+      const envKey = key.slice(4);
+      if (ENV_KEY_RE.test(envKey)) {
+        envVars[envKey] = value;
+      } else {
+        console.warn(`Warning: ignoring invalid env var key "${envKey}" from .summon file.`);
+      }
     }
   }
 
@@ -356,7 +367,7 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
     const totalPanes = plan.leftColumnCount + plan.rightColumnEditorCount;
     const headerLines = [
       "-- summon dry-run",
-      `-- Layout: ${totalPanes} editor panes, editor=${plan.editor}, sidebar=${plan.sidebarCommand}, shell=${plan.hasShell}`,
+      `-- Layout: ${totalPanes} editor ${totalPanes === 1 ? "pane" : "panes"}, editor=${plan.editor}, sidebar=${plan.sidebarCommand}, shell=${plan.hasShell}`,
       `-- Target: ${targetDir}`,
     ];
     if (starshipPreset) {

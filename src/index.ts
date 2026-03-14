@@ -30,10 +30,10 @@ Usage:
   summon list                 List all registered projects
   summon set <key> [value]    Set a machine-level config value
   summon config               Show current machine configuration
-  summon doctor                Check Ghostty config for recommended settings
-  summon open                  Select and launch a registered project
-  summon export [path]         Export config as a .summon project file
-  summon completions <shell>   Generate shell completion script (zsh, bash)
+  summon doctor               Check Ghostty config for recommended settings
+  summon open                 Select and launch a registered project
+  summon export [path]        Export config as a .summon project file
+  summon completions <shell>  Generate shell completion script (zsh, bash)
 
 Options:
   -h, --help                  Show this help message
@@ -63,15 +63,15 @@ Config keys:
   editor-size   Width % for editor grid (default: 75)
   shell         Shell pane: true, false, or command (default: true)
   layout        Default layout preset
-  auto-resize       Resize sidebar to match editor-size (default: true)
-  starship-preset   Starship prompt theme preset (per-workspace)
-  new-window        Open workspace in a new window (default: false)
-  fullscreen        Start workspace in fullscreen (default: false)
-  maximize          Start workspace maximized (default: false)
-  float             Float workspace window on top (default: false)
-  font-size         Font size in points for workspace panes
-  on-start          Command to run before workspace launches
-  env.<KEY>         Environment variable passed to all panes
+  auto-resize     Resize sidebar to match editor-size (default: true)
+  starship-preset Starship prompt theme preset (per-workspace)
+  new-window      Open workspace in a new window (default: false)
+  fullscreen      Start workspace in fullscreen (default: false)
+  maximize        Start workspace maximized (default: false)
+  float           Float workspace window on top (default: false)
+  font-size       Font size in points for workspace panes
+  on-start        Command to run before workspace launches
+  env.<KEY>       Environment variable passed to all panes
 
 Layout presets:
   minimal       1 editor pane, no shell
@@ -194,6 +194,9 @@ function safeParse() {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`Error: ${msg}`);
+    if (msg.includes("ambiguous")) {
+      console.error(`Tip: To pass a value starting with '-', use '--flag=-value' syntax.`);
+    }
     console.error(`Run 'summon --help' for usage information.`);
     process.exit(1);
   }
@@ -394,6 +397,9 @@ switch (subcommand) {
       }
     }
     if (value !== undefined) {
+      if (value === "" && (key === "editor" || key === "sidebar" || key === "shell" || key === "on-start")) {
+        console.warn(`Warning: setting ${key} to empty string. Use 'summon set ${key}' (without value) to reset to default.`);
+      }
       setConfig(key, value);
       console.log(`Set ${key} → ${value}`);
     } else {
@@ -506,6 +512,8 @@ switch (subcommand) {
 
     if (allGood) {
       console.log("\n  All recommended settings are configured!");
+    } else {
+      process.exit(1);
     }
 
     break;

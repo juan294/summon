@@ -68,6 +68,13 @@ describe("CLI integration", () => {
     expect(result.stderr).toContain("summon --help");
   });
 
+  it("shows hint for ambiguous flag arguments (#122)", () => {
+    const result = run(".", "--font-size", "-5");
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("Tip:");
+    expect(result.stderr).toContain("--flag=-value");
+  });
+
   it("errors on 'add' with missing arguments", () => {
     const result = run("add");
     expect(result.status).toBe(1);
@@ -705,6 +712,21 @@ describe("CLI integration", () => {
     });
   });
 
+  describe("dry-run plural fix (#125)", () => {
+    it("uses singular 'pane' for 1 editor pane", () => {
+      const result = run(".", "--layout", "minimal", "--panes", "1", "--dry-run");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("1 editor pane,");
+      expect(result.stdout).not.toContain("1 editor panes");
+    });
+
+    it("uses plural 'panes' for multiple editor panes", () => {
+      const result = run(".", "--layout", "full", "--panes", "3", "--dry-run");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toMatch(/[23] editor panes/);
+    });
+  });
+
   describe("--on-start flag (#107)", () => {
     it("--on-start flag accepted with string value", () => {
       const result = run(".", "--on-start", "echo hello", "--dry-run");
@@ -757,10 +779,20 @@ describe("CLI integration", () => {
     });
   });
 
-  describe("summon doctor (#113, #116)", () => {
-    it("runs without error", () => {
-      const result = run("doctor");
+  describe("summon set empty value warning (#123)", () => {
+    it("warns when setting command key to empty string", () => {
+      const result = run("set", "editor", "");
       expect(result.status).toBe(0);
+      expect(result.stderr).toContain("Warning:");
+      expect(result.stderr).toContain("empty string");
+    });
+  });
+
+  describe("summon doctor (#113, #116)", () => {
+    it("exits 1 when recommendations are found (#124)", () => {
+      // With temp HOME, no Ghostty config exists → all checks will fail → exit 1
+      const result = run("doctor");
+      expect(result.status).toBe(1);
       expect(result.stdout).toContain("Checking Ghostty configuration");
     });
 

@@ -198,7 +198,10 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginSh
   // Split panes always inherit env vars from cfg — no input text needed for them.
   if (allEnvVars.length > 0 && !plan.newWindow) {
     for (const envVar of allEnvVars) {
-      sendCommand("paneRoot", `export ${envVar}`);
+      const eqIdx = envVar.indexOf("=");
+      const key = envVar.slice(0, eqIdx);
+      const val = envVar.slice(eqIdx + 1);
+      sendCommand("paneRoot", `export ${key}=${shellQuote(val)}`);
     }
   }
 

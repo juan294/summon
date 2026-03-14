@@ -770,18 +770,28 @@ describe("generateAppleScript", () => {
       expect(script).toContain("NODE_ENV=development");
     });
 
-    it("sends export to root pane for each env var (non-new-window)", () => {
+    it("sends shell-quoted export to root pane (non-new-window)", () => {
       const plan = planLayout();
       const script = generateAppleScript(plan, "/tmp", "/bin/bash", null,
         { NODE_ENV: "development" });
-      expect(script).toContain('input text "export NODE_ENV=development"');
+      // Value should be shell-quoted
+      expect(script).toContain("export NODE_ENV='development'");
+    });
+
+    it("shell-quotes env values with metacharacters", () => {
+      const plan = planLayout();
+      const script = generateAppleScript(plan, "/tmp", "/bin/bash", null,
+        { FOO: "bar; rm -rf /" });
+      // Metacharacters should be safely quoted
+      expect(script).toContain("export FOO='bar; rm -rf /'");
+      expect(script).not.toContain('export FOO=bar; rm -rf /');
     });
 
     it("skips root pane exports in new-window mode", () => {
       const plan = planLayout({ newWindow: true });
       const script = generateAppleScript(plan, "/tmp", "/bin/bash", null,
         { NODE_ENV: "development" });
-      expect(script).not.toContain('input text "export NODE_ENV=development"');
+      expect(script).not.toContain("export NODE_ENV=");
     });
 
     it("no env var setup when none configured", () => {
