@@ -26,6 +26,24 @@ import { PANES_MIN, EDITOR_SIZE_MIN, EDITOR_SIZE_MAX, isPresetName, getPresetNam
 import { parseIntInRange } from "./validation.js";
 import { SAFE_COMMAND_RE } from "./utils.js";
 
+function validateLayoutNameOrExit(name: string): void {
+  if (isPresetName(name)) {
+    console.error(`Error: "${name}" is a reserved preset name. Choose a different name.`);
+    process.exit(1);
+  }
+  if (!isValidLayoutName(name)) {
+    console.error(`Error: Invalid layout name "${name}".`);
+    console.error("Names must start with a letter and contain only letters, digits, hyphens, and underscores.");
+    process.exit(1);
+  }
+}
+
+function layoutNotFoundOrExit(name: string): never {
+  console.error(`Layout not found: ${name}`);
+  console.error("Run 'summon layout list' to see available layouts.");
+  process.exit(1);
+}
+
 const HELP = `
 summon -- Launch multi-pane Ghostty workspaces
 
@@ -631,15 +649,7 @@ switch (subcommand) {
           console.error("Usage: summon layout create <name>");
           process.exit(1);
         }
-        if (isPresetName(layoutName)) {
-          console.error(`Error: "${layoutName}" is a reserved preset name. Choose a different name.`);
-          process.exit(1);
-        }
-        if (!isValidLayoutName(layoutName)) {
-          console.error(`Error: Invalid layout name "${layoutName}".`);
-          console.error("Names must start with a letter and contain only letters, digits, hyphens, and underscores.");
-          process.exit(1);
-        }
+        validateLayoutNameOrExit(layoutName);
         const { runLayoutBuilder } = await import("./setup.js");
         await runLayoutBuilder(layoutName);
         break;
@@ -650,15 +660,7 @@ switch (subcommand) {
           console.error("Usage: summon layout save <name>");
           process.exit(1);
         }
-        if (isPresetName(layoutName)) {
-          console.error(`Error: "${layoutName}" is a reserved preset name. Choose a different name.`);
-          process.exit(1);
-        }
-        if (!isValidLayoutName(layoutName)) {
-          console.error(`Error: Invalid layout name "${layoutName}".`);
-          console.error("Names must start with a letter and contain only letters, digits, hyphens, and underscores.");
-          process.exit(1);
-        }
+        validateLayoutNameOrExit(layoutName);
         const config = listConfig();
         saveCustomLayout(layoutName, config);
         console.log(`Saved custom layout: ${layoutName}`);
@@ -685,15 +687,10 @@ switch (subcommand) {
           console.error("Usage: summon layout show <name>");
           process.exit(1);
         }
-        if (!isValidLayoutName(layoutName)) {
-          console.error(`Error: Invalid layout name "${layoutName}". Names must start with a letter and contain only letters, numbers, hyphens, and underscores.`);
-          process.exit(1);
-        }
+        validateLayoutNameOrExit(layoutName);
         const data = readCustomLayout(layoutName);
         if (!data) {
-          console.error(`Layout not found: ${layoutName}`);
-          console.error("Run 'summon layout list' to see available layouts.");
-          process.exit(1);
+          layoutNotFoundOrExit(layoutName);
         }
         console.log(`Layout: ${layoutName}`);
         for (const [key, value] of data) {
@@ -707,17 +704,12 @@ switch (subcommand) {
           console.error("Usage: summon layout delete <name>");
           process.exit(1);
         }
-        if (!isValidLayoutName(layoutName)) {
-          console.error(`Error: Invalid layout name "${layoutName}". Names must start with a letter and contain only letters, numbers, hyphens, and underscores.`);
-          process.exit(1);
-        }
+        validateLayoutNameOrExit(layoutName);
         const deleted = deleteCustomLayout(layoutName);
         if (deleted) {
           console.log(`Deleted custom layout: ${layoutName}`);
         } else {
-          console.error(`Layout not found: ${layoutName}`);
-          console.error("Run 'summon layout list' to see available layouts.");
-          process.exit(1);
+          layoutNotFoundOrExit(layoutName);
         }
         break;
       }
@@ -727,14 +719,9 @@ switch (subcommand) {
           console.error("Usage: summon layout edit <name>");
           process.exit(1);
         }
-        if (!isValidLayoutName(layoutName)) {
-          console.error(`Error: Invalid layout name "${layoutName}". Names must start with a letter and contain only letters, numbers, hyphens, and underscores.`);
-          process.exit(1);
-        }
+        validateLayoutNameOrExit(layoutName);
         if (!isCustomLayout(layoutName)) {
-          console.error(`Layout not found: ${layoutName}`);
-          console.error("Run 'summon layout list' to see available layouts.");
-          process.exit(1);
+          layoutNotFoundOrExit(layoutName);
         }
         const editorCmd = process.env.EDITOR || "vi";
         const { execFileSync: execEditFile } = await import("node:child_process");

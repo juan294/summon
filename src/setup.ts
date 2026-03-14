@@ -997,9 +997,8 @@ export async function runLayoutBuilder(name: string): Promise<void> {
   }
 
   // --- Sidebar ---
-  const sidebarDetected = detectTools(SIDEBAR_CATALOG);
-  const sidebarAvailable = sidebarDetected
-    .filter((t) => t.available)
+  const sidebarAvailable = detected
+    .filter((t) => t.available && SIDEBAR_CATALOG.some((s) => s.cmd === t.cmd))
     .map((t) => t.cmd);
   if (sidebarAvailable.length > 0) {
     console.log(dim(`  Detected: ${sidebarAvailable.join(", ")}`));

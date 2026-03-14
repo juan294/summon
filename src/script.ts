@@ -153,6 +153,28 @@ function emitTitles(
   blank();
 }
 
+/** Emit auto-resize block: query window size via System Events and resize split. */
+function emitAutoResize(
+  { add, blank }: ScriptBuilder,
+  paneVar: string,
+  editorSize: number,
+): void {
+  const fraction = (editorSize - 50) / 100;
+  blank();
+  add(1, "-- Resize editor/sidebar split");
+  add(1, "delay 0.3");
+  add(1, 'tell application "System Events"');
+  add(2, 'tell process "Ghostty"');
+  add(3, "set windowSize to size of front window");
+  add(3, "set windowWidth to item 1 of windowSize");
+  add(2, "end tell");
+  add(1, "end tell");
+  add(1, `set resizeAmount to round (windowWidth * ${fraction})`);
+  add(1, `set resizeAction to "resize_split:right," & (resizeAmount as text)`);
+  add(1, `perform action resizeAction on ${paneVar}`);
+  add(1, "delay 0.2");
+}
+
 /** Emit window state actions (fullscreen, maximize, float). */
 function emitWindowState(
   { add, blank }: ScriptBuilder,
@@ -224,20 +246,7 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginSh
   // Done here (before editor column splits) so the subsequent 50/50 split
   // of paneRoot produces two equal editor columns within the resized area.
   if (plan.autoResize && plan.editorSize > 50) {
-    const fraction = (plan.editorSize - 50) / 100;
-    blank();
-    add(1, "-- Resize editor/sidebar split");
-    add(1, "delay 0.3");
-    add(1, 'tell application "System Events"');
-    add(2, 'tell process "Ghostty"');
-    add(3, "set windowSize to size of front window");
-    add(3, "set windowWidth to item 1 of windowSize");
-    add(2, "end tell");
-    add(1, "end tell");
-    add(1, `set resizeAmount to round (windowWidth * ${fraction})`);
-    add(1, `set resizeAction to "resize_split:right," & (resizeAmount as text)`);
-    add(1, "perform action resizeAction on paneRoot");
-    add(1, "delay 0.2");
+    emitAutoResize(sb, "paneRoot", plan.editorSize);
   }
 
   const needsRightColumn = plan.rightColumnEditorCount > 0 || plan.hasShell;
@@ -408,20 +417,7 @@ export function generateTreeAppleScript(
     // Auto-resize after the FIRST right-split at the root level
     if (node.direction === "right" && !firstRightSplitDone && plan.autoResize && plan.editorSize > 50) {
       firstRightSplitDone = true;
-      const fraction = (plan.editorSize - 50) / 100;
-      blank();
-      add(1, "-- Resize editor/sidebar split");
-      add(1, "delay 0.3");
-      add(1, 'tell application "System Events"');
-      add(2, 'tell process "Ghostty"');
-      add(3, "set windowSize to size of front window");
-      add(3, "set windowWidth to item 1 of windowSize");
-      add(2, "end tell");
-      add(1, "end tell");
-      add(1, `set resizeAmount to round (windowWidth * ${fraction})`);
-      add(1, `set resizeAction to "resize_split:right," & (resizeAmount as text)`);
-      add(1, `perform action resizeAction on ${currentPaneVar}`);
-      add(1, "delay 0.2");
+      emitAutoResize(sb, currentPaneVar, plan.editorSize);
     }
 
     // Recurse into first child (stays in current pane variable)
