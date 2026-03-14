@@ -22,6 +22,7 @@ _summon() {
     'doctor:Check Ghostty config'
     'open:Select and launch a project'
     'export:Export config as .summon file'
+    'layout:Manage custom layouts'
   )
 
   local -a config_keys=(${configKeys})
@@ -96,6 +97,17 @@ _summon() {
             compadd zsh bash
           fi
           ;;
+        layout)
+          if (( CURRENT == 2 )); then
+            compadd create save list show delete edit
+          elif (( CURRENT == 3 )); then
+            case "\${words[2]}" in
+              show|delete|edit)
+                compadd -a layout_presets
+                ;;
+            esac
+          fi
+          ;;
       esac
       ;;
   esac
@@ -117,7 +129,7 @@ export function generateBashCompletion(): string {
   local cur prev words cword
   _init_completion || return
 
-  local subcommands="add remove list set config setup completions doctor open export"
+  local subcommands="add remove list set config setup completions doctor open export layout"
   local config_keys="${configKeys}"
   local layout_presets="${presetNames}"
   local projects_file="\${HOME}/.config/summon/projects"
@@ -178,6 +190,17 @@ export function generateBashCompletion(): string {
     add)
       if (( cword == 3 )); then
         COMPREPLY=($(compgen -d -- "$cur"))
+      fi
+      ;;
+    layout)
+      if (( cword == 2 )); then
+        COMPREPLY=($(compgen -W "create save list show delete edit" -- "$cur"))
+      elif (( cword == 3 )); then
+        case "\${words[2]}" in
+          show|delete|edit)
+            COMPREPLY=($(compgen -W "$layout_presets" -- "$cur"))
+            ;;
+        esac
       fi
       ;;
   esac

@@ -105,6 +105,54 @@ describe("generateBashCompletion", () => {
   });
 });
 
+describe("layout subcommand completions", () => {
+  test("zsh output contains layout in subcommands list", () => {
+    const result = generateZshCompletion();
+    expect(result).toMatch(/'layout:/);
+  });
+
+  test("bash output contains layout in subcommands list", () => {
+    const result = generateBashCompletion();
+    expect(result).toMatch(/subcommands="[^"]*\blayout\b/);
+  });
+
+  test("zsh layout completion includes actions", () => {
+    const result = generateZshCompletion();
+    for (const action of ["create", "save", "list", "show", "delete", "edit"]) {
+      expect(result).toMatch(new RegExp(`layout\\).*${action}`, "s"));
+    }
+  });
+
+  test("bash layout completion includes actions", () => {
+    const result = generateBashCompletion();
+    for (const action of ["create", "save", "list", "show", "delete", "edit"]) {
+      expect(result).toMatch(new RegExp(`layout\\).*${action}`, "s"));
+    }
+  });
+
+  test("zsh layout show/delete/edit complete with custom layout names", async () => {
+    const config = await import("./config.js");
+    const spy = vi.spyOn(config, "listCustomLayouts").mockReturnValue(["mywork", "devops"]);
+
+    const result = generateZshCompletion();
+    // The layout case should reference layout_presets for show/delete/edit
+    expect(result).toMatch(/layout\)[\s\S]*?show\b.*\bdelete\b.*\bedit\b[\s\S]*?layout_presets/s);
+
+    spy.mockRestore();
+  });
+
+  test("bash layout show/delete/edit complete with custom layout names", async () => {
+    const config = await import("./config.js");
+    const spy = vi.spyOn(config, "listCustomLayouts").mockReturnValue(["mywork", "devops"]);
+
+    const result = generateBashCompletion();
+    // The layout case should reference layout_presets for show/delete/edit
+    expect(result).toMatch(/layout\)[\s\S]*?show\b.*\bdelete\b.*\bedit\b[\s\S]*?layout_presets/s);
+
+    spy.mockRestore();
+  });
+});
+
 describe("custom layout completions", () => {
   test("zsh completions include custom layout names in --layout", async () => {
     // Mock listCustomLayouts to return custom layout names
