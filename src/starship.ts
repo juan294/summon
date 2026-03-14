@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { CONFIG_DIR } from "./config.js";
 import { resolveCommand, SAFE_COMMAND_RE } from "./utils.js";
@@ -81,6 +81,7 @@ export function ensurePresetConfig(presetName: string): string {
       `Starship preset "${presetName}" did not produce a config file`,
     );
   }
+  chmodSync(targetPath, 0o600);
   return targetPath;
 }
 

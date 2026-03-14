@@ -13,9 +13,11 @@ vi.mock("./utils.js", async () => {
 
 const fsStore = new Map<string, string>();
 const mockMkdirSync = vi.fn();
+const mockChmodSync = vi.fn();
 vi.mock("node:fs", () => ({
   existsSync: (path: string) => fsStore.has(path),
   mkdirSync: (...args: unknown[]) => mockMkdirSync(...args),
+  chmodSync: (...args: unknown[]) => mockChmodSync(...args),
 }));
 
 import {
@@ -165,6 +167,19 @@ describe("ensurePresetConfig", () => {
     expect(() => ensurePresetConfig("ghost-preset")).toThrow(
       /did not produce a config file/,
     );
+  });
+
+  it("sets 0o600 permissions on generated TOML file", () => {
+    mockResolveCommand.mockReturnValue("/usr/local/bin/starship");
+    const expectedPath = getPresetConfigPath("tokyo-night");
+    mockExecFileSync.mockImplementation(
+      (_cmd: string, args: string[]) => {
+        if (args.includes("-o")) fsStore.set(expectedPath, "# generated toml");
+        return "";
+      },
+    );
+    ensurePresetConfig("tokyo-night");
+    expect(mockChmodSync).toHaveBeenCalledWith(expectedPath, 0o600);
   });
 
   it("throws for unsafe preset name (defense-in-depth)", () => {
