@@ -10,6 +10,7 @@ dist/
 !.claude/hooks/
 !.claude/skills/
 !.claude/agents/
+!.claude/cc-rpi-sync.json
 .claude/settings.local.json
 .vscode/
 CLAUDE.local.md
