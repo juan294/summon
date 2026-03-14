@@ -1202,6 +1202,16 @@ describe("generateTreeAppleScript", () => {
     expect(script).toContain("set environment variables of cfg to");
   });
 
+  it("shell-quotes multi-argument root pane command", () => {
+    const plan = makePlan(
+      { type: "pane", name: "server", command: "npm run dev" },
+    );
+    const script = generateTreeAppleScript(plan, "/tmp/project");
+
+    // The command name stays unquoted, but arguments are shell-quoted
+    expect(script).toContain("input text \"npm 'run' 'dev'\" to pane_server");
+  });
+
   it("auto-resize only applies to first root-level right-split", () => {
     // The outermost split is right, so resize should apply
     const plan = makePlan(
