@@ -147,7 +147,7 @@ describe("generateAppleScript", () => {
     // Sidebar and right editor get commands via config
     // Shell pane has no command (plain shell) — gets clear instead
     const inputTexts = (script.match(/input text/g) ?? []).length;
-    expect(inputTexts).toBe(3); // cd + editor on root pane + clear on shell pane
+    expect(inputTexts).toBe(4); // env export + cd + editor on root pane + clear on shell pane
   });
 
   it("skips command for empty editor", () => {
@@ -560,6 +560,15 @@ describe("generateAppleScript", () => {
     expect(script).toContain('perform action "set_surface_title:server" on paneRightCol');
   });
 
+  // --- SUMMON_WORKSPACE marker ---
+
+  it("always includes SUMMON_WORKSPACE=1 in surface config env vars", () => {
+    const plan = planLayout();
+    const script = generateAppleScript(plan, "/tmp/proj", "/bin/zsh", null);
+    expect(script).toContain('"SUMMON_WORKSPACE=1"');
+    expect(script).toContain("set environment variables of cfg to");
+  });
+
   // --- Starship config injection tests ---
 
   describe("starship config injection", () => {
@@ -580,7 +589,7 @@ describe("generateAppleScript", () => {
     it("sets environment variables on surface config", () => {
       const plan = planLayout();
       const script = generateAppleScript(plan, "/tmp/proj", "/bin/zsh", configPath);
-      expect(script).toContain(`set environment variables of cfg to {"STARSHIP_CONFIG=${configPath}"}`);
+      expect(script).toContain(`set environment variables of cfg to {"SUMMON_WORKSPACE=1", "STARSHIP_CONFIG=${configPath}"}`);
     });
 
     it("root pane receives export STARSHIP_CONFIG before cd (non-new-window)", () => {
@@ -793,10 +802,11 @@ describe("generateAppleScript", () => {
       expect(script).toContain("export NODE_ENV=");
     });
 
-    it("no env var setup when none configured", () => {
+    it("always includes SUMMON_WORKSPACE even when no user env vars configured", () => {
       const plan = planLayout();
       const script = generateAppleScript(plan, "/tmp");
-      expect(script).not.toContain("environment variables");
+      expect(script).toContain('"SUMMON_WORKSPACE=1"');
+      expect(script).not.toContain("NODE_ENV");
     });
   });
 
@@ -1053,6 +1063,16 @@ describe("generateTreeAppleScript", () => {
     const script = generateTreeAppleScript(plan, "/tmp/project");
 
     expect(script).toContain("set font size of cfg to 14");
+  });
+
+  it("always includes SUMMON_WORKSPACE=1 in surface config env vars", () => {
+    const plan = makePlan(
+      { type: "pane", name: "editor", command: "claude" },
+    );
+    const script = generateTreeAppleScript(plan, "/tmp/project");
+
+    expect(script).toContain('"SUMMON_WORKSPACE=1"');
+    expect(script).toContain("set environment variables of cfg to");
   });
 
   it("env vars on surface config", () => {

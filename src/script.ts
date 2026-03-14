@@ -63,12 +63,12 @@ function buildScriptBuilder(
   return { add, blank, sendCommand, setConfigCommand, clearConfigCommand };
 }
 
-/** Build combined env vars list (Starship + user-defined). */
+/** Build combined env vars list (workspace marker + Starship + user-defined). */
 function buildEnvVarsList(
   starshipConfigPath: string | null | undefined,
   envVars: Record<string, string> | undefined,
 ): string[] {
-  const allEnvVars: string[] = [];
+  const allEnvVars: string[] = ["SUMMON_WORKSPACE=1"];
   if (starshipConfigPath) {
     allEnvVars.push(`STARSHIP_CONFIG=${starshipConfigPath}`);
   }
@@ -97,10 +97,8 @@ function emitSurfaceConfig(
   if (fontSize !== null) {
     add(1, `set font size of cfg to ${fontSize}`);
   }
-  if (allEnvVars.length > 0) {
-    const escaped = allEnvVars.map(e => `"${escapeAppleScript(e)}"`).join(", ");
-    add(1, `set environment variables of cfg to {${escaped}}`);
-  }
+  const escaped = allEnvVars.map(e => `"${escapeAppleScript(e)}"`).join(", ");
+  add(1, `set environment variables of cfg to {${escaped}}`);
   blank();
 }
 
@@ -326,9 +324,7 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginSh
   // Root pane env var exports: the root pane is never created with cfg
   // (it's either the existing front window terminal, or a new window via Cmd+N),
   // so it needs explicit exports. Split panes inherit env vars from cfg automatically.
-  if (allEnvVars.length > 0) {
-    emitRootPaneEnvExports(sb, "paneRoot", allEnvVars);
-  }
+  emitRootPaneEnvExports(sb, "paneRoot", allEnvVars);
 
   // Clear interactive shell panes for a clean start (removes "Last login" and setup commands)
   for (const pane of interactiveShellPanes) {

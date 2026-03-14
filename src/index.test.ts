@@ -42,18 +42,15 @@ describe("CLI integration", () => {
     expect(result.stdout.trim()).toMatch(/^\d+\.\d+\.\d+$/);
   });
 
-  // #80: Brief usage hint on no-args invocation
-  describe("no-args usage hint (#80)", () => {
-    it("prints brief usage hint (not full help) to stderr with no arguments", () => {
+  describe("no-args shows full help", () => {
+    it("prints full help to stdout with no arguments", () => {
       const result = run();
-      expect(result.status).toBe(1);
-      expect(result.stderr).toContain("Usage: summon <target>");
-      expect(result.stderr).toContain("summon --help");
-      // Must NOT contain the full help text (e.g., Options section)
-      expect(result.stderr).not.toContain("Options:");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("Options:");
+      expect(result.stdout).toContain("Config keys:");
     });
 
-    it("still prints full help to stdout with --help", () => {
+    it("prints full help to stdout with --help", () => {
       const result = run("--help");
       expect(result.status).toBe(0);
       expect(result.stdout).toContain("Options:");

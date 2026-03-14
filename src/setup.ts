@@ -439,31 +439,11 @@ export async function selectLayout(): Promise<string> {
 export async function selectToolFromCatalog(
   catalog: readonly ToolEntry[],
   sectionTitle: string,
-  fallbackCmd: string,
+  _fallbackCmd: string,
 ): Promise<string> {
   printSection(sectionTitle);
   const detected = detectTools(catalog);
-  // Sort: available first, then unavailable, maintain catalog order within groups
-  const sorted = [
-    ...detected.filter((t) => t.available),
-    ...detected.filter((t) => !t.available),
-  ];
-
-  // Display options
-  for (let i = 0; i < sorted.length; i++) {
-    const t = sorted[i]!;
-    const marker = t.available ? "  * " : "    ";
-    const detail = t.available ? dim(t.desc) : dim(`${t.desc} (not detected)`);
-    console.log(`${marker}${i + 1}) ${t.cmd.padEnd(10)} ${t.name}    ${detail}`);
-  }
-  console.log(`    c) Custom command`);
-
-  const firstDetected = sorted.findIndex((t) => t.available);
-  const defaultIdx =
-    firstDetected >= 0
-      ? firstDetected
-      : sorted.findIndex((t) => t.cmd === fallbackCmd);
-  const defaultDisplay = defaultIdx >= 0 ? defaultIdx + 1 : 1;
+  const available = detected.filter((t) => t.available);
 
   const askCustom = async (): Promise<string> => {
     const cmd = await textInput("  Enter command name:");
@@ -478,24 +458,36 @@ export async function selectToolFromCatalog(
     return cmd;
   };
 
+  if (available.length === 0) {
+    console.log(dim("  No known tools detected."));
+    return askCustom();
+  }
+
+  // Display only available tools
+  for (let i = 0; i < available.length; i++) {
+    const t = available[i]!;
+    console.log(`  * ${i + 1}) ${t.cmd.padEnd(10)} ${t.name}    ${dim(t.desc)}`);
+  }
+  console.log(`    c) Custom command`);
+
   const askTool = async (): Promise<string> => {
-    const trimmed = (await promptUser(`  Select (default: ${defaultDisplay}): `)).toLowerCase();
+    const trimmed = (await promptUser(`  Select (default: 1): `)).toLowerCase();
     if (trimmed === "") {
-      return defaultIdx >= 0 ? sorted[defaultIdx]!.cmd : fallbackCmd;
+      return available[0]!.cmd;
     }
     if (trimmed === "c") {
       return askCustom();
     }
     const num = parseInt(trimmed, 10);
-    if (Number.isNaN(num) || num < 1 || num > sorted.length) {
+    if (Number.isNaN(num) || num < 1 || num > available.length) {
       console.log(
         yellow(
-          `  Invalid selection. Please enter a number between 1 and ${sorted.length}, or "c" for custom.`,
+          `  Invalid selection. Please enter a number between 1 and ${available.length}, or "c" for custom.`,
         ),
       );
       return askTool();
     }
-    return sorted[num - 1]!.cmd;
+    return available[num - 1]!.cmd;
   };
 
   return askTool();

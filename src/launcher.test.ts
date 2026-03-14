@@ -2098,4 +2098,86 @@ describe("custom tree layout integration (Phase 4)", () => {
       expect(mockGenerateTreeAppleScript).not.toHaveBeenCalled();
     });
   });
+
+  describe("nested workspace warning", () => {
+    let originalEnv: string | undefined;
+    let originalIsTTY: boolean | undefined;
+
+    beforeEach(() => {
+      originalEnv = process.env.SUMMON_WORKSPACE;
+      originalIsTTY = process.stdin.isTTY;
+    });
+
+    afterEach(() => {
+      if (originalEnv === undefined) {
+        delete process.env.SUMMON_WORKSPACE;
+      } else {
+        process.env.SUMMON_WORKSPACE = originalEnv;
+      }
+      Object.defineProperty(process.stdin, "isTTY", { value: originalIsTTY, writable: true });
+    });
+
+    it("warns and prompts when SUMMON_WORKSPACE is set", async () => {
+      process.env.SUMMON_WORKSPACE = "1";
+      Object.defineProperty(process.stdin, "isTTY", { value: true, writable: true });
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      // User answers "y" to proceed
+      mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("y"));
+
+      await launch("/tmp/workspace");
+
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("existing summon workspace"));
+      expect(mockExecFileSync).toHaveBeenCalled();
+      warnSpy.mockRestore();
+    });
+
+    it("exits when user declines nested launch", async () => {
+      process.env.SUMMON_WORKSPACE = "1";
+      Object.defineProperty(process.stdin, "isTTY", { value: true, writable: true });
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+        throw new Error("process.exit");
+      });
+      // User answers "n"
+      mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("n"));
+
+      await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
+      expect(mockExit).toHaveBeenCalledWith(0);
+      warnSpy.mockRestore();
+      mockExit.mockRestore();
+    });
+
+    it("skips warning when --new-window is set", async () => {
+      process.env.SUMMON_WORKSPACE = "1";
+      Object.defineProperty(process.stdin, "isTTY", { value: true, writable: true });
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      await launch("/tmp/workspace", { "new-window": "true" });
+
+      expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining("existing summon workspace"));
+      warnSpy.mockRestore();
+    });
+
+    it("skips warning when not in a TTY", async () => {
+      process.env.SUMMON_WORKSPACE = "1";
+      Object.defineProperty(process.stdin, "isTTY", { value: false, writable: true });
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      await launch("/tmp/workspace");
+
+      expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining("existing summon workspace"));
+      warnSpy.mockRestore();
+    });
+
+    it("skips warning in dry-run mode", async () => {
+      process.env.SUMMON_WORKSPACE = "1";
+      Object.defineProperty(process.stdin, "isTTY", { value: true, writable: true });
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      await launch("/tmp/workspace", { dryRun: true });
+
+      expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining("existing summon workspace"));
+      warnSpy.mockRestore();
+    });
+  });
 });
