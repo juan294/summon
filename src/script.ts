@@ -182,6 +182,11 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginSh
     }
   }
 
+  // Clear interactive shell panes for a clean start (removes "Last login" and setup commands)
+  for (const pane of interactiveShellPanes) {
+    sendCommand(pane, "clear");
+  }
+
   // Root pane: cd into project directory, then launch editor
   sendCommand("paneRoot", `cd ${shellQuote(targetDir)}`);
   if (editorCmd) {

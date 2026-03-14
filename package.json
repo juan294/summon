@@ -1,6 +1,6 @@
 {
   "name": "summon-ws",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "Launch configurable multi-pane Ghostty workspaces with one command",
   "type": "module",
   "packageManager": "pnpm@10.29.2",
