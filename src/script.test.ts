@@ -576,7 +576,13 @@ describe("generateAppleScript", () => {
       expect(script).not.toContain("STARSHIP_CONFIG");
     });
 
-    it("root pane receives export STARSHIP_CONFIG before cd", () => {
+    it("sets environment variables on surface config", () => {
+      const plan = planLayout();
+      const script = generateAppleScript(plan, "/tmp/proj", "/bin/zsh", configPath);
+      expect(script).toContain(`set environment variables of cfg to {"STARSHIP_CONFIG=${configPath}"}`);
+    });
+
+    it("root pane receives export STARSHIP_CONFIG before cd (non-new-window)", () => {
       const plan = planLayout();
       const script = generateAppleScript(plan, "/tmp/proj", "/bin/zsh", configPath);
       const exportIdx = script.indexOf("export STARSHIP_CONFIG=");
@@ -586,78 +592,45 @@ describe("generateAppleScript", () => {
       expect(exportIdx).toBeLessThan(cdIdx);
     });
 
-    it("config-launched panes have export STARSHIP_CONFIG inside shell command", () => {
-      const plan = planLayout();
+    it("root pane does NOT receive export when using new-window (inherits from cfg)", () => {
+      const plan = planLayout({ newWindow: true });
       const script = generateAppleScript(plan, "/tmp/proj", "/bin/zsh", configPath);
-      // Sidebar pane uses wrapForConfig which embeds export inside the -lc argument
-      expect(script).toContain("/bin/zsh -lc");
-      expect(script).toContain("export STARSHIP_CONFIG=");
-      // The export should be inside the shell command, not as an env prefix
-      expect(script).not.toMatch(/STARSHIP_CONFIG=.*\/bin\/zsh -lc/);
+      // env vars are on surface config, root pane created with cfg
+      const lines = script.split("\n");
+      const inputTextExports = lines.filter(
+        (l) => l.includes("input text") && l.includes("export STARSHIP_CONFIG"),
+      );
+      expect(inputTextExports.length).toBe(0);
     });
 
-    it("export STARSHIP_CONFIG is embedded inside the login shell -lc argument", () => {
-      const plan = planLayout({ sidebarCommand: "lazygit" });
+    it("config-launched panes do NOT embed export in -lc argument (env on surface config)", () => {
+      const plan = planLayout();
       const script = generateAppleScript(plan, "/tmp/proj", "/bin/zsh", configPath);
-      // The config command lines should start with the login shell, not STARSHIP_CONFIG
+      // wrapForConfig should NOT contain export STARSHIP_CONFIG
       const lines = script.split("\n");
-      const configLines = lines.filter((l) => l.includes("set command of cfg to") && l.includes("STARSHIP_CONFIG"));
-      expect(configLines.length).toBeGreaterThan(0);
+      const configLines = lines.filter((l) => l.includes("set command of cfg to"));
       for (const line of configLines) {
-        // /bin/zsh should appear before STARSHIP_CONFIG (it's the outer command)
-        const shellIdx = line.indexOf("/bin/zsh");
-        const starshipIdx = line.indexOf("STARSHIP_CONFIG");
-        expect(shellIdx).toBeLessThan(starshipIdx);
+        expect(line).not.toContain("export STARSHIP_CONFIG");
       }
     });
 
-    it("interactive shell pane receives export STARSHIP_CONFIG command", () => {
-      // cli preset: 1 editor pane + shell (no command) — shell-only right column
+    it("interactive shell panes do NOT receive export keystroke (inherit from cfg)", () => {
       const plan = planLayout(getPreset("cli"));
       const script = generateAppleScript(plan, "/tmp/proj", "/bin/zsh", configPath);
       // paneRightCol is an interactive shell (no command)
-      // It should receive an export STARSHIP_CONFIG via sendCommand
+      // It inherits env vars from surface config, no input text needed
       const lines = script.split("\n");
       const exportToShellPane = lines.some(
-        (l) => l.includes("export STARSHIP_CONFIG") && l.includes("paneRightCol"),
+        (l) => l.includes("input text") && l.includes("export STARSHIP_CONFIG") && l.includes("paneRightCol"),
       );
-      expect(exportToShellPane).toBe(true);
+      expect(exportToShellPane).toBe(false);
     });
 
-    it("interactive shell at bottom of right column receives export", () => {
-      // pair preset: 2 editor panes + shell (no command)
-      const plan = planLayout(getPreset("pair"));
-      const script = generateAppleScript(plan, "/tmp/proj", "/bin/zsh", configPath);
-      // Shell pane is paneRight2 (at bottom of right column)
-      const lines = script.split("\n");
-      const exportToShellPane = lines.some(
-        (l) => l.includes("export STARSHIP_CONFIG") && l.includes("paneRight2"),
-      );
-      expect(exportToShellPane).toBe(true);
-    });
-
-    it("shell pane with command embeds export inside shell (not keystroke)", () => {
-      // Shell with a command goes through wrapForConfig — not keystroke
-      const plan = planLayout({ shell: "npm run dev" });
-      const script = generateAppleScript(plan, "/tmp/proj", "/bin/zsh", configPath);
-      // The shell command pane should embed STARSHIP_CONFIG inside the -lc arg
-      const lines = script.split("\n");
-      const configLines = lines.filter((l) => l.includes("set command of cfg") && l.includes("npm run dev"));
-      expect(configLines.length).toBe(1);
-      expect(configLines[0]).toContain("STARSHIP_CONFIG");
-      // And NOT receive an export STARSHIP_CONFIG keystroke for that pane
-      const exportToShellCmdPane = lines.some(
-        (l) => l.includes("export STARSHIP_CONFIG") && l.includes("paneRight2"),
-      );
-      expect(exportToShellCmdPane).toBe(false);
-    });
-
-    it("starshipConfigPath with spaces is properly shell-quoted", () => {
+    it("starshipConfigPath with spaces is properly escaped in surface config", () => {
       const pathWithSpaces = "/Users/me/my config/starship/tokyo night.toml";
       const plan = planLayout();
       const script = generateAppleScript(plan, "/tmp/proj", "/bin/zsh", pathWithSpaces);
-      // Path with spaces should be shell-quoted inside the export
-      expect(script).toContain("export STARSHIP_CONFIG=");
+      expect(script).toContain("STARSHIP_CONFIG=");
       expect(script).toContain("my config/starship/tokyo night.toml");
     });
 
@@ -665,25 +638,8 @@ describe("generateAppleScript", () => {
       const pathWithQuote = "/Users/me/it's/starship.toml";
       const plan = planLayout();
       const script = generateAppleScript(plan, "/tmp/proj", "/bin/zsh", pathWithQuote);
-      // The path should be present in the output (escaped appropriately)
       expect(script).toContain("STARSHIP_CONFIG=");
       expect(script).toContain("starship.toml");
-    });
-
-    it("interactive shell panes receive clear after STARSHIP_CONFIG export", () => {
-      const plan = planLayout(getPreset("cli"));
-      const script = generateAppleScript(plan, "/tmp/proj", "/bin/zsh", configPath);
-      // paneRightCol is an interactive shell pane
-      const lines = script.split("\n");
-      const exportIdx = lines.findIndex(
-        (l) => l.includes("export STARSHIP_CONFIG") && l.includes("paneRightCol"),
-      );
-      const clearIdx = lines.findIndex(
-        (l) => l.includes('input text "clear"') && l.includes("paneRightCol"),
-      );
-      expect(exportIdx).toBeGreaterThan(-1);
-      expect(clearIdx).toBeGreaterThan(-1);
-      expect(clearIdx).toBeGreaterThan(exportIdx);
     });
 
     it("interactive shell panes receive clear even without starship config", () => {
@@ -718,6 +674,140 @@ describe("generateAppleScript", () => {
       expect(script).toContain('tell application "Ghostty"');
       expect(script).toContain("end tell");
       expect(script).not.toContain("STARSHIP_CONFIG");
+    });
+  });
+
+  describe("window management flags", () => {
+    describe("new-window flag", () => {
+      it("generates 'make new window' when newWindow=true", () => {
+        const plan = planLayout({ newWindow: true });
+        const script = generateAppleScript(plan, "/tmp/test");
+        expect(script).toContain("make new window with configuration cfg");
+        expect(script).not.toContain("set win to front window");
+        expect(script).toContain("delay 0.3");
+      });
+
+      it("uses front window when newWindow=false (default)", () => {
+        const plan = planLayout();
+        const script = generateAppleScript(plan, "/tmp/test");
+        expect(script).toContain("set win to front window");
+        expect(script).not.toContain("make new window");
+      });
+    });
+
+    describe("fullscreen flag", () => {
+      it("generates toggle_fullscreen when fullscreen=true", () => {
+        const plan = planLayout({ fullscreen: true });
+        const script = generateAppleScript(plan, "/tmp/test");
+        expect(script).toContain('perform action "toggle_fullscreen" on paneRoot');
+      });
+
+      it("omits fullscreen action when fullscreen=false (default)", () => {
+        const plan = planLayout();
+        const script = generateAppleScript(plan, "/tmp/test");
+        expect(script).not.toContain("toggle_fullscreen");
+      });
+    });
+
+    describe("maximize flag", () => {
+      it("generates toggle_maximize when maximize=true", () => {
+        const plan = planLayout({ maximize: true });
+        const script = generateAppleScript(plan, "/tmp/test");
+        expect(script).toContain('perform action "toggle_maximize" on paneRoot');
+      });
+
+      it("skips maximize when fullscreen is also true", () => {
+        const plan = planLayout({ fullscreen: true, maximize: true });
+        const script = generateAppleScript(plan, "/tmp/test");
+        expect(script).toContain("toggle_fullscreen");
+        expect(script).not.toContain("toggle_maximize");
+      });
+
+      it("omits maximize action when maximize=false (default)", () => {
+        const plan = planLayout();
+        const script = generateAppleScript(plan, "/tmp/test");
+        expect(script).not.toContain("toggle_maximize");
+      });
+    });
+
+    describe("float flag", () => {
+      it("generates toggle_window_float_on_top when float=true", () => {
+        const plan = planLayout({ float: true });
+        const script = generateAppleScript(plan, "/tmp/test");
+        expect(script).toContain('perform action "toggle_window_float_on_top" on paneRoot');
+      });
+
+      it("combines with fullscreen", () => {
+        const plan = planLayout({ fullscreen: true, float: true });
+        const script = generateAppleScript(plan, "/tmp/test");
+        expect(script).toContain("toggle_fullscreen");
+        expect(script).toContain("toggle_window_float_on_top");
+      });
+
+      it("omits float action when float=false (default)", () => {
+        const plan = planLayout();
+        const script = generateAppleScript(plan, "/tmp/test");
+        expect(script).not.toContain("toggle_window_float_on_top");
+      });
+    });
+  });
+
+  describe("user environment variables", () => {
+    it("sets user env vars on surface config", () => {
+      const plan = planLayout();
+      const script = generateAppleScript(plan, "/tmp", "/bin/bash", null,
+        { NODE_ENV: "development", DEBUG: "true" });
+      expect(script).toContain("NODE_ENV=development");
+      expect(script).toContain("DEBUG=true");
+      expect(script).toContain("set environment variables of cfg to");
+    });
+
+    it("merges user env vars with Starship env var", () => {
+      const plan = planLayout();
+      const script = generateAppleScript(plan, "/tmp", "/bin/bash", "/path/starship.toml",
+        { NODE_ENV: "development" });
+      expect(script).toContain("STARSHIP_CONFIG=/path/starship.toml");
+      expect(script).toContain("NODE_ENV=development");
+    });
+
+    it("sends export to root pane for each env var (non-new-window)", () => {
+      const plan = planLayout();
+      const script = generateAppleScript(plan, "/tmp", "/bin/bash", null,
+        { NODE_ENV: "development" });
+      expect(script).toContain('input text "export NODE_ENV=development"');
+    });
+
+    it("skips root pane exports in new-window mode", () => {
+      const plan = planLayout({ newWindow: true });
+      const script = generateAppleScript(plan, "/tmp", "/bin/bash", null,
+        { NODE_ENV: "development" });
+      expect(script).not.toContain('input text "export NODE_ENV=development"');
+    });
+
+    it("no env var setup when none configured", () => {
+      const plan = planLayout();
+      const script = generateAppleScript(plan, "/tmp");
+      expect(script).not.toContain("environment variables");
+    });
+  });
+
+  describe("font-size flag", () => {
+    it("sets font size on surface config when fontSize specified", () => {
+      const plan = planLayout({ fontSize: 14 });
+      const script = generateAppleScript(plan, "/tmp/test");
+      expect(script).toContain("set font size of cfg to 14");
+    });
+
+    it("supports decimal font sizes", () => {
+      const plan = planLayout({ fontSize: 13.5 });
+      const script = generateAppleScript(plan, "/tmp/test");
+      expect(script).toContain("set font size of cfg to 13.5");
+    });
+
+    it("omits font size when fontSize is null (default)", () => {
+      const plan = planLayout();
+      const script = generateAppleScript(plan, "/tmp/test");
+      expect(script).not.toContain("font size");
     });
   });
 });

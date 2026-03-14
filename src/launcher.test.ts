@@ -167,6 +167,7 @@ describe("script execution", () => {
       "/tmp/workspace",
       expect.any(String),
       null,
+      undefined,
     );
   });
 
@@ -824,6 +825,7 @@ describe("falsy sidebarCommand guard", () => {
       "/tmp/workspace",
       expect.any(String),
       null,
+      undefined,
     );
   });
 
@@ -841,6 +843,7 @@ describe("falsy sidebarCommand guard", () => {
       "/tmp/workspace",
       expect.any(String),
       null,
+      undefined,
     );
   });
 });
@@ -975,6 +978,7 @@ describe("command resolution cache for shared binaries (#61)", () => {
       "/tmp/workspace",
       expect.any(String),
       null,
+      undefined,
     );
   });
 });
@@ -1161,6 +1165,7 @@ describe("path resolution", () => {
       "/tmp/workspace",
       expect.any(String),
       null,
+      undefined,
     );
   });
 
@@ -1182,6 +1187,7 @@ describe("path resolution", () => {
       "/tmp/workspace",
       expect.any(String),
       null,
+      undefined,
     );
   });
 });
@@ -1565,6 +1571,7 @@ describe("shell metacharacter confirmation (#90)", () => {
         "/tmp/workspace",
         expect.any(String),
         "/mock/.config/summon/starship/tokyo-night.toml",
+        undefined,
       );
     });
 
@@ -1578,6 +1585,7 @@ describe("shell metacharacter confirmation (#90)", () => {
         "/tmp/workspace",
         expect.any(String),
         null,
+        undefined,
       );
     });
 
@@ -1595,6 +1603,7 @@ describe("shell metacharacter confirmation (#90)", () => {
         "/tmp/workspace",
         expect.any(String),
         null,
+        undefined,
       );
       warnSpy.mockRestore();
     });
@@ -1616,6 +1625,7 @@ describe("shell metacharacter confirmation (#90)", () => {
         "/tmp/workspace",
         expect.any(String),
         null,
+        undefined,
       );
       warnSpy.mockRestore();
     });
@@ -1676,6 +1686,7 @@ describe("shell metacharacter confirmation (#90)", () => {
         "/tmp/workspace",
         expect.any(String),
         "/mock/.config/summon/starship/tokyo-night.toml",
+        undefined,
       );
       logSpy.mockRestore();
     });

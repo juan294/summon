@@ -590,6 +590,187 @@ describe("CLI integration", () => {
     });
   });
 
+  describe("window management flags (#103, #105, #111)", () => {
+    it("--new-window flag accepted in dry-run", () => {
+      const result = run(".", "--new-window", "--dry-run");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("make new window");
+    });
+
+    it("--fullscreen flag accepted in dry-run", () => {
+      const result = run(".", "--fullscreen", "--dry-run");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("toggle_fullscreen");
+    });
+
+    it("--maximize flag accepted in dry-run", () => {
+      const result = run(".", "--maximize", "--dry-run");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("toggle_maximize");
+    });
+
+    it("--float flag accepted in dry-run", () => {
+      const result = run(".", "--float", "--dry-run");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("toggle_window_float_on_top");
+    });
+
+    it("all 4 flags appear in --help", () => {
+      const result = run("--help");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("--new-window");
+      expect(result.stdout).toContain("--fullscreen");
+      expect(result.stdout).toContain("--maximize");
+      expect(result.stdout).toContain("--float");
+    });
+
+    it("summon set new-window validates boolean", () => {
+      const good = run("set", "new-window", "true");
+      expect(good.status).toBe(0);
+      const bad = run("set", "new-window", "maybe");
+      expect(bad.status).toBe(1);
+      expect(bad.stderr).toContain("true");
+      expect(bad.stderr).toContain("false");
+    });
+
+    it("summon set fullscreen validates boolean", () => {
+      const good = run("set", "fullscreen", "true");
+      expect(good.status).toBe(0);
+      const bad = run("set", "fullscreen", "maybe");
+      expect(bad.status).toBe(1);
+      expect(bad.stderr).toContain("true");
+      expect(bad.stderr).toContain("false");
+    });
+  });
+
+  describe("--font-size flag (#110)", () => {
+    it("--font-size accepts positive number in dry-run", () => {
+      const result = run(".", "--font-size", "14", "--dry-run");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("font size");
+    });
+
+    it("--font-size rejects non-numeric value", () => {
+      const result = run(".", "--font-size", "big");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("positive number");
+    });
+
+    it("--font-size rejects zero", () => {
+      const result = run(".", "--font-size", "0");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("positive number");
+    });
+
+    it("--font-size rejects negative", () => {
+      // Use --font-size=-5 syntax since parseArgs treats -5 as a separate flag
+      const result = run(".", "--font-size=-5");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("positive number");
+    });
+
+    it("summon set font-size validates positive number", () => {
+      const good = run("set", "font-size", "14");
+      expect(good.status).toBe(0);
+      const bad = run("set", "font-size", "abc");
+      expect(bad.status).toBe(1);
+      expect(bad.stderr).toContain("positive number");
+    });
+  });
+
+  describe("--env flag (#108)", () => {
+    it("--env accepts KEY=VALUE format in dry-run", () => {
+      const result = run(".", "--env", "NODE_ENV=development", "--dry-run");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("NODE_ENV=development");
+    });
+
+    it("--env rejects value without =", () => {
+      const result = run(".", "--env", "BADVALUE");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("KEY=VALUE");
+    });
+
+    it("--env can be specified multiple times", () => {
+      const result = run(".", "--env", "A=1", "--env", "B=2", "--dry-run");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("A=1");
+      expect(result.stdout).toContain("B=2");
+    });
+
+    it("summon set env.KEY VALUE works", () => {
+      const result = run("set", "env.NODE_ENV", "development");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("Set env.NODE_ENV");
+    });
+  });
+
+  describe("--on-start flag (#107)", () => {
+    it("--on-start flag accepted with string value", () => {
+      const result = run(".", "--on-start", "echo hello", "--dry-run");
+      expect(result.status).toBe(0);
+    });
+
+    it("--on-start appears in help output", () => {
+      const result = run("--help");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("--on-start");
+      expect(result.stdout).toContain("on-start");
+    });
+  });
+
+  describe("summon open (#109)", () => {
+    it("shows error when no projects registered", () => {
+      const result = run("open");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("No projects registered");
+    });
+
+    it("summon open --help shows usage", () => {
+      const result = run("open", "--help");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("summon open");
+    });
+  });
+
+  describe("summon export (#112)", () => {
+    it("exports machine config as .summon format", () => {
+      run("set", "editor", "nvim");
+      const result = run("export");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("editor=nvim");
+      expect(result.stdout).toContain("# Summon workspace configuration");
+    });
+
+    it("exports to file when path argument given", () => {
+      const outputFile = `${TEMP_HOME}/test-export.summon`;
+      run("set", "editor", "vim");
+      const result = run("export", outputFile);
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("Exported to:");
+    });
+
+    it("summon export --help shows usage", () => {
+      const result = run("export", "--help");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("summon export");
+    });
+  });
+
+  describe("summon doctor (#113, #116)", () => {
+    it("runs without error", () => {
+      const result = run("doctor");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("Checking Ghostty configuration");
+    });
+
+    it("summon doctor --help shows usage", () => {
+      const result = run("doctor", "--help");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("summon doctor");
+    });
+  });
+
   // #63: warn when both --auto-resize and --no-auto-resize are passed
   describe("auto-resize conflict warning (#63)", () => {
     it("warns on stderr when both --auto-resize and --no-auto-resize are given", () => {

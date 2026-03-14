@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { execFileSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import {
   planLayout,
   isPresetName,
@@ -25,7 +25,7 @@ const SAFE_SHELL_RE = /^\/[a-zA-Z0-9_/.-]+$/;
 const SHELL_META_RE = /[;|&`]|\$\(|[><]/;
 
 /** Keys in .summon files that hold command values (as opposed to config like layout/panes). */
-const COMMAND_KEYS = new Set(["editor", "sidebar", "shell"]);
+const COMMAND_KEYS = new Set(["editor", "sidebar", "shell", "on-start"]);
 
 /**
  * Read and validate process.env.SHELL.
@@ -51,6 +51,13 @@ export interface CLIOverrides {
   shell?: string;
   "auto-resize"?: string;
   "starship-preset"?: string;
+  env?: string[];
+  "font-size"?: string;
+  "on-start"?: string;
+  "new-window"?: string;
+  fullscreen?: string;
+  maximize?: string;
+  float?: string;
   dryRun?: boolean;
 }
 
@@ -186,6 +193,42 @@ interface ResolvedConfig {
   opts: Partial<LayoutOptions>;
   projectOverrides: Map<string, string>;
   starshipPreset?: string;
+  onStart?: string;
+  envVars: Record<string, string>;
+}
+
+function collectEnvVars(
+  machineConfig: Map<string, string>,
+  projectConfig: Map<string, string>,
+  cliEnvFlags: string[] | undefined,
+): Record<string, string> {
+  const envVars: Record<string, string> = {};
+
+  // Machine config (lowest priority)
+  for (const [key, value] of machineConfig) {
+    if (key.startsWith("env.")) {
+      envVars[key.slice(4)] = value;
+    }
+  }
+
+  // Project config (overrides machine)
+  for (const [key, value] of projectConfig) {
+    if (key.startsWith("env.")) {
+      envVars[key.slice(4)] = value;
+    }
+  }
+
+  // CLI flags (highest priority)
+  if (cliEnvFlags) {
+    for (const entry of cliEnvFlags) {
+      const eqIdx = entry.indexOf("=");
+      if (eqIdx > 0) {
+        envVars[entry.slice(0, eqIdx)] = entry.slice(eqIdx + 1);
+      }
+    }
+  }
+
+  return envVars;
 }
 
 export function resolveConfig(targetDir: string, cliOverrides: CLIOverrides): ResolvedConfig {
@@ -247,10 +290,33 @@ export function resolveConfig(targetDir: string, cliOverrides: CLIOverrides): Re
   if (shell !== undefined) result.shell = shell;
   if (autoResize !== undefined) result.autoResize = autoResize === "true";
 
+  const fontSize = pick(cliOverrides["font-size"], "font-size");
+  if (fontSize !== undefined) {
+    const parsed = parseFloat(fontSize);
+    if (!isNaN(parsed) && parsed > 0) {
+      result.fontSize = parsed;
+    }
+  }
+
+  const newWindow = pick(cliOverrides["new-window"], "new-window");
+  const fullscreen = pick(cliOverrides.fullscreen, "fullscreen");
+  const maximize = pick(cliOverrides.maximize, "maximize");
+  const float = pick(cliOverrides.float, "float");
+  if (newWindow !== undefined) result.newWindow = newWindow === "true";
+  if (fullscreen !== undefined) result.fullscreen = fullscreen === "true";
+  if (maximize !== undefined) result.maximize = maximize === "true";
+  if (float !== undefined) result.float = float === "true";
+
   // Resolve starship-preset: CLI > project > global (no default)
   const starshipPreset = pick(cliOverrides["starship-preset"], "starship-preset");
 
-  return { opts: result, projectOverrides: project, starshipPreset };
+  // Resolve on-start: CLI > project > global (no default)
+  const onStart = pick(cliOverrides["on-start"], "on-start");
+
+  // Collect env vars from all layers (machine < project < CLI)
+  const envVars = collectEnvVars(machineConfig, project, cliOverrides.env);
+
+  return { opts: result, projectOverrides: project, starshipPreset, onStart, envVars };
 }
 
 export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Promise<void> {
@@ -259,10 +325,25 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
     process.exit(1);
   }
 
-  const { opts, projectOverrides, starshipPreset } = resolveConfig(targetDir, cliOverrides ?? {});
+  const { opts, projectOverrides, starshipPreset, onStart, envVars } = resolveConfig(targetDir, cliOverrides ?? {});
 
   if (!cliOverrides?.dryRun) {
     await confirmDangerousCommands(projectOverrides);
+  }
+
+  // Execute on-start hook before workspace creation
+  if (onStart && !cliOverrides?.dryRun) {
+    console.log(`Running on-start: ${onStart}`);
+    try {
+      execSync(onStart, {
+        cwd: targetDir,
+        encoding: "utf-8",
+        stdio: "inherit",
+      });
+    } catch {
+      console.error(`on-start command failed: ${onStart}`);
+      process.exit(1);
+    }
   }
 
   const plan = planLayout(opts);
@@ -270,7 +351,8 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
 
   if (cliOverrides?.dryRun) {
     const dryRunStarshipPath = starshipPreset ? getPresetConfigPath(starshipPreset) : null;
-    const script = generateAppleScript(plan, targetDir, loginShell, dryRunStarshipPath);
+    const hasEnvVars = Object.keys(envVars).length > 0;
+    const script = generateAppleScript(plan, targetDir, loginShell, dryRunStarshipPath, hasEnvVars ? envVars : undefined);
     const totalPanes = plan.leftColumnCount + plan.rightColumnEditorCount;
     const headerLines = [
       "-- summon dry-run",
@@ -326,6 +408,7 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
     }
   }
 
-  const script = generateAppleScript(plan, targetDir, loginShell, starshipConfigPath);
+  const hasEnvVars = Object.keys(envVars).length > 0;
+  const script = generateAppleScript(plan, targetDir, loginShell, starshipConfigPath, hasEnvVars ? envVars : undefined);
   executeScript(script);
 }
