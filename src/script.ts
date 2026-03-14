@@ -33,9 +33,11 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginSh
   // Input-text commands (root pane) run in an already-initialized shell — no wrapping needed.
   const quotedTargetDir = shellQuote(targetDir);
   const wrapForConfig = (cmd: string): string => {
-    const base = `${loginShell} -lc ${shellQuote(`cd ${quotedTargetDir} && ${cmd}`)}`;
-    if (!starshipConfigPath) return base;
-    return `STARSHIP_CONFIG=${shellQuote(starshipConfigPath)} ${base}`;
+    if (!starshipConfigPath) {
+      return `${loginShell} -lc ${shellQuote(`cd ${quotedTargetDir} && ${cmd}`)}`;
+    }
+    const exportEnv = `export STARSHIP_CONFIG=${shellQuote(starshipConfigPath)}`;
+    return `${loginShell} -lc ${shellQuote(`${exportEnv} && cd ${quotedTargetDir} && ${cmd}`)}`;
   };
 
   const setConfigCommand = (cmd: string) => {

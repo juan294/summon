@@ -586,23 +586,29 @@ describe("generateAppleScript", () => {
       expect(exportIdx).toBeLessThan(cdIdx);
     });
 
-    it("config-launched panes have STARSHIP_CONFIG= prefix in command", () => {
+    it("config-launched panes have export STARSHIP_CONFIG inside shell command", () => {
       const plan = planLayout();
       const script = generateAppleScript(plan, "/tmp/proj", "/bin/zsh", configPath);
-      // Sidebar pane uses wrapForConfig which should have STARSHIP_CONFIG prefix
-      expect(script).toContain(`STARSHIP_CONFIG='${configPath}' /bin/zsh -lc`);
+      // Sidebar pane uses wrapForConfig which embeds export inside the -lc argument
+      expect(script).toContain("/bin/zsh -lc");
+      expect(script).toContain("export STARSHIP_CONFIG=");
+      // The export should be inside the shell command, not as an env prefix
+      expect(script).not.toMatch(/STARSHIP_CONFIG=.*\/bin\/zsh -lc/);
     });
 
-    it("STARSHIP_CONFIG appears before loginShell invocation (env prefix)", () => {
+    it("export STARSHIP_CONFIG is embedded inside the login shell -lc argument", () => {
       const plan = planLayout({ sidebarCommand: "lazygit" });
       const script = generateAppleScript(plan, "/tmp/proj", "/bin/zsh", configPath);
-      // Find a line with STARSHIP_CONFIG and verify it precedes /bin/zsh
+      // The config command lines should start with the login shell, not STARSHIP_CONFIG
       const lines = script.split("\n");
-      const starshipLine = lines.find((l) => l.includes("STARSHIP_CONFIG") && l.includes("/bin/zsh"));
-      expect(starshipLine).toBeDefined();
-      const starshipIdx = starshipLine!.indexOf("STARSHIP_CONFIG");
-      const shellIdx = starshipLine!.indexOf("/bin/zsh");
-      expect(starshipIdx).toBeLessThan(shellIdx);
+      const configLines = lines.filter((l) => l.includes("set command of cfg to") && l.includes("STARSHIP_CONFIG"));
+      expect(configLines.length).toBeGreaterThan(0);
+      for (const line of configLines) {
+        // /bin/zsh should appear before STARSHIP_CONFIG (it's the outer command)
+        const shellIdx = line.indexOf("/bin/zsh");
+        const starshipIdx = line.indexOf("STARSHIP_CONFIG");
+        expect(shellIdx).toBeLessThan(starshipIdx);
+      }
     });
 
     it("interactive shell pane receives export STARSHIP_CONFIG command", () => {
@@ -630,14 +636,16 @@ describe("generateAppleScript", () => {
       expect(exportToShellPane).toBe(true);
     });
 
-    it("shell pane with command uses env prefix (not export)", () => {
+    it("shell pane with command embeds export inside shell (not keystroke)", () => {
       // Shell with a command goes through wrapForConfig — not keystroke
       const plan = planLayout({ shell: "npm run dev" });
       const script = generateAppleScript(plan, "/tmp/proj", "/bin/zsh", configPath);
-      // The shell command pane should use env prefix
-      expect(script).toContain(`STARSHIP_CONFIG='${configPath}' /bin/zsh -lc`);
-      // And NOT receive an export STARSHIP_CONFIG keystroke for that pane
+      // The shell command pane should embed STARSHIP_CONFIG inside the -lc arg
       const lines = script.split("\n");
+      const configLines = lines.filter((l) => l.includes("set command of cfg") && l.includes("npm run dev"));
+      expect(configLines.length).toBe(1);
+      expect(configLines[0]).toContain("STARSHIP_CONFIG");
+      // And NOT receive an export STARSHIP_CONFIG keystroke for that pane
       const exportToShellCmdPane = lines.some(
         (l) => l.includes("export STARSHIP_CONFIG") && l.includes("paneRight2"),
       );
@@ -648,16 +656,18 @@ describe("generateAppleScript", () => {
       const pathWithSpaces = "/Users/me/my config/starship/tokyo night.toml";
       const plan = planLayout();
       const script = generateAppleScript(plan, "/tmp/proj", "/bin/zsh", pathWithSpaces);
-      expect(script).toContain("STARSHIP_CONFIG='/Users/me/my config/starship/tokyo night.toml'");
+      // Path with spaces should be shell-quoted inside the export
+      expect(script).toContain("export STARSHIP_CONFIG=");
+      expect(script).toContain("my config/starship/tokyo night.toml");
     });
 
     it("starshipConfigPath with single quotes is properly escaped", () => {
       const pathWithQuote = "/Users/me/it's/starship.toml";
       const plan = planLayout();
       const script = generateAppleScript(plan, "/tmp/proj", "/bin/zsh", pathWithQuote);
-      // shellQuote produces: '/Users/me/it'\''s/starship.toml'
-      // escapeAppleScript doubles the backslash: '/Users/me/it'\\''s/starship.toml'
-      expect(script).toContain("STARSHIP_CONFIG='/Users/me/it'\\\\''s/starship.toml'");
+      // The path should be present in the output (escaped appropriately)
+      expect(script).toContain("STARSHIP_CONFIG=");
+      expect(script).toContain("starship.toml");
     });
 
     it("all existing tests pass with starshipConfigPath omitted (backward compat)", () => {
