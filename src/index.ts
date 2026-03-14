@@ -685,6 +685,10 @@ switch (subcommand) {
           console.error("Usage: summon layout show <name>");
           process.exit(1);
         }
+        if (!isValidLayoutName(layoutName)) {
+          console.error(`Error: Invalid layout name "${layoutName}". Names must start with a letter and contain only letters, numbers, hyphens, and underscores.`);
+          process.exit(1);
+        }
         const data = readCustomLayout(layoutName);
         if (!data) {
           console.error(`Layout not found: ${layoutName}`);
@@ -703,6 +707,10 @@ switch (subcommand) {
           console.error("Usage: summon layout delete <name>");
           process.exit(1);
         }
+        if (!isValidLayoutName(layoutName)) {
+          console.error(`Error: Invalid layout name "${layoutName}". Names must start with a letter and contain only letters, numbers, hyphens, and underscores.`);
+          process.exit(1);
+        }
         const deleted = deleteCustomLayout(layoutName);
         if (deleted) {
           console.log(`Deleted custom layout: ${layoutName}`);
@@ -717,6 +725,10 @@ switch (subcommand) {
       case "edit": {
         if (!layoutName) {
           console.error("Usage: summon layout edit <name>");
+          process.exit(1);
+        }
+        if (!isValidLayoutName(layoutName)) {
+          console.error(`Error: Invalid layout name "${layoutName}". Names must start with a letter and contain only letters, numbers, hyphens, and underscores.`);
           process.exit(1);
         }
         if (!isCustomLayout(layoutName)) {
