@@ -386,8 +386,8 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
     console.warn("Warning: You're inside an existing summon workspace.");
     console.warn("Launching here will nest splits inside this pane, which can get too scary.");
     console.warn("Tip: Use --new-window to open in a separate window instead.\n");
-    const answer = await promptUser("Continue anyway? [y/N] ");
-    if (answer.trim().toLowerCase() !== "y") {
+    const answer = await prompt("Continue anyway? [y/N] ");
+    if (answer !== "y") {
       process.exit(0);
     }
   }

@@ -200,13 +200,11 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginSh
   // Root pane env var exports: the root pane is never created with cfg
   // (it's either the existing front window terminal, or a new window via Cmd+N),
   // so it needs explicit exports. Split panes inherit env vars from cfg automatically.
-  if (allEnvVars.length > 0) {
-    for (const envVar of allEnvVars) {
-      const eqIdx = envVar.indexOf("=");
-      const key = envVar.slice(0, eqIdx);
-      const val = envVar.slice(eqIdx + 1);
-      sendCommand("paneRoot", `export ${key}=${shellQuote(val)}`);
-    }
+  for (const envVar of allEnvVars) {
+    const eqIdx = envVar.indexOf("=");
+    const key = envVar.slice(0, eqIdx);
+    const val = envVar.slice(eqIdx + 1);
+    sendCommand("paneRoot", `export ${key}=${shellQuote(val)}`);
   }
 
   // Clear interactive shell panes for a clean start (removes "Last login" and setup commands)
