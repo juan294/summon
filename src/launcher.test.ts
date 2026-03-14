@@ -1868,6 +1868,30 @@ describe("shell metacharacter confirmation (#90)", () => {
   });
 });
 
+describe("layout name validation from .summon files", () => {
+  it("ignores path-traversal layout names from project config", () => {
+    mockReadKVFile.mockReturnValue(new Map([["layout", "../../etc/passwd"]]));
+    vi.mocked(listConfig).mockReturnValue(new Map());
+    mockIsCustomLayout.mockReturnValue(true); // simulate file existing at traversed path
+
+    const result = resolveConfig("/tmp/workspace", {});
+    // Should NOT call isCustomLayout with the traversal name
+    expect(mockIsCustomLayout).not.toHaveBeenCalled();
+    // Should fall through to default layout (no base overrides)
+    expect(result.treeLayout).toBeUndefined();
+  });
+
+  it("accepts valid layout names from project config", () => {
+    mockReadKVFile.mockReturnValue(new Map([["layout", "my-layout"]]));
+    vi.mocked(listConfig).mockReturnValue(new Map());
+    mockIsCustomLayout.mockReturnValue(true);
+    mockReadCustomLayout.mockReturnValue(new Map([["editor", "vim"]]));
+
+    resolveConfig("/tmp/workspace", {});
+    expect(mockIsCustomLayout).toHaveBeenCalledWith("my-layout");
+  });
+});
+
 describe("custom tree layout integration (Phase 4)", () => {
   describe("resolveConfig with tree layout", () => {
     it("populates treeLayout when custom layout has tree= key", () => {

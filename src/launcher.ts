@@ -264,7 +264,7 @@ export function resolveConfig(targetDir: string, cliOverrides: CLIOverrides): Re
   if (layoutKey) {
     if (isPresetName(layoutKey)) {
       base = getPreset(layoutKey);
-    } else if (isCustomLayout(layoutKey)) {
+    } else if (/^[a-zA-Z][a-zA-Z0-9_-]*$/.test(layoutKey) && isCustomLayout(layoutKey)) {
       // Load custom layout as base config
       const customData = readCustomLayout(layoutKey);
       if (customData) {
