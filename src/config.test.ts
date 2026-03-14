@@ -257,6 +257,13 @@ describe("isFirstRun", () => {
   });
 });
 
+describe("VALID_KEYS", () => {
+  it("includes starship-preset", async () => {
+    const { VALID_KEYS } = await import("./config.js");
+    expect(VALID_KEYS).toContain("starship-preset");
+  });
+});
+
 describe("ensureConfig initial content", () => {
   it("creates empty config file on first run", async () => {
     const store = await getStore();

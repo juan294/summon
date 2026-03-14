@@ -17,6 +17,7 @@ import { listConfig, readKVFile } from "./config.js";
 import { generateAppleScript } from "./script.js";
 import { SAFE_COMMAND_RE, GHOSTTY_PATHS, resolveCommand as resolveCommandPath, promptUser } from "./utils.js";
 import { parseIntInRange } from "./validation.js";
+import { isStarshipInstalled, ensurePresetConfig, getPresetConfigPath } from "./starship.js";
 
 const SAFE_SHELL_RE = /^\/[a-zA-Z0-9_/.-]+$/;
 
@@ -49,6 +50,7 @@ export interface CLIOverrides {
   sidebar?: string;
   shell?: string;
   "auto-resize"?: string;
+  "starship-preset"?: string;
   dryRun?: boolean;
 }
 
@@ -182,6 +184,7 @@ async function ensureCommand(cmd: string, configKey: string): Promise<string> {
 interface ResolvedConfig {
   opts: Partial<LayoutOptions>;
   projectOverrides: Map<string, string>;
+  starshipPreset?: string;
 }
 
 export function resolveConfig(targetDir: string, cliOverrides: CLIOverrides): ResolvedConfig {
@@ -243,7 +246,10 @@ export function resolveConfig(targetDir: string, cliOverrides: CLIOverrides): Re
   if (shell !== undefined) result.shell = shell;
   if (autoResize !== undefined) result.autoResize = autoResize === "true";
 
-  return { opts: result, projectOverrides: project };
+  // Resolve starship-preset: CLI > project > global (no default)
+  const starshipPreset = pick(cliOverrides["starship-preset"], "starship-preset");
+
+  return { opts: result, projectOverrides: project, starshipPreset };
 }
 
 export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Promise<void> {
@@ -252,7 +258,7 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
     process.exit(1);
   }
 
-  const { opts, projectOverrides } = resolveConfig(targetDir, cliOverrides ?? {});
+  const { opts, projectOverrides, starshipPreset } = resolveConfig(targetDir, cliOverrides ?? {});
 
   if (!cliOverrides?.dryRun) {
     await confirmDangerousCommands(projectOverrides);
@@ -262,14 +268,18 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
   const loginShell = getLoginShell();
 
   if (cliOverrides?.dryRun) {
-    const script = generateAppleScript(plan, targetDir, loginShell);
+    const dryRunStarshipPath = starshipPreset ? getPresetConfigPath(starshipPreset) : null;
+    const script = generateAppleScript(plan, targetDir, loginShell, dryRunStarshipPath);
     const totalPanes = plan.leftColumnCount + plan.rightColumnEditorCount;
-    const header = [
+    const headerLines = [
       "-- summon dry-run",
       `-- Layout: ${totalPanes} editor panes, editor=${plan.editor}, sidebar=${plan.sidebarCommand}, shell=${plan.hasShell}`,
       `-- Target: ${targetDir}`,
-    ].join("\n");
-    console.log(`${header}\n${script}`);
+    ];
+    if (starshipPreset) {
+      headerLines.push(`-- Starship preset: ${starshipPreset} (${dryRunStarshipPath})`);
+    }
+    console.log(`${headerLines.join("\n")}\n${script}`);
     return;
   }
 
@@ -296,6 +306,25 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
   if (plan.secondaryEditor) plan.secondaryEditor = await ensureAndResolve(plan.secondaryEditor, "editor");
   if (plan.shellCommand) plan.shellCommand = await ensureAndResolve(plan.shellCommand, "shell");
 
-  const script = generateAppleScript(plan, targetDir, loginShell);
+  // Resolve Starship preset to a cached TOML config path
+  let starshipConfigPath: string | null = null;
+  if (starshipPreset) {
+    if (isStarshipInstalled()) {
+      try {
+        starshipConfigPath = ensurePresetConfig(starshipPreset);
+      } catch (err) {
+        console.warn(
+          `Warning: Failed to set up Starship preset "${starshipPreset}": ${(err as Error).message}`,
+        );
+      }
+    } else {
+      console.warn(
+        `Warning: starship-preset is set to "${starshipPreset}" but Starship is not installed. Skipping.`,
+      );
+      console.warn("Install Starship: https://starship.rs");
+    }
+  }
+
+  const script = generateAppleScript(plan, targetDir, loginShell, starshipConfigPath);
   executeScript(script);
 }

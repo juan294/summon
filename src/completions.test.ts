@@ -46,6 +46,12 @@ describe("generateZshCompletion", () => {
     const result = generateZshCompletion();
     expect(result).toContain("_summon()");
   });
+
+  test("has starship preset value completion via starship CLI", () => {
+    const result = generateZshCompletion();
+    expect(result).toContain("starship preset --list");
+    expect(result).toContain("starship_preset");
+  });
 });
 
 describe("generateBashCompletion", () => {
@@ -90,5 +96,11 @@ describe("generateBashCompletion", () => {
   test("contains _summon function definition", () => {
     const result = generateBashCompletion();
     expect(result).toContain("_summon()");
+  });
+
+  test("has starship preset value completion via starship CLI", () => {
+    const result = generateBashCompletion();
+    expect(result).toContain("starship preset --list");
+    expect(result).toContain("starship-preset");
   });
 });

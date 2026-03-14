@@ -14,6 +14,18 @@ vi.mock("./config.js", () => ({
   getConfig: vi.fn(),
   listConfig: vi.fn(() => new Map<string, string>()),
   readKVFile: (path: string) => mockReadKVFile(path),
+  CONFIG_DIR: "/mock/.config/summon",
+}));
+
+// Mock starship
+const mockIsStarshipInstalled = vi.fn(() => false);
+const mockEnsurePresetConfig = vi.fn(() => "/mock/.config/summon/starship/tokyo-night.toml");
+const mockGetPresetConfigPath = vi.fn((name: string) => `/mock/.config/summon/starship/${name}.toml`);
+vi.mock("./starship.js", () => ({
+  isStarshipInstalled: mockIsStarshipInstalled,
+  ensurePresetConfig: mockEnsurePresetConfig,
+  getPresetConfigPath: mockGetPresetConfigPath,
+  resetStarshipCache: vi.fn(),
 }));
 
 // Mock fs.existsSync for directory and Ghostty.app checks
@@ -154,6 +166,7 @@ describe("script execution", () => {
       }),
       "/tmp/workspace",
       expect.any(String),
+      null,
     );
   });
 
@@ -810,6 +823,7 @@ describe("falsy sidebarCommand guard", () => {
       }),
       "/tmp/workspace",
       expect.any(String),
+      null,
     );
   });
 
@@ -826,6 +840,7 @@ describe("falsy sidebarCommand guard", () => {
       }),
       "/tmp/workspace",
       expect.any(String),
+      null,
     );
   });
 });
@@ -959,6 +974,7 @@ describe("command resolution cache for shared binaries (#61)", () => {
       }),
       "/tmp/workspace",
       expect.any(String),
+      null,
     );
   });
 });
@@ -1144,6 +1160,7 @@ describe("path resolution", () => {
       }),
       "/tmp/workspace",
       expect.any(String),
+      null,
     );
   });
 
@@ -1164,6 +1181,7 @@ describe("path resolution", () => {
       }),
       "/tmp/workspace",
       expect.any(String),
+      null,
     );
   });
 });
@@ -1527,5 +1545,146 @@ describe("shell metacharacter confirmation (#90)", () => {
     expect(result.projectOverrides).toBeInstanceOf(Map);
     expect(result.projectOverrides.get("editor")).toBe("vim");
     expect(result.projectOverrides.get("shell")).toBe("npm run dev");
+  });
+
+  // --- Starship preset integration ---
+
+  describe("starship preset integration", () => {
+    it("passes starshipConfigPath to generateAppleScript when preset configured and starship installed", async () => {
+      mockIsStarshipInstalled.mockReturnValue(true);
+      mockEnsurePresetConfig.mockReturnValue("/mock/.config/summon/starship/tokyo-night.toml");
+      vi.mocked(listConfig).mockReturnValue(new Map([["starship-preset", "tokyo-night"]]));
+
+      await launch("/tmp/workspace");
+
+      expect(mockGenerateAppleScript).toHaveBeenCalledWith(
+        expect.anything(),
+        "/tmp/workspace",
+        expect.any(String),
+        "/mock/.config/summon/starship/tokyo-night.toml",
+      );
+    });
+
+    it("passes null when no preset configured", async () => {
+      vi.mocked(listConfig).mockReturnValue(new Map());
+
+      await launch("/tmp/workspace");
+
+      expect(mockGenerateAppleScript).toHaveBeenCalledWith(
+        expect.anything(),
+        "/tmp/workspace",
+        expect.any(String),
+        null,
+      );
+    });
+
+    it("warns and passes null when preset configured but starship not installed", async () => {
+      mockIsStarshipInstalled.mockReturnValue(false);
+      vi.mocked(listConfig).mockReturnValue(new Map([["starship-preset", "tokyo-night"]]));
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      await launch("/tmp/workspace");
+
+      const msgs = warnSpy.mock.calls.map((c) => c[0] as string);
+      expect(msgs.some((m) => m.includes("Starship is not installed"))).toBe(true);
+      expect(mockGenerateAppleScript).toHaveBeenCalledWith(
+        expect.anything(),
+        "/tmp/workspace",
+        expect.any(String),
+        null,
+      );
+      warnSpy.mockRestore();
+    });
+
+    it("warns and passes null when ensurePresetConfig throws", async () => {
+      mockIsStarshipInstalled.mockReturnValue(true);
+      mockEnsurePresetConfig.mockImplementation(() => {
+        throw new Error("preset generation failed");
+      });
+      vi.mocked(listConfig).mockReturnValue(new Map([["starship-preset", "bad-preset"]]));
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      await launch("/tmp/workspace");
+
+      const msgs = warnSpy.mock.calls.map((c) => c[0] as string);
+      expect(msgs.some((m) => m.includes("Failed to set up Starship preset"))).toBe(true);
+      expect(mockGenerateAppleScript).toHaveBeenCalledWith(
+        expect.anything(),
+        "/tmp/workspace",
+        expect.any(String),
+        null,
+      );
+      warnSpy.mockRestore();
+    });
+
+    it("resolves preset from CLI override (highest priority)", () => {
+      mockReadKVFile.mockReturnValue(new Map([["starship-preset", "gruvbox-rainbow"]]));
+      vi.mocked(listConfig).mockReturnValue(new Map([["starship-preset", "jetpack"]]));
+
+      const result = resolveConfig("/tmp/workspace", { "starship-preset": "tokyo-night" });
+      expect(result.starshipPreset).toBe("tokyo-night");
+    });
+
+    it("resolves preset from project .summon file", () => {
+      mockReadKVFile.mockReturnValue(new Map([["starship-preset", "gruvbox-rainbow"]]));
+      vi.mocked(listConfig).mockReturnValue(new Map());
+
+      const result = resolveConfig("/tmp/workspace", {});
+      expect(result.starshipPreset).toBe("gruvbox-rainbow");
+    });
+
+    it("resolves preset from global machine config", () => {
+      mockReadKVFile.mockReturnValue(new Map());
+      vi.mocked(listConfig).mockReturnValue(new Map([["starship-preset", "jetpack"]]));
+
+      const result = resolveConfig("/tmp/workspace", {});
+      expect(result.starshipPreset).toBe("jetpack");
+    });
+
+    it("CLI preset overrides project preset", () => {
+      mockReadKVFile.mockReturnValue(new Map([["starship-preset", "gruvbox-rainbow"]]));
+      vi.mocked(listConfig).mockReturnValue(new Map());
+
+      const result = resolveConfig("/tmp/workspace", { "starship-preset": "tokyo-night" });
+      expect(result.starshipPreset).toBe("tokyo-night");
+    });
+
+    it("project preset overrides global preset", () => {
+      mockReadKVFile.mockReturnValue(new Map([["starship-preset", "gruvbox-rainbow"]]));
+      vi.mocked(listConfig).mockReturnValue(new Map([["starship-preset", "jetpack"]]));
+
+      const result = resolveConfig("/tmp/workspace", {});
+      expect(result.starshipPreset).toBe("gruvbox-rainbow");
+    });
+
+    it("dry-run includes starship config path in output", async () => {
+      mockGetPresetConfigPath.mockReturnValue("/mock/.config/summon/starship/tokyo-night.toml");
+      vi.mocked(listConfig).mockReturnValue(new Map([["starship-preset", "tokyo-night"]]));
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      await launch("/tmp/workspace", { dryRun: true });
+
+      const output = logSpy.mock.calls.map((c) => c[0] as string).join("\n");
+      expect(output).toContain("Starship preset: tokyo-night");
+      expect(output).toContain("/mock/.config/summon/starship/tokyo-night.toml");
+      // generateAppleScript should receive the config path for dry-run
+      expect(mockGenerateAppleScript).toHaveBeenCalledWith(
+        expect.anything(),
+        "/tmp/workspace",
+        expect.any(String),
+        "/mock/.config/summon/starship/tokyo-night.toml",
+      );
+      logSpy.mockRestore();
+    });
+
+    it("does not call ensurePresetConfig when dry-run", async () => {
+      vi.mocked(listConfig).mockReturnValue(new Map([["starship-preset", "tokyo-night"]]));
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      await launch("/tmp/workspace", { dryRun: true });
+
+      expect(mockEnsurePresetConfig).not.toHaveBeenCalled();
+      logSpy.mockRestore();
+    });
   });
 });
