@@ -748,6 +748,14 @@ describe("input validation", () => {
     expect(warnSpy).not.toHaveBeenCalled();
     warnSpy.mockRestore();
   });
+
+  it("resolves font-size from project config layers", () => {
+    mockReadKVFile.mockReturnValue(new Map([["font-size", "18"]]));
+    vi.mocked(listConfig).mockReturnValue(new Map());
+
+    const { opts } = resolveConfig("/tmp/workspace", {});
+    expect(opts.fontSize).toBe(18);
+  });
 });
 
 describe("osascript error handling", () => {
@@ -1824,6 +1832,39 @@ describe("shell metacharacter confirmation (#90)", () => {
       const result = resolveConfig("/tmp/workspace", {});
       expect(result.envVars).toEqual({});
     });
+
+    it("rejects --env CLI key names with spaces", () => {
+      mockReadKVFile.mockReturnValue(new Map());
+      vi.mocked(listConfig).mockReturnValue(new Map());
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      const result = resolveConfig("/tmp/workspace", { env: ["INVALID KEY=val"] });
+      expect(result.envVars).not.toHaveProperty("INVALID KEY");
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("INVALID KEY"));
+      warnSpy.mockRestore();
+    });
+
+    it("accepts --env CLI key names that are valid", () => {
+      mockReadKVFile.mockReturnValue(new Map());
+      vi.mocked(listConfig).mockReturnValue(new Map());
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      const result = resolveConfig("/tmp/workspace", { env: ["VALID_KEY=val"] });
+      expect(result.envVars).toEqual({ VALID_KEY: "val" });
+      expect(warnSpy).not.toHaveBeenCalled();
+      warnSpy.mockRestore();
+    });
+
+    it("rejects --env CLI key names starting with a digit", () => {
+      mockReadKVFile.mockReturnValue(new Map());
+      vi.mocked(listConfig).mockReturnValue(new Map());
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      const result = resolveConfig("/tmp/workspace", { env: ["123BAD=val"] });
+      expect(result.envVars).not.toHaveProperty("123BAD");
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("123BAD"));
+      warnSpy.mockRestore();
+    });
   });
 });
 
@@ -1999,6 +2040,35 @@ describe("custom tree layout integration (Phase 4)", () => {
       expect(mockExecFileSync).toHaveBeenCalledWith(
         "/bin/sh", ["-c", 'command -v "$1"', "--", "lazygit"], { encoding: "utf-8" },
       );
+    });
+
+    it("dry-run includes starship preset in header for tree layout", async () => {
+      mockIsCustomLayout.mockReturnValue(true);
+      mockReadCustomLayout.mockReturnValue(
+        new Map([
+          ["tree", "main | sidebar"],
+          ["pane.main", "claude"],
+          ["pane.sidebar", "lazygit"],
+        ]),
+      );
+      mockGetPresetConfigPath.mockReturnValue("/mock/.config/summon/starship/gruvbox-rainbow.toml");
+      vi.mocked(listConfig).mockReturnValue(new Map([["starship-preset", "gruvbox-rainbow"]]));
+      mockReadKVFile.mockReturnValue(new Map([["layout", "mywork"]]));
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      await launch("/tmp/workspace", { dryRun: true });
+
+      const output = logSpy.mock.calls[0]![0] as string;
+      expect(output).toContain("Starship preset: gruvbox-rainbow");
+      expect(output).toContain("/mock/.config/summon/starship/gruvbox-rainbow.toml");
+      expect(mockGenerateTreeAppleScript).toHaveBeenCalledWith(
+        expect.anything(),
+        "/tmp/workspace",
+        expect.any(String),
+        "/mock/.config/summon/starship/gruvbox-rainbow.toml",
+        undefined,
+      );
+      logSpy.mockRestore();
     });
 
     it("built-in presets still use the traditional path", async () => {

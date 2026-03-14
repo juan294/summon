@@ -240,7 +240,12 @@ function collectEnvVars(
     for (const entry of cliEnvFlags) {
       const eqIdx = entry.indexOf("=");
       if (eqIdx > 0) {
-        envVars[entry.slice(0, eqIdx)] = entry.slice(eqIdx + 1);
+        const envKey = entry.slice(0, eqIdx);
+        if (ENV_KEY_RE.test(envKey)) {
+          envVars[envKey] = entry.slice(eqIdx + 1);
+        } else {
+          console.warn(`Warning: ignoring invalid env var key "${envKey}" from --env flag.`);
+        }
       }
     }
   }
