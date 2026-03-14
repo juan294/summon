@@ -490,7 +490,7 @@ editor-size=70
 new-window=true
 ```
 
-Supported options: `editor-size`, `new-window`, `fullscreen`, `maximize`, `float`.
+Supported options: `editor-size`, `auto-resize`, `font-size`, `new-window`, `fullscreen`, `maximize`, `float`.
 
 ### Using a Custom Layout
 
@@ -774,6 +774,7 @@ All files use `key=value` format, one entry per line.
 | `NO_COLOR` | When set, disables ANSI colors in the setup wizard. Follows the [NO_COLOR](https://no-color.org) standard. |
 | `COLORTERM` | When set to `truecolor` or `24bit`, the setup wizard shows colored palette swatches for Starship presets. |
 | `STARSHIP_CONFIG` | Set automatically by summon when `starship-preset` is configured. Points each workspace to a cached preset TOML file. Do not set manually. |
+| `SUMMON_WORKSPACE` | Set to `1` in all panes inside a summon workspace. Used to detect nested launches — if you run `summon` inside an existing workspace, you'll see a warning prompt suggesting `--new-window` instead. |
 
 ## Troubleshooting
 
