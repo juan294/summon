@@ -863,6 +863,12 @@ describe("CLI integration", () => {
       expect(result.stderr).toContain("not found");
     });
 
+    it("summon layout show rejects path traversal name (#136)", () => {
+      const result = run("layout", "show", "../../etc/passwd");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("Invalid layout name");
+    });
+
     it("summon layout delete removes a layout", () => {
       run("set", "editor", "vim");
       run("layout", "save", "todelete");
@@ -876,6 +882,18 @@ describe("CLI integration", () => {
       const result = run("layout", "delete", "nonexistent");
       expect(result.status).toBe(1);
       expect(result.stderr).toContain("not found");
+    });
+
+    it("summon layout delete rejects path traversal name (#136)", () => {
+      const result = run("layout", "delete", "../bad");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("Invalid layout name");
+    });
+
+    it("summon layout edit rejects invalid name (#136)", () => {
+      const result = run("layout", "edit", "123bad");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("Invalid layout name");
     });
 
     it("summon layout list shows saved layouts", () => {
