@@ -550,6 +550,46 @@ describe("CLI integration", () => {
     });
   });
 
+  describe("--starship-preset flag", () => {
+    it("accepts --starship-preset in dry-run", () => {
+      const result = run(".", "--starship-preset", "tokyo-night", "--dry-run");
+      expect(result.status).toBe(0);
+    });
+
+    it("shows starship-preset in help text under Config keys", () => {
+      const result = run("--help");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("starship-preset");
+    });
+
+    it("shows --starship-preset in help text under Options", () => {
+      const result = run("--help");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("--starship-preset");
+    });
+  });
+
+  describe("set starship-preset validation", () => {
+    it("accepts valid starship preset name", () => {
+      const result = run("set", "starship-preset", "tokyo-night");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("Set starship-preset");
+    });
+
+    it("rejects preset name with shell metacharacters", () => {
+      const result = run("set", "starship-preset", "foo;bar");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("Error:");
+      expect(result.stderr).toContain("starship preset name");
+    });
+
+    it("removes starship-preset when no value given", () => {
+      const result = run("set", "starship-preset");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("Removed starship-preset");
+    });
+  });
+
   // #63: warn when both --auto-resize and --no-auto-resize are passed
   describe("auto-resize conflict warning (#63)", () => {
     it("warns on stderr when both --auto-resize and --no-auto-resize are given", () => {

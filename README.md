@@ -26,7 +26,7 @@ Requires Node >= 18, macOS, and [Ghostty](https://ghostty.org) 1.3.1+.
 summon .                          # launch workspace in current directory
 ```
 
-On first run, an interactive setup wizard guides you through choosing your editor, sidebar, layout, and shell preferences. You can re-run it anytime:
+On first run, an interactive setup wizard guides you through choosing your editor, sidebar, layout, shell, and Starship prompt theme. You can re-run it anytime:
 
 ```bash
 summon setup                      # reconfigure workspace defaults
@@ -97,7 +97,7 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 | Command | Description |
 |---|---|
 | `summon <target>` | Launch workspace (project name, path, or `.`) |
-| `summon setup` | Interactive setup wizard — choose editor, sidebar, layout, shell |
+| `summon setup` | Interactive setup wizard — choose editor, sidebar, layout, shell, Starship theme |
 | `summon add <name> <path>` | Register a project name to a directory |
 | `summon remove <name>` | Remove a registered project |
 | `summon list` | List all registered projects |
@@ -117,6 +117,7 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 | `--shell <value>` | Shell pane: `true`, `false`, or a command |
 | `--auto-resize` | Resize sidebar to match editor-size (default: on) |
 | `--no-auto-resize` | Disable auto-resize |
+| `--starship-preset <preset>` | Starship prompt preset name (per-workspace) |
 | `-n, --dry-run` | Print generated AppleScript without executing |
 | `-h, --help` | Show help message |
 | `-v, --version` | Show version number |
@@ -132,6 +133,7 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 | `shell` | `true` | Shell pane: `true` (shell), `false` (none), or a command |
 | `layout` | | Default layout preset |
 | `auto-resize` | `true` | Auto-resize sidebar to match editor-size |
+| `starship-preset` | | Starship prompt theme preset (per-workspace) |
 
 Machine config is stored at `~/.config/summon/config`:
 
@@ -139,6 +141,7 @@ Machine config is stored at `~/.config/summon/config`:
 summon set editor vim               # use vim as the editor
 summon set shell "npm run dev"      # run a command in the shell pane
 summon set layout minimal           # default to minimal preset
+summon set starship-preset tokyo-night  # per-workspace Starship prompt theme
 ```
 
 ## Docs
@@ -162,6 +165,7 @@ This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.
 |---|---|
 | `SHELL` | Login shell used to execute pane commands. Must be an absolute path. Falls back to `/bin/bash` if unset or invalid. |
 | `NO_COLOR` | When set, disables ANSI colors in the setup wizard. Follows the [NO_COLOR](https://no-color.org) standard. |
+| `COLORTERM` | When set to `truecolor` or `24bit`, the setup wizard shows colored palette swatches for Starship presets. |
 
 ## Trust Model
 

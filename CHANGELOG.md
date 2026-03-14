@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-03-14
+
+### Added
+
+- Per-workspace Starship prompt theming via `starship-preset` config key and `--starship-preset` CLI flag. Each workspace launches with `STARSHIP_CONFIG` pointing to a cached preset TOML, giving projects distinct prompt themes without modifying the global `~/.config/starship.toml`
+- Starship preset selector in the setup wizard with true-color palette swatches for the 4 color-rich presets (pastel-powerline, tokyo-night, gruvbox-rainbow, catppuccin-powerline)
+- "Random (surprise me!)" option in the Starship preset selector
+- Shell tab completion for `--starship-preset` and `summon set starship-preset` with dynamic preset listing
+- `COLORTERM` environment variable documentation in README
+
+### Fixed
+
+- Starship preset TOML files now use explicit `0o600` permissions, matching other config files (#97)
+- Added "Aborted." message when user declines dangerous command confirmation (#98)
+
 ## [0.5.0] - 2026-03-13
 
 ### Added
@@ -182,7 +197,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CodeQL security scanning
 - Dependabot for npm and GitHub Actions
 
-[Unreleased]: https://github.com/juan294/summon/compare/v0.5.0...develop
+[Unreleased]: https://github.com/juan294/summon/compare/v0.6.0...develop
+[0.6.0]: https://github.com/juan294/summon/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/juan294/summon/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/juan294/summon/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/juan294/summon/compare/v0.3.2...v0.4.0

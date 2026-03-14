@@ -33,8 +33,8 @@ Process:
    Then push and spawn a background agent to verify CI passes.
 
 Rules:
-- Never weaken a test to make it pass -- fix the source code.
+- Never weaken a test to make it pass — fix the source code.
 - Never delete a test.
 - If a failure is flaky (passes locally, fails in CI), note it but don't skip.
 - If stuck after 3 fix cycles, stop and report what remains broken.
-- Verify the current branch before committing -- never push to main/master.
+- Verify the current branch before committing — never push to main/master.

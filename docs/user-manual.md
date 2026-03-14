@@ -48,12 +48,13 @@ cd ~/code/myapp
 summon .
 ```
 
-The wizard walks you through four choices:
+The wizard walks you through five choices:
 
 1. **Layout** — choose from 5 presets (minimal, pair, full, cli, btop) with ASCII diagrams
 2. **Editor** — pick from detected editors (claude, nvim, vim, code, etc.) or enter a custom command
 3. **Sidebar** — pick from detected tools (lazygit, gitui, tig, btop, etc.) or enter a custom command
 4. **Shell pane** — plain shell, disabled, or a custom command (e.g. `npm run dev`)
+5. **Starship prompt theme** — choose a Starship preset for per-workspace prompt theming (requires [Starship](https://starship.rs) installed). Color palette swatches are shown for presets with custom colors. Includes a "Random (surprise me!)" option.
 
 After confirming, the wizard:
 - Saves your choices to `~/.config/summon/config`
@@ -133,7 +134,7 @@ Registered projects:
 
 ### `summon setup`
 
-Launch the interactive setup wizard. Guides you through choosing your preferred layout, editor, sidebar, and shell configuration.
+Launch the interactive setup wizard. Guides you through choosing your preferred layout, editor, sidebar, shell, and Starship prompt theme configuration.
 
 ```bash
 summon setup
@@ -143,6 +144,7 @@ The wizard:
 - Shows all 5 layout presets with ASCII diagrams
 - Detects which editors and sidebar tools are installed on your system
 - Lets you enter custom commands for any pane
+- Offers Starship prompt theme selection with color palette swatches (if Starship is installed)
 - Validates chosen tools and shows install hints for missing ones
 - Saves settings to `~/.config/summon/config`
 
@@ -160,6 +162,7 @@ summon set editor-size 80       # editor grid takes 80% width
 summon set shell false         # disable the shell pane
 summon set shell "npm run dev" # run a command in the shell pane
 summon set layout minimal       # default to the minimal preset
+summon set starship-preset tokyo-night  # per-workspace Starship prompt theme
 ```
 
 ### `summon config`
@@ -189,6 +192,7 @@ Flags override both machine and per-project config for a single launch.
 | `--shell <value>` | Shell pane: `true`, `false`, or a command |
 | `--auto-resize` | Resize sidebar to match editor-size (default: on) |
 | `--no-auto-resize` | Disable auto-resize |
+| `--starship-preset <preset>` | Starship prompt preset name (per-workspace) |
 | `-n`, `--dry-run` | Print generated AppleScript without executing |
 | `-h`, `--help` | Show help message |
 | `-v`, `--version` | Show version number |
@@ -231,7 +235,9 @@ Then reload: `source ~/.bashrc`
 - `summon remove <TAB>` — registered project names
 - `summon set <TAB>` — config keys
 - `summon set layout <TAB>` — layout presets
+- `summon set starship-preset <TAB>` — Starship preset names (dynamic)
 - `summon --layout <TAB>` — layout presets
+- `summon --starship-preset <TAB>` — Starship preset names (dynamic)
 - `summon --<TAB>` — all CLI flags
 
 Project names are read dynamically from `~/.config/summon/projects`,
@@ -322,6 +328,7 @@ When summon launches, config values are resolved in this order (first wins):
 | `shell` | string | `true` | Shell pane toggle: `true` (shell), `false` (none), or a command to run. |
 | `layout` | string | | Default layout preset (`minimal`, `full`, `pair`, `cli`, or `btop`). |
 | `auto-resize` | boolean | `true` | Auto-resize sidebar to match editor-size. |
+| `starship-preset` | string | | Starship prompt theme preset. When set, each workspace launches with `STARSHIP_CONFIG` pointing to a cached preset TOML file at `~/.config/summon/starship/<preset>.toml`. Requires [Starship](https://starship.rs) installed. |
 
 Machine config: `~/.config/summon/config`
 Project config: `.summon` (in project root)
@@ -392,6 +399,8 @@ All files use `key=value` format, one entry per line.
 |---|---|
 | `SHELL` | Login shell used to execute pane commands. Must be an absolute path (e.g., `/bin/zsh`). Falls back to `/bin/bash` if unset or invalid. |
 | `NO_COLOR` | When set, disables ANSI colors in the setup wizard. Follows the [NO_COLOR](https://no-color.org) standard. |
+| `COLORTERM` | When set to `truecolor` or `24bit`, the setup wizard shows colored palette swatches for Starship presets. |
+| `STARSHIP_CONFIG` | Set automatically by summon when `starship-preset` is configured. Points each workspace to a cached preset TOML file. Do not set manually. |
 
 ## Troubleshooting
 
@@ -421,6 +430,7 @@ All config files are at `~/.config/summon/`:
 ~/.config/summon/
   config      machine-level settings
   projects    project name -> path mappings
+  starship/   cached Starship preset TOML files (auto-generated)
 ```
 
 Per-project config lives in your project root as `.summon`.

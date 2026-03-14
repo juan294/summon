@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { setConfig } from "./config.js";
 import { SAFE_COMMAND_RE, GHOSTTY_PATHS, resolveCommand as resolveCommandPath, promptUser } from "./utils.js";
+import { isStarshipInstalled, listStarshipPresets } from "./starship.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -29,6 +30,10 @@ export interface SelectOption {
 
 const useColor: boolean = !!(
   process.stdout.isTTY && !process.env.NO_COLOR
+);
+
+const useTrueColor: boolean = useColor && (
+  process.env.COLORTERM === "truecolor" || process.env.COLORTERM === "24bit"
 );
 
 // ---------------------------------------------------------------------------
@@ -64,6 +69,27 @@ export function magenta(s: string): string {
 
 export function brightCyan(s: string): string {
   return wrap("96", s);
+}
+
+/** @internal — exported for testing only */
+export function hexToRgb(hex: string): [number, number, number] {
+  const h = hex.startsWith("#") ? hex.slice(1) : hex;
+  return [
+    parseInt(h.slice(0, 2), 16),
+    parseInt(h.slice(2, 4), 16),
+    parseInt(h.slice(4, 6), 16),
+  ];
+}
+
+function trueColorFg(hex: string): string {
+  const [r, g, b] = hexToRgb(hex);
+  return `\x1b[38;2;${r};${g};${b}m`;
+}
+
+/** @internal — exported for testing only */
+export function colorSwatch(colors: string[]): string {
+  if (!useTrueColor) return "";
+  return colors.map((hex) => `${trueColorFg(hex)}██\x1b[0m`).join("");
 }
 
 // ---------------------------------------------------------------------------
@@ -343,6 +369,7 @@ const INSTALL_HINTS: Record<string, string> = {
   htop: "brew install htop",
   nvim: "brew install neovim",
   hx: "brew install helix",
+  starship: "brew install starship  OR  curl -sS https://starship.rs/install.sh | sh",
 };
 
 // GHOSTTY_PATHS is imported from ./utils.js
@@ -503,7 +530,63 @@ export async function selectShell(): Promise<string> {
   return chosen.value;
 }
 
-function printSummary(result: SetupResult): void {
+const STARSHIP_PRESET_DESCRIPTIONS: Record<string, string> = {
+  "bracketed-segments": "Modules wrapped in brackets",
+  "catppuccin-powerline": "Catppuccin palette powerline",
+  "gruvbox-rainbow": "Gruvbox-inspired powerline",
+  "jetpack": "Minimalist, geometry-inspired",
+  "nerd-font-symbols": "Nerd Font glyphs (requires Nerd Font)",
+  "no-empty-icons": "Hides icons for absent tools",
+  "no-nerd-font": "Plain symbols, no special fonts",
+  "no-runtime-versions": "Hides runtime version numbers",
+  "pastel-powerline": "Pastel-colored powerline segments",
+  "plain-text-symbols": "ASCII-only, no Unicode",
+  "pure-preset": "Emulates the Pure prompt",
+  "tokyo-night": "Tokyo Night color scheme",
+};
+
+const STARSHIP_PRESET_PALETTES: Record<string, string[]> = {
+  "pastel-powerline": ["#9A348E", "#DA627D", "#FCA17D", "#86BBD8", "#33658A"],
+  "tokyo-night": ["#a3aed2", "#769ff0", "#394260", "#212736", "#1d2230"],
+  "gruvbox-rainbow": ["#d65d0e", "#d79921", "#689d6a", "#458588", "#665c54"],
+  "catppuccin-powerline": ["#f38ba8", "#fab387", "#f9e2af", "#a6e3a1", "#74c7ec", "#b4befe"],
+};
+
+export async function selectStarshipPreset(): Promise<string | null> {
+  if (!isStarshipInstalled()) return null;
+  const presets = listStarshipPresets();
+  if (presets.length === 0) return null;
+
+  printSection("Starship Prompt Theme");
+  const PAD = 22; // longest preset name (catppuccin-powerline) is 20 chars + 2 gap
+  const options: SelectOption[] = [
+    { label: "Skip (keep current Starship config)", value: "__skip__" },
+    { label: "Random (surprise me!)", value: "__random__" },
+    ...presets.map((name) => {
+      const palette = STARSHIP_PRESET_PALETTES[name];
+      const swatch = palette ? colorSwatch(palette) : "";
+      const gap = swatch ? "  " : "";
+      return {
+        label: `${name.padEnd(PAD)}${swatch}${gap}`,
+        value: name,
+        detail: STARSHIP_PRESET_DESCRIPTIONS[name],
+      };
+    }),
+  ];
+  const idx = await numberedSelect(
+    options,
+    `  Select [1-${options.length}] (default: 1): `,
+    0,
+  );
+  const chosen = options[idx]!;
+  if (chosen.value === "__skip__") return null;
+  if (chosen.value === "__random__") {
+    return presets[Math.floor(Math.random() * presets.length)]!;
+  }
+  return chosen.value;
+}
+
+function printSummary(result: SetupResult, starshipPreset?: string | null): void {
   printSection("Summary");
   const layoutDesc = LAYOUT_INFO[result.layout]?.desc ?? result.layout;
   console.log(`  Layout:    ${bold(result.layout)} (${layoutDesc})`);
@@ -515,6 +598,9 @@ function printSummary(result: SetupResult): void {
     console.log(`  Shell:     ${bold("disabled")}`);
   } else {
     console.log(`  Shell:     ${bold(result.shell)}`);
+  }
+  if (starshipPreset) {
+    console.log(`  Starship:  ${bold(starshipPreset)}`);
   }
   console.log();
 }
@@ -607,8 +693,10 @@ export async function runSetup(): Promise<void> {
       shell = await selectShell();
     }
 
+    const starshipPreset = await selectStarshipPreset();
+
     const result: SetupResult = { layout, editor, sidebar, shell };
-    printSummary(result);
+    printSummary(result, starshipPreset);
 
     const accepted = await confirm("  Save these settings?");
     if (accepted) {
@@ -616,6 +704,9 @@ export async function runSetup(): Promise<void> {
       setConfig("editor", result.editor);
       setConfig("sidebar", result.sidebar);
       setConfig("shell", result.shell);
+      if (starshipPreset) {
+        setConfig("starship-preset", starshipPreset);
+      }
 
       const validation = validateSetup(result);
       printValidation(validation);

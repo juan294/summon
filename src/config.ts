@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
-const CONFIG_DIR = join(homedir(), ".config", "summon");
+export const CONFIG_DIR = join(homedir(), ".config", "summon");
 const PROJECTS_FILE = join(CONFIG_DIR, "projects");
 const CONFIG_FILE = join(CONFIG_DIR, "config");
 
@@ -104,11 +104,11 @@ export function listConfig(): Map<string, string> {
   return readKV(CONFIG_FILE);
 }
 
-export const VALID_KEYS = ["editor", "sidebar", "panes", "editor-size", "shell", "layout", "auto-resize"];
+export const VALID_KEYS = ["editor", "sidebar", "panes", "editor-size", "shell", "layout", "auto-resize", "starship-preset"];
 
 export const CLI_FLAGS = [
   "--help", "--version", "--layout", "--editor", "--panes",
   "--editor-size", "--sidebar", "--shell", "--auto-resize",
-  "--no-auto-resize", "--dry-run",
+  "--no-auto-resize", "--starship-preset", "--dry-run",
   "-h", "-v", "-l", "-e", "-p", "-s", "-n",
 ];

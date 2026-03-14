@@ -11,7 +11,7 @@ Process:
    - Implementation status per phase
    - Automated verification results
    - Code review findings (matches, deviations, issues)
-   - Manual testing required (only if automation impossible -- explain WHY)
+   - Manual testing required (only if automation impossible — explain WHY)
    - Recommendations
 5. If code quality issues are found (reuse opportunities, inefficiencies,
    dead code), recommend running `/simplify` to fix them in one pass.

@@ -39,11 +39,18 @@ _summon() {
     '--shell[Shell pane]:value:(true false)' \\
     '--auto-resize[Enable auto-resize]' \\
     '--no-auto-resize[Disable auto-resize]' \\
+    '--starship-preset[Starship preset]:preset:->starship_preset' \\
     '(-n --dry-run)'{-n,--dry-run}'[Dry run]' \\
     '1: :->cmd' \\
     '*::arg:->args'
 
   case "$state" in
+    starship_preset)
+      local -a starship_presets
+      starship_presets=(\${(f)"$(starship preset --list 2>/dev/null)"})
+      compadd -a starship_presets
+      return
+      ;;
     cmd)
       _describe 'command' subcommands
       compadd -a project_names
@@ -61,6 +68,9 @@ _summon() {
             compadd -a layout_presets
           elif [[ "\${words[2]}" == "auto-resize" ]]; then
             compadd true false
+          elif [[ "\${words[2]}" == "starship-preset" ]]; then
+            local -a sp=(\${(f)"$(starship preset --list 2>/dev/null)"})
+            compadd -a sp
           fi
           ;;
         add)
@@ -109,6 +119,11 @@ export function generateBashCompletion(): string {
     --shell)
       COMPREPLY=($(compgen -W "true false" -- "$cur"))
       return ;;
+    --starship-preset)
+      local sp
+      sp=$(starship preset --list 2>/dev/null)
+      COMPREPLY=($(compgen -W "$sp" -- "$cur"))
+      return ;;
     completions)
       COMPREPLY=($(compgen -W "zsh bash" -- "$cur"))
       return ;;
@@ -138,6 +153,10 @@ export function generateBashCompletion(): string {
         COMPREPLY=($(compgen -W "$layout_presets" -- "$cur"))
       elif [[ "\${words[2]}" == "auto-resize" ]]; then
         COMPREPLY=($(compgen -W "true false" -- "$cur"))
+      elif [[ "\${words[2]}" == "starship-preset" ]]; then
+        local sp
+        sp=$(starship preset --list 2>/dev/null)
+        COMPREPLY=($(compgen -W "$sp" -- "$cur"))
       fi
       ;;
     add)

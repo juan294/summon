@@ -16,6 +16,7 @@ import { launch } from "./launcher.js";
 import type { CLIOverrides } from "./launcher.js";
 import { PANES_MIN, EDITOR_SIZE_MIN, EDITOR_SIZE_MAX, isPresetName, getPresetNames } from "./layout.js";
 import { parseIntInRange } from "./validation.js";
+import { SAFE_COMMAND_RE } from "./utils.js";
 
 const HELP = `
 summon -- Launch multi-pane Ghostty workspaces
@@ -41,6 +42,7 @@ Options:
   --shell <value>             Shell pane: true, false, or a command
   --auto-resize               Resize sidebar to match editor-size (default: on)
   --no-auto-resize            Disable auto-resize
+  --starship-preset <preset>  Starship prompt preset name (per-workspace)
   -n, --dry-run               Print generated AppleScript without executing
 
 Config keys:
@@ -50,7 +52,8 @@ Config keys:
   editor-size   Width % for editor grid (default: 75)
   shell         Shell pane: true, false, or command (default: true)
   layout        Default layout preset
-  auto-resize   Resize sidebar to match editor-size (default: true)
+  auto-resize       Resize sidebar to match editor-size (default: true)
+  starship-preset   Starship prompt theme preset (per-workspace)
 
 Layout presets:
   minimal       1 editor pane, no shell
@@ -137,6 +140,7 @@ const parseOpts = {
     shell: { type: "string" },
     "auto-resize": { type: "boolean" },
     "no-auto-resize": { type: "boolean" },
+    "starship-preset": { type: "string" },
     "dry-run": { type: "boolean", short: "n" },
   },
 } as const;
@@ -292,6 +296,12 @@ switch (subcommand) {
         process.exit(1);
       }
     }
+    if (key === "starship-preset" && value !== undefined) {
+      if (!SAFE_COMMAND_RE.test(value)) {
+        console.error(`Error: invalid starship preset name "${value}".`);
+        process.exit(1);
+      }
+    }
     if (value !== undefined) {
       setConfig(key, value);
       console.log(`Set ${key} → ${value}`);
@@ -383,6 +393,7 @@ switch (subcommand) {
     if (values.shell) overrides.shell = values.shell;
     if (values["auto-resize"]) overrides["auto-resize"] = "true";
     if (values["no-auto-resize"]) overrides["auto-resize"] = "false";
+    if (values["starship-preset"]) overrides["starship-preset"] = values["starship-preset"];
     if (values["dry-run"]) overrides.dryRun = true;
 
     await launch(targetDir, overrides);

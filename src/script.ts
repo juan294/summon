@@ -14,7 +14,7 @@ function shellQuote(s: string): string {
   return `'${s.replace(/'/g, "'\\''")}'`;
 }
 
-export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginShell = "/bin/bash"): string {
+export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginShell = "/bin/bash", starshipConfigPath?: string | null): string {
   const lines: string[] = [];
   const titles: Array<[string, string]> = [];
 
@@ -33,7 +33,9 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginSh
   // Input-text commands (root pane) run in an already-initialized shell — no wrapping needed.
   const quotedTargetDir = shellQuote(targetDir);
   const wrapForConfig = (cmd: string): string => {
-    return `${loginShell} -lc ${shellQuote(`cd ${quotedTargetDir} && ${cmd}`)}`;
+    const base = `${loginShell} -lc ${shellQuote(`cd ${quotedTargetDir} && ${cmd}`)}`;
+    if (!starshipConfigPath) return base;
+    return `STARSHIP_CONFIG=${shellQuote(starshipConfigPath)} ${base}`;
   };
 
   const setConfigCommand = (cmd: string) => {
@@ -60,6 +62,7 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginSh
 
   const editorCmd = plan.editor;
   const secondaryCmd = plan.secondaryEditor ?? editorCmd;
+  const interactiveShellPanes: string[] = []; // panes needing STARSHIP_CONFIG export
 
   const formatTitle = (role: string, cmd: string | null | undefined): string => {
     return cmd ? `${role} \u00B7 ${cmd}` : role;
@@ -113,6 +116,7 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginSh
         setConfigCommand(plan.shellCommand);
       } else {
         clearConfigCommand();
+        interactiveShellPanes.push("paneRightCol");
       }
       add(1, "set paneRightCol to split paneRoot direction right with configuration cfg");
       titles.push(["paneRightCol", formatTitle("server", plan.shellCommand)]);
@@ -158,6 +162,7 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginSh
         setConfigCommand(plan.shellCommand);
       } else {
         clearConfigCommand();
+        interactiveShellPanes.push(name);
       }
       add(1, `set ${name} to split ${lastRightPane} direction down with configuration cfg`);
       titles.push([name, formatTitle("server", plan.shellCommand)]);
@@ -165,6 +170,15 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginSh
   }
 
   blank();
+
+  // Set STARSHIP_CONFIG in interactive shell panes for per-workspace Starship themes
+  if (starshipConfigPath) {
+    const exportCmd = `export STARSHIP_CONFIG=${shellQuote(starshipConfigPath)}`;
+    sendCommand("paneRoot", exportCmd);
+    for (const pane of interactiveShellPanes) {
+      sendCommand(pane, exportCmd);
+    }
+  }
 
   // Root pane: cd into project directory, then launch editor
   sendCommand("paneRoot", `cd ${shellQuote(targetDir)}`);

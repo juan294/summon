@@ -20,6 +20,16 @@ const mockSetConfig = vi.fn();
 vi.mock("./config.js", () => ({
   setConfig: (key: string, value: string) => mockSetConfig(key, value),
   listConfig: vi.fn(() => new Map<string, string>()),
+  CONFIG_DIR: "/mock/.config/summon",
+}));
+
+// Mock starship for setup wizard
+const mockIsStarshipInstalled = vi.fn(() => false);
+const mockListStarshipPresets = vi.fn((): string[] => []);
+vi.mock("./starship.js", () => ({
+  isStarshipInstalled: () => mockIsStarshipInstalled(),
+  listStarshipPresets: () => mockListStarshipPresets(),
+  resetStarshipCache: vi.fn(),
 }));
 
 // Mock fs for validateSetup's Ghostty check
@@ -55,8 +65,11 @@ const {
   selectLayout,
   selectToolFromCatalog,
   selectShell,
+  selectStarshipPreset,
   validateSetup,
   runSetup,
+  hexToRgb,
+  colorSwatch,
 } = await import("./setup.js");
 
 beforeEach(() => {
@@ -1182,6 +1195,227 @@ describe("runSetup", () => {
       value: origIsTTY,
       writable: true,
     });
+    logSpy.mockRestore();
+  });
+});
+
+describe("selectStarshipPreset", () => {
+  it("returns null when starship is not installed", async () => {
+    mockIsStarshipInstalled.mockReturnValue(false);
+    const result = await selectStarshipPreset();
+    expect(result).toBeNull();
+  });
+
+  it("returns null when preset list is empty", async () => {
+    mockIsStarshipInstalled.mockReturnValue(true);
+    mockListStarshipPresets.mockReturnValue([]);
+    const result = await selectStarshipPreset();
+    expect(result).toBeNull();
+  });
+
+  it("returns selected preset name", async () => {
+    mockIsStarshipInstalled.mockReturnValue(true);
+    mockListStarshipPresets.mockReturnValue(["tokyo-night", "pastel-powerline"]);
+    // Select option 3 (tokyo-night) — option 1 is Skip, 2 is Random
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("3"));
+    const result = await selectStarshipPreset();
+    expect(result).toBe("tokyo-night");
+  });
+
+  it("returns null when skip option is selected", async () => {
+    mockIsStarshipInstalled.mockReturnValue(true);
+    mockListStarshipPresets.mockReturnValue(["tokyo-night"]);
+    // Select option 1 (Skip)
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("1"));
+    const result = await selectStarshipPreset();
+    expect(result).toBeNull();
+  });
+
+  it("shows available presets with descriptions", async () => {
+    mockIsStarshipInstalled.mockReturnValue(true);
+    mockListStarshipPresets.mockReturnValue(["tokyo-night", "gruvbox-rainbow"]);
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("1"));
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await selectStarshipPreset();
+
+    const output = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(output).toContain("tokyo-night");
+    expect(output).toContain("gruvbox-rainbow");
+    expect(output).toContain("Tokyo Night color scheme");
+    expect(output).toContain("Gruvbox-inspired powerline");
+    logSpy.mockRestore();
+  });
+
+  it("returns null by default (empty input selects Skip)", async () => {
+    mockIsStarshipInstalled.mockReturnValue(true);
+    mockListStarshipPresets.mockReturnValue(["tokyo-night"]);
+    // Empty input → default (index 0 = Skip)
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb(""));
+    const result = await selectStarshipPreset();
+    expect(result).toBeNull();
+  });
+
+  it("includes Random option as option 2", async () => {
+    mockIsStarshipInstalled.mockReturnValue(true);
+    mockListStarshipPresets.mockReturnValue(["tokyo-night"]);
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("1"));
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await selectStarshipPreset();
+
+    const output = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(output).toContain("Random (surprise me!)");
+    logSpy.mockRestore();
+  });
+
+  it("random option returns a valid preset name", async () => {
+    mockIsStarshipInstalled.mockReturnValue(true);
+    mockListStarshipPresets.mockReturnValue(["tokyo-night", "pastel-powerline", "gruvbox-rainbow"]);
+    // Select option 2 (Random)
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("2"));
+    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0.5);
+
+    const result = await selectStarshipPreset();
+
+    // Math.floor(0.5 * 3) = 1 → "pastel-powerline"
+    expect(result).toBe("pastel-powerline");
+    randomSpy.mockRestore();
+  });
+
+  it("preset options include padded names for alignment", async () => {
+    mockIsStarshipInstalled.mockReturnValue(true);
+    mockListStarshipPresets.mockReturnValue(["tokyo-night"]);
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("1"));
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await selectStarshipPreset();
+
+    const output = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    // tokyo-night is 11 chars, padded to 22 → 11 trailing spaces
+    expect(output).toContain("tokyo-night           ");
+    logSpy.mockRestore();
+  });
+});
+
+describe("hexToRgb", () => {
+  it("converts hex with # prefix", () => {
+    expect(hexToRgb("#9A348E")).toEqual([154, 52, 142]);
+  });
+
+  it("converts hex without # prefix", () => {
+    expect(hexToRgb("DA627D")).toEqual([218, 98, 125]);
+  });
+
+  it("converts black", () => {
+    expect(hexToRgb("#000000")).toEqual([0, 0, 0]);
+  });
+
+  it("converts white", () => {
+    expect(hexToRgb("#FFFFFF")).toEqual([255, 255, 255]);
+  });
+});
+
+describe("colorSwatch", () => {
+  // colorSwatch reads useTrueColor which is evaluated at import time.
+  // In the test environment, COLORTERM is likely not set, so useTrueColor is false.
+  it("returns empty string when true color is not supported", () => {
+    const result = colorSwatch(["#9A348E", "#DA627D"]);
+    expect(result).toBe("");
+  });
+});
+
+describe("runSetup with starship", () => {
+  // With minimal layout (cb("1")), shell is skipped, so flow is:
+  // 1: layout(1=minimal), 2: editor(1), 3: sidebar(1), 4: starship(3=tokyo-night), 5: confirm(y)
+  // Option 1=Skip, 2=Random, 3=tokyo-night
+  const setupMockQuestion = () => {
+    let callCount = 0;
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      callCount++;
+      if (callCount <= 3) cb("1");      // layout, editor, sidebar
+      else if (callCount === 4) cb("3"); // starship: tokyo-night (after Skip, Random)
+      else cb("y");                      // confirm
+    });
+  };
+
+  it("saves starship-preset to config when preset selected", async () => {
+    mockIsStarshipInstalled.mockReturnValue(true);
+    mockListStarshipPresets.mockReturnValue(["tokyo-night"]);
+    const origIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", { value: true, writable: true });
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    setupMockQuestion();
+
+    await runSetup();
+
+    expect(mockSetConfig).toHaveBeenCalledWith("starship-preset", "tokyo-night");
+    Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, writable: true });
+    logSpy.mockRestore();
+  });
+
+  it("does not save starship-preset when skipped", async () => {
+    mockIsStarshipInstalled.mockReturnValue(true);
+    mockListStarshipPresets.mockReturnValue(["tokyo-night"]);
+    const origIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", { value: true, writable: true });
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    let callCount = 0;
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      callCount++;
+      // minimal layout skips shell: 1-3: layout/editor/sidebar, 4: starship skip, 5: confirm
+      if (callCount <= 3) cb("1");
+      else if (callCount === 4) cb("1"); // Skip starship
+      else cb("y");
+    });
+
+    await runSetup();
+
+    const starshipCalls = mockSetConfig.mock.calls.filter(
+      (c: unknown[]) => c[0] === "starship-preset",
+    );
+    expect(starshipCalls.length).toBe(0);
+    Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, writable: true });
+    logSpy.mockRestore();
+  });
+
+  it("skips starship step when starship is not installed", async () => {
+    mockIsStarshipInstalled.mockReturnValue(false);
+    const origIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", { value: true, writable: true });
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    let callCount = 0;
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      callCount++;
+      // minimal layout skips shell, no starship: 1-3: layout/editor/sidebar, 4: confirm (y)
+      if (callCount <= 3) cb("1");
+      else cb("y");
+    });
+
+    await runSetup();
+
+    const starshipCalls = mockSetConfig.mock.calls.filter(
+      (c: unknown[]) => c[0] === "starship-preset",
+    );
+    expect(starshipCalls.length).toBe(0);
+    Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, writable: true });
+    logSpy.mockRestore();
+  });
+
+  it("shows starship preset in summary when selected", async () => {
+    mockIsStarshipInstalled.mockReturnValue(true);
+    mockListStarshipPresets.mockReturnValue(["tokyo-night"]);
+    const origIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", { value: true, writable: true });
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    setupMockQuestion();
+
+    await runSetup();
+
+    const output = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(output).toContain("Starship:");
+    expect(output).toContain("tokyo-night");
+    Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, writable: true });
     logSpy.mockRestore();
   });
 });

@@ -31,6 +31,7 @@ src/
   script.ts        AppleScript generator (pure function — builds script string)
   launcher.ts      Orchestrator: resolve config, generate script, execute via osascript
   setup.ts         Interactive setup wizard (first-run onboarding, tool detection, TUI)
+  starship.ts      Starship detection, preset listing, TOML config caching
   utils.ts         Shared utilities (SAFE_COMMAND_RE, GHOSTTY_PATHS, resolveCommand)
   validation.ts    Input validation helpers (parseIntInRange)
   globals.d.ts     Build-time constants (__VERSION__)
@@ -236,9 +237,16 @@ What to save proactively:
 
 After completing `/research`, `/plan`, `/implement`, or any significant configuration change, save the key decisions and project context to auto memory so future sessions start with full awareness.
 
-## Research Documents
-Store in: docs/research/YYYY-MM-DD-description.md
+## Project File Locations
 
-## Implementation Plans
-Store in: docs/plans/YYYY-MM-DD-description.md
-Phase files: docs/plans/YYYY-MM-DD-description-phases/phase-N.md
+Go directly to these paths — never search the codebase for them.
+
+| Topic | Path | Notes |
+|-------|------|-------|
+| Agent reports | `docs/agents/*-report.md` | Flag YELLOW/RED items. Cross-agent context in `shared-context.md` |
+| Agent logs | `logs/<name>.log`, `<name>.error.log` | Read alongside reports to diagnose failures |
+| Agent scripts | `scripts/agents/` | Standalone bash files invoking Claude CLI headless |
+| ADRs | `docs/decisions/` | Architecture decision records |
+| PR descriptions | `docs/prs/{number}_description.md` | |
+| Research docs | `docs/research/YYYY-MM-DD-description.md` | |
+| Plans | `docs/plans/YYYY-MM-DD-description.md` | Phase files in `-phases/phase-N.md` |
