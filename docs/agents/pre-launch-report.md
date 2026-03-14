@@ -1,88 +1,89 @@
 # Pre-Launch Audit Report
-> Generated on 2026-03-14 | Branch: `develop` | Commit: `0d95ff9` | 6 parallel specialists
+> Generated on 2026-03-14 | Branch: `develop` | Commit: `9567636` | 6 parallel specialists
 
-## Verdict: CONDITIONAL
+## Verdict: READY
 
-No blockers. 3 security warnings (1 medium) and 5 UX warnings (all low). The medium-severity
-env var injection warning (S1) is worth fixing before launch. All automated checks pass.
-
-## Blockers (must fix before release)
-
-None.
+No blockers. All previous audit findings resolved. Remaining items are documentation gaps and minor cleanup — all deferrable to `/update-docs` and `/release`.
 
 ## Warnings
 
 | # | Issue | Severity | Found by | Risk |
 |---|-------|----------|----------|------|
-| S1 | Env var values not shell-quoted in root pane `export` command | Medium | security | `.summon` env values with `;` could inject commands |
-| S2 | `SHELL_META_RE` misses `${...}` parameter expansion | Low | security | Edge case bypass of dangerous-command warning |
-| S3 | No validation on env var key names from `.summon` files | Low | security | Keys with metacharacters could cause unexpected behavior |
-| D1 | Unpushed commit on `develop` — CI not validated | Medium | devops | Must push before release |
-| Q1 | `on-start` + `collectEnvVars` lack unit tests in launcher.test.ts | Low | qa-lead | Covered by integration tests |
-| U1 | Help text column alignment slightly inconsistent | Low | ux | Cosmetic |
-| U2 | `--font-size -5` shows cryptic parseArgs error | Low | ux | `node:util` limitation |
-| U3 | `summon set editor ''` silently stores empty string | Low | ux | Minor edge case |
-| U4 | `doctor` always exits 0 even with findings | Low | ux | Not scriptable |
-| U5 | Dry-run header "1 editor panes" plural mismatch | Low | ux | Cosmetic |
-| P1 | Test-only exports ship in production bundle | Low | performance | ~200 bytes |
+| W1 | `SUMMON_WORKSPACE` env var undocumented in user manual | LOW | ux-reviewer | Users won't know about nested workspace detection |
+| W2 | Custom layout docs missing `auto-resize` and `font-size` options | LOW | ux-reviewer | Incomplete feature documentation |
+| W3 | `.summon` file layout names not validated against `LAYOUT_NAME_RE` | LOW | security | Path traversal via malicious .summon (attacker needs FS access) |
+| W4 | 3 unpushed commits on develop | LOW | devops | Expected — will push after audit |
+| W5 | CHANGELOG `[Unreleased]` empty for 17 post-v0.7.0 commits | LOW | devops | Handled by `/release` |
+| W6 | Dead exports: `hexToRgb`, `colorSwatch`, `resolveConfig` | LOW | architect | Minor cleanup |
+
+## Previous Audit Findings — All Resolved
+
+| Original | Status |
+|----------|--------|
+| W1-W2: Coverage thresholds failing | **FIXED** — 98.47% stmts, 91.59% branches, 99.18% lines |
+| W3: Custom layouts undocumented | **FIXED** — 198 lines added to user manual |
+| W4: Layout missing from completions | **FIXED** — zsh + bash completions added |
+| W5: --env key validation gap | **FIXED** — ENV_KEY_RE applied to CLI env keys |
+| W6: layout show/delete name validation | **FIXED** — validateLayoutNameOrExit on all paths |
+| W7: Script duplication (~200 lines) | **FIXED** — 9 shared helpers extracted |
+| W8: Unpushed commit | **FIXED** — CI passed |
+| W10: Dead code tree.ts:238 | **FIXED** — removed |
 
 ## Detailed Findings
 
 ### 1. Quality Assurance (qa-lead) — GREEN
 
-- **510 tests, 100% pass rate**
-- **Coverage:** 96.65% statements, 91.24% branches, 98.11% functions, 97.17% lines
-- Typecheck: PASS | Lint: PASS
-- Every source file has a co-located test file (10/10)
-- Security-critical paths thoroughly tested (injection prevention, file permissions, config escaping)
-- Minor gap: `on-start` and `collectEnvVars` lack dedicated unit tests (covered by index.test.ts integration tests)
+- **Tests:** 675 passed, 0 failed, 100% pass rate
+- **Typecheck:** PASS | **Lint:** PASS
+- **Coverage:** 98.47% stmts / 91.59% branches / 98.68% funcs / 99.18% lines
+- All thresholds passing. No file below 95% line coverage.
+- Error handling comprehensive across all modules.
 
-### 2. Security (security-reviewer) — YELLOW
+### 2. Security (security-reviewer) — GREEN
 
-- `pnpm audit`: 0 vulnerabilities | All deps MIT/Apache-2.0
-- File permissions: 0o700 dirs, 0o600 config files
-- Command resolution: `execFileSync` with array args (safe)
-- AppleScript: stdin injection, not string interpolation (safe)
-- **S1:** Root pane `export KEY=VALUE` via `input text` not shell-quoted — values with `;` from `.summon` could inject. Split panes safe (use Ghostty API).
-- **S2:** `SHELL_META_RE` catches `` ; | & ` $( > < `` but misses `${...}` expansion
-- **S3:** Env var key names from `.summon` not validated against `[A-Z_][A-Z0-9_]*`
+- **Dependency audit:** No vulnerabilities. Zero runtime deps.
+- **Secrets:** None found.
+- **Command injection:** Well-defended. `execFileSync` used throughout, `SAFE_COMMAND_RE` gates all command names, `.summon` metacharacters trigger user confirmation.
+- **File permissions:** Correct (dirs 0o700, files 0o600, exports 0o644).
+- **AppleScript injection:** `escapeAppleScript` + `shellQuote` cover all vectors.
+- **Minor:** `.summon` layout names bypass `LAYOUT_NAME_RE` (low severity — attacker needs FS access).
 
-### 3. Infrastructure (devops) — YELLOW
+### 3. Infrastructure (devops) — GREEN
 
-- Build: PASS (8 ESM chunks, ~45.5 KB total, 11ms)
-- CI: 5/5 recent runs success on `develop`
-- CI matrix: Node 18/20/22 on macos-latest + CodeQL + Dependency Review
-- `.gitignore`: comprehensive | Package metadata: correct
-- **D1:** 1 unpushed commit — must push and verify CI before release
-- Recommendation: Add `develop` to CodeQL push trigger
+- **Build:** Success in 12ms, ~60 KB total.
+- **CI:** Last 5 runs all passed.
+- **CI config:** Node 18/20/22 matrix on macOS, CodeQL, dependency review, Dependabot.
+- **Package:** Correct entry points, OS restriction, engine requirement, lean publish.
+- **Hooks:** Husky pre-commit runs typecheck + lint + test.
+- **Note:** 3 unpushed commits, CHANGELOG stale (both expected pre-release).
 
 ### 4. Architecture (architect) — GREEN
 
-- Typecheck: PASS | No circular dependencies
-- Clean module DAG: config/layout/utils/validation are leaf modules
-- Zero runtime dependencies — stdlib only
-- Dead code: only test-only exports (`resetConfigCache`, `getConfig`, `resetStarshipCache`) — annotated `@internal`
+- **Typecheck:** PASS. **Dependencies:** All current.
+- **Circular deps:** None. Clean DAG.
+- **Dead code:** Minor — `hexToRgb`, `colorSwatch` marked @internal but never tested; `resolveConfig` exported but only called internally.
+- **Duplicate code:** Minor — font-size validation (3 lines, 2 places), layout validation error message (2 places).
+- **Architecture:** Clean separation of concerns, zero runtime deps maintained, appropriate lazy loading.
 
 ### 5. Performance (performance-eng) — GREEN
 
-| Chunk | Size |
-|-------|------|
-| `dist/index.js` | 23.56 KB |
-| `dist/setup-*.js` | 12.46 KB |
-| `dist/completions-*.js` | 5.08 KB |
-| `dist/chunk-*.js` (5) | ~4.4 KB |
-| **Total** | **~45.5 KB** |
-
-- Startup: 39ms for `--version`
-- Heavy modules lazy-loaded (`setup.ts`, `completions.ts`)
-- Command resolution caching via `resolvedCache` Map
-- AppleScript: array-push + join pattern (efficient)
+- **Build:** 33.43 KB main chunk, 12ms build time.
+- **Startup:** Excellent lazy-loading. Heavy modules (setup, completions) dynamically imported.
+- **Anti-patterns:** None found. Caching in place for starship/commands.
+- **Bundle:** Lean, properly code-split.
 
 ### 6. UX/Accessibility (ux-reviewer) — GREEN
 
-- Help text well-structured with clear sections and examples
-- Error messages consistently actionable with suggested fixes
-- Proper exit codes (0 success, 1 error)
-- Respects `NO_COLOR` environment variable
-- Interactive prompts have sensible defaults
-- Minor cosmetic items in help text alignment and dry-run phrasing
+- **Help text:** Comprehensive, well-structured, shows on no-args.
+- **Error messages:** Consistently actionable with guidance.
+- **Wizard:** Polished TUI, TTY-aware, tool filtering, NO_COLOR support.
+- **Completions:** All 11 subcommands + layout actions covered.
+- **Exit codes:** Correct throughout.
+- **Recent changes:** No-args help, nested workspace warning, wizard tool filtering — all well-implemented.
+- **Gaps:** `SUMMON_WORKSPACE` undocumented, custom layout docs missing `auto-resize`/`font-size`.
+
+## Fix Priority
+
+**Handled by `/update-docs`:** W1, W2
+**Handled by `/release`:** W4, W5
+**Optional cleanup:** W3 (add LAYOUT_NAME_RE check in launcher.ts:267), W6 (remove dead exports)
