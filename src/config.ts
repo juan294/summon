@@ -1,8 +1,10 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { isPresetName } from "./layout.js";
 
 export const CONFIG_DIR = join(homedir(), ".config", "summon");
+export const LAYOUTS_DIR = join(CONFIG_DIR, "layouts");
 const PROJECTS_FILE = join(CONFIG_DIR, "projects");
 const CONFIG_FILE = join(CONFIG_DIR, "config");
 
@@ -49,12 +51,16 @@ function readKV(file: string): Map<string, string> {
   return readKVFile(file);
 }
 
-function writeKV(file: string, map: Map<string, string>): void {
+function formatKVLines(map: Map<string, string>): string {
   const lines = [...map.entries()].map(
     ([k, v]) =>
       `${k.replace(/[\n\r]/g, "")}=${v.replace(/[\n\r]/g, "")}`,
   );
-  writeFileSync(file, lines.join("\n") + "\n", { mode: 0o600 });
+  return lines.join("\n") + "\n";
+}
+
+function writeKV(file: string, map: Map<string, string>): void {
+  writeFileSync(file, formatKVLines(map), { mode: 0o600 });
 }
 
 // --- Projects ---
@@ -116,3 +122,40 @@ export const CLI_FLAGS = [
   "--env", "--new-window", "--fullscreen", "--maximize", "--float", "--font-size", "--on-start",
   "-h", "-v", "-l", "-e", "-p", "-s", "-n",
 ];
+
+// --- Custom layouts ---
+
+const LAYOUT_NAME_RE = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
+
+export function isValidLayoutName(name: string): boolean {
+  return LAYOUT_NAME_RE.test(name) && !isPresetName(name);
+}
+
+export function listCustomLayouts(): string[] {
+  if (!existsSync(LAYOUTS_DIR)) return [];
+  return readdirSync(LAYOUTS_DIR).sort();
+}
+
+export function readCustomLayout(name: string): Map<string, string> | null {
+  const filePath = join(LAYOUTS_DIR, name);
+  if (!existsSync(filePath)) return null;
+  return readKVFile(filePath);
+}
+
+export function saveCustomLayout(name: string, entries: Map<string, string>): void {
+  mkdirSync(LAYOUTS_DIR, { recursive: true, mode: 0o700 });
+  writeFileSync(join(LAYOUTS_DIR, name), formatKVLines(entries), { mode: 0o600 });
+}
+
+export function deleteCustomLayout(name: string): boolean {
+  try {
+    unlinkSync(join(LAYOUTS_DIR, name));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function isCustomLayout(name: string): boolean {
+  return existsSync(join(LAYOUTS_DIR, name));
+}

@@ -1,0 +1,363 @@
+import { describe, it, expect, vi } from "vitest";
+import {
+  parseTreeDSL,
+  extractPaneDefinitions,
+  resolveTreeCommands,
+  buildTreePlan,
+  collectLeaves,
+} from "./tree.js";
+import type { LayoutNode, PaneNode, SplitNode } from "./tree.js";
+
+// ---------- Parser ----------
+
+describe("parseTreeDSL", () => {
+  it("parses a single pane", () => {
+    const node = parseTreeDSL("main");
+    expect(node).toEqual({ type: "pane", name: "main", command: "" });
+  });
+
+  it("parses a right split (|)", () => {
+    const node = parseTreeDSL("a | b") as SplitNode;
+    expect(node.type).toBe("split");
+    expect(node.direction).toBe("right");
+    expect(node.first).toEqual({ type: "pane", name: "a", command: "" });
+    expect(node.second).toEqual({ type: "pane", name: "b", command: "" });
+  });
+
+  it("parses a down split (/)", () => {
+    const node = parseTreeDSL("a / b") as SplitNode;
+    expect(node.type).toBe("split");
+    expect(node.direction).toBe("down");
+    expect(node.first).toEqual({ type: "pane", name: "a", command: "" });
+    expect(node.second).toEqual({ type: "pane", name: "b", command: "" });
+  });
+
+  it("/ binds tighter than | (precedence)", () => {
+    // "a | b / c" should parse as a | (b / c)
+    const node = parseTreeDSL("a | b / c") as SplitNode;
+    expect(node.type).toBe("split");
+    expect(node.direction).toBe("right");
+    expect(node.first).toEqual({ type: "pane", name: "a", command: "" });
+    const right = node.second as SplitNode;
+    expect(right.type).toBe("split");
+    expect(right.direction).toBe("down");
+    expect(right.first).toEqual({ type: "pane", name: "b", command: "" });
+    expect(right.second).toEqual({ type: "pane", name: "c", command: "" });
+  });
+
+  it("parens override default precedence", () => {
+    // "(a | b) / c" should parse as (a | b) / c
+    const node = parseTreeDSL("(a | b) / c") as SplitNode;
+    expect(node.type).toBe("split");
+    expect(node.direction).toBe("down");
+    const left = node.first as SplitNode;
+    expect(left.type).toBe("split");
+    expect(left.direction).toBe("right");
+    expect(left.first).toEqual({ type: "pane", name: "a", command: "" });
+    expect(left.second).toEqual({ type: "pane", name: "b", command: "" });
+    expect(node.second).toEqual({ type: "pane", name: "c", command: "" });
+  });
+
+  it("| is left-associative", () => {
+    // "a | b | c" → ((a | b) | c)
+    const node = parseTreeDSL("a | b | c") as SplitNode;
+    expect(node.type).toBe("split");
+    expect(node.direction).toBe("right");
+    expect(node.second).toEqual({ type: "pane", name: "c", command: "" });
+    const left = node.first as SplitNode;
+    expect(left.type).toBe("split");
+    expect(left.direction).toBe("right");
+    expect(left.first).toEqual({ type: "pane", name: "a", command: "" });
+    expect(left.second).toEqual({ type: "pane", name: "b", command: "" });
+  });
+
+  it("parses nested parens: (a / b) | (c / d)", () => {
+    const node = parseTreeDSL("(a / b) | (c / d)") as SplitNode;
+    expect(node.type).toBe("split");
+    expect(node.direction).toBe("right");
+    const left = node.first as SplitNode;
+    expect(left.direction).toBe("down");
+    expect(left.first).toEqual({ type: "pane", name: "a", command: "" });
+    expect(left.second).toEqual({ type: "pane", name: "b", command: "" });
+    const right = node.second as SplitNode;
+    expect(right.direction).toBe("down");
+    expect(right.first).toEqual({ type: "pane", name: "c", command: "" });
+    expect(right.second).toEqual({ type: "pane", name: "d", command: "" });
+  });
+
+  it("parses complex expression: (a / b / c) | (d / e)", () => {
+    const node = parseTreeDSL("(a / b / c) | (d / e)") as SplitNode;
+    expect(node.type).toBe("split");
+    expect(node.direction).toBe("right");
+    // Left: (a / b / c) → ((a / b) / c) left-associative
+    const left = node.first as SplitNode;
+    expect(left.direction).toBe("down");
+    expect(left.second).toEqual({ type: "pane", name: "c", command: "" });
+    const leftInner = left.first as SplitNode;
+    expect(leftInner.direction).toBe("down");
+    expect(leftInner.first).toEqual({ type: "pane", name: "a", command: "" });
+    expect(leftInner.second).toEqual({ type: "pane", name: "b", command: "" });
+    // Right: (d / e)
+    const right = node.second as SplitNode;
+    expect(right.direction).toBe("down");
+    expect(right.first).toEqual({ type: "pane", name: "d", command: "" });
+    expect(right.second).toEqual({ type: "pane", name: "e", command: "" });
+  });
+
+  it("accepts underscores and hyphens in names", () => {
+    const node = parseTreeDSL("my_pane | pane-2") as SplitNode;
+    expect(node.first).toEqual({ type: "pane", name: "my_pane", command: "" });
+    expect(node.second).toEqual({
+      type: "pane",
+      name: "pane-2",
+      command: "",
+    });
+  });
+
+  it("parses an inline command (quoted string)", () => {
+    const node = parseTreeDSL('"claude"') as PaneNode;
+    expect(node.type).toBe("pane");
+    expect(node.name).toBe("claude");
+    expect(node.command).toBe("claude");
+  });
+
+  it("parses an inline multi-word command", () => {
+    const node = parseTreeDSL('"npm run dev"') as PaneNode;
+    expect(node.type).toBe("pane");
+    expect(node.name).toBe("npm");
+    expect(node.command).toBe("npm run dev");
+  });
+
+  it("parses mixed bare name and inline command", () => {
+    const node = parseTreeDSL('main | "lazygit"') as SplitNode;
+    expect(node.first).toEqual({ type: "pane", name: "main", command: "" });
+    expect(node.second).toEqual({
+      type: "pane",
+      name: "lazygit",
+      command: "lazygit",
+    });
+  });
+
+  it("deduplicates auto-names for inline commands", () => {
+    const node = parseTreeDSL('"claude" | "claude"') as SplitNode;
+    const first = node.first as PaneNode;
+    const second = node.second as PaneNode;
+    expect(first.name).toBe("claude");
+    expect(second.name).toBe("claude_2");
+    expect(first.command).toBe("claude");
+    expect(second.command).toBe("claude");
+  });
+
+  it("throws on empty input", () => {
+    expect(() => parseTreeDSL("")).toThrow(/Empty tree expression/);
+    expect(() => parseTreeDSL("   ")).toThrow(/Empty tree expression/);
+  });
+
+  it("throws on unmatched paren", () => {
+    expect(() => parseTreeDSL("(a | b")).toThrow(/Expected closing '\)'/);
+    expect(() => parseTreeDSL("a | b)")).toThrow(/no matching '\('/);
+  });
+
+  it("throws on missing operand", () => {
+    expect(() => parseTreeDSL("a |")).toThrow(/Unexpected end of input/);
+    expect(() => parseTreeDSL("| a")).toThrow(/Unexpected token/);
+    expect(() => parseTreeDSL("a /")).toThrow(/Unexpected end of input/);
+  });
+
+  it("throws on invalid character", () => {
+    expect(() => parseTreeDSL("a & b")).toThrow(/Unexpected character/);
+  });
+
+  it("throws on unterminated quote", () => {
+    expect(() => parseTreeDSL('"claude')).toThrow(/Unterminated quoted string/);
+  });
+
+  it("throws on empty quoted string", () => {
+    expect(() => parseTreeDSL('""')).toThrow(/Empty quoted string/);
+  });
+});
+
+// ---------- Pane definitions ----------
+
+describe("extractPaneDefinitions", () => {
+  it("extracts pane defs from mixed config", () => {
+    const config = new Map([
+      ["pane.editor", "claude"],
+      ["pane.sidebar", "lazygit"],
+      ["editor-size", "75"],
+      ["tree", "editor | sidebar"],
+    ]);
+    const panes = extractPaneDefinitions(config);
+    expect(panes.size).toBe(2);
+    expect(panes.get("editor")).toBe("claude");
+    expect(panes.get("sidebar")).toBe("lazygit");
+  });
+
+  it("returns empty map when no pane defs", () => {
+    const config = new Map([
+      ["editor", "claude"],
+      ["tree", "a | b"],
+    ]);
+    const panes = extractPaneDefinitions(config);
+    expect(panes.size).toBe(0);
+  });
+
+  it("throws on invalid pane name", () => {
+    const config = new Map([["pane.123bad", "cmd"]]);
+    expect(() => extractPaneDefinitions(config)).toThrow();
+  });
+});
+
+// ---------- Tree resolver ----------
+
+describe("resolveTreeCommands", () => {
+  it("resolves bare names from pane defs", () => {
+    const tree: LayoutNode = {
+      type: "split",
+      direction: "right",
+      first: { type: "pane", name: "editor", command: "" },
+      second: { type: "pane", name: "sidebar", command: "" },
+    };
+    const panes = new Map([
+      ["editor", "claude"],
+      ["sidebar", "lazygit"],
+    ]);
+    const resolved = resolveTreeCommands(tree, panes) as SplitNode;
+    expect((resolved.first as PaneNode).command).toBe("claude");
+    expect((resolved.second as PaneNode).command).toBe("lazygit");
+  });
+
+  it("skips panes with inline commands", () => {
+    const tree: LayoutNode = {
+      type: "pane",
+      name: "npm",
+      command: "npm run dev",
+    };
+    const panes = new Map<string, string>();
+    const resolved = resolveTreeCommands(tree, panes) as PaneNode;
+    expect(resolved.command).toBe("npm run dev");
+  });
+
+  it("throws when bare name not in pane defs", () => {
+    const tree: LayoutNode = {
+      type: "pane",
+      name: "missing",
+      command: "",
+    };
+    const panes = new Map<string, string>();
+    expect(() => resolveTreeCommands(tree, panes)).toThrow();
+  });
+
+  it("warns on unused pane defs but succeeds", () => {
+    const tree: LayoutNode = {
+      type: "pane",
+      name: "editor",
+      command: "",
+    };
+    const panes = new Map([
+      ["editor", "claude"],
+      ["unused", "lazygit"],
+    ]);
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+    const resolved = resolveTreeCommands(tree, panes) as PaneNode;
+    expect(resolved.command).toBe("claude");
+    expect(stderrSpy).toHaveBeenCalled();
+    const output = stderrSpy.mock.calls
+      .map((c) => String(c[0]))
+      .join("");
+    expect(output).toContain("unused");
+    stderrSpy.mockRestore();
+  });
+});
+
+// ---------- Tree plan builder ----------
+
+describe("buildTreePlan", () => {
+  it("sets focusPane to first leaf in depth-first order", () => {
+    const tree: LayoutNode = {
+      type: "split",
+      direction: "right",
+      first: {
+        type: "split",
+        direction: "down",
+        first: { type: "pane", name: "top", command: "cmd1" },
+        second: { type: "pane", name: "bottom", command: "cmd2" },
+      },
+      second: { type: "pane", name: "right", command: "cmd3" },
+    };
+    const plan = buildTreePlan(tree);
+    expect(plan.focusPane).toBe("top");
+  });
+
+  it("uses default options", () => {
+    const tree: LayoutNode = { type: "pane", name: "main", command: "cmd" };
+    const plan = buildTreePlan(tree);
+    expect(plan.autoResize).toBe(true);
+    expect(plan.editorSize).toBe(75);
+    expect(plan.fontSize).toBeNull();
+    expect(plan.newWindow).toBe(false);
+    expect(plan.fullscreen).toBe(false);
+    expect(plan.maximize).toBe(false);
+    expect(plan.float).toBe(false);
+    expect(plan.tree).toEqual(tree);
+  });
+
+  it("accepts custom option overrides", () => {
+    const tree: LayoutNode = { type: "pane", name: "main", command: "cmd" };
+    const plan = buildTreePlan(tree, {
+      autoResize: false,
+      editorSize: 60,
+      fontSize: 14,
+      newWindow: true,
+      fullscreen: true,
+      maximize: true,
+      float: true,
+    });
+    expect(plan.autoResize).toBe(false);
+    expect(plan.editorSize).toBe(60);
+    expect(plan.fontSize).toBe(14);
+    expect(plan.newWindow).toBe(true);
+    expect(plan.fullscreen).toBe(true);
+    expect(plan.maximize).toBe(true);
+    expect(plan.float).toBe(true);
+  });
+});
+
+// ---------- Leaf collector ----------
+
+describe("collectLeaves", () => {
+  it("collects single pane", () => {
+    const node: LayoutNode = { type: "pane", name: "main", command: "cmd" };
+    expect(collectLeaves(node)).toEqual(["main"]);
+  });
+
+  it("collects from a split", () => {
+    const node: LayoutNode = {
+      type: "split",
+      direction: "right",
+      first: { type: "pane", name: "a", command: "" },
+      second: { type: "pane", name: "b", command: "" },
+    };
+    expect(collectLeaves(node)).toEqual(["a", "b"]);
+  });
+
+  it("collects from deeply nested tree in depth-first order", () => {
+    const node: LayoutNode = {
+      type: "split",
+      direction: "right",
+      first: {
+        type: "split",
+        direction: "down",
+        first: { type: "pane", name: "a", command: "" },
+        second: { type: "pane", name: "b", command: "" },
+      },
+      second: {
+        type: "split",
+        direction: "down",
+        first: { type: "pane", name: "c", command: "" },
+        second: { type: "pane", name: "d", command: "" },
+      },
+    };
+    expect(collectLeaves(node)).toEqual(["a", "b", "c", "d"]);
+  });
+});

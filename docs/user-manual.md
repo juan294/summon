@@ -334,6 +334,127 @@ summon . --shell "npm run dev"
 summon set shell "python -m http.server"
 ```
 
+## Pre-Launch Hooks
+
+The `on-start` option runs a command in the target directory before the workspace opens. If it fails, the workspace is not created.
+
+```bash
+# Install deps before launching
+summon . --on-start "npm install"
+
+# Pull latest code and build
+summon . --on-start "git pull --rebase && npm run build"
+
+# Start background services
+summon . --on-start "docker compose up -d"
+```
+
+Persistent via config:
+
+```bash
+summon set on-start "npm install"
+```
+
+Or per-project in `.summon`:
+
+```ini
+on-start=npm install && npm run build
+```
+
+This ensures every `summon myapp` starts with fresh dependencies and a clean build. If `npm install` or `npm run build` fails, the workspace doesn't open — so you won't end up with broken panes running against stale code.
+
+## Per-Workspace Environment Variables
+
+Set environment variables that propagate to all panes in the workspace.
+
+```bash
+# Single variable
+summon . --env NODE_ENV=development
+
+# Multiple variables
+summon . --env NODE_ENV=development --env PORT=3000 --env DEBUG=true
+```
+
+Persistent via config:
+
+```bash
+summon set env.NODE_ENV development
+summon set env.API_URL http://localhost:3000
+```
+
+Or per-project in `.summon`:
+
+```ini
+env.NODE_ENV=development
+env.PORT=3000
+env.DATABASE_URL=postgres://localhost/myapp
+```
+
+Use cases:
+
+- **Runtime config per project** — each project's `.summon` file carries its own environment, so `summon api` and `summon frontend` launch with different `PORT`, `NODE_ENV`, etc.
+- **API keys for dev tools** — pass keys to panes without adding them to your shell profile
+- **Tool configuration** — set `EDITOR`, `PAGER`, or tool-specific vars per workspace
+
+Environment variables are layered: CLI flags override `.summon`, which overrides machine config.
+
+## Window Management
+
+Control how the workspace window behaves on launch.
+
+```bash
+# Open in a new window (keeps your current window untouched)
+summon . --new-window
+
+# Start in fullscreen
+summon . --fullscreen
+
+# Maximize (fills screen but keeps title bar)
+summon . --maximize
+
+# Float on top of other windows
+summon . --float
+
+# Combine: new floating window
+summon . --new-window --float
+```
+
+Persistent via config or `.summon`:
+
+```bash
+summon set new-window true
+summon set fullscreen true
+```
+
+```ini
+# ~/code/dashboard/.summon
+new-window=true
+float=true
+```
+
+If both `--fullscreen` and `--maximize` are set, fullscreen takes priority.
+
+## Font Size
+
+Override the font size for all panes in a workspace.
+
+```bash
+summon . --font-size 18
+```
+
+Persistent via config or `.summon`:
+
+```bash
+summon set font-size 14
+```
+
+```ini
+# ~/code/presentation/.summon
+font-size=24
+```
+
+Useful for presentations, pairing sessions, or projects where you want a different density than your global Ghostty setting.
+
 ## Per-project Config
 
 Place a `.summon` file in your project root to override machine-level config for that project. The file uses `key=value` format:

@@ -1,5 +1,7 @@
 import { basename } from "node:path";
 import type { LayoutPlan } from "./layout.js";
+import type { TreeLayoutPlan, LayoutNode } from "./tree.js";
+import { firstLeaf } from "./tree.js";
 
 function escapeAppleScript(s: string): string {
   return s
@@ -261,3 +263,213 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginSh
 
   return lines.join("\n");
 }
+
+function paneVar(name: string): string {
+  return `pane_${name.replace(/-/g, "_")}`;
+}
+
+export function generateTreeAppleScript(
+  plan: TreeLayoutPlan,
+  targetDir: string,
+  loginShell = "/bin/bash",
+  starshipConfigPath?: string | null,
+  envVars?: Record<string, string>,
+): string {
+  const lines: string[] = [];
+  const titles: Array<[string, string]> = [];
+
+  const add = (indent: number, line: string) => {
+    lines.push("    ".repeat(indent) + line);
+  };
+  const blank = () => lines.push("");
+
+  const sendCommand = (pane: string, cmd: string) => {
+    add(1, `input text "${escapeAppleScript(cmd)}" to ${pane}`);
+    add(1, `send key "enter" to ${pane}`);
+  };
+
+  const quotedTargetDir = shellQuote(targetDir);
+  const wrapForConfig = (cmd: string): string => {
+    return `${loginShell} -lc ${shellQuote(`cd ${quotedTargetDir} && ${cmd}`)}`;
+  };
+
+  const setConfigCommand = (cmd: string) => {
+    add(1, `set command of cfg to "${escapeAppleScript(wrapForConfig(cmd))}"`);
+  };
+
+  const clearConfigCommand = () => {
+    add(1, `set command of cfg to ""`);
+  };
+
+  const formatTitle = (name: string, cmd: string): string => {
+    return cmd ? `${name} \u00B7 ${cmd}` : name;
+  };
+
+  // --- Initialization ---
+
+  add(0, 'tell application "Ghostty"');
+  add(1, "activate");
+  blank();
+
+  // Surface configuration with working directory
+  add(1, "set cfg to new surface configuration");
+  add(1, `set initial working directory of cfg to "${escapeAppleScript(targetDir)}"`);
+  if (plan.fontSize !== null) {
+    add(1, `set font size of cfg to ${plan.fontSize}`);
+  }
+
+  // Build combined env vars list (Starship + user-defined)
+  const allEnvVars: string[] = [];
+  if (starshipConfigPath) {
+    allEnvVars.push(`STARSHIP_CONFIG=${starshipConfigPath}`);
+  }
+  if (envVars) {
+    for (const [key, value] of Object.entries(envVars)) {
+      allEnvVars.push(`${key}=${value}`);
+    }
+  }
+  if (allEnvVars.length > 0) {
+    const escaped = allEnvVars.map(e => `"${escapeAppleScript(e)}"`).join(", ");
+    add(1, `set environment variables of cfg to {${escaped}}`);
+  }
+  blank();
+
+  // Get or create window for workspace
+  const rootLeaf = firstLeaf(plan.tree);
+  const rootPaneVar = paneVar(rootLeaf.name);
+
+  if (plan.newWindow) {
+    add(1, "set win to make new window with configuration cfg");
+    add(1, "delay 0.3");
+  } else {
+    add(1, "set win to front window");
+  }
+  add(1, `set ${rootPaneVar} to terminal 1 of selected tab of win`);
+  blank();
+
+  // --- Recursive Tree Traversal ---
+
+  let firstRightSplitDone = false;
+
+  function traverse(node: LayoutNode, currentPaneVar: string): void {
+    if (node.type === "pane") {
+      // Leaf node — nothing to do during traversal.
+      // It was already handled as "current pane" by its parent split.
+      return;
+    }
+
+    // SplitNode: get the first leaf of the second child
+    const secondLeaf = firstLeaf(node.second);
+    const secondLeafVar = paneVar(secondLeaf.name);
+
+    // Set config command for the new pane
+    if (secondLeaf.command) {
+      setConfigCommand(secondLeaf.command);
+    } else {
+      clearConfigCommand();
+    }
+
+    // Split the current pane
+    add(1, `set ${secondLeafVar} to split ${currentPaneVar} direction ${node.direction} with configuration cfg`);
+
+    // Auto-resize after the FIRST right-split at the root level
+    if (node.direction === "right" && !firstRightSplitDone && plan.autoResize && plan.editorSize > 50) {
+      firstRightSplitDone = true;
+      const fraction = (plan.editorSize - 50) / 100;
+      blank();
+      add(1, "-- Resize editor/sidebar split");
+      add(1, "delay 0.3");
+      add(1, 'tell application "System Events"');
+      add(2, 'tell process "Ghostty"');
+      add(3, "set windowSize to size of front window");
+      add(3, "set windowWidth to item 1 of windowSize");
+      add(2, "end tell");
+      add(1, "end tell");
+      add(1, `set resizeAmount to round (windowWidth * ${fraction})`);
+      add(1, `set resizeAction to "resize_split:right," & (resizeAmount as text)`);
+      add(1, `perform action resizeAction on ${currentPaneVar}`);
+      add(1, "delay 0.2");
+    }
+
+    // Recurse into first child (stays in current pane variable)
+    traverse(node.first, currentPaneVar);
+    // Recurse into second child (uses the new pane variable)
+    traverse(node.second, secondLeafVar);
+  }
+
+  traverse(plan.tree, rootPaneVar);
+  blank();
+
+  // --- Root Pane Commands ---
+
+  // Env var exports for root pane: only needed when NOT using new-window mode
+  if (allEnvVars.length > 0 && !plan.newWindow) {
+    for (const envVar of allEnvVars) {
+      const eqIdx = envVar.indexOf("=");
+      const key = envVar.slice(0, eqIdx);
+      const val = envVar.slice(eqIdx + 1);
+      sendCommand(rootPaneVar, `export ${key}=${shellQuote(val)}`);
+    }
+  }
+
+  // Root pane: cd into project directory, then launch command
+  sendCommand(rootPaneVar, `cd ${shellQuote(targetDir)}`);
+  if (rootLeaf.command) {
+    const parts = rootLeaf.command.split(" ");
+    const safeCmd = parts.length > 1
+      ? `${parts[0]} ${parts.slice(1).map((a) => shellQuote(a)).join(" ")}`
+      : rootLeaf.command;
+    sendCommand(rootPaneVar, safeCmd);
+  }
+
+  blank();
+
+  // --- Pane and Tab Titles ---
+
+  add(1, "-- Set pane and tab titles");
+  const projectName = basename(targetDir);
+  add(1, `perform action "set_tab_title:${escapeAppleScript(projectName)}" on ${rootPaneVar}`);
+
+  // Collect all leaf panes with commands in a single pass
+  function collectLeavesWithCommands(node: LayoutNode): Array<[string, string]> {
+    if (node.type === "pane") {
+      return [[node.name, node.command]];
+    }
+    return [...collectLeavesWithCommands(node.first), ...collectLeavesWithCommands(node.second)];
+  }
+  for (const [leafName, cmd] of collectLeavesWithCommands(plan.tree)) {
+    titles.push([paneVar(leafName), formatTitle(leafName, cmd)]);
+  }
+
+  for (const [pane, title] of titles) {
+    add(1, `perform action "set_surface_title:${escapeAppleScript(title)}" on ${pane}`);
+  }
+
+  blank();
+
+  // --- Focus root pane ---
+
+  add(1, `focus ${rootPaneVar}`);
+
+  // --- Window State ---
+
+  if (plan.fullscreen) {
+    blank();
+    add(1, "-- Fullscreen mode");
+    add(1, `perform action "toggle_fullscreen" on ${rootPaneVar}`);
+  } else if (plan.maximize) {
+    blank();
+    add(1, "-- Maximize window");
+    add(1, `perform action "toggle_maximize" on ${rootPaneVar}`);
+  }
+  if (plan.float) {
+    blank();
+    add(1, "-- Float on top");
+    add(1, `perform action "toggle_window_float_on_top" on ${rootPaneVar}`);
+  }
+
+  add(0, "end tell");
+
+  return lines.join("\n");
+}
+

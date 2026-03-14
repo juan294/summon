@@ -1,4 +1,4 @@
-import { describe, test, expect } from "vitest";
+import { describe, test, expect, vi } from "vitest";
 import { generateZshCompletion, generateBashCompletion } from "./completions.js";
 import { VALID_KEYS, CLI_FLAGS } from "./config.js";
 import { getPresetNames } from "./layout.js";
@@ -102,5 +102,56 @@ describe("generateBashCompletion", () => {
     const result = generateBashCompletion();
     expect(result).toContain("starship preset --list");
     expect(result).toContain("starship-preset");
+  });
+});
+
+describe("custom layout completions", () => {
+  test("zsh completions include custom layout names in --layout", async () => {
+    // Mock listCustomLayouts to return custom layout names
+    const config = await import("./config.js");
+    const spy = vi.spyOn(config, "listCustomLayouts").mockReturnValue(["mywork", "devops"]);
+
+    const result = generateZshCompletion();
+    expect(result).toContain("mywork");
+    expect(result).toContain("devops");
+
+    spy.mockRestore();
+  });
+
+  test("bash completions include custom layout names in --layout", async () => {
+    const config = await import("./config.js");
+    const spy = vi.spyOn(config, "listCustomLayouts").mockReturnValue(["mywork", "devops"]);
+
+    const result = generateBashCompletion();
+    expect(result).toContain("mywork");
+    expect(result).toContain("devops");
+
+    spy.mockRestore();
+  });
+
+  test("zsh completions include custom layouts in set layout value completions", async () => {
+    const config = await import("./config.js");
+    const spy = vi.spyOn(config, "listCustomLayouts").mockReturnValue(["custom-one"]);
+
+    const result = generateZshCompletion();
+    // The layout_presets array should include custom layouts
+    expect(result).toContain("custom-one");
+
+    spy.mockRestore();
+  });
+
+  test("completions work with empty custom layouts list", async () => {
+    const config = await import("./config.js");
+    const spy = vi.spyOn(config, "listCustomLayouts").mockReturnValue([]);
+
+    const zsh = generateZshCompletion();
+    const bash = generateBashCompletion();
+    // Should still contain preset names
+    for (const preset of getPresetNames()) {
+      expect(zsh).toContain(preset);
+      expect(bash).toContain(preset);
+    }
+
+    spy.mockRestore();
   });
 });

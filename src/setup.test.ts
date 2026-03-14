@@ -17,10 +17,16 @@ vi.mock("node:readline", () => ({
 
 // Mock config for runSetup
 const mockSetConfig = vi.fn();
+const mockIsValidLayoutName = vi.fn((_name: string) => true);
+const mockIsCustomLayout = vi.fn((_name: string) => false);
+const mockSaveCustomLayout = vi.fn();
 vi.mock("./config.js", () => ({
   setConfig: (key: string, value: string) => mockSetConfig(key, value),
   listConfig: vi.fn(() => new Map<string, string>()),
   CONFIG_DIR: "/mock/.config/summon",
+  isValidLayoutName: (name: string) => mockIsValidLayoutName(name),
+  isCustomLayout: (name: string) => mockIsCustomLayout(name),
+  saveCustomLayout: (name: string, entries: Map<string, string>) => mockSaveCustomLayout(name, entries),
 }));
 
 // Mock starship for setup wizard
@@ -70,6 +76,9 @@ const {
   runSetup,
   hexToRgb,
   colorSwatch,
+  // Phase 5 additions:
+  gridToTree,
+  renderLayoutPreview,
 } = await import("./setup.js");
 
 beforeEach(() => {
@@ -1417,5 +1426,78 @@ describe("runSetup with starship", () => {
     expect(output).toContain("tokyo-night");
     Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, writable: true });
     logSpy.mockRestore();
+  });
+});
+
+describe("gridToTree", () => {
+  it("converts single column with 2 panes and sidebar", () => {
+    const result = gridToTree([["claude", "npm run dev"]], "lazygit");
+    expect(result.tree).toBe("(claude / npm) | lazygit");
+    expect(result.panes.get("claude")).toBe("claude");
+    expect(result.panes.get("npm")).toBe("npm run dev");
+    expect(result.panes.get("lazygit")).toBe("lazygit");
+  });
+
+  it("converts two columns with sidebar", () => {
+    const result = gridToTree([["claude", "shell"], ["vim", "btop"]], "lazygit");
+    expect(result.tree).toBe("(claude / shell) | (vim / btop) | lazygit");
+    expect(result.panes.size).toBe(5);
+  });
+
+  it("converts single pane with sidebar", () => {
+    const result = gridToTree([["claude"]], "lazygit");
+    expect(result.tree).toBe("claude | lazygit");
+    expect(result.panes.size).toBe(2);
+  });
+
+  it("deduplicates pane names from same command", () => {
+    const result = gridToTree([["claude", "claude"]], "lazygit");
+    expect(result.panes.has("claude")).toBe(true);
+    expect(result.panes.has("claude_2")).toBe(true);
+  });
+
+  it("handles three columns with various pane counts", () => {
+    const result = gridToTree([["vim"], ["claude", "shell"], ["btop"]], "lazygit");
+    expect(result.tree).toBe("vim | (claude / shell) | btop | lazygit");
+    expect(result.panes.size).toBe(5);
+  });
+
+  it("deduplicates across columns and sidebar", () => {
+    const result = gridToTree([["lazygit"]], "lazygit");
+    expect(result.panes.has("lazygit")).toBe(true);
+    expect(result.panes.has("lazygit_2")).toBe(true);
+  });
+});
+
+describe("renderLayoutPreview", () => {
+  it("renders a 2-column layout with sidebar", () => {
+    const preview = renderLayoutPreview([["claude", "npm run dev"], ["vim"]], "lazygit");
+    expect(preview).toContain("claude");
+    expect(preview).toContain("vim");
+    expect(preview).toContain("lazygit");
+    expect(preview).toContain("\u250c"); // ┌
+    expect(preview).toContain("\u2514"); // └
+  });
+
+  it("renders a single column with sidebar", () => {
+    const preview = renderLayoutPreview([["claude"]], "lazygit");
+    expect(preview).toContain("claude");
+    expect(preview).toContain("lazygit");
+    expect(preview).toContain("\u2500"); // ─
+  });
+
+  it("renders 3 columns with sidebar", () => {
+    const preview = renderLayoutPreview([["vim"], ["claude"], ["btop"]], "lazygit");
+    expect(preview).toContain("vim");
+    expect(preview).toContain("claude");
+    expect(preview).toContain("btop");
+    expect(preview).toContain("lazygit");
+  });
+
+  it("renders multi-row columns correctly", () => {
+    const preview = renderLayoutPreview([["claude", "shell"], ["vim", "btop"]], "lazygit");
+    const lines = preview.split("\n");
+    // Should have top border, content rows for each pane, middle border, and bottom border
+    expect(lines.length).toBeGreaterThanOrEqual(5);
   });
 });

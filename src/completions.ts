@@ -1,8 +1,10 @@
 import { getPresetNames } from "./layout.js";
-import { VALID_KEYS, CLI_FLAGS, BOOLEAN_KEYS } from "./config.js";
+import { VALID_KEYS, CLI_FLAGS, BOOLEAN_KEYS, listCustomLayouts } from "./config.js";
 
 export function generateZshCompletion(): string {
-  const presetNames = getPresetNames().join(" ");
+  const customLayouts = listCustomLayouts();
+  const allLayouts = [...getPresetNames(), ...customLayouts];
+  const presetNames = allLayouts.join(" ");
   const configKeys = VALID_KEYS.join(" ");
   const booleanKeyCheck = [...BOOLEAN_KEYS].map(k => `"\\$\{words[2]}" == "${k}"`).join(" || ");
 
@@ -105,7 +107,9 @@ compdef _summon summon
 
 export function generateBashCompletion(): string {
   const configKeys = VALID_KEYS.join(" ");
-  const presetNames = getPresetNames().join(" ");
+  const customLayouts = listCustomLayouts();
+  const allLayouts = [...getPresetNames(), ...customLayouts];
+  const presetNames = allLayouts.join(" ");
   const flagsList = CLI_FLAGS.join(" ");
   const booleanKeyCheck = [...BOOLEAN_KEYS].map(k => `"\\$\{words[2]}" == "${k}"`).join(" || ");
 
