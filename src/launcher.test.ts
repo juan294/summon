@@ -10,10 +10,14 @@ vi.mock("node:child_process", () => ({
 
 // Mock config
 const mockReadKVFile = vi.fn((_path: string) => new Map<string, string>());
+const mockReadCustomLayout = vi.fn((_name: string): Map<string, string> | null => null);
+const mockIsCustomLayout = vi.fn((_name: string) => false);
 vi.mock("./config.js", () => ({
   getConfig: vi.fn(),
   listConfig: vi.fn(() => new Map<string, string>()),
   readKVFile: (path: string) => mockReadKVFile(path),
+  readCustomLayout: (name: string) => mockReadCustomLayout(name),
+  isCustomLayout: (name: string) => mockIsCustomLayout(name),
   CONFIG_DIR: "/mock/.config/summon",
 }));
 
@@ -45,8 +49,11 @@ vi.mock("node:readline", () => ({
 // Mock script generator to isolate launcher logic
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockGenerateAppleScript = vi.fn((..._args: any[]) => 'tell application "Ghostty"\nend tell');
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockGenerateTreeAppleScript = vi.fn((..._args: any[]) => 'tell application "Ghostty"\n-- tree layout\nend tell');
 vi.mock("./script.js", () => ({
   generateAppleScript: (...args: unknown[]) => mockGenerateAppleScript(...args),
+  generateTreeAppleScript: (...args: unknown[]) => mockGenerateTreeAppleScript(...args),
 }));
 
 // Import after mocks are set up
@@ -66,8 +73,11 @@ beforeEach(() => {
   });
   vi.mocked(existsSync).mockReturnValue(true);
   mockReadKVFile.mockReturnValue(new Map<string, string>());
+  mockReadCustomLayout.mockReturnValue(null);
+  mockIsCustomLayout.mockReturnValue(false);
   vi.mocked(listConfig).mockReturnValue(new Map<string, string>());
   mockGenerateAppleScript.mockReturnValue('tell application "Ghostty"\nend tell');
+  mockGenerateTreeAppleScript.mockReturnValue('tell application "Ghostty"\n-- tree layout\nend tell');
 });
 
 describe("Ghostty detection", () => {
@@ -737,6 +747,14 @@ describe("input validation", () => {
     expect(opts.editorSize).toBe(60);
     expect(warnSpy).not.toHaveBeenCalled();
     warnSpy.mockRestore();
+  });
+
+  it("resolves font-size from project config layers", () => {
+    mockReadKVFile.mockReturnValue(new Map([["font-size", "18"]]));
+    vi.mocked(listConfig).mockReturnValue(new Map());
+
+    const { opts } = resolveConfig("/tmp/workspace", {});
+    expect(opts.fontSize).toBe(18);
   });
 });
 
@@ -1813,6 +1831,377 @@ describe("shell metacharacter confirmation (#90)", () => {
 
       const result = resolveConfig("/tmp/workspace", {});
       expect(result.envVars).toEqual({});
+    });
+
+    it("rejects --env CLI key names with spaces", () => {
+      mockReadKVFile.mockReturnValue(new Map());
+      vi.mocked(listConfig).mockReturnValue(new Map());
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      const result = resolveConfig("/tmp/workspace", { env: ["INVALID KEY=val"] });
+      expect(result.envVars).not.toHaveProperty("INVALID KEY");
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("INVALID KEY"));
+      warnSpy.mockRestore();
+    });
+
+    it("accepts --env CLI key names that are valid", () => {
+      mockReadKVFile.mockReturnValue(new Map());
+      vi.mocked(listConfig).mockReturnValue(new Map());
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      const result = resolveConfig("/tmp/workspace", { env: ["VALID_KEY=val"] });
+      expect(result.envVars).toEqual({ VALID_KEY: "val" });
+      expect(warnSpy).not.toHaveBeenCalled();
+      warnSpy.mockRestore();
+    });
+
+    it("rejects --env CLI key names starting with a digit", () => {
+      mockReadKVFile.mockReturnValue(new Map());
+      vi.mocked(listConfig).mockReturnValue(new Map());
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      const result = resolveConfig("/tmp/workspace", { env: ["123BAD=val"] });
+      expect(result.envVars).not.toHaveProperty("123BAD");
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("123BAD"));
+      warnSpy.mockRestore();
+    });
+  });
+});
+
+describe("layout name validation from .summon files", () => {
+  it("ignores path-traversal layout names from project config", () => {
+    mockReadKVFile.mockReturnValue(new Map([["layout", "../../etc/passwd"]]));
+    vi.mocked(listConfig).mockReturnValue(new Map());
+    mockIsCustomLayout.mockReturnValue(true); // simulate file existing at traversed path
+
+    const result = resolveConfig("/tmp/workspace", {});
+    // Should NOT call isCustomLayout with the traversal name
+    expect(mockIsCustomLayout).not.toHaveBeenCalled();
+    // Should fall through to default layout (no base overrides)
+    expect(result.treeLayout).toBeUndefined();
+  });
+
+  it("accepts valid layout names from project config", () => {
+    mockReadKVFile.mockReturnValue(new Map([["layout", "my-layout"]]));
+    vi.mocked(listConfig).mockReturnValue(new Map());
+    mockIsCustomLayout.mockReturnValue(true);
+    mockReadCustomLayout.mockReturnValue(new Map([["editor", "vim"]]));
+
+    resolveConfig("/tmp/workspace", {});
+    expect(mockIsCustomLayout).toHaveBeenCalledWith("my-layout");
+  });
+});
+
+describe("custom tree layout integration (Phase 4)", () => {
+  describe("resolveConfig with tree layout", () => {
+    it("populates treeLayout when custom layout has tree= key", () => {
+      mockIsCustomLayout.mockReturnValue(true);
+      mockReadCustomLayout.mockReturnValue(
+        new Map([
+          ["tree", "main | sidebar"],
+          ["pane.main", "claude"],
+          ["pane.sidebar", "lazygit"],
+        ]),
+      );
+      vi.mocked(listConfig).mockReturnValue(new Map());
+      mockReadKVFile.mockReturnValue(new Map([["layout", "mywork"]]));
+
+      const result = resolveConfig("/tmp/workspace", {});
+      expect(result.treeLayout).toBeDefined();
+      expect(result.treeLayout!.tree).toBeDefined();
+      expect(result.treeLayout!.panes.get("main")).toBe("claude");
+      expect(result.treeLayout!.panes.get("sidebar")).toBe("lazygit");
+    });
+
+    it("does not set treeLayout when custom layout has no tree= key", () => {
+      mockIsCustomLayout.mockReturnValue(true);
+      mockReadCustomLayout.mockReturnValue(
+        new Map([
+          ["editor", "vim"],
+          ["sidebar", "htop"],
+          ["panes", "2"],
+        ]),
+      );
+      vi.mocked(listConfig).mockReturnValue(new Map());
+      mockReadKVFile.mockReturnValue(new Map([["layout", "traditional"]]));
+
+      const result = resolveConfig("/tmp/workspace", {});
+      expect(result.treeLayout).toBeUndefined();
+      // Traditional custom layout applies to opts
+      expect(result.opts.editor).toBe("vim");
+      expect(result.opts.sidebarCommand).toBe("htop");
+    });
+
+    it("applies global options from custom layout with tree", () => {
+      mockIsCustomLayout.mockReturnValue(true);
+      mockReadCustomLayout.mockReturnValue(
+        new Map([
+          ["tree", "editor | sidebar"],
+          ["pane.editor", "claude"],
+          ["pane.sidebar", "lazygit"],
+          ["font-size", "16"],
+          ["fullscreen", "true"],
+          ["editor-size", "80"],
+        ]),
+      );
+      vi.mocked(listConfig).mockReturnValue(new Map());
+      mockReadKVFile.mockReturnValue(new Map([["layout", "mywork"]]));
+
+      const result = resolveConfig("/tmp/workspace", {});
+      expect(result.treeLayout).toBeDefined();
+      expect(result.opts.fontSize).toBe(16);
+      expect(result.opts.fullscreen).toBe(true);
+      expect(result.opts.editorSize).toBe(80);
+    });
+
+    it("CLI overrides apply on top of tree layout global options", () => {
+      mockIsCustomLayout.mockReturnValue(true);
+      mockReadCustomLayout.mockReturnValue(
+        new Map([
+          ["tree", "editor | sidebar"],
+          ["pane.editor", "claude"],
+          ["pane.sidebar", "lazygit"],
+          ["fullscreen", "false"],
+        ]),
+      );
+      vi.mocked(listConfig).mockReturnValue(new Map());
+      mockReadKVFile.mockReturnValue(new Map([["layout", "mywork"]]));
+
+      const result = resolveConfig("/tmp/workspace", { fullscreen: "true" });
+      expect(result.treeLayout).toBeDefined();
+      expect(result.opts.fullscreen).toBe(true);
+    });
+  });
+
+  describe("launch with tree layout", () => {
+    it("uses generateTreeAppleScript for tree layouts in dry-run", async () => {
+      mockIsCustomLayout.mockReturnValue(true);
+      mockReadCustomLayout.mockReturnValue(
+        new Map([
+          ["tree", "main | sidebar"],
+          ["pane.main", "claude"],
+          ["pane.sidebar", "lazygit"],
+        ]),
+      );
+      vi.mocked(listConfig).mockReturnValue(new Map());
+      mockReadKVFile.mockReturnValue(new Map([["layout", "mywork"]]));
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      await launch("/tmp/workspace", { dryRun: true });
+
+      expect(mockGenerateTreeAppleScript).toHaveBeenCalled();
+      expect(mockGenerateAppleScript).not.toHaveBeenCalled();
+
+      const output = logSpy.mock.calls[0]![0] as string;
+      expect(output).toContain("-- summon dry-run");
+      expect(output).toContain("tree layout");
+      logSpy.mockRestore();
+    });
+
+    it("dry-run header includes tree-specific info (pane count)", async () => {
+      mockIsCustomLayout.mockReturnValue(true);
+      mockReadCustomLayout.mockReturnValue(
+        new Map([
+          ["tree", "(editor / shell) | sidebar"],
+          ["pane.editor", "claude"],
+          ["pane.shell", "npm run dev"],
+          ["pane.sidebar", "lazygit"],
+        ]),
+      );
+      vi.mocked(listConfig).mockReturnValue(new Map());
+      mockReadKVFile.mockReturnValue(new Map([["layout", "mywork"]]));
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      await launch("/tmp/workspace", { dryRun: true });
+
+      const output = logSpy.mock.calls[0]![0] as string;
+      expect(output).toContain("3 panes");
+      logSpy.mockRestore();
+    });
+
+    it("uses generateTreeAppleScript for tree layouts in normal launch", async () => {
+      mockIsCustomLayout.mockReturnValue(true);
+      mockReadCustomLayout.mockReturnValue(
+        new Map([
+          ["tree", "main | sidebar"],
+          ["pane.main", "claude"],
+          ["pane.sidebar", "lazygit"],
+        ]),
+      );
+      vi.mocked(listConfig).mockReturnValue(new Map());
+      mockReadKVFile.mockReturnValue(new Map([["layout", "mywork"]]));
+
+      await launch("/tmp/workspace");
+
+      expect(mockGenerateTreeAppleScript).toHaveBeenCalled();
+      expect(mockGenerateAppleScript).not.toHaveBeenCalled();
+      // osascript should be called with the tree script
+      expect(mockExecFileSync).toHaveBeenCalledWith(
+        "osascript",
+        [],
+        expect.objectContaining({ input: expect.stringContaining("tree layout") }),
+      );
+    });
+
+    it("resolves commands for tree leaf panes via ensureCommand", async () => {
+      mockIsCustomLayout.mockReturnValue(true);
+      mockReadCustomLayout.mockReturnValue(
+        new Map([
+          ["tree", "main | sidebar"],
+          ["pane.main", "claude"],
+          ["pane.sidebar", "lazygit"],
+        ]),
+      );
+      vi.mocked(listConfig).mockReturnValue(new Map());
+      mockReadKVFile.mockReturnValue(new Map([["layout", "mywork"]]));
+
+      await launch("/tmp/workspace");
+
+      // Both claude and lazygit should be checked via command -v
+      expect(mockExecFileSync).toHaveBeenCalledWith(
+        "/bin/sh", ["-c", 'command -v "$1"', "--", "claude"], { encoding: "utf-8" },
+      );
+      expect(mockExecFileSync).toHaveBeenCalledWith(
+        "/bin/sh", ["-c", 'command -v "$1"', "--", "lazygit"], { encoding: "utf-8" },
+      );
+    });
+
+    it("dry-run includes starship preset in header for tree layout", async () => {
+      mockIsCustomLayout.mockReturnValue(true);
+      mockReadCustomLayout.mockReturnValue(
+        new Map([
+          ["tree", "main | sidebar"],
+          ["pane.main", "claude"],
+          ["pane.sidebar", "lazygit"],
+        ]),
+      );
+      mockGetPresetConfigPath.mockReturnValue("/mock/.config/summon/starship/gruvbox-rainbow.toml");
+      vi.mocked(listConfig).mockReturnValue(new Map([["starship-preset", "gruvbox-rainbow"]]));
+      mockReadKVFile.mockReturnValue(new Map([["layout", "mywork"]]));
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      await launch("/tmp/workspace", { dryRun: true });
+
+      const output = logSpy.mock.calls[0]![0] as string;
+      expect(output).toContain("Starship preset: gruvbox-rainbow");
+      expect(output).toContain("/mock/.config/summon/starship/gruvbox-rainbow.toml");
+      expect(mockGenerateTreeAppleScript).toHaveBeenCalledWith(
+        expect.anything(),
+        "/tmp/workspace",
+        expect.any(String),
+        "/mock/.config/summon/starship/gruvbox-rainbow.toml",
+        undefined,
+      );
+      logSpy.mockRestore();
+    });
+
+    it("built-in presets still use the traditional path", async () => {
+      vi.mocked(listConfig).mockReturnValue(new Map());
+
+      await launch("/tmp/workspace", { layout: "minimal" });
+
+      expect(mockGenerateAppleScript).toHaveBeenCalled();
+      expect(mockGenerateTreeAppleScript).not.toHaveBeenCalled();
+    });
+
+    it("traditional custom layout (no tree=) uses the existing path", async () => {
+      mockIsCustomLayout.mockReturnValue(true);
+      mockReadCustomLayout.mockReturnValue(
+        new Map([
+          ["editor", "vim"],
+          ["sidebar", "htop"],
+          ["panes", "2"],
+        ]),
+      );
+      vi.mocked(listConfig).mockReturnValue(new Map());
+      mockReadKVFile.mockReturnValue(new Map([["layout", "traditional"]]));
+
+      await launch("/tmp/workspace");
+
+      expect(mockGenerateAppleScript).toHaveBeenCalled();
+      expect(mockGenerateTreeAppleScript).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("nested workspace warning", () => {
+    let originalEnv: string | undefined;
+    let originalIsTTY: boolean | undefined;
+
+    beforeEach(() => {
+      originalEnv = process.env.SUMMON_WORKSPACE;
+      originalIsTTY = process.stdin.isTTY;
+    });
+
+    afterEach(() => {
+      if (originalEnv === undefined) {
+        delete process.env.SUMMON_WORKSPACE;
+      } else {
+        process.env.SUMMON_WORKSPACE = originalEnv;
+      }
+      Object.defineProperty(process.stdin, "isTTY", { value: originalIsTTY, writable: true });
+    });
+
+    it("warns and prompts when SUMMON_WORKSPACE is set", async () => {
+      process.env.SUMMON_WORKSPACE = "1";
+      Object.defineProperty(process.stdin, "isTTY", { value: true, writable: true });
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      // User answers "y" to proceed
+      mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("y"));
+
+      await launch("/tmp/workspace");
+
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("existing summon workspace"));
+      expect(mockExecFileSync).toHaveBeenCalled();
+      warnSpy.mockRestore();
+    });
+
+    it("exits when user declines nested launch", async () => {
+      process.env.SUMMON_WORKSPACE = "1";
+      Object.defineProperty(process.stdin, "isTTY", { value: true, writable: true });
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+        throw new Error("process.exit");
+      });
+      // User answers "n"
+      mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("n"));
+
+      await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
+      expect(mockExit).toHaveBeenCalledWith(0);
+      warnSpy.mockRestore();
+      mockExit.mockRestore();
+    });
+
+    it("skips warning when --new-window is set", async () => {
+      process.env.SUMMON_WORKSPACE = "1";
+      Object.defineProperty(process.stdin, "isTTY", { value: true, writable: true });
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      await launch("/tmp/workspace", { "new-window": "true" });
+
+      expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining("existing summon workspace"));
+      warnSpy.mockRestore();
+    });
+
+    it("skips warning when not in a TTY", async () => {
+      process.env.SUMMON_WORKSPACE = "1";
+      Object.defineProperty(process.stdin, "isTTY", { value: false, writable: true });
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      await launch("/tmp/workspace");
+
+      expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining("existing summon workspace"));
+      warnSpy.mockRestore();
+    });
+
+    it("skips warning in dry-run mode", async () => {
+      process.env.SUMMON_WORKSPACE = "1";
+      Object.defineProperty(process.stdin, "isTTY", { value: true, writable: true });
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      await launch("/tmp/workspace", { dryRun: true });
+
+      expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining("existing summon workspace"));
+      warnSpy.mockRestore();
     });
   });
 });

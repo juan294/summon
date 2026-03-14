@@ -42,18 +42,15 @@ describe("CLI integration", () => {
     expect(result.stdout.trim()).toMatch(/^\d+\.\d+\.\d+$/);
   });
 
-  // #80: Brief usage hint on no-args invocation
-  describe("no-args usage hint (#80)", () => {
-    it("prints brief usage hint (not full help) to stderr with no arguments", () => {
+  describe("no-args shows full help", () => {
+    it("prints full help to stdout with no arguments", () => {
       const result = run();
-      expect(result.status).toBe(1);
-      expect(result.stderr).toContain("Usage: summon <target>");
-      expect(result.stderr).toContain("summon --help");
-      // Must NOT contain the full help text (e.g., Options section)
-      expect(result.stderr).not.toContain("Options:");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("Options:");
+      expect(result.stdout).toContain("Config keys:");
     });
 
-    it("still prints full help to stdout with --help", () => {
+    it("prints full help to stdout with --help", () => {
       const result = run("--help");
       expect(result.status).toBe(0);
       expect(result.stdout).toContain("Options:");
@@ -601,7 +598,7 @@ describe("CLI integration", () => {
     it("--new-window flag accepted in dry-run", () => {
       const result = run(".", "--new-window", "--dry-run");
       expect(result.status).toBe(0);
-      expect(result.stdout).toContain("make new window");
+      expect(result.stdout).toContain('keystroke "n" using command down');
     });
 
     it("--fullscreen flag accepted in dry-run", () => {
@@ -817,6 +814,118 @@ describe("CLI integration", () => {
       const result = run(".", "--auto-resize", "--no-auto-resize", "--dry-run");
       expect(result.status).toBe(0);
       expect(result.stdout).not.toContain("resize_split");
+    });
+  });
+
+  describe("layout subcommand", () => {
+    it("summon layout list works with no custom layouts", () => {
+      const result = run("layout", "list");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("No custom layouts");
+    });
+
+    it("summon layout save creates a custom layout", () => {
+      // Set some config first so there's something to save
+      run("set", "editor", "vim");
+      run("set", "panes", "3");
+      const result = run("layout", "save", "mywork");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("Saved");
+      expect(result.stdout).toContain("mywork");
+    });
+
+    it("summon layout save rejects invalid name", () => {
+      const result = run("layout", "save", "123bad");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("Invalid layout name");
+    });
+
+    it("summon layout save rejects reserved preset name", () => {
+      const result = run("layout", "save", "minimal");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("reserved");
+    });
+
+    it("summon layout show displays layout contents", () => {
+      run("set", "editor", "vim");
+      run("layout", "save", "showtest");
+      const result = run("layout", "show", "showtest");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("editor=vim");
+    });
+
+    it("summon layout show errors on missing layout", () => {
+      const result = run("layout", "show", "nonexistent");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("not found");
+    });
+
+    it("summon layout show rejects path traversal name (#136)", () => {
+      const result = run("layout", "show", "../../etc/passwd");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("Invalid layout name");
+    });
+
+    it("summon layout delete removes a layout", () => {
+      run("set", "editor", "vim");
+      run("layout", "save", "todelete");
+      const result = run("layout", "delete", "todelete");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("Deleted");
+      expect(result.stdout).toContain("todelete");
+    });
+
+    it("summon layout delete errors on missing layout", () => {
+      const result = run("layout", "delete", "nonexistent");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("not found");
+    });
+
+    it("summon layout delete rejects path traversal name (#136)", () => {
+      const result = run("layout", "delete", "../bad");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("Invalid layout name");
+    });
+
+    it("summon layout edit rejects invalid name (#136)", () => {
+      const result = run("layout", "edit", "123bad");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("Invalid layout name");
+    });
+
+    it("summon layout list shows saved layouts", () => {
+      run("set", "editor", "vim");
+      run("layout", "save", "alpha");
+      run("layout", "save", "beta");
+      const result = run("layout", "list");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("alpha");
+      expect(result.stdout).toContain("beta");
+    });
+
+    it("summon layout with no sub-action shows usage", () => {
+      const result = run("layout");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("Usage:");
+    });
+
+    it("summon layout --help shows usage", () => {
+      const result = run("layout", "--help");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("summon layout");
+    });
+
+    it("--layout accepts custom layout name when it exists", () => {
+      run("set", "panes", "3");
+      run("layout", "save", "mycustom");
+      const result = run(".", "--layout", "mycustom", "--dry-run");
+      expect(result.status).toBe(0);
+    });
+
+    it("--layout rejects nonexistent custom layout", () => {
+      const result = run(".", "--layout", "nonexistent");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("Error:");
     });
   });
 });

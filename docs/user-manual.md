@@ -214,13 +214,37 @@ Exits with status 1 if any issues are found.
 summon doctor
 ```
 
+### `summon layout <action>`
+
+Manage custom layouts. See [Custom Layouts](#custom-layouts) for full details on the tree DSL and layout file format.
+
+```bash
+summon layout create my-layout     # interactive builder wizard
+summon layout save my-layout       # save current machine config as a layout
+summon layout list                 # list all custom layouts
+summon layout show my-layout       # show a layout's contents
+summon layout delete my-layout     # delete a custom layout
+summon layout edit my-layout       # open layout file in $EDITOR
+```
+
+| Action | Description |
+|---|---|
+| `create <name>` | Interactive wizard that walks you through choosing columns, panes per column, and commands. Generates a tree DSL expression and saves the layout. Requires a TTY. |
+| `save <name>` | Saves the current machine config (from `summon set`) as a custom layout file. Useful for capturing your current setup as a reusable layout. |
+| `list` | Lists all saved custom layouts with a summary of their settings. |
+| `show <name>` | Displays the full contents of a custom layout file. |
+| `delete <name>` | Permanently removes a custom layout. |
+| `edit <name>` | Opens the layout file in your `$EDITOR` (falls back to `vi`). Useful for hand-editing the tree expression or pane commands. |
+
+Layout names must start with a letter and contain only letters, digits, hyphens, and underscores. Built-in preset names (`minimal`, `full`, `pair`, `cli`, `btop`) cannot be used as custom layout names.
+
 ### CLI Flags
 
 Flags override both machine and per-project config for a single launch.
 
 | Flag | Description |
 |---|---|
-| `-l`, `--layout <preset>` | Use a layout preset (`minimal`, `full`, `pair`, `cli`, `btop`) |
+| `-l`, `--layout <name>` | Use a layout preset (`minimal`, `full`, `pair`, `cli`, `btop`) or a custom layout name |
 | `-e`, `--editor <cmd>` | Override editor command |
 | `-p`, `--panes <n>` | Override number of editor panes |
 | `--editor-size <n>` | Override editor width percentage |
@@ -313,6 +337,176 @@ summon set layout pair
 
 Individual keys override preset values. For example, `--layout minimal --shell true` gives you 1 editor pane but keeps the shell pane.
 
+## Custom Layouts
+
+When the built-in presets don't fit your workflow, custom layouts let you define exactly which panes appear, where they go, and what command each one runs.
+
+### Overview
+
+A custom layout is a named file stored at `~/.config/summon/layouts/<name>`. It uses the same `key=value` format as other config files, with two special keys:
+
+- **`tree`** — a tree DSL expression that describes the split structure
+- **`pane.<name>`** — assigns a command to a named pane in the tree
+
+When you launch with `--layout <custom-name>`, summon parses the tree expression, resolves each pane name to its command, and builds the workspace accordingly.
+
+### Tree DSL Syntax
+
+The tree DSL is a compact notation for describing split layouts:
+
+| Symbol | Meaning |
+|---|---|
+| `\|` | Split right (creates a new column to the right) |
+| `/` | Split down (stacks panes vertically within a column) |
+| `( )` | Grouping (overrides default precedence) |
+| `"cmd"` | Inline command (quoted string — the pane runs this command directly) |
+| `name` | Named pane (resolved from a `pane.<name>` definition) |
+
+**Precedence:** `/` binds tighter than `|`. This means `a | b / c` is parsed as `a | (b / c)` — a left column with `a`, and a right column with `b` on top and `c` below.
+
+**Associativity:** Both operators are left-associative. `a | b | c` is parsed as `(a | b) | c`.
+
+### Named Panes
+
+Named panes are bare identifiers in the tree expression. Each one must have a corresponding `pane.<name>` definition in the layout file that specifies the command to run.
+
+```ini
+# ~/.config/summon/layouts/my-layout
+tree=editor | shell / logs
+pane.editor=vim
+pane.shell=zsh
+pane.logs=tail -f /var/log/system.log
+```
+
+This creates three panes:
+
+```
++---------------------+---------------------+
+|                     |        shell        |
+|       editor        +---------------------+
+|                     |        logs         |
++---------------------+---------------------+
+```
+
+Pane names must start with a letter or underscore and contain only letters, digits, underscores, and hyphens.
+
+### Inline Commands
+
+Instead of named panes, you can embed commands directly in the tree expression using quoted strings. The pane is auto-named from the first word of the command.
+
+```ini
+tree="vim" | "npm run dev" / "tail -f logs"
+```
+
+This is equivalent to the named panes example above, but without needing separate `pane.*` definitions. Inline commands are convenient for quick layouts where you don't need to reference panes by name.
+
+If two inline commands share the same first word, the second is auto-suffixed to avoid name collisions. For example, `"claude" | "claude"` produces panes named `claude` and `claude_2`.
+
+### Mixing Named and Inline Panes
+
+You can mix named panes with inline commands in the same tree expression:
+
+```ini
+tree=editor | "npm run dev" / "tail -f logs"
+pane.editor=claude
+```
+
+Named panes need a `pane.*` definition; inline commands do not.
+
+### Parentheses for Grouping
+
+By default, `/` binds tighter than `|`. Use parentheses to override this when you need a horizontal split inside a vertical stack:
+
+```ini
+# Without parens: a | (b / c)  →  two columns
+tree=a | b / c
+
+# With parens: (a | b) / c  →  two rows, top row split horizontally
+tree=(a | b) / c
+```
+
+A more complex example — two rows, each split into columns:
+
+```ini
+tree=(editor | sidebar) / (shell | logs)
+pane.editor=claude
+pane.sidebar=lazygit
+pane.shell=zsh
+pane.logs=tail -f app.log
+```
+
+```
++---------------------+---------------------+
+|       editor        |       sidebar       |
++---------------------+---------------------+
+|        shell        |        logs         |
++---------------------+---------------------+
+```
+
+### Examples
+
+**Two-pane side-by-side (editor + sidebar):**
+
+```ini
+tree=editor | sidebar
+pane.editor=claude
+pane.sidebar=lazygit
+```
+
+**Three-pane with stacked right column:**
+
+```ini
+tree=editor | terminal / logs
+pane.editor=vim
+pane.terminal=zsh
+pane.logs=tail -f /tmp/app.log
+```
+
+**Four-pane grid:**
+
+```ini
+tree=(top-left | top-right) / (bottom-left | bottom-right)
+pane.top-left=claude
+pane.top-right=nvim
+pane.bottom-left=npm run dev
+pane.bottom-right=lazygit
+```
+
+**All-inline for quick prototyping:**
+
+```ini
+tree="claude" | ("npm run dev" / "npm test -- --watch")
+```
+
+### Layout File Options
+
+Custom layout files also support the same global options as presets. These are applied when the layout is used:
+
+```ini
+tree=editor | sidebar
+pane.editor=claude
+pane.sidebar=lazygit
+editor-size=70
+new-window=true
+```
+
+Supported options: `editor-size`, `auto-resize`, `font-size`, `new-window`, `fullscreen`, `maximize`, `float`.
+
+### Using a Custom Layout
+
+Once saved, use a custom layout the same way you would use a preset:
+
+```bash
+# CLI flag (one-time)
+summon . --layout my-layout
+
+# Per-project config (in .summon)
+layout=my-layout
+
+# Machine config (persistent default)
+summon set layout my-layout
+```
+
 ## Shell Pane
 
 The shell pane sits at the bottom of the right column. It supports three modes:
@@ -333,6 +527,127 @@ summon . --shell "npm run dev"
 # Persistent config
 summon set shell "python -m http.server"
 ```
+
+## Pre-Launch Hooks
+
+The `on-start` option runs a command in the target directory before the workspace opens. If it fails, the workspace is not created.
+
+```bash
+# Install deps before launching
+summon . --on-start "npm install"
+
+# Pull latest code and build
+summon . --on-start "git pull --rebase && npm run build"
+
+# Start background services
+summon . --on-start "docker compose up -d"
+```
+
+Persistent via config:
+
+```bash
+summon set on-start "npm install"
+```
+
+Or per-project in `.summon`:
+
+```ini
+on-start=npm install && npm run build
+```
+
+This ensures every `summon myapp` starts with fresh dependencies and a clean build. If `npm install` or `npm run build` fails, the workspace doesn't open — so you won't end up with broken panes running against stale code.
+
+## Per-Workspace Environment Variables
+
+Set environment variables that propagate to all panes in the workspace.
+
+```bash
+# Single variable
+summon . --env NODE_ENV=development
+
+# Multiple variables
+summon . --env NODE_ENV=development --env PORT=3000 --env DEBUG=true
+```
+
+Persistent via config:
+
+```bash
+summon set env.NODE_ENV development
+summon set env.API_URL http://localhost:3000
+```
+
+Or per-project in `.summon`:
+
+```ini
+env.NODE_ENV=development
+env.PORT=3000
+env.DATABASE_URL=postgres://localhost/myapp
+```
+
+Use cases:
+
+- **Runtime config per project** — each project's `.summon` file carries its own environment, so `summon api` and `summon frontend` launch with different `PORT`, `NODE_ENV`, etc.
+- **API keys for dev tools** — pass keys to panes without adding them to your shell profile
+- **Tool configuration** — set `EDITOR`, `PAGER`, or tool-specific vars per workspace
+
+Environment variables are layered: CLI flags override `.summon`, which overrides machine config.
+
+## Window Management
+
+Control how the workspace window behaves on launch.
+
+```bash
+# Open in a new window (keeps your current window untouched)
+summon . --new-window
+
+# Start in fullscreen
+summon . --fullscreen
+
+# Maximize (fills screen but keeps title bar)
+summon . --maximize
+
+# Float on top of other windows
+summon . --float
+
+# Combine: new floating window
+summon . --new-window --float
+```
+
+Persistent via config or `.summon`:
+
+```bash
+summon set new-window true
+summon set fullscreen true
+```
+
+```ini
+# ~/code/dashboard/.summon
+new-window=true
+float=true
+```
+
+If both `--fullscreen` and `--maximize` are set, fullscreen takes priority.
+
+## Font Size
+
+Override the font size for all panes in a workspace.
+
+```bash
+summon . --font-size 18
+```
+
+Persistent via config or `.summon`:
+
+```bash
+summon set font-size 14
+```
+
+```ini
+# ~/code/presentation/.summon
+font-size=24
+```
+
+Useful for presentations, pairing sessions, or projects where you want a different density than your global Ghostty setting.
 
 ## Per-project Config
 
@@ -377,7 +692,7 @@ When summon launches, config values are resolved in this order (first wins):
 | `panes` | integer | `2` | Number of editor panes. |
 | `editor-size` | integer | `75` | Width percentage allocated to the editor grid. The sidebar gets the remainder. |
 | `shell` | string | `true` | Shell pane toggle: `true` (shell), `false` (none), or a command to run. |
-| `layout` | string | | Default layout preset (`minimal`, `full`, `pair`, `cli`, or `btop`). |
+| `layout` | string | | Default layout preset (`minimal`, `full`, `pair`, `cli`, `btop`) or a custom layout name. |
 | `auto-resize` | boolean | `true` | Auto-resize sidebar to match editor-size. |
 | `starship-preset` | string | | Starship prompt theme preset. When set, each workspace launches with `STARSHIP_CONFIG` pointing to a cached preset TOML file at `~/.config/summon/starship/<preset>.toml`. Requires [Starship](https://starship.rs) installed. |
 | `font-size` | number | | Font size for workspace panes (in points). |
@@ -386,6 +701,7 @@ When summon launches, config values are resolved in this order (first wins):
 | `fullscreen` | boolean | `false` | Start workspace in fullscreen mode. |
 | `maximize` | boolean | `false` | Start workspace maximized. |
 | `float` | boolean | `false` | Float workspace window on top of other windows. |
+| `env.<KEY>` | string | | Per-workspace environment variable passed to all panes. Set via `summon set env.KEY value`. |
 
 Machine config: `~/.config/summon/config`
 Project config: `.summon` (in project root)
@@ -458,6 +774,7 @@ All files use `key=value` format, one entry per line.
 | `NO_COLOR` | When set, disables ANSI colors in the setup wizard. Follows the [NO_COLOR](https://no-color.org) standard. |
 | `COLORTERM` | When set to `truecolor` or `24bit`, the setup wizard shows colored palette swatches for Starship presets. |
 | `STARSHIP_CONFIG` | Set automatically by summon when `starship-preset` is configured. Points each workspace to a cached preset TOML file. Do not set manually. |
+| `SUMMON_WORKSPACE` | Set to `1` in all panes inside a summon workspace. Used to detect nested launches — if you run `summon` inside an existing workspace, you'll see a warning prompt suggesting `--new-window` instead. |
 
 ## Troubleshooting
 
@@ -487,6 +804,7 @@ All config files are at `~/.config/summon/`:
 ~/.config/summon/
   config      machine-level settings
   projects    project name -> path mappings
+  layouts/    custom layout files (one file per layout)
   starship/   cached Starship preset TOML files (auto-generated)
 ```
 

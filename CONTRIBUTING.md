@@ -62,7 +62,7 @@ Thanks for your interest in contributing! Whether it's a bug fix, a new layout p
 
 ### Testing Against Real Ghostty
 
-Manual testing requires macOS with [Ghostty](https://ghostty.org) 1.3.0+ installed:
+Manual testing requires macOS with [Ghostty](https://ghostty.org) 1.3.1+ installed:
 
 ```bash
 pnpm run build

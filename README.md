@@ -79,6 +79,17 @@ summon . --layout minimal         # 1 editor pane, no shell
 summon . -l pair                  # 2 editors + shell
 ```
 
+## Custom Layouts
+
+Define arbitrary split configurations using a tree DSL:
+
+```bash
+summon layout create              # interactive layout builder wizard
+summon . --layout my-layout       # launch with a custom layout
+```
+
+Custom layouts are saved to `~/.config/summon/layouts/` and can be used anywhere a preset name is accepted.
+
 ## Per-project Config
 
 Drop a `.summon` file in your project root to override machine-level config:
@@ -107,6 +118,7 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 | `summon open` | Select and launch a registered project interactively |
 | `summon export [path]` | Export resolved config as a `.summon` file |
 | `summon doctor` | Check Ghostty config for recommended settings |
+| `summon layout <action>` | Manage custom layouts (create, save, list, show, delete, edit) |
 | `summon completions <shell>` | Generate shell completion script (`zsh`, `bash`) |
 
 ## CLI Flags
@@ -187,6 +199,7 @@ This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.
 | `SHELL` | Login shell used to execute pane commands. Must be an absolute path. Falls back to `/bin/bash` if unset or invalid. |
 | `NO_COLOR` | When set, disables ANSI colors in the setup wizard. Follows the [NO_COLOR](https://no-color.org) standard. |
 | `COLORTERM` | When set to `truecolor` or `24bit`, the setup wizard shows colored palette swatches for Starship presets. |
+| `SUMMON_WORKSPACE` | Set to `1` inside summon workspaces. Used to detect and warn about nested launches. |
 
 ## Trust Model
 

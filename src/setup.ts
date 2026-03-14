@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { setConfig } from "./config.js";
+import { setConfig, isValidLayoutName, isCustomLayout, saveCustomLayout } from "./config.js";
 import { SAFE_COMMAND_RE, GHOSTTY_PATHS, resolveCommand as resolveCommandPath, promptUser } from "./utils.js";
 import { isStarshipInstalled, listStarshipPresets } from "./starship.js";
 
@@ -439,31 +439,11 @@ export async function selectLayout(): Promise<string> {
 export async function selectToolFromCatalog(
   catalog: readonly ToolEntry[],
   sectionTitle: string,
-  fallbackCmd: string,
+  _fallbackCmd: string,
 ): Promise<string> {
   printSection(sectionTitle);
   const detected = detectTools(catalog);
-  // Sort: available first, then unavailable, maintain catalog order within groups
-  const sorted = [
-    ...detected.filter((t) => t.available),
-    ...detected.filter((t) => !t.available),
-  ];
-
-  // Display options
-  for (let i = 0; i < sorted.length; i++) {
-    const t = sorted[i]!;
-    const marker = t.available ? "  * " : "    ";
-    const detail = t.available ? dim(t.desc) : dim(`${t.desc} (not detected)`);
-    console.log(`${marker}${i + 1}) ${t.cmd.padEnd(10)} ${t.name}    ${detail}`);
-  }
-  console.log(`    c) Custom command`);
-
-  const firstDetected = sorted.findIndex((t) => t.available);
-  const defaultIdx =
-    firstDetected >= 0
-      ? firstDetected
-      : sorted.findIndex((t) => t.cmd === fallbackCmd);
-  const defaultDisplay = defaultIdx >= 0 ? defaultIdx + 1 : 1;
+  const available = detected.filter((t) => t.available);
 
   const askCustom = async (): Promise<string> => {
     const cmd = await textInput("  Enter command name:");
@@ -478,24 +458,36 @@ export async function selectToolFromCatalog(
     return cmd;
   };
 
+  if (available.length === 0) {
+    console.log(dim("  No known tools detected."));
+    return askCustom();
+  }
+
+  // Display only available tools
+  for (let i = 0; i < available.length; i++) {
+    const t = available[i]!;
+    console.log(`  * ${i + 1}) ${t.cmd.padEnd(10)} ${t.name}    ${dim(t.desc)}`);
+  }
+  console.log(`    c) Custom command`);
+
   const askTool = async (): Promise<string> => {
-    const trimmed = (await promptUser(`  Select (default: ${defaultDisplay}): `)).toLowerCase();
+    const trimmed = (await promptUser(`  Select (default: 1): `)).toLowerCase();
     if (trimmed === "") {
-      return defaultIdx >= 0 ? sorted[defaultIdx]!.cmd : fallbackCmd;
+      return available[0]!.cmd;
     }
     if (trimmed === "c") {
       return askCustom();
     }
     const num = parseInt(trimmed, 10);
-    if (Number.isNaN(num) || num < 1 || num > sorted.length) {
+    if (Number.isNaN(num) || num < 1 || num > available.length) {
       console.log(
         yellow(
-          `  Invalid selection. Please enter a number between 1 and ${sorted.length}, or "c" for custom.`,
+          `  Invalid selection. Please enter a number between 1 and ${available.length}, or "c" for custom.`,
         ),
       );
       return askTool();
     }
-    return sorted[num - 1]!.cmd;
+    return available[num - 1]!.cmd;
   };
 
   return askTool();
@@ -724,4 +716,319 @@ export async function runSetup(): Promise<void> {
     // User declined — loop back to layout selection
     console.log();
   }
+}
+
+// ---------------------------------------------------------------------------
+// Layout Builder — pure helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract a pane name from a command string: first word, deduped.
+ * Used names are tracked to append _2, _3, etc.
+ */
+function derivePaneName(command: string, usedNames: Set<string>): string {
+  const base = command.split(/\s+/)[0] ?? "pane";
+  let name = base;
+  let suffix = 2;
+  while (usedNames.has(name)) {
+    name = `${base}_${suffix}`;
+    suffix++;
+  }
+  usedNames.add(name);
+  return name;
+}
+
+/**
+ * Convert a column/pane grid into a tree DSL string and pane definitions Map.
+ *
+ * - `grid` is an array of columns, each column is an array of command strings
+ * - Each column's panes are joined with `/` (down splits)
+ * - Columns are joined with `|` (right splits)
+ * - Sidebar pane appended with `|` on the right
+ */
+export function gridToTree(
+  grid: string[][],
+  sidebar: string,
+): { tree: string; panes: Map<string, string> } {
+  const panes = new Map<string, string>();
+  const usedNames = new Set<string>();
+  const columnExprs: string[] = [];
+
+  for (const column of grid) {
+    const paneNames: string[] = [];
+    for (const command of column) {
+      const name = derivePaneName(command, usedNames);
+      panes.set(name, command);
+      paneNames.push(name);
+    }
+    if (paneNames.length === 1) {
+      columnExprs.push(paneNames[0]!);
+    } else {
+      columnExprs.push(`(${paneNames.join(" / ")})`);
+    }
+  }
+
+  // Add sidebar
+  const sidebarName = derivePaneName(sidebar, usedNames);
+  panes.set(sidebarName, sidebar);
+  columnExprs.push(sidebarName);
+
+  return { tree: columnExprs.join(" | "), panes };
+}
+
+/**
+ * Generate an ASCII box diagram preview of the layout.
+ * Uses box-drawing characters matching the existing preset diagrams.
+ */
+export function renderLayoutPreview(
+  grid: string[][],
+  sidebar: string,
+): string {
+  const COL_WIDTH = 14;
+  const SIDEBAR_WIDTH = 11;
+  const PANE_HEIGHT = 3; // lines per pane cell
+
+  // Find max row count across all columns
+  const maxRows = Math.max(...grid.map((col) => col.length));
+
+  const lines: string[] = [];
+
+  // --- Top border ---
+  const topParts: string[] = [];
+  for (let c = 0; c < grid.length; c++) {
+    topParts.push("\u2500".repeat(COL_WIDTH));
+  }
+  lines.push(
+    "\u250c" +
+      topParts.join("\u252c") +
+      "\u252c" +
+      "\u2500".repeat(SIDEBAR_WIDTH) +
+      "\u2510",
+  );
+
+  // --- Content rows ---
+  for (let row = 0; row < maxRows; row++) {
+    // Draw the pane content lines
+    for (let lineInPane = 0; lineInPane < PANE_HEIGHT; lineInPane++) {
+      let rowStr = "";
+      for (let c = 0; c < grid.length; c++) {
+        const col = grid[c]!;
+        const cmd = col[row] ?? "";
+        rowStr += "\u2502";
+        if (lineInPane === Math.floor(PANE_HEIGHT / 2) && cmd) {
+          // Center the command name
+          const padded = cmd.slice(0, COL_WIDTH - 2);
+          const leftPad = Math.floor((COL_WIDTH - padded.length) / 2);
+          const rightPad = COL_WIDTH - padded.length - leftPad;
+          rowStr += " ".repeat(leftPad) + padded + " ".repeat(rightPad);
+        } else {
+          rowStr += " ".repeat(COL_WIDTH);
+        }
+      }
+
+      // Sidebar spans full height — show label in the middle
+      const sidebarMiddleRow = Math.floor((maxRows * PANE_HEIGHT) / 2);
+      const currentAbsLine = row * PANE_HEIGHT + lineInPane;
+      rowStr += "\u2502";
+      if (currentAbsLine === sidebarMiddleRow) {
+        const padded = sidebar.slice(0, SIDEBAR_WIDTH - 2);
+        const leftPad = Math.floor((SIDEBAR_WIDTH - padded.length) / 2);
+        const rightPad = SIDEBAR_WIDTH - padded.length - leftPad;
+        rowStr += " ".repeat(leftPad) + padded + " ".repeat(rightPad);
+      } else {
+        rowStr += " ".repeat(SIDEBAR_WIDTH);
+      }
+      rowStr += "\u2502";
+      lines.push(rowStr);
+    }
+
+    // --- Row separator (between pane rows, not after last) ---
+    if (row < maxRows - 1) {
+      const sepParts: string[] = [];
+      for (let c = 0; c < grid.length; c++) {
+        const col = grid[c]!;
+        // Only draw horizontal line if this column has a pane in the next row
+        if (row + 1 < col.length) {
+          sepParts.push("\u2500".repeat(COL_WIDTH));
+        } else {
+          sepParts.push(" ".repeat(COL_WIDTH));
+        }
+      }
+      // Build separator with correct junction characters
+      let sep = "";
+      for (let c = 0; c < grid.length; c++) {
+        const col = grid[c]!;
+        const hasSplitHere = row + 1 < col.length;
+        if (c === 0) {
+          sep += hasSplitHere ? "\u251c" : "\u2502";
+        } else {
+          // Junction between columns
+          const prevCol = grid[c - 1]!;
+          const prevHasSplit = row + 1 < prevCol.length;
+          if (prevHasSplit && hasSplitHere) sep += "\u253c";
+          else if (prevHasSplit) sep += "\u2524";
+          else if (hasSplitHere) sep += "\u251c";
+          else sep += "\u2502";
+        }
+        sep += sepParts[c]!;
+      }
+      // Junction before sidebar (sidebar spans full height, no split)
+      const lastCol = grid[grid.length - 1]!;
+      const lastHasSplit = row + 1 < lastCol.length;
+      sep += lastHasSplit ? "\u2524" : "\u2502";
+      sep += " ".repeat(SIDEBAR_WIDTH);
+      sep += "\u2502";
+      lines.push(sep);
+    }
+  }
+
+  // --- Bottom border ---
+  const bottomParts: string[] = [];
+  for (let c = 0; c < grid.length; c++) {
+    bottomParts.push("\u2500".repeat(COL_WIDTH));
+  }
+  lines.push(
+    "\u2514" +
+      bottomParts.join("\u2534") +
+      "\u2534" +
+      "\u2500".repeat(SIDEBAR_WIDTH) +
+      "\u2518",
+  );
+
+  return lines.join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// Layout Builder — interactive flow
+// ---------------------------------------------------------------------------
+
+export async function runLayoutBuilder(name: string): Promise<void> {
+  if (!process.stdin.isTTY) {
+    console.error("Layout builder requires an interactive terminal.");
+    process.exit(1);
+  }
+
+  // --- Header ---
+  console.log();
+  printSection("Layout Builder");
+  console.log();
+
+  // --- Validate name ---
+  if (!isValidLayoutName(name)) {
+    console.error(`Error: Invalid layout name "${name}".`);
+    console.error(
+      "Names must start with a letter and contain only letters, digits, hyphens, and underscores.",
+    );
+    process.exit(1);
+  }
+
+  // --- Check existing ---
+  if (isCustomLayout(name)) {
+    const overwrite = await confirm(
+      `  Layout "${name}" already exists. Overwrite?`,
+    );
+    if (!overwrite) {
+      console.log("  Cancelled.");
+      return;
+    }
+  }
+
+  // --- Column count ---
+  const columnOptions: SelectOption[] = [
+    { label: "1 column", value: "1" },
+    { label: "2 columns", value: "2" },
+    { label: "3 columns", value: "3" },
+  ];
+  console.log(bold("  How many columns?") + dim(" (not counting sidebar)"));
+  const colIdx = await numberedSelect(
+    columnOptions,
+    "  Select [1-3] (default: 1): ",
+    0,
+  );
+  const columnCount = colIdx + 1;
+  console.log();
+
+  // --- Pane count per column ---
+  // Detect available tools once (shell lookups are expensive)
+  const detected = detectTools([...EDITOR_CATALOG, ...SIDEBAR_CATALOG]);
+  const availableCmds = detected
+    .filter((t) => t.available)
+    .map((t) => t.cmd);
+  const hintStr =
+    availableCmds.length > 0
+      ? dim(`  Detected: ${availableCmds.join(", ")}`)
+      : "";
+
+  const grid: string[][] = [];
+  for (let c = 0; c < columnCount; c++) {
+    const paneOptions: SelectOption[] = [
+      { label: "1 pane", value: "1" },
+      { label: "2 panes", value: "2" },
+      { label: "3 panes", value: "3" },
+    ];
+    console.log(bold(`  Column ${c + 1}`) + dim(" \u2014 how many panes stacked?"));
+    const paneIdx = await numberedSelect(
+      paneOptions,
+      "  Select [1-3] (default: 1): ",
+      0,
+    );
+    const paneCount = paneIdx + 1;
+    console.log();
+
+    // --- Command per pane ---
+    const column: string[] = [];
+    for (let p = 0; p < paneCount; p++) {
+      if (hintStr) console.log(hintStr);
+      const cmd = await promptUser(
+        `  Column ${c + 1}, Pane ${p + 1} \u2014 command: `,
+      );
+      column.push(cmd || "shell");
+    }
+    grid.push(column);
+    console.log();
+  }
+
+  // --- Sidebar ---
+  const sidebarAvailable = detected
+    .filter((t) => t.available && SIDEBAR_CATALOG.some((s) => s.cmd === t.cmd))
+    .map((t) => t.cmd);
+  if (sidebarAvailable.length > 0) {
+    console.log(dim(`  Detected: ${sidebarAvailable.join(", ")}`));
+  }
+  const sidebarCmd = await promptUser("  Sidebar \u2014 command: ");
+  const sidebar = sidebarCmd || "lazygit";
+  console.log();
+
+  // --- Preview ---
+  console.log(bold("  Preview:"));
+  console.log();
+  const preview = renderLayoutPreview(grid, sidebar);
+  for (const line of preview.split("\n")) {
+    console.log(`  ${line}`);
+  }
+  console.log();
+
+  // --- Confirm ---
+  const accepted = await confirm(`  Save as "${name}"?`);
+  if (!accepted) {
+    console.log("  Cancelled.");
+    return;
+  }
+
+  // --- Build and save ---
+  const { tree, panes } = gridToTree(grid, sidebar);
+  const entries = new Map<string, string>();
+  for (const [paneName, command] of panes) {
+    entries.set(`pane.${paneName}`, command);
+  }
+  entries.set("tree", tree);
+  saveCustomLayout(name, entries);
+
+  console.log();
+  console.log(
+    green("  Saved!") +
+      " Use with: " +
+      bold(`summon . --layout ${name}`),
+  );
+  console.log();
 }

@@ -1,5 +1,5 @@
 import { parseArgs } from "node:util";
-import { resolve } from "node:path";
+import { resolve, join } from "node:path";
 import { homedir } from "node:os";
 import {
   addProject,
@@ -12,12 +12,37 @@ import {
   isFirstRun,
   VALID_KEYS,
   BOOLEAN_KEYS,
+  LAYOUTS_DIR,
+  listCustomLayouts,
+  readCustomLayout,
+  saveCustomLayout,
+  deleteCustomLayout,
+  isValidLayoutName,
+  isCustomLayout,
 } from "./config.js";
 import { launch } from "./launcher.js";
 import type { CLIOverrides } from "./launcher.js";
 import { PANES_MIN, EDITOR_SIZE_MIN, EDITOR_SIZE_MAX, isPresetName, getPresetNames } from "./layout.js";
 import { parseIntInRange } from "./validation.js";
 import { SAFE_COMMAND_RE } from "./utils.js";
+
+function validateLayoutNameOrExit(name: string): void {
+  if (isPresetName(name)) {
+    console.error(`Error: "${name}" is a reserved preset name. Choose a different name.`);
+    process.exit(1);
+  }
+  if (!isValidLayoutName(name)) {
+    console.error(`Error: Invalid layout name "${name}".`);
+    console.error("Names must start with a letter and contain only letters, digits, hyphens, and underscores.");
+    process.exit(1);
+  }
+}
+
+function layoutNotFoundOrExit(name: string): never {
+  console.error(`Layout not found: ${name}`);
+  console.error("Run 'summon layout list' to see available layouts.");
+  process.exit(1);
+}
 
 const HELP = `
 summon -- Launch multi-pane Ghostty workspaces
@@ -32,13 +57,14 @@ Usage:
   summon config               Show current machine configuration
   summon doctor               Check Ghostty config for recommended settings
   summon open                 Select and launch a registered project
+  summon layout <action>      Manage custom layouts (save, list, show, delete, edit)
   summon export [path]        Export config as a .summon project file
   summon completions <shell>  Generate shell completion script (zsh, bash)
 
 Options:
   -h, --help                  Show this help message
   -v, --version               Show version number
-  -l, --layout <preset>       Use a layout preset (minimal, full, pair, cli, btop)
+  -l, --layout <name>         Use a layout preset or custom layout
   -e, --editor <cmd>          Override editor command
   -p, --panes <n>             Override number of editor panes
   --editor-size <n>           Override editor width %
@@ -153,6 +179,21 @@ Writes to stdout by default. Optionally specify a path argument.
 Examples:
   summon export > .summon          Write to .summon in current directory
   summon export .summon            Same, using path argument`,
+
+  layout: `Usage: summon layout <action> [name]
+
+Manage custom layouts.
+
+Actions:
+  create <name>   Interactively build a custom layout
+  save <name>     Save current machine config as a custom layout
+  list            List all custom layouts
+  show <name>     Show a custom layout's contents
+  delete <name>   Delete a custom layout
+  edit <name>     Open a custom layout file in your editor
+
+Layout names must start with a letter and contain only letters, digits,
+hyphens, and underscores. Built-in preset names cannot be used.`,
 };
 
 function showHelp(): void {
@@ -240,9 +281,13 @@ if (values["font-size"] !== undefined) {
   }
 }
 
-if (values.layout !== undefined && !isPresetName(values.layout)) {
-  console.error(`Error: --layout must be a valid preset name, got "${values.layout}".`);
+if (values.layout !== undefined && !isPresetName(values.layout) && !isCustomLayout(values.layout)) {
+  console.error(`Error: --layout must be a valid preset or custom layout name, got "${values.layout}".`);
   console.error(`Valid presets: ${getPresetNames().join(", ")}`);
+  const custom = listCustomLayouts();
+  if (custom.length > 0) {
+    console.error(`Custom layouts: ${custom.join(", ")}`);
+  }
   console.error(`Run 'summon --help' for usage information.`);
   process.exit(1);
 }
@@ -279,8 +324,8 @@ if (isFirstRun() && process.stdin.isTTY) {
 }
 
 if (!subcommand) {
-  console.error("Usage: summon <target>\n\nRun 'summon --help' for usage information.");
-  process.exit(1);
+  showHelp();
+  process.exit(0);
 }
 
 function buildOverrides(): CLIOverrides {
@@ -371,9 +416,13 @@ switch (subcommand) {
       }
     }
     if (key === "layout" && value !== undefined) {
-      if (!isPresetName(value)) {
-        console.error(`Error: layout must be a valid preset name, got "${value}".`);
+      if (!isPresetName(value) && !isCustomLayout(value)) {
+        console.error(`Error: layout must be a valid preset or custom layout name, got "${value}".`);
         console.error(`Valid presets: ${getPresetNames().join(", ")}`);
+        const custom = listCustomLayouts();
+        if (custom.length > 0) {
+          console.error(`Custom layouts: ${custom.join(", ")}`);
+        }
         process.exit(1);
       }
     }
@@ -583,6 +632,114 @@ switch (subcommand) {
       console.log(`Exported to: ${resolve(outputPath)}`);
     } else {
       process.stdout.write(output);
+    }
+    break;
+  }
+
+  case "layout": {
+    const [action, layoutName] = args;
+    if (!action) {
+      console.error("Usage: summon layout <create|save|list|show|delete|edit> [name]");
+      process.exit(1);
+    }
+
+    switch (action) {
+      case "create": {
+        if (!layoutName) {
+          console.error("Usage: summon layout create <name>");
+          process.exit(1);
+        }
+        validateLayoutNameOrExit(layoutName);
+        const { runLayoutBuilder } = await import("./setup.js");
+        await runLayoutBuilder(layoutName);
+        break;
+      }
+
+      case "save": {
+        if (!layoutName) {
+          console.error("Usage: summon layout save <name>");
+          process.exit(1);
+        }
+        validateLayoutNameOrExit(layoutName);
+        const config = listConfig();
+        saveCustomLayout(layoutName, config);
+        console.log(`Saved custom layout: ${layoutName}`);
+        break;
+      }
+
+      case "list": {
+        const layouts = listCustomLayouts();
+        if (layouts.length === 0) {
+          console.log("No custom layouts saved. Use: summon layout save <name>");
+        } else {
+          console.log("Custom layouts:");
+          for (const name of layouts) {
+            const data = readCustomLayout(name);
+            const summary = data ? [...data.entries()].map(([k, v]) => `${k}=${v}`).join(", ") : "";
+            console.log(`  ${name}${summary ? ` (${summary})` : ""}`);
+          }
+        }
+        break;
+      }
+
+      case "show": {
+        if (!layoutName) {
+          console.error("Usage: summon layout show <name>");
+          process.exit(1);
+        }
+        validateLayoutNameOrExit(layoutName);
+        const data = readCustomLayout(layoutName);
+        if (!data) {
+          layoutNotFoundOrExit(layoutName);
+        }
+        console.log(`Layout: ${layoutName}`);
+        for (const [key, value] of data) {
+          console.log(`  ${key}=${value}`);
+        }
+        break;
+      }
+
+      case "delete": {
+        if (!layoutName) {
+          console.error("Usage: summon layout delete <name>");
+          process.exit(1);
+        }
+        validateLayoutNameOrExit(layoutName);
+        const deleted = deleteCustomLayout(layoutName);
+        if (deleted) {
+          console.log(`Deleted custom layout: ${layoutName}`);
+        } else {
+          layoutNotFoundOrExit(layoutName);
+        }
+        break;
+      }
+
+      case "edit": {
+        if (!layoutName) {
+          console.error("Usage: summon layout edit <name>");
+          process.exit(1);
+        }
+        validateLayoutNameOrExit(layoutName);
+        if (!isCustomLayout(layoutName)) {
+          layoutNotFoundOrExit(layoutName);
+        }
+        const editorCmd = process.env.EDITOR || "vi";
+        const { execFileSync: execEditFile } = await import("node:child_process");
+        const filePath = join(LAYOUTS_DIR, layoutName);
+        try {
+          execEditFile(editorCmd, [filePath], { stdio: "inherit" });
+        } catch {
+          console.error(`Failed to open editor: ${editorCmd}`);
+          process.exit(1);
+        }
+        break;
+      }
+
+      default: {
+        console.error(`Unknown layout action: ${action}`);
+        console.error("Usage: summon layout <create|save|list|show|delete|edit> [name]");
+        process.exit(1);
+      }
     }
     break;
   }

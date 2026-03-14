@@ -1,5 +1,7 @@
 import { basename } from "node:path";
 import type { LayoutPlan } from "./layout.js";
+import type { TreeLayoutPlan, LayoutNode } from "./tree.js";
+import { firstLeaf } from "./tree.js";
 
 function escapeAppleScript(s: string): string {
   return s
@@ -14,10 +16,23 @@ function shellQuote(s: string): string {
   return `'${s.replace(/'/g, "'\\''")}'`;
 }
 
-export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginShell = "/bin/bash", starshipConfigPath?: string | null, envVars?: Record<string, string>): string {
-  const lines: string[] = [];
-  const titles: Array<[string, string]> = [];
+// --- Shared helpers ---
 
+/** Closures for building AppleScript lines. */
+interface ScriptBuilder {
+  add: (indent: number, line: string) => void;
+  blank: () => void;
+  sendCommand: (pane: string, cmd: string) => void;
+  setConfigCommand: (cmd: string) => void;
+  clearConfigCommand: () => void;
+}
+
+/** Build the common closures used by both generators. */
+function buildScriptBuilder(
+  lines: string[],
+  targetDir: string,
+  loginShell: string,
+): ScriptBuilder {
   const add = (indent: number, line: string) => {
     lines.push("    ".repeat(indent) + line);
   };
@@ -45,18 +60,15 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginSh
     add(1, `set command of cfg to ""`);
   };
 
-  add(0, 'tell application "Ghostty"');
-  add(1, "activate");
-  blank();
+  return { add, blank, sendCommand, setConfigCommand, clearConfigCommand };
+}
 
-  // Surface configuration with working directory
-  add(1, "set cfg to new surface configuration");
-  add(1, `set initial working directory of cfg to "${escapeAppleScript(targetDir)}"`);
-  if (plan.fontSize !== null) {
-    add(1, `set font size of cfg to ${plan.fontSize}`);
-  }
-  // Build combined env vars list (Starship + user-defined)
-  const allEnvVars: string[] = [];
+/** Build combined env vars list (workspace marker + Starship + user-defined). */
+function buildEnvVarsList(
+  starshipConfigPath: string | null | undefined,
+  envVars: Record<string, string> | undefined,
+): string[] {
+  const allEnvVars: string[] = ["SUMMON_WORKSPACE=1"];
   if (starshipConfigPath) {
     allEnvVars.push(`STARSHIP_CONFIG=${starshipConfigPath}`);
   }
@@ -65,29 +77,159 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginSh
       allEnvVars.push(`${key}=${value}`);
     }
   }
-  if (allEnvVars.length > 0) {
-    const escaped = allEnvVars.map(e => `"${escapeAppleScript(e)}"`).join(", ");
-    add(1, `set environment variables of cfg to {${escaped}}`);
-  }
+  return allEnvVars;
+}
+
+/** Emit surface configuration block: working directory, font size, env vars. */
+function emitSurfaceConfig(
+  { add, blank }: ScriptBuilder,
+  targetDir: string,
+  fontSize: number | null,
+  allEnvVars: string[],
+): void {
+  add(0, 'tell application "Ghostty"');
+  add(1, "activate");
   blank();
 
-  // Get or create window for workspace
-  if (plan.newWindow) {
-    add(1, "set win to make new window with configuration cfg");
-    add(1, "delay 0.3");
-  } else {
-    add(1, "set win to front window");
+  // Surface configuration with working directory
+  add(1, "set cfg to new surface configuration");
+  add(1, `set initial working directory of cfg to "${escapeAppleScript(targetDir)}"`);
+  if (fontSize !== null) {
+    add(1, `set font size of cfg to ${fontSize}`);
   }
+  const escaped = allEnvVars.map(e => `"${escapeAppleScript(e)}"`).join(", ");
+  add(1, `set environment variables of cfg to {${escaped}}`);
+  blank();
+}
+
+/** Emit env var exports to the root pane via input text. */
+function emitRootPaneEnvExports(
+  { sendCommand }: ScriptBuilder,
+  rootPaneVar: string,
+  allEnvVars: string[],
+): void {
+  for (const envVar of allEnvVars) {
+    const eqIdx = envVar.indexOf("=");
+    const key = envVar.slice(0, eqIdx);
+    const val = envVar.slice(eqIdx + 1);
+    sendCommand(rootPaneVar, `export ${key}=${shellQuote(val)}`);
+  }
+}
+
+/** Emit cd + optional command to root pane via input text. */
+function emitRootPaneCommand(
+  { sendCommand }: ScriptBuilder,
+  rootPaneVar: string,
+  targetDir: string,
+  command: string | null | undefined,
+): void {
+  sendCommand(rootPaneVar, `cd ${shellQuote(targetDir)}`);
+  if (command) {
+    // Shell-quote arguments to prevent metacharacter expansion ($, `, etc.)
+    // The command name is left unquoted so the shell can resolve it.
+    const parts = command.split(" ");
+    const safeCmd = parts.length > 1
+      ? `${parts[0]} ${parts.slice(1).map((a) => shellQuote(a)).join(" ")}`
+      : command;
+    sendCommand(rootPaneVar, safeCmd);
+  }
+}
+
+/** Emit pane and tab titles block. */
+function emitTitles(
+  { add, blank }: ScriptBuilder,
+  rootPaneVar: string,
+  targetDir: string,
+  titles: Array<[string, string]>,
+): void {
+  add(1, "-- Set pane and tab titles");
+  const projectName = basename(targetDir);
+  add(1, `perform action "set_tab_title:${escapeAppleScript(projectName)}" on ${rootPaneVar}`);
+  for (const [pane, title] of titles) {
+    add(1, `perform action "set_surface_title:${escapeAppleScript(title)}" on ${pane}`);
+  }
+  blank();
+}
+
+/** Emit auto-resize block: query window size via System Events and resize split. */
+function emitAutoResize(
+  { add, blank }: ScriptBuilder,
+  paneVar: string,
+  editorSize: number,
+): void {
+  const fraction = (editorSize - 50) / 100;
+  blank();
+  add(1, "-- Resize editor/sidebar split");
+  add(1, "delay 0.3");
+  add(1, 'tell application "System Events"');
+  add(2, 'tell process "Ghostty"');
+  add(3, "set windowSize to size of front window");
+  add(3, "set windowWidth to item 1 of windowSize");
+  add(2, "end tell");
+  add(1, "end tell");
+  add(1, `set resizeAmount to round (windowWidth * ${fraction})`);
+  add(1, `set resizeAction to "resize_split:right," & (resizeAmount as text)`);
+  add(1, `perform action resizeAction on ${paneVar}`);
+  add(1, "delay 0.2");
+}
+
+/** Emit window state actions (fullscreen, maximize, float). */
+function emitWindowState(
+  { add, blank }: ScriptBuilder,
+  rootPaneVar: string,
+  flags: { fullscreen: boolean; maximize: boolean; float: boolean },
+): void {
+  if (flags.fullscreen) {
+    blank();
+    add(1, "-- Fullscreen mode");
+    add(1, `perform action "toggle_fullscreen" on ${rootPaneVar}`);
+  } else if (flags.maximize) {
+    blank();
+    add(1, "-- Maximize window");
+    add(1, `perform action "toggle_maximize" on ${rootPaneVar}`);
+  }
+  if (flags.float) {
+    blank();
+    add(1, "-- Float on top");
+    add(1, `perform action "toggle_window_float_on_top" on ${rootPaneVar}`);
+  }
+}
+
+/** Format a pane title: "role · cmd" or just "role" when cmd is falsy. */
+function formatTitle(role: string, cmd: string | null | undefined): string {
+  return cmd ? `${role} \u00B7 ${cmd}` : role;
+}
+
+// --- Public API ---
+
+export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginShell = "/bin/bash", starshipConfigPath?: string | null, envVars?: Record<string, string>): string {
+  const lines: string[] = [];
+  const titles: Array<[string, string]> = [];
+  const sb = buildScriptBuilder(lines, targetDir, loginShell);
+  const { add, blank, sendCommand, setConfigCommand, clearConfigCommand } = sb;
+
+  const allEnvVars = buildEnvVarsList(starshipConfigPath, envVars);
+
+  emitSurfaceConfig(sb, targetDir, plan.fontSize, allEnvVars);
+
+  // Get or create window for workspace
+  // Note: Ghostty's `make new window` returns an unusable tab-group reference
+  // (AppleScript error -2710), so we use Cmd+N via System Events as a workaround.
+  if (plan.newWindow) {
+    add(1, 'tell application "System Events"');
+    add(2, 'tell process "Ghostty"');
+    add(3, 'keystroke "n" using command down');
+    add(2, "end tell");
+    add(1, "end tell");
+    add(1, "delay 0.5");
+  }
+  add(1, "set win to front window");
   add(1, "set paneRoot to terminal 1 of selected tab of win");
   blank();
 
   const editorCmd = plan.editor;
   const secondaryCmd = plan.secondaryEditor ?? editorCmd;
   const interactiveShellPanes: string[] = []; // panes needing STARSHIP_CONFIG export
-
-  const formatTitle = (role: string, cmd: string | null | undefined): string => {
-    return cmd ? `${role} \u00B7 ${cmd}` : role;
-  };
 
   titles.push(["paneRoot", formatTitle("editor", editorCmd || null)]);
 
@@ -102,20 +244,7 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginSh
   // Done here (before editor column splits) so the subsequent 50/50 split
   // of paneRoot produces two equal editor columns within the resized area.
   if (plan.autoResize && plan.editorSize > 50) {
-    const fraction = (plan.editorSize - 50) / 100;
-    blank();
-    add(1, "-- Resize editor/sidebar split");
-    add(1, "delay 0.3");
-    add(1, 'tell application "System Events"');
-    add(2, 'tell process "Ghostty"');
-    add(3, "set windowSize to size of front window");
-    add(3, "set windowWidth to item 1 of windowSize");
-    add(2, "end tell");
-    add(1, "end tell");
-    add(1, `set resizeAmount to round (windowWidth * ${fraction})`);
-    add(1, `set resizeAction to "resize_split:right," & (resizeAmount as text)`);
-    add(1, "perform action resizeAction on paneRoot");
-    add(1, "delay 0.2");
+    emitAutoResize(sb, "paneRoot", plan.editorSize);
   }
 
   const needsRightColumn = plan.rightColumnEditorCount > 0 || plan.hasShell;
@@ -192,18 +321,10 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginSh
 
   blank();
 
-  // Root pane env var exports: only needed when NOT using new-window mode
-  // (root pane from front window was not created with cfg, so it doesn't inherit env vars)
-  // In new-window mode, root pane was created with cfg and inherits env vars automatically.
-  // Split panes always inherit env vars from cfg — no input text needed for them.
-  if (allEnvVars.length > 0 && !plan.newWindow) {
-    for (const envVar of allEnvVars) {
-      const eqIdx = envVar.indexOf("=");
-      const key = envVar.slice(0, eqIdx);
-      const val = envVar.slice(eqIdx + 1);
-      sendCommand("paneRoot", `export ${key}=${shellQuote(val)}`);
-    }
-  }
+  // Root pane env var exports: the root pane is never created with cfg
+  // (it's either the existing front window terminal, or a new window via Cmd+N),
+  // so it needs explicit exports. Split panes inherit env vars from cfg automatically.
+  emitRootPaneEnvExports(sb, "paneRoot", allEnvVars);
 
   // Clear interactive shell panes for a clean start (removes "Last login" and setup commands)
   for (const pane of interactiveShellPanes) {
@@ -211,47 +332,133 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginSh
   }
 
   // Root pane: cd into project directory, then launch editor
-  sendCommand("paneRoot", `cd ${shellQuote(targetDir)}`);
-  if (editorCmd) {
-    // Shell-quote arguments to prevent metacharacter expansion ($, `, etc.)
-    // The command name is left unquoted so the shell can resolve it.
-    const parts = editorCmd.split(" ");
-    const safeCmd = parts.length > 1
-      ? `${parts[0]} ${parts.slice(1).map((a) => shellQuote(a)).join(" ")}`
-      : editorCmd;
-    sendCommand("paneRoot", safeCmd);
-  }
+  emitRootPaneCommand(sb, "paneRoot", targetDir, editorCmd);
 
   blank();
 
   // Set pane and tab titles
-  add(1, "-- Set pane and tab titles");
-  const projectName = basename(targetDir);
-  add(1, `perform action "set_tab_title:${escapeAppleScript(projectName)}" on paneRoot`);
-  for (const [pane, title] of titles) {
-    add(1, `perform action "set_surface_title:${escapeAppleScript(title)}" on ${pane}`);
-  }
-
-  blank();
+  emitTitles(sb, "paneRoot", targetDir, titles);
 
   // Focus root pane
   add(1, "focus paneRoot");
 
   // Window state actions
-  if (plan.fullscreen) {
-    blank();
-    add(1, "-- Fullscreen mode");
-    add(1, 'perform action "toggle_fullscreen" on paneRoot');
-  } else if (plan.maximize) {
-    blank();
-    add(1, "-- Maximize window");
-    add(1, 'perform action "toggle_maximize" on paneRoot');
+  emitWindowState(sb, "paneRoot", plan);
+
+  add(0, "end tell");
+
+  return lines.join("\n");
+}
+
+function paneVar(name: string): string {
+  return `pane_${name.replace(/-/g, "_")}`;
+}
+
+export function generateTreeAppleScript(
+  plan: TreeLayoutPlan,
+  targetDir: string,
+  loginShell = "/bin/bash",
+  starshipConfigPath?: string | null,
+  envVars?: Record<string, string>,
+): string {
+  const lines: string[] = [];
+  const titles: Array<[string, string]> = [];
+  const sb = buildScriptBuilder(lines, targetDir, loginShell);
+  const { add, blank, setConfigCommand, clearConfigCommand } = sb;
+
+  const allEnvVars = buildEnvVarsList(starshipConfigPath, envVars);
+
+  // --- Initialization ---
+
+  emitSurfaceConfig(sb, targetDir, plan.fontSize, allEnvVars);
+
+  // Get or create window for workspace
+  const rootLeaf = firstLeaf(plan.tree);
+  const rootPaneVar = paneVar(rootLeaf.name);
+
+  if (plan.newWindow) {
+    add(1, "set win to make new window with configuration cfg");
+    add(1, "delay 0.3");
+  } else {
+    add(1, "set win to front window");
   }
-  if (plan.float) {
-    blank();
-    add(1, "-- Float on top");
-    add(1, 'perform action "toggle_window_float_on_top" on paneRoot');
+  add(1, `set ${rootPaneVar} to terminal 1 of selected tab of win`);
+  blank();
+
+  // --- Recursive Tree Traversal ---
+
+  let firstRightSplitDone = false;
+
+  function traverse(node: LayoutNode, currentPaneVar: string): void {
+    if (node.type === "pane") {
+      // Leaf node — nothing to do during traversal.
+      // It was already handled as "current pane" by its parent split.
+      return;
+    }
+
+    // SplitNode: get the first leaf of the second child
+    const secondLeaf = firstLeaf(node.second);
+    const secondLeafVar = paneVar(secondLeaf.name);
+
+    // Set config command for the new pane
+    if (secondLeaf.command) {
+      setConfigCommand(secondLeaf.command);
+    } else {
+      clearConfigCommand();
+    }
+
+    // Split the current pane
+    add(1, `set ${secondLeafVar} to split ${currentPaneVar} direction ${node.direction} with configuration cfg`);
+
+    // Auto-resize after the FIRST right-split at the root level
+    if (node.direction === "right" && !firstRightSplitDone && plan.autoResize && plan.editorSize > 50) {
+      firstRightSplitDone = true;
+      emitAutoResize(sb, currentPaneVar, plan.editorSize);
+    }
+
+    // Recurse into first child (stays in current pane variable)
+    traverse(node.first, currentPaneVar);
+    // Recurse into second child (uses the new pane variable)
+    traverse(node.second, secondLeafVar);
   }
+
+  traverse(plan.tree, rootPaneVar);
+  blank();
+
+  // --- Root Pane Commands ---
+
+  // Env var exports for root pane: only needed when NOT using new-window mode
+  if (allEnvVars.length > 0 && !plan.newWindow) {
+    emitRootPaneEnvExports(sb, rootPaneVar, allEnvVars);
+  }
+
+  // Root pane: cd into project directory, then launch command
+  emitRootPaneCommand(sb, rootPaneVar, targetDir, rootLeaf.command);
+
+  blank();
+
+  // --- Pane and Tab Titles ---
+
+  // Collect all leaf panes with commands in a single pass
+  function collectLeavesWithCommands(node: LayoutNode): Array<[string, string]> {
+    if (node.type === "pane") {
+      return [[node.name, node.command]];
+    }
+    return [...collectLeavesWithCommands(node.first), ...collectLeavesWithCommands(node.second)];
+  }
+  for (const [leafName, cmd] of collectLeavesWithCommands(plan.tree)) {
+    titles.push([paneVar(leafName), formatTitle(leafName, cmd)]);
+  }
+
+  emitTitles(sb, rootPaneVar, targetDir, titles);
+
+  // --- Focus root pane ---
+
+  add(1, `focus ${rootPaneVar}`);
+
+  // --- Window State ---
+
+  emitWindowState(sb, rootPaneVar, plan);
 
   add(0, "end tell");
 

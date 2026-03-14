@@ -28,9 +28,10 @@ src/
   index.ts         CLI entry point (parseArgs-based)
   config.ts        Config file read/write (~/.config/summon/)
   layout.ts        Layout calculation (pure function)
+  tree.ts          Tree DSL parser, layout node model, plan builder (pure function)
   script.ts        AppleScript generator (pure function — builds script string)
   launcher.ts      Orchestrator: resolve config, generate script, execute via osascript
-  setup.ts         Interactive setup wizard (first-run onboarding, tool detection, TUI)
+  setup.ts         Interactive setup wizard (first-run onboarding, tool detection, layout builder TUI)
   starship.ts      Starship detection, preset listing, TOML config caching
   utils.ts         Shared utilities (SAFE_COMMAND_RE, GHOSTTY_PATHS, resolveCommand)
   validation.ts    Input validation helpers (parseIntInRange)

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { generateAppleScript } from "./script.js";
+import { generateAppleScript, generateTreeAppleScript } from "./script.js";
 import { planLayout, getPreset } from "./layout.js";
+import type { TreeLayoutPlan, LayoutNode } from "./tree.js";
 
 describe("generateAppleScript", () => {
   it("generates valid AppleScript structure", () => {
@@ -146,7 +147,7 @@ describe("generateAppleScript", () => {
     // Sidebar and right editor get commands via config
     // Shell pane has no command (plain shell) — gets clear instead
     const inputTexts = (script.match(/input text/g) ?? []).length;
-    expect(inputTexts).toBe(3); // cd + editor on root pane + clear on shell pane
+    expect(inputTexts).toBe(4); // env export + cd + editor on root pane + clear on shell pane
   });
 
   it("skips command for empty editor", () => {
@@ -559,6 +560,15 @@ describe("generateAppleScript", () => {
     expect(script).toContain('perform action "set_surface_title:server" on paneRightCol');
   });
 
+  // --- SUMMON_WORKSPACE marker ---
+
+  it("always includes SUMMON_WORKSPACE=1 in surface config env vars", () => {
+    const plan = planLayout();
+    const script = generateAppleScript(plan, "/tmp/proj", "/bin/zsh", null);
+    expect(script).toContain('"SUMMON_WORKSPACE=1"');
+    expect(script).toContain("set environment variables of cfg to");
+  });
+
   // --- Starship config injection tests ---
 
   describe("starship config injection", () => {
@@ -579,7 +589,7 @@ describe("generateAppleScript", () => {
     it("sets environment variables on surface config", () => {
       const plan = planLayout();
       const script = generateAppleScript(plan, "/tmp/proj", "/bin/zsh", configPath);
-      expect(script).toContain(`set environment variables of cfg to {"STARSHIP_CONFIG=${configPath}"}`);
+      expect(script).toContain(`set environment variables of cfg to {"SUMMON_WORKSPACE=1", "STARSHIP_CONFIG=${configPath}"}`);
     });
 
     it("root pane receives export STARSHIP_CONFIG before cd (non-new-window)", () => {
@@ -592,15 +602,11 @@ describe("generateAppleScript", () => {
       expect(exportIdx).toBeLessThan(cdIdx);
     });
 
-    it("root pane does NOT receive export when using new-window (inherits from cfg)", () => {
+    it("root pane receives export even in new-window mode (Cmd+N doesn't apply cfg)", () => {
       const plan = planLayout({ newWindow: true });
       const script = generateAppleScript(plan, "/tmp/proj", "/bin/zsh", configPath);
-      // env vars are on surface config, root pane created with cfg
-      const lines = script.split("\n");
-      const inputTextExports = lines.filter(
-        (l) => l.includes("input text") && l.includes("export STARSHIP_CONFIG"),
-      );
-      expect(inputTextExports.length).toBe(0);
+      const exportIdx = script.indexOf("export STARSHIP_CONFIG=");
+      expect(exportIdx).toBeGreaterThan(-1);
     });
 
     it("config-launched panes do NOT embed export in -lc argument (env on surface config)", () => {
@@ -679,19 +685,21 @@ describe("generateAppleScript", () => {
 
   describe("window management flags", () => {
     describe("new-window flag", () => {
-      it("generates 'make new window' when newWindow=true", () => {
+      it("uses System Events Cmd+N when newWindow=true", () => {
         const plan = planLayout({ newWindow: true });
         const script = generateAppleScript(plan, "/tmp/test");
-        expect(script).toContain("make new window with configuration cfg");
-        expect(script).not.toContain("set win to front window");
-        expect(script).toContain("delay 0.3");
+        expect(script).toContain('tell application "System Events"');
+        expect(script).toContain('keystroke "n" using command down');
+        expect(script).toContain("delay 0.5");
+        expect(script).toContain("set win to front window");
+        expect(script).not.toContain("make new window");
       });
 
-      it("uses front window when newWindow=false (default)", () => {
+      it("uses front window without new window when newWindow=false (default)", () => {
         const plan = planLayout();
         const script = generateAppleScript(plan, "/tmp/test");
         expect(script).toContain("set win to front window");
-        expect(script).not.toContain("make new window");
+        expect(script).not.toContain('keystroke "n" using command down');
       });
     });
 
@@ -787,17 +795,18 @@ describe("generateAppleScript", () => {
       expect(script).not.toContain('export FOO=bar; rm -rf /');
     });
 
-    it("skips root pane exports in new-window mode", () => {
+    it("exports env vars to root pane in new-window mode (Cmd+N doesn't apply cfg)", () => {
       const plan = planLayout({ newWindow: true });
       const script = generateAppleScript(plan, "/tmp", "/bin/bash", null,
         { NODE_ENV: "development" });
-      expect(script).not.toContain("export NODE_ENV=");
+      expect(script).toContain("export NODE_ENV=");
     });
 
-    it("no env var setup when none configured", () => {
+    it("always includes SUMMON_WORKSPACE even when no user env vars configured", () => {
       const plan = planLayout();
       const script = generateAppleScript(plan, "/tmp");
-      expect(script).not.toContain("environment variables");
+      expect(script).toContain('"SUMMON_WORKSPACE=1"');
+      expect(script).not.toContain("NODE_ENV");
     });
   });
 
@@ -819,5 +828,446 @@ describe("generateAppleScript", () => {
       const script = generateAppleScript(plan, "/tmp/test");
       expect(script).not.toContain("font size");
     });
+  });
+});
+
+describe("generateTreeAppleScript", () => {
+  function makePlan(tree: LayoutNode, overrides?: Partial<TreeLayoutPlan>): TreeLayoutPlan {
+    // Default focusPane to the first leaf name
+    const defaultFocus = (function getFirst(n: LayoutNode): string {
+      return n.type === "pane" ? n.name : getFirst(n.first);
+    })(tree);
+    return {
+      tree,
+      focusPane: defaultFocus,
+      autoResize: false,
+      editorSize: 75,
+      fontSize: null,
+      newWindow: false,
+      fullscreen: false,
+      maximize: false,
+      float: false,
+      ...overrides,
+    };
+  }
+
+  // --- Structure Tests ---
+
+  it("single pane — no splits, root pane gets command", () => {
+    const plan = makePlan({ type: "pane", name: "editor", command: "claude" });
+    const script = generateTreeAppleScript(plan, "/tmp/project");
+
+    expect(script).toContain('tell application "Ghostty"');
+    expect(script).toContain("end tell");
+    // No splits
+    expect(script).not.toContain("direction right");
+    expect(script).not.toContain("direction down");
+    // Root pane gets command via input text
+    expect(script).toContain('input text "claude" to pane_editor');
+  });
+
+  it("two panes right split — a | b", () => {
+    const plan = makePlan({
+      type: "split", direction: "right",
+      first: { type: "pane", name: "editor", command: "claude" },
+      second: { type: "pane", name: "sidebar", command: "lazygit" },
+    });
+    const script = generateTreeAppleScript(plan, "/tmp/project");
+
+    // 1 right split
+    const rightSplits = (script.match(/direction right/g) ?? []).length;
+    expect(rightSplits).toBe(1);
+    expect(script).not.toContain("direction down");
+
+    // Split creates pane_sidebar from pane_editor
+    expect(script).toContain("set pane_sidebar to split pane_editor direction right");
+    // Root pane gets command via input text
+    expect(script).toContain('input text "claude" to pane_editor');
+  });
+
+  it("two panes down split — a / b", () => {
+    const plan = makePlan({
+      type: "split", direction: "down",
+      first: { type: "pane", name: "main", command: "claude" },
+      second: { type: "pane", name: "server", command: "npm run dev" },
+    });
+    const script = generateTreeAppleScript(plan, "/tmp/project");
+
+    // 1 down split
+    const downSplits = (script.match(/direction down/g) ?? []).length;
+    expect(downSplits).toBe(1);
+    expect(script).not.toContain("direction right");
+
+    expect(script).toContain("set pane_server to split pane_main direction down");
+  });
+
+  it("three panes — a | (b / c)", () => {
+    const plan = makePlan({
+      type: "split", direction: "right",
+      first: { type: "pane", name: "editor", command: "claude" },
+      second: {
+        type: "split", direction: "down",
+        first: { type: "pane", name: "git", command: "lazygit" },
+        second: { type: "pane", name: "server", command: "npm run dev" },
+      },
+    });
+    const script = generateTreeAppleScript(plan, "/tmp/project");
+
+    // 1 right + 1 down
+    const rightSplits = (script.match(/direction right/g) ?? []).length;
+    const downSplits = (script.match(/direction down/g) ?? []).length;
+    expect(rightSplits).toBe(1);
+    expect(downSplits).toBe(1);
+
+    // Right split creates pane_git (first leaf of second child)
+    expect(script).toContain("set pane_git to split pane_editor direction right");
+    // Down split creates pane_server from pane_git
+    expect(script).toContain("set pane_server to split pane_git direction down");
+  });
+
+  it("four panes grid — (a / b) | (c / d)", () => {
+    const plan = makePlan({
+      type: "split", direction: "right",
+      first: {
+        type: "split", direction: "down",
+        first: { type: "pane", name: "a", command: "cmd-a" },
+        second: { type: "pane", name: "b", command: "cmd-b" },
+      },
+      second: {
+        type: "split", direction: "down",
+        first: { type: "pane", name: "c", command: "cmd-c" },
+        second: { type: "pane", name: "d", command: "cmd-d" },
+      },
+    });
+    const script = generateTreeAppleScript(plan, "/tmp/project");
+
+    // 1 right + 2 down
+    const rightSplits = (script.match(/direction right/g) ?? []).length;
+    const downSplits = (script.match(/direction down/g) ?? []).length;
+    expect(rightSplits).toBe(1);
+    expect(downSplits).toBe(2);
+
+    expect(script).toContain("pane_a");
+    expect(script).toContain("pane_b");
+    expect(script).toContain("pane_c");
+    expect(script).toContain("pane_d");
+  });
+
+  it("deep nesting — (a / b / c) | (d / e)", () => {
+    const plan = makePlan({
+      type: "split", direction: "right",
+      first: {
+        type: "split", direction: "down",
+        first: { type: "pane", name: "a", command: "cmd-a" },
+        second: {
+          type: "split", direction: "down",
+          first: { type: "pane", name: "b", command: "cmd-b" },
+          second: { type: "pane", name: "c", command: "cmd-c" },
+        },
+      },
+      second: {
+        type: "split", direction: "down",
+        first: { type: "pane", name: "d", command: "cmd-d" },
+        second: { type: "pane", name: "e", command: "cmd-e" },
+      },
+    });
+    const script = generateTreeAppleScript(plan, "/tmp/project");
+
+    // 1 right + 3 down
+    const rightSplits = (script.match(/direction right/g) ?? []).length;
+    const downSplits = (script.match(/direction down/g) ?? []).length;
+    expect(rightSplits).toBe(1);
+    expect(downSplits).toBe(3);
+  });
+
+  // --- Feature Tests ---
+
+  it("auto-resize with editorSize > 50", () => {
+    const plan = makePlan(
+      {
+        type: "split", direction: "right",
+        first: { type: "pane", name: "editor", command: "claude" },
+        second: { type: "pane", name: "sidebar", command: "lazygit" },
+      },
+      { autoResize: true, editorSize: 75 },
+    );
+    const script = generateTreeAppleScript(plan, "/tmp/project");
+
+    expect(script).toContain("-- Resize editor/sidebar split");
+    expect(script).toContain('tell application "System Events"');
+    expect(script).toContain("set resizeAmount to round (windowWidth * 0.25)");
+    expect(script).toContain("perform action resizeAction on pane_editor");
+  });
+
+  it("no auto-resize when disabled", () => {
+    const plan = makePlan(
+      {
+        type: "split", direction: "right",
+        first: { type: "pane", name: "editor", command: "claude" },
+        second: { type: "pane", name: "sidebar", command: "lazygit" },
+      },
+      { autoResize: false, editorSize: 75 },
+    );
+    const script = generateTreeAppleScript(plan, "/tmp/project");
+
+    expect(script).not.toContain("resize_split");
+    expect(script).not.toContain("System Events");
+  });
+
+  it("new window mode", () => {
+    const plan = makePlan(
+      { type: "pane", name: "editor", command: "claude" },
+      { newWindow: true },
+    );
+    const script = generateTreeAppleScript(plan, "/tmp/project");
+
+    expect(script).toContain("make new window with configuration cfg");
+    expect(script).not.toContain("set win to front window");
+  });
+
+  it("fullscreen mode", () => {
+    const plan = makePlan(
+      { type: "pane", name: "editor", command: "claude" },
+      { fullscreen: true },
+    );
+    const script = generateTreeAppleScript(plan, "/tmp/project");
+
+    expect(script).toContain('perform action "toggle_fullscreen" on pane_editor');
+  });
+
+  it("maximize mode", () => {
+    const plan = makePlan(
+      { type: "pane", name: "editor", command: "claude" },
+      { maximize: true },
+    );
+    const script = generateTreeAppleScript(plan, "/tmp/project");
+
+    expect(script).toContain('perform action "toggle_maximize" on pane_editor');
+  });
+
+  it("float mode", () => {
+    const plan = makePlan(
+      { type: "pane", name: "editor", command: "claude" },
+      { float: true },
+    );
+    const script = generateTreeAppleScript(plan, "/tmp/project");
+
+    expect(script).toContain('perform action "toggle_window_float_on_top" on pane_editor');
+  });
+
+  it("font size", () => {
+    const plan = makePlan(
+      { type: "pane", name: "editor", command: "claude" },
+      { fontSize: 14 },
+    );
+    const script = generateTreeAppleScript(plan, "/tmp/project");
+
+    expect(script).toContain("set font size of cfg to 14");
+  });
+
+  it("always includes SUMMON_WORKSPACE=1 in surface config env vars", () => {
+    const plan = makePlan(
+      { type: "pane", name: "editor", command: "claude" },
+    );
+    const script = generateTreeAppleScript(plan, "/tmp/project");
+
+    expect(script).toContain('"SUMMON_WORKSPACE=1"');
+    expect(script).toContain("set environment variables of cfg to");
+  });
+
+  it("env vars on surface config", () => {
+    const plan = makePlan(
+      { type: "pane", name: "editor", command: "claude" },
+    );
+    const script = generateTreeAppleScript(plan, "/tmp/project", "/bin/bash", null,
+      { NODE_ENV: "development", DEBUG: "true" });
+
+    expect(script).toContain("set environment variables of cfg to");
+    expect(script).toContain("NODE_ENV=development");
+    expect(script).toContain("DEBUG=true");
+  });
+
+  it("env exports for root pane in non-new-window mode", () => {
+    const plan = makePlan(
+      { type: "pane", name: "editor", command: "claude" },
+    );
+    const script = generateTreeAppleScript(plan, "/tmp/project", "/bin/bash", null,
+      { NODE_ENV: "development" });
+
+    // Root pane should get export command via input text
+    expect(script).toContain("export NODE_ENV='development'");
+  });
+
+  it("no env exports for root pane in new-window mode", () => {
+    const plan = makePlan(
+      { type: "pane", name: "editor", command: "claude" },
+      { newWindow: true },
+    );
+    const script = generateTreeAppleScript(plan, "/tmp/project", "/bin/bash", null,
+      { NODE_ENV: "development" });
+
+    // Root pane inherits env vars from cfg in new-window mode
+    expect(script).not.toContain("export NODE_ENV=");
+  });
+
+  it("pane titles with name and command", () => {
+    const plan = makePlan({
+      type: "split", direction: "right",
+      first: { type: "pane", name: "editor", command: "claude" },
+      second: { type: "pane", name: "sidebar", command: "lazygit" },
+    });
+    const script = generateTreeAppleScript(plan, "/tmp/myproject");
+
+    expect(script).toContain('perform action "set_surface_title:editor \u00B7 claude" on pane_editor');
+    expect(script).toContain('perform action "set_surface_title:sidebar \u00B7 lazygit" on pane_sidebar');
+    // Tab title uses basename
+    expect(script).toContain('perform action "set_tab_title:myproject" on pane_editor');
+  });
+
+  it("hyphenated pane names use underscores in AppleScript variables", () => {
+    const plan = makePlan({
+      type: "split", direction: "right",
+      first: { type: "pane", name: "my-editor", command: "claude" },
+      second: { type: "pane", name: "my-sidebar", command: "lazygit" },
+    });
+    const script = generateTreeAppleScript(plan, "/tmp/project");
+
+    // AppleScript variable uses underscore
+    expect(script).toContain("pane_my_editor");
+    expect(script).toContain("pane_my_sidebar");
+    // But title uses the original name
+    expect(script).toContain("set_surface_title:my-editor");
+    expect(script).toContain("set_surface_title:my-sidebar");
+  });
+
+  it("pane with empty command — title shows name only", () => {
+    const plan = makePlan(
+      { type: "pane", name: "shell", command: "" },
+    );
+    const script = generateTreeAppleScript(plan, "/tmp/project");
+
+    expect(script).toContain('perform action "set_surface_title:shell" on pane_shell');
+    expect(script).not.toContain("set_surface_title:shell \u00B7");
+  });
+
+  it("config command wraps in login shell with cd", () => {
+    const plan = makePlan({
+      type: "split", direction: "right",
+      first: { type: "pane", name: "editor", command: "claude" },
+      second: { type: "pane", name: "sidebar", command: "lazygit" },
+    });
+    const script = generateTreeAppleScript(plan, "/tmp/project", "/bin/zsh");
+
+    // The sidebar's command should be set on cfg before the split, wrapped in login shell
+    expect(script).toContain("set command of cfg to \"/bin/zsh -lc 'cd '\\\\''/tmp/project'\\\\'' && lazygit'\"");
+  });
+
+  it("empty command on second child clears config command", () => {
+    const plan = makePlan({
+      type: "split", direction: "right",
+      first: { type: "pane", name: "editor", command: "claude" },
+      second: { type: "pane", name: "shell", command: "" },
+    });
+    const script = generateTreeAppleScript(plan, "/tmp/project");
+
+    // Empty command → clearConfigCommand
+    const lines = script.split("\n");
+    const clearIdx = lines.findIndex((l) => l.includes('set command of cfg to ""'));
+    const splitIdx = lines.findIndex((l) => l.includes("pane_shell to split"));
+    expect(clearIdx).toBeGreaterThan(-1);
+    expect(splitIdx).toBeGreaterThan(-1);
+    expect(clearIdx).toBeLessThan(splitIdx);
+  });
+
+  it("root pane cd appears before root pane command", () => {
+    const plan = makePlan(
+      { type: "pane", name: "editor", command: "claude" },
+    );
+    const script = generateTreeAppleScript(plan, "/Users/me/code/myapp");
+
+    const cdIdx = script.indexOf("input text \"cd '/Users/me/code/myapp'\" to pane_editor");
+    const cmdIdx = script.indexOf('input text "claude" to pane_editor');
+    expect(cdIdx).toBeGreaterThan(-1);
+    expect(cmdIdx).toBeGreaterThan(-1);
+    expect(cdIdx).toBeLessThan(cmdIdx);
+  });
+
+  it("focus is set on root pane", () => {
+    const plan = makePlan(
+      { type: "pane", name: "editor", command: "claude" },
+    );
+    const script = generateTreeAppleScript(plan, "/tmp/project");
+
+    expect(script).toContain("focus pane_editor");
+  });
+
+  it("front window used when not new window", () => {
+    const plan = makePlan(
+      { type: "pane", name: "editor", command: "claude" },
+    );
+    const script = generateTreeAppleScript(plan, "/tmp/project");
+
+    expect(script).toContain("set win to front window");
+    expect(script).not.toContain("make new window");
+  });
+
+  it("starship config path sets environment variable", () => {
+    const plan = makePlan(
+      { type: "pane", name: "editor", command: "claude" },
+    );
+    const configPath = "/Users/me/.config/summon/starship/tokyo-night.toml";
+    const script = generateTreeAppleScript(plan, "/tmp/project", "/bin/bash", configPath);
+
+    expect(script).toContain(`STARSHIP_CONFIG=${configPath}`);
+    expect(script).toContain("set environment variables of cfg to");
+  });
+
+  it("shell-quotes multi-argument root pane command", () => {
+    const plan = makePlan(
+      { type: "pane", name: "server", command: "npm run dev" },
+    );
+    const script = generateTreeAppleScript(plan, "/tmp/project");
+
+    // The command name stays unquoted, but arguments are shell-quoted
+    expect(script).toContain("input text \"npm 'run' 'dev'\" to pane_server");
+  });
+
+  it("auto-resize only applies to first root-level right-split", () => {
+    // The outermost split is right, so resize should apply
+    const plan = makePlan(
+      {
+        type: "split", direction: "down",
+        first: { type: "pane", name: "a", command: "cmd-a" },
+        second: { type: "pane", name: "b", command: "cmd-b" },
+      },
+      { autoResize: true, editorSize: 75 },
+    );
+    const script = generateTreeAppleScript(plan, "/tmp/project");
+
+    // Root split is down, not right — no resize
+    expect(script).not.toContain("resize_split");
+  });
+
+  it("resize appears after the first right-split", () => {
+    const plan = makePlan(
+      {
+        type: "split", direction: "right",
+        first: { type: "pane", name: "editor", command: "claude" },
+        second: {
+          type: "split", direction: "down",
+          first: { type: "pane", name: "git", command: "lazygit" },
+          second: { type: "pane", name: "server", command: "npm run dev" },
+        },
+      },
+      { autoResize: true, editorSize: 75 },
+    );
+    const script = generateTreeAppleScript(plan, "/tmp/project");
+
+    // Resize should appear after the first right-split
+    const splitIdx = script.indexOf("direction right");
+    const resizeIdx = script.indexOf("perform action resizeAction");
+    expect(splitIdx).toBeGreaterThan(-1);
+    expect(resizeIdx).toBeGreaterThan(-1);
+    expect(resizeIdx).toBeGreaterThan(splitIdx);
   });
 });

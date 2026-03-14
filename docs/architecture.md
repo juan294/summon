@@ -6,15 +6,16 @@ Technical reference for contributors.
 
 | Module | Role | Side Effects | Dependencies |
 |--------|------|:------------:|--------------|
-| `index.ts` | CLI entry point — parseArgs, subcommand dispatch, first-run detection | yes | config, launcher, setup (dynamic) |
-| `launcher.ts` | Orchestrator — config resolution, command checks, script execution via osascript | yes | config, layout, script, utils, starship |
+| `index.ts` | CLI entry point — parseArgs, subcommand dispatch, first-run detection | yes | config, launcher, layout, validation, utils, setup (dynamic), completions (dynamic) |
+| `launcher.ts` | Orchestrator — config resolution, command checks, script execution via osascript | yes | config, layout, script, tree, utils, validation, starship |
 | `config.ts` | Config file read/write (`~/.config/summon/` and `.summon`), first-run detection | yes | Node stdlib only |
 | `setup.ts` | Interactive setup wizard — TUI primitives, tool catalogs, numbered-selection flow | yes | config, utils, starship |
 | `utils.ts` | Shared utilities — `SAFE_COMMAND_RE`, `GHOSTTY_PATHS`, `resolveCommand`, `promptUser` (shared readline wrapper) | yes | Node stdlib only |
 | `layout.ts` | Layout calculation and presets | **pure** | none |
-| `script.ts` | AppleScript generator — builds script string from LayoutPlan | **pure** | none |
+| `script.ts` | AppleScript generator — builds script string from LayoutPlan or TreeLayoutPlan | **pure** | tree |
 | `completions.ts` | Shell completion script generator (zsh, bash) | **pure** | config, layout |
 | `starship.ts` | Starship detection, preset listing, TOML config caching | yes | config, utils |
+| `tree.ts` | Tree data model, DSL parser, plan builder (pure — no side effects) | **pure** | layout |
 | `validation.ts` | Input validation helpers (`parseIntInRange`) | **pure** | none |
 | `globals.d.ts` | Build-time constant declarations (`__VERSION__`) | — | — |
 | `*.test.ts` | Co-located unit tests (Vitest) | — | — |
@@ -25,13 +26,19 @@ Technical reference for contributors.
 graph TD
     index[index.ts] --> config[config.ts]
     index --> launcher[launcher.ts]
+    index --> layout[layout.ts]
+    index --> validation[validation.ts]
+    index --> utils[utils.ts]
     index -.->|dynamic import| setup[setup.ts]
     index -.->|dynamic import| completions[completions.ts]
     launcher --> config
-    launcher --> layout[layout.ts]
+    launcher --> layout
     launcher --> script[script.ts]
-    launcher --> utils[utils.ts]
+    launcher --> tree[tree.ts]
+    launcher --> utils
+    launcher --> validation
     launcher --> starship[starship.ts]
+    script --> tree
     setup --> config
     setup --> utils
     setup --> starship
@@ -44,11 +51,17 @@ graph TD
     getProject, listProjects,
     setConfig, listConfig,
     isFirstRun, readKVFile,
+    listCustomLayouts, readCustomLayout,
+    saveCustomLayout, isValidLayoutName,
     VALID_KEYS, BOOLEAN_KEYS, CLI_FLAGS"]
     layout -.- lay_fns["planLayout, isPresetName,
     getPreset, getPresetNames,
     LayoutOptions, LayoutPlan"]
-    script -.- scr_fns["generateAppleScript"]
+    script -.- scr_fns["generateAppleScript,
+    generateTreeAppleScript"]
+    tree -.- tree_fns["parseTreeDSL, buildTreePlan,
+    collectLeaves, firstLeaf,
+    findPaneByName"]
     utils -.- util_fns["SAFE_COMMAND_RE,
     GHOSTTY_PATHS,
     resolveCommand,
@@ -67,13 +80,14 @@ graph TD
     style cfg_fns fill:none,stroke-dasharray:5
     style lay_fns fill:none,stroke-dasharray:5
     style scr_fns fill:none,stroke-dasharray:5
+    style tree_fns fill:none,stroke-dasharray:5
     style util_fns fill:none,stroke-dasharray:5
     style setup_fns fill:none,stroke-dasharray:5
     style star_fns fill:none,stroke-dasharray:5
     style comp_fns fill:none,stroke-dasharray:5
 ```
 
-`layout.ts`, `script.ts`, `completions.ts`, and `validation.ts` are pure modules with no side effects. `config.ts` and `utils.ts` only use Node stdlib. `starship.ts` handles Starship binary detection (cached), preset listing, and TOML config file generation — it depends on `config.ts` (for `CONFIG_DIR`) and `utils.ts` (for `resolveCommand`, `SAFE_COMMAND_RE`). `setup.ts` and `completions.ts` are loaded via dynamic `import()` from `index.ts` — they're only parsed when needed (`summon setup` or `summon completions`), keeping normal launch times unaffected.
+`layout.ts`, `script.ts`, `tree.ts`, `completions.ts`, and `validation.ts` are pure modules with no side effects. `config.ts` and `utils.ts` only use Node stdlib. `starship.ts` handles Starship binary detection (cached), preset listing, and TOML config file generation — it depends on `config.ts` (for `CONFIG_DIR`) and `utils.ts` (for `resolveCommand`, `SAFE_COMMAND_RE`). `setup.ts` and `completions.ts` are loaded via dynamic `import()` from `index.ts` — they're only parsed when needed (`summon setup` or `summon completions`), keeping normal launch times unaffected.
 
 All interactive prompts in `setup.ts` (`numberedSelect`, `confirm`, `selectToolFromCatalog`, `textInput`) use the shared `promptUser()` helper from `utils.ts`, which wraps readline creation, question, close, and trim in a single async call.
 
@@ -111,7 +125,11 @@ flowchart TD
     (bare summon)"]
     wizardcont -->|yes| dispatch
 
-    firstrun -->|no| dispatch{"subcommand dispatch"}
+    firstrun -->|no| noargs{"subcommand
+    provided?"}
+    noargs -->|no| showhelp0["show help text
+    (exit 0)"]
+    noargs -->|yes| dispatch{"subcommand dispatch"}
 
     dispatch -->|"add / remove / list
     set / config"| configrw["config.ts
@@ -126,6 +144,8 @@ flowchart TD
     → launch selected project"]
     dispatch -->|"export"| export["export resolved config
     as .summon file"]
+    dispatch -->|"layout"| layoutcmd["layout subcommand
+    create / save / list / show / delete / edit"]
     dispatch -->|"default (launch target)"| resolve["resolve target directory
     (., absolute path, or project name)"]
 
@@ -140,23 +160,38 @@ flowchart TD
     resolvecfg --> readkv["readKVFile(targetDir/.summon)"]
     resolvecfg --> resolvekey["resolve layout key
     CLI > project > global"]
-    resolvecfg --> expand["expand preset if layout
-    is a valid preset name"]
+    resolvecfg --> expand["expand preset or custom layout
+    if layout is a known name"]
     resolvecfg --> layer["layer each key:
-    CLI > project > global > preset"]
+    CLI > project > global > preset/custom"]
 
     layer --> security{"project .summon has
     shell metacharacters?"}
     security -->|yes| confirm["prompt user for
     confirmation (TTY only)"]
     confirm -->|denied/non-TTY| abort["exit 1"]
-    confirm -->|accepted| plan
+    confirm -->|accepted| nestcheck
     security -->|no| onstart{"on-start hook
     configured?"}
     onstart -->|yes| runonstart["execute on-start command
     in target directory"]
-    runonstart --> plan
-    onstart -->|no| plan["planLayout(resolvedOpts)
+    runonstart --> nestcheck
+    onstart -->|no| nestcheck{"SUMMON_WORKSPACE
+    env set?"}
+    nestcheck -->|yes| warnNest["warn: nested workspace
+    (suggest --new-window)"]
+    warnNest --> layoutfork
+    nestcheck -->|no| layoutfork{"tree layout
+    configured?"}
+
+    layoutfork -->|yes| treepath["resolveTreeCommands()
+    → buildTreePlan()"]
+    treepath --> treegen["generateTreeAppleScript(plan,
+    targetDir, loginShell,
+    starshipConfig, envVars)"]
+    treegen --> exec
+
+    layoutfork -->|no| plan["planLayout(resolvedOpts)
     compute pane counts and sizes"]
     plan --> ensure["ensureCommand() for editor,
     sidebar, secondaryEditor, shellCommand"]
@@ -180,7 +215,7 @@ flowchart TD
 The auto-trigger in `index.ts` fires when:
 1. `isFirstRun()` returns `true` (no config file)
 2. `process.stdin.isTTY` is truthy (interactive terminal)
-3. The subcommand is not a config management command (add, remove, list, set, config, setup, doctor, open, export, completions)
+3. The subcommand is not a config management command (add, remove, list, set, config, setup, doctor, open, export, layout, completions)
 
 ### Wizard Flow
 
@@ -215,7 +250,7 @@ tsup automatically code-splits `setup.ts` and `completions.ts` into separate chu
 
 ## AppleScript Generation
 
-`script.ts` exports a pure function `generateAppleScript(plan, targetDir, loginShell, starshipConfigPath, envVars)` that returns a string. Environment variables (including `STARSHIP_CONFIG` when a preset is configured) are set via Ghostty's `surface configuration` mechanism, which propagates them to all panes automatically (including new windows). Font size is also set via surface configuration when `--font-size` is provided. The generated script:
+`script.ts` exports two pure functions: `generateAppleScript(plan, targetDir, loginShell, starshipConfigPath, envVars)` for traditional grid layouts, and `generateTreeAppleScript(plan, targetDir, loginShell, starshipConfigPath, envVars)` for tree-based custom layouts. Both return a string. Environment variables (including `STARSHIP_CONFIG` when a preset is configured) are set via Ghostty's `surface configuration` mechanism, which propagates them to all panes automatically (including new windows). Font size is also set via surface configuration when `--font-size` is provided. The traditional generator produces this script:
 
 1. Creates a `surface configuration` with the target working directory, font size, and environment variables
 2. Creates a new Ghostty window with that configuration (or reuses the front window unless `--new-window` is set)
@@ -256,13 +291,14 @@ Unlike termplex, summon does not create persistent sessions. Each `summon` invoc
 The generated scripts:
 - Complete subcommands, registered project names, and directories for the first positional argument
 - Complete CLI flags when the cursor follows `--`
-- Complete layout preset names after `--layout` or `summon set layout`
+- Complete layout preset names and custom layout names after `--layout` or `summon set layout`
+- Complete layout actions (`create`, `save`, `list`, `show`, `delete`, `edit`) after `summon layout`
 - Complete config keys after `summon set`
 - Complete shell names (`zsh`, `bash`) after `summon completions`
 
 Project names are read dynamically from `~/.config/summon/projects` at completion time — no Node.js process is spawned per tab press, so completions are instant.
 
-The module imports `VALID_KEYS` and `CLI_FLAGS` from `config.ts` and `getPresetNames()` from `layout.ts` to keep completable tokens in sync with the source of truth.
+The module imports `VALID_KEYS`, `CLI_FLAGS`, and `listCustomLayouts()` from `config.ts` and `getPresetNames()` from `layout.ts` to keep completable tokens in sync with the source of truth. Custom layout names are merged with preset names at completion time.
 
 ## Security
 
@@ -295,16 +331,16 @@ Only `.summon` files are checked. CLI flags and machine config (`~/.config/summo
 
 ```mermaid
 flowchart LR
-    cli["CLI flags"] -->|overrides| summon[".summon"] -->|overrides| global["~/.config/summon/config"] -->|overrides| preset["preset expansion"] -->|overrides| defaults["built-in defaults"]
+    cli["CLI flags"] -->|overrides| summon[".summon"] -->|overrides| global["~/.config/summon/config"] -->|overrides| presetcustom["preset / custom layout"] -->|overrides| defaults["built-in defaults"]
 
     style cli fill:#4a9,color:#fff
     style defaults fill:#888,color:#fff
 ```
 
 1. Read project `.summon` file via `readKVFile(join(targetDir, ".summon"))`
-2. Resolve the `layout` key (CLI > project > global) and expand the matching preset as a base
-3. For each config key (`editor`, `sidebar`, `panes`, `editor-size`, `shell`, `starship-preset`, `font-size`, `on-start`, `new-window`, `fullscreen`, `maximize`, `float`), pick the highest-priority value
-4. Return partial `LayoutOptions` -- `planLayout()` fills remaining defaults
+2. Resolve the `layout` key (CLI > project > global) and expand the matching preset or custom layout as a base. Custom layouts with a `tree=` key produce a `treeLayout` instead of preset-like config.
+3. For each config key (`editor`, `sidebar`, `panes`, `editor-size`, `shell`, `auto-resize`, `starship-preset`, `font-size`, `on-start`, `new-window`, `fullscreen`, `maximize`, `float`), pick the highest-priority value
+4. Return `ResolvedConfig` — includes `opts` (partial `LayoutOptions`), `starshipPreset`, `onStart`, `envVars`, and optionally `treeLayout` (tree DSL + pane definitions). `planLayout()` fills remaining defaults for traditional layouts; tree layouts go through `buildTreePlan()` instead.
 
 ## Layout Presets
 
@@ -431,8 +467,9 @@ Config files live at `~/.config/summon/`:
 
 | File | Purpose |
 |---|---|
-| `config` | Machine-level settings (editor, sidebar, panes, editor-size, shell, layout, starship-preset, font-size, on-start, new-window, fullscreen, maximize, float, env.*) |
+| `config` | Machine-level settings (editor, sidebar, panes, editor-size, shell, layout, auto-resize, starship-preset, font-size, on-start, new-window, fullscreen, maximize, float, env.*) |
 | `projects` | Project name-to-path mappings |
+| `layouts/` | Custom layout files (key=value, may include `tree=` DSL) |
 | `starship/` | Cached Starship preset TOML files (auto-generated by `ensurePresetConfig()`) |
 
 Both use `key=value` format, one entry per line.
@@ -449,4 +486,4 @@ A `.summon` file in the project root uses the same `key=value` format.
 4. **Code splitting**: `setup.ts` and `completions.ts` are auto-split into separate chunks via dynamic `import()`
 5. **prepublishOnly**: runs `pnpm run build` before any `npm publish`
 
-The `files` field in package.json limits the published package to `dist/` only. Total bundle size is ~38 KB across 6 chunks.
+The `files` field in package.json limits the published package to `dist/` only. Total bundle size is ~60 KB across 7 chunks.
