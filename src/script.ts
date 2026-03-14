@@ -14,7 +14,7 @@ function shellQuote(s: string): string {
   return `'${s.replace(/'/g, "'\\''")}'`;
 }
 
-export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginShell = "/bin/bash", starshipConfigPath?: string | null): string {
+export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginShell = "/bin/bash", starshipConfigPath?: string | null, envVars?: Record<string, string>): string {
   const lines: string[] = [];
   const titles: Array<[string, string]> = [];
 
@@ -32,12 +32,9 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginSh
   // Wrap in the user's login shell so commands like npm can find their interpreters.
   // Input-text commands (root pane) run in an already-initialized shell — no wrapping needed.
   const quotedTargetDir = shellQuote(targetDir);
+  // Env vars are now set on surface config, so no need to embed exports in the -lc argument.
   const wrapForConfig = (cmd: string): string => {
-    if (!starshipConfigPath) {
-      return `${loginShell} -lc ${shellQuote(`cd ${quotedTargetDir} && ${cmd}`)}`;
-    }
-    const exportEnv = `export STARSHIP_CONFIG=${shellQuote(starshipConfigPath)}`;
-    return `${loginShell} -lc ${shellQuote(`${exportEnv} && cd ${quotedTargetDir} && ${cmd}`)}`;
+    return `${loginShell} -lc ${shellQuote(`cd ${quotedTargetDir} && ${cmd}`)}`;
   };
 
   const setConfigCommand = (cmd: string) => {
@@ -55,10 +52,32 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginSh
   // Surface configuration with working directory
   add(1, "set cfg to new surface configuration");
   add(1, `set initial working directory of cfg to "${escapeAppleScript(targetDir)}"`);
+  if (plan.fontSize !== null) {
+    add(1, `set font size of cfg to ${plan.fontSize}`);
+  }
+  // Build combined env vars list (Starship + user-defined)
+  const allEnvVars: string[] = [];
+  if (starshipConfigPath) {
+    allEnvVars.push(`STARSHIP_CONFIG=${starshipConfigPath}`);
+  }
+  if (envVars) {
+    for (const [key, value] of Object.entries(envVars)) {
+      allEnvVars.push(`${key}=${value}`);
+    }
+  }
+  if (allEnvVars.length > 0) {
+    const escaped = allEnvVars.map(e => `"${escapeAppleScript(e)}"`).join(", ");
+    add(1, `set environment variables of cfg to {${escaped}}`);
+  }
   blank();
 
-  // Use current tab in front window as root
-  add(1, "set win to front window");
+  // Get or create window for workspace
+  if (plan.newWindow) {
+    add(1, "set win to make new window with configuration cfg");
+    add(1, "delay 0.3");
+  } else {
+    add(1, "set win to front window");
+  }
   add(1, "set paneRoot to terminal 1 of selected tab of win");
   blank();
 
@@ -173,12 +192,16 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginSh
 
   blank();
 
-  // Set STARSHIP_CONFIG in interactive shell panes for per-workspace Starship themes
-  if (starshipConfigPath) {
-    const exportCmd = `export STARSHIP_CONFIG=${shellQuote(starshipConfigPath)}`;
-    sendCommand("paneRoot", exportCmd);
-    for (const pane of interactiveShellPanes) {
-      sendCommand(pane, exportCmd);
+  // Root pane env var exports: only needed when NOT using new-window mode
+  // (root pane from front window was not created with cfg, so it doesn't inherit env vars)
+  // In new-window mode, root pane was created with cfg and inherits env vars automatically.
+  // Split panes always inherit env vars from cfg — no input text needed for them.
+  if (allEnvVars.length > 0 && !plan.newWindow) {
+    for (const envVar of allEnvVars) {
+      const eqIdx = envVar.indexOf("=");
+      const key = envVar.slice(0, eqIdx);
+      const val = envVar.slice(eqIdx + 1);
+      sendCommand("paneRoot", `export ${key}=${shellQuote(val)}`);
     }
   }
 
@@ -213,6 +236,22 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginSh
 
   // Focus root pane
   add(1, "focus paneRoot");
+
+  // Window state actions
+  if (plan.fullscreen) {
+    blank();
+    add(1, "-- Fullscreen mode");
+    add(1, 'perform action "toggle_fullscreen" on paneRoot');
+  } else if (plan.maximize) {
+    blank();
+    add(1, "-- Maximize window");
+    add(1, 'perform action "toggle_maximize" on paneRoot');
+  }
+  if (plan.float) {
+    blank();
+    add(1, "-- Float on top");
+    add(1, 'perform action "toggle_window_float_on_top" on paneRoot');
+  }
 
   add(0, "end tell");
 

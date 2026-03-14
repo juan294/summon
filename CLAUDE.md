@@ -96,6 +96,15 @@ All significant changes go through four phases:
 - Never auto-proceed to the next phase.
 - If the plan doesn't match reality, STOP and explain the mismatch.
 
+### Pre-Release Workflow
+
+```
+/pre-launch -> fix findings -> /update-docs -> /release
+```
+
+- `/update-docs` -- refreshes all documentation, diagrams, version references, and inline code docs
+- `/release` -- version bump, CHANGELOG, tag, GitHub release, registry publish advisory
+
 ### Testing Philosophy
 
 - Prefer automated verification over manual testing.
@@ -235,7 +244,7 @@ What to save proactively:
 - Workarounds for tools, APIs, or libraries used in this project
 - Permission configurations that required adjustment
 
-After completing `/research`, `/plan`, `/implement`, or any significant configuration change, save the key decisions and project context to auto memory so future sessions start with full awareness.
+After completing `/bootstrap`, `/adopt`, or any significant configuration change, save the key decisions and project context to auto memory so future sessions start with full awareness.
 
 ## Project File Locations
 

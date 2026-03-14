@@ -1,9 +1,10 @@
 import { getPresetNames } from "./layout.js";
-import { VALID_KEYS, CLI_FLAGS } from "./config.js";
+import { VALID_KEYS, CLI_FLAGS, BOOLEAN_KEYS } from "./config.js";
 
 export function generateZshCompletion(): string {
   const presetNames = getPresetNames().join(" ");
   const configKeys = VALID_KEYS.join(" ");
+  const booleanKeyCheck = [...BOOLEAN_KEYS].map(k => `"\\$\{words[2]}" == "${k}"`).join(" || ");
 
   return `#compdef summon
 
@@ -16,6 +17,9 @@ _summon() {
     'config:Show current config'
     'setup:Interactive setup wizard'
     'completions:Generate shell completions'
+    'doctor:Check Ghostty config'
+    'open:Select and launch a project'
+    'export:Export config as .summon file'
   )
 
   local -a config_keys=(${configKeys})
@@ -40,6 +44,13 @@ _summon() {
     '--auto-resize[Enable auto-resize]' \\
     '--no-auto-resize[Disable auto-resize]' \\
     '--starship-preset[Starship preset]:preset:->starship_preset' \\
+    '*--env[Set environment variable]:var:' \\
+    '--font-size[Font size in points]:size:' \\
+    '--on-start[Run command before workspace creation]:command:' \\
+    '--new-window[Open in new Ghostty window]' \\
+    '--fullscreen[Start in fullscreen mode]' \\
+    '--maximize[Start maximized]' \\
+    '--float[Float window on top]' \\
     '(-n --dry-run)'{-n,--dry-run}'[Dry run]' \\
     '1: :->cmd' \\
     '*::arg:->args'
@@ -66,7 +77,7 @@ _summon() {
             compadd -a config_keys
           elif [[ "\${words[2]}" == "layout" ]]; then
             compadd -a layout_presets
-          elif [[ "\${words[2]}" == "auto-resize" ]]; then
+          elif [[ ${booleanKeyCheck} ]]; then
             compadd true false
           elif [[ "\${words[2]}" == "starship-preset" ]]; then
             local -a sp=(\${(f)"$(starship preset --list 2>/dev/null)"})
@@ -96,12 +107,13 @@ export function generateBashCompletion(): string {
   const configKeys = VALID_KEYS.join(" ");
   const presetNames = getPresetNames().join(" ");
   const flagsList = CLI_FLAGS.join(" ");
+  const booleanKeyCheck = [...BOOLEAN_KEYS].map(k => `"\\$\{words[2]}" == "${k}"`).join(" || ");
 
   return `_summon() {
   local cur prev words cword
   _init_completion || return
 
-  local subcommands="add remove list set config setup completions"
+  local subcommands="add remove list set config setup completions doctor open export"
   local config_keys="${configKeys}"
   local layout_presets="${presetNames}"
   local projects_file="\${HOME}/.config/summon/projects"
@@ -151,7 +163,7 @@ export function generateBashCompletion(): string {
         COMPREPLY=($(compgen -W "$config_keys" -- "$cur"))
       elif [[ "\${words[2]}" == "layout" ]]; then
         COMPREPLY=($(compgen -W "$layout_presets" -- "$cur"))
-      elif [[ "\${words[2]}" == "auto-resize" ]]; then
+      elif [[ ${booleanKeyCheck} ]]; then
         COMPREPLY=($(compgen -W "true false" -- "$cur"))
       elif [[ "\${words[2]}" == "starship-preset" ]]; then
         local sp

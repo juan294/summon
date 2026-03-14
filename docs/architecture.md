@@ -44,7 +44,7 @@ graph TD
     getProject, listProjects,
     setConfig, listConfig,
     isFirstRun, readKVFile,
-    VALID_KEYS, CLI_FLAGS"]
+    VALID_KEYS, BOOLEAN_KEYS, CLI_FLAGS"]
     layout -.- lay_fns["planLayout, isPresetName,
     getPreset, getPresetNames,
     LayoutOptions, LayoutPlan"]
@@ -87,7 +87,9 @@ flowchart TD
     flags: --help, --version, --layout,
     --editor, --panes, --editor-size,
     --sidebar, --shell, --starship-preset,
-    --auto-resize, --no-auto-resize, --dry-run"]
+    --auto-resize, --no-auto-resize, --dry-run,
+    --env, --font-size, --on-start,
+    --new-window, --fullscreen, --maximize, --float"]
     parse --> helpcheck{"--help flag?"}
 
     helpcheck -->|yes| showhelp["show help text
@@ -118,6 +120,12 @@ flowchart TD
     (explicit invocation)"]
     dispatch -->|"completions"| compgen["completions.ts:
     generateZsh/BashCompletion()"]
+    dispatch -->|"doctor"| doctor["check Ghostty config
+    for recommended settings"]
+    dispatch -->|"open"| open["interactive project picker
+    → launch selected project"]
+    dispatch -->|"export"| export["export resolved config
+    as .summon file"]
     dispatch -->|"default (launch target)"| resolve["resolve target directory
     (., absolute path, or project name)"]
 
@@ -143,11 +151,19 @@ flowchart TD
     confirmation (TTY only)"]
     confirm -->|denied/non-TTY| abort["exit 1"]
     confirm -->|accepted| plan
-    security -->|no| plan["planLayout(resolvedOpts)
+    security -->|no| onstart{"on-start hook
+    configured?"}
+    onstart -->|yes| runonstart["execute on-start command
+    in target directory"]
+    runonstart --> plan
+    onstart -->|no| plan["planLayout(resolvedOpts)
     compute pane counts and sizes"]
     plan --> ensure["ensureCommand() for editor,
     sidebar, secondaryEditor, shellCommand"]
-    ensure --> gen["generateAppleScript(plan, targetDir)
+    ensure --> envvars["collectEnvVars()
+    machine < project < CLI"]
+    envvars --> gen["generateAppleScript(plan, targetDir,
+    loginShell, starshipConfig, envVars)
     build script string"]
     gen --> exec["execute via
     execFileSync('osascript', { input: script })"]
@@ -164,7 +180,7 @@ flowchart TD
 The auto-trigger in `index.ts` fires when:
 1. `isFirstRun()` returns `true` (no config file)
 2. `process.stdin.isTTY` is truthy (interactive terminal)
-3. The subcommand is not a config management command (add, remove, list, set, config, setup)
+3. The subcommand is not a config management command (add, remove, list, set, config, setup, doctor, open, export, completions)
 
 ### Wizard Flow
 
@@ -199,10 +215,10 @@ tsup automatically code-splits `setup.ts` and `completions.ts` into separate chu
 
 ## AppleScript Generation
 
-`script.ts` exports a pure function `generateAppleScript(plan, targetDir, loginShell, starshipConfigPath)` that returns a string. When `starshipConfigPath` is provided, it injects `STARSHIP_CONFIG` into config-launched panes via env-prefix and sends `export STARSHIP_CONFIG=...` keystrokes to interactive shell panes. The generated script:
+`script.ts` exports a pure function `generateAppleScript(plan, targetDir, loginShell, starshipConfigPath, envVars)` that returns a string. Environment variables (including `STARSHIP_CONFIG` when a preset is configured) are set via Ghostty's `surface configuration` mechanism, which propagates them to all panes automatically (including new windows). Font size is also set via surface configuration when `--font-size` is provided. The generated script:
 
-1. Creates a `surface configuration` with the target working directory
-2. Creates a new Ghostty window with that configuration
+1. Creates a `surface configuration` with the target working directory, font size, and environment variables
+2. Creates a new Ghostty window with that configuration (or reuses the front window unless `--new-window` is set)
 3. Captures the root terminal (first pane)
 4. Splits for sidebar (direction `right`)
 5. Splits for right column editors (direction `right` from root)
@@ -256,7 +272,7 @@ The module imports `VALID_KEYS` and `CLI_FLAGS` from `config.ts` and `getPresetN
 
 ### Shell Metacharacter Detection
 
-When `launcher.ts` loads a `.summon` project file, it scans command values (`editor`, `sidebar`, `shell`) for shell metacharacters: `;`, `|`, `&`, `` ` ``, `$(`, `<`, `>`.
+When `launcher.ts` loads a `.summon` project file, it scans command values (`editor`, `sidebar`, `shell`, `on-start`) for shell metacharacters: `;`, `|`, `&`, `` ` ``, `$(`, `${`, `<`, `>`.
 
 If any are found:
 - **TTY**: displays the suspicious commands and prompts for Y/n confirmation (default: no)
@@ -287,7 +303,7 @@ flowchart LR
 
 1. Read project `.summon` file via `readKVFile(join(targetDir, ".summon"))`
 2. Resolve the `layout` key (CLI > project > global) and expand the matching preset as a base
-3. For each config key (`editor`, `sidebar`, `panes`, `editor-size`, `shell`, `starship-preset`), pick the highest-priority value
+3. For each config key (`editor`, `sidebar`, `panes`, `editor-size`, `shell`, `starship-preset`, `font-size`, `on-start`, `new-window`, `fullscreen`, `maximize`, `float`), pick the highest-priority value
 4. Return partial `LayoutOptions` -- `planLayout()` fills remaining defaults
 
 ## Layout Presets
@@ -415,7 +431,7 @@ Config files live at `~/.config/summon/`:
 
 | File | Purpose |
 |---|---|
-| `config` | Machine-level settings (editor, sidebar, panes, editor-size, shell, layout, starship-preset) |
+| `config` | Machine-level settings (editor, sidebar, panes, editor-size, shell, layout, starship-preset, font-size, on-start, new-window, fullscreen, maximize, float, env.*) |
 | `projects` | Project name-to-path mappings |
 | `starship/` | Cached Starship preset TOML files (auto-generated by `ensurePresetConfig()`) |
 

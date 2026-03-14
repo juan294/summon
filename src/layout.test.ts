@@ -191,4 +191,32 @@ describe("validation constants", () => {
     const plan = planLayout();
     expect(plan.editorSize).toBe(EDITOR_SIZE_DEFAULT);
   });
+
+  it("defaults newWindow/fullscreen/maximize/float to false", () => {
+    const plan = planLayout();
+    expect(plan.newWindow).toBe(false);
+    expect(plan.fullscreen).toBe(false);
+    expect(plan.maximize).toBe(false);
+    expect(plan.float).toBe(false);
+  });
+
+  it("passes through newWindow=true", () => {
+    const plan = planLayout({ newWindow: true });
+    expect(plan.newWindow).toBe(true);
+  });
+
+  it("passes through fullscreen=true", () => {
+    const plan = planLayout({ fullscreen: true });
+    expect(plan.fullscreen).toBe(true);
+  });
+
+  it("passes through maximize=true", () => {
+    const plan = planLayout({ maximize: true });
+    expect(plan.maximize).toBe(true);
+  });
+
+  it("passes through float=true", () => {
+    const plan = planLayout({ float: true });
+    expect(plan.float).toBe(true);
+  });
 });

@@ -49,7 +49,7 @@ rm summon-ws-<version>.tgz
 ```
 
 ### 3. Real Ghostty Test
-- [ ] Test on a Mac with Ghostty 1.3.0+
+- [ ] Test on a Mac with Ghostty 1.3.1+
 - [ ] Verify AppleScript permission prompt appears and works
 - [ ] Verify all presets create correct layouts
 - [ ] Verify commands run in correct panes

@@ -21,6 +21,11 @@ export interface LayoutOptions {
   shell: string;
   secondaryEditor: string;
   autoResize: boolean;
+  fontSize: number | null;
+  newWindow: boolean;
+  fullscreen: boolean;
+  maximize: boolean;
+  float: boolean;
 }
 
 const DEFAULT_OPTIONS: LayoutOptions = {
@@ -31,6 +36,11 @@ const DEFAULT_OPTIONS: LayoutOptions = {
   shell: "true",
   secondaryEditor: "",
   autoResize: true,
+  fontSize: null,
+  newWindow: false,
+  fullscreen: false,
+  maximize: false,
+  float: false,
 };
 
 export interface LayoutPlan {
@@ -44,6 +54,11 @@ export interface LayoutPlan {
   shellCommand: string | null;
   secondaryEditor: string | null;
   autoResize: boolean;
+  fontSize: number | null;
+  newWindow: boolean;
+  fullscreen: boolean;
+  maximize: boolean;
+  float: boolean;
 }
 
 function parseShell(value: string): { hasShell: boolean; shellCommand: string | null } {
@@ -93,5 +108,10 @@ export function planLayout(partial?: Partial<LayoutOptions>): LayoutPlan {
     shellCommand,
     secondaryEditor: opts.secondaryEditor || null,
     autoResize: opts.autoResize,
+    fontSize: opts.fontSize ?? null,
+    newWindow: opts.newWindow,
+    fullscreen: opts.fullscreen,
+    maximize: opts.maximize,
+    float: opts.float,
   };
 }

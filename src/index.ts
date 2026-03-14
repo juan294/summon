@@ -11,6 +11,7 @@ import {
   listConfig,
   isFirstRun,
   VALID_KEYS,
+  BOOLEAN_KEYS,
 } from "./config.js";
 import { launch } from "./launcher.js";
 import type { CLIOverrides } from "./launcher.js";
@@ -29,7 +30,10 @@ Usage:
   summon list                 List all registered projects
   summon set <key> [value]    Set a machine-level config value
   summon config               Show current machine configuration
-  summon completions <shell>   Generate shell completion script (zsh, bash)
+  summon doctor               Check Ghostty config for recommended settings
+  summon open                 Select and launch a registered project
+  summon export [path]        Export config as a .summon project file
+  summon completions <shell>  Generate shell completion script (zsh, bash)
 
 Options:
   -h, --help                  Show this help message
@@ -43,6 +47,13 @@ Options:
   --auto-resize               Resize sidebar to match editor-size (default: on)
   --no-auto-resize            Disable auto-resize
   --starship-preset <preset>  Starship prompt preset name (per-workspace)
+  --env <KEY=VALUE>           Set environment variable (repeatable)
+  --font-size <n>             Override font size for workspace panes
+  --on-start <cmd>            Run command before workspace creation
+  --new-window                Open workspace in a new Ghostty window
+  --fullscreen                Start workspace in fullscreen mode
+  --maximize                  Start workspace maximized
+  --float                     Float workspace window on top
   -n, --dry-run               Print generated AppleScript without executing
 
 Config keys:
@@ -52,8 +63,15 @@ Config keys:
   editor-size   Width % for editor grid (default: 75)
   shell         Shell pane: true, false, or command (default: true)
   layout        Default layout preset
-  auto-resize       Resize sidebar to match editor-size (default: true)
-  starship-preset   Starship prompt theme preset (per-workspace)
+  auto-resize     Resize sidebar to match editor-size (default: true)
+  starship-preset Starship prompt theme preset (per-workspace)
+  new-window      Open workspace in a new window (default: false)
+  fullscreen      Start workspace in fullscreen (default: false)
+  maximize        Start workspace maximized (default: false)
+  float           Float workspace window on top (default: false)
+  font-size       Font size in points for workspace panes
+  on-start        Command to run before workspace launches
+  env.<KEY>       Environment variable passed to all panes
 
 Layout presets:
   minimal       1 editor pane, no shell
@@ -117,6 +135,24 @@ Generate shell completion script. Supported shells: zsh, bash.
 Setup (add to your shell config):
   zsh:   eval "$(summon completions zsh)"
   bash:  eval "$(summon completions bash)"`,
+
+  open: `Usage: summon open
+
+Interactively select a registered project to launch.
+All workspace flags (--layout, --editor, etc.) are supported.`,
+
+  doctor: `Usage: summon doctor
+
+Check your Ghostty configuration for recommended settings.`,
+
+  export: `Usage: summon export [path]
+
+Export current config as a .summon project file.
+Writes to stdout by default. Optionally specify a path argument.
+
+Examples:
+  summon export > .summon          Write to .summon in current directory
+  summon export .summon            Same, using path argument`,
 };
 
 function showHelp(): void {
@@ -141,6 +177,13 @@ const parseOpts = {
     "auto-resize": { type: "boolean" },
     "no-auto-resize": { type: "boolean" },
     "starship-preset": { type: "string" },
+    "env": { type: "string", multiple: true },
+    "font-size": { type: "string" },
+    "on-start": { type: "string" },
+    "new-window": { type: "boolean" },
+    "fullscreen": { type: "boolean" },
+    "maximize": { type: "boolean" },
+    "float": { type: "boolean" },
     "dry-run": { type: "boolean", short: "n" },
   },
 } as const;
@@ -151,6 +194,9 @@ function safeParse() {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`Error: ${msg}`);
+    if (msg.includes("ambiguous")) {
+      console.error(`Tip: To pass a value starting with '-', use '--flag=-value' syntax.`);
+    }
     console.error(`Run 'summon --help' for usage information.`);
     process.exit(1);
   }
@@ -170,6 +216,25 @@ if (values.panes !== undefined) {
 if (values["editor-size"] !== undefined) {
   if (!parseIntInRange(values["editor-size"], EDITOR_SIZE_MIN, EDITOR_SIZE_MAX).ok) {
     console.error(`Error: --editor-size must be an integer between ${EDITOR_SIZE_MIN}-${EDITOR_SIZE_MAX}, got "${values["editor-size"]}".`);
+    console.error(`Run 'summon --help' for usage information.`);
+    process.exit(1);
+  }
+}
+
+if (values.env) {
+  for (const entry of values.env) {
+    if (!entry.includes("=")) {
+      console.error(`Error: --env must be in KEY=VALUE format, got "${entry}".`);
+      console.error(`Run 'summon --help' for usage information.`);
+      process.exit(1);
+    }
+  }
+}
+
+if (values["font-size"] !== undefined) {
+  const parsed = parseFloat(values["font-size"]);
+  if (isNaN(parsed) || parsed <= 0) {
+    console.error(`Error: --font-size must be a positive number, got "${values["font-size"]}".`);
     console.error(`Run 'summon --help' for usage information.`);
     process.exit(1);
   }
@@ -216,6 +281,28 @@ if (isFirstRun() && process.stdin.isTTY) {
 if (!subcommand) {
   console.error("Usage: summon <target>\n\nRun 'summon --help' for usage information.");
   process.exit(1);
+}
+
+function buildOverrides(): CLIOverrides {
+  const overrides: CLIOverrides = {};
+  if (values.layout) overrides.layout = values.layout;
+  if (values.editor) overrides.editor = values.editor;
+  if (values.panes) overrides.panes = values.panes;
+  if (values["editor-size"]) overrides["editor-size"] = values["editor-size"];
+  if (values.sidebar) overrides.sidebar = values.sidebar;
+  if (values.shell) overrides.shell = values.shell;
+  if (values["auto-resize"]) overrides["auto-resize"] = "true";
+  if (values["no-auto-resize"]) overrides["auto-resize"] = "false";
+  if (values["starship-preset"]) overrides["starship-preset"] = values["starship-preset"];
+  if (values.env) overrides.env = values.env;
+  if (values["font-size"]) overrides["font-size"] = values["font-size"];
+  if (values["on-start"]) overrides["on-start"] = values["on-start"];
+  if (values["new-window"]) overrides["new-window"] = "true";
+  if (values["fullscreen"]) overrides["fullscreen"] = "true";
+  if (values["maximize"]) overrides["maximize"] = "true";
+  if (values["float"]) overrides["float"] = "true";
+  if (values["dry-run"]) overrides.dryRun = true;
+  return overrides;
 }
 
 switch (subcommand) {
@@ -267,8 +354,8 @@ switch (subcommand) {
       console.error("Usage: summon set <key> [value]");
       process.exit(1);
     }
-    if (!VALID_KEYS.includes(key)) {
-      console.error(`Unknown config key "${key}". Valid keys: ${VALID_KEYS.join(", ")}`);
+    if (!VALID_KEYS.includes(key) && !key.startsWith("env.")) {
+      console.error(`Unknown config key "${key}". Valid keys: ${VALID_KEYS.join(", ")}, env.<KEY>`);
       process.exit(1);
     }
     if (key === "panes" && value !== undefined) {
@@ -290,9 +377,16 @@ switch (subcommand) {
         process.exit(1);
       }
     }
-    if (key === "auto-resize" && value !== undefined) {
+    if (BOOLEAN_KEYS.has(key) && value !== undefined) {
       if (value !== "true" && value !== "false") {
-        console.error(`Error: auto-resize must be "true" or "false", got "${value}".`);
+        console.error(`Error: ${key} must be "true" or "false", got "${value}".`);
+        process.exit(1);
+      }
+    }
+    if (key === "font-size" && value !== undefined) {
+      const parsed = parseFloat(value);
+      if (isNaN(parsed) || parsed <= 0) {
+        console.error(`Error: font-size must be a positive number, got "${value}".`);
         process.exit(1);
       }
     }
@@ -303,6 +397,9 @@ switch (subcommand) {
       }
     }
     if (value !== undefined) {
+      if (value === "" && (key === "editor" || key === "sidebar" || key === "shell" || key === "on-start")) {
+        console.warn(`Warning: setting ${key} to empty string. Use 'summon set ${key}' (without value) to reset to default.`);
+      }
       setConfig(key, value);
       console.log(`Set ${key} → ${value}`);
     } else {
@@ -356,6 +453,140 @@ switch (subcommand) {
     break;
   }
 
+  case "doctor": {
+    const { existsSync: ghosttyExists, readFileSync: readGhostty } = await import("node:fs");
+    const { join: joinPath } = await import("node:path");
+
+    console.log("Checking Ghostty configuration...\n");
+
+    const ghosttyConfigPath = joinPath(homedir(), ".config", "ghostty", "config");
+
+    if (!ghosttyExists(ghosttyConfigPath)) {
+      console.log("  ! No Ghostty config file found at ~/.config/ghostty/config");
+      console.log("    Create one to customize your terminal experience.");
+      console.log();
+    }
+
+    const configContent = ghosttyExists(ghosttyConfigPath)
+      ? readGhostty(ghosttyConfigPath, "utf-8")
+      : "";
+
+    const checks = [
+      {
+        name: "Session Persistence",
+        key: "window-save-state",
+        recommended: "always",
+        reason: "Restore your workspace layout after Ghostty restarts",
+      },
+      {
+        name: "Command Notifications",
+        key: "notify-on-command-finish",
+        recommended: "unfocused",
+        reason: "Get notified when long-running commands finish",
+      },
+      {
+        name: "Shell Integration",
+        key: "shell-integration",
+        recommended: "detect",
+        reason: "Enable prompt navigation, click-to-move cursor, and smart close",
+      },
+    ];
+
+    let allGood = true;
+
+    for (const check of checks) {
+      const regex = new RegExp(`^\\s*${check.key}\\s*=`, "m");
+      const isSet = regex.test(configContent);
+
+      if (isSet) {
+        console.log(`  + ${check.name} (${check.key}) is configured`);
+      } else {
+        allGood = false;
+        console.log(`  - ${check.name}`);
+        console.log(`    Add to ~/.config/ghostty/config:`);
+        console.log(`    ${check.key} = ${check.recommended}`);
+        console.log(`    ${check.reason}`);
+        console.log();
+      }
+    }
+
+    if (allGood) {
+      console.log("\n  All recommended settings are configured!");
+    } else {
+      process.exit(1);
+    }
+
+    break;
+  }
+
+  case "open": {
+    const projects = listProjects();
+    if (projects.size === 0) {
+      console.error("No projects registered. Use: summon add <name> <path>");
+      process.exit(1);
+    }
+
+    const entries = [...projects.entries()];
+    console.log("Select a project to launch:\n");
+    for (const [i, [name, path]] of entries.entries()) {
+      console.log(`  ${i + 1}) ${name} → ${path}`);
+    }
+    console.log();
+
+    const { promptUser } = await import("./utils.js");
+    const answer = await promptUser("Project number: ");
+    const idx = parseInt(answer, 10) - 1;
+
+    if (isNaN(idx) || idx < 0 || idx >= entries.length) {
+      console.error("Invalid selection.");
+      process.exit(1);
+    }
+
+    const [, selectedPath] = entries[idx]!;
+    await launch(selectedPath, buildOverrides());
+    break;
+  }
+
+  case "export": {
+    const config = listConfig();
+    const lines: string[] = [];
+
+    lines.push("# Summon workspace configuration");
+    lines.push("# Generated by: summon export");
+    lines.push("");
+
+    if (config.size === 0) {
+      lines.push("# No machine config set. All values use defaults.");
+      lines.push("# Uncomment and modify as needed:");
+      lines.push("");
+      lines.push("# editor=claude");
+      lines.push("# sidebar=lazygit");
+      lines.push("# panes=2");
+      lines.push("# editor-size=75");
+      lines.push("# shell=true");
+      lines.push("# layout=pair");
+    } else {
+      for (const key of VALID_KEYS) {
+        const value = config.get(key);
+        if (value !== undefined) {
+          lines.push(`${key}=${value}`);
+        }
+      }
+    }
+
+    const output = lines.join("\n") + "\n";
+
+    const [outputPath] = args;
+    if (outputPath) {
+      const { writeFileSync } = await import("node:fs");
+      writeFileSync(resolve(outputPath), output, { mode: 0o644 });
+      console.log(`Exported to: ${resolve(outputPath)}`);
+    } else {
+      process.stdout.write(output);
+    }
+    break;
+  }
+
   default: {
     // Treat as launch target (project name, path, or '.')
     const target = subcommand;
@@ -384,18 +615,6 @@ switch (subcommand) {
       targetDir = path;
     }
 
-    const overrides: CLIOverrides = {};
-    if (values.layout) overrides.layout = values.layout;
-    if (values.editor) overrides.editor = values.editor;
-    if (values.panes) overrides.panes = values.panes;
-    if (values["editor-size"]) overrides["editor-size"] = values["editor-size"];
-    if (values.sidebar) overrides.sidebar = values.sidebar;
-    if (values.shell) overrides.shell = values.shell;
-    if (values["auto-resize"]) overrides["auto-resize"] = "true";
-    if (values["no-auto-resize"]) overrides["auto-resize"] = "false";
-    if (values["starship-preset"]) overrides["starship-preset"] = values["starship-preset"];
-    if (values["dry-run"]) overrides.dryRun = true;
-
-    await launch(targetDir, overrides);
+    await launch(targetDir, buildOverrides());
   }
 }
