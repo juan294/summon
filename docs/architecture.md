@@ -7,13 +7,14 @@ Technical reference for contributors.
 | Module | Role | Side Effects | Dependencies |
 |--------|------|:------------:|--------------|
 | `index.ts` | CLI entry point — parseArgs, subcommand dispatch, first-run detection | yes | config, launcher, setup (dynamic) |
-| `launcher.ts` | Orchestrator — config resolution, command checks, script execution via osascript | yes | config, layout, script, utils |
+| `launcher.ts` | Orchestrator — config resolution, command checks, script execution via osascript | yes | config, layout, script, utils, starship |
 | `config.ts` | Config file read/write (`~/.config/summon/` and `.summon`), first-run detection | yes | Node stdlib only |
-| `setup.ts` | Interactive setup wizard — TUI primitives, tool catalogs, numbered-selection flow | yes | config, utils |
+| `setup.ts` | Interactive setup wizard — TUI primitives, tool catalogs, numbered-selection flow | yes | config, utils, starship |
 | `utils.ts` | Shared utilities — `SAFE_COMMAND_RE`, `GHOSTTY_PATHS`, `resolveCommand`, `promptUser` (shared readline wrapper) | yes | Node stdlib only |
 | `layout.ts` | Layout calculation and presets | **pure** | none |
 | `script.ts` | AppleScript generator — builds script string from LayoutPlan | **pure** | none |
 | `completions.ts` | Shell completion script generator (zsh, bash) | **pure** | config, layout |
+| `starship.ts` | Starship detection, preset listing, TOML config caching | yes | config, utils |
 | `validation.ts` | Input validation helpers (`parseIntInRange`) | **pure** | none |
 | `globals.d.ts` | Build-time constant declarations (`__VERSION__`) | — | — |
 | `*.test.ts` | Co-located unit tests (Vitest) | — | — |
@@ -30,8 +31,12 @@ graph TD
     launcher --> layout[layout.ts]
     launcher --> script[script.ts]
     launcher --> utils[utils.ts]
+    launcher --> starship[starship.ts]
     setup --> config
     setup --> utils
+    setup --> starship
+    starship --> config
+    starship --> utils
     completions --> config
     completions --> layout
 
@@ -48,6 +53,11 @@ graph TD
     GHOSTTY_PATHS,
     resolveCommand,
     promptUser"]
+    starship -.- star_fns["isStarshipInstalled,
+    listStarshipPresets,
+    isValidPreset,
+    ensurePresetConfig,
+    getPresetConfigPath"]
     setup -.- setup_fns["runSetup, detectTools,
     validateSetup, EDITOR_CATALOG,
     SIDEBAR_CATALOG"]
@@ -59,10 +69,11 @@ graph TD
     style scr_fns fill:none,stroke-dasharray:5
     style util_fns fill:none,stroke-dasharray:5
     style setup_fns fill:none,stroke-dasharray:5
+    style star_fns fill:none,stroke-dasharray:5
     style comp_fns fill:none,stroke-dasharray:5
 ```
 
-`layout.ts`, `script.ts`, `completions.ts`, and `validation.ts` are pure modules with no side effects. `config.ts` and `utils.ts` only use Node stdlib. `setup.ts` and `completions.ts` are loaded via dynamic `import()` from `index.ts` — they're only parsed when needed (`summon setup` or `summon completions`), keeping normal launch times unaffected.
+`layout.ts`, `script.ts`, `completions.ts`, and `validation.ts` are pure modules with no side effects. `config.ts` and `utils.ts` only use Node stdlib. `starship.ts` handles Starship binary detection (cached), preset listing, and TOML config file generation — it depends on `config.ts` (for `CONFIG_DIR`) and `utils.ts` (for `resolveCommand`, `SAFE_COMMAND_RE`). `setup.ts` and `completions.ts` are loaded via dynamic `import()` from `index.ts` — they're only parsed when needed (`summon setup` or `summon completions`), keeping normal launch times unaffected.
 
 All interactive prompts in `setup.ts` (`numberedSelect`, `confirm`, `selectToolFromCatalog`, `textInput`) use the shared `promptUser()` helper from `utils.ts`, which wraps readline creation, question, close, and trim in a single async call.
 
@@ -75,12 +86,13 @@ flowchart TD
     cli["CLI invocation"] --> parse["parseArgs
     flags: --help, --version, --layout,
     --editor, --panes, --editor-size,
-    --sidebar, --shell, --auto-resize,
-    --no-auto-resize, --dry-run"]
+    --sidebar, --shell, --starship-preset,
+    --auto-resize, --no-auto-resize, --dry-run"]
     parse --> helpcheck{"--help flag?"}
 
     helpcheck -->|yes| showhelp["show help text
     (subcommand-specific or full)"]
+
     showhelp --> exit0h["exit 0"]
 
     helpcheck -->|no| firstrun{"isFirstRun()
@@ -161,8 +173,9 @@ The auto-trigger in `index.ts` fires when:
 3. **Editor selection** — catalog of common editors, detected via `resolveCommand()`, sorted available-first
 4. **Sidebar selection** — catalog of common sidebar tools, same detection pattern
 5. **Shell selection** — plain shell, disabled, or custom command
-6. **Summary** — display chosen configuration
-7. **Confirmation** — Y/n; declining loops back to step 2
+6. **Starship prompt theme** — if Starship is installed, shows available presets with true-color palette swatches for the 4 color-rich presets (pastel-powerline, tokyo-night, gruvbox-rainbow, catppuccin-powerline). Includes Skip and "Random (surprise me!)" options. Gracefully skipped if Starship is not installed.
+7. **Summary** — display chosen configuration
+8. **Confirmation** — Y/n; declining loops back to step 2
 8. **Validation** — check each chosen command with `resolveCommand()`, check Ghostty installation, show install hints for missing tools
 9. **Save** — write each key via `setConfig()`
 
@@ -186,7 +199,7 @@ tsup automatically code-splits `setup.ts` and `completions.ts` into separate chu
 
 ## AppleScript Generation
 
-`script.ts` exports a pure function `generateAppleScript(plan, targetDir)` that returns a string. The generated script:
+`script.ts` exports a pure function `generateAppleScript(plan, targetDir, loginShell, starshipConfigPath)` that returns a string. When `starshipConfigPath` is provided, it injects `STARSHIP_CONFIG` into config-launched panes via env-prefix and sends `export STARSHIP_CONFIG=...` keystrokes to interactive shell panes. The generated script:
 
 1. Creates a `surface configuration` with the target working directory
 2. Creates a new Ghostty window with that configuration
@@ -274,7 +287,7 @@ flowchart LR
 
 1. Read project `.summon` file via `readKVFile(join(targetDir, ".summon"))`
 2. Resolve the `layout` key (CLI > project > global) and expand the matching preset as a base
-3. For each config key (`editor`, `sidebar`, `panes`, `editor-size`, `shell`), pick the highest-priority value
+3. For each config key (`editor`, `sidebar`, `panes`, `editor-size`, `shell`, `starship-preset`), pick the highest-priority value
 4. Return partial `LayoutOptions` -- `planLayout()` fills remaining defaults
 
 ## Layout Presets
@@ -402,8 +415,9 @@ Config files live at `~/.config/summon/`:
 
 | File | Purpose |
 |---|---|
-| `config` | Machine-level settings (editor, sidebar, panes, editor-size, shell, layout) |
+| `config` | Machine-level settings (editor, sidebar, panes, editor-size, shell, layout, starship-preset) |
 | `projects` | Project name-to-path mappings |
+| `starship/` | Cached Starship preset TOML files (auto-generated by `ensurePresetConfig()`) |
 
 Both use `key=value` format, one entry per line.
 
@@ -419,4 +433,4 @@ A `.summon` file in the project root uses the same `key=value` format.
 4. **Code splitting**: `setup.ts` and `completions.ts` are auto-split into separate chunks via dynamic `import()`
 5. **prepublishOnly**: runs `pnpm run build` before any `npm publish`
 
-The `files` field in package.json limits the published package to `dist/` only. Total bundle size is ~33 KB across 6 chunks.
+The `files` field in package.json limits the published package to `dist/` only. Total bundle size is ~38 KB across 6 chunks.
