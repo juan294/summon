@@ -1,4 +1,4 @@
-# summon — Native Ghostty workspace launcher
+# Summon your Ghostty workspace!
 
 ![Chapa Badge](https://chapa.thecreativetoken.com/u/juan294/badge.svg)
 [![CI](https://github.com/juan294/summon/actions/workflows/ci.yml/badge.svg)](https://github.com/juan294/summon/actions/workflows/ci.yml)
