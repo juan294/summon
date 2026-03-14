@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-03-14
+
+### Added
+
+- Custom layout builder with tree DSL for arbitrary Ghostty split configurations (e.g., `editor | shell / logs`)
+- Interactive layout builder wizard via `summon layout create <name>` with live grid preview
+- Layout CRUD commands: `summon layout create`, `save`, `list`, `show`, `delete`, `edit`
+- Shell completions for `layout` subcommand and actions (zsh + bash)
+- Custom layout names accepted by `--layout` flag and `summon set layout`
+- Nested workspace detection: `SUMMON_WORKSPACE=1` env var set in all panes, warns when launching inside an existing workspace
+- No-args invocation now shows full help text instead of terse error
+
+### Fixed
+
+- Ghostty AppleScript `make new window` bug workaround — uses Cmd+N via System Events instead of `make new window` which returns unusable tab-group references
+- CLI `--env` key names now validated against `ENV_KEY_RE` — invalid keys (spaces, leading digits) are warned and skipped
+- Layout name validation added to `layout show`, `layout delete`, `layout edit` — defense-in-depth against path traversal
+- Path traversal guard in `resolveConfig()` — layout names from `.summon` files validated against regex before `isCustomLayout()`
+
+### Changed
+
+- Setup wizard now shows only detected/available tools instead of dimming unavailable ones
+- Extracted 9 shared AppleScript generation helpers (`emitAutoResize`, `emitSurfaceConfig`, `emitRootPaneEnvExports`, etc.) reducing ~200 lines of duplication
+- Extracted `validateLayoutNameOrExit()` and `layoutNotFoundOrExit()` helpers in CLI entry point
+- Removed unreachable dead code in tree DSL parser
+
+### Tests
+
+- 677 total tests (was 523 in v0.7.0), 98.47% statement coverage
+- Comprehensive coverage for `runLayoutBuilder`, `findPaneByName`, tree DSL parser, layout completions, env key validation, layout name validation
+
 ## [0.7.0] - 2026-03-14
 
 ### Added
@@ -238,7 +269,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CodeQL security scanning
 - Dependabot for npm and GitHub Actions
 
-[Unreleased]: https://github.com/juan294/summon/compare/v0.7.0...develop
+[Unreleased]: https://github.com/juan294/summon/compare/v0.8.0...develop
+[0.8.0]: https://github.com/juan294/summon/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/juan294/summon/compare/v0.6.2...v0.7.0
 [0.6.2]: https://github.com/juan294/summon/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/juan294/summon/compare/v0.6.0...v0.6.1
