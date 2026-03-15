@@ -1679,7 +1679,6 @@ describe("runLayoutBuilder", () => {
       const q = _q;
       if (q.includes("[Y/n]")) cb("y");
       else if (q.includes("Pane 1")) cb("claude");
-
       else cb("1");
     });
 
@@ -1695,7 +1694,6 @@ describe("runLayoutBuilder", () => {
       const q = _q;
       if (q.includes("[Y/n]")) cb("y");
       else if (q.includes("Pane 1")) cb("claude");
-
       else cb("1");
     });
 
@@ -1713,7 +1711,6 @@ describe("runLayoutBuilder", () => {
       const q = _q;
       if (q.includes("[Y/n]")) cb("y"); // confirm overwrite and save
       else if (q.includes("Pane 1")) cb("claude");
-
       else cb("1");
     });
 
@@ -1797,7 +1794,6 @@ describe("runLayoutBuilder", () => {
       const q = _q;
       if (q.includes("[Y/n]")) cb("n"); // decline save
       else if (q.includes("Pane 1")) cb("claude");
-
       else cb("1");
     });
 
@@ -1837,7 +1833,6 @@ describe("runLayoutBuilder", () => {
       const q = _q;
       if (q.includes("[Y/n]")) cb("y");
       else if (q.includes("Pane 1")) cb("claude");
-
       else cb("1");
     });
 
@@ -1855,7 +1850,6 @@ describe("runLayoutBuilder", () => {
       if (q.includes("[Y/n]")) cb("y");
       else if (q.includes("[1-8]") || q.includes(`[1-${GRID_TEMPLATES.length}`)) cb("1"); // template [1,1]
       else if (q.includes("Pane 1")) cb("claude");
-
       else cb("1");
     });
 
@@ -1873,7 +1867,6 @@ describe("runLayoutBuilder", () => {
       else if (q.includes("[1-8]") || q.includes(`[1-${GRID_TEMPLATES.length}`)) cb("1"); // template [1,1]
       else if (q.includes("Column 1, Pane 1")) cb("nvim");
       else if (q.includes("Column 2, Pane 1")) cb("lazygit");
-
       else cb("1");
     });
 
@@ -1895,7 +1888,6 @@ describe("runLayoutBuilder", () => {
       if (q.includes("[Y/n]")) cb("y");
       else if (q.includes("[1-8]") || q.includes(`[1-${GRID_TEMPLATES.length}`)) cb("1"); // template [1,1]
       else if (q.includes("Pane 1")) cb("claude");
-
       else cb("1");
     });
 
@@ -2280,7 +2272,6 @@ describe("runLayoutBuilder — in-place preview", () => {
       else if (q.includes("[1-8]") || q.includes(`[1-${GRID_TEMPLATES.length}`)) cb("1"); // template [1,1]
       else if (q.includes("Column 1, Pane 1")) cb("nvim");
       else if (q.includes("Column 2, Pane 1")) cb("lazygit");
-
       else cb("1");
     });
 
@@ -2303,7 +2294,6 @@ describe("runLayoutBuilder — in-place preview", () => {
       const q = _q;
       if (q.includes("[Y/n]")) cb("y");
       else if (q.includes("Pane 1")) cb("nvim");
-
       else cb("1");
     });
 
