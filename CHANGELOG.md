@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Visual template gallery in layout builder — pick grid shapes from side-by-side mini diagrams instead of specifying column/pane counts numerically
+- In-place live preview in layout builder — layout diagram redraws in the same screen region as commands are filled in, using ANSI cursor control
+- Arrow-key grid builder — interactive raw-mode builder for custom grid shapes (←→ columns, ↑↓ panes, Tab/Shift+Tab focus, Enter confirm, Esc cancel)
 - Boundary tests for layout parameters, validation helpers, and tree utilities (22 new tests)
 
 ### Changed
