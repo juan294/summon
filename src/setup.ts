@@ -312,13 +312,10 @@ export { SAFE_COMMAND_RE };
 
 export const EDITOR_CATALOG: readonly ToolEntry[] = [
   { cmd: "claude", name: "Claude Code", desc: "AI pair programmer" },
-  { cmd: "cursor", name: "Cursor", desc: "AI-powered editor" },
   { cmd: "nvim", name: "Neovim", desc: "Modern Vim" },
   { cmd: "vim", name: "Vim", desc: "Classic modal editor" },
-  { cmd: "code", name: "VS Code", desc: "Visual Studio Code" },
   { cmd: "emacs", name: "Emacs", desc: "Extensible editor" },
   { cmd: "hx", name: "Helix", desc: "Post-modern modal editor" },
-  { cmd: "zed", name: "Zed", desc: "High-performance editor" },
   { cmd: "nano", name: "Nano", desc: "Simple text editor" },
 ];
 
