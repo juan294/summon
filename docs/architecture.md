@@ -10,13 +10,13 @@ Technical reference for contributors.
 | `launcher.ts` | Orchestrator — config resolution, command checks, script execution via osascript | yes | config, layout, script, tree, utils, validation, starship |
 | `config.ts` | Config file read/write (`~/.config/summon/` and `.summon`), first-run detection | yes | Node stdlib only |
 | `setup.ts` | Interactive setup wizard — TUI primitives, tool catalogs, numbered-selection flow | yes | config, utils, starship |
-| `utils.ts` | Shared utilities — `SAFE_COMMAND_RE`, `GHOSTTY_PATHS`, `resolveCommand`, `promptUser` (shared readline wrapper) | yes | Node stdlib only |
+| `utils.ts` | Shared utilities — `SAFE_COMMAND_RE`, `GHOSTTY_PATHS`, `GHOSTTY_APP_NAME`, `SUMMON_WORKSPACE_ENV`, `resolveCommand`, `getErrorMessage`, `promptUser` | yes | Node stdlib only |
 | `layout.ts` | Layout calculation and presets | **pure** | none |
-| `script.ts` | AppleScript generator — builds script string from LayoutPlan or TreeLayoutPlan | **pure** | tree |
+| `script.ts` | AppleScript generator — builds script string from LayoutPlan or TreeLayoutPlan | **pure** | tree, utils |
 | `completions.ts` | Shell completion script generator (zsh, bash) | **pure** | config, layout |
 | `starship.ts` | Starship detection, preset listing, TOML config caching | yes | config, utils |
 | `tree.ts` | Tree data model, DSL parser, plan builder (pure — no side effects) | **pure** | layout |
-| `validation.ts` | Input validation helpers (`parseIntInRange`) | **pure** | none |
+| `validation.ts` | Input validation helpers (`parseIntInRange`, `validateIntFlag`, `validateFloatFlag`) | **pure** | none |
 | `globals.d.ts` | Build-time constant declarations (`__VERSION__`) | — | — |
 | `*.test.ts` | Co-located unit tests (Vitest) | — | — |
 
@@ -39,6 +39,8 @@ graph TD
     launcher --> validation
     launcher --> starship[starship.ts]
     script --> tree
+    script --> utils
+    tree --> layout
     setup --> config
     setup --> utils
     setup --> starship
@@ -53,7 +55,8 @@ graph TD
     isFirstRun, readKVFile,
     listCustomLayouts, readCustomLayout,
     saveCustomLayout, isValidLayoutName,
-    VALID_KEYS, BOOLEAN_KEYS, CLI_FLAGS"]
+    VALID_KEYS, BOOLEAN_KEYS, CLI_FLAGS,
+    LAYOUT_NAME_RE"]
     layout -.- lay_fns["planLayout, isPresetName,
     getPreset, getPresetNames,
     LayoutOptions, LayoutPlan"]
@@ -61,10 +64,15 @@ graph TD
     generateTreeAppleScript"]
     tree -.- tree_fns["parseTreeDSL, buildTreePlan,
     collectLeaves, firstLeaf,
-    findPaneByName"]
+    findPaneByName,
+    extractPaneDefinitions,
+    resolveTreeCommands"]
     utils -.- util_fns["SAFE_COMMAND_RE,
     GHOSTTY_PATHS,
+    GHOSTTY_APP_NAME,
+    SUMMON_WORKSPACE_ENV,
     resolveCommand,
+    getErrorMessage,
     promptUser"]
     starship -.- star_fns["isStarshipInstalled,
     listStarshipPresets,
@@ -76,6 +84,9 @@ graph TD
     SIDEBAR_CATALOG"]
     completions -.- comp_fns["generateZshCompletion,
     generateBashCompletion"]
+    validation -.- val_fns["parseIntInRange,
+    validateIntFlag,
+    validateFloatFlag"]
 
     style cfg_fns fill:none,stroke-dasharray:5
     style lay_fns fill:none,stroke-dasharray:5
@@ -85,6 +96,7 @@ graph TD
     style setup_fns fill:none,stroke-dasharray:5
     style star_fns fill:none,stroke-dasharray:5
     style comp_fns fill:none,stroke-dasharray:5
+    style val_fns fill:none,stroke-dasharray:5
 ```
 
 `layout.ts`, `script.ts`, `tree.ts`, `completions.ts`, and `validation.ts` are pure modules with no side effects. `config.ts` and `utils.ts` only use Node stdlib. `starship.ts` handles Starship binary detection (cached), preset listing, and TOML config file generation — it depends on `config.ts` (for `CONFIG_DIR`) and `utils.ts` (for `resolveCommand`, `SAFE_COMMAND_RE`). `setup.ts` and `completions.ts` are loaded via dynamic `import()` from `index.ts` — they're only parsed when needed (`summon setup` or `summon completions`), keeping normal launch times unaffected.
