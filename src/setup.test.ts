@@ -82,6 +82,7 @@ const {
   gridToTree,
   renderLayoutPreview,
   runLayoutBuilder,
+  findClosestCommand,
 } = await import("./setup.js");
 
 beforeEach(() => {
@@ -470,6 +471,40 @@ describe("LAYOUT_INFO", () => {
       expect(info.diagram).toBeTruthy();
       expect(info.diagram).toContain("┌");
     }
+  });
+});
+
+describe("findClosestCommand", () => {
+  it("finds exact match", () => {
+    expect(findClosestCommand("lazygit", ["vim", "lazygit", "btop"])).toBe("lazygit");
+  });
+
+  it("finds close typo (missing letter)", () => {
+    expect(findClosestCommand("lzgit", ["vim", "lazygit", "btop"])).toBe("lazygit");
+  });
+
+  it("finds close typo (swapped letters)", () => {
+    expect(findClosestCommand("lazygti", ["vim", "lazygit", "btop"])).toBe("lazygit");
+  });
+
+  it("finds close typo (extra letter)", () => {
+    expect(findClosestCommand("lazyygit", ["vim", "lazygit", "btop"])).toBe("lazygit");
+  });
+
+  it("returns null when no close match (distance > 3)", () => {
+    expect(findClosestCommand("something", ["vim", "lazygit", "btop"])).toBeNull();
+  });
+
+  it("returns null for empty known list", () => {
+    expect(findClosestCommand("vim", [])).toBeNull();
+  });
+
+  it("is case-insensitive", () => {
+    expect(findClosestCommand("VIM", ["vim", "nano"])).toBe("vim");
+  });
+
+  it("picks closest when multiple candidates", () => {
+    expect(findClosestCommand("btop", ["btop", "htop"])).toBe("btop");
   });
 });
 

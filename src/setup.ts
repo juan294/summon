@@ -793,6 +793,66 @@ export async function runSetup(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 /**
+ * Find the closest match to `input` from a list of known commands.
+ * Uses simple edit distance (Levenshtein). Returns null if no close match.
+ */
+/** @internal — exported for testing */
+export function findClosestCommand(input: string, known: string[]): string | null {
+  let best: string | null = null;
+  let bestDist = Infinity;
+  for (const cmd of known) {
+    const d = editDistance(input.toLowerCase(), cmd.toLowerCase());
+    if (d < bestDist && d <= 3) {
+      bestDist = d;
+      best = cmd;
+    }
+  }
+  return best;
+}
+
+/** Simple Levenshtein distance for short command names. */
+function editDistance(a: string, b: string): number {
+  const m = a.length;
+  const n = b.length;
+  const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0) as number[]);
+  for (let i = 0; i <= m; i++) dp[i]![0] = i;
+  for (let j = 0; j <= n; j++) dp[0]![j] = j;
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i]![j] = a[i - 1] === b[j - 1]
+        ? dp[i - 1]![j - 1]!
+        : 1 + Math.min(dp[i - 1]![j]!, dp[i]![j - 1]!, dp[i - 1]![j - 1]!);
+    }
+  }
+  return dp[m]![n]!;
+}
+
+/**
+ * Validate a command entered in the layout builder.
+ * If the command isn't found, warns the user and suggests the closest match.
+ * Returns the command to use (original, corrected, or empty string to re-prompt).
+ */
+async function validateBuilderCommand(cmd: string, knownCmds: string[]): Promise<string> {
+  if (cmd === "shell") return cmd; // special value — plain shell
+  const cmdName = cmd.split(/\s+/)[0] ?? cmd;
+  if (resolveCommandPath(cmdName)) return cmd; // found in PATH
+
+  const suggestion = findClosestCommand(cmdName, knownCmds);
+  if (suggestion) {
+    console.log(yellow(`  '${cmdName}' not found. Did you mean '${suggestion}'?`));
+    const useSuggestion = await confirm(`  Use '${suggestion}' instead?`);
+    if (useSuggestion) {
+      return cmd.replace(cmdName, suggestion);
+    }
+  } else {
+    console.log(yellow(`  '${cmdName}' not found on this system.`));
+  }
+  const keepAnyway = await confirm("  Keep it anyway?");
+  if (keepAnyway) return cmd;
+  return ""; // empty = re-prompt
+}
+
+/**
  * Extract a pane name from a command string: first word, deduped.
  * Used names are tracked to append _2, _3, etc.
  */
@@ -1049,10 +1109,15 @@ export async function runLayoutBuilder(name: string): Promise<void> {
     const column: string[] = [];
     for (let p = 0; p < paneCount; p++) {
       if (hintStr) console.log(hintStr);
-      const cmd = await promptUser(
-        `  Column ${c + 1}, Pane ${p + 1} \u2014 command: `,
-      );
-      column.push(cmd || "shell");
+      let cmd = "";
+      while (!cmd) {
+        const input = await promptUser(
+          `  Column ${c + 1}, Pane ${p + 1} \u2014 command: `,
+        );
+        cmd = input || "shell";
+        cmd = await validateBuilderCommand(cmd, availableCmds);
+      }
+      column.push(cmd);
     }
     grid.push(column);
     console.log();
@@ -1065,8 +1130,12 @@ export async function runLayoutBuilder(name: string): Promise<void> {
   if (sidebarAvailable.length > 0) {
     console.log(dim(`  Detected: ${sidebarAvailable.join(", ")}`));
   }
-  const sidebarCmd = await promptUser("  Sidebar \u2014 command: ");
-  const sidebar = sidebarCmd || "lazygit";
+  let sidebar = "";
+  while (!sidebar) {
+    const sidebarInput = await promptUser("  Sidebar \u2014 command: ");
+    sidebar = sidebarInput || "lazygit";
+    sidebar = await validateBuilderCommand(sidebar, availableCmds);
+  }
   console.log();
 
   // --- Preview ---
