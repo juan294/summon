@@ -2327,9 +2327,11 @@ describe("applyGridAction", () => {
     expect(next!.focusRow).toBe(0);
   });
 
-  it("addCol returns null at MAX_COLUMNS", () => {
-    const state = { columns: [1, 1, 1], focusCol: 0, focusRow: 0 };
-    expect(applyGridAction(state, "addCol")).toBeNull();
+  it("addCol always succeeds", () => {
+    const state = { columns: [1, 1, 1, 1], focusCol: 0, focusRow: 0 };
+    const next = applyGridAction(state, "addCol");
+    expect(next).not.toBeNull();
+    expect(next!.columns.length).toBe(5);
   });
 
   it("removeCol removes last column", () => {
@@ -2356,9 +2358,11 @@ describe("applyGridAction", () => {
     expect(next!.focusRow).toBe(1);
   });
 
-  it("addPane returns null at MAX_PANES", () => {
-    const state = { columns: [3], focusCol: 0, focusRow: 0 };
-    expect(applyGridAction(state, "addPane")).toBeNull();
+  it("addPane always succeeds", () => {
+    const state = { columns: [4], focusCol: 0, focusRow: 0 };
+    const next = applyGridAction(state, "addPane");
+    expect(next).not.toBeNull();
+    expect(next!.columns[0]).toBe(5);
   });
 
   it("removePane decrements focused column pane count", () => {

@@ -211,9 +211,6 @@ export interface GridBuilderState {
   focusRow: number;
 }
 
-const MAX_COLUMNS = 3;
-const MAX_PANES = 3;
-
 /** Create initial grid builder state (1 column, 1 pane). */
 export function createGridState(): GridBuilderState {
   return { columns: [1], focusCol: 0, focusRow: 0 };
@@ -232,7 +229,6 @@ export function applyGridAction(
 
   switch (action) {
     case "addCol":
-      if (cols.length >= MAX_COLUMNS) return null;
       cols.push(1);
       focusCol = cols.length - 1;
       focusRow = 0;
@@ -246,7 +242,6 @@ export function applyGridAction(
       }
       break;
     case "addPane":
-      if (cols[focusCol]! >= MAX_PANES) return null;
       cols[focusCol] = cols[focusCol]! + 1;
       focusRow = cols[focusCol]! - 1;
       break;
@@ -308,15 +303,13 @@ export function renderGridBuilderPreview(
  */
 /** @internal — exported for testing only */
 export function renderGridBuilderHints(state: GridBuilderState): string {
-  const canAddCol = state.columns.length < MAX_COLUMNS;
   const canRemoveCol = state.columns.length > 1;
-  const canAddPane = state.columns[state.focusCol]! < MAX_PANES;
   const canRemovePane = state.columns[state.focusCol]! > 1;
 
   const hints = [
-    canAddCol ? "[→] add column" : dim("[→] add column"),
+    "[→] add column",
     canRemoveCol ? "[←] remove column" : dim("[←] remove column"),
-    canAddPane ? "[↓] add pane" : dim("[↓] add pane"),
+    "[↓] add pane",
     canRemovePane ? "[↑] remove pane" : dim("[↑] remove pane"),
     "[Tab] move focus",
     "[Enter] done",
@@ -1233,12 +1226,29 @@ export function gridToTree(
   return { tree: columnExprs.join(" | "), panes };
 }
 
+/** Measure visible width of a string, ignoring ANSI escape codes. */
+// eslint-disable-next-line no-control-regex
+const ANSI_RE = /\x1b\[[0-9;]*m/g;
+function visibleLength(s: string): number {
+  let stripped = 0;
+  ANSI_RE.lastIndex = 0;
+  let match;
+  while ((match = ANSI_RE.exec(s)) !== null) {
+    stripped += match[0].length;
+  }
+  return s.length - stripped;
+}
+
 /** Center text within a fixed width, dimming "?" placeholders. */
 function centerLabel(text: string, width: number): string {
-  const padded = text.slice(0, width - 2);
-  const leftPad = Math.floor((width - padded.length) / 2);
-  const rightPad = width - padded.length - leftPad;
-  const display = text === "?" ? dim(padded) : padded;
+  const maxLen = width - 2;
+  const vis = visibleLength(text);
+  // Truncate by visible length (plain text only — ANSI markers are always short)
+  const label = vis > maxLen ? text.slice(0, maxLen) : text;
+  const labelVis = vis > maxLen ? maxLen : vis;
+  const leftPad = Math.floor((width - labelVis) / 2);
+  const rightPad = width - labelVis - leftPad;
+  const display = text === "?" ? dim(label) : label;
   return " ".repeat(leftPad) + display + " ".repeat(rightPad);
 }
 
