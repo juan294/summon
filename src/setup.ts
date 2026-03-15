@@ -457,16 +457,17 @@ export async function selectLayout(): Promise<string> {
   // Custom layout: flow into the layout builder
   if (idx === presetNames.length) {
     console.log();
-    const name = await promptUser("  Name your layout: ");
-    if (!name) {
-      console.log(yellow("  No name provided. Falling back to preset selection."));
-      console.log();
-      return selectLayout();
-    }
-    if (!isValidLayoutName(name)) {
-      console.log(yellow("  Invalid name. Use letters, digits, hyphens, underscores (start with a letter)."));
-      console.log();
-      return selectLayout();
+    let name = "";
+    while (!name) {
+      name = await promptUser("  Name your layout: ");
+      if (!name) {
+        console.log(yellow("  No name provided. Please enter a layout name."));
+        continue;
+      }
+      if (!isValidLayoutName(name)) {
+        console.log(yellow("  Invalid name. Use letters, digits, hyphens, underscores (start with a letter)."));
+        name = "";
+      }
     }
     await runLayoutBuilder(name);
     return name;
@@ -483,7 +484,6 @@ export async function selectLayout(): Promise<string> {
 export async function selectToolFromCatalog(
   catalog: readonly ToolEntry[],
   sectionTitle: string,
-  _fallbackCmd: string,
 ): Promise<string> {
   printSection(sectionTitle);
   const detected = detectTools(catalog);
@@ -538,11 +538,11 @@ export async function selectToolFromCatalog(
 }
 
 async function selectEditor(): Promise<string> {
-  return selectToolFromCatalog(EDITOR_CATALOG, "Editor", "claude");
+  return selectToolFromCatalog(EDITOR_CATALOG, "Editor");
 }
 
 async function selectSidebar(): Promise<string> {
-  return selectToolFromCatalog(SIDEBAR_CATALOG, "Sidebar", "lazygit");
+  return selectToolFromCatalog(SIDEBAR_CATALOG, "Sidebar");
 }
 
 export async function selectShell(): Promise<string> {

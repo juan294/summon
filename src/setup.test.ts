@@ -508,7 +508,6 @@ describe("selectToolFromCatalog", () => {
         { cmd: "nano", name: "Nano", desc: "Simple" },
       ],
       "Editor",
-      "vim",
     );
     expect(result).toBe("vim");
     logSpy.mockRestore();
@@ -525,7 +524,6 @@ describe("selectToolFromCatalog", () => {
     const result = await selectToolFromCatalog(
       [{ cmd: "vim", name: "Vim", desc: "Editor" }],
       "Editor",
-      "vim",
     );
     expect(result).toBe("my-editor");
     logSpy.mockRestore();
@@ -547,7 +545,6 @@ describe("selectToolFromCatalog", () => {
         { cmd: "nano", name: "Nano", desc: "Simple" },
       ],
       "Editor",
-      "vim",
     );
     // First (and only) listed option should be nano (detected)
     expect(result).toBe("nano");
@@ -578,7 +575,6 @@ describe("selectToolFromCatalog", () => {
         { cmd: "nano", name: "Nano", desc: "Simple" },
       ],
       "Editor",
-      "vim",
     );
     expect(result).toBe("nano");
     logSpy.mockRestore();
@@ -598,7 +594,6 @@ describe("selectToolFromCatalog", () => {
         { cmd: "nano", name: "Nano", desc: "Simple" },
       ],
       "Editor",
-      "claude",
     );
     expect(result).toBe("my-tool");
     const allOutput = logSpy.mock.calls.map((c) => String(c[0]));
@@ -622,7 +617,6 @@ describe("selectToolFromCatalog", () => {
         { cmd: "nano", name: "Nano", desc: "Simple" },
       ],
       "Editor",
-      "vim",
     );
     expect(result).toBe("vim");
     const allOutput = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
@@ -646,7 +640,6 @@ describe("selectToolFromCatalog", () => {
         { cmd: "nano", name: "Nano", desc: "Simple" },
       ],
       "Editor",
-      "vim",
     );
     const allOutput = logSpy.mock.calls.map((c) => String(c[0]));
     // nano should appear in the numbered list
