@@ -479,11 +479,10 @@ switch (subcommand) {
 
   case "doctor": {
     const { existsSync: ghosttyExists, readFileSync: readGhostty } = await import("node:fs");
-    const { join: joinPath } = await import("node:path");
 
     console.log("Checking Ghostty configuration...\n");
 
-    const ghosttyConfigPath = joinPath(homedir(), ".config", "ghostty", "config");
+    const ghosttyConfigPath = join(homedir(), ".config", "ghostty", "config");
 
     if (!ghosttyExists(ghosttyConfigPath)) {
       console.log("  ! No Ghostty config file found at ~/.config/ghostty/config");

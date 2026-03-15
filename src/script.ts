@@ -1,7 +1,7 @@
 import { basename } from "node:path";
 import type { LayoutPlan } from "./layout.js";
 import type { TreeLayoutPlan, LayoutNode } from "./tree.js";
-import { firstLeaf } from "./tree.js";
+import { firstLeaf, walkLeaves } from "./tree.js";
 import { GHOSTTY_APP_NAME, SUMMON_WORKSPACE_ENV } from "./utils.js";
 
 // --- AppleScript timing constants (empirically tuned for Ghostty responsiveness) ---
@@ -382,17 +382,7 @@ function emitTreeTraversal(
 
 /** Collect all leaf panes with their commands in depth-first order. */
 function collectLeavesWithCommands(node: LayoutNode): Array<[string, string]> {
-  const result: Array<[string, string]> = [];
-  function walk(n: LayoutNode): void {
-    if (n.type === "pane") {
-      result.push([n.name, n.command]);
-    } else {
-      walk(n.first);
-      walk(n.second);
-    }
-  }
-  walk(node);
-  return result;
+  return walkLeaves(node, (p) => [p.name, p.command]);
 }
 
 // --- Public API ---
