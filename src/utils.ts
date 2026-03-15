@@ -25,7 +25,14 @@ export async function promptUser(question: string): Promise<string> {
   const { createInterface } = await import("node:readline");
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   return new Promise((resolve) => {
+    const onClose = () => {
+      // Ctrl+C or EOF — exit cleanly without error dump
+      console.log();
+      process.exit(0);
+    };
+    rl.on("close", onClose);
     rl.question(question, (answer) => {
+      rl.off("close", onClose);
       rl.close();
       resolve(answer.trim());
     });

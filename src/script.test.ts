@@ -147,7 +147,7 @@ describe("generateAppleScript", () => {
     // Sidebar and right editor get commands via config
     // Shell pane has no command (plain shell) — gets clear instead
     const inputTexts = (script.match(/input text/g) ?? []).length;
-    expect(inputTexts).toBe(4); // env export + cd + editor on root pane + clear on shell pane
+    expect(inputTexts).toBe(5); // env export + cd + clear + editor on root pane + clear on shell pane
   });
 
   it("skips command for empty editor", () => {

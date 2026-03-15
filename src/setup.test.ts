@@ -12,6 +12,8 @@ vi.mock("node:readline", () => ({
   createInterface: () => ({
     question: (_q: string, cb: (a: string) => void) => mockQuestion(_q, cb),
     close: vi.fn(),
+    on: vi.fn(),
+    off: vi.fn(),
   }),
 }));
 
@@ -1136,7 +1138,7 @@ describe("runSetup", () => {
     mockExistsSync.mockReturnValue(true);
 
     // runSetup question sequence for pair layout:
-    // 1. selectLayout (numberedSelect) → "Select [1-5]" → "2" (pair)
+    // 1. selectLayout (numberedSelect) → "Select [1-6]" → "2" (pair)
     // 2. selectEditor (selectToolFromCatalog) → "Select (default:" → "1"
     // 3. selectSidebar (selectToolFromCatalog) → "Select (default:" → "1"
     // 4. selectShell (numberedSelect) → "Select [1-3]" → "1" (plain shell)
@@ -1144,7 +1146,7 @@ describe("runSetup", () => {
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
       if (_q.includes("[Y/n]")) {
         cb("y");
-      } else if (_q.includes("Select [1-5]")) {
+      } else if (_q.includes("Select [1-6]")) {
         cb("2"); // pair layout
       } else if (_q.includes("Select [1-3]")) {
         cb("1"); // plain shell
@@ -1182,7 +1184,7 @@ describe("runSetup", () => {
     mockExistsSync.mockReturnValue(true);
 
     // runSetup question sequence for pair layout with custom shell:
-    // 1. selectLayout (numberedSelect) → "Select [1-5]" → "2" (pair)
+    // 1. selectLayout (numberedSelect) → "Select [1-6]" → "2" (pair)
     // 2. selectEditor (selectToolFromCatalog) → "Select (default:" → "1"
     // 3. selectSidebar (selectToolFromCatalog) → "Select (default:" → "1"
     // 4. selectShell (numberedSelect) → "Select [1-3]" → "3" (command)
@@ -1191,7 +1193,7 @@ describe("runSetup", () => {
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
       if (_q.includes("[Y/n]")) {
         cb("y");
-      } else if (_q.includes("Select [1-5]")) {
+      } else if (_q.includes("Select [1-6]")) {
         cb("2"); // pair layout
       } else if (_q.includes("Select [1-3]")) {
         cb("3"); // custom command

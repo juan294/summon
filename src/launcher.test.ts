@@ -44,6 +44,8 @@ vi.mock("node:readline", () => ({
   createInterface: () => ({
     question: (_q: string, cb: (a: string) => void) => mockQuestion(_q, cb),
     close: vi.fn(),
+    on: vi.fn(),
+    off: vi.fn(),
   }),
 }));
 

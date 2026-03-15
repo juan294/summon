@@ -9,10 +9,14 @@ vi.mock("node:child_process", () => ({
 // Mock readline for promptUser tests
 const mockQuestion = vi.fn();
 const mockClose = vi.fn();
+const mockOn = vi.fn();
+const mockOff = vi.fn();
 vi.mock("node:readline", () => ({
   createInterface: () => ({
     question: (_q: string, cb: (a: string) => void) => mockQuestion(_q, cb),
     close: mockClose,
+    on: (event: string, cb: () => void) => mockOn(event, cb),
+    off: (event: string, cb: () => void) => mockOff(event, cb),
   }),
 }));
 
@@ -229,6 +233,37 @@ describe("promptUser", () => {
     );
     await promptUser("Q: ");
     expect(mockClose).toHaveBeenCalled();
+  });
+
+  it("removes close listener before closing on normal answer", async () => {
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) =>
+      cb("answer"),
+    );
+    await promptUser("Q: ");
+    expect(mockOff).toHaveBeenCalledWith("close", expect.any(Function));
+  });
+
+  it("registers a close handler for Ctrl+C", async () => {
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) =>
+      cb("answer"),
+    );
+    await promptUser("Q: ");
+    expect(mockOn).toHaveBeenCalledWith("close", expect.any(Function));
+  });
+
+  it("exits cleanly on Ctrl+C (close event)", async () => {
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => { throw new Error("exit"); });
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    // Simulate Ctrl+C: question never calls back, close handler fires instead
+    mockQuestion.mockImplementation(() => {}); // no callback
+    mockOn.mockImplementation((_event: string, cb: () => void) => cb());
+
+    await expect(promptUser("Q: ")).rejects.toThrow("exit");
+    expect(exitSpy).toHaveBeenCalledWith(0);
+
+    exitSpy.mockRestore();
+    logSpy.mockRestore();
+    mockOn.mockReset();
   });
 
   it("does NOT lowercase the answer (callers handle that)", async () => {

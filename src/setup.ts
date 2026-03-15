@@ -343,10 +343,10 @@ export const LAYOUT_INFO: Record<string, { desc: string; diagram: string }> = {
     desc: "Two editors + sidebar + shell",
     diagram: [
       "  ┌────────┬────────┬──────┐",
-      "  │ editor │ editor │ side │",
-      "  ├────────┴────────┤      │",
-      "  │ shell           │      │",
-      "  └─────────────────┴──────┘",
+      "  │        │ editor │      │",
+      "  │ editor ├────────┤ side │",
+      "  │        │ shell  │      │",
+      "  └────────┴────────┴──────┘",
     ].join("\n"),
   },
   full: {
@@ -371,9 +371,9 @@ export const LAYOUT_INFO: Record<string, { desc: string; diagram: string }> = {
     desc: "Editor + system monitor + sidebar + shell",
     diagram: [
       "  ┌────────┬────────┬──────┐",
-      "  │ editor │  btop  │ side │",
-      "  ├────────┼────────┤      │",
-      "  │ (term) │ shell  │      │",
+      "  │        │  btop  │      │",
+      "  │ editor ├────────┤ side │",
+      "  │        │ shell  │      │",
       "  └────────┴────────┴──────┘",
     ].join("\n"),
   },
@@ -440,13 +440,38 @@ export async function selectLayout(): Promise<string> {
       value: name,
     };
   });
+  // Add "custom" option at the end
+  options.push({
+    label: "custom".padEnd(10) + "Create your own layout",
+    value: "custom",
+  });
   // Default to "pair" (index 1)
   const defaultIdx = presetNames.indexOf("pair");
+  const totalCount = options.length;
   const idx = await numberedSelect(
     options,
-    `  Select [1-${presetNames.length}] (default: ${defaultIdx + 1}): `,
+    `  Select [1-${totalCount}] (default: ${defaultIdx + 1}): `,
     defaultIdx,
   );
+
+  // Custom layout: flow into the layout builder
+  if (idx === presetNames.length) {
+    console.log();
+    const name = await promptUser("  Name your layout: ");
+    if (!name) {
+      console.log(yellow("  No name provided. Falling back to preset selection."));
+      console.log();
+      return selectLayout();
+    }
+    if (!isValidLayoutName(name)) {
+      console.log(yellow("  Invalid name. Use letters, digits, hyphens, underscores (start with a letter)."));
+      console.log();
+      return selectLayout();
+    }
+    await runLayoutBuilder(name);
+    return name;
+  }
+
   const chosen = presetNames[idx]!;
   // Show the diagram for the chosen layout
   console.log();
@@ -693,34 +718,60 @@ export async function runSetup(): Promise<void> {
 
   while (true) {
     const layout = await selectLayout();
-    const editor = await selectEditor();
-    const sidebar = await selectSidebar();
+    const isCustom = isCustomLayout(layout);
 
+    // Custom layouts define their own pane commands — skip editor/sidebar/shell
+    let editor = "claude";
+    let sidebar = "lazygit";
     let shell = "false";
-    if (layout === "minimal") {
-      console.log(dim("  Minimal layout has no shell pane."));
-      console.log();
+
+    if (!isCustom) {
+      editor = await selectEditor();
+      sidebar = await selectSidebar();
+
+      if (layout === "minimal") {
+        console.log(dim("  Minimal layout has no shell pane."));
+        console.log();
+      } else {
+        shell = await selectShell();
+      }
     } else {
-      shell = await selectShell();
+      console.log(dim("  Custom layout — pane commands are defined in the layout."));
+      console.log(dim("  Skipping editor, sidebar, and shell selection."));
+      console.log();
     }
 
     const starshipPreset = await selectStarshipPreset();
 
     const result: SetupResult = { layout, editor, sidebar, shell };
-    printSummary(result, starshipPreset);
+
+    if (isCustom) {
+      printSection("Summary");
+      console.log(`  Layout:    ${bold(layout)} (custom)`);
+      if (starshipPreset) {
+        console.log(`  Starship:  ${bold(starshipPreset)}`);
+      }
+      console.log();
+    } else {
+      printSummary(result, starshipPreset);
+    }
 
     const accepted = await confirm("  Save these settings?");
     if (accepted) {
       setConfig("layout", result.layout);
-      setConfig("editor", result.editor);
-      setConfig("sidebar", result.sidebar);
-      setConfig("shell", result.shell);
+      if (!isCustom) {
+        setConfig("editor", result.editor);
+        setConfig("sidebar", result.sidebar);
+        setConfig("shell", result.shell);
+      }
       if (starshipPreset) {
         setConfig("starship-preset", starshipPreset);
       }
 
-      const validation = validateSetup(result);
-      printValidation(validation);
+      if (!isCustom) {
+        const validation = validateSetup(result);
+        printValidation(validation);
+      }
 
       console.log(green("  Settings saved to ~/.config/summon/config"));
       console.log();

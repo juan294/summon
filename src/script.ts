@@ -142,6 +142,8 @@ function emitRootPaneCommand(
   command: string | null | undefined,
 ): void {
   sendCommand(rootPaneVar, `cd ${shellQuote(targetDir)}`);
+  // Clear setup noise (exports, cd) so the pane starts clean
+  sendCommand(rootPaneVar, "clear");
   if (command) {
     // Shell-quote arguments to prevent metacharacter expansion ($, `, etc.)
     // The command name is left unquoted so the shell can resolve it.
