@@ -38,6 +38,19 @@ function validateLayoutNameOrExit(name: string): void {
   }
 }
 
+function validateLayoutOrExit(value: string, label: string): void {
+  if (!isPresetName(value) && !isCustomLayout(value)) {
+    console.error(`Error: ${label} must be a valid preset or custom layout name, got "${value}".`);
+    console.error(`Valid presets: ${getPresetNames().join(", ")}`);
+    const custom = listCustomLayouts();
+    if (custom.length > 0) {
+      console.error(`Custom layouts: ${custom.join(", ")}`);
+    }
+    console.error(`Run 'summon --help' for usage information.`);
+    process.exit(1);
+  }
+}
+
 function layoutNotFoundOrExit(name: string): never {
   console.error(`Layout not found: ${name}`);
   console.error("Run 'summon layout list' to see available layouts.");
@@ -268,15 +281,8 @@ if (values["font-size"] !== undefined) {
   validateFloatFlag("font-size", values["font-size"]);
 }
 
-if (values.layout !== undefined && !isPresetName(values.layout) && !isCustomLayout(values.layout)) {
-  console.error(`Error: --layout must be a valid preset or custom layout name, got "${values.layout}".`);
-  console.error(`Valid presets: ${getPresetNames().join(", ")}`);
-  const custom = listCustomLayouts();
-  if (custom.length > 0) {
-    console.error(`Custom layouts: ${custom.join(", ")}`);
-  }
-  console.error(`Run 'summon --help' for usage information.`);
-  process.exit(1);
+if (values.layout !== undefined) {
+  validateLayoutOrExit(values.layout, "--layout");
 }
 
 if (values["auto-resize"] && values["no-auto-resize"]) {
@@ -397,15 +403,7 @@ switch (subcommand) {
       validateIntFlag("editor-size", value, EDITOR_SIZE_MIN, EDITOR_SIZE_MAX);
     }
     if (key === "layout" && value !== undefined) {
-      if (!isPresetName(value) && !isCustomLayout(value)) {
-        console.error(`Error: layout must be a valid preset or custom layout name, got "${value}".`);
-        console.error(`Valid presets: ${getPresetNames().join(", ")}`);
-        const custom = listCustomLayouts();
-        if (custom.length > 0) {
-          console.error(`Custom layouts: ${custom.join(", ")}`);
-        }
-        process.exit(1);
-      }
+      validateLayoutOrExit(value, "layout");
     }
     if (BOOLEAN_KEYS.has(key) && value !== undefined) {
       if (value !== "true" && value !== "false") {

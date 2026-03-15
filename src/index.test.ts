@@ -928,4 +928,37 @@ describe("CLI integration", () => {
       expect(result.stderr).toContain("Error:");
     });
   });
+
+  // #147: Both --layout flag and summon set layout share the same validation
+  describe("shared layout validation (#147)", () => {
+    it("--layout flag shows 'Valid presets:' for invalid layout", () => {
+      const result = run(".", "--layout", "bogus");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("Valid presets:");
+    });
+
+    it("summon set layout shows 'Valid presets:' for invalid layout", () => {
+      const result = run("set", "layout", "bogus");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("Valid presets:");
+    });
+
+    it("--layout flag lists custom layouts when they exist", () => {
+      run("set", "panes", "2");
+      run("layout", "save", "customcheck");
+      const result = run(".", "--layout", "bogus147");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("Custom layouts:");
+      expect(result.stderr).toContain("customcheck");
+    });
+
+    it("summon set layout lists custom layouts when they exist", () => {
+      run("set", "panes", "2");
+      run("layout", "save", "customcheck2");
+      const result = run("set", "layout", "bogus147");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("Custom layouts:");
+      expect(result.stderr).toContain("customcheck2");
+    });
+  });
 });
