@@ -1623,7 +1623,7 @@ export async function runLayoutBuilder(name: string): Promise<void> {
       while (!cmd) {
         renderer.countPrompt();
         const input = await promptUser(
-          `  Column ${c + 1}, Pane ${p + 1} \u2014 command: `,
+          `  Column ${c + 1}, Pane ${p + 1} \u2014 command [shell]: `,
         );
         cmd = input || "shell";
         const validated = await validateBuilderCommand(cmd, availableCmds);
@@ -1654,7 +1654,7 @@ export async function runLayoutBuilder(name: string): Promise<void> {
   let sidebar = "";
   while (!sidebar) {
     renderer.countPrompt();
-    const sidebarInput = await promptUser("  Sidebar \u2014 command: ");
+    const sidebarInput = await promptUser("  Sidebar \u2014 command [lazygit]: ");
     sidebar = sidebarInput || "lazygit";
     const validatedSidebar = await validateBuilderCommand(sidebar, availableCmds);
     if (validatedSidebar !== sidebar) {
