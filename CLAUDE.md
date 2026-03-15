@@ -31,10 +31,11 @@ src/
   tree.ts          Tree DSL parser, layout node model, plan builder (pure function)
   script.ts        AppleScript generator (pure function — builds script string)
   launcher.ts      Orchestrator: resolve config, generate script, execute via osascript
-  setup.ts         Interactive setup wizard (first-run onboarding, tool detection, layout builder TUI)
+  setup.ts         Interactive setup wizard, visual layout builder (template gallery, grid builder, live preview)
   starship.ts      Starship detection, preset listing, TOML config caching
-  utils.ts         Shared utilities (SAFE_COMMAND_RE, GHOSTTY_PATHS, resolveCommand)
-  validation.ts    Input validation helpers (parseIntInRange)
+  completions.ts   Shell completion script generator (bash, zsh, fish)
+  utils.ts         Shared utilities (SAFE_COMMAND_RE, GHOSTTY_PATHS, resolveCommand, promptUser, getErrorMessage)
+  validation.ts    Input validation helpers (parseIntInRange, validateIntFlag, validateFloatFlag)
   globals.d.ts     Build-time constants (__VERSION__)
   *.test.ts        Co-located unit tests
 ```

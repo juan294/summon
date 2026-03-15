@@ -1,8 +1,8 @@
 # Publishing Checklist
 
-Tracking what's done and what's left before the first `npm publish`.
+Publishing checklist and workflow. First published as v0.7.0 on 2026-03-14.
 
-## Already Done
+## Setup (completed)
 
 - [x] Package name `summon-ws` chosen (npm)
 - [x] `bin` entry for `summon`
@@ -17,14 +17,9 @@ Tracking what's done and what's left before the first `npm publish`.
 - [x] `repository`, `homepage`, `bugs` fields in package.json
 - [x] README.md
 
-## TODO Before First Publish
+## Publishing a New Version
 
-### 1. npm Account
-- [ ] Verify existing npm account or create one
-- [ ] Run `npm login`
-- [ ] Verify `summon-ws` is available: `npm view summon-ws`
-
-### 2. Local Tarball Test
+### 1. Pre-Publish Verification
 ```bash
 pnpm pack
 # Inspect the tarball contents:
