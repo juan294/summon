@@ -17,7 +17,7 @@ vi.mock("node:readline", () => ({
 }));
 
 // Import after mocks
-const { SAFE_COMMAND_RE, GHOSTTY_PATHS, resolveCommand, promptUser } = await import("./utils.js");
+const { SAFE_COMMAND_RE, GHOSTTY_PATHS, GHOSTTY_APP_NAME, SUMMON_WORKSPACE_ENV, resolveCommand, promptUser, getErrorMessage } = await import("./utils.js");
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -114,6 +114,16 @@ describe("GHOSTTY_PATHS", () => {
   });
 });
 
+describe("shared constants", () => {
+  it("GHOSTTY_APP_NAME is 'Ghostty'", () => {
+    expect(GHOSTTY_APP_NAME).toBe("Ghostty");
+  });
+
+  it("SUMMON_WORKSPACE_ENV is 'SUMMON_WORKSPACE'", () => {
+    expect(SUMMON_WORKSPACE_ENV).toBe("SUMMON_WORKSPACE");
+  });
+});
+
 describe("resolveCommand", () => {
   it("returns path when command is found", () => {
     mockExecFileSync.mockReturnValue("/usr/bin/vim\n");
@@ -167,6 +177,32 @@ describe("resolveCommand", () => {
     mockExecFileSync.mockReturnValue("/usr/bin/my-editor.v2\n");
     expect(resolveCommand("my-editor.v2")).toBe("/usr/bin/my-editor.v2");
     expect(mockExecFileSync).toHaveBeenCalled();
+  });
+});
+
+describe("getErrorMessage", () => {
+  it("extracts message from Error instances", () => {
+    expect(getErrorMessage(new Error("boom"))).toBe("boom");
+  });
+
+  it("extracts message from Error subclasses", () => {
+    expect(getErrorMessage(new TypeError("type fail"))).toBe("type fail");
+  });
+
+  it("converts string to itself", () => {
+    expect(getErrorMessage("plain string")).toBe("plain string");
+  });
+
+  it("converts number to string", () => {
+    expect(getErrorMessage(42)).toBe("42");
+  });
+
+  it("converts null to string", () => {
+    expect(getErrorMessage(null)).toBe("null");
+  });
+
+  it("converts undefined to string", () => {
+    expect(getErrorMessage(undefined)).toBe("undefined");
   });
 });
 

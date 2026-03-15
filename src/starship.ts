@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { CONFIG_DIR } from "./config.js";
-import { resolveCommand, SAFE_COMMAND_RE } from "./utils.js";
+import { resolveCommand, SAFE_COMMAND_RE, getErrorMessage } from "./utils.js";
 
 /** Directory for cached Starship preset TOML files. */
 const STARSHIP_DIR = join(CONFIG_DIR, "starship");
@@ -72,7 +72,7 @@ export function ensurePresetConfig(presetName: string): string {
     });
   } catch (err) {
     throw new Error(
-      `Failed to generate Starship preset "${presetName}": ${(err as Error).message}`,
+      `Failed to generate Starship preset "${presetName}": ${getErrorMessage(err)}`,
       { cause: err },
     );
   }

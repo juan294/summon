@@ -125,7 +125,7 @@ export const CLI_FLAGS = [
 
 // --- Custom layouts ---
 
-const LAYOUT_NAME_RE = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
+export const LAYOUT_NAME_RE = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
 
 export function isValidLayoutName(name: string): boolean {
   return LAYOUT_NAME_RE.test(name) && !isPresetName(name);

@@ -28,3 +28,44 @@ export function parseIntInRange(
   }
   return { ok: true, value: parsed };
 }
+
+/**
+ * Validate a numeric CLI flag at parse time.
+ * Exits with a standardized error if invalid.
+ * Returns the parsed value on success.
+ */
+export function validateIntFlag(
+  flagName: string,
+  value: string,
+  min: number,
+  max?: number,
+): number {
+  const result = parseIntInRange(value, min, max);
+  if (!result.ok) {
+    const rangeDesc = max !== undefined
+      ? `an integer between ${min}-${max}`
+      : "a positive integer";
+    console.error(`Error: --${flagName} must be ${rangeDesc}, got "${value}".`);
+    console.error("Run 'summon --help' for usage information.");
+    process.exit(1);
+  }
+  return result.value;
+}
+
+/**
+ * Validate a positive float CLI flag at parse time.
+ * Exits with a standardized error if invalid.
+ * Returns the parsed value on success.
+ */
+export function validateFloatFlag(
+  flagName: string,
+  value: string,
+): number {
+  const parsed = parseFloat(value);
+  if (isNaN(parsed) || parsed <= 0) {
+    console.error(`Error: --${flagName} must be a positive number, got "${value}".`);
+    console.error("Run 'summon --help' for usage information.");
+    process.exit(1);
+  }
+  return parsed;
+}

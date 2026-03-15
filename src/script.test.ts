@@ -479,7 +479,7 @@ describe("generateAppleScript", () => {
     expect(script).toContain('perform action "set_surface_title:editor \u00B7 claude" on paneRoot');
     expect(script).toContain('perform action "set_surface_title:sidebar \u00B7 lazygit" on paneSidebar');
     expect(script).toContain('perform action "set_surface_title:editor \u00B7 claude" on paneRightCol');
-    expect(script).toContain('perform action "set_surface_title:server" on paneRight2');
+    expect(script).toContain('perform action "set_surface_title:shell" on paneRight2');
   });
 
   it("pane titles appear before focus", () => {
@@ -501,7 +501,7 @@ describe("generateAppleScript", () => {
     expect(script).toContain('perform action "set_surface_title:sidebar \u00B7 lazygit" on paneSidebar');
     // No right column panes
     expect(script).not.toContain("set_surface_title:editor" + '" on paneRightCol');
-    expect(script).not.toContain("set_surface_title:server" + '" on paneRight');
+    expect(script).not.toContain("set_surface_title:shell" + '" on paneRight');
   });
 
   it("full preset sets titles for all panes", () => {
@@ -512,7 +512,7 @@ describe("generateAppleScript", () => {
     expect(script).toContain('perform action "set_surface_title:sidebar \u00B7 lazygit" on paneSidebar');
     expect(script).toContain('perform action "set_surface_title:editor \u00B7 claude" on paneRightCol');
     expect(script).toContain('perform action "set_surface_title:editor \u00B7 claude" on paneLeft2');
-    expect(script).toContain('perform action "set_surface_title:server" on paneRight2');
+    expect(script).toContain('perform action "set_surface_title:shell" on paneRight2');
   });
 
   it("btop preset shows secondary editor in right column title", () => {
@@ -526,7 +526,7 @@ describe("generateAppleScript", () => {
     const plan = planLayout({ shell: "npm run dev" });
     const script = generateAppleScript(plan, "/tmp/proj");
 
-    expect(script).toContain('perform action "set_surface_title:server \u00B7 npm run dev" on paneRight2');
+    expect(script).toContain('perform action "set_surface_title:shell \u00B7 npm run dev" on paneRight2');
   });
 
   it("tab title uses basename of target directory", () => {
@@ -557,7 +557,7 @@ describe("generateAppleScript", () => {
     const plan = planLayout(getPreset("cli"));
     const script = generateAppleScript(plan, "/tmp/proj");
 
-    expect(script).toContain('perform action "set_surface_title:server" on paneRightCol');
+    expect(script).toContain('perform action "set_surface_title:shell" on paneRightCol');
   });
 
   // --- SUMMON_WORKSPACE marker ---

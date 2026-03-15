@@ -23,8 +23,8 @@ import {
 import { launch } from "./launcher.js";
 import type { CLIOverrides } from "./launcher.js";
 import { PANES_MIN, EDITOR_SIZE_MIN, EDITOR_SIZE_MAX, isPresetName, getPresetNames } from "./layout.js";
-import { parseIntInRange } from "./validation.js";
-import { SAFE_COMMAND_RE } from "./utils.js";
+import { validateIntFlag, validateFloatFlag } from "./validation.js";
+import { SAFE_COMMAND_RE, getErrorMessage } from "./utils.js";
 
 function validateLayoutNameOrExit(name: string): void {
   if (isPresetName(name)) {
@@ -233,7 +233,7 @@ function safeParse() {
   try {
     return parseArgs(parseOpts);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+    const msg = getErrorMessage(err);
     console.error(`Error: ${msg}`);
     if (msg.includes("ambiguous")) {
       console.error(`Tip: To pass a value starting with '-', use '--flag=-value' syntax.`);
@@ -247,19 +247,11 @@ const { values, positionals } = safeParse();
 
 // Validate numeric flags at parse time
 if (values.panes !== undefined) {
-  if (!parseIntInRange(values.panes, PANES_MIN).ok) {
-    console.error(`Error: --panes must be a positive integer, got "${values.panes}".`);
-    console.error(`Run 'summon --help' for usage information.`);
-    process.exit(1);
-  }
+  validateIntFlag("panes", values.panes, PANES_MIN);
 }
 
 if (values["editor-size"] !== undefined) {
-  if (!parseIntInRange(values["editor-size"], EDITOR_SIZE_MIN, EDITOR_SIZE_MAX).ok) {
-    console.error(`Error: --editor-size must be an integer between ${EDITOR_SIZE_MIN}-${EDITOR_SIZE_MAX}, got "${values["editor-size"]}".`);
-    console.error(`Run 'summon --help' for usage information.`);
-    process.exit(1);
-  }
+  validateIntFlag("editor-size", values["editor-size"], EDITOR_SIZE_MIN, EDITOR_SIZE_MAX);
 }
 
 if (values.env) {
@@ -273,12 +265,7 @@ if (values.env) {
 }
 
 if (values["font-size"] !== undefined) {
-  const parsed = parseFloat(values["font-size"]);
-  if (isNaN(parsed) || parsed <= 0) {
-    console.error(`Error: --font-size must be a positive number, got "${values["font-size"]}".`);
-    console.error(`Run 'summon --help' for usage information.`);
-    process.exit(1);
-  }
+  validateFloatFlag("font-size", values["font-size"]);
 }
 
 if (values.layout !== undefined && !isPresetName(values.layout) && !isCustomLayout(values.layout)) {
@@ -404,16 +391,10 @@ switch (subcommand) {
       process.exit(1);
     }
     if (key === "panes" && value !== undefined) {
-      if (!parseIntInRange(value, PANES_MIN).ok) {
-        console.error(`Error: panes must be a positive integer (>= ${PANES_MIN}), got "${value}".`);
-        process.exit(1);
-      }
+      validateIntFlag("panes", value, PANES_MIN);
     }
     if (key === "editor-size" && value !== undefined) {
-      if (!parseIntInRange(value, EDITOR_SIZE_MIN, EDITOR_SIZE_MAX).ok) {
-        console.error(`Error: editor-size must be an integer between ${EDITOR_SIZE_MIN}-${EDITOR_SIZE_MAX}, got "${value}".`);
-        process.exit(1);
-      }
+      validateIntFlag("editor-size", value, EDITOR_SIZE_MIN, EDITOR_SIZE_MAX);
     }
     if (key === "layout" && value !== undefined) {
       if (!isPresetName(value) && !isCustomLayout(value)) {
@@ -433,11 +414,7 @@ switch (subcommand) {
       }
     }
     if (key === "font-size" && value !== undefined) {
-      const parsed = parseFloat(value);
-      if (isNaN(parsed) || parsed <= 0) {
-        console.error(`Error: font-size must be a positive number, got "${value}".`);
-        process.exit(1);
-      }
+      validateFloatFlag("font-size", value);
     }
     if (key === "starship-preset" && value !== undefined) {
       if (!SAFE_COMMAND_RE.test(value)) {
@@ -526,26 +503,28 @@ switch (subcommand) {
         key: "window-save-state",
         recommended: "always",
         reason: "Restore your workspace layout after Ghostty restarts",
+        regex: /^\s*window-save-state\s*=/m,
       },
       {
         name: "Command Notifications",
         key: "notify-on-command-finish",
         recommended: "unfocused",
         reason: "Get notified when long-running commands finish",
+        regex: /^\s*notify-on-command-finish\s*=/m,
       },
       {
         name: "Shell Integration",
         key: "shell-integration",
         recommended: "detect",
         reason: "Enable prompt navigation, click-to-move cursor, and smart close",
+        regex: /^\s*shell-integration\s*=/m,
       },
     ];
 
     let allGood = true;
 
     for (const check of checks) {
-      const regex = new RegExp(`^\\s*${check.key}\\s*=`, "m");
-      const isSet = regex.test(configContent);
+      const isSet = check.regex.test(configContent);
 
       if (isSet) {
         console.log(`  + ${check.name} (${check.key}) is configured`);

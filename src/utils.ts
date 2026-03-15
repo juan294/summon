@@ -11,6 +11,12 @@ export const GHOSTTY_PATHS = [
   join(homedir(), "Applications", "Ghostty.app"),
 ];
 
+/** Application name used in AppleScript `tell` blocks. */
+export const GHOSTTY_APP_NAME = "Ghostty";
+
+/** Environment variable set inside summon workspaces to detect nesting. */
+export const SUMMON_WORKSPACE_ENV = "SUMMON_WORKSPACE";
+
 /**
  * Prompt the user with a question via readline and return the trimmed answer.
  * Dynamically imports node:readline so callers that never prompt pay no cost.
@@ -24,6 +30,14 @@ export async function promptUser(question: string): Promise<string> {
       resolve(answer.trim());
     });
   });
+}
+
+/**
+ * Safely extract a message from an unknown catch value.
+ * Returns `.message` for Error instances, `String(err)` for everything else.
+ */
+export function getErrorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
 
 /**
