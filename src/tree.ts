@@ -301,7 +301,7 @@ export function resolveTreeCommands(
   return resolved;
 }
 
-export interface TreePlanOptions {
+interface TreePlanOptions {
   autoResize?: boolean;
   editorSize?: number;
   fontSize?: number | null;
@@ -331,12 +331,12 @@ export function buildTreePlan(
   };
 }
 
-/** Collect all pane names in depth-first order. */
-export function collectLeaves(node: LayoutNode): string[] {
-  const result: string[] = [];
+/** Walk all leaf panes in depth-first order, applying a mapper to each. */
+export function walkLeaves<T>(node: LayoutNode, mapper: (pane: PaneNode) => T): T[] {
+  const result: T[] = [];
   function walk(n: LayoutNode): void {
     if (n.type === "pane") {
-      result.push(n.name);
+      result.push(mapper(n));
     } else {
       walk(n.first);
       walk(n.second);
@@ -344,6 +344,11 @@ export function collectLeaves(node: LayoutNode): string[] {
   }
   walk(node);
   return result;
+}
+
+/** Collect all pane names in depth-first order. */
+export function collectLeaves(node: LayoutNode): string[] {
+  return walkLeaves(node, (p) => p.name);
 }
 
 /** Returns the first leaf pane node in depth-first order. */

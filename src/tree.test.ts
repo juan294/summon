@@ -5,6 +5,7 @@ import {
   resolveTreeCommands,
   buildTreePlan,
   collectLeaves,
+  walkLeaves,
   findPaneByName,
   firstLeaf,
 } from "./tree.js";
@@ -322,6 +323,48 @@ describe("buildTreePlan", () => {
     expect(plan.fullscreen).toBe(true);
     expect(plan.maximize).toBe(true);
     expect(plan.float).toBe(true);
+  });
+});
+
+// ---------- Leaf walker ----------
+
+describe("walkLeaves", () => {
+  it("maps a single pane", () => {
+    const node: LayoutNode = { type: "pane", name: "main", command: "cmd" };
+    expect(walkLeaves(node, (p) => p.name)).toEqual(["main"]);
+  });
+
+  it("maps leaves with a custom mapper", () => {
+    const node: LayoutNode = {
+      type: "split",
+      direction: "right",
+      first: { type: "pane", name: "a", command: "cmd-a" },
+      second: { type: "pane", name: "b", command: "cmd-b" },
+    };
+    expect(walkLeaves(node, (p) => ({ name: p.name, command: p.command }))).toEqual([
+      { name: "a", command: "cmd-a" },
+      { name: "b", command: "cmd-b" },
+    ]);
+  });
+
+  it("collects from deeply nested tree in depth-first order", () => {
+    const node: LayoutNode = {
+      type: "split",
+      direction: "right",
+      first: {
+        type: "split",
+        direction: "down",
+        first: { type: "pane", name: "a", command: "" },
+        second: { type: "pane", name: "b", command: "" },
+      },
+      second: {
+        type: "split",
+        direction: "down",
+        first: { type: "pane", name: "c", command: "" },
+        second: { type: "pane", name: "d", command: "" },
+      },
+    };
+    expect(walkLeaves(node, (p) => p.name)).toEqual(["a", "b", "c", "d"]);
   });
 });
 

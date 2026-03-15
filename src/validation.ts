@@ -5,7 +5,7 @@
  * into a reusable function.
  */
 
-export type ParseIntResult = {
+type ParseIntResult = {
   ok: true;
   value: number;
 } | {
