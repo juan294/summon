@@ -6,6 +6,7 @@ import {
   buildTreePlan,
   collectLeaves,
   findPaneByName,
+  firstLeaf,
 } from "./tree.js";
 import type { LayoutNode, PaneNode, SplitNode } from "./tree.js";
 
@@ -424,5 +425,51 @@ describe("findPaneByName", () => {
     };
     const result = findPaneByName(node, "target");
     expect(result).toEqual({ type: "pane", name: "target", command: "lazygit" });
+  });
+});
+
+describe("firstLeaf", () => {
+  it("returns the node itself for a single pane", () => {
+    const pane: PaneNode = { type: "pane", name: "editor", command: "vim" };
+    const result = firstLeaf(pane);
+    expect(result).toBe(pane);
+    expect(result.name).toBe("editor");
+    expect(result.command).toBe("vim");
+  });
+
+  it("returns the leftmost leaf of a right split", () => {
+    const left: PaneNode = { type: "pane", name: "a", command: "cmd-a" };
+    const right: PaneNode = { type: "pane", name: "b", command: "cmd-b" };
+    const split: SplitNode = { type: "split", direction: "right", first: left, second: right };
+    expect(firstLeaf(split)).toBe(left);
+  });
+
+  it("returns the leftmost leaf of a down split", () => {
+    const top: PaneNode = { type: "pane", name: "top", command: "top-cmd" };
+    const bottom: PaneNode = { type: "pane", name: "bottom", command: "bottom-cmd" };
+    const split: SplitNode = { type: "split", direction: "down", first: top, second: bottom };
+    expect(firstLeaf(split)).toBe(top);
+  });
+
+  it("returns the deepest leftmost leaf of a nested tree", () => {
+    const a: PaneNode = { type: "pane", name: "a", command: "cmd-a" };
+    const b: PaneNode = { type: "pane", name: "b", command: "cmd-b" };
+    const c: PaneNode = { type: "pane", name: "c", command: "cmd-c" };
+    const d: PaneNode = { type: "pane", name: "d", command: "cmd-d" };
+    const left: SplitNode = { type: "split", direction: "down", first: a, second: b };
+    const right: SplitNode = { type: "split", direction: "down", first: c, second: d };
+    const root: SplitNode = { type: "split", direction: "right", first: left, second: right };
+    expect(firstLeaf(root)).toBe(a);
+  });
+
+  it("traverses only the first branch at each level", () => {
+    const a: PaneNode = { type: "pane", name: "a", command: "" };
+    const b: PaneNode = { type: "pane", name: "b", command: "" };
+    const c: PaneNode = { type: "pane", name: "c", command: "" };
+    const d: PaneNode = { type: "pane", name: "d", command: "" };
+    const ab: SplitNode = { type: "split", direction: "down", first: a, second: b };
+    const abc: SplitNode = { type: "split", direction: "down", first: ab, second: c };
+    const root: SplitNode = { type: "split", direction: "right", first: abc, second: d };
+    expect(firstLeaf(root)).toBe(a);
   });
 });

@@ -13,11 +13,11 @@ import {
   EDITOR_SIZE_DEFAULT,
 } from "./layout.js";
 import type { LayoutOptions } from "./layout.js";
-import { listConfig, readKVFile, readCustomLayout, isCustomLayout } from "./config.js";
+import { listConfig, readKVFile, readCustomLayout, isCustomLayout, LAYOUT_NAME_RE } from "./config.js";
 import { generateAppleScript, generateTreeAppleScript } from "./script.js";
 import { parseTreeDSL, extractPaneDefinitions, resolveTreeCommands as resolveTreeCmds, buildTreePlan, collectLeaves, findPaneByName } from "./tree.js";
 import type { LayoutNode } from "./tree.js";
-import { SAFE_COMMAND_RE, GHOSTTY_PATHS, resolveCommand as resolveCommandPath, promptUser } from "./utils.js";
+import { SAFE_COMMAND_RE, GHOSTTY_PATHS, resolveCommand as resolveCommandPath, promptUser, getErrorMessage, SUMMON_WORKSPACE_ENV } from "./utils.js";
 import { parseIntInRange } from "./validation.js";
 import { isStarshipInstalled, ensurePresetConfig, getPresetConfigPath } from "./starship.js";
 
@@ -76,8 +76,7 @@ function executeScript(script: string): void {
   try {
     execFileSync("osascript", [], { input: script, encoding: "utf-8" });
   } catch (err) {
-    const detail = err instanceof Error ? err.message : String(err);
-    console.error(`Failed to execute workspace script: ${detail}`);
+    console.error(`Failed to execute workspace script: ${getErrorMessage(err)}`);
     console.error("Is Ghostty running?");
     process.exit(1);
   }
@@ -253,66 +252,85 @@ function collectEnvVars(
   return envVars;
 }
 
-export function resolveConfig(targetDir: string, cliOverrides: CLIOverrides): ResolvedConfig {
-  const project = readKVFile(join(targetDir, ".summon"));
-  const machineConfig = listConfig();
+/** Pick a config value with priority: CLI > project > global. Empty strings treated as unset. */
+function pickConfigValue(
+  cli: string | undefined,
+  projKey: string,
+  project: Map<string, string>,
+  machineConfig: Map<string, string>,
+): string | undefined {
+  if (cli !== undefined) return cli;
+  return project.get(projKey) || machineConfig.get(projKey) || undefined;
+}
 
-  // Resolve layout preset: CLI > project > global
-  const layoutKey = cliOverrides.layout ?? project.get("layout") ?? machineConfig.get("layout");
-  let base: Partial<LayoutOptions> = {};
-  let treeLayout: ResolvedConfig["treeLayout"] | undefined;
-  if (layoutKey) {
-    if (isPresetName(layoutKey)) {
-      base = getPreset(layoutKey);
-    } else if (/^[a-zA-Z][a-zA-Z0-9_-]*$/.test(layoutKey) && isCustomLayout(layoutKey)) {
-      // Load custom layout as base config
-      const customData = readCustomLayout(layoutKey);
-      if (customData) {
-        // Extract global options shared by both tree and traditional custom layouts
-        if (customData.has("editor-size")) {
-          const es = parseIntInRange(customData.get("editor-size")!, EDITOR_SIZE_MIN, EDITOR_SIZE_MAX);
-          if (es.ok) base.editorSize = es.value;
-        }
-        if (customData.has("auto-resize")) base.autoResize = customData.get("auto-resize") === "true";
-        if (customData.has("font-size")) {
-          const fs = parseFloat(customData.get("font-size")!);
-          if (!isNaN(fs) && fs > 0) base.fontSize = fs;
-        }
-        if (customData.has("new-window")) base.newWindow = customData.get("new-window") === "true";
-        if (customData.has("fullscreen")) base.fullscreen = customData.get("fullscreen") === "true";
-        if (customData.has("maximize")) base.maximize = customData.get("maximize") === "true";
-        if (customData.has("float")) base.float = customData.get("float") === "true";
+/**
+ * Resolve the layout key to a base LayoutOptions partial and optional tree layout.
+ * Handles: preset lookup, custom layout loading, tree expression parsing.
+ */
+function resolveLayoutBase(
+  layoutKey: string | undefined,
+): { base: Partial<LayoutOptions>; treeLayout?: ResolvedConfig["treeLayout"] } {
+  if (!layoutKey) return { base: {} };
 
-        const treeExpr = customData.get("tree");
-        if (treeExpr) {
-          // Tree-based custom layout
-          const tree = parseTreeDSL(treeExpr);
-          const panes = extractPaneDefinitions(customData);
-          treeLayout = { tree, panes };
-        } else {
-          // Traditional custom layout (no tree= key) — apply as preset-like config
-          if (customData.has("editor")) base.editor = customData.get("editor");
-          if (customData.has("sidebar")) base.sidebarCommand = customData.get("sidebar");
-          if (customData.has("panes")) {
-            const p = parseIntInRange(customData.get("panes")!, PANES_MIN);
-            if (p.ok) base.editorPanes = p.value;
-          }
-          if (customData.has("shell")) base.shell = customData.get("shell");
-        }
-      }
-    } else {
-      console.warn(
-        `Unknown layout preset: "${layoutKey}". Valid presets: ${getPresetNames().join(", ")}. Using defaults.`,
-      );
-    }
+  if (isPresetName(layoutKey)) {
+    return { base: getPreset(layoutKey) };
   }
 
-  // Layer: CLI > project > global > preset (for each config key)
-  // Empty strings in config files mean "unset" — skip to next layer
-  const pick = (cli: string | undefined, projKey: string): string | undefined => {
-    if (cli !== undefined) return cli;
-    return project.get(projKey) || machineConfig.get(projKey) || undefined;
-  };
+  if (LAYOUT_NAME_RE.test(layoutKey) && isCustomLayout(layoutKey)) {
+    const customData = readCustomLayout(layoutKey);
+    if (!customData) return { base: {} };
+
+    const base: Partial<LayoutOptions> = {};
+    if (customData.has("editor-size")) {
+      const es = parseIntInRange(customData.get("editor-size")!, EDITOR_SIZE_MIN, EDITOR_SIZE_MAX);
+      if (es.ok) base.editorSize = es.value;
+    }
+    if (customData.has("auto-resize")) base.autoResize = customData.get("auto-resize") === "true";
+    if (customData.has("font-size")) {
+      const fs = parseFloat(customData.get("font-size")!);
+      if (!isNaN(fs) && fs > 0) base.fontSize = fs;
+    }
+    if (customData.has("new-window")) base.newWindow = customData.get("new-window") === "true";
+    if (customData.has("fullscreen")) base.fullscreen = customData.get("fullscreen") === "true";
+    if (customData.has("maximize")) base.maximize = customData.get("maximize") === "true";
+    if (customData.has("float")) base.float = customData.get("float") === "true";
+
+    const treeExpr = customData.get("tree");
+    if (treeExpr) {
+      const tree = parseTreeDSL(treeExpr);
+      const panes = extractPaneDefinitions(customData);
+      return { base, treeLayout: { tree, panes } };
+    }
+
+    // Traditional custom layout (no tree= key)
+    if (customData.has("editor")) base.editor = customData.get("editor");
+    if (customData.has("sidebar")) base.sidebarCommand = customData.get("sidebar");
+    if (customData.has("panes")) {
+      const p = parseIntInRange(customData.get("panes")!, PANES_MIN);
+      if (p.ok) base.editorPanes = p.value;
+    }
+    if (customData.has("shell")) base.shell = customData.get("shell");
+    return { base };
+  }
+
+  console.warn(
+    `Unknown layout preset: "${layoutKey}". Valid presets: ${getPresetNames().join(", ")}. Using defaults.`,
+  );
+  return { base: {} };
+}
+
+/**
+ * Layer config values: CLI overrides > project > global config > base preset.
+ * Returns merged Partial<LayoutOptions>.
+ */
+function layerConfigValues(
+  base: Partial<LayoutOptions>,
+  cliOverrides: CLIOverrides,
+  project: Map<string, string>,
+  machineConfig: Map<string, string>,
+): Partial<LayoutOptions> {
+  const pick = (cli: string | undefined, projKey: string) =>
+    pickConfigValue(cli, projKey, project, machineConfig);
 
   const editor = pick(cliOverrides.editor, "editor");
   const sidebar = pick(cliOverrides.sidebar, "sidebar");
@@ -366,16 +384,147 @@ export function resolveConfig(targetDir: string, cliOverrides: CLIOverrides): Re
   if (maximize !== undefined) result.maximize = maximize === "true";
   if (float !== undefined) result.float = float === "true";
 
-  // Resolve starship-preset: CLI > project > global (no default)
-  const starshipPreset = pick(cliOverrides["starship-preset"], "starship-preset");
+  return result;
+}
 
-  // Resolve on-start: CLI > project > global (no default)
-  const onStart = pick(cliOverrides["on-start"], "on-start");
+export function resolveConfig(targetDir: string, cliOverrides: CLIOverrides): ResolvedConfig {
+  const project = readKVFile(join(targetDir, ".summon"));
+  const machineConfig = listConfig();
 
-  // Collect env vars from all layers (machine < project < CLI)
+  const layoutKey = cliOverrides.layout ?? project.get("layout") ?? machineConfig.get("layout");
+  const { base, treeLayout } = resolveLayoutBase(layoutKey);
+  const opts = layerConfigValues(base, cliOverrides, project, machineConfig);
+
+  const starshipPreset = pickConfigValue(cliOverrides["starship-preset"], "starship-preset", project, machineConfig);
+  const onStart = pickConfigValue(cliOverrides["on-start"], "on-start", project, machineConfig);
   const envVars = collectEnvVars(machineConfig, project, cliOverrides.env);
 
-  return { opts: result, projectOverrides: project, starshipPreset, onStart, envVars, treeLayout };
+  return { opts, projectOverrides: project, starshipPreset, onStart, envVars, treeLayout };
+}
+
+/**
+ * Warn the user if they're launching from inside an existing summon workspace.
+ * Returns true if the user chose to abort.
+ */
+async function warnIfNested(
+  opts: Partial<LayoutOptions>,
+  dryRun: boolean | undefined,
+): Promise<boolean> {
+  if (!process.env[SUMMON_WORKSPACE_ENV] || opts.newWindow || dryRun || !process.stdin.isTTY) {
+    return false;
+  }
+  console.warn("Warning: You're inside an existing summon workspace.");
+  console.warn("Launching here will nest splits inside this pane, which can get too scary.");
+  console.warn("Tip: Use --new-window to open in a separate window instead.\n");
+  const answer = await prompt("Continue anyway? [y/N] ");
+  return answer !== "y";
+}
+
+/** Execute the on-start hook command before workspace creation. */
+function executeOnStart(onStart: string, targetDir: string): void {
+  console.log(`Running on-start: ${onStart}`);
+  try {
+    execSync(onStart, { cwd: targetDir, encoding: "utf-8", stdio: "inherit" });
+  } catch {
+    console.error(`on-start command failed: ${onStart}`);
+    process.exit(1);
+  }
+}
+
+async function launchTreeLayout(
+  treeLayout: NonNullable<ResolvedConfig["treeLayout"]>,
+  opts: Partial<LayoutOptions>,
+  cliOverrides: CLIOverrides,
+  targetDir: string,
+  loginShell: string,
+  starshipPreset: string | undefined,
+  envVars: Record<string, string>,
+  ensureAndResolve: (cmd: string, key: string) => Promise<string>,
+  resolveStarship: () => string | null,
+): Promise<void> {
+  const resolvedTree = resolveTreeCmds(treeLayout.tree, treeLayout.panes);
+  const treePlanOpts = {
+    autoResize: opts.autoResize,
+    editorSize: opts.editorSize,
+    fontSize: opts.fontSize,
+    newWindow: opts.newWindow,
+    fullscreen: opts.fullscreen,
+    maximize: opts.maximize,
+    float: opts.float,
+  };
+  const hasEnvVars = Object.keys(envVars).length > 0;
+
+  if (cliOverrides.dryRun) {
+    const dryRunStarshipPath = starshipPreset ? getPresetConfigPath(starshipPreset) : null;
+    const treePlan = buildTreePlan(resolvedTree, treePlanOpts);
+    const script = generateTreeAppleScript(treePlan, targetDir, loginShell, dryRunStarshipPath, hasEnvVars ? envVars : undefined);
+    const paneCount = collectLeaves(resolvedTree).length;
+    const headerLines = [
+      "-- summon dry-run",
+      `-- Layout: tree layout, ${paneCount} ${paneCount === 1 ? "pane" : "panes"}`,
+      `-- Target: ${targetDir}`,
+    ];
+    if (starshipPreset) {
+      headerLines.push(`-- Starship preset: ${starshipPreset} (${dryRunStarshipPath})`);
+    }
+    console.log(`${headerLines.join("\n")}\n${script}`);
+    return;
+  }
+
+  ensureGhostty();
+
+  for (const leafName of collectLeaves(resolvedTree)) {
+    const pane = findPaneByName(resolvedTree, leafName);
+    if (pane?.command) {
+      pane.command = await ensureAndResolve(pane.command, leafName);
+    }
+  }
+
+  const starshipConfigPath = resolveStarship();
+  const treePlan = buildTreePlan(resolvedTree, treePlanOpts);
+  const script = generateTreeAppleScript(treePlan, targetDir, loginShell, starshipConfigPath, hasEnvVars ? envVars : undefined);
+  executeScript(script);
+}
+
+async function launchTraditionalLayout(
+  opts: Partial<LayoutOptions>,
+  cliOverrides: CLIOverrides,
+  targetDir: string,
+  loginShell: string,
+  starshipPreset: string | undefined,
+  envVars: Record<string, string>,
+  ensureAndResolve: (cmd: string, key: string) => Promise<string>,
+  resolveStarship: () => string | null,
+): Promise<void> {
+  const plan = planLayout(opts);
+  const hasEnvVars = Object.keys(envVars).length > 0;
+
+  if (cliOverrides.dryRun) {
+    const dryRunStarshipPath = starshipPreset ? getPresetConfigPath(starshipPreset) : null;
+    const script = generateAppleScript(plan, targetDir, loginShell, dryRunStarshipPath, hasEnvVars ? envVars : undefined);
+    const totalPanes = plan.leftColumnCount + plan.rightColumnEditorCount;
+    const headerLines = [
+      "-- summon dry-run",
+      `-- Layout: ${totalPanes} editor ${totalPanes === 1 ? "pane" : "panes"}, editor=${plan.editor}, sidebar=${plan.sidebarCommand}, shell=${plan.hasShell}`,
+      `-- Target: ${targetDir}`,
+    ];
+    if (starshipPreset) {
+      headerLines.push(`-- Starship preset: ${starshipPreset} (${dryRunStarshipPath})`);
+    }
+    console.log(`${headerLines.join("\n")}\n${script}`);
+    return;
+  }
+
+  ensureGhostty();
+
+  if (plan.editor) plan.editor = await ensureAndResolve(plan.editor, "editor");
+  if (plan.sidebarCommand) plan.sidebarCommand = await ensureAndResolve(plan.sidebarCommand, "sidebar");
+  if (plan.secondaryEditor) plan.secondaryEditor = await ensureAndResolve(plan.secondaryEditor, "editor");
+  if (plan.shellCommand) plan.shellCommand = await ensureAndResolve(plan.shellCommand, "shell");
+
+  const starshipConfigPath = resolveStarship();
+  const script = generateAppleScript(plan, targetDir, loginShell, starshipConfigPath, hasEnvVars ? envVars : undefined);
+  executeScript(script);
 }
 
 export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Promise<void> {
@@ -386,40 +535,21 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
 
   const { opts, projectOverrides, starshipPreset, onStart, envVars, treeLayout } = resolveConfig(targetDir, cliOverrides ?? {});
 
-  // Warn if launching from inside an existing summon workspace
-  if (process.env.SUMMON_WORKSPACE && !opts.newWindow && !cliOverrides?.dryRun && process.stdin.isTTY) {
-    console.warn("Warning: You're inside an existing summon workspace.");
-    console.warn("Launching here will nest splits inside this pane, which can get too scary.");
-    console.warn("Tip: Use --new-window to open in a separate window instead.\n");
-    const answer = await prompt("Continue anyway? [y/N] ");
-    if (answer !== "y") {
-      process.exit(0);
-    }
+  if (await warnIfNested(opts, cliOverrides?.dryRun)) {
+    process.exit(0);
   }
 
   if (!cliOverrides?.dryRun) {
     await confirmDangerousCommands(projectOverrides);
   }
 
-  // Execute on-start hook before workspace creation
   if (onStart && !cliOverrides?.dryRun) {
-    console.log(`Running on-start: ${onStart}`);
-    try {
-      execSync(onStart, {
-        cwd: targetDir,
-        encoding: "utf-8",
-        stdio: "inherit",
-      });
-    } catch {
-      console.error(`on-start command failed: ${onStart}`);
-      process.exit(1);
-    }
+    executeOnStart(onStart, targetDir);
   }
 
   const loginShell = getLoginShell();
 
-  // Cache resolved command paths so the same binary is only looked up once,
-  // even when it appears in multiple roles (e.g., editor + secondaryEditor).
+  // Cache resolved command paths so the same binary is only looked up once
   const resolvedCache = new Map<string, string>();
   const ensureAndResolve = async (cmdString: string, configKey: string): Promise<string> => {
     const parts = cmdString.split(" ");
@@ -434,7 +564,6 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
     return parts.join(" ");
   };
 
-  // Resolve Starship preset to a cached TOML config path (shared by both paths)
   const resolveStarship = (): string | null => {
     if (!starshipPreset) return null;
     if (isStarshipInstalled()) {
@@ -442,7 +571,7 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
         return ensurePresetConfig(starshipPreset);
       } catch (err) {
         console.warn(
-          `Warning: Failed to set up Starship preset "${starshipPreset}": ${(err as Error).message}`,
+          `Warning: Failed to set up Starship preset "${starshipPreset}": ${getErrorMessage(err)}`,
         );
       }
     } else {
@@ -454,82 +583,9 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
     return null;
   };
 
-  const hasEnvVars = Object.keys(envVars).length > 0;
-
   if (treeLayout) {
-    // --- Tree-based layout path ---
-    const resolvedTree = resolveTreeCmds(treeLayout.tree, treeLayout.panes);
-    const treePlanOpts = {
-      autoResize: opts.autoResize,
-      editorSize: opts.editorSize,
-      fontSize: opts.fontSize,
-      newWindow: opts.newWindow,
-      fullscreen: opts.fullscreen,
-      maximize: opts.maximize,
-      float: opts.float,
-    };
-
-    if (cliOverrides?.dryRun) {
-      const dryRunStarshipPath = starshipPreset ? getPresetConfigPath(starshipPreset) : null;
-      const treePlan = buildTreePlan(resolvedTree, treePlanOpts);
-      const script = generateTreeAppleScript(treePlan, targetDir, loginShell, dryRunStarshipPath, hasEnvVars ? envVars : undefined);
-      const paneCount = collectLeaves(resolvedTree).length;
-      const headerLines = [
-        "-- summon dry-run",
-        `-- Layout: tree layout, ${paneCount} ${paneCount === 1 ? "pane" : "panes"}`,
-        `-- Target: ${targetDir}`,
-      ];
-      if (starshipPreset) {
-        headerLines.push(`-- Starship preset: ${starshipPreset} (${dryRunStarshipPath})`);
-      }
-      console.log(`${headerLines.join("\n")}\n${script}`);
-      return;
-    }
-
-    ensureGhostty();
-
-    // Resolve commands for each leaf pane (single-pass via collectLeaves + findPaneByName)
-    for (const leafName of collectLeaves(resolvedTree)) {
-      const pane = findPaneByName(resolvedTree, leafName);
-      if (pane?.command) {
-        pane.command = await ensureAndResolve(pane.command, leafName);
-      }
-    }
-
-    const starshipConfigPath = resolveStarship();
-    const treePlan = buildTreePlan(resolvedTree, treePlanOpts);
-    const script = generateTreeAppleScript(treePlan, targetDir, loginShell, starshipConfigPath, hasEnvVars ? envVars : undefined);
-    executeScript(script);
+    await launchTreeLayout(treeLayout, opts, cliOverrides ?? {}, targetDir, loginShell, starshipPreset, envVars, ensureAndResolve, resolveStarship);
   } else {
-    // --- Traditional layout path ---
-    const plan = planLayout(opts);
-
-    if (cliOverrides?.dryRun) {
-      const dryRunStarshipPath = starshipPreset ? getPresetConfigPath(starshipPreset) : null;
-      const script = generateAppleScript(plan, targetDir, loginShell, dryRunStarshipPath, hasEnvVars ? envVars : undefined);
-      const totalPanes = plan.leftColumnCount + plan.rightColumnEditorCount;
-      const headerLines = [
-        "-- summon dry-run",
-        `-- Layout: ${totalPanes} editor ${totalPanes === 1 ? "pane" : "panes"}, editor=${plan.editor}, sidebar=${plan.sidebarCommand}, shell=${plan.hasShell}`,
-        `-- Target: ${targetDir}`,
-      ];
-      if (starshipPreset) {
-        headerLines.push(`-- Starship preset: ${starshipPreset} (${dryRunStarshipPath})`);
-      }
-      console.log(`${headerLines.join("\n")}\n${script}`);
-      return;
-    }
-
-    ensureGhostty();
-
-    if (plan.editor) plan.editor = await ensureAndResolve(plan.editor, "editor");
-    if (plan.sidebarCommand) plan.sidebarCommand = await ensureAndResolve(plan.sidebarCommand, "sidebar");
-    if (plan.secondaryEditor) plan.secondaryEditor = await ensureAndResolve(plan.secondaryEditor, "editor");
-    if (plan.shellCommand) plan.shellCommand = await ensureAndResolve(plan.shellCommand, "shell");
-
-    const starshipConfigPath = resolveStarship();
-
-    const script = generateAppleScript(plan, targetDir, loginShell, starshipConfigPath, hasEnvVars ? envVars : undefined);
-    executeScript(script);
+    await launchTraditionalLayout(opts, cliOverrides ?? {}, targetDir, loginShell, starshipPreset, envVars, ensureAndResolve, resolveStarship);
   }
 }

@@ -19,6 +19,7 @@ vi.mock("./config.js", () => ({
   readCustomLayout: (name: string) => mockReadCustomLayout(name),
   isCustomLayout: (name: string) => mockIsCustomLayout(name),
   CONFIG_DIR: "/mock/.config/summon",
+  LAYOUT_NAME_RE: /^[a-zA-Z][a-zA-Z0-9_-]*$/,
 }));
 
 // Mock starship

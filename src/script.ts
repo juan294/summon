@@ -2,6 +2,24 @@ import { basename } from "node:path";
 import type { LayoutPlan } from "./layout.js";
 import type { TreeLayoutPlan, LayoutNode } from "./tree.js";
 import { firstLeaf } from "./tree.js";
+import { GHOSTTY_APP_NAME, SUMMON_WORKSPACE_ENV } from "./utils.js";
+
+// --- AppleScript timing constants (empirically tuned for Ghostty responsiveness) ---
+
+/** Delay before querying window size for resize (allows split to render). */
+const RESIZE_QUERY_DELAY = 0.3;
+
+/** Delay after resize action (allows Ghostty to process). */
+const RESIZE_SETTLE_DELAY = 0.2;
+
+/** Delay after creating a new window. */
+const NEW_WINDOW_DELAY = 0.5;
+
+/** Delay after creating a new window (tree layout, shorter — window created via API). */
+const TREE_NEW_WINDOW_DELAY = 0.3;
+
+/** Editor size at which auto-resize is a no-op (50% = equal split already). */
+const AUTO_RESIZE_THRESHOLD = 50;
 
 function escapeAppleScript(s: string): string {
   return s
@@ -68,7 +86,7 @@ function buildEnvVarsList(
   starshipConfigPath: string | null | undefined,
   envVars: Record<string, string> | undefined,
 ): string[] {
-  const allEnvVars: string[] = ["SUMMON_WORKSPACE=1"];
+  const allEnvVars: string[] = [`${SUMMON_WORKSPACE_ENV}=1`];
   if (starshipConfigPath) {
     allEnvVars.push(`STARSHIP_CONFIG=${starshipConfigPath}`);
   }
@@ -87,7 +105,7 @@ function emitSurfaceConfig(
   fontSize: number | null,
   allEnvVars: string[],
 ): void {
-  add(0, 'tell application "Ghostty"');
+  add(0, `tell application "${GHOSTTY_APP_NAME}"`);
   add(1, "activate");
   blank();
 
@@ -157,12 +175,12 @@ function emitAutoResize(
   paneVar: string,
   editorSize: number,
 ): void {
-  const fraction = (editorSize - 50) / 100;
+  const fraction = (editorSize - AUTO_RESIZE_THRESHOLD) / 100;
   blank();
   add(1, "-- Resize editor/sidebar split");
-  add(1, "delay 0.3");
+  add(1, `delay ${RESIZE_QUERY_DELAY}`);
   add(1, 'tell application "System Events"');
-  add(2, 'tell process "Ghostty"');
+  add(2, `tell process "${GHOSTTY_APP_NAME}"`);
   add(3, "set windowSize to size of front window");
   add(3, "set windowWidth to item 1 of windowSize");
   add(2, "end tell");
@@ -170,7 +188,7 @@ function emitAutoResize(
   add(1, `set resizeAmount to round (windowWidth * ${fraction})`);
   add(1, `set resizeAction to "resize_split:right," & (resizeAmount as text)`);
   add(1, `perform action resizeAction on ${paneVar}`);
-  add(1, "delay 0.2");
+  add(1, `delay ${RESIZE_SETTLE_DELAY}`);
 }
 
 /** Emit window state actions (fullscreen, maximize, float). */
@@ -200,98 +218,80 @@ function formatTitle(role: string, cmd: string | null | undefined): string {
   return cmd ? `${role} \u00B7 ${cmd}` : role;
 }
 
-// --- Public API ---
+// --- Internal helpers for script generation ---
 
-export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginShell = "/bin/bash", starshipConfigPath?: string | null, envVars?: Record<string, string>): string {
-  const lines: string[] = [];
-  const titles: Array<[string, string]> = [];
-  const sb = buildScriptBuilder(lines, targetDir, loginShell);
-  const { add, blank, sendCommand, setConfigCommand, clearConfigCommand } = sb;
+function paneVar(name: string): string {
+  return `pane_${name.replace(/-/g, "_")}`;
+}
 
-  const allEnvVars = buildEnvVarsList(starshipConfigPath, envVars);
-
-  emitSurfaceConfig(sb, targetDir, plan.fontSize, allEnvVars);
-
-  // Get or create window for workspace
-  // Note: Ghostty's `make new window` returns an unusable tab-group reference
-  // (AppleScript error -2710), so we use Cmd+N via System Events as a workaround.
-  if (plan.newWindow) {
-    add(1, 'tell application "System Events"');
-    add(2, 'tell process "Ghostty"');
-    add(3, 'keystroke "n" using command down');
-    add(2, "end tell");
-    add(1, "end tell");
-    add(1, "delay 0.5");
-  }
-  add(1, "set win to front window");
-  add(1, "set paneRoot to terminal 1 of selected tab of win");
-  blank();
-
-  const editorCmd = plan.editor;
-  const secondaryCmd = plan.secondaryEditor ?? editorCmd;
-  const interactiveShellPanes: string[] = []; // panes needing STARSHIP_CONFIG export
-
-  titles.push(["paneRoot", formatTitle("editor", editorCmd || null)]);
-
-  // Split sidebar (far right) — set command on cfg before split
-  if (plan.sidebarCommand) {
-    setConfigCommand(plan.sidebarCommand);
-  }
-  add(1, "set paneSidebar to split paneRoot direction right with configuration cfg");
-  titles.push(["paneSidebar", formatTitle("sidebar", plan.sidebarCommand || null)]);
-
-  // Resize editor/sidebar split to match editorSize.
-  // Done here (before editor column splits) so the subsequent 50/50 split
-  // of paneRoot produces two equal editor columns within the resized area.
-  if (plan.autoResize && plan.editorSize > 50) {
-    emitAutoResize(sb, "paneRoot", plan.editorSize);
-  }
-
-  const needsRightColumn = plan.rightColumnEditorCount > 0 || plan.hasShell;
-
-  if (needsRightColumn) {
-    blank();
-    // First right column pane: editor or shell
-    if (plan.rightColumnEditorCount > 0) {
-      if (secondaryCmd) {
-        setConfigCommand(secondaryCmd);
-      } else {
-        clearConfigCommand();
-      }
-      add(1, "set paneRightCol to split paneRoot direction right with configuration cfg");
-      titles.push(["paneRightCol", formatTitle("editor", secondaryCmd || null)]);
+/**
+ * Emit AppleScript to create or reference the front window.
+ * Traditional layout uses System Events keystroke; tree layout uses `make new window`.
+ */
+function emitNewWindow(
+  sb: ScriptBuilder,
+  newWindow: boolean,
+  mode: "traditional" | "tree",
+): void {
+  const { add } = sb;
+  if (newWindow) {
+    if (mode === "traditional") {
+      add(1, 'tell application "System Events"');
+      add(2, `tell process "${GHOSTTY_APP_NAME}"`);
+      add(3, 'keystroke "n" using command down');
+      add(2, "end tell");
+      add(1, "end tell");
+      add(1, `delay ${NEW_WINDOW_DELAY}`);
     } else {
-      // Right column exists only for shell
-      if (plan.shellCommand) {
-        setConfigCommand(plan.shellCommand);
-      } else {
-        clearConfigCommand();
-        interactiveShellPanes.push("paneRightCol");
-      }
-      add(1, "set paneRightCol to split paneRoot direction right with configuration cfg");
-      titles.push(["paneRightCol", formatTitle("server", plan.shellCommand)]);
+      add(1, "set win to make new window with configuration cfg");
+      add(1, `delay ${TREE_NEW_WINDOW_DELAY}`);
     }
   }
-
-  // Split additional left column panes vertically
-  let lastLeftPane = "paneRoot";
-  if (plan.leftColumnCount > 1 && editorCmd) {
-    setConfigCommand(editorCmd);
+  if (mode === "traditional" || !newWindow) {
+    add(1, "set win to front window");
   }
-  for (let i = 2; i <= plan.leftColumnCount; i++) {
-    const name = `paneLeft${i}`;
-    blank();
-    add(1, `set ${name} to split ${lastLeftPane} direction down with configuration cfg`);
-    titles.push([name, formatTitle("editor", editorCmd || null)]);
-    lastLeftPane = name;
+}
+
+/** Emit right column pane splits (first right pane + additional editors + optional shell). */
+function emitRightColumnSplits(
+  sb: ScriptBuilder,
+  titles: Array<[string, string]>,
+  plan: LayoutPlan,
+  interactiveShellPanes: string[],
+): void {
+  const { add, blank, setConfigCommand, clearConfigCommand } = sb;
+  const secondaryCmd = plan.secondaryEditor ?? plan.editor;
+  const needsRightColumn = plan.rightColumnEditorCount > 0 || plan.hasShell;
+
+  if (!needsRightColumn) return;
+
+  blank();
+  // First right column pane: editor or shell
+  if (plan.rightColumnEditorCount > 0) {
+    if (secondaryCmd) {
+      setConfigCommand(secondaryCmd);
+    } else {
+      clearConfigCommand();
+    }
+    add(1, "set paneRightCol to split paneRoot direction right with configuration cfg");
+    titles.push(["paneRightCol", formatTitle("editor", secondaryCmd || null)]);
+  } else {
+    // Right column exists only for shell
+    if (plan.shellCommand) {
+      setConfigCommand(plan.shellCommand);
+    } else {
+      clearConfigCommand();
+      interactiveShellPanes.push("paneRightCol");
+    }
+    add(1, "set paneRightCol to split paneRoot direction right with configuration cfg");
+    titles.push(["paneRightCol", formatTitle("shell", plan.shellCommand)]);
   }
 
-  // Split additional right column panes (editors + shell)
-  if (needsRightColumn && plan.rightColumnEditorCount > 0) {
+  // Additional right column panes (editors + shell at bottom)
+  if (plan.rightColumnEditorCount > 0) {
     let lastRightPane = "paneRightCol";
     let nextRight = 2;
 
-    // Additional right column editor panes
     if (plan.rightColumnEditorCount > 1 && secondaryCmd) {
       setConfigCommand(secondaryCmd);
     }
@@ -304,7 +304,6 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginSh
       nextRight++;
     }
 
-    // Shell pane at bottom of right column
     if (plan.hasShell) {
       const name = `paneRight${nextRight}`;
       blank();
@@ -315,43 +314,135 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginSh
         interactiveShellPanes.push(name);
       }
       add(1, `set ${name} to split ${lastRightPane} direction down with configuration cfg`);
-      titles.push([name, formatTitle("server", plan.shellCommand)]);
+      titles.push([name, formatTitle("shell", plan.shellCommand)]);
     }
   }
-
-  blank();
-
-  // Root pane env var exports: the root pane is never created with cfg
-  // (it's either the existing front window terminal, or a new window via Cmd+N),
-  // so it needs explicit exports. Split panes inherit env vars from cfg automatically.
-  emitRootPaneEnvExports(sb, "paneRoot", allEnvVars);
-
-  // Clear interactive shell panes for a clean start (removes "Last login" and setup commands)
-  for (const pane of interactiveShellPanes) {
-    sendCommand(pane, "clear");
-  }
-
-  // Root pane: cd into project directory, then launch editor
-  emitRootPaneCommand(sb, "paneRoot", targetDir, editorCmd);
-
-  blank();
-
-  // Set pane and tab titles
-  emitTitles(sb, "paneRoot", targetDir, titles);
-
-  // Focus root pane
-  add(1, "focus paneRoot");
-
-  // Window state actions
-  emitWindowState(sb, "paneRoot", plan);
-
-  add(0, "end tell");
-
-  return lines.join("\n");
 }
 
-function paneVar(name: string): string {
-  return `pane_${name.replace(/-/g, "_")}`;
+/** Emit left column editor pane splits. */
+function emitEditorColumnSplits(
+  sb: ScriptBuilder,
+  titles: Array<[string, string]>,
+  plan: LayoutPlan,
+): void {
+  const { add, blank, setConfigCommand } = sb;
+  const editorCmd = plan.editor;
+  let lastLeftPane = "paneRoot";
+  if (plan.leftColumnCount > 1 && editorCmd) {
+    setConfigCommand(editorCmd);
+  }
+  for (let i = 2; i <= plan.leftColumnCount; i++) {
+    const name = `paneLeft${i}`;
+    blank();
+    add(1, `set ${name} to split ${lastLeftPane} direction down with configuration cfg`);
+    titles.push([name, formatTitle("editor", editorCmd || null)]);
+    lastLeftPane = name;
+  }
+}
+
+/**
+ * Recursively traverse the layout tree and emit split AppleScript.
+ * Handles auto-resize on the first right split at root level.
+ */
+function emitTreeTraversal(
+  sb: ScriptBuilder,
+  tree: LayoutNode,
+  rootPaneVar: string,
+  plan: TreeLayoutPlan,
+): void {
+  let firstRightSplitDone = false;
+
+  function traverse(node: LayoutNode, currentPaneVar: string): void {
+    if (node.type === "pane") return;
+
+    const secondLeaf = firstLeaf(node.second);
+    const secondLeafVar = paneVar(secondLeaf.name);
+
+    if (secondLeaf.command) {
+      sb.setConfigCommand(secondLeaf.command);
+    } else {
+      sb.clearConfigCommand();
+    }
+
+    sb.add(1, `set ${secondLeafVar} to split ${currentPaneVar} direction ${node.direction} with configuration cfg`);
+
+    if (node.direction === "right" && !firstRightSplitDone && plan.autoResize && plan.editorSize > AUTO_RESIZE_THRESHOLD) {
+      firstRightSplitDone = true;
+      emitAutoResize(sb, currentPaneVar, plan.editorSize);
+    }
+
+    traverse(node.first, currentPaneVar);
+    traverse(node.second, secondLeafVar);
+  }
+
+  traverse(tree, rootPaneVar);
+}
+
+/** Collect all leaf panes with their commands in depth-first order. */
+function collectLeavesWithCommands(node: LayoutNode): Array<[string, string]> {
+  const result: Array<[string, string]> = [];
+  function walk(n: LayoutNode): void {
+    if (n.type === "pane") {
+      result.push([n.name, n.command]);
+    } else {
+      walk(n.first);
+      walk(n.second);
+    }
+  }
+  walk(node);
+  return result;
+}
+
+// --- Public API ---
+
+export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginShell = "/bin/bash", starshipConfigPath?: string | null, envVars?: Record<string, string>): string {
+  const lines: string[] = [];
+  const titles: Array<[string, string]> = [];
+  const interactiveShellPanes: string[] = [];
+  const sb = buildScriptBuilder(lines, targetDir, loginShell);
+
+  const allEnvVars = buildEnvVarsList(starshipConfigPath, envVars);
+
+  emitSurfaceConfig(sb, targetDir, plan.fontSize, allEnvVars);
+  emitNewWindow(sb, plan.newWindow, "traditional");
+  sb.add(1, "set paneRoot to terminal 1 of selected tab of win");
+  sb.blank();
+
+  titles.push(["paneRoot", formatTitle("editor", plan.editor || null)]);
+
+  // Sidebar split
+  if (plan.sidebarCommand) {
+    sb.setConfigCommand(plan.sidebarCommand);
+  }
+  sb.add(1, "set paneSidebar to split paneRoot direction right with configuration cfg");
+  titles.push(["paneSidebar", formatTitle("sidebar", plan.sidebarCommand || null)]);
+
+  if (plan.autoResize && plan.editorSize > AUTO_RESIZE_THRESHOLD) {
+    emitAutoResize(sb, "paneRoot", plan.editorSize);
+  }
+
+  // Column splits
+  emitRightColumnSplits(sb, titles, plan, interactiveShellPanes);
+  emitEditorColumnSplits(sb, titles, plan);
+
+  sb.blank();
+
+  // Root pane env var exports
+  emitRootPaneEnvExports(sb, "paneRoot", allEnvVars);
+
+  for (const pane of interactiveShellPanes) {
+    sb.sendCommand(pane, "clear");
+  }
+
+  emitRootPaneCommand(sb, "paneRoot", targetDir, plan.editor);
+  sb.blank();
+
+  emitTitles(sb, "paneRoot", targetDir, titles);
+  sb.add(1, "focus paneRoot");
+  emitWindowState(sb, "paneRoot", plan);
+
+  sb.add(0, "end tell");
+  return lines.join("\n");
 }
 
 export function generateTreeAppleScript(
@@ -364,103 +455,33 @@ export function generateTreeAppleScript(
   const lines: string[] = [];
   const titles: Array<[string, string]> = [];
   const sb = buildScriptBuilder(lines, targetDir, loginShell);
-  const { add, blank, setConfigCommand, clearConfigCommand } = sb;
 
   const allEnvVars = buildEnvVarsList(starshipConfigPath, envVars);
-
-  // --- Initialization ---
-
-  emitSurfaceConfig(sb, targetDir, plan.fontSize, allEnvVars);
-
-  // Get or create window for workspace
   const rootLeaf = firstLeaf(plan.tree);
   const rootPaneVar = paneVar(rootLeaf.name);
 
-  if (plan.newWindow) {
-    add(1, "set win to make new window with configuration cfg");
-    add(1, "delay 0.3");
-  } else {
-    add(1, "set win to front window");
-  }
-  add(1, `set ${rootPaneVar} to terminal 1 of selected tab of win`);
-  blank();
+  emitSurfaceConfig(sb, targetDir, plan.fontSize, allEnvVars);
+  emitNewWindow(sb, plan.newWindow, "tree");
+  sb.add(1, `set ${rootPaneVar} to terminal 1 of selected tab of win`);
+  sb.blank();
 
-  // --- Recursive Tree Traversal ---
+  emitTreeTraversal(sb, plan.tree, rootPaneVar, plan);
+  sb.blank();
 
-  let firstRightSplitDone = false;
-
-  function traverse(node: LayoutNode, currentPaneVar: string): void {
-    if (node.type === "pane") {
-      // Leaf node — nothing to do during traversal.
-      // It was already handled as "current pane" by its parent split.
-      return;
-    }
-
-    // SplitNode: get the first leaf of the second child
-    const secondLeaf = firstLeaf(node.second);
-    const secondLeafVar = paneVar(secondLeaf.name);
-
-    // Set config command for the new pane
-    if (secondLeaf.command) {
-      setConfigCommand(secondLeaf.command);
-    } else {
-      clearConfigCommand();
-    }
-
-    // Split the current pane
-    add(1, `set ${secondLeafVar} to split ${currentPaneVar} direction ${node.direction} with configuration cfg`);
-
-    // Auto-resize after the FIRST right-split at the root level
-    if (node.direction === "right" && !firstRightSplitDone && plan.autoResize && plan.editorSize > 50) {
-      firstRightSplitDone = true;
-      emitAutoResize(sb, currentPaneVar, plan.editorSize);
-    }
-
-    // Recurse into first child (stays in current pane variable)
-    traverse(node.first, currentPaneVar);
-    // Recurse into second child (uses the new pane variable)
-    traverse(node.second, secondLeafVar);
-  }
-
-  traverse(plan.tree, rootPaneVar);
-  blank();
-
-  // --- Root Pane Commands ---
-
-  // Env var exports for root pane: only needed when NOT using new-window mode
   if (allEnvVars.length > 0 && !plan.newWindow) {
     emitRootPaneEnvExports(sb, rootPaneVar, allEnvVars);
   }
-
-  // Root pane: cd into project directory, then launch command
   emitRootPaneCommand(sb, rootPaneVar, targetDir, rootLeaf.command);
+  sb.blank();
 
-  blank();
-
-  // --- Pane and Tab Titles ---
-
-  // Collect all leaf panes with commands in a single pass
-  function collectLeavesWithCommands(node: LayoutNode): Array<[string, string]> {
-    if (node.type === "pane") {
-      return [[node.name, node.command]];
-    }
-    return [...collectLeavesWithCommands(node.first), ...collectLeavesWithCommands(node.second)];
-  }
   for (const [leafName, cmd] of collectLeavesWithCommands(plan.tree)) {
     titles.push([paneVar(leafName), formatTitle(leafName, cmd)]);
   }
-
   emitTitles(sb, rootPaneVar, targetDir, titles);
 
-  // --- Focus root pane ---
-
-  add(1, `focus ${rootPaneVar}`);
-
-  // --- Window State ---
-
+  sb.add(1, `focus ${rootPaneVar}`);
   emitWindowState(sb, rootPaneVar, plan);
 
-  add(0, "end tell");
-
+  sb.add(0, "end tell");
   return lines.join("\n");
 }

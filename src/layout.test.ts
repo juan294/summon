@@ -220,3 +220,55 @@ describe("validation constants", () => {
     expect(plan.float).toBe(true);
   });
 });
+
+describe("planLayout boundary values", () => {
+  it("handles editorPanes: 1 (minimum)", () => {
+    const plan = planLayout({ editorPanes: 1 });
+    expect(plan.leftColumnCount).toBe(1);
+    expect(plan.rightColumnEditorCount).toBe(0);
+  });
+
+  it("handles large editorPanes count", () => {
+    const plan = planLayout({ editorPanes: 10 });
+    expect(plan.leftColumnCount).toBe(5);
+    expect(plan.rightColumnEditorCount).toBe(5);
+  });
+
+  it("calculates sidebarSize as complement of editorSize", () => {
+    const plan = planLayout({ editorSize: 1 });
+    expect(plan.editorSize).toBe(1);
+    expect(plan.sidebarSize).toBe(99);
+  });
+
+  it("handles editorSize at maximum (99)", () => {
+    const plan = planLayout({ editorSize: 99 });
+    expect(plan.editorSize).toBe(99);
+    expect(plan.sidebarSize).toBe(1);
+  });
+
+  it("handles editorSize at 50 (equal split)", () => {
+    const plan = planLayout({ editorSize: 50 });
+    expect(plan.editorSize).toBe(50);
+    expect(plan.sidebarSize).toBe(50);
+  });
+
+  it("handles fontSize: 0 (edge case — truthy but zero)", () => {
+    const plan = planLayout({ fontSize: 0 });
+    expect(plan.fontSize).toBe(0);
+  });
+
+  it("handles fontSize: null (default)", () => {
+    const plan = planLayout({ fontSize: null });
+    expect(plan.fontSize).toBeNull();
+  });
+
+  it("handles empty editor string", () => {
+    const plan = planLayout({ editor: "" });
+    expect(plan.editor).toBe("");
+  });
+
+  it("handles empty sidebarCommand string", () => {
+    const plan = planLayout({ sidebarCommand: "" });
+    expect(plan.sidebarCommand).toBe("");
+  });
+});

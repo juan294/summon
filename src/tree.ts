@@ -333,10 +333,17 @@ export function buildTreePlan(
 
 /** Collect all pane names in depth-first order. */
 export function collectLeaves(node: LayoutNode): string[] {
-  if (node.type === "pane") {
-    return [node.name];
+  const result: string[] = [];
+  function walk(n: LayoutNode): void {
+    if (n.type === "pane") {
+      result.push(n.name);
+    } else {
+      walk(n.first);
+      walk(n.second);
+    }
   }
-  return [...collectLeaves(node.first), ...collectLeaves(node.second)];
+  walk(node);
+  return result;
 }
 
 /** Returns the first leaf pane node in depth-first order. */

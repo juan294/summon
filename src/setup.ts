@@ -93,6 +93,25 @@ export function colorSwatch(colors: string[]): string {
 }
 
 // ---------------------------------------------------------------------------
+// Box-drawing characters
+// ---------------------------------------------------------------------------
+
+/** Box-drawing characters for layout preview rendering. */
+const BOX = {
+  topLeft:     "\u250c",  // ┌
+  topRight:    "\u2510",  // ┐
+  bottomLeft:  "\u2514",  // └
+  bottomRight: "\u2518",  // ┘
+  horizontal:  "\u2500",  // ─
+  vertical:    "\u2502",  // │
+  teeDown:     "\u252c",  // ┬
+  teeUp:       "\u2534",  // ┴
+  teeRight:    "\u251c",  // ├
+  teeLeft:     "\u2524",  // ┤
+  cross:       "\u253c",  // ┼
+} as const;
+
+// ---------------------------------------------------------------------------
 // Mascot & Logo
 // ---------------------------------------------------------------------------
 
@@ -784,9 +803,9 @@ export function renderLayoutPreview(
   grid: string[][],
   sidebar: string,
 ): string {
-  const COL_WIDTH = 14;
-  const SIDEBAR_WIDTH = 11;
-  const PANE_HEIGHT = 3; // lines per pane cell
+  const COL_WIDTH = 14;       // chars per column (fits ~12-char command + 2 padding)
+  const SIDEBAR_WIDTH = 11;   // chars for sidebar column (fits ~9-char command + 2 padding)
+  const PANE_HEIGHT = 3;      // lines per pane cell (1 content line + 2 border/spacing)
 
   // Find max row count across all columns
   const maxRows = Math.max(...grid.map((col) => col.length));
@@ -796,14 +815,14 @@ export function renderLayoutPreview(
   // --- Top border ---
   const topParts: string[] = [];
   for (let c = 0; c < grid.length; c++) {
-    topParts.push("\u2500".repeat(COL_WIDTH));
+    topParts.push(BOX.horizontal.repeat(COL_WIDTH));
   }
   lines.push(
-    "\u250c" +
-      topParts.join("\u252c") +
-      "\u252c" +
-      "\u2500".repeat(SIDEBAR_WIDTH) +
-      "\u2510",
+    BOX.topLeft +
+      topParts.join(BOX.teeDown) +
+      BOX.teeDown +
+      BOX.horizontal.repeat(SIDEBAR_WIDTH) +
+      BOX.topRight,
   );
 
   // --- Content rows ---
@@ -814,7 +833,7 @@ export function renderLayoutPreview(
       for (let c = 0; c < grid.length; c++) {
         const col = grid[c]!;
         const cmd = col[row] ?? "";
-        rowStr += "\u2502";
+        rowStr += BOX.vertical;
         if (lineInPane === Math.floor(PANE_HEIGHT / 2) && cmd) {
           // Center the command name
           const padded = cmd.slice(0, COL_WIDTH - 2);
@@ -829,7 +848,7 @@ export function renderLayoutPreview(
       // Sidebar spans full height — show label in the middle
       const sidebarMiddleRow = Math.floor((maxRows * PANE_HEIGHT) / 2);
       const currentAbsLine = row * PANE_HEIGHT + lineInPane;
-      rowStr += "\u2502";
+      rowStr += BOX.vertical;
       if (currentAbsLine === sidebarMiddleRow) {
         const padded = sidebar.slice(0, SIDEBAR_WIDTH - 2);
         const leftPad = Math.floor((SIDEBAR_WIDTH - padded.length) / 2);
@@ -838,7 +857,7 @@ export function renderLayoutPreview(
       } else {
         rowStr += " ".repeat(SIDEBAR_WIDTH);
       }
-      rowStr += "\u2502";
+      rowStr += BOX.vertical;
       lines.push(rowStr);
     }
 
@@ -849,7 +868,7 @@ export function renderLayoutPreview(
         const col = grid[c]!;
         // Only draw horizontal line if this column has a pane in the next row
         if (row + 1 < col.length) {
-          sepParts.push("\u2500".repeat(COL_WIDTH));
+          sepParts.push(BOX.horizontal.repeat(COL_WIDTH));
         } else {
           sepParts.push(" ".repeat(COL_WIDTH));
         }
@@ -860,24 +879,24 @@ export function renderLayoutPreview(
         const col = grid[c]!;
         const hasSplitHere = row + 1 < col.length;
         if (c === 0) {
-          sep += hasSplitHere ? "\u251c" : "\u2502";
+          sep += hasSplitHere ? BOX.teeRight : BOX.vertical;
         } else {
           // Junction between columns
           const prevCol = grid[c - 1]!;
           const prevHasSplit = row + 1 < prevCol.length;
-          if (prevHasSplit && hasSplitHere) sep += "\u253c";
-          else if (prevHasSplit) sep += "\u2524";
-          else if (hasSplitHere) sep += "\u251c";
-          else sep += "\u2502";
+          if (prevHasSplit && hasSplitHere) sep += BOX.cross;
+          else if (prevHasSplit) sep += BOX.teeLeft;
+          else if (hasSplitHere) sep += BOX.teeRight;
+          else sep += BOX.vertical;
         }
         sep += sepParts[c]!;
       }
       // Junction before sidebar (sidebar spans full height, no split)
       const lastCol = grid[grid.length - 1]!;
       const lastHasSplit = row + 1 < lastCol.length;
-      sep += lastHasSplit ? "\u2524" : "\u2502";
+      sep += lastHasSplit ? BOX.teeLeft : BOX.vertical;
       sep += " ".repeat(SIDEBAR_WIDTH);
-      sep += "\u2502";
+      sep += BOX.vertical;
       lines.push(sep);
     }
   }
@@ -885,14 +904,14 @@ export function renderLayoutPreview(
   // --- Bottom border ---
   const bottomParts: string[] = [];
   for (let c = 0; c < grid.length; c++) {
-    bottomParts.push("\u2500".repeat(COL_WIDTH));
+    bottomParts.push(BOX.horizontal.repeat(COL_WIDTH));
   }
   lines.push(
-    "\u2514" +
-      bottomParts.join("\u2534") +
-      "\u2534" +
-      "\u2500".repeat(SIDEBAR_WIDTH) +
-      "\u2518",
+    BOX.bottomLeft +
+      bottomParts.join(BOX.teeUp) +
+      BOX.teeUp +
+      BOX.horizontal.repeat(SIDEBAR_WIDTH) +
+      BOX.bottomRight,
   );
 
   return lines.join("\n");
