@@ -73,11 +73,12 @@ function ensureGhostty(): void {
 }
 
 function executeScript(script: string): void {
+  console.warn("Summoning workspace...");
   try {
     execFileSync("osascript", [], { input: script, encoding: "utf-8" });
   } catch (err) {
     console.error(`Failed to execute workspace script: ${getErrorMessage(err)}`);
-    console.error("Is Ghostty running?");
+    console.error("Is Ghostty running? Also check System Settings > Privacy & Security > Automation.");
     process.exit(1);
   }
 }
@@ -388,7 +389,11 @@ function layerConfigValues(
 }
 
 export function resolveConfig(targetDir: string, cliOverrides: CLIOverrides): ResolvedConfig {
-  const project = readKVFile(join(targetDir, ".summon"));
+  const projectConfigPath = join(targetDir, ".summon");
+  const project = readKVFile(projectConfigPath);
+  if (project.size > 0) {
+    console.warn(`Using project config: ${projectConfigPath}`);
+  }
   const machineConfig = listConfig();
 
   const layoutKey = cliOverrides.layout ?? project.get("layout") ?? machineConfig.get("layout");
