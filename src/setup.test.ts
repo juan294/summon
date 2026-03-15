@@ -100,6 +100,7 @@ const {
   createGridState,
   applyGridAction,
   renderGridBuilderPreview,
+  renderGridBuilderHints,
   runGridBuilder,
 } = await import("./setup.js");
 
@@ -2484,7 +2485,7 @@ describe("runGridBuilder", () => {
   let logSpy: ReturnType<typeof vi.spyOn>;
   let stdoutSpy: ReturnType<typeof vi.spyOn>;
   let mockSetRawMode: ReturnType<typeof vi.fn>;
-  let capturedKeyHandler: ((_str: string | undefined, key: { name: string; ctrl?: boolean }) => void) | null;
+  let capturedKeyHandler: ((_str: string | undefined, key: { name: string; ctrl?: boolean; shift?: boolean }) => void) | null;
   let stdinOnSpy: ReturnType<typeof vi.spyOn>;
   let origSetRawMode: typeof process.stdin.setRawMode;
   let origResume: typeof process.stdin.resume;
@@ -2498,9 +2499,9 @@ describe("runGridBuilder", () => {
     }
   }
 
-  function simulateKey(name: string, ctrl = false): void {
+  function simulateKey(name: string, ctrl = false, shift = false): void {
     if (capturedKeyHandler) {
-      capturedKeyHandler(undefined, { name, ctrl });
+      capturedKeyHandler(undefined, { name, ctrl, shift });
     }
   }
 
@@ -2594,5 +2595,38 @@ describe("runGridBuilder", () => {
     exitSpy.mockRestore();
     // Prevent unhandled rejection — promise never resolves after exit
     promise.catch(() => {});
+  });
+
+  it("shift+tab moves focus backward", async () => {
+    const promise = runGridBuilder();
+    await waitForHandler();
+    // Build a grid with 2 columns: right adds col, focus moves to col 1
+    simulateKey("right");
+    // Now shift+tab should move focus back to col 0
+    simulateKey("tab", false, true);
+    simulateKey("return");
+    const result = await promise;
+    // Grid is [1, 1] — shift+tab moved focus from col 1 back to col 0
+    expect(result).toEqual([1, 1]);
+  });
+});
+
+describe("renderGridBuilderHints", () => {
+  it("includes [Esc] cancel hint", () => {
+    const state = createGridState();
+    const hints = renderGridBuilderHints(state);
+    expect(hints).toContain("[Esc] cancel");
+  });
+
+  it("includes [Enter] done hint", () => {
+    const state = createGridState();
+    const hints = renderGridBuilderHints(state);
+    expect(hints).toContain("[Enter] done");
+  });
+
+  it("includes [Tab] move focus hint", () => {
+    const state = createGridState();
+    const hints = renderGridBuilderHints(state);
+    expect(hints).toContain("[Tab] move focus");
   });
 });

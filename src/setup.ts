@@ -306,7 +306,8 @@ export function renderGridBuilderPreview(
  * Render key binding hints for the grid builder.
  * Dims unavailable actions based on current state.
  */
-function renderGridBuilderHints(state: GridBuilderState): string {
+/** @internal — exported for testing only */
+export function renderGridBuilderHints(state: GridBuilderState): string {
   const canAddCol = state.columns.length < MAX_COLUMNS;
   const canRemoveCol = state.columns.length > 1;
   const canAddPane = state.columns[state.focusCol]! < MAX_PANES;
@@ -319,6 +320,7 @@ function renderGridBuilderHints(state: GridBuilderState): string {
     canRemovePane ? "[↑] remove pane" : dim("[↑] remove pane"),
     "[Tab] move focus",
     "[Enter] done",
+    "[Esc] cancel",
   ];
   return "  " + hints.join("  ");
 }
@@ -374,7 +376,7 @@ export async function runGridBuilder(): Promise<number[] | null> {
     };
     process.once("SIGINT", onSigInt);
 
-    const onKey = (_str: string | undefined, key: { name: string; ctrl?: boolean }): void => {
+    const onKey = (_str: string | undefined, key: { name: string; ctrl?: boolean; shift?: boolean }): void => {
       if (!key) return;
 
       if (key.ctrl && key.name === "c") {
@@ -392,6 +394,16 @@ export async function runGridBuilder(): Promise<number[] | null> {
       if (key.name === "return") {
         cleanup();
         resolve([...state.columns]);
+        return;
+      }
+
+      // Shift+Tab → prevFocus (must be checked before regular tab mapping)
+      if (key.name === "tab" && key.shift) {
+        const next = applyGridAction(state, "prevFocus");
+        if (next) {
+          state = next;
+          render();
+        }
         return;
       }
 
@@ -1517,6 +1529,7 @@ export async function selectGridTemplate(): Promise<number[]> {
       const result = await runGridBuilder();
       if (result === null) {
         // User pressed Escape — re-show template gallery
+        console.log(dim("  Returning to template selection..."));
         return selectGridTemplate();
       }
       return result;
