@@ -169,8 +169,8 @@ export class PreviewRenderer {
    * First call: prints normally.
    * Subsequent calls: moves cursor up, clears, redraws.
    */
-  draw(grid: string[][], sidebar: string): void {
-    const preview = renderLayoutPreview(grid, sidebar);
+  draw(grid: string[][]): void {
+    const preview = renderLayoutPreview(grid);
     const lines = preview.split("\n");
 
     if (this.active) {
@@ -284,7 +284,7 @@ export function applyGridAction(
 
 /**
  * Render layout preview for the grid builder with focus highlighting.
- * Focused cell shows cyan "*", other cells show dim "·", sidebar shows dim "?".
+ * Focused cell shows cyan "*", other cells show dim "·".
  * @internal — exported for testing only
  */
 export function renderGridBuilderPreview(
@@ -299,7 +299,7 @@ export function renderGridBuilderPreview(
     }
     return col;
   });
-  return renderLayoutPreview(grid, dim("?"));
+  return renderLayoutPreview(grid);
 }
 
 /**
@@ -349,11 +349,11 @@ export async function runGridBuilder(): Promise<number[] | null> {
       }
       return col;
     });
-    renderer.draw(grid, dim("?"));
+    renderer.draw(grid);
     renderer.log(renderGridBuilderHints(state));
   };
 
-  console.log(bold("  Build your grid:") + dim(" (sidebar added automatically)"));
+  console.log(bold("  Build your grid:"));
   console.log();
   render();
 
@@ -1208,11 +1208,9 @@ function derivePaneName(command: string, usedNames: Set<string>): string {
  * - `grid` is an array of columns, each column is an array of command strings
  * - Each column's panes are joined with `/` (down splits)
  * - Columns are joined with `|` (right splits)
- * - Sidebar pane appended with `|` on the right
  */
 export function gridToTree(
   grid: string[][],
-  sidebar: string,
 ): { tree: string; panes: Map<string, string> } {
   const panes = new Map<string, string>();
   const usedNames = new Set<string>();
@@ -1232,11 +1230,6 @@ export function gridToTree(
     }
   }
 
-  // Add sidebar
-  const sidebarName = derivePaneName(sidebar, usedNames);
-  panes.set(sidebarName, sidebar);
-  columnExprs.push(sidebarName);
-
   return { tree: columnExprs.join(" | "), panes };
 }
 
@@ -1255,10 +1248,8 @@ function centerLabel(text: string, width: number): string {
  */
 export function renderLayoutPreview(
   grid: string[][],
-  sidebar: string,
 ): string {
   const COL_WIDTH = 14;       // chars per column (fits ~12-char command + 2 padding)
-  const SIDEBAR_WIDTH = 11;   // chars for sidebar column (fits ~9-char command + 2 padding)
   const PANE_HEIGHT = 3;      // lines per pane cell (1 content line + 2 border/spacing)
 
   // Find max row count across all columns
@@ -1274,8 +1265,6 @@ export function renderLayoutPreview(
   lines.push(
     BOX.topLeft +
       topParts.join(BOX.teeDown) +
-      BOX.teeDown +
-      BOX.horizontal.repeat(SIDEBAR_WIDTH) +
       BOX.topRight,
   );
 
@@ -1293,16 +1282,6 @@ export function renderLayoutPreview(
         } else {
           rowStr += " ".repeat(COL_WIDTH);
         }
-      }
-
-      // Sidebar spans full height — show label in the middle
-      const sidebarMiddleRow = Math.floor((maxRows * PANE_HEIGHT) / 2);
-      const currentAbsLine = row * PANE_HEIGHT + lineInPane;
-      rowStr += BOX.vertical;
-      if (currentAbsLine === sidebarMiddleRow) {
-        rowStr += centerLabel(sidebar, SIDEBAR_WIDTH);
-      } else {
-        rowStr += " ".repeat(SIDEBAR_WIDTH);
       }
       rowStr += BOX.vertical;
       lines.push(rowStr);
@@ -1338,12 +1317,10 @@ export function renderLayoutPreview(
         }
         sep += sepParts[c]!;
       }
-      // Junction before sidebar (sidebar spans full height, no split)
+      // Right edge
       const lastCol = grid[grid.length - 1]!;
       const lastHasSplit = row + 1 < lastCol.length;
       sep += lastHasSplit ? BOX.teeLeft : BOX.vertical;
-      sep += " ".repeat(SIDEBAR_WIDTH);
-      sep += BOX.vertical;
       lines.push(sep);
     }
   }
@@ -1356,8 +1333,6 @@ export function renderLayoutPreview(
   lines.push(
     BOX.bottomLeft +
       bottomParts.join(BOX.teeUp) +
-      BOX.teeUp +
-      BOX.horizontal.repeat(SIDEBAR_WIDTH) +
       BOX.bottomRight,
   );
 
@@ -1367,13 +1342,10 @@ export function renderLayoutPreview(
 /**
  * Render a compact box diagram showing grid shape (no command names).
  * Returns array of lines (not joined) for side-by-side composition.
- *
- * Sidebar is always shown as the rightmost column spanning full height.
  * @internal — exported for testing only
  */
 export function renderMiniPreview(columns: number[]): string[] {
   const COL_W = 5;
-  const SIDE_W = 4;
 
   const maxRows = Math.max(...columns);
   const lines: string[] = [];
@@ -1383,8 +1355,6 @@ export function renderMiniPreview(columns: number[]): string[] {
   lines.push(
     BOX.topLeft +
       topParts.join(BOX.teeDown) +
-      BOX.teeDown +
-      BOX.horizontal.repeat(SIDE_W) +
       BOX.topRight,
   );
 
@@ -1395,7 +1365,7 @@ export function renderMiniPreview(columns: number[]): string[] {
       rowStr += BOX.vertical;
       rowStr += " ".repeat(COL_W);
     }
-    rowStr += BOX.vertical + " ".repeat(SIDE_W) + BOX.vertical;
+    rowStr += BOX.vertical;
     lines.push(rowStr);
 
     // Row separator (between pane rows, not after last)
@@ -1416,11 +1386,10 @@ export function renderMiniPreview(columns: number[]): string[] {
         }
         sep += hasSplit ? BOX.horizontal.repeat(COL_W) : " ".repeat(COL_W);
       }
-      // Sidebar junction (never splits)
+      // Right edge
       const lastCount = columns[columns.length - 1]!;
       const lastSplit = row + 1 < lastCount;
       sep += lastSplit ? BOX.teeLeft : BOX.vertical;
-      sep += " ".repeat(SIDE_W) + BOX.vertical;
       lines.push(sep);
     }
   }
@@ -1430,8 +1399,6 @@ export function renderMiniPreview(columns: number[]): string[] {
   lines.push(
     BOX.bottomLeft +
       bottomParts.join(BOX.teeUp) +
-      BOX.teeUp +
-      BOX.horizontal.repeat(SIDE_W) +
       BOX.bottomRight,
   );
 
@@ -1500,8 +1467,8 @@ export function renderTemplateGallery(
     outputLines.push("");
   }
 
-  // Add "Build from scratch" option
-  outputLines.push("c)  Build from scratch");
+  // Add "Build from scratch" option (numbered sequentially after templates)
+  outputLines.push(`${templates.length + 1})  Build from scratch`);
 
   return outputLines.join("\n");
 }
@@ -1516,15 +1483,26 @@ export async function selectGridTemplate(): Promise<number[]> {
   console.log(gallery);
   console.log();
 
+  const customOption = GRID_TEMPLATES.length + 1;
+
   const ask = async (): Promise<number[]> => {
     const trimmed = (
-      await promptUser(`  Select [1-${GRID_TEMPLATES.length}, c] (default: 1): `)
-    ).toLowerCase();
+      await promptUser(`  Select [1-${customOption}] (default: 1): `)
+    ).trim();
 
     if (trimmed === "") {
       return [...GRID_TEMPLATES[0]!.columns];
     }
-    if (trimmed === "c") {
+    const num = parseInt(trimmed, 10);
+    if (Number.isNaN(num) || num < 1 || num > customOption) {
+      console.log(
+        yellow(
+          `  Invalid selection. Enter 1-${customOption}.`,
+        ),
+      );
+      return ask();
+    }
+    if (num === customOption) {
       console.log();
       const result = await runGridBuilder();
       if (result === null) {
@@ -1533,15 +1511,6 @@ export async function selectGridTemplate(): Promise<number[]> {
         return selectGridTemplate();
       }
       return result;
-    }
-    const num = parseInt(trimmed, 10);
-    if (Number.isNaN(num) || num < 1 || num > GRID_TEMPLATES.length) {
-      console.log(
-        yellow(
-          `  Invalid selection. Enter 1-${GRID_TEMPLATES.length} or "c" for custom.`,
-        ),
-      );
-      return ask();
     }
     return [...GRID_TEMPLATES[num - 1]!.columns];
   };
@@ -1603,7 +1572,7 @@ export async function runLayoutBuilder(name: string): Promise<void> {
   }
 
   // --- Grid shape selection ---
-  console.log(bold("  Choose a grid shape:") + dim(" (sidebar is added automatically)"));
+  console.log(bold("  Choose a grid shape:"));
   console.log();
   const paneCountsPerColumn = await selectGridTemplate();
   const columnCount = paneCountsPerColumn.length;
@@ -1623,7 +1592,7 @@ export async function runLayoutBuilder(name: string): Promise<void> {
 
   // Initial preview with all placeholders
   const initialGrid = buildPartialGrid(paneCountsPerColumn, []);
-  renderer.draw(initialGrid, "?");
+  renderer.draw(initialGrid);
   renderer.log();
 
   const grid: string[][] = [];
@@ -1651,34 +1620,14 @@ export async function runLayoutBuilder(name: string): Promise<void> {
       // In-place preview update
       grid[c] = [...column];
       const partial = buildPartialGrid(paneCountsPerColumn, grid);
-      renderer.draw(partial, "?");
+      renderer.draw(partial);
       renderer.log();
     }
     grid[c] = column;
   }
 
-  // --- Sidebar ---
-  const sidebarAvailable = detected
-    .filter((t) => t.available && SIDEBAR_CATALOG.some((s) => s.cmd === t.cmd))
-    .map((t) => t.cmd);
-  if (sidebarAvailable.length > 0) {
-    renderer.log(dim(`  Detected: ${sidebarAvailable.join(", ")}`));
-  }
-  let sidebar = "";
-  while (!sidebar) {
-    renderer.countPrompt();
-    const sidebarInput = await promptUser("  Sidebar \u2014 command [lazygit]: ");
-    sidebar = sidebarInput || "lazygit";
-    const validatedSidebar = await validateBuilderCommand(sidebar, availableCmds);
-    if (validatedSidebar !== sidebar) {
-      // Validation printed extra lines — line counts are unreliable now
-      renderer.reset();
-    }
-    sidebar = validatedSidebar;
-  }
-
-  // --- Final preview with sidebar ---
-  renderer.draw(grid, sidebar);
+  // --- Final preview ---
+  renderer.draw(grid);
   renderer.log();
 
   // --- Confirm ---
@@ -1689,7 +1638,7 @@ export async function runLayoutBuilder(name: string): Promise<void> {
   }
 
   // --- Build and save ---
-  const { tree, panes } = gridToTree(grid, sidebar);
+  const { tree, panes } = gridToTree(grid);
   const entries = new Map<string, string>();
   for (const [paneName, command] of panes) {
     entries.set(`pane.${paneName}`, command);

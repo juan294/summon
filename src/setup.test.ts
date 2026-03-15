@@ -1522,72 +1522,68 @@ describe("runSetup with starship", () => {
 });
 
 describe("gridToTree", () => {
-  it("converts single column with 2 panes and sidebar", () => {
-    const result = gridToTree([["claude", "npm run dev"]], "lazygit");
-    expect(result.tree).toBe("(claude / npm) | lazygit");
+  it("converts single column with 2 panes", () => {
+    const result = gridToTree([["claude", "npm run dev"]]);
+    expect(result.tree).toBe("(claude / npm)");
     expect(result.panes.get("claude")).toBe("claude");
     expect(result.panes.get("npm")).toBe("npm run dev");
-    expect(result.panes.get("lazygit")).toBe("lazygit");
   });
 
-  it("converts two columns with sidebar", () => {
-    const result = gridToTree([["claude", "shell"], ["vim", "btop"]], "lazygit");
-    expect(result.tree).toBe("(claude / shell) | (vim / btop) | lazygit");
-    expect(result.panes.size).toBe(5);
+  it("converts two columns", () => {
+    const result = gridToTree([["claude", "shell"], ["vim", "btop"]]);
+    expect(result.tree).toBe("(claude / shell) | (vim / btop)");
+    expect(result.panes.size).toBe(4);
   });
 
-  it("converts single pane with sidebar", () => {
-    const result = gridToTree([["claude"]], "lazygit");
-    expect(result.tree).toBe("claude | lazygit");
-    expect(result.panes.size).toBe(2);
+  it("converts single pane", () => {
+    const result = gridToTree([["claude"]]);
+    expect(result.tree).toBe("claude");
+    expect(result.panes.size).toBe(1);
   });
 
   it("deduplicates pane names from same command", () => {
-    const result = gridToTree([["claude", "claude"]], "lazygit");
+    const result = gridToTree([["claude", "claude"]]);
     expect(result.panes.has("claude")).toBe(true);
     expect(result.panes.has("claude_2")).toBe(true);
   });
 
   it("handles three columns with various pane counts", () => {
-    const result = gridToTree([["vim"], ["claude", "shell"], ["btop"]], "lazygit");
-    expect(result.tree).toBe("vim | (claude / shell) | btop | lazygit");
-    expect(result.panes.size).toBe(5);
+    const result = gridToTree([["vim"], ["claude", "shell"], ["btop"]]);
+    expect(result.tree).toBe("vim | (claude / shell) | btop");
+    expect(result.panes.size).toBe(4);
   });
 
-  it("deduplicates across columns and sidebar", () => {
-    const result = gridToTree([["lazygit"]], "lazygit");
+  it("deduplicates across columns", () => {
+    const result = gridToTree([["lazygit"], ["lazygit"]]);
     expect(result.panes.has("lazygit")).toBe(true);
     expect(result.panes.has("lazygit_2")).toBe(true);
   });
 });
 
 describe("renderLayoutPreview", () => {
-  it("renders a 2-column layout with sidebar", () => {
-    const preview = renderLayoutPreview([["claude", "npm run dev"], ["vim"]], "lazygit");
+  it("renders a 2-column layout", () => {
+    const preview = renderLayoutPreview([["claude", "npm run dev"], ["vim"]]);
     expect(preview).toContain("claude");
     expect(preview).toContain("vim");
-    expect(preview).toContain("lazygit");
     expect(preview).toContain("\u250c"); // ┌
     expect(preview).toContain("\u2514"); // └
   });
 
-  it("renders a single column with sidebar", () => {
-    const preview = renderLayoutPreview([["claude"]], "lazygit");
+  it("renders a single column", () => {
+    const preview = renderLayoutPreview([["claude"]]);
     expect(preview).toContain("claude");
-    expect(preview).toContain("lazygit");
     expect(preview).toContain("\u2500"); // ─
   });
 
-  it("renders 3 columns with sidebar", () => {
-    const preview = renderLayoutPreview([["vim"], ["claude"], ["btop"]], "lazygit");
+  it("renders 3 columns", () => {
+    const preview = renderLayoutPreview([["vim"], ["claude"], ["btop"]]);
     expect(preview).toContain("vim");
     expect(preview).toContain("claude");
     expect(preview).toContain("btop");
-    expect(preview).toContain("lazygit");
   });
 
   it("renders multi-row columns correctly", () => {
-    const preview = renderLayoutPreview([["claude", "shell"], ["vim", "btop"]], "lazygit");
+    const preview = renderLayoutPreview([["claude", "shell"], ["vim", "btop"]]);
     const lines = preview.split("\n");
     // Should have top border, content rows for each pane, middle border, and bottom border
     expect(lines.length).toBeGreaterThanOrEqual(5);
@@ -1632,8 +1628,6 @@ describe("runLayoutBuilder", () => {
         cb("1"); // 1 column, 1 pane
       } else if (q.includes("Pane 1")) {
         cb("claude"); // command for pane
-      } else if (q.includes("Sidebar")) {
-        cb("lazygit"); // sidebar command
       } else {
         cb("1");
       }
@@ -1646,20 +1640,18 @@ describe("runLayoutBuilder", () => {
     expect(savedName).toBe("mytest");
     expect(savedEntries.get("tree")).toBeDefined();
     expect(savedEntries.get("tree")).toContain("claude");
-    expect(savedEntries.get("tree")).toContain("lazygit");
     // Pane definitions should be present
     expect(savedEntries.get("pane.claude")).toBe("claude");
-    expect(savedEntries.get("pane.lazygit")).toBe("lazygit");
   });
 
   it("saves layout with 2 columns and multiple panes", async () => {
     // Flow: template "2" (2+1), col 1 pane 1 "vim", col 1 pane 2 "shell",
-    //       col 2 pane 1 "btop", sidebar "lazygit", confirm
+    //       col 2 pane 1 "btop", confirm
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
       const q = _q;
       if (q.includes("[Y/n]")) {
         cb("y");
-      } else if (q.includes("[1-7, c]") || q.includes(`[1-${GRID_TEMPLATES.length}`)) {
+      } else if (q.includes("[1-8]") || q.includes(`[1-${GRID_TEMPLATES.length}`)) {
         cb("2"); // template [2, 1]
       } else if (q.includes("Column 1, Pane 1")) {
         cb("vim");
@@ -1667,8 +1659,6 @@ describe("runLayoutBuilder", () => {
         cb("shell");
       } else if (q.includes("Column 2, Pane 1")) {
         cb("btop");
-      } else if (q.includes("Sidebar")) {
-        cb("lazygit");
       } else {
         cb("1");
       }
@@ -1689,7 +1679,7 @@ describe("runLayoutBuilder", () => {
       const q = _q;
       if (q.includes("[Y/n]")) cb("y");
       else if (q.includes("Pane 1")) cb("claude");
-      else if (q.includes("Sidebar")) cb("lazygit");
+
       else cb("1");
     });
 
@@ -1705,7 +1695,7 @@ describe("runLayoutBuilder", () => {
       const q = _q;
       if (q.includes("[Y/n]")) cb("y");
       else if (q.includes("Pane 1")) cb("claude");
-      else if (q.includes("Sidebar")) cb("lazygit");
+
       else cb("1");
     });
 
@@ -1723,7 +1713,7 @@ describe("runLayoutBuilder", () => {
       const q = _q;
       if (q.includes("[Y/n]")) cb("y"); // confirm overwrite and save
       else if (q.includes("Pane 1")) cb("claude");
-      else if (q.includes("Sidebar")) cb("lazygit");
+
       else cb("1");
     });
 
@@ -1792,7 +1782,6 @@ describe("runLayoutBuilder", () => {
       const q = _q;
       if (q.includes("[Y/n]")) cb("y");
       else if (q.includes("Pane 1")) cb(""); // empty → defaults to "shell"
-      else if (q.includes("Sidebar")) cb(""); // empty → defaults to "lazygit"
       else cb("1");
     });
 
@@ -1803,27 +1792,12 @@ describe("runLayoutBuilder", () => {
     expect(savedEntries.get("pane.shell")).toBe("shell");
   });
 
-  it("defaults empty sidebar input to 'lazygit'", async () => {
-    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
-      const q = _q;
-      if (q.includes("[Y/n]")) cb("y");
-      else if (q.includes("Pane 1")) cb("vim");
-      else if (q.includes("Sidebar")) cb(""); // empty → defaults to "lazygit"
-      else cb("1");
-    });
-
-    await runLayoutBuilder("sidebardefault");
-
-    const [, savedEntries] = mockSaveCustomLayout.mock.calls[0] as [string, Map<string, string>];
-    expect(savedEntries.get("pane.lazygit")).toBe("lazygit");
-  });
-
   it("cancels when user declines to save at the end", async () => {
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
       const q = _q;
       if (q.includes("[Y/n]")) cb("n"); // decline save
       else if (q.includes("Pane 1")) cb("claude");
-      else if (q.includes("Sidebar")) cb("lazygit");
+
       else cb("1");
     });
 
@@ -1840,12 +1814,10 @@ describe("runLayoutBuilder", () => {
       const q = _q;
       if (q.includes("[Y/n]")) {
         cb("y");
-      } else if (q.includes("[1-7, c]") || q.includes(`[1-${GRID_TEMPLATES.length}`)) {
+      } else if (q.includes("[1-8]") || q.includes(`[1-${GRID_TEMPLATES.length}`)) {
         cb("6"); // template [2, 2]
       } else if (q.includes("Pane")) {
         cb("vim"); // all panes get vim
-      } else if (q.includes("Sidebar")) {
-        cb("lazygit");
       } else {
         cb("1");
       }
@@ -1858,7 +1830,6 @@ describe("runLayoutBuilder", () => {
     expect(savedName).toBe("bigsetup");
     const tree = savedEntries.get("tree")!;
     expect(tree).toContain("vim");
-    expect(tree).toContain("lazygit");
   });
 
   it("prints Layout Builder section header", async () => {
@@ -1866,7 +1837,7 @@ describe("runLayoutBuilder", () => {
       const q = _q;
       if (q.includes("[Y/n]")) cb("y");
       else if (q.includes("Pane 1")) cb("claude");
-      else if (q.includes("Sidebar")) cb("lazygit");
+
       else cb("1");
     });
 
@@ -1882,9 +1853,9 @@ describe("runLayoutBuilder", () => {
       promptTexts.push(_q);
       const q = _q;
       if (q.includes("[Y/n]")) cb("y");
-      else if (q.includes("[1-7, c]") || q.includes(`[1-${GRID_TEMPLATES.length}`)) cb("1"); // template [1,1]
+      else if (q.includes("[1-8]") || q.includes(`[1-${GRID_TEMPLATES.length}`)) cb("1"); // template [1,1]
       else if (q.includes("Pane 1")) cb("claude");
-      else if (q.includes("Sidebar")) cb("lazygit");
+
       else cb("1");
     });
 
@@ -1899,10 +1870,10 @@ describe("runLayoutBuilder", () => {
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
       const q = _q;
       if (q.includes("[Y/n]")) cb("y");
-      else if (q.includes("[1-7, c]") || q.includes(`[1-${GRID_TEMPLATES.length}`)) cb("1"); // template [1,1]
+      else if (q.includes("[1-8]") || q.includes(`[1-${GRID_TEMPLATES.length}`)) cb("1"); // template [1,1]
       else if (q.includes("Column 1, Pane 1")) cb("nvim");
       else if (q.includes("Column 2, Pane 1")) cb("lazygit");
-      else if (q.includes("Sidebar")) cb("btop");
+
       else cb("1");
     });
 
@@ -1922,9 +1893,9 @@ describe("runLayoutBuilder", () => {
       promptTexts.push(_q);
       const q = _q;
       if (q.includes("[Y/n]")) cb("y");
-      else if (q.includes("[1-7, c]") || q.includes(`[1-${GRID_TEMPLATES.length}`)) cb("1"); // template [1,1]
+      else if (q.includes("[1-8]") || q.includes(`[1-${GRID_TEMPLATES.length}`)) cb("1"); // template [1,1]
       else if (q.includes("Pane 1")) cb("claude");
-      else if (q.includes("Sidebar")) cb("lazygit");
+
       else cb("1");
     });
 
@@ -1959,18 +1930,15 @@ describe("renderMiniPreview", () => {
 
   it("renders three-column template", () => {
     const result = renderMiniPreview([1, 2, 1]);
-    // Top border should have multiple ┬ separators (3 main cols + sidebar)
+    // Top border should have ┬ separators between columns
     const teeDownCount = (result[0]!.match(/\u252c/g) ?? []).length;
-    expect(teeDownCount).toBe(3); // 3 separators between 3 main cols + sidebar
+    expect(teeDownCount).toBe(2); // 2 separators between 3 columns
   });
 
-  it("includes sidebar column", () => {
+  it("single column has no ┬ separators", () => {
     const result = renderMiniPreview([1]);
-    // Should have 2 ┬ separators in top border (1 main col + sidebar)
     const teeDownCount = (result[0]!.match(/\u252c/g) ?? []).length;
-    expect(teeDownCount).toBe(1);
-    // Width should include sidebar
-    expect(result[0]!.length).toBeGreaterThan(10);
+    expect(teeDownCount).toBe(0);
   });
 });
 
@@ -2012,8 +1980,8 @@ describe("selectGridTemplate", () => {
     expect(result).toEqual([1, 1]); // first template
   });
 
-  it("c selection launches grid builder and returns its result", async () => {
-    // Mock: first call to promptUser → "c" (triggers grid builder)
+  it("custom option selection launches grid builder and returns its result", async () => {
+    // Mock: first call to promptUser → "8" (triggers grid builder)
     // Grid builder enters raw mode and listens for keypresses
     // We simulate Enter immediately, returning [1] (initial state)
     const mockSetRawMode = vi.fn();
@@ -2034,7 +2002,7 @@ describe("selectGridTemplate", () => {
     });
 
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
-      cb("c");
+      cb("8");
     });
 
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
@@ -2113,13 +2081,13 @@ describe("buildPartialGrid", () => {
 
 describe("renderLayoutPreview — placeholders", () => {
   it("renders ? as placeholder text", () => {
-    const preview = renderLayoutPreview([["nvim", "?"]], "?");
+    const preview = renderLayoutPreview([["nvim", "?"]]);
     expect(preview).toContain("nvim");
     expect(preview).toContain("?");
   });
 
   it("placeholder cells are rendered", () => {
-    const preview = renderLayoutPreview([["?"]], "?");
+    const preview = renderLayoutPreview([["?"]]);
     expect(preview).toContain("?");
     // Still has proper box drawing
     expect(preview).toContain("\u250c"); // ┌
@@ -2196,7 +2164,7 @@ describe("PreviewRenderer", () => {
 
   it("first draw prints preview without cursor control", () => {
     const renderer = new PreviewRenderer();
-    renderer.draw([["nvim"]], "lazygit");
+    renderer.draw([["nvim"]]);
 
     // Should NOT write ANSI cursor sequences on first draw
     const stdoutCalls = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0]));
@@ -2209,10 +2177,10 @@ describe("PreviewRenderer", () => {
 
   it("second draw moves cursor up and clears", () => {
     const renderer = new PreviewRenderer();
-    renderer.draw([["?"]], "?");
+    renderer.draw([["?"]]);
     renderer.log("some text");
     renderer.countPrompt();
-    renderer.draw([["nvim"]], "?");
+    renderer.draw([["nvim"]]);
 
     const stdoutCalls = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0]));
     // Should contain ansiUp sequence
@@ -2226,7 +2194,7 @@ describe("PreviewRenderer", () => {
 
   it("log increments line counter", () => {
     const renderer = new PreviewRenderer();
-    renderer.draw([["?"]], "?");
+    renderer.draw([["?"]]);
 
     // Count how many lines the first draw produced
     const firstDrawLogCount = logSpy.mock.calls.length;
@@ -2236,7 +2204,7 @@ describe("PreviewRenderer", () => {
     renderer.countPrompt();
 
     stdoutSpy.mockClear();
-    renderer.draw([["nvim"]], "?");
+    renderer.draw([["nvim"]]);
 
     // Should move up by: firstDrawLogCount (preview height) + 3 (2 logs + 1 prompt)
     const stdoutCalls = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0]));
@@ -2252,11 +2220,11 @@ describe("PreviewRenderer", () => {
 
   it("reset makes next draw act as first draw", () => {
     const renderer = new PreviewRenderer();
-    renderer.draw([["?"]], "?");
+    renderer.draw([["?"]]);
     renderer.reset();
 
     stdoutSpy.mockClear();
-    renderer.draw([["nvim"]], "?");
+    renderer.draw([["nvim"]]);
 
     // Should NOT attempt cursor control after reset
     const stdoutCalls = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0]));
@@ -2265,7 +2233,7 @@ describe("PreviewRenderer", () => {
 
   it("countPrompt increments line counter by 1", () => {
     const renderer = new PreviewRenderer();
-    renderer.draw([["?"]], "?");
+    renderer.draw([["?"]]);
 
     const firstDrawLogCount = logSpy.mock.calls.length;
 
@@ -2274,7 +2242,7 @@ describe("PreviewRenderer", () => {
     renderer.countPrompt();
 
     stdoutSpy.mockClear();
-    renderer.draw([["nvim"]], "?");
+    renderer.draw([["nvim"]]);
 
     const stdoutCalls = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0]));
     const upSequence = stdoutCalls.find((c: string) => c.includes("A"));
@@ -2309,10 +2277,10 @@ describe("runLayoutBuilder — in-place preview", () => {
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
       const q = _q;
       if (q.includes("[Y/n]")) cb("y");
-      else if (q.includes("[1-7, c]") || q.includes(`[1-${GRID_TEMPLATES.length}`)) cb("1"); // template [1,1]
+      else if (q.includes("[1-8]") || q.includes(`[1-${GRID_TEMPLATES.length}`)) cb("1"); // template [1,1]
       else if (q.includes("Column 1, Pane 1")) cb("nvim");
       else if (q.includes("Column 2, Pane 1")) cb("lazygit");
-      else if (q.includes("Sidebar")) cb("btop");
+
       else cb("1");
     });
 
@@ -2335,7 +2303,7 @@ describe("runLayoutBuilder — in-place preview", () => {
       const q = _q;
       if (q.includes("[Y/n]")) cb("y");
       else if (q.includes("Pane 1")) cb("nvim");
-      else if (q.includes("Sidebar")) cb("lazygit");
+
       else cb("1");
     });
 
@@ -2468,9 +2436,10 @@ describe("renderGridBuilderPreview", () => {
     expect(preview).toContain("\u00b7"); // ·
   });
 
-  it("sidebar shows placeholder", () => {
+  it("single column renders correctly", () => {
     const preview = renderGridBuilderPreview([1], 0, 0);
-    expect(preview).toContain("?");
+    expect(preview).toContain("\u250c"); // ┌
+    expect(preview).toContain("\u2514"); // └
   });
 
   it("renders correct number of separators for multi-pane column", () => {
