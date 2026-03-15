@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Boundary tests for layout parameters, validation helpers, and tree utilities (22 new tests)
+
+### Changed
+
+- Safe error handling: replaced unsafe `(err as Error)` casts with `getErrorMessage()` utility
+- Fixed "server" to "shell" naming inconsistency in pane titles
+- Extracted shared constants (`GHOSTTY_APP_NAME`, `SUMMON_WORKSPACE_ENV`) to single source
+- Consolidated layout name regex to single source (`LAYOUT_NAME_RE`)
+- Extracted `validateIntFlag()` and `validateFloatFlag()` helpers
+- Decomposed large functions in launcher.ts and script.ts into focused helpers
+- Refactored `collectLeaves` to O(n) accumulator pattern
+- Defined box-drawing character constants in setup wizard
+- Pre-compiled regex patterns in doctor checks
+
 ## [0.8.0] - 2026-03-14
 
 ### Added

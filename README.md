@@ -205,9 +205,11 @@ This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.
 
 `.summon` files configure commands that summon executes in each pane (`editor`, `sidebar`, `shell`, `on-start`). Running `summon .` in a directory will execute whatever commands its `.summon` file specifies -- this is the same trust model as `Makefile`, direnv `.envrc`, or VS Code `.vscode/tasks.json`.
 
-When a `.summon` file contains command values with shell metacharacters (`;`, `|`, `&`, `` ` ``, `$(`, `${`, `<`, `>`), summon displays the commands and prompts for confirmation before executing. In non-interactive environments (piped input, CI), execution is refused outright. This check is skipped for `--dry-run` since no commands are executed.
+When a `.summon` file contains command values with shell metacharacters (`;`, `|`, `&`, `` ` ``, `$(`, `${`, `<`, `>`), summon displays the commands and prompts for confirmation before executing (`confirmDangerousCommands`). In non-interactive environments (piped input, CI), execution is refused outright. This check is skipped for `--dry-run` since no commands are executed.
 
-**Always review `.summon` files before running summon in untrusted repositories.**
+**`on-start` note:** The `on-start` hook executes its value via a shell (`execSync`) rather than `execFileSync`. This is intentional -- `on-start` supports complex shell commands like `docker compose up -d && npm install` that require shell interpretation. The `editor`, `sidebar`, and `shell` commands are validated against `SAFE_COMMAND_RE` before execution, but `on-start` is not, since it is designed to run arbitrary shell snippets. The `confirmDangerousCommands` safety net still applies: if `on-start` is set in a `.summon` file and contains shell metacharacters, the user is prompted before execution.
+
+**Always review `.summon` files before running summon in untrusted repositories, paying particular attention to `on-start` values which execute as shell commands.**
 
 ## Security
 
