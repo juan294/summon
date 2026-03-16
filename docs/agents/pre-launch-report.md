@@ -1,88 +1,98 @@
 # Pre-Launch Audit Report
-> Generated on 2026-03-16 | Branch: `develop` | 6 parallel specialists | Post-v1.0.0 (Claude-optional refactor)
+> Generated on 2026-03-16 | Branch: `develop` | 6 parallel specialists | Pre-v1.2.0
 
 ## Verdict: CONDITIONAL
 
-One blocker (unpushed commits must go through CI before release). No code-level blockers.
-
-## Blockers (must fix before release)
-
-| # | Issue | Found by | Fix |
-|---|-------|----------|-----|
-| B1 | 2 unpushed commits on `develop` (`f495da2`, `befcde1`) — not yet verified by CI | devops | Push and verify CI passes |
+No blockers. 5 warnings across QA, Security, and UX. 27 recommendations.
 
 ## Warnings
 
 | # | Issue | Severity | Found by | Risk |
 |---|-------|----------|----------|------|
-| W1 | Flaky test under v8 coverage: `"accepts valid layout preset"` (index.test.ts:477) | Medium | qa-lead | May fail CI on slow runners |
-| W2 | `setup.ts` below per-file coverage thresholds (94.56% stmts, 86.42% branches) | Low | qa-lead | Interactive wizard paths least tested |
-| W3 | `launcher.ts` branch coverage 89.50% (below 90% per-file) | Low | qa-lead | Non-dry-run execution paths uncovered |
-| W4 | `utils.ts` branch coverage 83.33% (below 90% per-file) | Low | qa-lead | Line 48 uncovered |
-| W5 | `on-start` from CLI/machine config bypasses `confirmDangerousCommands` | Low | security | User-controlled source, low risk |
-| W6 | `layout edit` uses `$EDITOR` without SAFE_COMMAND_RE validation | Low | security | Standard Unix behavior |
-| W7 | CodeQL only runs on `main` and weekly schedule, not on `develop` | Low | devops | Security scanning delayed until production |
-| W8 | `dependency-review.yml` uses `continue-on-error: true` | Low | devops | Vulnerable deps get green checks |
-| W9 | `summon open` exits on invalid selection instead of re-prompting | Low | ux-reviewer | Minor UX inconsistency |
-| W10 | `summon set editor ""` saves empty value (triggers wizard on next launch) | Low | ux-reviewer | Confusing footgun |
-| W11 | Duplicate `SAFE_COMMAND_RE` check in launcher.ts `resolveCommand` wrapper | Low | architect | Defense-in-depth, not a bug |
-| W12 | `setup.ts` async `resolveCommandAsync` parallels sync `resolveCommand` from utils.ts | Low | architect | Must update both if logic changes |
-| W13 | Test-only exports inflate public API surface (4 `@internal` exports) | Low | architect/perf | Intentional, no runtime impact |
+| W1 | launcher.ts branch coverage at 79.59% (optsToConfigMap untested) | WARNING | qa-lead | Low |
+| W2 | Polling-based test sync in setup.test.ts waitForHandler() | WARNING | qa-lead | Low |
+| W3 | setTimeout(0) for keypress simulation in setup tests | WARNING | qa-lead | Low |
+| W4 | `summon set env.INVALID` silently accepts invalid env var key names | WARNING | ux-reviewer | Medium |
+| W5 | Layout name path traversal prevented by regex only | WARNING | security-reviewer | Low |
 
 ## Detailed Findings
 
-### 1. Quality Assurance (qa-lead) — YELLOW
+### 1. Quality Assurance (qa-lead) — GREEN
+- **930 tests**, 100% pass rate, 12 test files
+- **97.26% stmt / 90.29% branch / 98.13% func / 98.19% line** coverage
+- All configured thresholds met (95/90/95/95)
+- Typecheck: PASS | Lint: PASS
 
-- **829 tests, 100% pass rate** (standard mode)
-- **Typecheck:** clean
-- **Lint:** clean
-- **Global coverage:** 96.86% stmts, 90.70% branches, 98.57% funcs, 97.51% lines — all thresholds met
-- All 10 source files have co-located test files
-- 1 flaky test under coverage mode (W1)
-- Per-file branch coverage below 90% for setup.ts, launcher.ts, utils.ts (W2-W4)
+| # | Finding | Severity |
+|---|---------|----------|
+| W1 | launcher.ts branch coverage 79.59% — optsToConfigMap 28 uncovered branches | WARNING |
+| W2 | waitForHandler() polling without assertion on failure | WARNING |
+| W3 | setTimeout(0) keypress simulation pattern | WARNING |
+| R1 | Add direct unit tests for optsToConfigMap() | RECOMMENDATION |
+| R2 | Add assertion in waitForHandler() if handler never captured | RECOMMENDATION |
+| R3 | script.ts line 294 uncovered (3+ right-column editors edge case) | RECOMMENDATION |
+| R4 | tree.ts line 124 uncovered (parser advance() defensive error) | RECOMMENDATION |
 
 ### 2. Security (security-reviewer) — GREEN
+- Zero vulnerable dependencies, zero runtime deps
+- No hardcoded secrets
+- Command injection guarded (execFileSync arrays, SAFE_COMMAND_RE)
+- AppleScript injection prevented (escapeAppleScript on all user input)
+- File permissions correct (0o600/0o700)
 
-- `pnpm audit`: zero vulnerabilities
-- No hardcoded secrets found
-- Strong command injection protections (SAFE_COMMAND_RE, SAFE_SHELL_RE, SHELL_META_RE, escapeAppleScript, shellQuote)
-- osascript execution uses stdin piping, not string interpolation
-- Config directory permissions correct (0o700/0o600)
-- All dependency licenses permissive (MIT, Apache-2.0, BSD, ISC, 0BSD)
-- Minor: `on-start` from CLI bypasses shell metacharacter check (W5)
+| # | Finding | Severity |
+|---|---------|----------|
+| W5 | Layout name path traversal prevented by regex only (no secondary resolve+prefix check) | WARNING |
+| R5 | export command writes .summon with 0o644 — appropriate but document distinction | RECOMMENDATION |
+| R6 | Env var values not checked by confirmDangerousCommands (properly escaped) | RECOMMENDATION |
 
-### 3. Infrastructure (devops) — YELLOW
+### 3. Infrastructure (devops) — GREEN
+- Build succeeds, CI green (4/4 completed runs)
+- Node 18/20/22 matrix, CodeQL, dependency review
+- Working tree clean, npm pack clean
 
-- Build succeeds (7 ESM chunks, ~67KB total)
-- CI: all 5 recent runs on develop passed
-- Git state clean (but 2 unpushed commits — B1)
-- Package.json publish-ready (name, version, bin, files, os, engines all correct)
-- Environment variables documented
-- CI matrix solid (macOS, Node 18/20/22, frozen lockfile)
+| # | Finding | Severity |
+|---|---------|----------|
+| R7 | Add `main` field to package.json for legacy tooling compat | RECOMMENDATION |
+| R8 | Consider `publishConfig: {"access": "public"}` | RECOMMENDATION |
 
 ### 4. Architecture (architect) — GREEN
+- Typecheck passes, no circular deps, no dead exports
 
-- Typecheck clean
-- All dependencies current (`pnpm outdated` — none)
-- No circular dependencies (11-module acyclic import graph)
-- No truly dead production code (4 test-only exports are intentional)
-- Minor duplication in command resolution (W11, W12)
+| # | Finding | Severity |
+|---|---------|----------|
+| R9 | Remove trivial resolveCommand wrapper in launcher.ts | RECOMMENDATION |
+| R10 | Extract shared isGhosttyInstalled() helper | RECOMMENDATION |
+| R11 | Update typescript-eslint 8.57.0 → 8.57.1 | RECOMMENDATION |
+| R12 | Consider splitting setup.ts (~1700 lines) | RECOMMENDATION |
 
 ### 5. Performance (performance-eng) — GREEN
+- Total build: ~75 KB across 12 chunks
+- Largest: index.js (35.37 KB) — under 50 KB threshold
+- Code splitting effective, no hot-path bloat
 
-- Build: 16ms, 67KB total (well under 100KB threshold)
-- Code splitting effective: setup wizard and completions lazy-loaded
-- Startup imports minimal — heavy modules loaded on demand
-- Regexes pre-compiled at module level
-- Filesystem reads appropriately cached
-- No performance anti-patterns detected
+| # | Finding | Severity |
+|---|---------|----------|
+| R13 | Test-only exports inflate bundle marginally (~200 bytes) | RECOMMENDATION |
+| R14 | setup.ts exports ~50 symbols, most test-only | RECOMMENDATION |
+| R15 | doctor subcommand could be split out (<2 KB savings) | RECOMMENDATION |
+| R16 | Monitor index.js size as features grow | RECOMMENDATION |
 
 ### 6. UX/Accessibility (ux-reviewer) — GREEN
+- Help text comprehensive, error messages actionable
+- NO_COLOR respected, non-TTY handled
 
-- Help text clear and comprehensive
-- Error messages consistently suggest remediation actions
-- Non-TTY handling thorough across all interactive paths
-- NO_COLOR properly respected
-- Dry-run output well-structured with metadata headers
-- Shell completions comprehensive (bash + zsh)
-- Minor: `summon open` doesn't re-prompt on invalid input (W9)
+| # | Finding | Severity |
+|---|---------|----------|
+| W4 | `summon set env.*` accepts invalid env var key names | WARNING |
+| R17 | freeze usage `<layout-name>` vs help `<name>` inconsistent | RECOMMENDATION |
+| R18 | btop preset description hard-codes "lazygit sidebar" | RECOMMENDATION |
+| R19 | layoutNotFoundOrExit lacks `Error:` prefix | RECOMMENDATION |
+| R20 | `summon doctor` exits 0 even when issues found | RECOMMENDATION |
+| R21 | `summon export` drops env.* keys | RECOMMENDATION |
+| R22 | Shell completions don't complete `doctor --fix` / `keybindings --vim` | RECOMMENDATION |
+| R23 | `--fix`/`--vim` are global parse options but subcommand-specific | RECOMMENDATION |
+| R24 | config unknown key message doesn't suggest removal | RECOMMENDATION |
+| R25 | export header lacks timestamp | RECOMMENDATION |
+| R26 | Ctrl+C exits with code 0 instead of 130 | RECOMMENDATION |
+| R27 | Nested workspace warning "too scary" could be clearer | RECOMMENDATION |
