@@ -20,7 +20,7 @@ import {
   isValidLayoutName,
   isCustomLayout,
 } from "./config.js";
-import { launch, resolveConfig } from "./launcher.js";
+import { launch, resolveConfig, optsToConfigMap } from "./launcher.js";
 import type { CLIOverrides } from "./launcher.js";
 import { PANES_MIN, EDITOR_SIZE_MIN, EDITOR_SIZE_MAX, isPresetName, getPresetNames } from "./layout.js";
 import { validateIntFlag, validateFloatFlag } from "./validation.js";
@@ -649,20 +649,7 @@ switch (subcommand) {
     }
 
     const { opts } = resolveConfig(process.cwd(), {});
-    const entries = new Map<string, string>();
-
-    if (opts.editor) entries.set("editor", opts.editor);
-    if (opts.sidebarCommand) entries.set("sidebar", opts.sidebarCommand);
-    if (opts.editorPanes !== undefined) entries.set("panes", String(opts.editorPanes));
-    if (opts.editorSize !== undefined) entries.set("editor-size", String(opts.editorSize));
-    if (opts.shell !== undefined) entries.set("shell", opts.shell);
-    if (opts.autoResize !== undefined) entries.set("auto-resize", String(opts.autoResize));
-    if (opts.fontSize !== undefined && opts.fontSize !== null) entries.set("font-size", String(opts.fontSize));
-    if (opts.theme !== undefined && opts.theme !== null) entries.set("theme", opts.theme);
-    if (opts.newWindow) entries.set("new-window", "true");
-    if (opts.fullscreen) entries.set("fullscreen", "true");
-    if (opts.maximize) entries.set("maximize", "true");
-    if (opts.float) entries.set("float", "true");
+    const entries = optsToConfigMap(opts);
 
     saveCustomLayout(freezeName, entries);
     console.log(`Frozen current config as layout "${freezeName}". Launch with: summon . --layout ${freezeName}`);

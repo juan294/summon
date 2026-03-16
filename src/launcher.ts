@@ -44,6 +44,24 @@ function getLoginShell(): string {
   return shell;
 }
 
+/** Convert resolved layout options to a key-value config map suitable for saving as a custom layout. */
+export function optsToConfigMap(opts: Partial<LayoutOptions>): Map<string, string> {
+  const entries = new Map<string, string>();
+  if (opts.editor) entries.set("editor", opts.editor);
+  if (opts.sidebarCommand) entries.set("sidebar", opts.sidebarCommand);
+  if (opts.editorPanes !== undefined) entries.set("panes", String(opts.editorPanes));
+  if (opts.editorSize !== undefined) entries.set("editor-size", String(opts.editorSize));
+  if (opts.shell !== undefined) entries.set("shell", opts.shell);
+  if (opts.autoResize !== undefined) entries.set("auto-resize", String(opts.autoResize));
+  if (opts.fontSize !== undefined && opts.fontSize !== null) entries.set("font-size", String(opts.fontSize));
+  if (opts.theme !== undefined && opts.theme !== null) entries.set("theme", opts.theme);
+  if (opts.newWindow) entries.set("new-window", "true");
+  if (opts.fullscreen) entries.set("fullscreen", "true");
+  if (opts.maximize) entries.set("maximize", "true");
+  if (opts.float) entries.set("float", "true");
+  return entries;
+}
+
 export interface CLIOverrides {
   layout?: string;
   editor?: string;
@@ -435,7 +453,8 @@ export function resolveConfig(targetDir: string, cliOverrides: CLIOverrides): Re
   if (mergedTreeLayout) {
     const projectCwds = extractPaneCwds(project);
     if (projectCwds.size > 0) {
-      const merged = new Map([...(mergedTreeLayout.paneCwds ?? []), ...projectCwds]);
+      const merged = new Map(mergedTreeLayout.paneCwds ?? []);
+      for (const [k, v] of projectCwds) merged.set(k, v);
       mergedTreeLayout = { ...mergedTreeLayout, paneCwds: merged };
     }
   }
@@ -469,6 +488,21 @@ function executeOnStart(onStart: string, targetDir: string): void {
   } catch {
     console.error(`on-start command failed: ${onStart}`);
     process.exit(1);
+  }
+}
+
+/** Append shared optional dry-run header lines (starship preset, theme). */
+function appendDryRunExtras(
+  headerLines: string[],
+  starshipPreset: string | undefined,
+  dryRunStarshipPath: string | null,
+  theme: string | null | undefined,
+): void {
+  if (starshipPreset) {
+    headerLines.push(`-- Starship preset: ${starshipPreset} (${dryRunStarshipPath})`);
+  }
+  if (theme) {
+    headerLines.push(`-- Theme: ${theme}`);
   }
 }
 
@@ -506,12 +540,7 @@ async function launchTreeLayout(
       `-- Layout: tree layout, ${paneCount} ${paneCount === 1 ? "pane" : "panes"}`,
       `-- Target: ${targetDir}`,
     ];
-    if (starshipPreset) {
-      headerLines.push(`-- Starship preset: ${starshipPreset} (${dryRunStarshipPath})`);
-    }
-    if (opts.theme) {
-      headerLines.push(`-- Theme: ${opts.theme}`);
-    }
+    appendDryRunExtras(headerLines, starshipPreset, dryRunStarshipPath, opts.theme);
     console.log(`${headerLines.join("\n")}\n${script}`);
     return;
   }
@@ -552,12 +581,7 @@ async function launchTraditionalLayout(
       `-- Layout: ${totalPanes} editor ${totalPanes === 1 ? "pane" : "panes"}, editor=${plan.editor}, sidebar=${plan.sidebarCommand}, shell=${plan.hasShell}`,
       `-- Target: ${targetDir}`,
     ];
-    if (starshipPreset) {
-      headerLines.push(`-- Starship preset: ${starshipPreset} (${dryRunStarshipPath})`);
-    }
-    if (opts.theme) {
-      headerLines.push(`-- Theme: ${opts.theme}`);
-    }
+    appendDryRunExtras(headerLines, starshipPreset, dryRunStarshipPath, opts.theme);
     console.log(`${headerLines.join("\n")}\n${script}`);
     return;
   }

@@ -37,6 +37,7 @@ export interface TreeLayoutPlan {
 // ---------- Parser internals ----------
 
 const PANE_NAME_RE = /^[a-zA-Z_][a-zA-Z0-9_-]*$/;
+const PANE_CWD_RE = /^pane\.([a-zA-Z_][a-zA-Z0-9_-]*)\.cwd$/;
 const NAME_START_RE = /[a-zA-Z_]/;
 const NAME_CHAR_RE = /[a-zA-Z0-9_-]/;
 
@@ -262,7 +263,7 @@ export function extractPaneDefinitions(config: Map<string, string>): Map<string,
 export function extractPaneCwds(config: Map<string, string>): Map<string, string> {
   const cwds = new Map<string, string>();
   for (const [key, value] of config) {
-    const match = key.match(/^pane\.([a-zA-Z_][a-zA-Z0-9_-]*)\.cwd$/);
+    const match = PANE_CWD_RE.exec(key);
     if (match && value) {
       cwds.set(match[1]!, value);
     }
