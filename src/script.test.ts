@@ -857,6 +857,26 @@ describe("generateAppleScript", () => {
       expect(script).not.toContain("font size");
     });
   });
+
+  describe("theme flag", () => {
+    it("sets theme on surface config when theme specified", () => {
+      const plan = planLayout({ theme: "nord" });
+      const script = generateAppleScript(plan, "/tmp/test");
+      expect(script).toContain('set theme of cfg to "nord"');
+    });
+
+    it("omits theme when theme is null (default)", () => {
+      const plan = planLayout();
+      const script = generateAppleScript(plan, "/tmp/test");
+      expect(script).not.toContain("set theme of cfg");
+    });
+
+    it("escapes special characters in theme name", () => {
+      const plan = planLayout({ theme: 'my "custom" theme' });
+      const script = generateAppleScript(plan, "/tmp/test");
+      expect(script).toContain('set theme of cfg to "my \\"custom\\" theme"');
+    });
+  });
 });
 
 describe("generateTreeAppleScript", () => {
@@ -872,6 +892,7 @@ describe("generateTreeAppleScript", () => {
       autoResize: false,
       editorSize: 75,
       fontSize: null,
+      theme: null,
       newWindow: false,
       fullscreen: false,
       maximize: false,
@@ -1095,6 +1116,25 @@ describe("generateTreeAppleScript", () => {
     expect(script).toContain("set font size of cfg to 14");
   });
 
+  it("theme", () => {
+    const plan = makePlan(
+      { type: "pane", name: "editor", command: "vim" },
+      { theme: "tokyo-night" },
+    );
+    const script = generateTreeAppleScript(plan, "/tmp/project");
+
+    expect(script).toContain('set theme of cfg to "tokyo-night"');
+  });
+
+  it("omits theme when null", () => {
+    const plan = makePlan(
+      { type: "pane", name: "editor", command: "vim" },
+    );
+    const script = generateTreeAppleScript(plan, "/tmp/project");
+
+    expect(script).not.toContain("set theme of cfg");
+  });
+
   it("always includes SUMMON_WORKSPACE=1 in surface config env vars", () => {
     const plan = makePlan(
       { type: "pane", name: "editor", command: "claude" },
@@ -1115,6 +1155,51 @@ describe("generateTreeAppleScript", () => {
     expect(script).toContain("set environment variables of cfg to");
     expect(script).toContain("NODE_ENV=development");
     expect(script).toContain("DEBUG=true");
+  });
+
+  it("per-pane cwd: config pane uses resolved cwd in cd command", () => {
+    const tree: LayoutNode = {
+      type: "split",
+      direction: "right",
+      first: { type: "pane", name: "editor", command: "vim", cwd: "./frontend" },
+      second: { type: "pane", name: "backend", command: "npm run dev", cwd: "./api" },
+    };
+    const plan = makePlan(tree);
+    const script = generateTreeAppleScript(plan, "/tmp/project", "/bin/bash");
+
+    // Config pane (backend) should cd to resolved cwd
+    expect(script).toContain("/tmp/project/api");
+    // Root pane (editor) should cd to resolved cwd
+    expect(script).toContain("/tmp/project/frontend");
+  });
+
+  it("per-pane cwd: missing cwd defaults to targetDir", () => {
+    const tree: LayoutNode = {
+      type: "split",
+      direction: "right",
+      first: { type: "pane", name: "editor", command: "vim" },
+      second: { type: "pane", name: "backend", command: "npm run dev" },
+    };
+    const plan = makePlan(tree);
+    const script = generateTreeAppleScript(plan, "/tmp/project", "/bin/bash");
+
+    // Both panes should use targetDir (no custom cwd)
+    expect(script).toContain("cd '/tmp/project'");
+    expect(script).not.toContain("/tmp/project/api");
+  });
+
+  it("per-pane cwd: relative cwd resolved against targetDir", () => {
+    const tree: LayoutNode = {
+      type: "pane",
+      name: "editor",
+      command: "vim",
+      cwd: "../other",
+    };
+    const plan = makePlan(tree);
+    const script = generateTreeAppleScript(plan, "/tmp/project", "/bin/bash");
+
+    // Relative cwd should resolve against targetDir
+    expect(script).toContain("/tmp/other");
   });
 
   it("env exports for root pane in non-new-window mode", () => {

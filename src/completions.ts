@@ -22,6 +22,8 @@ _summon() {
     'doctor:Check Ghostty config'
     'open:Select and launch a project'
     'export:Export config as .summon file'
+    'freeze:Save current config as a reusable layout'
+    'keybindings:Generate Ghostty key table for navigation'
     'layout:Manage custom layouts'
   )
 
@@ -49,6 +51,7 @@ _summon() {
     '--starship-preset[Starship preset]:preset:->starship_preset' \\
     '*--env[Set environment variable]:var:' \\
     '--font-size[Font size in points]:size:' \\
+    '--theme[Ghostty theme]:theme:' \\
     '--on-start[Run command before workspace creation]:command:' \\
     '--new-window[Open in new Ghostty window]' \\
     '--fullscreen[Start in fullscreen mode]' \\
@@ -129,7 +132,7 @@ export function generateBashCompletion(): string {
   local cur prev words cword
   _init_completion || return
 
-  local subcommands="add remove list set config setup completions doctor open export layout"
+  local subcommands="add remove list set config setup completions doctor open export freeze keybindings layout"
   local config_keys="${configKeys}"
   local layout_presets="${presetNames}"
   local projects_file="\${HOME}/.config/summon/projects"

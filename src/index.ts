@@ -20,7 +20,7 @@ import {
   isValidLayoutName,
   isCustomLayout,
 } from "./config.js";
-import { launch } from "./launcher.js";
+import { launch, resolveConfig } from "./launcher.js";
 import type { CLIOverrides } from "./launcher.js";
 import { PANES_MIN, EDITOR_SIZE_MIN, EDITOR_SIZE_MAX, isPresetName, getPresetNames } from "./layout.js";
 import { validateIntFlag, validateFloatFlag } from "./validation.js";
@@ -68,6 +68,10 @@ Usage:
   summon set <key> [value]    Set a machine-level config value
   summon config               Show current machine configuration
   summon doctor               Check Ghostty config for recommended settings
+  summon doctor --fix         Auto-add missing recommended settings (backs up first)
+  summon freeze <name>        Save current resolved config as a reusable layout
+  summon keybindings          Generate Ghostty key table for workspace navigation
+  summon keybindings --vim    Use vim-style keys (hjkl) instead of arrows
   summon open                 Select and launch a registered project
   summon layout <action>      Manage custom layouts (create, save, list, show, delete, edit)
   summon export [path]        Export config as a .summon project file
@@ -181,9 +185,12 @@ Setup (add to your shell config):
 Interactively select a registered project to launch.
 All workspace flags (--layout, --editor, etc.) are supported.`,
 
-  doctor: `Usage: summon doctor
+  doctor: `Usage: summon doctor [--fix]
 
-Check your Ghostty configuration for recommended settings.`,
+Check your Ghostty configuration for recommended settings.
+
+Options:
+  --fix  Auto-add missing recommended settings (backs up config first)`,
 
   export: `Usage: summon export [path]
 
@@ -193,6 +200,22 @@ Writes to stdout by default. Optionally specify a path argument.
 Examples:
   summon export > .summon          Write to .summon in current directory
   summon export .summon            Same, using path argument`,
+
+  keybindings: `Usage: summon keybindings [--vim]
+
+Generate Ghostty key table configuration for workspace pane navigation.
+Output can be appended to ~/.config/ghostty/config.
+
+Options:
+  --vim  Use vim-style keys (hjkl) instead of arrow keys`,
+
+  freeze: `Usage: summon freeze <name>
+
+Save current resolved config (CLI + project + machine) as a reusable custom layout.
+
+Examples:
+  summon freeze mysetup         Save current config as "mysetup"
+  summon . --layout mysetup     Launch with frozen layout`,
 
   layout: `Usage: summon layout <action> [name]
 
@@ -240,6 +263,8 @@ const parseOpts = {
     "fullscreen": { type: "boolean" },
     "maximize": { type: "boolean" },
     "float": { type: "boolean" },
+    "fix": { type: "boolean" },
+    "vim": { type: "boolean" },
     "dry-run": { type: "boolean", short: "n" },
   },
 } as const;
@@ -480,7 +505,9 @@ switch (subcommand) {
   }
 
   case "doctor": {
-    const { existsSync: ghosttyExists, readFileSync: readGhostty } = await import("node:fs");
+    const { existsSync: ghosttyExists, readFileSync: readGhostty, copyFileSync, appendFileSync, mkdirSync: mkdirGhostty } = await import("node:fs");
+
+    const fixFlag = values.fix;
 
     console.log("Checking Ghostty configuration...\n");
 
@@ -521,6 +548,7 @@ switch (subcommand) {
     ];
 
     let allGood = true;
+    const missingSettings: Array<{ key: string; recommended: string }> = [];
 
     for (const check of checks) {
       const isSet = check.regex.test(configContent);
@@ -529,12 +557,32 @@ switch (subcommand) {
         console.log(`  + ${check.name} (${check.key}) is configured`);
       } else {
         allGood = false;
+        missingSettings.push({ key: check.key, recommended: check.recommended });
         console.log(`  - ${check.name}`);
-        console.log(`    Add to ~/.config/ghostty/config:`);
-        console.log(`    ${check.key} = ${check.recommended}`);
-        console.log(`    ${check.reason}`);
+        if (!fixFlag) {
+          console.log(`    Add to ~/.config/ghostty/config:`);
+          console.log(`    ${check.key} = ${check.recommended}`);
+          console.log(`    ${check.reason}`);
+        }
         console.log();
       }
+    }
+
+    // --fix: auto-add missing settings to Ghostty config
+    if (fixFlag && missingSettings.length > 0) {
+      const ghosttyDir = join(homedir(), ".config", "ghostty");
+      mkdirGhostty(ghosttyDir, { recursive: true });
+
+      if (ghosttyExists(ghosttyConfigPath)) {
+        const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+        const backup = `${ghosttyConfigPath}.bak.${timestamp}`;
+        copyFileSync(ghosttyConfigPath, backup);
+        console.log(`  Backed up ${ghosttyConfigPath} → ${backup}`);
+      }
+
+      const additions = missingSettings.map(s => `${s.key} = ${s.recommended}`).join("\n");
+      appendFileSync(ghosttyConfigPath, "\n# Added by summon doctor --fix\n" + additions + "\n");
+      console.log(`  Added ${missingSettings.length} setting(s) to ${ghosttyConfigPath}`);
     }
 
     console.log();
@@ -552,10 +600,72 @@ switch (subcommand) {
       console.log();
     }
 
-    if (allGood) {
+    if (allGood && missingSettings.length === 0) {
       console.log("\n  All recommended settings are configured!");
     }
 
+    break;
+  }
+
+  case "keybindings": {
+    const { generateKeyTableConfig } = await import("./keybindings.js");
+    const { collectLeaves } = await import("./tree.js");
+    const { resolveTreeCommands: resolveTreeCmdsLocal } = await import("./tree.js");
+    const style = values.vim ? "vim" as const : "arrows" as const;
+    const config = resolveConfig(process.cwd(), buildOverrides());
+
+    let paneNames: string[];
+    let layoutName: string;
+
+    if (config.treeLayout) {
+      const resolved = resolveTreeCmdsLocal(config.treeLayout.tree, config.treeLayout.panes);
+      paneNames = collectLeaves(resolved);
+      layoutName = "tree";
+    } else {
+      const { planLayout } = await import("./layout.js");
+      const plan = planLayout(config.opts);
+      paneNames = ["editor"];
+      if (plan.sidebarCommand) paneNames.push("sidebar");
+      for (let i = 1; i < plan.leftColumnCount; i++) paneNames.push(`editor-${i + 1}`);
+      for (let i = 0; i < plan.rightColumnEditorCount; i++) paneNames.push(`right-${i + 1}`);
+      if (plan.hasShell) paneNames.push("shell");
+      layoutName = "default";
+    }
+
+    console.log(generateKeyTableConfig(paneNames, layoutName, style));
+    break;
+  }
+
+  case "freeze": {
+    const [freezeName] = args;
+    if (!freezeName) {
+      console.error("Usage: summon freeze <layout-name>");
+      exitWithUsageHint();
+    }
+    validateLayoutNameOrExit(freezeName);
+    if (isCustomLayout(freezeName)) {
+      console.error(`Layout "${freezeName}" already exists. Delete it first: summon layout delete ${freezeName}`);
+      process.exit(1);
+    }
+
+    const { opts } = resolveConfig(process.cwd(), {});
+    const entries = new Map<string, string>();
+
+    if (opts.editor) entries.set("editor", opts.editor);
+    if (opts.sidebarCommand) entries.set("sidebar", opts.sidebarCommand);
+    if (opts.editorPanes !== undefined) entries.set("panes", String(opts.editorPanes));
+    if (opts.editorSize !== undefined) entries.set("editor-size", String(opts.editorSize));
+    if (opts.shell !== undefined) entries.set("shell", opts.shell);
+    if (opts.autoResize !== undefined) entries.set("auto-resize", String(opts.autoResize));
+    if (opts.fontSize !== undefined && opts.fontSize !== null) entries.set("font-size", String(opts.fontSize));
+    if (opts.theme !== undefined && opts.theme !== null) entries.set("theme", opts.theme);
+    if (opts.newWindow) entries.set("new-window", "true");
+    if (opts.fullscreen) entries.set("fullscreen", "true");
+    if (opts.maximize) entries.set("maximize", "true");
+    if (opts.float) entries.set("float", "true");
+
+    saveCustomLayout(freezeName, entries);
+    console.log(`Frozen current config as layout "${freezeName}". Launch with: summon . --layout ${freezeName}`);
     break;
   }
 

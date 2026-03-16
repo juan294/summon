@@ -15,7 +15,7 @@ import {
 import type { LayoutOptions } from "./layout.js";
 import { listConfig, readKVFile, readCustomLayout, isCustomLayout, LAYOUT_NAME_RE } from "./config.js";
 import { generateAppleScript, generateTreeAppleScript } from "./script.js";
-import { parseTreeDSL, extractPaneDefinitions, resolveTreeCommands as resolveTreeCmds, buildTreePlan, findPaneByName } from "./tree.js";
+import { parseTreeDSL, extractPaneDefinitions, extractPaneCwds, resolveTreeCommands as resolveTreeCmds, buildTreePlan, findPaneByName } from "./tree.js";
 import type { LayoutNode } from "./tree.js";
 import { GHOSTTY_PATHS, resolveCommand as resolveCommandPath, promptUser, getErrorMessage, SUMMON_WORKSPACE_ENV, isAccessibilityError, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT } from "./utils.js";
 import { parseIntInRange, parsePositiveFloat } from "./validation.js";
@@ -220,6 +220,7 @@ interface ResolvedConfig {
   treeLayout?: {
     tree: LayoutNode;
     panes: Map<string, string>;
+    paneCwds?: Map<string, string>;
   };
 }
 
@@ -321,7 +322,8 @@ function resolveLayoutBase(
     if (treeExpr) {
       const tree = parseTreeDSL(treeExpr);
       const panes = extractPaneDefinitions(customData);
-      return { base, treeLayout: { tree, panes } };
+      const paneCwds = extractPaneCwds(customData);
+      return { base, treeLayout: { tree, panes, paneCwds: paneCwds.size > 0 ? paneCwds : undefined } };
     }
 
     // Traditional custom layout (no tree= key)
@@ -428,7 +430,17 @@ export function resolveConfig(targetDir: string, cliOverrides: CLIOverrides): Re
   const onStart = pickConfigValue(cliOverrides["on-start"], "on-start", project, machineConfig);
   const envVars = collectEnvVars(machineConfig, project, cliOverrides.env);
 
-  return { opts, projectOverrides: project, starshipPreset, onStart, envVars, treeLayout };
+  // Merge per-pane cwds from project config into treeLayout (project overrides layout defaults)
+  let mergedTreeLayout = treeLayout;
+  if (mergedTreeLayout) {
+    const projectCwds = extractPaneCwds(project);
+    if (projectCwds.size > 0) {
+      const merged = new Map([...(mergedTreeLayout.paneCwds ?? []), ...projectCwds]);
+      mergedTreeLayout = { ...mergedTreeLayout, paneCwds: merged };
+    }
+  }
+
+  return { opts, projectOverrides: project, starshipPreset, onStart, envVars, treeLayout: mergedTreeLayout };
 }
 
 /**
@@ -471,7 +483,7 @@ async function launchTreeLayout(
   ensureAndResolve: (cmd: string, key: string) => Promise<string>,
   resolveStarship: () => string | null,
 ): Promise<void> {
-  const resolvedTree = resolveTreeCmds(treeLayout.tree, treeLayout.panes);
+  const resolvedTree = resolveTreeCmds(treeLayout.tree, treeLayout.panes, treeLayout.paneCwds);
   const treePlanOpts = {
     autoResize: opts.autoResize,
     editorSize: opts.editorSize,

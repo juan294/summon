@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import {
   parseTreeDSL,
   extractPaneDefinitions,
+  extractPaneCwds,
   resolveTreeCommands,
   buildTreePlan,
   collectLeaves,
@@ -215,6 +216,49 @@ describe("extractPaneDefinitions", () => {
     const config = new Map([["pane.123bad", "cmd"]]);
     expect(() => extractPaneDefinitions(config)).toThrow();
   });
+
+  it("skips sub-keys like pane.<name>.cwd", () => {
+    const config = new Map([
+      ["pane.editor", "vim"],
+      ["pane.editor.cwd", "./frontend"],
+      ["pane.backend", "npm run dev"],
+      ["pane.backend.cwd", "./api"],
+    ]);
+    const panes = extractPaneDefinitions(config);
+    expect(panes.size).toBe(2);
+    expect(panes.get("editor")).toBe("vim");
+    expect(panes.get("backend")).toBe("npm run dev");
+  });
+});
+
+describe("extractPaneCwds", () => {
+  it("extracts cwd keys from config", () => {
+    const config = new Map([
+      ["pane.editor", "vim"],
+      ["pane.editor.cwd", "./frontend"],
+      ["pane.backend", "npm run dev"],
+      ["pane.backend.cwd", "./api"],
+    ]);
+    const cwds = extractPaneCwds(config);
+    expect(cwds.size).toBe(2);
+    expect(cwds.get("editor")).toBe("./frontend");
+    expect(cwds.get("backend")).toBe("./api");
+  });
+
+  it("returns empty map when no cwd keys", () => {
+    const config = new Map([
+      ["pane.editor", "vim"],
+      ["tree", "editor"],
+    ]);
+    const cwds = extractPaneCwds(config);
+    expect(cwds.size).toBe(0);
+  });
+
+  it("ignores empty cwd values", () => {
+    const config = new Map([["pane.editor.cwd", ""]]);
+    const cwds = extractPaneCwds(config);
+    expect(cwds.size).toBe(0);
+  });
 });
 
 // ---------- Tree resolver ----------
@@ -255,6 +299,49 @@ describe("resolveTreeCommands", () => {
     };
     const panes = new Map<string, string>();
     expect(() => resolveTreeCommands(tree, panes)).toThrow();
+  });
+
+  it("attaches cwd to resolved panes", () => {
+    const tree: LayoutNode = {
+      type: "split",
+      direction: "right",
+      first: { type: "pane", name: "editor", command: "" },
+      second: { type: "pane", name: "backend", command: "" },
+    };
+    const panes = new Map([
+      ["editor", "vim"],
+      ["backend", "npm run dev"],
+    ]);
+    const cwds = new Map([
+      ["editor", "./frontend"],
+      ["backend", "./api"],
+    ]);
+    const resolved = resolveTreeCommands(tree, panes, cwds) as SplitNode;
+    expect((resolved.first as PaneNode).cwd).toBe("./frontend");
+    expect((resolved.second as PaneNode).cwd).toBe("./api");
+  });
+
+  it("attaches cwd to inline-command panes", () => {
+    const tree: LayoutNode = {
+      type: "pane",
+      name: "npm",
+      command: "npm run dev",
+    };
+    const cwds = new Map([["npm", "./api"]]);
+    const resolved = resolveTreeCommands(tree, new Map(), cwds) as PaneNode;
+    expect(resolved.command).toBe("npm run dev");
+    expect(resolved.cwd).toBe("./api");
+  });
+
+  it("omits cwd when not specified", () => {
+    const tree: LayoutNode = {
+      type: "pane",
+      name: "editor",
+      command: "",
+    };
+    const panes = new Map([["editor", "vim"]]);
+    const resolved = resolveTreeCommands(tree, panes) as PaneNode;
+    expect(resolved.cwd).toBeUndefined();
   });
 
   it("warns on unused pane defs but succeeds", () => {
@@ -304,6 +391,7 @@ describe("buildTreePlan", () => {
     expect(plan.autoResize).toBe(true);
     expect(plan.editorSize).toBe(75);
     expect(plan.fontSize).toBeNull();
+    expect(plan.theme).toBeNull();
     expect(plan.newWindow).toBe(false);
     expect(plan.fullscreen).toBe(false);
     expect(plan.maximize).toBe(false);
@@ -317,6 +405,7 @@ describe("buildTreePlan", () => {
       autoResize: false,
       editorSize: 60,
       fontSize: 14,
+      theme: "nord",
       newWindow: true,
       fullscreen: true,
       maximize: true,
@@ -325,6 +414,7 @@ describe("buildTreePlan", () => {
     expect(plan.autoResize).toBe(false);
     expect(plan.editorSize).toBe(60);
     expect(plan.fontSize).toBe(14);
+    expect(plan.theme).toBe("nord");
     expect(plan.newWindow).toBe(true);
     expect(plan.fullscreen).toBe(true);
     expect(plan.maximize).toBe(true);

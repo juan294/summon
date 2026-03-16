@@ -8,6 +8,7 @@ export interface PaneNode {
   type: "pane";
   name: string;
   command: string;
+  cwd?: string;
 }
 
 export interface SplitNode {
@@ -30,6 +31,7 @@ export interface TreeLayoutPlan {
   fullscreen: boolean;
   maximize: boolean;
   float: boolean;
+  theme: string | null;
 }
 
 // ---------- Parser internals ----------
@@ -245,6 +247,8 @@ export function extractPaneDefinitions(config: Map<string, string>): Map<string,
   for (const [key, value] of config) {
     if (key.startsWith("pane.")) {
       const name = key.slice(5);
+      // Skip sub-keys like pane.<name>.cwd (handled by extractPaneCwds)
+      if (name.includes(".")) continue;
       if (!PANE_NAME_RE.test(name)) {
         throw new Error(`Invalid pane name: '${name}' (must match /^[a-zA-Z_][a-zA-Z0-9_-]*$/)`);
       }
@@ -252,6 +256,18 @@ export function extractPaneDefinitions(config: Map<string, string>): Map<string,
     }
   }
   return panes;
+}
+
+/** Extract per-pane working directories (keys matching `pane.<name>.cwd`) from a config map. */
+export function extractPaneCwds(config: Map<string, string>): Map<string, string> {
+  const cwds = new Map<string, string>();
+  for (const [key, value] of config) {
+    const match = key.match(/^pane\.([a-zA-Z_][a-zA-Z0-9_-]*)\.cwd$/);
+    if (match && value) {
+      cwds.set(match[1]!, value);
+    }
+  }
+  return cwds;
 }
 
 /**
@@ -264,14 +280,16 @@ export function extractPaneDefinitions(config: Map<string, string>): Map<string,
 export function resolveTreeCommands(
   tree: LayoutNode,
   panes: Map<string, string>,
+  cwds?: Map<string, string>,
 ): LayoutNode {
   const usedNames = new Set<string>();
 
   function resolve(node: LayoutNode): LayoutNode {
     if (node.type === "pane") {
+      const cwd = cwds?.get(node.name);
       if (node.command !== "") {
-        // Inline command — leave as-is
-        return node;
+        // Inline command — attach cwd if present
+        return cwd ? { ...node, cwd } : node;
       }
       const cmd = panes.get(node.name);
       if (cmd === undefined) {
@@ -280,7 +298,7 @@ export function resolveTreeCommands(
         );
       }
       usedNames.add(node.name);
-      return { ...node, command: cmd };
+      return cwd ? { ...node, command: cmd, cwd } : { ...node, command: cmd };
     }
     return {
       type: "split",
@@ -310,6 +328,7 @@ interface TreePlanOptions {
   fullscreen?: boolean;
   maximize?: boolean;
   float?: boolean;
+  theme?: string | null;
 }
 
 /** Build a TreeLayoutPlan from a resolved tree and optional settings. */
@@ -330,6 +349,7 @@ export function buildTreePlan(
     fullscreen: opts?.fullscreen ?? false,
     maximize: opts?.maximize ?? false,
     float: opts?.float ?? false,
+    theme: opts?.theme ?? null,
   };
 }
 
