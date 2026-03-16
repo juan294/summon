@@ -13,10 +13,4 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Dependency Review
-        id: dep-review
         uses: actions/dependency-review-action@v4
-        continue-on-error: true
-      - name: Check dependency review result
-        if: steps.dep-review.outcome == 'failure'
-        run: |
-          echo "::warning::Dependency review failed. This may indicate that the Dependency Graph is not enabled for this repository. Enable it at Settings > Code security > Dependency graph, or review the error above for dependency issues."
