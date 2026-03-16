@@ -4,6 +4,16 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 const mockExecFileSync = vi.fn();
 vi.mock("node:child_process", () => ({
   execFileSync: (...args: unknown[]) => mockExecFileSync(...args),
+  execFile: (...args: unknown[]) => {
+    // Last argument is the callback: (error, stdout, stderr) => void
+    const cb = args[args.length - 1] as (err: Error | null, stdout?: string, stderr?: string) => void;
+    try {
+      const result = mockExecFileSync(...args.slice(0, -1));
+      cb(null, result as string, "");
+    } catch (err) {
+      cb(err as Error, "", "");
+    }
+  },
 }));
 
 // Mock readline for interactive input
@@ -103,6 +113,9 @@ const {
   renderGridBuilderPreview,
   renderGridBuilderHints,
   runGridBuilder,
+  // #154 — truncation indicator:
+  centerLabel,
+  visibleLength,
 } = await import("./setup.js");
 
 beforeEach(() => {
@@ -130,25 +143,25 @@ describe("resolveCommandPath", () => {
 });
 
 describe("detectTools", () => {
-  it("marks available tools with available: true", () => {
+  it("marks available tools with available: true", async () => {
     mockExecFileSync.mockReturnValue("/usr/bin/vim\n");
-    const result = detectTools([{ cmd: "vim", name: "Vim", desc: "Editor" }]);
+    const result = await detectTools([{ cmd: "vim", name: "Vim", desc: "Editor" }]);
     expect(result[0]!.available).toBe(true);
   });
 
-  it("marks missing tools with available: false", () => {
+  it("marks missing tools with available: false", async () => {
     mockExecFileSync.mockImplementation(() => {
       throw new Error("not found");
     });
-    const result = detectTools([{ cmd: "vim", name: "Vim", desc: "Editor" }]);
+    const result = await detectTools([{ cmd: "vim", name: "Vim", desc: "Editor" }]);
     expect(result[0]!.available).toBe(false);
   });
 
-  it("handles empty catalog", () => {
-    expect(detectTools([])).toEqual([]);
+  it("handles empty catalog", async () => {
+    expect(await detectTools([])).toEqual([]);
   });
 
-  it("handles all-missing catalog", () => {
+  it("handles all-missing catalog", async () => {
     mockExecFileSync.mockImplementation(() => {
       throw new Error("not found");
     });
@@ -156,17 +169,17 @@ describe("detectTools", () => {
       { cmd: "a", name: "A", desc: "a" },
       { cmd: "b", name: "B", desc: "b" },
     ];
-    const result = detectTools(catalog);
+    const result = await detectTools(catalog);
     expect(result.every((t) => !t.available)).toBe(true);
   });
 
-  it("handles all-available catalog", () => {
+  it("handles all-available catalog", async () => {
     mockExecFileSync.mockReturnValue("/usr/bin/stub\n");
     const catalog = [
       { cmd: "a", name: "A", desc: "a" },
       { cmd: "b", name: "B", desc: "b" },
     ];
-    const result = detectTools(catalog);
+    const result = await detectTools(catalog);
     expect(result.every((t) => t.available)).toBe(true);
   });
 });
@@ -2592,5 +2605,139 @@ describe("renderGridBuilderHints", () => {
     const state = createGridState();
     const hints = renderGridBuilderHints(state);
     expect(hints).toContain("[Tab] move focus");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #154 — centerLabel truncation indicator
+// ---------------------------------------------------------------------------
+
+describe("visibleLength", () => {
+  it("returns length of plain text", () => {
+    expect(visibleLength("hello")).toBe(5);
+  });
+
+  it("strips ANSI codes from length calculation", () => {
+    expect(visibleLength("\x1b[1mhello\x1b[0m")).toBe(5);
+  });
+
+  it("returns 0 for empty string", () => {
+    expect(visibleLength("")).toBe(0);
+  });
+});
+
+describe("centerLabel", () => {
+  it("centers short text within width", () => {
+    const result = centerLabel("vim", 12);
+    // "vim" is 3 chars, width is 12 → padding on both sides
+    expect(result.length).toBe(12);
+    expect(result).toContain("vim");
+  });
+
+  it("adds ellipsis when text is truncated", () => {
+    // width=8, maxLen=6, "longcommand" (11 chars) > 6, so truncate to 5 + "…"
+    const result = centerLabel("longcommand", 8);
+    expect(result).toContain("\u2026"); // …
+  });
+
+  it("does not add ellipsis when text fits", () => {
+    const result = centerLabel("vim", 12);
+    expect(result).not.toContain("\u2026");
+  });
+
+  it("truncated label fits within width", () => {
+    const result = centerLabel("verylongcommandname", 10);
+    expect(result.length).toBe(10);
+    expect(result).toContain("\u2026");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #155 — layout name prompt includes example
+// ---------------------------------------------------------------------------
+
+describe("selectLayout — custom layout name prompt", () => {
+  it("prompt includes example hint (e.g., mysetup)", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const promptTexts: string[] = [];
+
+    // Track all prompts
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      promptTexts.push(_q);
+      const q = _q;
+      if (q.includes("[Y/n]")) cb("y");
+      else if (q.includes("Select [1-")) cb("6"); // "Custom" option (last preset + 1)
+      else if (q.includes("Name your layout")) cb("mytest");
+      else if (q.includes("Pane 1") || q.includes("Pane")) cb("vim");
+      else cb("1");
+    });
+
+    // We need isTTY for runLayoutBuilder
+    const origIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", { value: true, writable: true });
+    mockIsValidLayoutName.mockReturnValue(true);
+    mockIsCustomLayout.mockReturnValue(false);
+
+    await selectLayout();
+
+    // The "Name your layout" prompt should include an example
+    const namePrompt = promptTexts.find((p) => p.includes("Name your layout"));
+    expect(namePrompt).toBeDefined();
+    expect(namePrompt).toContain("e.g.");
+
+    Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, writable: true });
+    logSpy.mockRestore();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #160 — detectTools is async (parallelized)
+// ---------------------------------------------------------------------------
+
+describe("detectTools — async", () => {
+  it("returns a promise", () => {
+    mockExecFileSync.mockReturnValue("/usr/bin/stub\n");
+    const result = detectTools([{ cmd: "vim", name: "Vim", desc: "Editor" }]);
+    expect(result).toBeInstanceOf(Promise);
+  });
+
+  it("marks available tools with available: true", async () => {
+    mockExecFileSync.mockReturnValue("/usr/bin/vim\n");
+    const result = await detectTools([{ cmd: "vim", name: "Vim", desc: "Editor" }]);
+    expect(result[0]!.available).toBe(true);
+  });
+
+  it("marks missing tools with available: false", async () => {
+    mockExecFileSync.mockImplementation(() => {
+      throw new Error("not found");
+    });
+    const result = await detectTools([{ cmd: "vim", name: "Vim", desc: "Editor" }]);
+    expect(result[0]!.available).toBe(false);
+  });
+
+  it("handles empty catalog", async () => {
+    expect(await detectTools([])).toEqual([]);
+  });
+
+  it("handles all-missing catalog", async () => {
+    mockExecFileSync.mockImplementation(() => {
+      throw new Error("not found");
+    });
+    const catalog = [
+      { cmd: "a", name: "A", desc: "a" },
+      { cmd: "b", name: "B", desc: "b" },
+    ];
+    const result = await detectTools(catalog);
+    expect(result.every((t) => !t.available)).toBe(true);
+  });
+
+  it("handles all-available catalog", async () => {
+    mockExecFileSync.mockReturnValue("/usr/bin/stub\n");
+    const catalog = [
+      { cmd: "a", name: "A", desc: "a" },
+      { cmd: "b", name: "B", desc: "b" },
+    ];
+    const result = await detectTools(catalog);
+    expect(result.every((t) => t.available)).toBe(true);
   });
 });
