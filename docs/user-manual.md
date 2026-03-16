@@ -200,19 +200,48 @@ summon export                    # print to stdout
 summon export .summon            # write to file
 ```
 
-### `summon doctor`
+### `summon doctor [--fix]`
 
-Check your Ghostty config for recommended settings. Reports on three settings:
+Check your Ghostty config for recommended settings and macOS Accessibility permission. Reports on:
 
 - `window-save-state = always` — restore windows after restart
 - `notify-on-command-finish = unfocused` — notifications for long commands
 - `shell-integration = detect` — shell integration for status tracking
+- Accessibility permission — required for pane resizing via System Events
 
-Exits with status 1 if any issues are found.
+Exits with code 2 if any issues are found, 0 when all clear.
+
+With `--fix`, automatically adds missing Ghostty settings to `~/.config/ghostty/config` (backs up the config with a timestamp first).
 
 ```bash
-summon doctor
+summon doctor              # check for issues
+summon doctor --fix        # auto-fix missing Ghostty settings
 ```
+
+### `summon freeze <name>`
+
+Snapshot the current resolved configuration (CLI + project + machine) as a reusable custom layout. Useful for capturing your current setup so you can reproduce it anywhere.
+
+```bash
+summon freeze mysetup             # save current config as "mysetup"
+summon . --layout mysetup         # launch with the frozen layout
+```
+
+### `summon keybindings [--vim]`
+
+Generate Ghostty key table configuration for workspace pane navigation. Output can be appended to `~/.config/ghostty/config`.
+
+```bash
+summon keybindings                # arrow-key navigation
+summon keybindings --vim          # hjkl navigation
+summon keybindings >> ~/.config/ghostty/config
+```
+
+The generated key table provides:
+- Directional pane navigation (arrow keys or hjkl)
+- Numeric pane jumping (1-9)
+- Zoom toggle (`z`)
+- Escape to exit key table
 
 ### `summon layout <action>`
 
@@ -253,6 +282,7 @@ Flags override both machine and per-project config for a single launch.
 | `--auto-resize` | Resize sidebar to match editor-size (default: on) |
 | `--no-auto-resize` | Disable auto-resize |
 | `--starship-preset <preset>` | Starship prompt preset name (per-workspace) |
+| `--theme <name>` | Ghostty theme for workspace |
 | `--font-size <n>` | Override font size for workspace panes |
 | `--env KEY=VALUE` | Set environment variable for all panes (repeatable) |
 | `--on-start <cmd>` | Run a command in the target directory before workspace creation |
@@ -389,6 +419,20 @@ This creates three panes:
 ```
 
 Pane names must start with a letter or underscore and contain only letters, digits, underscores, and hyphens.
+
+#### Per-Pane Working Directories
+
+Each named pane can have its own working directory via `pane.<name>.cwd`. Paths are resolved relative to the target directory:
+
+```ini
+tree=editor | backend
+pane.editor=vim
+pane.editor.cwd=./frontend
+pane.backend=npm run dev
+pane.backend.cwd=./api
+```
+
+Panes without a `cwd` key default to the target directory.
 
 ### Inline Commands
 
@@ -695,6 +739,7 @@ When summon launches, config values are resolved in this order (first wins):
 | `layout` | string | | Default layout preset (`minimal`, `full`, `pair`, `cli`, `btop`) or a custom layout name. |
 | `auto-resize` | boolean | `true` | Auto-resize sidebar to match editor-size. |
 | `starship-preset` | string | | Starship prompt theme preset. When set, each workspace launches with `STARSHIP_CONFIG` pointing to a cached preset TOML file at `~/.config/summon/starship/<preset>.toml`. Requires [Starship](https://starship.rs) installed. |
+| `theme` | string | | Ghostty theme for workspace. |
 | `font-size` | number | | Font size for workspace panes (in points). |
 | `on-start` | string | | Command to run in the target directory before workspace creation. |
 | `new-window` | boolean | `false` | Open workspace in a new Ghostty window instead of reusing the front window. |

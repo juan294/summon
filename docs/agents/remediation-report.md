@@ -1,63 +1,73 @@
 # Remediation Report
-> Generated on 2026-03-16 | Branch: `develop` | 14 findings resolved
+> Generated on 2026-03-16 | Branch: `develop` | 24 findings resolved
 >
 > Pre-launch report: `docs/agents/pre-launch-report.md`
 
 ## Summary
-- Findings processed: 14 (1 blocker + 13 warnings)
-- Issues created: 8 (#166-#173)
-- Issues resolved: 8/8
-- Tests added: 46 (829 → 875)
-- Files modified: 11
+- Findings processed: 32 (5 warnings + 27 recommendations)
+- Issues created: 7 (#175-#181)
+- Issues resolved: 7
+- Tests added: ~25
+- Files modified: 14
 - CI status: PASSING
 
 ## Issues Resolved
 
 | # | Issue | Domain | Severity | Tests Added | Status |
 |---|-------|--------|----------|-------------|--------|
-| B1 | Push & verify CI | devops | blocker | 0 | Resolved (CI green) |
-| #166 | Fix flaky coverage test | qa | medium | 0 (stabilized existing) | Closed |
-| #167 | Increase setup.ts coverage | qa | low | 18 | Closed |
-| #168 | Increase launcher+utils coverage | qa | low | 15 | Closed |
-| #169 | Validate on-start + remove dup regex | security/arch | low | 8 | Closed |
-| #170 | EDITOR validation + UX fixes | security/ux | low | 9 | Closed |
-| #171 | CI hardening (CodeQL + dep-review) | devops | low | 0 (CI config) | Closed |
-| #172 | Unify resolveCommand async/sync | arch | low | 0 (pure refactor) | Closed |
-| #173 | Document test-only exports | arch | low | 0 (JSDoc only) | Closed |
+| #175 | launcher/utils/setup refactors | architecture, qa | WARNING | 10 | Closed |
+| #176 | setup.test.ts test infrastructure | qa | WARNING | 0 (infra fix) | Closed |
+| #177 | index.ts UX fixes | ux | WARNING | 7 | Closed |
+| #178 | completions.ts subcommand flags | ux | RECOMMENDATION | 4 | Closed |
+| #179 | config.ts path traversal hardening | security | WARNING | 2 | Closed |
+| #180 | test coverage gaps (script + tree) | qa | RECOMMENDATION | 2 | Closed |
+| #181 | package.json metadata + deps | devops | RECOMMENDATION | 0 (config) | Closed |
 
-## What Changed
+## Findings Addressed (24)
 
-### Security
-- `on-start` from CLI/machine config now checked for shell metacharacters (W5)
-- `layout edit` validates `$EDITOR` against SAFE_COMMAND_RE (W6)
-- Duplicate SAFE_COMMAND_RE check removed from launcher.ts wrapper (W11)
+| Finding | Work Unit | Fix |
+|---------|-----------|-----|
+| W1 | #175 | optsToConfigMap unit tests added |
+| W2 | #176 | waitForHandler assertion on failure |
+| W3 | #176 | setTimeout(0) patterns documented |
+| W4 | #177 | env var key validation in `summon set` |
+| W5 | #179 | layoutPath helper with resolve+prefix check |
+| R1 | #175 | optsToConfigMap branch coverage |
+| R2 | #176 | waitForHandler throw on timeout |
+| R3 | #180 | 4-pane secondary editor test |
+| R4 | #180 | parser truncated input test |
+| R7 | #181 | package.json main field added |
+| R8 | #181 | publishConfig access: public |
+| R9 | #175 | Removed trivial resolveCommand wrapper |
+| R10 | #175 | Extracted isGhosttyInstalled to utils.ts |
+| R11 | #181 | typescript-eslint updated to 8.57.1 |
+| R17 | #177 | freeze usage consistency |
+| R18 | #177 | btop description fixed |
+| R19 | #177 | layoutNotFoundOrExit Error: prefix |
+| R20 | #177 | doctor exit code 2 on issues |
+| R21 | #177 | export includes env.* keys |
+| R22 | #178 | doctor --fix / keybindings --vim completions |
+| R24 | #177 | config unknown key removal hint |
+| R25 | #177 | export header timestamp |
+| R26 | #175 | Ctrl+C exit code 130 |
+| R27 | #175 | Nested warning "messy" wording |
 
-### UX
-- `summon open` re-prompts on invalid selection instead of exiting (W9)
-- `summon set editor ""` now refuses empty string for command keys (W10)
+## Informational (no code change needed)
+- R5: export 0o644 permissions appropriate for project files
+- R6: env var values properly escaped, not exploitable
 
-### CI/CD
-- CodeQL runs on `develop` pushes and PRs (W7)
-- `dependency-review.yml` no longer uses `continue-on-error` (W8)
-
-### Architecture
-- `setup.ts` reuses `resolveCommand` from utils.ts instead of duplicating (W12)
-- All 4 test-only exports have consistent `@internal` JSDoc (W13)
-
-### Test Coverage
-- Flaky coverage test stabilized with timeout + retry (W1)
-- setup.ts: 94.56% → 98.74% stmts, 86.42% → 92.38% branches (W2)
-- launcher.ts: 89.50% → 92.50% branch coverage (W3)
-- utils.ts: 83.33% → 100% branch coverage (W4)
+## Deferred Items
+- R12: Split setup.ts (~1700 lines) — major refactor, separate task
+- R13/R14: Test-only exports (~200 bytes) — cosmetic
+- R15: Doctor subcommand split — marginal savings (<2 KB)
+- R16: Monitor index.js size — informational
+- R23: --fix/--vim global parse scope — parseArgs architectural limitation
 
 ## Final Verification
-- [x] All 875 tests passing
+- [x] All 955 tests passing
 - [x] Typecheck clean
 - [x] Lint clean
-- [x] Build succeeds (67KB, 14ms)
-- [x] Pushed to origin/develop
-- [x] All worktrees and branches cleaned up
-- [x] All 8 issues closed
-
-## Remaining Items
-None — all 14 findings resolved.
+- [x] Build succeeds (75 KB total)
+- [x] CI green
+- [x] All worktrees removed
+- [x] All issues closed
