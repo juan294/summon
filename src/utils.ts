@@ -40,6 +40,19 @@ export async function promptUser(question: string): Promise<string> {
 }
 
 /**
+ * Print an error message followed by a usage hint, then exit with code 1.
+ * Consolidates the repeated `console.error(msg); console.error("Run 'summon --help'..."); process.exit(1)` pattern.
+ * When called without a message, only the usage hint is printed before exiting.
+ */
+export function exitWithUsageHint(message?: string): never {
+  if (message) {
+    console.error(message);
+  }
+  console.error("Run 'summon --help' for usage information.");
+  process.exit(1);
+}
+
+/**
  * Safely extract a message from an unknown catch value.
  * Returns `.message` for Error instances, `String(err)` for everything else.
  */
