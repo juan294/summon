@@ -167,6 +167,12 @@ describe("parseTreeDSL", () => {
     expect(() => parseTreeDSL("a /")).toThrow(/Unexpected end of input/);
   });
 
+  it("throws on adjacent names without operator (leftover non-rparen token)", () => {
+    // After parsing "a", the name token "b" is left over. Since it's not a ')' token,
+    // the parser hits the generic leftover-token error (tree.ts line 183).
+    expect(() => parseTreeDSL("a b")).toThrow(/Unexpected token 'b' at position 1/);
+  });
+
   it("throws on invalid character", () => {
     expect(() => parseTreeDSL("a & b")).toThrow(/Unexpected character/);
   });

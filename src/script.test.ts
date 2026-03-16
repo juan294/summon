@@ -465,6 +465,33 @@ describe("generateAppleScript", () => {
     expect(script).toContain("paneRight3");
   });
 
+  it("multi-pane right column with no secondary editor uses role-only title", () => {
+    // rightColumnEditorCount=2 (editorPanes=4) with both editor and secondaryEditor empty.
+    // Exercises the falsy secondaryCmd branch in emitRightColumnSplits (script.ts line 293).
+    const plan = planLayout({ editorPanes: 4, editor: "", secondaryEditor: "" });
+    const script = generateAppleScript(plan, "/tmp");
+
+    // Right column panes still exist with down splits
+    expect(script).toContain("paneRight2");
+    expect(script).toContain("paneRightCol");
+
+    // With empty secondaryCmd, the title shows just "editor" (no " · cmd" suffix)
+    expect(script).toContain('perform action "set_surface_title:editor" on paneRight2');
+  });
+
+  it("multi-pane left column with no editor command uses role-only title", () => {
+    // leftColumnCount=2 (editorPanes=3) with empty editor command.
+    // Exercises the falsy editorCmd branch in emitEditorColumnSplits (script.ts line 329).
+    const plan = planLayout({ editorPanes: 3, editor: "" });
+    const script = generateAppleScript(plan, "/tmp");
+
+    // Left column split still exists
+    expect(script).toContain("paneLeft2");
+
+    // With empty editorCmd, the title shows just "editor" (no " · cmd" suffix)
+    expect(script).toContain('perform action "set_surface_title:editor" on paneLeft2');
+  });
+
   // --- Pane & tab title tests ---
 
   it("sets pane titles for default layout", () => {
