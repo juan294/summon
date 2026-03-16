@@ -2113,7 +2113,7 @@ describe("selectGridTemplate", () => {
     // Capture the keypress handler and simulate Enter
     const stdinOnSpy = vi.spyOn(process.stdin, "on").mockImplementation((event: string | symbol, handler: (...args: unknown[]) => void) => {
       if (event === "keypress") {
-        // Simulate Enter keypress immediately
+        // setTimeout(0) defers keypress to next tick, after the async handler registers
         setTimeout(() => handler(undefined, { name: "return", ctrl: false }), 0);
       }
       return process.stdin;
@@ -2586,6 +2586,7 @@ describe("runGridBuilder", () => {
       if (capturedKeyHandler) return;
       await new Promise((r) => setTimeout(r, 10));
     }
+    if (!capturedKeyHandler) throw new Error("keypress handler was never registered within timeout");
   }
 
   function simulateKey(name: string, ctrl = false, shift = false): void {
@@ -3132,9 +3133,11 @@ describe("selectGridTemplate — Escape in grid builder", () => {
         gridBuilderCallCount++;
         if (gridBuilderCallCount === 1) {
           // First time in grid builder: press Escape — returns null
+          // setTimeout(0) defers keypress to next tick, after the async handler registers
           setTimeout(() => handler(undefined, { name: "escape", ctrl: false }), 0);
         } else {
           // Second time: press Enter — returns [1]
+          // setTimeout(0) defers keypress to next tick, after the async handler registers
           setTimeout(() => handler(undefined, { name: "return", ctrl: false }), 0);
         }
       }
