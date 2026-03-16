@@ -1,0 +1,1119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>summon — Workspace Layout Gallery</title>
+  <meta name="description" content="One command to summon your entire Ghostty dev environment. Browse 10 workspace layouts.">
+  <meta property="og:title" content="summon — Workspace Layout Gallery">
+  <meta property="og:description" content="One command to summon your entire Ghostty dev environment. Browse 10 workspace layouts.">
+  <meta property="og:image" content="https://juan294.github.io/summon/images/og-image.png">
+  <meta property="og:url" content="https://juan294.github.io/summon/gallery/">
+  <meta property="og:type" content="website">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --bg-primary: #0C0D14;
+      --bg-card: #13141D;
+      --text-primary: #E2E4E9;
+      --text-secondary: #8B8FA3;
+      --accent-magenta: #D946EF;
+      --accent-cyan: #06B6D4;
+      --border: #2A2B36;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      font-family: var(--font-mono);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    /* ── Fixed Header ─────────────────────────────── */
+
+    .header {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 24px;
+      background: rgba(12, 13, 20, 0.85);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .header-logo {
+      width: 48px;
+      height: 48px;
+      border-radius: 10px;
+    }
+
+    .header-title {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--text-primary);
+      letter-spacing: -0.02em;
+    }
+
+    .header-install {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 16px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text-secondary);
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      cursor: pointer;
+      transition: border-color 0.2s, color 0.2s;
+    }
+
+    .header-install:hover {
+      border-color: var(--accent-cyan);
+      color: var(--text-primary);
+    }
+
+    .header-install-icon {
+      width: 14px;
+      height: 14px;
+      opacity: 0.5;
+    }
+
+    /* ── Scroll-Snap Container ────────────────────── */
+
+    .snap-container {
+      height: 100vh;
+      overflow-y: auto;
+      scroll-snap-type: y mandatory;
+      scroll-behavior: smooth;
+    }
+
+    /* ── Section ──────────────────────────────────── */
+
+    .section {
+      height: 100vh;
+      scroll-snap-align: start;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      overflow: hidden;
+      padding: 80px 24px 40px;
+    }
+
+    /* ── Glow Effect ──────────────────────────────── */
+
+    .section-glow {
+      position: absolute;
+      width: 70%;
+      height: 60%;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -55%);
+      border-radius: 50%;
+      pointer-events: none;
+      filter: blur(40px);
+      opacity: 0;
+      transition: opacity 0.8s ease;
+    }
+
+    .section.is-active .section-glow {
+      opacity: 1;
+    }
+
+    .glow-magenta {
+      background: radial-gradient(ellipse, rgba(217, 70, 239, 0.15) 0%, transparent 70%);
+    }
+
+    .glow-cyan {
+      background: radial-gradient(ellipse, rgba(6, 182, 212, 0.15) 0%, transparent 70%);
+    }
+
+    /* ── Screenshot ───────────────────────────────── */
+
+    .screenshot-wrapper {
+      position: relative;
+      z-index: 2;
+      cursor: pointer;
+      transition: transform 0.4s ease;
+    }
+
+    .screenshot-wrapper:hover {
+      transform: scale(1.015);
+    }
+
+    .screenshot-wrapper picture {
+      display: block;
+    }
+
+    .screenshot {
+      display: block;
+      max-width: 85vw;
+      max-height: 60vh;
+      width: auto;
+      height: auto;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      object-fit: contain;
+    }
+
+    .glow-magenta ~ .screenshot-wrapper .screenshot {
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 80px rgba(217, 70, 239, 0.08);
+    }
+
+    .glow-cyan ~ .screenshot-wrapper .screenshot {
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 80px rgba(6, 182, 212, 0.08);
+    }
+
+    /* ── Section Text ─────────────────────────────── */
+
+    .section-info {
+      position: relative;
+      z-index: 2;
+      text-align: center;
+      margin-top: 28px;
+      max-width: 640px;
+    }
+
+    .section-title {
+      font-size: clamp(1.3rem, 3vw, 1.75rem);
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-bottom: 6px;
+    }
+
+    .title-magenta { color: var(--accent-magenta); }
+    .title-cyan { color: var(--accent-cyan); }
+
+    .section-desc {
+      font-size: clamp(0.78rem, 1.5vw, 0.9rem);
+      color: var(--text-secondary);
+      margin-bottom: 14px;
+      line-height: 1.5;
+    }
+
+    .section-tools {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .tool-pill {
+      padding: 4px 12px;
+      font-size: 0.72rem;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      color: var(--text-secondary);
+      background: var(--bg-card);
+      white-space: nowrap;
+    }
+
+    /* ── Dot Navigation ───────────────────────────── */
+
+    .dot-nav {
+      position: fixed;
+      right: 24px;
+      top: 50%;
+      transform: translateY(-50%);
+      z-index: 90;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .dot-nav-item {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      border: 1.5px solid var(--text-secondary);
+      background: transparent;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      padding: 0;
+      position: relative;
+    }
+
+    .dot-nav-item:hover {
+      border-color: var(--text-primary);
+    }
+
+    .dot-nav-item.is-active {
+      background: var(--accent-magenta);
+      border-color: var(--accent-magenta);
+      transform: scale(1.3);
+    }
+
+    .dot-nav-item.is-active.dot-cyan {
+      background: var(--accent-cyan);
+      border-color: var(--accent-cyan);
+    }
+
+    .dot-nav-tooltip {
+      position: absolute;
+      right: 22px;
+      top: 50%;
+      transform: translateY(-50%);
+      padding: 4px 10px;
+      border-radius: 6px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      color: var(--text-primary);
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      white-space: nowrap;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+
+    .dot-nav-item:hover .dot-nav-tooltip {
+      opacity: 1;
+    }
+
+    /* ── CTA Section ──────────────────────────────── */
+
+    .cta-section {
+      height: 100vh;
+      scroll-snap-align: start;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      overflow: hidden;
+      padding: 80px 24px 40px;
+    }
+
+    .cta-glow {
+      position: absolute;
+      width: 50%;
+      height: 50%;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: radial-gradient(
+        ellipse,
+        rgba(217, 70, 239, 0.1) 0%,
+        rgba(6, 182, 212, 0.05) 40%,
+        transparent 70%
+      );
+      filter: blur(60px);
+      pointer-events: none;
+    }
+
+    .cta-content {
+      position: relative;
+      z-index: 2;
+      text-align: center;
+    }
+
+    .cta-logo {
+      width: 96px;
+      height: 96px;
+      border-radius: 18px;
+      margin-bottom: 20px;
+    }
+
+    .cta-heading {
+      font-size: clamp(1.8rem, 4vw, 2.8rem);
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      margin-bottom: 12px;
+    }
+
+    .cta-heading .magenta { color: var(--accent-magenta); }
+    .cta-heading .cyan { color: var(--accent-cyan); }
+
+    .cta-sub {
+      font-size: clamp(0.85rem, 1.8vw, 1.05rem);
+      color: var(--text-secondary);
+      margin-bottom: 32px;
+      max-width: 500px;
+    }
+
+    .cta-install-box {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 24px;
+      border-radius: 10px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      font-size: 1rem;
+      cursor: pointer;
+      transition: border-color 0.3s, box-shadow 0.3s;
+    }
+
+    .cta-install-box:hover {
+      border-color: var(--accent-magenta);
+      box-shadow: 0 0 30px rgba(217, 70, 239, 0.1);
+    }
+
+    .cta-install-box code {
+      color: var(--text-primary);
+      font-family: var(--font-mono);
+    }
+
+    .cta-install-box .copy-icon {
+      width: 16px;
+      height: 16px;
+      color: var(--text-secondary);
+      transition: color 0.2s;
+    }
+
+    .cta-install-box:hover .copy-icon {
+      color: var(--accent-cyan);
+    }
+
+    .cta-links {
+      margin-top: 24px;
+      display: flex;
+      gap: 24px;
+      justify-content: center;
+    }
+
+    .cta-link {
+      color: var(--text-secondary);
+      text-decoration: none;
+      font-size: 0.85rem;
+      transition: color 0.2s;
+    }
+
+    .cta-link:hover {
+      color: var(--accent-cyan);
+    }
+
+    /* ── Lightbox ─────────────────────────────────── */
+
+    .lightbox {
+      position: fixed;
+      inset: 0;
+      z-index: 200;
+      background: rgba(12, 13, 20, 0.95);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s ease;
+    }
+
+    .lightbox.is-open {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .lightbox-inner {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .lightbox-img {
+      max-width: 95vw;
+      max-height: 88vh;
+      width: auto;
+      height: auto;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      object-fit: contain;
+      transition: max-width 0.3s ease, max-height 0.3s ease;
+    }
+
+    .lightbox-img.is-minimal {
+      max-width: 70vw;
+      max-height: 70vh;
+    }
+
+    .lightbox-controls {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .lightbox-btn {
+      padding: 6px 14px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--bg-card);
+      color: var(--text-secondary);
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      cursor: pointer;
+      transition: border-color 0.2s, color 0.2s;
+    }
+
+    .lightbox-btn:hover {
+      border-color: var(--accent-cyan);
+      color: var(--text-primary);
+    }
+
+    .lightbox-btn.is-active {
+      border-color: var(--accent-magenta);
+      color: var(--accent-magenta);
+    }
+
+    .lightbox-close {
+      position: absolute;
+      top: -48px;
+      right: 0;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      border: 1px solid var(--border);
+      background: var(--bg-card);
+      color: var(--text-secondary);
+      font-size: 1.1rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: border-color 0.2s, color 0.2s;
+    }
+
+    .lightbox-close:hover {
+      border-color: var(--accent-magenta);
+      color: var(--text-primary);
+    }
+
+    .lightbox-title {
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+    }
+
+    /* ── Scroll Hint ──────────────────────────────── */
+
+    .scroll-hint {
+      position: absolute;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 3;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      color: var(--text-secondary);
+      font-size: 0.7rem;
+      opacity: 0.6;
+      animation: scrollPulse 2s ease-in-out infinite;
+    }
+
+    .scroll-hint svg {
+      width: 20px;
+      height: 20px;
+    }
+
+    @keyframes scrollPulse {
+      0%, 100% { opacity: 0.6; transform: translateX(-50%) translateY(0); }
+      50% { opacity: 1; transform: translateX(-50%) translateY(4px); }
+    }
+
+    /* ── Entrance Animations ──────────────────────── */
+
+    .section .screenshot-wrapper,
+    .section .section-info {
+      opacity: 0;
+      transform: translateY(20px);
+      transition: opacity 0.6s ease, transform 0.6s ease;
+    }
+
+    .section .section-info {
+      transition-delay: 0.15s;
+    }
+
+    .section.is-active .screenshot-wrapper,
+    .section.is-active .section-info {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    /* ── Mobile ───────────────────────────────────── */
+
+    @media (max-width: 768px) {
+      .dot-nav {
+        display: none;
+      }
+
+      .section {
+        padding: 72px 16px 32px;
+        height: 100vh;
+      }
+
+      .screenshot {
+        max-width: 95vw;
+        max-height: 50vh;
+      }
+
+      .section-glow {
+        width: 90%;
+        height: 50%;
+        filter: blur(30px);
+      }
+
+      .section-info {
+        margin-top: 20px;
+      }
+
+      .header-install {
+        display: none;
+      }
+
+      .header {
+        padding: 10px 16px;
+      }
+
+      .header-logo {
+        width: 36px;
+        height: 36px;
+        border-radius: 8px;
+      }
+
+      .header-title {
+        font-size: 1rem;
+      }
+
+      .cta-install-box {
+        padding: 12px 18px;
+        font-size: 0.85rem;
+      }
+
+      .lightbox-img {
+        max-width: 98vw;
+        max-height: 85vh;
+      }
+
+      .lightbox-img.is-minimal {
+        max-width: 90vw;
+        max-height: 75vh;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .section-title {
+        font-size: 1.15rem;
+      }
+
+      .section-desc {
+        font-size: 0.75rem;
+      }
+
+      .tool-pill {
+        font-size: 0.65rem;
+        padding: 3px 8px;
+      }
+    }
+
+    /* ── Scrollbar ────────────────────────────────── */
+
+    .snap-container::-webkit-scrollbar {
+      width: 0;
+    }
+
+    .snap-container {
+      scrollbar-width: none;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Fixed Header -->
+  <header class="header">
+    <div class="header-left">
+      <img src="../images/logo.png" alt="summon" class="header-logo" width="48" height="48">
+      <span class="header-title">summon</span>
+    </div>
+    <button class="header-install" onclick="copyInstall(this)" title="Click to copy">
+      <svg class="header-install-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+      <span>npm i -g summon-ws</span>
+    </button>
+  </header>
+
+  <!-- Dot Navigation -->
+  <nav class="dot-nav" id="dotNav" aria-label="Section navigation">
+    <button class="dot-nav-item" data-index="0" aria-label="fullstack">
+      <span class="dot-nav-tooltip">fullstack</span>
+    </button>
+    <button class="dot-nav-item dot-cyan" data-index="1" aria-label="backend">
+      <span class="dot-nav-tooltip">backend</span>
+    </button>
+    <button class="dot-nav-item" data-index="2" aria-label="devops">
+      <span class="dot-nav-tooltip">devops</span>
+    </button>
+    <button class="dot-nav-item dot-cyan" data-index="3" aria-label="data">
+      <span class="dot-nav-tooltip">data</span>
+    </button>
+    <button class="dot-nav-item" data-index="4" aria-label="systems">
+      <span class="dot-nav-tooltip">systems</span>
+    </button>
+    <button class="dot-nav-item dot-cyan" data-index="5" aria-label="frontend">
+      <span class="dot-nav-tooltip">frontend</span>
+    </button>
+    <button class="dot-nav-item" data-index="6" aria-label="network">
+      <span class="dot-nav-tooltip">network</span>
+    </button>
+    <button class="dot-nav-item dot-cyan" data-index="7" aria-label="ml">
+      <span class="dot-nav-tooltip">ml</span>
+    </button>
+    <button class="dot-nav-item" data-index="8" aria-label="flex">
+      <span class="dot-nav-tooltip">flex</span>
+    </button>
+    <button class="dot-nav-item dot-cyan" data-index="9" aria-label="dual-editor">
+      <span class="dot-nav-tooltip">dual-editor</span>
+    </button>
+    <button class="dot-nav-item" data-index="10" aria-label="install" style="margin-top: 4px; width: 8px; height: 8px; border-style: dashed;">
+      <span class="dot-nav-tooltip">install</span>
+    </button>
+  </nav>
+
+  <!-- Scroll-Snap Container -->
+  <div class="snap-container" id="snapContainer">
+
+    <!-- 1. fullstack -->
+    <section class="section" id="section-0" data-id="fullstack">
+      <div class="section-glow glow-magenta"></div>
+      <div class="screenshot-wrapper" onclick="openLightbox(0)">
+        <picture>
+          <source srcset="../images/fullstack-max.webp" type="image/webp">
+          <img class="screenshot" src="../images/fullstack-max.png" alt="fullstack workspace layout" loading="eager" width="1920" height="1080">
+        </picture>
+      </div>
+      <div class="section-info">
+        <h2 class="section-title title-magenta">fullstack</h2>
+        <p class="section-desc">Full-stack development with editor, shell, and git in one view.</p>
+        <div class="section-tools">
+          <span class="tool-pill">Claude</span>
+          <span class="tool-pill">lazygit</span>
+          <span class="tool-pill">btop</span>
+          <span class="tool-pill">shell</span>
+        </div>
+      </div>
+      <div class="scroll-hint">
+        scroll
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M19 12l-7 7-7-7"/></svg>
+      </div>
+    </section>
+
+    <!-- 2. backend -->
+    <section class="section" id="section-1" data-id="backend">
+      <div class="section-glow glow-cyan"></div>
+      <div class="screenshot-wrapper" onclick="openLightbox(1)">
+        <picture>
+          <source srcset="../images/backend-max.webp" type="image/webp">
+          <img class="screenshot" src="../images/backend-max.png" alt="backend workspace layout" loading="lazy" width="1920" height="1080">
+        </picture>
+      </div>
+      <div class="section-info">
+        <h2 class="section-title title-cyan">backend</h2>
+        <p class="section-desc">Server and API development with code review and monitoring.</p>
+        <div class="section-tools">
+          <span class="tool-pill">Claude</span>
+          <span class="tool-pill">lazygit</span>
+          <span class="tool-pill">btop</span>
+          <span class="tool-pill">docs</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3. devops -->
+    <section class="section" id="section-2" data-id="devops">
+      <div class="section-glow glow-magenta"></div>
+      <div class="screenshot-wrapper" onclick="openLightbox(2)">
+        <picture>
+          <source srcset="../images/devops-max.webp" type="image/webp">
+          <img class="screenshot" src="../images/devops-max.png" alt="devops workspace layout" loading="lazy" width="1920" height="1080">
+        </picture>
+      </div>
+      <div class="section-info">
+        <h2 class="section-title title-magenta">devops</h2>
+        <p class="section-desc">Infrastructure, containers, and deployment with live monitoring.</p>
+        <div class="section-tools">
+          <span class="tool-pill">Vim</span>
+          <span class="tool-pill">Docker</span>
+          <span class="tool-pill">btop</span>
+          <span class="tool-pill">logs</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4. data -->
+    <section class="section" id="section-3" data-id="data">
+      <div class="section-glow glow-cyan"></div>
+      <div class="screenshot-wrapper" onclick="openLightbox(3)">
+        <picture>
+          <source srcset="../images/data-max.webp" type="image/webp">
+          <img class="screenshot" src="../images/data-max.png" alt="data workspace layout" loading="lazy" width="1920" height="1080">
+        </picture>
+      </div>
+      <div class="section-info">
+        <h2 class="section-title title-cyan">data</h2>
+        <p class="section-desc">Data science workspace with file browsing, REPL, and visualization.</p>
+        <div class="section-tools">
+          <span class="tool-pill">Claude</span>
+          <span class="tool-pill">Python</span>
+          <span class="tool-pill">yazi</span>
+          <span class="tool-pill">btop</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5. systems -->
+    <section class="section" id="section-4" data-id="systems">
+      <div class="section-glow glow-magenta"></div>
+      <div class="screenshot-wrapper" onclick="openLightbox(4)">
+        <picture>
+          <source srcset="../images/systems-max.webp" type="image/webp">
+          <img class="screenshot" src="../images/systems-max.png" alt="systems workspace layout" loading="lazy" width="1920" height="1080">
+        </picture>
+      </div>
+      <div class="section-info">
+        <h2 class="section-title title-magenta">systems</h2>
+        <p class="section-desc">Systems programming with performance metrics and deep monitoring.</p>
+        <div class="section-tools">
+          <span class="tool-pill">Editor</span>
+          <span class="tool-pill">btop</span>
+          <span class="tool-pill">lazygit</span>
+          <span class="tool-pill">metrics</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6. frontend -->
+    <section class="section" id="section-5" data-id="frontend">
+      <div class="section-glow glow-cyan"></div>
+      <div class="screenshot-wrapper" onclick="openLightbox(5)">
+        <picture>
+          <source srcset="../images/frontend-max.webp" type="image/webp">
+          <img class="screenshot" src="../images/frontend-max.png" alt="frontend workspace layout" loading="lazy" width="1920" height="1080">
+        </picture>
+      </div>
+      <div class="section-info">
+        <h2 class="section-title title-cyan">frontend</h2>
+        <p class="section-desc">Web UI development with test runner and live build output.</p>
+        <div class="section-tools">
+          <span class="tool-pill">Claude</span>
+          <span class="tool-pill">npm</span>
+          <span class="tool-pill">lazygit</span>
+          <span class="tool-pill">btop</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7. network -->
+    <section class="section" id="section-6" data-id="network">
+      <div class="section-glow glow-magenta"></div>
+      <div class="screenshot-wrapper" onclick="openLightbox(6)">
+        <picture>
+          <source srcset="../images/network-max.webp" type="image/webp">
+          <img class="screenshot" src="../images/network-max.png" alt="network workspace layout" loading="lazy" width="1920" height="1080">
+        </picture>
+      </div>
+      <div class="section-info">
+        <h2 class="section-title title-magenta">network</h2>
+        <p class="section-desc">Network monitoring with bandwidth charts and traffic analysis.</p>
+        <div class="section-tools">
+          <span class="tool-pill">bandwhich</span>
+          <span class="tool-pill">btop</span>
+          <span class="tool-pill">tcpdump</span>
+          <span class="tool-pill">logs</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8. ml -->
+    <section class="section" id="section-7" data-id="ml">
+      <div class="section-glow glow-cyan"></div>
+      <div class="screenshot-wrapper" onclick="openLightbox(7)">
+        <picture>
+          <source srcset="../images/ml-max.webp" type="image/webp">
+          <img class="screenshot" src="../images/ml-max.png" alt="ml workspace layout" loading="lazy" width="1920" height="1080">
+        </picture>
+      </div>
+      <div class="section-info">
+        <h2 class="section-title title-cyan">ml</h2>
+        <p class="section-desc">Machine learning with training visualization and resource monitoring.</p>
+        <div class="section-tools">
+          <span class="tool-pill">Claude</span>
+          <span class="tool-pill">training logs</span>
+          <span class="tool-pill">btop</span>
+          <span class="tool-pill">lazygit</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9. flex -->
+    <section class="section" id="section-8" data-id="flex">
+      <div class="section-glow glow-magenta"></div>
+      <div class="screenshot-wrapper" onclick="openLightbox(8)">
+        <picture>
+          <source srcset="../images/flex-max.webp" type="image/webp">
+          <img class="screenshot" src="../images/flex-max.png" alt="flex workspace layout" loading="lazy" width="1920" height="1080">
+        </picture>
+      </div>
+      <div class="section-info">
+        <h2 class="section-title title-magenta">flex</h2>
+        <p class="section-desc">Creative multi-tool workspace -- because your terminal can be fun too.</p>
+        <div class="section-tools">
+          <span class="tool-pill">cmatrix</span>
+          <span class="tool-pill">btop</span>
+          <span class="tool-pill">neofetch</span>
+          <span class="tool-pill">Claude</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10. dual-editor -->
+    <section class="section" id="section-9" data-id="dual-editor">
+      <div class="section-glow glow-cyan"></div>
+      <div class="screenshot-wrapper" onclick="openLightbox(9)">
+        <picture>
+          <source srcset="../images/dual-editor-max.webp" type="image/webp">
+          <img class="screenshot" src="../images/dual-editor-max.png" alt="dual-editor workspace layout" loading="lazy" width="1920" height="1080">
+        </picture>
+      </div>
+      <div class="section-info">
+        <h2 class="section-title title-cyan">dual-editor</h2>
+        <p class="section-desc">Side-by-side editors for pair programming or code review.</p>
+        <div class="section-tools">
+          <span class="tool-pill">Claude</span>
+          <span class="tool-pill">Helix</span>
+          <span class="tool-pill">btop</span>
+          <span class="tool-pill">lazygit</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- CTA Section -->
+    <section class="cta-section" id="section-10">
+      <div class="cta-glow"></div>
+      <div class="cta-content">
+        <img src="../images/logo.png" alt="summon" class="cta-logo" width="96" height="96">
+        <h2 class="cta-heading"><span class="magenta">summon</span> your <span class="cyan">workspace</span></h2>
+        <p class="cta-sub">One command. Every pane, every tool, every time.</p>
+        <div class="cta-install-box" onclick="copyInstall(this)" title="Click to copy">
+          <code>npm i -g summon-ws</code>
+          <svg class="copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+        </div>
+        <div class="cta-links">
+          <a href="https://github.com/juan294/summon" class="cta-link" target="_blank" rel="noopener">GitHub</a>
+          <a href="https://www.npmjs.com/package/summon-ws" class="cta-link" target="_blank" rel="noopener">npm</a>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- Lightbox -->
+  <div class="lightbox" id="lightbox" onclick="closeLightboxBackdrop(event)">
+    <div class="lightbox-inner">
+      <button class="lightbox-close" onclick="closeLightbox()" aria-label="Close">&times;</button>
+      <img class="lightbox-img" id="lightboxImg" src="" alt="">
+      <div class="lightbox-controls">
+        <span class="lightbox-title" id="lightboxTitle"></span>
+        <button class="lightbox-btn" id="lightboxMinimal" onclick="toggleLightboxSize()">Minimal</button>
+        <button class="lightbox-btn is-active" id="lightboxFull" onclick="toggleLightboxSize()">Full</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ── Layout Data ──────────────────────────────────
+    var layouts = [
+      { id: 'fullstack', title: 'fullstack' },
+      { id: 'backend', title: 'backend' },
+      { id: 'devops', title: 'devops' },
+      { id: 'data', title: 'data' },
+      { id: 'systems', title: 'systems' },
+      { id: 'frontend', title: 'frontend' },
+      { id: 'network', title: 'network' },
+      { id: 'ml', title: 'ml' },
+      { id: 'flex', title: 'flex' },
+      { id: 'dual-editor', title: 'dual-editor' }
+    ];
+
+    var container = document.getElementById('snapContainer');
+    var dots = document.querySelectorAll('.dot-nav-item');
+    var sections = container.querySelectorAll('.section, .cta-section');
+    var lightboxEl = document.getElementById('lightbox');
+    var lightboxImg = document.getElementById('lightboxImg');
+    var lightboxTitle = document.getElementById('lightboxTitle');
+    var lightboxMinBtn = document.getElementById('lightboxMinimal');
+    var lightboxFullBtn = document.getElementById('lightboxFull');
+    var currentSection = 0;
+    var lightboxIsMinimal = false;
+
+    // ── Scroll Observer ──────────────────────────────
+    var observer = new IntersectionObserver(function(entries) {
+      entries.forEach(function(entry) {
+        if (entry.isIntersecting) {
+          var index = Array.prototype.indexOf.call(sections, entry.target);
+          if (index !== -1) {
+            currentSection = index;
+            updateDots(index);
+            updateActiveSections(index);
+          }
+        }
+      });
+    }, {
+      root: container,
+      threshold: 0.6
+    });
+
+    sections.forEach(function(section) {
+      observer.observe(section);
+    });
+
+    function updateDots(activeIndex) {
+      dots.forEach(function(dot, i) {
+        if (i === activeIndex) {
+          dot.classList.add('is-active');
+        } else {
+          dot.classList.remove('is-active');
+        }
+      });
+    }
+
+    function updateActiveSections(activeIndex) {
+      sections.forEach(function(section, i) {
+        if (i === activeIndex) {
+          section.classList.add('is-active');
+        } else {
+          section.classList.remove('is-active');
+        }
+      });
+    }
+
+    // Activate first section on load
+    sections[0].classList.add('is-active');
+    dots[0].classList.add('is-active');
+
+    // ── Dot Navigation Click ─────────────────────────
+    dots.forEach(function(dot) {
+      dot.addEventListener('click', function() {
+        var index = parseInt(this.dataset.index, 10);
+        sections[index].scrollIntoView({ behavior: 'smooth' });
+      });
+    });
+
+    // ── Lightbox ─────────────────────────────────────
+    function openLightbox(index) {
+      var layout = layouts[index];
+      lightboxImg.src = '../images/' + layout.id + '-max.png';
+      lightboxTitle.textContent = layout.title;
+      lightboxImg.alt = layout.title + ' workspace layout';
+      lightboxIsMinimal = false;
+      lightboxImg.classList.remove('is-minimal');
+      lightboxMinBtn.classList.remove('is-active');
+      lightboxFullBtn.classList.add('is-active');
+      lightboxEl.classList.add('is-open');
+      document.body.style.overflow = 'hidden';
+    }
+
+    function closeLightbox() {
+      lightboxEl.classList.remove('is-open');
+      document.body.style.overflow = '';
+    }
+
+    function closeLightboxBackdrop(e) {
+      if (e.target === lightboxEl) {
+        closeLightbox();
+      }
+    }
+
+    function toggleLightboxSize() {
+      lightboxIsMinimal = !lightboxIsMinimal;
+      if (lightboxIsMinimal) {
+        lightboxImg.classList.add('is-minimal');
+        lightboxMinBtn.classList.add('is-active');
+        lightboxFullBtn.classList.remove('is-active');
+      } else {
+        lightboxImg.classList.remove('is-minimal');
+        lightboxMinBtn.classList.remove('is-active');
+        lightboxFullBtn.classList.add('is-active');
+      }
+    }
+
+    // ESC to close lightbox
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') {
+        closeLightbox();
+      }
+    });
+
+    // ── Keyboard navigation ──────────────────────────
+    document.addEventListener('keydown', function(e) {
+      if (lightboxEl.classList.contains('is-open')) return;
+      if (e.key === 'ArrowDown' || e.key === 'j') {
+        e.preventDefault();
+        var next = Math.min(currentSection + 1, sections.length - 1);
+        sections[next].scrollIntoView({ behavior: 'smooth' });
+      } else if (e.key === 'ArrowUp' || e.key === 'k') {
+        e.preventDefault();
+        var prev = Math.max(currentSection - 1, 0);
+        sections[prev].scrollIntoView({ behavior: 'smooth' });
+      }
+    });
+
+    // ── Copy Install ─────────────────────────────────
+    function copyInstall(el) {
+      navigator.clipboard.writeText('npm i -g summon-ws').then(function() {
+        var original = el.querySelector('span, code');
+        if (original) {
+          var text = original.textContent;
+          original.textContent = 'copied!';
+          setTimeout(function() { original.textContent = text; }, 1500);
+        }
+      });
+    }
+
+    // ── Hide scroll hint after first scroll ──────────
+    var scrollHint = document.querySelector('.scroll-hint');
+    if (scrollHint) {
+      container.addEventListener('scroll', function onFirstScroll() {
+        scrollHint.style.transition = 'opacity 0.5s';
+        scrollHint.style.opacity = '0';
+        setTimeout(function() {
+          scrollHint.style.display = 'none';
+        }, 500);
+        container.removeEventListener('scroll', onFirstScroll);
+      });
+    }
+  </script>
+</body>
+</html>

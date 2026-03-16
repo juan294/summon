@@ -1,0 +1,1071 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>summon — Workspace Layout Gallery</title>
+  <meta name="description" content="One command to summon your entire Ghostty dev environment. Browse 10 workspace layouts in a bento grid.">
+  <meta property="og:title" content="summon — Workspace Layout Gallery">
+  <meta property="og:description" content="One command to summon your entire Ghostty dev environment. Browse 10 workspace layouts.">
+  <meta property="og:image" content="../images/og-image.png">
+  <meta property="og:type" content="website">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --bg-primary: #0C0D14;
+      --bg-card: #13141D;
+      --bg-card-hover: #1A1B26;
+      --text-primary: #E2E4E9;
+      --text-secondary: #8B8FA3;
+      --accent-magenta: #D946EF;
+      --accent-cyan: #06B6D4;
+      --border: #2A2B36;
+      --font-mono: 'JetBrains Mono', monospace;
+      --radius: 12px;
+      --max-width: 1200px;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      font-family: var(--font-mono);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    /* ── Hero (compact, horizontal) ─────────────── */
+
+    .hero {
+      padding: 48px 24px 40px;
+      position: relative;
+      overflow: hidden;
+      max-width: var(--max-width);
+      margin: 0 auto;
+    }
+
+    .hero::before {
+      content: '';
+      position: absolute;
+      top: -60px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 600px;
+      height: 300px;
+      background: radial-gradient(ellipse, rgba(217, 70, 239, 0.10) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .hero-row {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      justify-content: center;
+      position: relative;
+    }
+
+    .hero-logo {
+      width: 80px;
+      height: 80px;
+      border-radius: 16px;
+      flex-shrink: 0;
+    }
+
+    .hero-brand {
+      font-size: clamp(2rem, 5vw, 2.8rem);
+      font-weight: 700;
+      color: var(--accent-magenta);
+      letter-spacing: -0.02em;
+    }
+
+    .hero-tagline {
+      text-align: center;
+      font-size: clamp(0.9rem, 2vw, 1.1rem);
+      color: var(--text-secondary);
+      margin-top: 12px;
+    }
+
+    .hero-install {
+      margin: 20px auto 0;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 18px;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+      position: relative;
+      width: fit-content;
+    }
+
+    .hero-install:hover {
+      border-color: var(--accent-cyan);
+      background: var(--bg-card-hover);
+    }
+
+    .hero-install code {
+      font-family: var(--font-mono);
+      font-size: 0.9rem;
+      color: var(--accent-cyan);
+    }
+
+    .copy-icon {
+      width: 16px;
+      height: 16px;
+      color: var(--text-secondary);
+      transition: color 0.2s;
+      flex-shrink: 0;
+    }
+
+    .hero-install:hover .copy-icon { color: var(--accent-cyan); }
+
+    .copy-feedback {
+      position: absolute;
+      top: -32px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--accent-cyan);
+      color: var(--bg-primary);
+      font-size: 0.7rem;
+      font-weight: 700;
+      padding: 3px 10px;
+      border-radius: 4px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s, top 0.2s;
+    }
+
+    .copy-feedback.show {
+      opacity: 1;
+      top: -36px;
+    }
+
+    /* ── Bento Grid ─────────────────────────────── */
+
+    .bento {
+      max-width: var(--max-width);
+      margin: 0 auto;
+      padding: 0 24px 80px;
+    }
+
+    .bento-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      grid-auto-rows: minmax(220px, auto);
+      gap: 16px;
+    }
+
+    /* Span classes */
+    .span-2-col { grid-column: span 2; }
+    .span-2-row { grid-row: span 2; }
+
+    /* ── Screenshot Card (regular, 1-col) ────── */
+
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      transition: background 0.25s, border-color 0.25s, transform 0.25s, box-shadow 0.25s;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .card:hover {
+      background: var(--bg-card-hover);
+      border-color: rgba(6, 182, 212, 0.3);
+      transform: translateY(-3px);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    }
+
+    .card-image-wrap {
+      position: relative;
+      aspect-ratio: 16 / 9;
+      overflow: hidden;
+      background: var(--bg-primary);
+      flex-shrink: 0;
+    }
+
+    .card-image-wrap picture {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    .card-image-wrap img {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transition: transform 0.4s;
+    }
+
+    .card:hover .card-image-wrap img {
+      transform: scale(1.04);
+    }
+
+    .card-expand-hint {
+      position: absolute;
+      bottom: 8px;
+      right: 8px;
+      background: rgba(12, 13, 20, 0.75);
+      border: 1px solid rgba(226, 228, 233, 0.12);
+      color: var(--text-primary);
+      font-size: 0.62rem;
+      padding: 3px 8px;
+      border-radius: 4px;
+      opacity: 0;
+      transition: opacity 0.2s;
+      pointer-events: none;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .card:hover .card-expand-hint { opacity: 1; }
+
+    .card-expand-hint svg {
+      width: 11px;
+      height: 11px;
+    }
+
+    .card-body {
+      padding: 16px 18px;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .card-title {
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--accent-cyan);
+      margin-bottom: 4px;
+    }
+
+    .card-desc {
+      font-size: 0.78rem;
+      color: var(--text-secondary);
+      line-height: 1.5;
+      margin-bottom: 10px;
+      flex: 1;
+    }
+
+    .card-tools {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+    }
+
+    .card-tools span {
+      font-size: 0.65rem;
+      color: var(--text-secondary);
+      background: rgba(139, 143, 163, 0.08);
+      border: 1px solid rgba(139, 143, 163, 0.12);
+      border-radius: 4px;
+      padding: 2px 7px;
+      font-family: var(--font-mono);
+    }
+
+    /* ── Featured Card (2-col span, screenshot background) */
+
+    .card-featured {
+      position: relative;
+      min-height: 280px;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+    }
+
+    .card-featured .card-image-wrap {
+      position: absolute;
+      inset: 0;
+      aspect-ratio: unset;
+    }
+
+    .card-featured .card-image-wrap img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .card-featured .card-overlay {
+      position: relative;
+      z-index: 1;
+      padding: 24px;
+      background: linear-gradient(to top, rgba(12, 13, 20, 0.92) 0%, rgba(12, 13, 20, 0.6) 50%, transparent 100%);
+    }
+
+    .card-featured .card-title {
+      font-size: 1.2rem;
+      color: #fff;
+      margin-bottom: 4px;
+    }
+
+    .card-featured .card-desc {
+      color: rgba(226, 228, 233, 0.8);
+      margin-bottom: 10px;
+    }
+
+    .card-featured:hover {
+      transform: scale(1.008);
+      border-color: rgba(217, 70, 239, 0.35);
+    }
+
+    .card-featured:hover .card-image-wrap img {
+      transform: scale(1.03);
+    }
+
+    /* ── Callout Tile (text-only) ────────────── */
+
+    .callout {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 32px 28px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      position: relative;
+      overflow: hidden;
+      transition: border-color 0.25s, transform 0.25s;
+    }
+
+    .callout:hover {
+      border-color: rgba(217, 70, 239, 0.3);
+      transform: translateY(-2px);
+    }
+
+    .callout::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+
+    .callout-magenta::before {
+      background: linear-gradient(135deg, rgba(217, 70, 239, 0.08) 0%, transparent 60%);
+    }
+
+    .callout-cyan::before {
+      background: linear-gradient(135deg, rgba(6, 182, 212, 0.08) 0%, transparent 60%);
+    }
+
+    .callout-mixed::before {
+      background: linear-gradient(135deg, rgba(217, 70, 239, 0.06) 0%, rgba(6, 182, 212, 0.06) 50%, transparent 80%);
+    }
+
+    .callout-number {
+      font-size: clamp(2rem, 4vw, 2.8rem);
+      font-weight: 700;
+      line-height: 1;
+      margin-bottom: 6px;
+      position: relative;
+    }
+
+    .callout-magenta .callout-number { color: var(--accent-magenta); }
+    .callout-cyan .callout-number { color: var(--accent-cyan); }
+    .callout-mixed .callout-number {
+      background: linear-gradient(135deg, var(--accent-magenta), var(--accent-cyan));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .callout-label {
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: var(--text-primary);
+      margin-bottom: 4px;
+      position: relative;
+    }
+
+    .callout-sub {
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+      line-height: 1.5;
+      position: relative;
+    }
+
+    /* ── Lightbox ────────────────────────────────── */
+
+    .lightbox {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 1000;
+      background: rgba(6, 7, 10, 0.93);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .lightbox.open { display: flex; }
+
+    .lightbox-header {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      padding: 16px 24px;
+      width: 100%;
+      max-width: 1100px;
+    }
+
+    .lightbox-title {
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: var(--accent-cyan);
+    }
+
+    .lightbox-toggle {
+      display: flex;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      overflow: hidden;
+    }
+
+    .lightbox-toggle button {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      font-weight: 700;
+      padding: 6px 16px;
+      border: none;
+      cursor: pointer;
+      color: var(--text-secondary);
+      background: transparent;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    .lightbox-toggle button.active {
+      background: var(--accent-cyan);
+      color: var(--bg-primary);
+    }
+
+    .lightbox-toggle button:not(.active):hover {
+      background: var(--bg-card-hover);
+      color: var(--text-primary);
+    }
+
+    .lightbox-close {
+      position: absolute;
+      top: 16px;
+      right: 20px;
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text-secondary);
+      cursor: pointer;
+      width: 40px;
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: color 0.2s, border-color 0.2s;
+      font-family: var(--font-mono);
+      font-size: 1.2rem;
+    }
+
+    .lightbox-close:hover {
+      color: var(--text-primary);
+      border-color: var(--text-secondary);
+    }
+
+    .lightbox-image-wrap {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      max-width: 1100px;
+      padding: 0 24px 16px;
+      min-height: 0;
+    }
+
+    .lightbox-image-wrap picture {
+      display: block;
+      max-width: 100%;
+      max-height: 100%;
+    }
+
+    .lightbox-image-wrap img {
+      display: block;
+      max-width: 90vw;
+      max-height: calc(100vh - 140px);
+      object-fit: contain;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+
+    .lightbox-nav {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      background: rgba(19, 20, 29, 0.8);
+      border: 1px solid var(--border);
+      color: var(--text-secondary);
+      cursor: pointer;
+      width: 44px;
+      height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 8px;
+      transition: color 0.2s, border-color 0.2s, background 0.2s;
+    }
+
+    .lightbox-nav:hover {
+      color: var(--text-primary);
+      border-color: var(--accent-cyan);
+      background: rgba(19, 20, 29, 0.95);
+    }
+
+    .lightbox-nav svg { width: 20px; height: 20px; }
+    .lightbox-prev { left: 16px; }
+    .lightbox-next { right: 16px; }
+
+    .lightbox-desc {
+      text-align: center;
+      padding: 0 24px 20px;
+      font-size: 0.78rem;
+      color: var(--text-secondary);
+      max-width: 600px;
+    }
+
+    /* ── CTA ─────────────────────────────────────── */
+
+    .cta {
+      text-align: center;
+      padding: 64px 24px 48px;
+      border-top: 1px solid var(--border);
+      max-width: var(--max-width);
+      margin: 0 auto;
+    }
+
+    .cta-install {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px 24px;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+      position: relative;
+    }
+
+    .cta-install:hover {
+      border-color: var(--accent-cyan);
+      background: var(--bg-card-hover);
+    }
+
+    .cta-install code {
+      font-family: var(--font-mono);
+      font-size: 1rem;
+      color: var(--accent-cyan);
+    }
+
+    .cta-install:hover .copy-icon { color: var(--accent-cyan); }
+
+    .cta-requirements {
+      margin-top: 20px;
+      font-size: 0.78rem;
+      color: var(--text-secondary);
+    }
+
+    .cta-links {
+      margin-top: 24px;
+      display: flex;
+      justify-content: center;
+      gap: 24px;
+    }
+
+    .cta-links a {
+      font-size: 0.85rem;
+      color: var(--accent-cyan);
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+
+    .cta-links a:hover { color: var(--accent-magenta); }
+
+    /* ── Footer ──────────────────────────────────── */
+
+    .footer {
+      text-align: center;
+      padding: 32px 24px;
+      border-top: 1px solid var(--border);
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+    }
+
+    .footer a {
+      color: var(--text-secondary);
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+
+    .footer a:hover { color: var(--accent-cyan); }
+
+    .footer-sep {
+      margin: 0 12px;
+      opacity: 0.4;
+    }
+
+    /* ── Responsive ──────────────────────────────── */
+
+    @media (max-width: 1024px) {
+      .bento-grid {
+        grid-template-columns: repeat(2, 1fr);
+        grid-auto-rows: minmax(200px, auto);
+      }
+      .span-2-col { grid-column: span 1; }
+      .card-featured { min-height: 240px; }
+      .card-featured .card-title { font-size: 1.05rem; }
+    }
+
+    @media (max-width: 640px) {
+      .hero { padding: 40px 16px 32px; }
+      .hero-logo { width: 60px; height: 60px; border-radius: 12px; }
+      .hero-brand { font-size: 1.8rem; }
+      .bento { padding: 0 16px 56px; }
+      .bento-grid {
+        grid-template-columns: 1fr;
+        grid-auto-rows: auto;
+      }
+      .span-2-col { grid-column: span 1; }
+      .card-featured { min-height: 200px; }
+      .callout { padding: 24px 20px; }
+      .callout-number { font-size: 2rem; }
+      .lightbox-nav { display: none; }
+      .lightbox-header { padding: 12px 16px; }
+      .lightbox-image-wrap { padding: 0 12px 12px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ── Hero ──────────────────────────────────────── -->
+  <section class="hero">
+    <div class="hero-row">
+      <img src="../images/logo.png" alt="summon logo" class="hero-logo">
+      <span class="hero-brand">summon</span>
+    </div>
+    <p class="hero-tagline">One command. Your entire workspace.</p>
+    <div class="hero-install" onclick="copyInstall(this)" role="button" tabindex="0" aria-label="Copy install command">
+      <code>npm i -g summon-ws</code>
+      <svg class="copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+      <span class="copy-feedback">Copied!</span>
+    </div>
+  </section>
+
+  <!-- ── Bento Grid ────────────────────────────────── -->
+  <section class="bento">
+    <div class="bento-grid">
+
+      <!-- Row 1: fullstack (2-col featured) + backend (1-col) -->
+      <article class="card card-featured span-2-col" data-index="0" onclick="openLightbox(0)">
+        <div class="card-image-wrap">
+          <picture>
+            <source srcset="../images/fullstack-max.webp" type="image/webp">
+            <img src="../images/fullstack-max.png" alt="Fullstack workspace layout" loading="eager">
+          </picture>
+          <span class="card-expand-hint">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
+            Click to expand
+          </span>
+        </div>
+        <div class="card-overlay">
+          <h2 class="card-title">Fullstack</h2>
+          <p class="card-desc">Full-stack development with editor, shell, and git in one view.</p>
+          <div class="card-tools">
+            <span>Claude</span><span>lazygit</span><span>btop</span><span>shell</span>
+          </div>
+        </div>
+      </article>
+
+      <article class="card" data-index="1" onclick="openLightbox(1)">
+        <div class="card-image-wrap">
+          <picture>
+            <source srcset="../images/backend-max.webp" type="image/webp">
+            <img src="../images/backend-max.png" alt="Backend workspace layout" loading="eager">
+          </picture>
+          <span class="card-expand-hint">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
+            Click to expand
+          </span>
+        </div>
+        <div class="card-body">
+          <h2 class="card-title">Backend</h2>
+          <p class="card-desc">Server and API development with code review and monitoring.</p>
+          <div class="card-tools">
+            <span>Claude</span><span>lazygit</span><span>btop</span><span>docs</span>
+          </div>
+        </div>
+      </article>
+
+      <!-- Row 2: callout (10 Layouts) + devops (1-col) + data (1-col) -->
+      <div class="callout callout-magenta">
+        <span class="callout-number">10</span>
+        <span class="callout-label">Layouts</span>
+        <span class="callout-sub">From minimal to full monitoring stacks</span>
+      </div>
+
+      <article class="card" data-index="2" onclick="openLightbox(2)">
+        <div class="card-image-wrap">
+          <picture>
+            <source srcset="../images/devops-max.webp" type="image/webp">
+            <img src="../images/devops-max.png" alt="DevOps workspace layout" loading="lazy">
+          </picture>
+          <span class="card-expand-hint">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
+            Click to expand
+          </span>
+        </div>
+        <div class="card-body">
+          <h2 class="card-title">DevOps</h2>
+          <p class="card-desc">Infrastructure, containers, and deployment with live monitoring.</p>
+          <div class="card-tools">
+            <span>Vim</span><span>Docker</span><span>btop</span><span>logs</span>
+          </div>
+        </div>
+      </article>
+
+      <article class="card" data-index="3" onclick="openLightbox(3)">
+        <div class="card-image-wrap">
+          <picture>
+            <source srcset="../images/data-max.webp" type="image/webp">
+            <img src="../images/data-max.png" alt="Data workspace layout" loading="lazy">
+          </picture>
+          <span class="card-expand-hint">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
+            Click to expand
+          </span>
+        </div>
+        <div class="card-body">
+          <h2 class="card-title">Data</h2>
+          <p class="card-desc">Data science workspace with file browsing, REPL, and visualization.</p>
+          <div class="card-tools">
+            <span>Claude</span><span>Python</span><span>yazi</span><span>btop</span>
+          </div>
+        </div>
+      </article>
+
+      <!-- Row 3: systems (1-col) + frontend (2-col featured) -->
+      <article class="card" data-index="4" onclick="openLightbox(4)">
+        <div class="card-image-wrap">
+          <picture>
+            <source srcset="../images/systems-max.webp" type="image/webp">
+            <img src="../images/systems-max.png" alt="Systems workspace layout" loading="lazy">
+          </picture>
+          <span class="card-expand-hint">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
+            Click to expand
+          </span>
+        </div>
+        <div class="card-body">
+          <h2 class="card-title">Systems</h2>
+          <p class="card-desc">Systems programming with performance metrics and deep monitoring.</p>
+          <div class="card-tools">
+            <span>Editor</span><span>btop</span><span>lazygit</span><span>metrics</span>
+          </div>
+        </div>
+      </article>
+
+      <article class="card card-featured span-2-col" data-index="5" onclick="openLightbox(5)">
+        <div class="card-image-wrap">
+          <picture>
+            <source srcset="../images/frontend-max.webp" type="image/webp">
+            <img src="../images/frontend-max.png" alt="Frontend workspace layout" loading="lazy">
+          </picture>
+          <span class="card-expand-hint">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
+            Click to expand
+          </span>
+        </div>
+        <div class="card-overlay">
+          <h2 class="card-title">Frontend</h2>
+          <p class="card-desc">Web UI development with test runner and live build output.</p>
+          <div class="card-tools">
+            <span>Claude</span><span>npm</span><span>lazygit</span><span>btop</span>
+          </div>
+        </div>
+      </article>
+
+      <!-- Row 4: network (1-col) + ml (1-col) + callout (Zero Dependencies) -->
+      <article class="card" data-index="6" onclick="openLightbox(6)">
+        <div class="card-image-wrap">
+          <picture>
+            <source srcset="../images/network-max.webp" type="image/webp">
+            <img src="../images/network-max.png" alt="Network workspace layout" loading="lazy">
+          </picture>
+          <span class="card-expand-hint">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
+            Click to expand
+          </span>
+        </div>
+        <div class="card-body">
+          <h2 class="card-title">Network</h2>
+          <p class="card-desc">Network monitoring with bandwidth charts and traffic analysis.</p>
+          <div class="card-tools">
+            <span>bandwhich</span><span>btop</span><span>tcpdump</span><span>logs</span>
+          </div>
+        </div>
+      </article>
+
+      <article class="card" data-index="7" onclick="openLightbox(7)">
+        <div class="card-image-wrap">
+          <picture>
+            <source srcset="../images/ml-max.webp" type="image/webp">
+            <img src="../images/ml-max.png" alt="ML workspace layout" loading="lazy">
+          </picture>
+          <span class="card-expand-hint">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
+            Click to expand
+          </span>
+        </div>
+        <div class="card-body">
+          <h2 class="card-title">ML</h2>
+          <p class="card-desc">Machine learning with training visualization and resource monitoring.</p>
+          <div class="card-tools">
+            <span>Claude</span><span>training logs</span><span>btop</span><span>lazygit</span>
+          </div>
+        </div>
+      </article>
+
+      <div class="callout callout-cyan">
+        <span class="callout-number">0</span>
+        <span class="callout-label">Zero Dependencies</span>
+        <span class="callout-sub">Pure TypeScript, stdlib only</span>
+      </div>
+
+      <!-- Row 5: flex (2-col featured) + dual-editor (1-col) -->
+      <article class="card card-featured span-2-col" data-index="8" onclick="openLightbox(8)">
+        <div class="card-image-wrap">
+          <picture>
+            <source srcset="../images/flex-max.webp" type="image/webp">
+            <img src="../images/flex-max.png" alt="Flex workspace layout" loading="lazy">
+          </picture>
+          <span class="card-expand-hint">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
+            Click to expand
+          </span>
+        </div>
+        <div class="card-overlay">
+          <h2 class="card-title">Flex</h2>
+          <p class="card-desc">Creative multi-tool workspace -- because your terminal can be fun too.</p>
+          <div class="card-tools">
+            <span>cmatrix</span><span>btop</span><span>neofetch</span><span>Claude</span>
+          </div>
+        </div>
+      </article>
+
+      <div class="callout callout-mixed">
+        <span class="callout-number">1</span>
+        <span class="callout-label">One Command</span>
+        <span class="callout-sub">summon . -- your workspace appears</span>
+      </div>
+
+      <!-- Bonus row: dual-editor standalone to close -->
+      <article class="card" style="grid-column: 2;" data-index="9" onclick="openLightbox(9)">
+        <div class="card-image-wrap">
+          <picture>
+            <source srcset="../images/dual-editor-max.webp" type="image/webp">
+            <img src="../images/dual-editor-max.png" alt="Dual Editor workspace layout" loading="lazy">
+          </picture>
+          <span class="card-expand-hint">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
+            Click to expand
+          </span>
+        </div>
+        <div class="card-body">
+          <h2 class="card-title">Dual Editor</h2>
+          <p class="card-desc">Side-by-side editors for pair programming or code review.</p>
+          <div class="card-tools">
+            <span>Claude</span><span>Helix</span><span>btop</span><span>lazygit</span>
+          </div>
+        </div>
+      </article>
+
+    </div>
+  </section>
+
+  <!-- ── Lightbox ──────────────────────────────────── -->
+  <div class="lightbox" id="lightbox">
+    <div class="lightbox-header">
+      <span class="lightbox-title" id="lb-title"></span>
+      <div class="lightbox-toggle">
+        <button id="lb-btn-min" onclick="setLightboxMode('min')">Minimal</button>
+        <button id="lb-btn-max" onclick="setLightboxMode('max')" class="active">Full</button>
+      </div>
+    </div>
+    <div class="lightbox-image-wrap">
+      <picture id="lb-picture">
+        <source id="lb-source" srcset="" type="image/webp">
+        <img id="lb-img" src="" alt="">
+      </picture>
+    </div>
+    <p class="lightbox-desc" id="lb-desc"></p>
+    <button class="lightbox-close" onclick="closeLightbox()" aria-label="Close">&times;</button>
+    <button class="lightbox-nav lightbox-prev" onclick="navLightbox(-1)" aria-label="Previous">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+    </button>
+    <button class="lightbox-nav lightbox-next" onclick="navLightbox(1)" aria-label="Next">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>
+    </button>
+  </div>
+
+  <!-- ── CTA ─────────────────────────────────────────── -->
+  <section class="cta">
+    <div class="cta-install" onclick="copyInstall(this)" role="button" tabindex="0" aria-label="Copy install command">
+      <code>npm i -g summon-ws</code>
+      <svg class="copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+      <span class="copy-feedback">Copied!</span>
+    </div>
+    <p class="cta-requirements">Requires Node &ge; 18 &middot; macOS &middot; Ghostty terminal</p>
+    <div class="cta-links">
+      <a href="https://github.com/juan294/summon" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://www.npmjs.com/package/summon-ws" target="_blank" rel="noopener">npm</a>
+    </div>
+  </section>
+
+  <!-- ── Footer ──────────────────────────────────────── -->
+  <footer class="footer">
+    <a href="https://github.com/juan294/summon" target="_blank" rel="noopener">GitHub</a>
+    <span class="footer-sep">&middot;</span>
+    <a href="https://www.npmjs.com/package/summon-ws" target="_blank" rel="noopener">npm</a>
+    <span class="footer-sep">&middot;</span>
+    <a href="https://github.com/juan294/summon#readme" target="_blank" rel="noopener">Docs</a>
+  </footer>
+
+  <script>
+    /* ── Card Data (for lightbox navigation) ─────── */
+    var CARDS = [
+      { id: 'fullstack', title: 'Fullstack', desc: 'Full-stack development with editor, shell, and git in one view.' },
+      { id: 'backend', title: 'Backend', desc: 'Server and API development with code review and monitoring.' },
+      { id: 'devops', title: 'DevOps', desc: 'Infrastructure, containers, and deployment with live monitoring.' },
+      { id: 'data', title: 'Data', desc: 'Data science workspace with file browsing, REPL, and visualization.' },
+      { id: 'systems', title: 'Systems', desc: 'Systems programming with performance metrics and deep monitoring.' },
+      { id: 'frontend', title: 'Frontend', desc: 'Web UI development with test runner and live build output.' },
+      { id: 'network', title: 'Network', desc: 'Network monitoring with bandwidth charts and traffic analysis.' },
+      { id: 'ml', title: 'ML', desc: 'Machine learning with training visualization and resource monitoring.' },
+      { id: 'flex', title: 'Flex', desc: 'Creative multi-tool workspace -- because your terminal can be fun too.' },
+      { id: 'dual-editor', title: 'Dual Editor', desc: 'Side-by-side editors for pair programming or code review.' }
+    ];
+
+    /* ── Lightbox ──────────────────────────────────── */
+    var lightbox = document.getElementById('lightbox');
+    var lbTitle = document.getElementById('lb-title');
+    var lbDesc = document.getElementById('lb-desc');
+    var lbImg = document.getElementById('lb-img');
+    var lbSource = document.getElementById('lb-source');
+    var lbBtnMin = document.getElementById('lb-btn-min');
+    var lbBtnMax = document.getElementById('lb-btn-max');
+    var currentIndex = 0;
+    var currentMode = 'max';
+
+    function openLightbox(idx) {
+      currentIndex = idx;
+      currentMode = 'max';
+      updateLightbox();
+      lightbox.classList.add('open');
+      document.body.style.overflow = 'hidden';
+    }
+
+    function closeLightbox() {
+      lightbox.classList.remove('open');
+      document.body.style.overflow = '';
+    }
+
+    function navLightbox(dir) {
+      currentIndex = (currentIndex + dir + CARDS.length) % CARDS.length;
+      updateLightbox();
+    }
+
+    function setLightboxMode(mode) {
+      currentMode = mode;
+      updateLightbox();
+    }
+
+    function updateLightbox() {
+      var card = CARDS[currentIndex];
+      lbTitle.textContent = card.title;
+      lbDesc.textContent = card.desc;
+      lbSource.setAttribute('srcset', '../images/' + card.id + '-' + currentMode + '.webp');
+      lbImg.src = '../images/' + card.id + '-' + currentMode + '.png';
+      lbImg.alt = card.title + ' ' + currentMode + ' layout';
+      lbBtnMin.className = currentMode === 'min' ? 'active' : '';
+      lbBtnMax.className = currentMode === 'max' ? 'active' : '';
+    }
+
+    /* Close on backdrop click */
+    lightbox.addEventListener('click', function(e) {
+      if (e.target === lightbox) closeLightbox();
+    });
+
+    /* Keyboard navigation */
+    document.addEventListener('keydown', function(e) {
+      if (!lightbox.classList.contains('open')) return;
+      if (e.key === 'Escape') closeLightbox();
+      else if (e.key === 'ArrowLeft') navLightbox(-1);
+      else if (e.key === 'ArrowRight') navLightbox(1);
+      else if (e.key === 'm' || e.key === '1') setLightboxMode('min');
+      else if (e.key === 'f' || e.key === '2') setLightboxMode('max');
+    });
+
+    /* ── Copy Install Command ──────────────────────── */
+    function copyInstall(el) {
+      var text = 'npm i -g summon-ws';
+      var feedback = el.querySelector('.copy-feedback');
+
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function() {
+          showFeedback(feedback);
+        });
+      } else {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); } catch (_) {}
+        document.body.removeChild(ta);
+        showFeedback(feedback);
+      }
+    }
+
+    function showFeedback(el) {
+      el.classList.add('show');
+      setTimeout(function() { el.classList.remove('show'); }, 1200);
+    }
+
+    document.querySelectorAll('.hero-install, .cta-install').forEach(function(btn) {
+      btn.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          copyInstall(btn);
+        }
+      });
+    });
+  </script>
+</body>
+</html>
