@@ -21,6 +21,7 @@ export type LayoutNode = PaneNode | SplitNode;
 
 export interface TreeLayoutPlan {
   tree: LayoutNode;
+  leaves: string[];
   focusPane: string;
   autoResize: boolean;
   editorSize: number;
@@ -320,6 +321,7 @@ export function buildTreePlan(
   const focusPane = leaves[0] ?? "";
   return {
     tree,
+    leaves,
     focusPane,
     autoResize: opts?.autoResize ?? true,
     editorSize: opts?.editorSize ?? EDITOR_SIZE_DEFAULT,
