@@ -24,7 +24,7 @@ import { launch } from "./launcher.js";
 import type { CLIOverrides } from "./launcher.js";
 import { PANES_MIN, EDITOR_SIZE_MIN, EDITOR_SIZE_MAX, isPresetName, getPresetNames } from "./layout.js";
 import { validateIntFlag, validateFloatFlag } from "./validation.js";
-import { SAFE_COMMAND_RE, getErrorMessage } from "./utils.js";
+import { SAFE_COMMAND_RE, getErrorMessage, exitWithUsageHint } from "./utils.js";
 
 function validateLayoutNameOrExit(name: string): void {
   if (isPresetName(name)) {
@@ -46,8 +46,7 @@ function validateLayoutOrExit(value: string, label: string): void {
     if (custom.length > 0) {
       console.error(`Custom layouts: ${custom.join(", ")}`);
     }
-    console.error(`Run 'summon --help' for usage information.`);
-    process.exit(1);
+    exitWithUsageHint();
   }
 }
 
@@ -70,7 +69,7 @@ Usage:
   summon config               Show current machine configuration
   summon doctor               Check Ghostty config for recommended settings
   summon open                 Select and launch a registered project
-  summon layout <action>      Manage custom layouts (save, list, show, delete, edit)
+  summon layout <action>      Manage custom layouts (create, save, list, show, delete, edit)
   summon export [path]        Export config as a .summon project file
   summon completions <shell>  Generate shell completion script (zsh, bash)
 
@@ -251,8 +250,7 @@ function safeParse() {
     if (msg.includes("ambiguous")) {
       console.error(`Tip: To pass a value starting with '-', use '--flag=-value' syntax.`);
     }
-    console.error(`Run 'summon --help' for usage information.`);
-    process.exit(1);
+    exitWithUsageHint();
   }
 }
 
@@ -270,9 +268,7 @@ if (values["editor-size"] !== undefined) {
 if (values.env) {
   for (const entry of values.env) {
     if (!entry.includes("=")) {
-      console.error(`Error: --env must be in KEY=VALUE format, got "${entry}".`);
-      console.error(`Run 'summon --help' for usage information.`);
-      process.exit(1);
+      exitWithUsageHint(`Error: --env must be in KEY=VALUE format, got "${entry}".`);
     }
   }
 }
@@ -286,7 +282,7 @@ if (values.layout !== undefined) {
 }
 
 if (values["auto-resize"] && values["no-auto-resize"]) {
-  console.error("Warning: both --auto-resize and --no-auto-resize specified; using --no-auto-resize.");
+  console.warn("Warning: both --auto-resize and --no-auto-resize specified; using --no-auto-resize.");
 }
 
 if (values.version) {
@@ -561,7 +557,7 @@ switch (subcommand) {
     const idx = parseInt(answer, 10) - 1;
 
     if (isNaN(idx) || idx < 0 || idx >= entries.length) {
-      console.error("Invalid selection.");
+      console.error(`Invalid selection. Enter a number between 1 and ${entries.length}.`);
       process.exit(1);
     }
 
@@ -712,6 +708,7 @@ switch (subcommand) {
           execEditFile(editorCmd, [filePath], { stdio: "inherit" });
         } catch {
           console.error(`Failed to open editor: ${editorCmd}`);
+          console.error("Check your EDITOR environment variable or ensure the editor is installed.");
           process.exit(1);
         }
         break;

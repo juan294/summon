@@ -5,6 +5,8 @@
  * into a reusable function.
  */
 
+import { exitWithUsageHint } from "./utils.js";
+
 type ParseResult = {
   ok: true;
   value: number;
@@ -58,9 +60,7 @@ export function validateIntFlag(
     const rangeDesc = max !== undefined
       ? `an integer between ${min}-${max}`
       : "a positive integer";
-    console.error(`Error: --${flagName} must be ${rangeDesc}, got "${value}".`);
-    console.error("Run 'summon --help' for usage information.");
-    process.exit(1);
+    exitWithUsageHint(`Error: --${flagName} must be ${rangeDesc}, got "${value}".`);
   }
   return result.value;
 }
@@ -76,9 +76,7 @@ export function validateFloatFlag(
 ): number {
   const result = parsePositiveFloat(value);
   if (!result.ok) {
-    console.error(`Error: --${flagName} must be a positive number, got "${value}".`);
-    console.error("Run 'summon --help' for usage information.");
-    process.exit(1);
+    exitWithUsageHint(`Error: --${flagName} must be a positive number, got "${value}".`);
   }
   return result.value;
 }
