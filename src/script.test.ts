@@ -1021,8 +1021,9 @@ describe("generateTreeAppleScript", () => {
     );
     const script = generateTreeAppleScript(plan, "/tmp/project");
 
-    expect(script).toContain("make new window with configuration cfg");
-    expect(script).not.toContain("set win to front window");
+    expect(script).toContain('keystroke "n" using command down');
+    expect(script).toContain("set win to front window");
+    expect(script).not.toContain("make new window");
   });
 
   it("fullscreen mode", () => {
@@ -1098,7 +1099,7 @@ describe("generateTreeAppleScript", () => {
     expect(script).toContain("export NODE_ENV='development'");
   });
 
-  it("no env exports for root pane in new-window mode", () => {
+  it("env exports for root pane in new-window mode", () => {
     const plan = makePlan(
       { type: "pane", name: "editor", command: "claude" },
       { newWindow: true },
@@ -1106,8 +1107,8 @@ describe("generateTreeAppleScript", () => {
     const script = generateTreeAppleScript(plan, "/tmp/project", "/bin/bash", null,
       { NODE_ENV: "development" });
 
-    // Root pane inherits env vars from cfg in new-window mode
-    expect(script).not.toContain("export NODE_ENV=");
+    // Root pane gets env exports via input text (keystroke new window doesn't carry cfg)
+    expect(script).toContain("export NODE_ENV='development'");
   });
 
   it("pane titles with name and command", () => {

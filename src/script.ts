@@ -15,9 +15,6 @@ const RESIZE_SETTLE_DELAY = 0.2;
 /** Delay after creating a new window. */
 const NEW_WINDOW_DELAY = 0.5;
 
-/** Delay after creating a new window (tree layout, shorter — window created via API). */
-const TREE_NEW_WINDOW_DELAY = 0.3;
-
 /** Editor size at which auto-resize is a no-op (50% = equal split already). */
 const AUTO_RESIZE_THRESHOLD = 50;
 
@@ -228,30 +225,22 @@ function paneVar(name: string): string {
 
 /**
  * Emit AppleScript to create or reference the front window.
- * Traditional layout uses System Events keystroke; tree layout uses `make new window`.
+ * Uses System Events keystroke (Cmd+N) for new windows in all modes.
  */
 function emitNewWindow(
   sb: ScriptBuilder,
   newWindow: boolean,
-  mode: "traditional" | "tree",
 ): void {
   const { add } = sb;
   if (newWindow) {
-    if (mode === "traditional") {
-      add(1, 'tell application "System Events"');
-      add(2, `tell process "${GHOSTTY_APP_NAME}"`);
-      add(3, 'keystroke "n" using command down');
-      add(2, "end tell");
-      add(1, "end tell");
-      add(1, `delay ${NEW_WINDOW_DELAY}`);
-    } else {
-      add(1, "set win to make new window with configuration cfg");
-      add(1, `delay ${TREE_NEW_WINDOW_DELAY}`);
-    }
+    add(1, 'tell application "System Events"');
+    add(2, `tell process "${GHOSTTY_APP_NAME}"`);
+    add(3, 'keystroke "n" using command down');
+    add(2, "end tell");
+    add(1, "end tell");
+    add(1, `delay ${NEW_WINDOW_DELAY}`);
   }
-  if (mode === "traditional" || !newWindow) {
-    add(1, "set win to front window");
-  }
+  add(1, "set win to front window");
 }
 
 /** Emit right column pane splits (first right pane + additional editors + optional shell). */
@@ -396,7 +385,7 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginSh
   const allEnvVars = buildEnvVarsList(starshipConfigPath, envVars);
 
   emitSurfaceConfig(sb, targetDir, plan.fontSize, allEnvVars);
-  emitNewWindow(sb, plan.newWindow, "traditional");
+  emitNewWindow(sb, plan.newWindow);
   sb.add(1, "set paneRoot to terminal 1 of selected tab of win");
   sb.blank();
 
@@ -453,16 +442,14 @@ export function generateTreeAppleScript(
   const rootPaneVar = paneVar(rootLeaf.name);
 
   emitSurfaceConfig(sb, targetDir, plan.fontSize, allEnvVars);
-  emitNewWindow(sb, plan.newWindow, "tree");
+  emitNewWindow(sb, plan.newWindow);
   sb.add(1, `set ${rootPaneVar} to terminal 1 of selected tab of win`);
   sb.blank();
 
   emitTreeTraversal(sb, plan.tree, rootPaneVar, plan);
   sb.blank();
 
-  if (allEnvVars.length > 0 && !plan.newWindow) {
-    emitRootPaneEnvExports(sb, rootPaneVar, allEnvVars);
-  }
+  emitRootPaneEnvExports(sb, rootPaneVar, allEnvVars);
   emitRootPaneCommand(sb, rootPaneVar, targetDir, rootLeaf.command);
   sb.blank();
 

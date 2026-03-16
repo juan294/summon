@@ -35,7 +35,7 @@ src/
   starship.ts      Starship detection, preset listing, TOML config caching
   completions.ts   Shell completion script generator (bash, zsh, fish)
   utils.ts         Shared utilities (SAFE_COMMAND_RE, GHOSTTY_PATHS, resolveCommand, promptUser, getErrorMessage)
-  validation.ts    Input validation helpers (parseIntInRange, validateIntFlag, validateFloatFlag)
+  validation.ts    Input validation helpers (parseIntInRange, parsePositiveFloat, validateIntFlag, validateFloatFlag)
   globals.d.ts     Build-time constants (__VERSION__)
   *.test.ts        Co-located unit tests
 ```

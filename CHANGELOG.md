@@ -12,19 +12,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Visual template gallery in layout builder — pick grid shapes from side-by-side mini diagrams instead of specifying column/pane counts numerically
 - In-place live preview in layout builder — layout diagram redraws in the same screen region as commands are filled in, using ANSI cursor control
 - Arrow-key grid builder — interactive raw-mode builder for custom grid shapes (←→ columns, ↑↓ panes, Tab/Shift+Tab focus, Enter confirm, Esc cancel)
-- Boundary tests for layout parameters, validation helpers, and tree utilities (22 new tests)
+- Command validation with typo detection in layout builder — Levenshtein-distance fuzzy matching suggests closest tool name
+- Truncation indicator (`…`) for long commands in layout preview
+- Layout name prompt now shows example hint `(e.g., mysetup)`
+- `parsePositiveFloat` validation helper in validation.ts
 
 ### Changed
 
+- Custom layout builder no longer forces a mandatory sidebar — total design freedom for workspace layouts
+- "Build from scratch" option numbered as `8)` instead of `c)` for consistent selection
+- Grid builder has no column/pane limits — build as many splits as your screen fits
+- `detectTools` runs shell lookups in parallel via `Promise.all` for faster wizard startup
+- `summon doctor` exits 0 for missing recommendations (reserved exit 1 for actual errors)
+- `summon layout show <preset>` gives a helpful message for built-in presets instead of a generic "reserved name" error
+- ANSI-aware text centering in layout previews — correctly measures visible width excluding escape codes
+- `isValidPreset` marked `@internal`; test-only re-exports removed from setup.ts
 - Safe error handling: replaced unsafe `(err as Error)` casts with `getErrorMessage()` utility
 - Fixed "server" to "shell" naming inconsistency in pane titles
 - Extracted shared constants (`GHOSTTY_APP_NAME`, `SUMMON_WORKSPACE_ENV`) to single source
 - Consolidated layout name regex to single source (`LAYOUT_NAME_RE`)
-- Extracted `validateIntFlag()` and `validateFloatFlag()` helpers
+- Extracted `validateIntFlag()`, `validateFloatFlag()`, and `parsePositiveFloat()` helpers
 - Decomposed large functions in launcher.ts and script.ts into focused helpers
 - Refactored `collectLeaves` to O(n) accumulator pattern
 - Defined box-drawing character constants in setup wizard
 - Pre-compiled regex patterns in doctor checks
+
+### Fixed
+
+- `--new-window` with custom/tree layouts on Ghostty 1.3.x — unified new-window creation to use Cmd+N via System Events instead of `make new window` which returns unusable tab-group references
+
+### Tests
+
+- 817 total tests (was 677 in v0.8.0), 96%+ statement coverage
+- New tests for: centerLabel truncation, visibleLength, async detectTools, parsePositiveFloat, doctor exit codes, layout show error messages, grid builder unlimited columns/panes
 
 ## [0.8.0] - 2026-03-14
 

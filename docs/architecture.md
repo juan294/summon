@@ -52,12 +52,13 @@ graph TD
 
     config -.- cfg_fns["addProject, removeProject,
     getProject, listProjects,
-    setConfig, listConfig,
+    setConfig, removeConfig, listConfig,
     isFirstRun, readKVFile,
     listCustomLayouts, readCustomLayout,
-    saveCustomLayout, isValidLayoutName,
+    saveCustomLayout, deleteCustomLayout,
+    isValidLayoutName, isCustomLayout,
     VALID_KEYS, BOOLEAN_KEYS, CLI_FLAGS,
-    LAYOUT_NAME_RE"]
+    LAYOUT_NAME_RE, CONFIG_DIR"]
     layout -.- lay_fns["planLayout, isPresetName,
     getPreset, getPresetNames,
     LayoutOptions, LayoutPlan"]
@@ -79,15 +80,21 @@ graph TD
     listStarshipPresets,
     isValidPreset,
     ensurePresetConfig,
-    getPresetConfigPath"]
+    getPresetConfigPath,
+    resetStarshipCache"]
     setup -.- setup_fns["runSetup, runLayoutBuilder,
     selectGridTemplate, runGridBuilder,
     PreviewRenderer, GRID_TEMPLATES,
     detectTools, validateSetup,
+    gridToTree, renderLayoutPreview,
+    renderMiniPreview, renderTemplateGallery,
+    findClosestCommand, centerLabel,
+    visibleLength, buildPartialGrid,
     EDITOR_CATALOG, SIDEBAR_CATALOG"]
     completions -.- comp_fns["generateZshCompletion,
     generateBashCompletion"]
     validation -.- val_fns["parseIntInRange,
+    parsePositiveFloat,
     validateIntFlag,
     validateFloatFlag"]
 
@@ -510,4 +517,4 @@ A `.summon` file in the project root uses the same `key=value` format.
 4. **Code splitting**: `setup.ts` and `completions.ts` are auto-split into separate chunks via dynamic `import()`
 5. **prepublishOnly**: runs `pnpm run build` before any `npm publish`
 
-The `files` field in package.json limits the published package to `dist/` only. Total bundle size is ~68 KB across 7 chunks.
+The `files` field in package.json limits the published package to `dist/` only. Total bundle size is ~84 KB across 7 chunks.
