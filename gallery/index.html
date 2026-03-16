@@ -21,7 +21,7 @@
       box-sizing: border-box;
     }
 
-    :root {
+    :root, [data-theme="dark"] {
       --bg-primary: #0C0D14;
       --bg-card: #13141D;
       --text-primary: #E2E4E9;
@@ -30,6 +30,26 @@
       --accent-cyan: #06B6D4;
       --border: #2A2B36;
       --font-mono: 'JetBrains Mono', monospace;
+      --header-bg: rgba(12, 13, 20, 0.85);
+      --glow-magenta: rgba(217, 70, 239, 0.15);
+      --glow-cyan: rgba(6, 182, 212, 0.15);
+      --lightbox-bg: rgba(12, 13, 20, 0.95);
+      --screenshot-shadow: rgba(0, 0, 0, 0.5);
+    }
+
+    [data-theme="light"] {
+      --bg-primary: #F4F5F7;
+      --bg-card: #FFFFFF;
+      --text-primary: #1A1B26;
+      --text-secondary: #5C5F77;
+      --accent-magenta: #C026D3;
+      --accent-cyan: #0891B2;
+      --border: #D4D6DE;
+      --header-bg: rgba(244, 245, 247, 0.88);
+      --glow-magenta: rgba(192, 38, 211, 0.10);
+      --glow-cyan: rgba(8, 145, 178, 0.10);
+      --lightbox-bg: rgba(244, 245, 247, 0.95);
+      --screenshot-shadow: rgba(0, 0, 0, 0.15);
     }
 
     html {
@@ -43,6 +63,7 @@
       line-height: 1.6;
       -webkit-font-smoothing: antialiased;
       -moz-osx-font-smoothing: grayscale;
+      transition: background 0.3s, color 0.3s;
     }
 
     /* ── Fixed Header ─────────────────────────────── */
@@ -57,7 +78,7 @@
       align-items: center;
       justify-content: space-between;
       padding: 12px 24px;
-      background: rgba(12, 13, 20, 0.85);
+      background: var(--header-bg);
       backdrop-filter: blur(12px);
       -webkit-backdrop-filter: blur(12px);
       border-bottom: 1px solid var(--border);
@@ -108,6 +129,46 @@
       opacity: 0.5;
     }
 
+    .theme-toggle {
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--bg-card);
+      color: var(--text-secondary);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: border-color 0.2s, color 0.2s;
+      flex-shrink: 0;
+    }
+
+    .theme-toggle:hover {
+      border-color: var(--accent-cyan);
+      color: var(--text-primary);
+    }
+
+    .theme-toggle svg {
+      width: 18px;
+      height: 18px;
+    }
+
+    .theme-toggle .icon-moon,
+    [data-theme="light"] .theme-toggle .icon-sun {
+      display: none;
+    }
+
+    [data-theme="light"] .theme-toggle .icon-moon {
+      display: block;
+    }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
     /* ── Scroll-Snap Container ────────────────────── */
 
     .snap-container {
@@ -152,11 +213,11 @@
     }
 
     .glow-magenta {
-      background: radial-gradient(ellipse, rgba(217, 70, 239, 0.15) 0%, transparent 70%);
+      background: radial-gradient(ellipse, var(--glow-magenta) 0%, transparent 70%);
     }
 
     .glow-cyan {
-      background: radial-gradient(ellipse, rgba(6, 182, 212, 0.15) 0%, transparent 70%);
+      background: radial-gradient(ellipse, var(--glow-cyan) 0%, transparent 70%);
     }
 
     /* ── Screenshot ───────────────────────────────── */
@@ -188,11 +249,11 @@
     }
 
     .glow-magenta ~ .screenshot-wrapper .screenshot {
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 80px rgba(217, 70, 239, 0.08);
+      box-shadow: 0 8px 32px var(--screenshot-shadow), 0 0 80px var(--glow-magenta);
     }
 
     .glow-cyan ~ .screenshot-wrapper .screenshot {
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 80px rgba(6, 182, 212, 0.08);
+      box-shadow: 0 8px 32px var(--screenshot-shadow), 0 0 80px var(--glow-cyan);
     }
 
     /* ── Section Text ─────────────────────────────── */
@@ -421,7 +482,7 @@
       position: fixed;
       inset: 0;
       z-index: 200;
-      background: rgba(12, 13, 20, 0.95);
+      background: var(--lightbox-bg);
       backdrop-filter: blur(8px);
       -webkit-backdrop-filter: blur(8px);
       display: flex;
@@ -586,9 +647,8 @@
         margin-top: 20px;
       }
 
-      .header-install {
-        display: none;
-      }
+      .header-install { display: none; }
+      .header-right { gap: 8px; }
 
       .header {
         padding: 10px 16px;
@@ -654,10 +714,16 @@
       <img src="../images/logo.png" alt="summon" class="header-logo" width="48" height="48">
       <span class="header-title">Summon your Ghostty workspace</span>
     </div>
-    <button class="header-install" onclick="copyInstall(this)" title="Click to copy">
-      <svg class="header-install-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
-      <span>npm i -g summon-ws</span>
-    </button>
+    <div class="header-right">
+      <button class="header-install" onclick="copyInstall(this)" title="Click to copy">
+        <svg class="header-install-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+        <span>npm i -g summon-ws</span>
+      </button>
+      <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle light/dark theme" title="Toggle theme">
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
+      </button>
+    </div>
   </header>
 
   <!-- Dot Navigation -->
@@ -1117,6 +1183,24 @@
         container.removeEventListener('scroll', onFirstScroll);
       });
     }
+
+    // ── Theme Toggle ──────────────────────────────────
+    function toggleTheme() {
+      var current = document.documentElement.getAttribute('data-theme');
+      var next = current === 'light' ? 'dark' : 'light';
+      document.documentElement.setAttribute('data-theme', next);
+      try { localStorage.setItem('summon-gallery-theme', next); } catch(e) {}
+    }
+
+    // Restore saved theme on load
+    (function() {
+      try {
+        var saved = localStorage.getItem('summon-gallery-theme');
+        if (saved === 'light' || saved === 'dark') {
+          document.documentElement.setAttribute('data-theme', saved);
+        }
+      } catch(e) {}
+    })();
   </script>
 </body>
 </html>
