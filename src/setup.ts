@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { execFile } from "node:child_process";
 import { setConfig, isValidLayoutName, isCustomLayout, saveCustomLayout } from "./config.js";
 import { SAFE_COMMAND_RE, GHOSTTY_PATHS, resolveCommand as resolveCommandPath, promptUser } from "./utils.js";
 import { isStarshipInstalled, listStarshipPresets } from "./starship.js";
@@ -489,15 +490,36 @@ export function printSection(title: string): void {
 export { resolveCommandPath };
 
 /**
- * Check catalog of tools, return each with `available` flag.
+ * Async command resolution — spawns a shell lookup without blocking.
+ * Returns the resolved path or null if the command is not found.
  */
-export function detectTools(
+function resolveCommandAsync(cmd: string): Promise<string | null> {
+  if (!SAFE_COMMAND_RE.test(cmd)) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    execFile("/bin/sh", ["-c", `command -v "$1"`, "--", cmd], { encoding: "utf-8" }, (err, stdout) => {
+      if (err) {
+        resolve(null);
+      } else {
+        resolve(stdout.trim() || null);
+      }
+    });
+  });
+}
+
+/**
+ * Check catalog of tools, return each with `available` flag.
+ * Shell lookups run in parallel via Promise.all for faster detection.
+ */
+export async function detectTools(
   catalog: readonly ToolEntry[],
-): DetectedTool[] {
-  return catalog.map((entry) => ({
-    ...entry,
-    available: resolveCommandPath(entry.cmd) !== null,
-  }));
+): Promise<DetectedTool[]> {
+  const results = await Promise.all(
+    catalog.map(async (entry) => ({
+      ...entry,
+      available: (await resolveCommandAsync(entry.cmd)) !== null,
+    })),
+  );
+  return results;
 }
 
 // ---------------------------------------------------------------------------
@@ -786,7 +808,7 @@ export async function selectLayout(): Promise<string> {
     console.log();
     let name = "";
     while (!name) {
-      name = await promptUser("  Name your layout: ");
+      name = await promptUser("  Name your layout (e.g., mysetup): ");
       if (!name) {
         console.log(yellow("  No name provided. Please enter a layout name."));
         continue;
@@ -813,7 +835,7 @@ export async function selectToolFromCatalog(
   sectionTitle: string,
 ): Promise<string> {
   printSection(sectionTitle);
-  const detected = detectTools(catalog);
+  const detected = await detectTools(catalog);
   const available = detected.filter((t) => t.available);
 
   const askCustom = async (): Promise<string> => {
@@ -1229,7 +1251,8 @@ export function gridToTree(
 /** Measure visible width of a string, ignoring ANSI escape codes. */
 // eslint-disable-next-line no-control-regex
 const ANSI_RE = /\x1b\[[0-9;]*m/g;
-function visibleLength(s: string): number {
+/** @internal — exported for testing only */
+export function visibleLength(s: string): number {
   let stripped = 0;
   ANSI_RE.lastIndex = 0;
   let match;
@@ -1240,12 +1263,14 @@ function visibleLength(s: string): number {
 }
 
 /** Center text within a fixed width, dimming "?" placeholders. */
-function centerLabel(text: string, width: number): string {
+/** @internal — exported for testing only */
+export function centerLabel(text: string, width: number): string {
   const maxLen = width - 2;
   const vis = visibleLength(text);
-  // Truncate by visible length (plain text only — ANSI markers are always short)
-  const label = vis > maxLen ? text.slice(0, maxLen) : text;
-  const labelVis = vis > maxLen ? maxLen : vis;
+  // Truncate by visible length, adding ellipsis indicator when truncated
+  const truncated = vis > maxLen;
+  const label = truncated ? text.slice(0, maxLen - 1) + "\u2026" : text;
+  const labelVis = truncated ? maxLen : vis;
   const leftPad = Math.floor((width - labelVis) / 2);
   const rightPad = width - labelVis - leftPad;
   const display = text === "?" ? dim(label) : label;
@@ -1588,8 +1613,8 @@ export async function runLayoutBuilder(name: string): Promise<void> {
   const columnCount = paneCountsPerColumn.length;
 
   // --- Command assignment with in-place preview ---
-  // Detect available tools once (shell lookups are expensive)
-  const detected = detectTools([...EDITOR_CATALOG, ...SIDEBAR_CATALOG]);
+  // Detect available tools once (shell lookups run in parallel)
+  const detected = await detectTools([...EDITOR_CATALOG, ...SIDEBAR_CATALOG]);
   const availableCmds = detected
     .filter((t) => t.available)
     .map((t) => t.cmd);
