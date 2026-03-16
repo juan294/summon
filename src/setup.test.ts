@@ -898,6 +898,33 @@ describe("validateSetup", () => {
     });
     expect(result.ghosttyFound).toBe(false);
   });
+
+  it("reports accessibilityGranted=true when check passes", () => {
+    mockExecFileSync.mockReturnValue("/usr/bin/stub\n");
+    mockExistsSync.mockReturnValue(true);
+    const result = validateSetup({
+      layout: "pair",
+      editor: "vim",
+      sidebar: "lazygit",
+      shell: "true",
+    });
+    expect(result.accessibilityGranted).toBe(true);
+  });
+
+  it("reports accessibilityGranted=false when accessibility check fails", () => {
+    mockExecFileSync.mockImplementation((bin: string) => {
+      if (bin === "osascript") throw new Error("assistive access (-1719)");
+      return "/usr/bin/stub\n";
+    });
+    mockExistsSync.mockReturnValue(true);
+    const result = validateSetup({
+      layout: "pair",
+      editor: "vim",
+      sidebar: "lazygit",
+      shell: "true",
+    });
+    expect(result.accessibilityGranted).toBe(false);
+  });
 });
 
 describe("printValidation", () => {
@@ -996,6 +1023,72 @@ describe("printValidation", () => {
     ).toBe(true);
     expect(
       allOutput.some((s) => s.includes("Ghostty") && s.includes("found") && !s.includes("not found")),
+    ).toBe(true);
+
+    Object.defineProperty(process.stdin, "isTTY", {
+      value: origIsTTY,
+      writable: true,
+    });
+    logSpy.mockRestore();
+  });
+
+  it("prints accessibility permission granted when granted", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockExecFileSync.mockReturnValue("/usr/bin/stub\n"); // all tools + accessibility pass
+    mockExistsSync.mockReturnValue(true);
+
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      if (_q.includes("[Y/n]")) cb("y");
+      else cb("1");
+    });
+
+    const origIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", {
+      value: true,
+      writable: true,
+    });
+
+    await runSetup();
+
+    const allOutput = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(
+      allOutput.some((s) => s.includes("Accessibility permission granted")),
+    ).toBe(true);
+
+    Object.defineProperty(process.stdin, "isTTY", {
+      value: origIsTTY,
+      writable: true,
+    });
+    logSpy.mockRestore();
+  });
+
+  it("prints accessibility warning when not granted", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockExecFileSync.mockImplementation((bin: string) => {
+      if (bin === "osascript") throw new Error("assistive access (-1719)");
+      return "/usr/bin/stub\n";
+    });
+    mockExistsSync.mockReturnValue(true);
+
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      if (_q.includes("[Y/n]")) cb("y");
+      else cb("1");
+    });
+
+    const origIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", {
+      value: true,
+      writable: true,
+    });
+
+    await runSetup();
+
+    const allOutput = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(
+      allOutput.some((s) => s.includes("Accessibility permission not granted")),
+    ).toBe(true);
+    expect(
+      allOutput.some((s) => s.includes("System Events")),
     ).toBe(true);
 
     Object.defineProperty(process.stdin, "isTTY", {
@@ -2020,7 +2113,7 @@ describe("selectGridTemplate", () => {
     // Capture the keypress handler and simulate Enter
     const stdinOnSpy = vi.spyOn(process.stdin, "on").mockImplementation((event: string | symbol, handler: (...args: unknown[]) => void) => {
       if (event === "keypress") {
-        // Simulate Enter keypress immediately
+        // setTimeout(0) defers keypress to next tick, after the async handler registers
         setTimeout(() => handler(undefined, { name: "return", ctrl: false }), 0);
       }
       return process.stdin;
@@ -2493,6 +2586,7 @@ describe("runGridBuilder", () => {
       if (capturedKeyHandler) return;
       await new Promise((r) => setTimeout(r, 10));
     }
+    if (!capturedKeyHandler) throw new Error("keypress handler was never registered within timeout");
   }
 
   function simulateKey(name: string, ctrl = false, shift = false): void {
@@ -3039,9 +3133,11 @@ describe("selectGridTemplate — Escape in grid builder", () => {
         gridBuilderCallCount++;
         if (gridBuilderCallCount === 1) {
           // First time in grid builder: press Escape — returns null
+          // setTimeout(0) defers keypress to next tick, after the async handler registers
           setTimeout(() => handler(undefined, { name: "escape", ctrl: false }), 0);
         } else {
           // Second time: press Enter — returns [1]
+          // setTimeout(0) defers keypress to next tick, after the async handler registers
           setTimeout(() => handler(undefined, { name: "return", ctrl: false }), 0);
         }
       }

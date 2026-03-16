@@ -6,6 +6,12 @@ vi.mock("node:child_process", () => ({
   execFileSync: (...args: unknown[]) => mockExecFileSync(...args),
 }));
 
+// Mock node:fs for isGhosttyInstalled tests
+const mockExistsSync = vi.fn((_path: string) => false);
+vi.mock("node:fs", () => ({
+  existsSync: (path: string) => mockExistsSync(path),
+}));
+
 // Mock readline for promptUser tests
 const mockQuestion = vi.fn();
 const mockClose = vi.fn();
@@ -21,7 +27,7 @@ vi.mock("node:readline", () => ({
 }));
 
 // Import after mocks
-const { SAFE_COMMAND_RE, GHOSTTY_PATHS, GHOSTTY_APP_NAME, SUMMON_WORKSPACE_ENV, resolveCommand, promptUser, getErrorMessage, exitWithUsageHint } = await import("./utils.js");
+const { SAFE_COMMAND_RE, GHOSTTY_PATHS, GHOSTTY_APP_NAME, SUMMON_WORKSPACE_ENV, resolveCommand, promptUser, getErrorMessage, exitWithUsageHint, checkAccessibility, openAccessibilitySettings, isAccessibilityError, isGhosttyInstalled, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT } = await import("./utils.js");
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -259,7 +265,7 @@ describe("promptUser", () => {
     mockOn.mockImplementation((_event: string, cb: () => void) => cb());
 
     await expect(promptUser("Q: ")).rejects.toThrow("exit");
-    expect(exitSpy).toHaveBeenCalledWith(0);
+    expect(exitSpy).toHaveBeenCalledWith(130);
 
     exitSpy.mockRestore();
     logSpy.mockRestore();
@@ -321,5 +327,95 @@ describe("exitWithUsageHint", () => {
 
     exitSpy.mockRestore();
     errorSpy.mockRestore();
+  });
+});
+
+describe("checkAccessibility", () => {
+  it("returns true when System Events responds", () => {
+    mockExecFileSync.mockReturnValueOnce("Finder\n");
+    const result = checkAccessibility();
+    expect(result).toBe(true);
+    expect(mockExecFileSync).toHaveBeenCalledWith(
+      "osascript",
+      ["-e", 'tell application "System Events" to get name of first process'],
+      expect.objectContaining({ encoding: "utf-8", timeout: 5000 }),
+    );
+  });
+
+  it("returns false when osascript throws (accessibility denied)", () => {
+    mockExecFileSync.mockImplementationOnce(() => {
+      throw new Error("osascript is not allowed assistive access. (-1719)");
+    });
+    const result = checkAccessibility();
+    expect(result).toBe(false);
+  });
+
+  it("returns false for any osascript error", () => {
+    mockExecFileSync.mockImplementationOnce(() => {
+      throw new Error("some other osascript error");
+    });
+    const result = checkAccessibility();
+    expect(result).toBe(false);
+  });
+});
+
+describe("openAccessibilitySettings", () => {
+  it("calls open with the correct URL scheme", () => {
+    openAccessibilitySettings();
+    expect(mockExecFileSync).toHaveBeenCalledWith("open", [
+      "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+    ]);
+  });
+
+  it("does not throw when open fails", () => {
+    mockExecFileSync.mockImplementationOnce(() => {
+      throw new Error("open failed");
+    });
+    expect(() => openAccessibilitySettings()).not.toThrow();
+  });
+});
+
+describe("isAccessibilityError", () => {
+  it("returns true for 'assistive access' message", () => {
+    expect(isAccessibilityError("osascript is not allowed assistive access. (-1719)")).toBe(true);
+  });
+
+  it("returns true for '-1719' error code", () => {
+    expect(isAccessibilityError("execution error: (-1719)")).toBe(true);
+  });
+
+  it("returns false for unrelated errors", () => {
+    expect(isAccessibilityError("connection is invalid (-609)")).toBe(false);
+  });
+});
+
+describe("accessibility constants", () => {
+  it("ACCESSIBILITY_SETTINGS_PATH contains the settings path", () => {
+    expect(ACCESSIBILITY_SETTINGS_PATH).toContain("Accessibility");
+  });
+
+  it("ACCESSIBILITY_ENABLE_HINT mentions terminal app", () => {
+    expect(ACCESSIBILITY_ENABLE_HINT).toContain("terminal app");
+  });
+});
+
+describe("isGhosttyInstalled", () => {
+  it("returns true when Ghostty exists at /Applications", () => {
+    mockExistsSync.mockImplementation((p: string) =>
+      p === "/Applications/Ghostty.app",
+    );
+    expect(isGhosttyInstalled()).toBe(true);
+  });
+
+  it("returns true when Ghostty exists at ~/Applications", () => {
+    mockExistsSync.mockImplementation((p: string) =>
+      p.endsWith("/Applications/Ghostty.app") && p !== "/Applications/Ghostty.app",
+    );
+    expect(isGhosttyInstalled()).toBe(true);
+  });
+
+  it("returns false when Ghostty is not found at any known path", () => {
+    mockExistsSync.mockReturnValue(false);
+    expect(isGhosttyInstalled()).toBe(false);
   });
 });

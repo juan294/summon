@@ -15,9 +15,9 @@ import {
 import type { LayoutOptions } from "./layout.js";
 import { listConfig, readKVFile, readCustomLayout, isCustomLayout, LAYOUT_NAME_RE } from "./config.js";
 import { generateAppleScript, generateTreeAppleScript } from "./script.js";
-import { parseTreeDSL, extractPaneDefinitions, resolveTreeCommands as resolveTreeCmds, buildTreePlan, findPaneByName } from "./tree.js";
+import { parseTreeDSL, extractPaneDefinitions, extractPaneCwds, resolveTreeCommands as resolveTreeCmds, buildTreePlan, findPaneByName } from "./tree.js";
 import type { LayoutNode } from "./tree.js";
-import { GHOSTTY_PATHS, resolveCommand as resolveCommandPath, promptUser, getErrorMessage, SUMMON_WORKSPACE_ENV } from "./utils.js";
+import { resolveCommand as resolveCommandPath, promptUser, getErrorMessage, SUMMON_WORKSPACE_ENV, isAccessibilityError, isGhosttyInstalled, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT } from "./utils.js";
 import { parseIntInRange, parsePositiveFloat } from "./validation.js";
 import { isStarshipInstalled, ensurePresetConfig, getPresetConfigPath } from "./starship.js";
 
@@ -44,6 +44,24 @@ function getLoginShell(): string {
   return shell;
 }
 
+/** Convert resolved layout options to a key-value config map suitable for saving as a custom layout. */
+export function optsToConfigMap(opts: Partial<LayoutOptions>): Map<string, string> {
+  const entries = new Map<string, string>();
+  if (opts.editor) entries.set("editor", opts.editor);
+  if (opts.sidebarCommand) entries.set("sidebar", opts.sidebarCommand);
+  if (opts.editorPanes !== undefined) entries.set("panes", String(opts.editorPanes));
+  if (opts.editorSize !== undefined) entries.set("editor-size", String(opts.editorSize));
+  if (opts.shell !== undefined) entries.set("shell", opts.shell);
+  if (opts.autoResize !== undefined) entries.set("auto-resize", String(opts.autoResize));
+  if (opts.fontSize !== undefined && opts.fontSize !== null) entries.set("font-size", String(opts.fontSize));
+  if (opts.theme !== undefined && opts.theme !== null) entries.set("theme", opts.theme);
+  if (opts.newWindow) entries.set("new-window", "true");
+  if (opts.fullscreen) entries.set("fullscreen", "true");
+  if (opts.maximize) entries.set("maximize", "true");
+  if (opts.float) entries.set("float", "true");
+  return entries;
+}
+
 export interface CLIOverrides {
   layout?: string;
   editor?: string;
@@ -55,6 +73,7 @@ export interface CLIOverrides {
   "starship-preset"?: string;
   env?: string[];
   "font-size"?: string;
+  theme?: string;
   "on-start"?: string;
   "new-window"?: string;
   fullscreen?: string;
@@ -64,7 +83,7 @@ export interface CLIOverrides {
 }
 
 function ensureGhostty(): void {
-  if (!GHOSTTY_PATHS.some((p) => existsSync(p))) {
+  if (!isGhosttyInstalled()) {
     console.error(
       "Ghostty.app not found. Please install Ghostty 1.3.1+ from https://ghostty.org",
     );
@@ -77,19 +96,26 @@ function executeScript(script: string): void {
   try {
     execFileSync("osascript", [], { input: script, encoding: "utf-8" });
   } catch (err) {
-    console.error(`Failed to execute workspace script: ${getErrorMessage(err)}`);
-    console.error("Is Ghostty running? Also check System Settings > Privacy & Security > Automation.");
+    const message = getErrorMessage(err);
+    console.error(`Failed to execute workspace script: ${message}`);
+
+    if (isAccessibilityError(message)) {
+      console.error();
+      console.error("Your terminal app needs Accessibility permission to use System Events.");
+      console.error(`Grant access in: ${ACCESSIBILITY_SETTINGS_PATH}`);
+      console.error(ACCESSIBILITY_ENABLE_HINT);
+      console.error();
+      console.error("Tip: Run 'summon doctor' to check all permissions.");
+    } else {
+      console.error();
+      console.error("Is Ghostty running? Also check:");
+      console.error(`  - ${ACCESSIBILITY_SETTINGS_PATH}`);
+      console.error("  - System Settings > Privacy & Security > Automation");
+      console.error();
+      console.error("Tip: Run 'summon doctor' to diagnose issues.");
+    }
     process.exit(1);
   }
-}
-
-/**
- * Resolve a command name to its full path.
- * Returns null if the command is not found on the system or the name is invalid.
- * Command name format validation (SAFE_COMMAND_RE) is performed by resolveCommandPath in utils.ts.
- */
-function resolveCommand(cmd: string): string | null {
-  return resolveCommandPath(cmd);
 }
 
 async function prompt(question: string): Promise<string> {
@@ -147,7 +173,7 @@ const KNOWN_INSTALL_COMMANDS: Record<string, () => [string, string[]] | null> = 
 };
 
 async function ensureCommand(cmd: string, configKey: string): Promise<string> {
-  const resolved = resolveCommand(cmd);
+  const resolved = resolveCommandPath(cmd);
   if (resolved) return resolved;
 
   const getInstall = KNOWN_INSTALL_COMMANDS[cmd];
@@ -184,7 +210,7 @@ async function ensureCommand(cmd: string, configKey: string): Promise<string> {
     process.exit(1);
   }
 
-  const postInstallPath = resolveCommand(cmd);
+  const postInstallPath = resolveCommandPath(cmd);
   if (!postInstallPath) {
     console.error(`\`${cmd}\` still not found after install. Please check your PATH.`);
     process.exit(1);
@@ -203,6 +229,7 @@ interface ResolvedConfig {
   treeLayout?: {
     tree: LayoutNode;
     panes: Map<string, string>;
+    paneCwds?: Map<string, string>;
   };
 }
 
@@ -294,6 +321,7 @@ function resolveLayoutBase(
       const fs = parsePositiveFloat(customData.get("font-size")!);
       if (fs.ok) base.fontSize = fs.value;
     }
+    if (customData.has("theme")) base.theme = customData.get("theme")!;
     if (customData.has("new-window")) base.newWindow = customData.get("new-window") === "true";
     if (customData.has("fullscreen")) base.fullscreen = customData.get("fullscreen") === "true";
     if (customData.has("maximize")) base.maximize = customData.get("maximize") === "true";
@@ -303,7 +331,8 @@ function resolveLayoutBase(
     if (treeExpr) {
       const tree = parseTreeDSL(treeExpr);
       const panes = extractPaneDefinitions(customData);
-      return { base, treeLayout: { tree, panes } };
+      const paneCwds = extractPaneCwds(customData);
+      return { base, treeLayout: { tree, panes, paneCwds: paneCwds.size > 0 ? paneCwds : undefined } };
     }
 
     // Traditional custom layout (no tree= key)
@@ -379,6 +408,9 @@ function layerConfigValues(
     }
   }
 
+  const theme = pick(cliOverrides.theme, "theme");
+  if (theme !== undefined) result.theme = theme;
+
   const newWindow = pick(cliOverrides["new-window"], "new-window");
   const fullscreen = pick(cliOverrides.fullscreen, "fullscreen");
   const maximize = pick(cliOverrides.maximize, "maximize");
@@ -407,7 +439,18 @@ export function resolveConfig(targetDir: string, cliOverrides: CLIOverrides): Re
   const onStart = pickConfigValue(cliOverrides["on-start"], "on-start", project, machineConfig);
   const envVars = collectEnvVars(machineConfig, project, cliOverrides.env);
 
-  return { opts, projectOverrides: project, starshipPreset, onStart, envVars, treeLayout };
+  // Merge per-pane cwds from project config into treeLayout (project overrides layout defaults)
+  let mergedTreeLayout = treeLayout;
+  if (mergedTreeLayout) {
+    const projectCwds = extractPaneCwds(project);
+    if (projectCwds.size > 0) {
+      const merged = new Map(mergedTreeLayout.paneCwds ?? []);
+      for (const [k, v] of projectCwds) merged.set(k, v);
+      mergedTreeLayout = { ...mergedTreeLayout, paneCwds: merged };
+    }
+  }
+
+  return { opts, projectOverrides: project, starshipPreset, onStart, envVars, treeLayout: mergedTreeLayout };
 }
 
 /**
@@ -422,7 +465,7 @@ async function warnIfNested(
     return false;
   }
   console.warn("Warning: You're inside an existing summon workspace.");
-  console.warn("Launching here will nest splits inside this pane, which can get too scary.");
+  console.warn("Launching here will nest splits inside this pane, which can get messy.");
   console.warn("Tip: Use --new-window to open in a separate window instead.\n");
   const answer = await prompt("Continue anyway? [y/N] ");
   return answer !== "y";
@@ -439,6 +482,21 @@ function executeOnStart(onStart: string, targetDir: string): void {
   }
 }
 
+/** Append shared optional dry-run header lines (starship preset, theme). */
+function appendDryRunExtras(
+  headerLines: string[],
+  starshipPreset: string | undefined,
+  dryRunStarshipPath: string | null,
+  theme: string | null | undefined,
+): void {
+  if (starshipPreset) {
+    headerLines.push(`-- Starship preset: ${starshipPreset} (${dryRunStarshipPath})`);
+  }
+  if (theme) {
+    headerLines.push(`-- Theme: ${theme}`);
+  }
+}
+
 async function launchTreeLayout(
   treeLayout: NonNullable<ResolvedConfig["treeLayout"]>,
   opts: Partial<LayoutOptions>,
@@ -450,11 +508,12 @@ async function launchTreeLayout(
   ensureAndResolve: (cmd: string, key: string) => Promise<string>,
   resolveStarship: () => string | null,
 ): Promise<void> {
-  const resolvedTree = resolveTreeCmds(treeLayout.tree, treeLayout.panes);
+  const resolvedTree = resolveTreeCmds(treeLayout.tree, treeLayout.panes, treeLayout.paneCwds);
   const treePlanOpts = {
     autoResize: opts.autoResize,
     editorSize: opts.editorSize,
     fontSize: opts.fontSize,
+    theme: opts.theme,
     newWindow: opts.newWindow,
     fullscreen: opts.fullscreen,
     maximize: opts.maximize,
@@ -472,9 +531,7 @@ async function launchTreeLayout(
       `-- Layout: tree layout, ${paneCount} ${paneCount === 1 ? "pane" : "panes"}`,
       `-- Target: ${targetDir}`,
     ];
-    if (starshipPreset) {
-      headerLines.push(`-- Starship preset: ${starshipPreset} (${dryRunStarshipPath})`);
-    }
+    appendDryRunExtras(headerLines, starshipPreset, dryRunStarshipPath, opts.theme);
     console.log(`${headerLines.join("\n")}\n${script}`);
     return;
   }
@@ -515,9 +572,7 @@ async function launchTraditionalLayout(
       `-- Layout: ${totalPanes} editor ${totalPanes === 1 ? "pane" : "panes"}, editor=${plan.editor}, sidebar=${plan.sidebarCommand}, shell=${plan.hasShell}`,
       `-- Target: ${targetDir}`,
     ];
-    if (starshipPreset) {
-      headerLines.push(`-- Starship preset: ${starshipPreset} (${dryRunStarshipPath})`);
-    }
+    appendDryRunExtras(headerLines, starshipPreset, dryRunStarshipPath, opts.theme);
     console.log(`${headerLines.join("\n")}\n${script}`);
     return;
   }

@@ -1,7 +1,7 @@
 import { spawnSync, execSync } from "node:child_process";
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 
@@ -794,10 +794,10 @@ describe("CLI integration", () => {
   });
 
   describe("summon doctor (#113, #116, #153)", () => {
-    it("exits 0 when recommendations are missing but Ghostty config path is valid (#153)", () => {
-      // With temp HOME, no Ghostty config exists → recommendations missing → exit 0 (not an error)
+    it("exits 2 when recommendations are missing (#153, #177)", () => {
+      // With temp HOME, no Ghostty config exists → recommendations missing → exit 2 (diagnostic)
       const result = run("doctor");
-      expect(result.status).toBe(0);
+      expect(result.status).toBe(2);
       expect(result.stdout).toContain("Checking Ghostty configuration");
     });
 
@@ -805,6 +805,157 @@ describe("CLI integration", () => {
       const result = run("doctor", "--help");
       expect(result.status).toBe(0);
       expect(result.stdout).toContain("summon doctor");
+    });
+
+    it("doctor checks accessibility permission", () => {
+      const result = run("doctor");
+      // Exit 2 (diagnostic) when recommendations are missing, not a crash
+      expect(result.status === 0 || result.status === 2).toBe(true);
+      expect(result.stdout).toContain("Checking permissions");
+      // The result depends on OS permissions, so check that one of the two messages appears
+      const hasGranted = result.stdout.includes("Accessibility permission is granted");
+      const hasNotGranted = result.stdout.includes("Accessibility permission not granted");
+      expect(hasGranted || hasNotGranted).toBe(true);
+    });
+
+    it("doctor --fix creates Ghostty config with missing settings when none exists", () => {
+      // Clean up any Ghostty config from previous tests
+      rmSync(join(TEMP_HOME, ".config", "ghostty"), { recursive: true, force: true });
+
+      const result = run("doctor", "--fix");
+      // Exit 0 if all issues fixed, or 2 if accessibility still missing
+      expect(result.status === 0 || result.status === 2).toBe(true);
+      expect(result.stdout).toContain("Added 3 setting(s)");
+      // Verify the config was created
+      const ghosttyConfig = join(TEMP_HOME, ".config", "ghostty", "config");
+      expect(existsSync(ghosttyConfig)).toBe(true);
+      const content = readFileSync(ghosttyConfig, "utf-8");
+      expect(content).toContain("window-save-state = always");
+      expect(content).toContain("notify-on-command-finish = unfocused");
+      expect(content).toContain("shell-integration = detect");
+      expect(content).toContain("# Added by summon doctor --fix");
+    });
+
+    it("doctor --fix creates backup when config exists and adds only missing settings", () => {
+      const ghosttyDir = join(TEMP_HOME, ".config", "ghostty");
+      mkdirSync(ghosttyDir, { recursive: true });
+      const ghosttyConfig = join(ghosttyDir, "config");
+      // Write config with one setting already present
+      writeFileSync(ghosttyConfig, "window-save-state = always\n");
+
+      const result = run("doctor", "--fix");
+      // Exit 0 if all issues fixed, or 2 if accessibility still missing
+      expect(result.status === 0 || result.status === 2).toBe(true);
+      // Should only add the 2 missing settings
+      expect(result.stdout).toContain("Added 2 setting(s)");
+      expect(result.stdout).toContain("Backed up");
+      // Verify backup was created (filename includes timestamp)
+      const backups = readdirSync(ghosttyDir).filter(f => f.startsWith("config.bak"));
+      expect(backups.length).toBeGreaterThanOrEqual(1);
+      // Verify original setting is still present and new ones added
+      const content = readFileSync(ghosttyConfig, "utf-8");
+      expect(content).toContain("window-save-state = always");
+      expect(content).toContain("notify-on-command-finish = unfocused");
+      expect(content).toContain("shell-integration = detect");
+    });
+
+    it("doctor --fix skips when all settings are present", () => {
+      const ghosttyDir = join(TEMP_HOME, ".config", "ghostty");
+      mkdirSync(ghosttyDir, { recursive: true });
+      const ghosttyConfig = join(ghosttyDir, "config");
+      writeFileSync(ghosttyConfig, "window-save-state = always\nnotify-on-command-finish = unfocused\nshell-integration = detect\n");
+
+      const result = run("doctor", "--fix");
+      // Exit 0 if accessibility granted, or 2 if not
+      expect(result.status === 0 || result.status === 2).toBe(true);
+      expect(result.stdout).not.toContain("Added");
+      expect(result.stdout).not.toContain("Backed up");
+    });
+
+    it("doctor --help mentions --fix", () => {
+      const result = run("doctor", "--help");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("--fix");
+    });
+  });
+
+  describe("summon freeze (#114)", () => {
+    it("freeze saves resolved config as custom layout", () => {
+      // Set some machine config first
+      run("set", "editor", "vim");
+      run("set", "sidebar", "lazygit");
+
+      const result = run("freeze", "mysetup");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("Frozen current config");
+      expect(result.stdout).toContain("mysetup");
+
+      // Verify the layout was saved by showing it
+      const showResult = run("layout", "show", "mysetup");
+      expect(showResult.status).toBe(0);
+      expect(showResult.stdout).toContain("editor=vim");
+      expect(showResult.stdout).toContain("sidebar=lazygit");
+
+      // Cleanup
+      run("layout", "delete", "mysetup");
+    });
+
+    it("freeze rejects missing name", () => {
+      const result = run("freeze");
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain("Usage");
+    });
+
+    it("freeze rejects invalid name", () => {
+      const result = run("freeze", "123bad");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("Invalid");
+    });
+
+    it("freeze rejects existing layout name", () => {
+      run("set", "editor", "vim");
+      run("freeze", "existing-test");
+      const result = run("freeze", "existing-test");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("already exists");
+      // Cleanup
+      run("layout", "delete", "existing-test");
+    });
+
+    it("freeze --help shows usage", () => {
+      const result = run("freeze", "--help");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("summon freeze");
+    });
+  });
+
+  describe("summon keybindings (#117)", () => {
+    it("keybindings outputs key table config", () => {
+      run("set", "editor", "vim");
+      const result = run("keybindings");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("summon-nav");
+      expect(result.stdout).toContain("focus_split:left");
+      expect(result.stdout).toContain("focus_split:right");
+      expect(result.stdout).toContain("toggle_split_zoom");
+      expect(result.stdout).toContain("pop_key_table");
+    });
+
+    it("keybindings --vim uses hjkl", () => {
+      run("set", "editor", "vim");
+      const result = run("keybindings", "--vim");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("summon-nav:h = focus_split:left");
+      expect(result.stdout).toContain("summon-nav:j = focus_split:down");
+      expect(result.stdout).toContain("summon-nav:k = focus_split:up");
+      expect(result.stdout).toContain("summon-nav:l = focus_split:right");
+    });
+
+    it("keybindings --help shows usage", () => {
+      const result = run("keybindings", "--help");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("summon keybindings");
+      expect(result.stdout).toContain("--vim");
     });
   });
 
@@ -968,8 +1119,8 @@ describe("CLI integration", () => {
         env: { ...process.env, HOME: TEMP_HOME },
         timeout: 30_000,
       });
-      // Process exits 0 on EOF (Ctrl+C / stream close is handled gracefully)
-      expect(result.status).toBe(0);
+      // Process exits 130 on EOF (128 + SIGINT signal 2)
+      expect(result.status).toBe(130);
       expect(result.stderr).toContain("Enter a number between 1 and");
     });
   });
@@ -1060,8 +1211,8 @@ describe("CLI integration", () => {
       rmSync(freshHome, { recursive: true, force: true });
       // With the re-prompt loop, at least one "Invalid selection" on stderr
       expect(result.stderr).toContain("Invalid selection");
-      // Process exits 0 when EOF is reached (graceful close)
-      expect(result.status).toBe(0);
+      // Process exits 130 when EOF is reached (128 + SIGINT signal 2)
+      expect(result.status).toBe(130);
     });
   });
 
@@ -1099,6 +1250,83 @@ describe("CLI integration", () => {
       const result = run("set", "shell", "");
       expect(result.status).toBe(1);
       expect(result.stderr).toContain("Error:");
+    });
+  });
+
+  // #177 W4: validate env var key in summon set
+  describe("set env.KEY validation (#177)", () => {
+    it("rejects env key starting with digit", () => {
+      const result = run("set", "env.123INVALID", "value");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("Error:");
+      expect(result.stderr).toContain("invalid environment variable name");
+    });
+
+    it("rejects env key with special characters", () => {
+      const result = run("set", "env.FOO-BAR", "value");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("Error:");
+      expect(result.stderr).toContain("invalid environment variable name");
+    });
+
+    it("accepts valid env key", () => {
+      const result = run("set", "env.NODE_ENV", "production");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("Set env.NODE_ENV");
+    });
+  });
+
+  // #177 R20: doctor exit code 2 when issues remain
+  describe("doctor exit code (#177)", () => {
+    it("exits 2 when recommendations are missing and --fix is not used", () => {
+      // With temp HOME, no Ghostty config exists → recommendations missing → exit 2
+      const freshHome = mkdtempSync(join(tmpdir(), "summon-doctor-"));
+      const result = spawnSync("node", ["dist/index.js", "doctor"], {
+        encoding: "utf-8",
+        cwd: PROJECT_ROOT,
+        env: { ...process.env, HOME: freshHome },
+        timeout: 30_000,
+      });
+      rmSync(freshHome, { recursive: true, force: true });
+      expect(result.status).toBe(2);
+    });
+
+    it("exits 0 when --fix fixes all config issues (accessibility may remain)", () => {
+      const freshHome = mkdtempSync(join(tmpdir(), "summon-doctor-fix-"));
+      const result = spawnSync("node", ["dist/index.js", "doctor", "--fix"], {
+        encoding: "utf-8",
+        cwd: PROJECT_ROOT,
+        env: { ...process.env, HOME: freshHome },
+        timeout: 30_000,
+      });
+      rmSync(freshHome, { recursive: true, force: true });
+      // --fix adds config settings; accessibility may still be missing but
+      // we can only test that it doesn't crash. On CI (no accessibility),
+      // it will exit 2 if accessibility is not granted; on dev it may exit 0.
+      // The important thing is that it doesn't exit 1 (crash).
+      expect(result.status === 0 || result.status === 2).toBe(true);
+    });
+  });
+
+  // #177 R21: export env.* keys
+  describe("export includes env.* keys (#177)", () => {
+    it("exports env.KEY values alongside regular keys", () => {
+      const freshHome = mkdtempSync(join(tmpdir(), "summon-export-env-"));
+      const runFresh = (...a: string[]) =>
+        spawnSync("node", ["dist/index.js", ...a], {
+          encoding: "utf-8",
+          cwd: PROJECT_ROOT,
+          env: { ...process.env, HOME: freshHome },
+        });
+      runFresh("set", "editor", "vim");
+      runFresh("set", "env.NODE_ENV", "production");
+      runFresh("set", "env.DEBUG", "true");
+      const result = runFresh("export");
+      rmSync(freshHome, { recursive: true, force: true });
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("editor=vim");
+      expect(result.stdout).toContain("env.NODE_ENV=production");
+      expect(result.stdout).toContain("env.DEBUG=true");
     });
   });
 

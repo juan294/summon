@@ -66,7 +66,7 @@ vi.mock("./script.js", () => ({
 }));
 
 // Import after mocks are set up
-const { launch, resolveConfig } = await import("./launcher.js");
+const { launch, resolveConfig, optsToConfigMap } = await import("./launcher.js");
 const { getConfig, listConfig } = await import("./config.js");
 const { existsSync } = await import("node:fs");
 
@@ -786,7 +786,7 @@ describe("input validation", () => {
 });
 
 describe("osascript error handling", () => {
-  it("includes osascript error detail in the failure message", async () => {
+  it("shows generic error with Ghostty hint for non-accessibility errors", async () => {
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
     mockExecFileSync.mockImplementation((bin: string, args?: string[], opts?: Record<string, unknown>) => {
       if (bin === "osascript" && opts?.input) {
@@ -807,12 +807,63 @@ describe("osascript error handling", () => {
     expect(errorSpy).toHaveBeenCalledWith(
       expect.stringContaining("connection is invalid (-609)"),
     );
-    expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining("Ghostty running"),
-    );
-    // Should also mention Automation permissions (#143)
-    const allErrors = errorSpy.mock.calls.map((c) => c[0] as string).join(" ");
-    expect(allErrors).toMatch(/Automation|Privacy & Security/);
+    const allErrors = errorSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    expect(allErrors).toContain("Is Ghostty running?");
+    expect(allErrors).toMatch(/Accessibility/);
+    expect(allErrors).toMatch(/Automation/);
+    expect(allErrors).toContain("summon doctor");
+    mockExit.mockRestore();
+    errorSpy.mockRestore();
+  });
+
+  it("shows accessibility-specific error when osascript reports assistive access", async () => {
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+    mockExecFileSync.mockImplementation((bin: string, args?: string[], opts?: Record<string, unknown>) => {
+      if (bin === "osascript" && opts?.input) {
+        throw new Error("Command failed: osascript\n795:799: execution error: System Events got an error: osascript is not allowed assistive access. (-1719)");
+      }
+      if (bin === "/bin/sh" && Array.isArray(args) && args[0] === "-c" && typeof args[1] === "string" && args[1].startsWith("command -v"))
+        return "/usr/bin/stub\n";
+      return "";
+    });
+
+    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("process.exit");
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
+    expect(mockExit).toHaveBeenCalledWith(1);
+    const allErrors = errorSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    expect(allErrors).toContain("Accessibility permission");
+    expect(allErrors).not.toContain("Is Ghostty running?");
+    expect(allErrors).toContain("summon doctor");
+    mockExit.mockRestore();
+    errorSpy.mockRestore();
+  });
+
+  it("shows accessibility-specific error when osascript reports error code -1719", async () => {
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+    mockExecFileSync.mockImplementation((bin: string, args?: string[], opts?: Record<string, unknown>) => {
+      if (bin === "osascript" && opts?.input) {
+        throw new Error("execution error: System Events got an error: (-1719)");
+      }
+      if (bin === "/bin/sh" && Array.isArray(args) && args[0] === "-c" && typeof args[1] === "string" && args[1].startsWith("command -v"))
+        return "/usr/bin/stub\n";
+      return "";
+    });
+
+    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("process.exit");
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
+    expect(mockExit).toHaveBeenCalledWith(1);
+    const allErrors = errorSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    expect(allErrors).toContain("Accessibility permission");
+    expect(allErrors).not.toContain("Is Ghostty running?");
+    expect(allErrors).toContain("summon doctor");
     mockExit.mockRestore();
     errorSpy.mockRestore();
   });
@@ -2637,5 +2688,79 @@ describe("project config log (#146)", () => {
     const configMsg = warnMessages.find((m) => m.includes(".summon"));
     expect(configMsg).toBeUndefined();
     warnSpy.mockRestore();
+  });
+});
+
+describe("optsToConfigMap", () => {
+  it("returns empty map for empty opts", () => {
+    const result = optsToConfigMap({});
+    expect(result.size).toBe(0);
+  });
+
+  it("returns empty map for opts with only undefined values", () => {
+    const result = optsToConfigMap({ editor: undefined, sidebarCommand: undefined });
+    expect(result.size).toBe(0);
+  });
+
+  it("maps all fields when set", () => {
+    const result = optsToConfigMap({
+      editor: "vim",
+      sidebarCommand: "lazygit",
+      editorPanes: 3,
+      editorSize: 60,
+      shell: "zsh",
+      autoResize: true,
+      fontSize: 14,
+      theme: "tokyo-night",
+      newWindow: true,
+      fullscreen: true,
+      maximize: true,
+      float: true,
+    });
+    expect(result.get("editor")).toBe("vim");
+    expect(result.get("sidebar")).toBe("lazygit");
+    expect(result.get("panes")).toBe("3");
+    expect(result.get("editor-size")).toBe("60");
+    expect(result.get("shell")).toBe("zsh");
+    expect(result.get("auto-resize")).toBe("true");
+    expect(result.get("font-size")).toBe("14");
+    expect(result.get("theme")).toBe("tokyo-night");
+    expect(result.get("new-window")).toBe("true");
+    expect(result.get("fullscreen")).toBe("true");
+    expect(result.get("maximize")).toBe("true");
+    expect(result.get("float")).toBe("true");
+  });
+
+  it("excludes null fontSize", () => {
+    const result = optsToConfigMap({ fontSize: null });
+    expect(result.has("font-size")).toBe(false);
+  });
+
+  it("excludes null theme", () => {
+    const result = optsToConfigMap({ theme: null });
+    expect(result.has("theme")).toBe(false);
+  });
+
+  it("excludes boolean flags when false", () => {
+    const result = optsToConfigMap({
+      newWindow: false,
+      fullscreen: false,
+      maximize: false,
+      float: false,
+    });
+    expect(result.has("new-window")).toBe(false);
+    expect(result.has("fullscreen")).toBe(false);
+    expect(result.has("maximize")).toBe(false);
+    expect(result.has("float")).toBe(false);
+  });
+
+  it("includes fontSize when set to a number", () => {
+    const result = optsToConfigMap({ fontSize: 18.5 });
+    expect(result.get("font-size")).toBe("18.5");
+  });
+
+  it("includes theme when set to a string", () => {
+    const result = optsToConfigMap({ theme: "dracula" });
+    expect(result.get("theme")).toBe("dracula");
   });
 });

@@ -18,6 +18,7 @@ import {
   deleteCustomLayout,
   isValidLayoutName,
   isCustomLayout,
+  layoutPath,
 } from "./config.js";
 
 // Mock the filesystem — config.ts uses module-level constants derived from
@@ -429,5 +430,16 @@ describe("custom layouts", () => {
 
   it("isCustomLayout returns false when file missing", () => {
     expect(isCustomLayout("nonexistent")).toBe(false);
+  });
+
+  describe("path traversal defense-in-depth", () => {
+    it("layoutPath rejects traversal names that escape LAYOUTS_DIR", () => {
+      expect(() => layoutPath("../../etc/passwd")).toThrow("Invalid layout path");
+    });
+
+    it("layoutPath allows valid names within LAYOUTS_DIR", () => {
+      const result = layoutPath("mywork");
+      expect(result).toBe(`${LAYOUTS_DIR}/mywork`);
+    });
   });
 });

@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-03-16
+
+### Added
+
+- `--theme <name>` flag and `theme` config key — set Ghostty theme per workspace
+- `summon doctor --fix` — auto-add missing recommended Ghostty settings (backs up config first)
+- `summon freeze <name>` — snapshot current resolved config as a reusable custom layout
+- `summon keybindings [--vim]` — generate Ghostty key table config for pane navigation
+- Per-pane working directories via `pane.<name>.cwd` config keys in tree layouts
+- macOS Accessibility permission detection in setup wizard and doctor
+- Shell completions for `doctor --fix` and `keybindings --vim` subcommand flags
+- Path traversal hardening: `layoutPath()` validates resolved paths stay within layouts directory
+- `isGhosttyInstalled()` shared helper extracted to utils.ts
+
+### Changed
+
+- `summon doctor` now exits code 2 when issues are detected (was 0)
+- `summon export` now includes `env.*` keys and adds a generation timestamp
+- `summon config` shows removal hint for unknown keys
+- `summon set env.<KEY>` now validates env var key format
+- Ctrl+C during prompts exits with code 130 (was 0)
+- Nested workspace warning: "messy" instead of "too scary"
+- btop preset description no longer hard-codes "lazygit"
+- `layoutNotFoundOrExit` now includes "Error:" prefix
+- `resolveCommand` wrapper removed from launcher.ts (callers use `resolveCommandPath` directly)
+- `optsToConfigMap()` and `appendDryRunExtras()` extracted as shared helpers
+
+### Infrastructure
+
+- Added `main` field and `publishConfig` to package.json
+- Updated `typescript-eslint` to 8.57.1
+
+### Tests
+
+- 955 total tests (was 930 in v1.1.0)
+- New test file: `keybindings.test.ts`
+- Coverage improvements: optsToConfigMap, path traversal, parser edge cases, multi-pane layouts
+
 ## [1.1.0] - 2026-03-16
 
 ### Changed
@@ -339,7 +377,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CodeQL security scanning
 - Dependabot for npm and GitHub Actions
 
-[Unreleased]: https://github.com/juan294/summon/compare/v1.1.0...develop
+[Unreleased]: https://github.com/juan294/summon/compare/v1.2.0...develop
+[1.2.0]: https://github.com/juan294/summon/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/juan294/summon/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/juan294/summon/compare/v0.8.0...v1.0.0
 [0.8.0]: https://github.com/juan294/summon/compare/v0.7.0...v0.8.0

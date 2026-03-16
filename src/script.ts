@@ -1,4 +1,4 @@
-import { basename } from "node:path";
+import { basename, resolve } from "node:path";
 import type { LayoutPlan } from "./layout.js";
 import type { TreeLayoutPlan, LayoutNode } from "./tree.js";
 import { firstLeaf, walkLeaves } from "./tree.js";
@@ -38,7 +38,7 @@ interface ScriptBuilder {
   add: (indent: number, line: string) => void;
   blank: () => void;
   sendCommand: (pane: string, cmd: string) => void;
-  setConfigCommand: (cmd: string) => void;
+  setConfigCommand: (cmd: string, paneCwd?: string) => void;
   clearConfigCommand: () => void;
 }
 
@@ -63,12 +63,15 @@ function buildScriptBuilder(
   // Input-text commands (root pane) run in an already-initialized shell — no wrapping needed.
   const quotedTargetDir = shellQuote(targetDir);
   // Env vars are now set on surface config, so no need to embed exports in the -lc argument.
-  const wrapForConfig = (cmd: string): string => {
-    return `${loginShell} -lc ${shellQuote(`cd ${quotedTargetDir} && ${cmd}`)}`;
+  const wrapForConfig = (cmd: string, paneCwd?: string): string => {
+    const dir = paneCwd
+      ? shellQuote(resolve(targetDir, paneCwd))
+      : quotedTargetDir;
+    return `${loginShell} -lc ${shellQuote(`cd ${dir} && ${cmd}`)}`;
   };
 
-  const setConfigCommand = (cmd: string) => {
-    add(1, `set command of cfg to "${escapeAppleScript(wrapForConfig(cmd))}"`);
+  const setConfigCommand = (cmd: string, paneCwd?: string) => {
+    add(1, `set command of cfg to "${escapeAppleScript(wrapForConfig(cmd, paneCwd))}"`);
   };
 
   const clearConfigCommand = () => {
@@ -100,6 +103,7 @@ function emitSurfaceConfig(
   { add, blank }: ScriptBuilder,
   targetDir: string,
   fontSize: number | null,
+  theme: string | null,
   allEnvVars: string[],
 ): void {
   add(0, `tell application "${GHOSTTY_APP_NAME}"`);
@@ -111,6 +115,9 @@ function emitSurfaceConfig(
   add(1, `set initial working directory of cfg to "${escapeAppleScript(targetDir)}"`);
   if (fontSize !== null) {
     add(1, `set font size of cfg to ${fontSize}`);
+  }
+  if (theme !== null) {
+    add(1, `set theme of cfg to "${escapeAppleScript(theme)}"`);
   }
   const escaped = allEnvVars.map(e => `"${escapeAppleScript(e)}"`).join(", ");
   add(1, `set environment variables of cfg to {${escaped}}`);
@@ -350,7 +357,7 @@ function emitTreeTraversal(
     const secondLeafVar = paneVar(secondLeaf.name);
 
     if (secondLeaf.command) {
-      sb.setConfigCommand(secondLeaf.command);
+      sb.setConfigCommand(secondLeaf.command, secondLeaf.cwd);
     } else {
       sb.clearConfigCommand();
     }
@@ -384,7 +391,7 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginSh
 
   const allEnvVars = buildEnvVarsList(starshipConfigPath, envVars);
 
-  emitSurfaceConfig(sb, targetDir, plan.fontSize, allEnvVars);
+  emitSurfaceConfig(sb, targetDir, plan.fontSize, plan.theme, allEnvVars);
   emitNewWindow(sb, plan.newWindow);
   sb.add(1, "set paneRoot to terminal 1 of selected tab of win");
   sb.blank();
@@ -441,7 +448,7 @@ export function generateTreeAppleScript(
   const rootLeaf = firstLeaf(plan.tree);
   const rootPaneVar = paneVar(rootLeaf.name);
 
-  emitSurfaceConfig(sb, targetDir, plan.fontSize, allEnvVars);
+  emitSurfaceConfig(sb, targetDir, plan.fontSize, plan.theme, allEnvVars);
   emitNewWindow(sb, plan.newWindow);
   sb.add(1, `set ${rootPaneVar} to terminal 1 of selected tab of win`);
   sb.blank();
@@ -449,8 +456,9 @@ export function generateTreeAppleScript(
   emitTreeTraversal(sb, plan.tree, rootPaneVar, plan);
   sb.blank();
 
+  const rootCwd = rootLeaf.cwd ? resolve(targetDir, rootLeaf.cwd) : targetDir;
   emitRootPaneEnvExports(sb, rootPaneVar, allEnvVars);
-  emitRootPaneCommand(sb, rootPaneVar, targetDir, rootLeaf.command);
+  emitRootPaneCommand(sb, rootPaneVar, rootCwd, rootLeaf.command);
   sb.blank();
 
   for (const [leafName, cmd] of collectLeavesWithCommands(plan.tree)) {

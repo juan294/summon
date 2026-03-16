@@ -33,8 +33,9 @@ src/
   launcher.ts      Orchestrator: resolve config, generate script, execute via osascript
   setup.ts         Interactive setup wizard, visual layout builder (template gallery, grid builder, live preview)
   starship.ts      Starship detection, preset listing, TOML config caching
+  keybindings.ts   Ghostty key table config generator (pure function)
   completions.ts   Shell completion script generator (bash, zsh)
-  utils.ts         Shared utilities (SAFE_COMMAND_RE, GHOSTTY_PATHS, resolveCommand, promptUser, getErrorMessage)
+  utils.ts         Shared utilities (SAFE_COMMAND_RE, GHOSTTY_PATHS, resolveCommand, promptUser, getErrorMessage, isGhosttyInstalled, checkAccessibility)
   validation.ts    Input validation helpers (parseIntInRange, parsePositiveFloat, validateIntFlag, validateFloatFlag)
   globals.d.ts     Build-time constants (__VERSION__)
   *.test.ts        Co-located unit tests

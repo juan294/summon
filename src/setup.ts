@@ -1,6 +1,5 @@
-import { existsSync } from "node:fs";
 import { setConfig, isValidLayoutName, isCustomLayout, saveCustomLayout } from "./config.js";
-import { SAFE_COMMAND_RE, GHOSTTY_PATHS, resolveCommand as resolveCommandPath, promptUser } from "./utils.js";
+import { SAFE_COMMAND_RE, resolveCommand as resolveCommandPath, promptUser, checkAccessibility, openAccessibilitySettings, isGhosttyInstalled, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT } from "./utils.js";
 import { isStarshipInstalled, listStarshipPresets } from "./starship.js";
 
 // ---------------------------------------------------------------------------
@@ -613,6 +612,7 @@ interface ValidationWarning {
 interface ValidationResult {
   warnings: ValidationWarning[];
   ghosttyFound: boolean;
+  accessibilityGranted: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -716,7 +716,7 @@ const INSTALL_HINTS: Record<string, string> = {
   starship: "brew install starship  OR  curl -sS https://starship.rs/install.sh | sh",
 };
 
-// GHOSTTY_PATHS is imported from ./utils.js
+// isGhosttyInstalled is imported from ./utils.js
 
 // ---------------------------------------------------------------------------
 // Phase 2 — Wizard functions
@@ -1004,9 +1004,10 @@ export function validateSetup(result: SetupResult): ValidationResult {
   }
 
   // Check Ghostty
-  const ghosttyFound = GHOSTTY_PATHS.some((p) => existsSync(p));
+  const ghosttyFound = isGhosttyInstalled();
+  const accessibilityGranted = checkAccessibility();
 
-  return { warnings, ghosttyFound };
+  return { warnings, ghosttyFound, accessibilityGranted };
 }
 
 function printValidation(validation: ValidationResult): void {
@@ -1032,6 +1033,16 @@ function printValidation(validation: ValidationResult): void {
     console.log(
       dim("  change your config with: summon set <key> <value>"),
     );
+  }
+
+  if (validation.accessibilityGranted) {
+    console.log(`  ${green("✓")} Accessibility permission granted`);
+  } else {
+    console.log(`  ${yellow("!")} Accessibility permission not granted`);
+    console.log();
+    console.log(dim("  Summon uses System Events to resize panes."));
+    console.log(dim("  Your terminal app needs Accessibility permission in:"));
+    console.log(dim(`  ${ACCESSIBILITY_SETTINGS_PATH}`));
   }
   console.log();
 }
@@ -1100,6 +1111,26 @@ export async function runSetup(): Promise<void> {
       if (!isCustom) {
         const validation = validateSetup(result);
         printValidation(validation);
+
+        if (!validation.accessibilityGranted) {
+          const shouldOpen = await confirm("  Open Accessibility settings now?");
+          if (shouldOpen) {
+            openAccessibilitySettings();
+            console.log();
+            console.log(dim(`  ${ACCESSIBILITY_ENABLE_HINT}`));
+            console.log(dim("  You may need to click the lock icon first."));
+            console.log();
+            await promptUser("  Press Enter after granting access...");
+            const rechecked = checkAccessibility();
+            if (rechecked) {
+              console.log(`  ${green("✓")} Accessibility permission granted!`);
+            } else {
+              console.log(`  ${yellow("!")} Still not detected — you can grant it later.`);
+              console.log(dim("  Summon will work once your terminal has Accessibility access."));
+            }
+            console.log();
+          }
+        }
       }
 
       console.log(green("  Settings saved to ~/.config/summon/config"));
