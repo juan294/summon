@@ -786,7 +786,7 @@ describe("input validation", () => {
 });
 
 describe("osascript error handling", () => {
-  it("includes osascript error detail in the failure message", async () => {
+  it("shows generic error with Ghostty hint for non-accessibility errors", async () => {
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
     mockExecFileSync.mockImplementation((bin: string, args?: string[], opts?: Record<string, unknown>) => {
       if (bin === "osascript" && opts?.input) {
@@ -807,12 +807,63 @@ describe("osascript error handling", () => {
     expect(errorSpy).toHaveBeenCalledWith(
       expect.stringContaining("connection is invalid (-609)"),
     );
-    expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining("Ghostty running"),
-    );
-    // Should also mention Automation permissions (#143)
-    const allErrors = errorSpy.mock.calls.map((c) => c[0] as string).join(" ");
-    expect(allErrors).toMatch(/Automation|Privacy & Security/);
+    const allErrors = errorSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    expect(allErrors).toContain("Is Ghostty running?");
+    expect(allErrors).toMatch(/Accessibility/);
+    expect(allErrors).toMatch(/Automation/);
+    expect(allErrors).toContain("summon doctor");
+    mockExit.mockRestore();
+    errorSpy.mockRestore();
+  });
+
+  it("shows accessibility-specific error when osascript reports assistive access", async () => {
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+    mockExecFileSync.mockImplementation((bin: string, args?: string[], opts?: Record<string, unknown>) => {
+      if (bin === "osascript" && opts?.input) {
+        throw new Error("Command failed: osascript\n795:799: execution error: System Events got an error: osascript is not allowed assistive access. (-1719)");
+      }
+      if (bin === "/bin/sh" && Array.isArray(args) && args[0] === "-c" && typeof args[1] === "string" && args[1].startsWith("command -v"))
+        return "/usr/bin/stub\n";
+      return "";
+    });
+
+    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("process.exit");
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
+    expect(mockExit).toHaveBeenCalledWith(1);
+    const allErrors = errorSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    expect(allErrors).toContain("Accessibility permission");
+    expect(allErrors).not.toContain("Is Ghostty running?");
+    expect(allErrors).toContain("summon doctor");
+    mockExit.mockRestore();
+    errorSpy.mockRestore();
+  });
+
+  it("shows accessibility-specific error when osascript reports error code -1719", async () => {
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+    mockExecFileSync.mockImplementation((bin: string, args?: string[], opts?: Record<string, unknown>) => {
+      if (bin === "osascript" && opts?.input) {
+        throw new Error("execution error: System Events got an error: (-1719)");
+      }
+      if (bin === "/bin/sh" && Array.isArray(args) && args[0] === "-c" && typeof args[1] === "string" && args[1].startsWith("command -v"))
+        return "/usr/bin/stub\n";
+      return "";
+    });
+
+    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("process.exit");
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
+    expect(mockExit).toHaveBeenCalledWith(1);
+    const allErrors = errorSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    expect(allErrors).toContain("Accessibility permission");
+    expect(allErrors).not.toContain("Is Ghostty running?");
+    expect(allErrors).toContain("summon doctor");
     mockExit.mockRestore();
     errorSpy.mockRestore();
   });

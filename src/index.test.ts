@@ -806,6 +806,16 @@ describe("CLI integration", () => {
       expect(result.status).toBe(0);
       expect(result.stdout).toContain("summon doctor");
     });
+
+    it("doctor checks accessibility permission", () => {
+      const result = run("doctor");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("Checking permissions");
+      // The result depends on OS permissions, so check that one of the two messages appears
+      const hasGranted = result.stdout.includes("Accessibility permission is granted");
+      const hasNotGranted = result.stdout.includes("Accessibility permission not granted");
+      expect(hasGranted || hasNotGranted).toBe(true);
+    });
   });
 
   // #63: warn when both --auto-resize and --no-auto-resize are passed

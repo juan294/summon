@@ -17,7 +17,7 @@ import { listConfig, readKVFile, readCustomLayout, isCustomLayout, LAYOUT_NAME_R
 import { generateAppleScript, generateTreeAppleScript } from "./script.js";
 import { parseTreeDSL, extractPaneDefinitions, resolveTreeCommands as resolveTreeCmds, buildTreePlan, findPaneByName } from "./tree.js";
 import type { LayoutNode } from "./tree.js";
-import { GHOSTTY_PATHS, resolveCommand as resolveCommandPath, promptUser, getErrorMessage, SUMMON_WORKSPACE_ENV } from "./utils.js";
+import { GHOSTTY_PATHS, resolveCommand as resolveCommandPath, promptUser, getErrorMessage, SUMMON_WORKSPACE_ENV, isAccessibilityError, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT } from "./utils.js";
 import { parseIntInRange, parsePositiveFloat } from "./validation.js";
 import { isStarshipInstalled, ensurePresetConfig, getPresetConfigPath } from "./starship.js";
 
@@ -55,6 +55,7 @@ export interface CLIOverrides {
   "starship-preset"?: string;
   env?: string[];
   "font-size"?: string;
+  theme?: string;
   "on-start"?: string;
   "new-window"?: string;
   fullscreen?: string;
@@ -77,8 +78,24 @@ function executeScript(script: string): void {
   try {
     execFileSync("osascript", [], { input: script, encoding: "utf-8" });
   } catch (err) {
-    console.error(`Failed to execute workspace script: ${getErrorMessage(err)}`);
-    console.error("Is Ghostty running? Also check System Settings > Privacy & Security > Automation.");
+    const message = getErrorMessage(err);
+    console.error(`Failed to execute workspace script: ${message}`);
+
+    if (isAccessibilityError(message)) {
+      console.error();
+      console.error("Your terminal app needs Accessibility permission to use System Events.");
+      console.error(`Grant access in: ${ACCESSIBILITY_SETTINGS_PATH}`);
+      console.error(ACCESSIBILITY_ENABLE_HINT);
+      console.error();
+      console.error("Tip: Run 'summon doctor' to check all permissions.");
+    } else {
+      console.error();
+      console.error("Is Ghostty running? Also check:");
+      console.error(`  - ${ACCESSIBILITY_SETTINGS_PATH}`);
+      console.error("  - System Settings > Privacy & Security > Automation");
+      console.error();
+      console.error("Tip: Run 'summon doctor' to diagnose issues.");
+    }
     process.exit(1);
   }
 }
@@ -294,6 +311,7 @@ function resolveLayoutBase(
       const fs = parsePositiveFloat(customData.get("font-size")!);
       if (fs.ok) base.fontSize = fs.value;
     }
+    if (customData.has("theme")) base.theme = customData.get("theme")!;
     if (customData.has("new-window")) base.newWindow = customData.get("new-window") === "true";
     if (customData.has("fullscreen")) base.fullscreen = customData.get("fullscreen") === "true";
     if (customData.has("maximize")) base.maximize = customData.get("maximize") === "true";
@@ -379,6 +397,9 @@ function layerConfigValues(
     }
   }
 
+  const theme = pick(cliOverrides.theme, "theme");
+  if (theme !== undefined) result.theme = theme;
+
   const newWindow = pick(cliOverrides["new-window"], "new-window");
   const fullscreen = pick(cliOverrides.fullscreen, "fullscreen");
   const maximize = pick(cliOverrides.maximize, "maximize");
@@ -455,6 +476,7 @@ async function launchTreeLayout(
     autoResize: opts.autoResize,
     editorSize: opts.editorSize,
     fontSize: opts.fontSize,
+    theme: opts.theme,
     newWindow: opts.newWindow,
     fullscreen: opts.fullscreen,
     maximize: opts.maximize,
@@ -474,6 +496,9 @@ async function launchTreeLayout(
     ];
     if (starshipPreset) {
       headerLines.push(`-- Starship preset: ${starshipPreset} (${dryRunStarshipPath})`);
+    }
+    if (opts.theme) {
+      headerLines.push(`-- Theme: ${opts.theme}`);
     }
     console.log(`${headerLines.join("\n")}\n${script}`);
     return;
@@ -517,6 +542,9 @@ async function launchTraditionalLayout(
     ];
     if (starshipPreset) {
       headerLines.push(`-- Starship preset: ${starshipPreset} (${dryRunStarshipPath})`);
+    }
+    if (opts.theme) {
+      headerLines.push(`-- Theme: ${opts.theme}`);
     }
     console.log(`${headerLines.join("\n")}\n${script}`);
     return;
