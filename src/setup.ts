@@ -638,12 +638,12 @@ interface ValidationResult {
 // ---------------------------------------------------------------------------
 
 export const EDITOR_CATALOG: readonly ToolEntry[] = [
-  { cmd: "claude", name: "Claude Code", desc: "AI pair programmer" },
-  { cmd: "nvim", name: "Neovim", desc: "Modern Vim" },
   { cmd: "vim", name: "Vim", desc: "Classic modal editor" },
-  { cmd: "emacs", name: "Emacs", desc: "Extensible editor" },
+  { cmd: "nvim", name: "Neovim", desc: "Modern Vim" },
   { cmd: "hx", name: "Helix", desc: "Post-modern modal editor" },
+  { cmd: "emacs", name: "Emacs", desc: "Extensible editor" },
   { cmd: "nano", name: "Nano", desc: "Simple text editor" },
+  { cmd: "claude", name: "Claude Code", desc: "AI pair programmer" },
 ];
 
 export const SIDEBAR_CATALOG: readonly ToolEntry[] = [
@@ -1068,8 +1068,8 @@ export async function runSetup(): Promise<void> {
     const isCustom = isCustomLayout(layout);
 
     // Custom layouts define their own pane commands — skip editor/sidebar/shell
-    let editor = "claude";
-    let sidebar = "lazygit";
+    let editor = "";
+    let sidebar = "";
     let shell = "false";
 
     if (!isCustom) {

@@ -115,6 +115,7 @@ export function listConfig(): Map<string, string> {
   return readKV(CONFIG_FILE);
 }
 
+
 export const VALID_KEYS = ["editor", "sidebar", "panes", "editor-size", "shell", "layout", "auto-resize", "starship-preset", "new-window", "fullscreen", "maximize", "float", "font-size", "on-start"];
 
 /** Config keys that accept only "true" or "false" values. */

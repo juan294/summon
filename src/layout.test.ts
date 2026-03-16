@@ -14,7 +14,7 @@ import {
 describe("planLayout", () => {
   it("returns defaults when called with no options", () => {
     const plan = planLayout();
-    expect(plan.editor).toBe("claude");
+    expect(plan.editor).toBe("");
     expect(plan.sidebarCommand).toBe("lazygit");
     expect(plan.editorSize).toBe(75);
     expect(plan.sidebarSize).toBe(25);

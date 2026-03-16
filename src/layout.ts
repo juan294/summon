@@ -29,7 +29,7 @@ export interface LayoutOptions {
 }
 
 const DEFAULT_OPTIONS: LayoutOptions = {
-  editor: "claude",
+  editor: "",
   editorPanes: PANES_DEFAULT,
   editorSize: EDITOR_SIZE_DEFAULT,
   sidebarCommand: "lazygit",

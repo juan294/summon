@@ -51,7 +51,7 @@ summon .
 The wizard walks you through five choices:
 
 1. **Layout** — choose from 5 presets (minimal, pair, full, cli, btop) with ASCII diagrams
-2. **Editor** — pick from detected editors (claude, nvim, vim, code, etc.) or enter a custom command
+2. **Editor** — pick from detected editors (vim, nvim, emacs, claude, etc.) or enter a custom command
 3. **Sidebar** — pick from detected tools (lazygit, gitui, tig, btop, etc.) or enter a custom command
 4. **Shell pane** — plain shell, disabled, or a custom command (e.g. `npm run dev`)
 5. **Starship prompt theme** — choose a Starship preset for per-workspace prompt theming (requires [Starship](https://starship.rs) installed). Color palette swatches are shown for presets with custom colors. Includes a "Random (surprise me!)" option.
@@ -155,7 +155,7 @@ Requires an interactive terminal (TTY). In non-interactive environments, configu
 Set a machine-level config value. Omit the value to reset to a plain shell.
 
 ```bash
-summon set editor vim           # use vim instead of claude
+summon set editor vim           # use vim as the editor
 summon set sidebar              # sidebar becomes a plain shell
 summon set panes 4              # four editor panes
 summon set editor-size 80       # editor grid takes 80% width
@@ -176,7 +176,7 @@ Show current machine configuration.
 ```bash
 $ summon config
 Machine config:
-  editor → claude
+  editor → vim
   sidebar → lazygit
   panes → 2
   editor-size → 75
@@ -408,7 +408,7 @@ You can mix named panes with inline commands in the same tree expression:
 
 ```ini
 tree=editor | "npm run dev" / "tail -f logs"
-pane.editor=claude
+pane.editor=vim
 ```
 
 Named panes need a `pane.*` definition; inline commands do not.
@@ -429,7 +429,7 @@ A more complex example — two rows, each split into columns:
 
 ```ini
 tree=(editor | sidebar) / (shell | logs)
-pane.editor=claude
+pane.editor=vim
 pane.sidebar=lazygit
 pane.shell=zsh
 pane.logs=tail -f app.log
@@ -449,7 +449,7 @@ pane.logs=tail -f app.log
 
 ```ini
 tree=editor | sidebar
-pane.editor=claude
+pane.editor=vim
 pane.sidebar=lazygit
 ```
 
@@ -484,7 +484,7 @@ Custom layout files also support the same global options as presets. These are a
 
 ```ini
 tree=editor | sidebar
-pane.editor=claude
+pane.editor=vim
 pane.sidebar=lazygit
 editor-size=70
 new-window=true
@@ -681,13 +681,13 @@ When summon launches, config values are resolved in this order (first wins):
 2. **Project config** (`.summon` in the target directory)
 3. **Machine config** (`~/.config/summon/config`)
 4. **Preset expansion** (if a `layout` key resolved above)
-5. **Built-in defaults** (`editor=claude`, `panes=2`, etc.)
+5. **Built-in defaults** (`panes=2`, `sidebar=lazygit`, etc.)
 
 ## Config Reference
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `editor` | string | `claude` | Command launched in each editor pane. Set to empty for a plain shell. |
+| `editor` | string | *(set during setup)* | Command launched in each editor pane. Set to empty for a plain shell. |
 | `sidebar` | string | `lazygit` | Command launched in the sidebar pane. Set to empty for a plain shell. |
 | `panes` | integer | `2` | Number of editor panes. |
 | `editor-size` | integer | `75` | Width percentage allocated to the editor grid. The sidebar gets the remainder. |

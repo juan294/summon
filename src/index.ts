@@ -95,7 +95,7 @@ Options:
   -n, --dry-run               Print generated AppleScript without executing
 
 Config keys:
-  editor        Command for coding panes (default: claude)
+  editor        Command for coding panes (set during setup)
   sidebar       Command for sidebar pane (default: lazygit)
   panes         Number of editor panes (default: 2)
   editor-size   Width % for editor grid (default: 75)
@@ -130,7 +130,7 @@ Examples:
   summon .                        Launch workspace in current directory
   summon myapp                    Launch workspace for registered project
   summon add myapp ~/code/app     Register a project
-  summon set editor claude        Set the editor command
+  summon set editor vim           Set the editor command
   summon . --layout minimal       Launch with minimal preset
   summon . --shell "npm run dev"  Launch with custom shell command
 `.trim();
@@ -578,7 +578,7 @@ switch (subcommand) {
       lines.push("# No machine config set. All values use defaults.");
       lines.push("# Uncomment and modify as needed:");
       lines.push("");
-      lines.push("# editor=claude");
+      lines.push("# editor=vim");
       lines.push("# sidebar=lazygit");
       lines.push("# panes=2");
       lines.push("# editor-size=75");

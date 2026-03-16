@@ -149,7 +149,7 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 
 | Key | Default | Description |
 |---|---|---|
-| `editor` | `claude` | Command launched in editor panes |
+| `editor` | *(set during setup)* | Command launched in editor panes |
 | `sidebar` | `lazygit` | Command launched in the sidebar pane |
 | `panes` | `2` | Number of editor panes |
 | `editor-size` | `75` | Width percentage for the editor grid |
