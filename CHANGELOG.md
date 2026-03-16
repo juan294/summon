@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-03-16
+
 ### Changed
 
 - Claude CLI is no longer the default editor — setup wizard runs on first launch when no editor is configured, letting users choose any editor (vim, nvim, emacs, copilot, etc.)
@@ -337,7 +339,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CodeQL security scanning
 - Dependabot for npm and GitHub Actions
 
-[Unreleased]: https://github.com/juan294/summon/compare/v1.0.0...develop
+[Unreleased]: https://github.com/juan294/summon/compare/v1.1.0...develop
+[1.1.0]: https://github.com/juan294/summon/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/juan294/summon/compare/v0.8.0...v1.0.0
 [0.8.0]: https://github.com/juan294/summon/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/juan294/summon/compare/v0.6.2...v0.7.0
