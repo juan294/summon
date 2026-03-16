@@ -162,6 +162,22 @@ describe("readKVFile", () => {
     expect(map.size).toBe(0);
   });
 
+  it("propagates non-ENOENT errors from readFileSync", async () => {
+    const fs = await import("node:fs");
+    const origReadFileSync = fs.readFileSync as (...args: unknown[]) => unknown;
+    // Temporarily override readFileSync to throw a non-ENOENT error
+    (fs as Record<string, unknown>).readFileSync = (_path: string) => {
+      const err = new Error("EACCES: permission denied") as NodeJS.ErrnoException;
+      err.code = "EACCES";
+      throw err;
+    };
+    try {
+      expect(() => readKVFile("/eacces/path")).toThrow("EACCES");
+    } finally {
+      (fs as Record<string, unknown>).readFileSync = origReadFileSync;
+    }
+  });
+
   it("skips lines without an equals sign", async () => {
     const store = await getStore();
     store.set("/tmp/.summon", "editor=vim\ncomment line with no equals\npanes=3\n");

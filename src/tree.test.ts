@@ -330,6 +330,28 @@ describe("buildTreePlan", () => {
     expect(plan.maximize).toBe(true);
     expect(plan.float).toBe(true);
   });
+
+  it("includes leaves in the plan", () => {
+    const tree: LayoutNode = {
+      type: "split",
+      direction: "right",
+      first: {
+        type: "split",
+        direction: "down",
+        first: { type: "pane", name: "top", command: "cmd1" },
+        second: { type: "pane", name: "bottom", command: "cmd2" },
+      },
+      second: { type: "pane", name: "right", command: "cmd3" },
+    };
+    const plan = buildTreePlan(tree);
+    expect(plan.leaves).toEqual(["top", "bottom", "right"]);
+  });
+
+  it("includes single leaf in the plan", () => {
+    const tree: LayoutNode = { type: "pane", name: "main", command: "cmd" };
+    const plan = buildTreePlan(tree);
+    expect(plan.leaves).toEqual(["main"]);
+  });
 });
 
 // ---------- Leaf walker ----------

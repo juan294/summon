@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { generateAppleScript, generateTreeAppleScript } from "./script.js";
 import { planLayout, getPreset } from "./layout.js";
+import { collectLeaves } from "./tree.js";
 import type { TreeLayoutPlan, LayoutNode } from "./tree.js";
 
 describe("generateAppleScript", () => {
@@ -866,6 +867,7 @@ describe("generateTreeAppleScript", () => {
     })(tree);
     return {
       tree,
+      leaves: collectLeaves(tree),
       focusPane: defaultFocus,
       autoResize: false,
       editorSize: 75,

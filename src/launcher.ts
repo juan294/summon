@@ -15,7 +15,7 @@ import {
 import type { LayoutOptions } from "./layout.js";
 import { listConfig, readKVFile, readCustomLayout, isCustomLayout, LAYOUT_NAME_RE } from "./config.js";
 import { generateAppleScript, generateTreeAppleScript } from "./script.js";
-import { parseTreeDSL, extractPaneDefinitions, resolveTreeCommands as resolveTreeCmds, buildTreePlan, collectLeaves, findPaneByName } from "./tree.js";
+import { parseTreeDSL, extractPaneDefinitions, resolveTreeCommands as resolveTreeCmds, buildTreePlan, findPaneByName } from "./tree.js";
 import type { LayoutNode } from "./tree.js";
 import { SAFE_COMMAND_RE, GHOSTTY_PATHS, resolveCommand as resolveCommandPath, promptUser, getErrorMessage, SUMMON_WORKSPACE_ENV } from "./utils.js";
 import { parseIntInRange, parsePositiveFloat } from "./validation.js";
@@ -457,13 +457,13 @@ async function launchTreeLayout(
     maximize: opts.maximize,
     float: opts.float,
   };
+  const treePlan = buildTreePlan(resolvedTree, treePlanOpts);
   const hasEnvVars = Object.keys(envVars).length > 0;
 
   if (cliOverrides.dryRun) {
     const dryRunStarshipPath = starshipPreset ? getPresetConfigPath(starshipPreset) : null;
-    const treePlan = buildTreePlan(resolvedTree, treePlanOpts);
     const script = generateTreeAppleScript(treePlan, targetDir, loginShell, dryRunStarshipPath, hasEnvVars ? envVars : undefined);
-    const paneCount = collectLeaves(resolvedTree).length;
+    const paneCount = treePlan.leaves.length;
     const headerLines = [
       "-- summon dry-run",
       `-- Layout: tree layout, ${paneCount} ${paneCount === 1 ? "pane" : "panes"}`,
@@ -478,7 +478,7 @@ async function launchTreeLayout(
 
   ensureGhostty();
 
-  for (const leafName of collectLeaves(resolvedTree)) {
+  for (const leafName of treePlan.leaves) {
     const pane = findPaneByName(resolvedTree, leafName);
     if (pane?.command) {
       pane.command = await ensureAndResolve(pane.command, leafName);
@@ -486,7 +486,6 @@ async function launchTreeLayout(
   }
 
   const starshipConfigPath = resolveStarship();
-  const treePlan = buildTreePlan(resolvedTree, treePlanOpts);
   const script = generateTreeAppleScript(treePlan, targetDir, loginShell, starshipConfigPath, hasEnvVars ? envVars : undefined);
   executeScript(script);
 }

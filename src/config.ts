@@ -35,8 +35,13 @@ export function isFirstRun(): boolean {
 
 export function readKVFile(path: string): Map<string, string> {
   const map = new Map<string, string>();
-  if (!existsSync(path)) return map;
-  const content = readFileSync(path, "utf-8").trim();
+  let content: string;
+  try {
+    content = readFileSync(path, "utf-8").trim();
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return map;
+    throw err;
+  }
   if (!content) return map;
   for (const line of content.split("\n")) {
     const idx = line.indexOf("=");
