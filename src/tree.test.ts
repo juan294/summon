@@ -162,9 +162,14 @@ describe("parseTreeDSL", () => {
     expect(() => parseTreeDSL("a | b)")).toThrow(/no matching '\('/);
   });
 
-  it("throws on missing operand", () => {
-    expect(() => parseTreeDSL("a |")).toThrow(/Unexpected end of input/);
+  it("throws on missing operand (leading operator)", () => {
     expect(() => parseTreeDSL("| a")).toThrow(/Unexpected token/);
+  });
+
+  it("throws when advance() hits end-of-input on truncated expression", () => {
+    // Pipe with nothing after — advance() called for right operand hits pos beyond tokens
+    expect(() => parseTreeDSL("a |")).toThrow(/Unexpected end of input/);
+    // Slash with nothing after — same advance() end-of-input path
     expect(() => parseTreeDSL("a /")).toThrow(/Unexpected end of input/);
   });
 

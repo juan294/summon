@@ -466,6 +466,32 @@ describe("generateAppleScript", () => {
     expect(script).toContain("paneRight3");
   });
 
+  it("multi-pane right column with secondary editor sets command on additional down-splits", () => {
+    // editorPanes=4 → leftColumnCount=2, rightColumnEditorCount=2
+    // secondaryEditor="btop" → secondaryCmd="btop" (overrides fallback to editor)
+    // Exercises the branch: rightColumnEditorCount > 1 && secondaryCmd (script.ts ~line 293)
+    const plan = planLayout({ editorPanes: 4, editor: "vim", secondaryEditor: "btop" });
+    const script = generateAppleScript(plan, "/tmp");
+
+    // Right column first pane (paneRightCol) gets btop via config
+    expect(script).toContain("paneRightCol to split paneRoot direction right");
+
+    // Additional right column editor (paneRight2) created with a down split
+    expect(script).toContain("paneRight2 to split paneRightCol direction down");
+
+    // Multiple right-column down-splits: paneRight2 (editor) + paneRight3 (shell)
+    const rightDownSplits = (script.match(/paneRight\d+ to split .+ direction down/g) ?? []);
+    expect(rightDownSplits.length).toBeGreaterThanOrEqual(2);
+
+    // The btop command should be set on config for the additional editor panes
+    const btopConfigLine = "set command of cfg to \"/bin/bash -lc 'cd '\\\\''/tmp'\\\\'' && btop'\"";
+    expect(script).toContain(btopConfigLine);
+
+    // Titles reflect the secondary editor command
+    expect(script).toContain('set_surface_title:editor \u00B7 btop" on paneRightCol');
+    expect(script).toContain('set_surface_title:editor \u00B7 btop" on paneRight2');
+  });
+
   it("multi-pane right column with no secondary editor uses role-only title", () => {
     // rightColumnEditorCount=2 (editorPanes=4) with both editor and secondaryEditor empty.
     // Exercises the falsy secondaryCmd branch in emitRightColumnSplits (script.ts line 293).
