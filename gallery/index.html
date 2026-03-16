@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>summon -- Workspace Layout Gallery</title>
+  <meta name="description" content="One command to summon your entire Ghostty dev environment. Browse 10 workspace layouts.">
+  <meta property="og:title" content="summon -- Workspace Layout Gallery">
+  <meta property="og:description" content="One command to summon your entire Ghostty dev environment. Browse 10 workspace layouts.">
+  <meta property="og:image" content="https://juan294.github.io/summon/images/og-image.png">
+  <meta property="og:url" content="https://juan294.github.io/summon/gallery/">
+  <meta property="og:type" content="website">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --bg-primary: #0C0D14;
+      --bg-card: #13141D;
+      --bg-card-hover: #1A1B26;
+      --text-primary: #E2E4E9;
+      --text-secondary: #8B8FA3;
+      --accent-magenta: #D946EF;
+      --accent-cyan: #06B6D4;
+      --border: #2A2B36;
+      --font-mono: 'JetBrains Mono', monospace;
+      --radius: 12px;
+      --max-width: 1200px;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      font-family: var(--font-mono);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    /* ── Hero ─────────────────────────────────────── */
+
+    .hero {
+      text-align: center;
+      padding: 80px 24px 64px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero::before {
+      content: '';
+      position: absolute;
+      top: -120px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 600px;
+      height: 400px;
+      background: radial-gradient(ellipse, rgba(217, 70, 239, 0.15) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .hero-wordmark {
+      font-size: clamp(3rem, 8vw, 5.5rem);
+      font-weight: 700;
+      color: var(--accent-magenta);
+      letter-spacing: -0.02em;
+      position: relative;
+      display: inline-block;
+      text-shadow: 0 0 60px rgba(217, 70, 239, 0.35);
+    }
+
+    .hero-tagline {
+      font-size: clamp(1rem, 2.5vw, 1.35rem);
+      color: var(--text-primary);
+      margin-top: 16px;
+      font-weight: 400;
+    }
+
+    .hero-install {
+      margin-top: 28px;
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 20px;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+      position: relative;
+    }
+
+    .hero-install:hover {
+      border-color: var(--accent-cyan);
+      background: var(--bg-card-hover);
+    }
+
+    .hero-install code {
+      font-family: var(--font-mono);
+      font-size: 0.95rem;
+      color: var(--accent-cyan);
+    }
+
+    .hero-install .copy-icon {
+      width: 18px;
+      height: 18px;
+      color: var(--text-secondary);
+      transition: color 0.2s;
+      flex-shrink: 0;
+    }
+
+    .hero-install:hover .copy-icon {
+      color: var(--accent-cyan);
+    }
+
+    .hero-install .copy-feedback {
+      position: absolute;
+      top: -32px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--accent-cyan);
+      color: var(--bg-primary);
+      font-size: 0.75rem;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 4px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s, top 0.2s;
+    }
+
+    .hero-install .copy-feedback.show {
+      opacity: 1;
+      top: -36px;
+    }
+
+    .hero-subtitle {
+      margin-top: 20px;
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+      max-width: 480px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    /* ── Gallery Grid ────────────────────────────── */
+
+    .gallery {
+      max-width: var(--max-width);
+      margin: 0 auto;
+      padding: 0 24px 80px;
+    }
+
+    .gallery-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+      gap: 24px;
+    }
+
+    /* ── Card ─────────────────────────────────────── */
+
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      transition: background 0.25s, border-color 0.25s;
+    }
+
+    .card:hover {
+      background: var(--bg-card-hover);
+      border-color: rgba(6, 182, 212, 0.3);
+    }
+
+    .card-body {
+      padding: 20px;
+    }
+
+    .card-title {
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: var(--accent-cyan);
+      margin-bottom: 6px;
+    }
+
+    .card-desc {
+      font-size: 0.82rem;
+      color: var(--text-secondary);
+      line-height: 1.5;
+      margin-bottom: 12px;
+    }
+
+    .card-tools {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .card-tools span {
+      font-size: 0.7rem;
+      color: var(--text-secondary);
+      background: rgba(139, 143, 163, 0.08);
+      border: 1px solid rgba(139, 143, 163, 0.12);
+      border-radius: 4px;
+      padding: 3px 8px;
+      font-family: var(--font-mono);
+    }
+
+    /* ── Slider ───────────────────────────────────── */
+
+    .slider-container {
+      position: relative;
+      aspect-ratio: 16 / 9;
+      overflow: hidden;
+      border-radius: 8px 8px 0 0;
+      cursor: ew-resize;
+      user-select: none;
+      -webkit-user-select: none;
+      background: var(--bg-primary);
+    }
+
+    .slider-container picture {
+      display: block;
+      position: absolute;
+      inset: 0;
+    }
+
+    .slider-container picture img {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .slider-after {
+      z-index: 1;
+    }
+
+    .slider-before {
+      z-index: 2;
+      clip-path: inset(0 50% 0 0);
+    }
+
+    .slider-handle {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 50%;
+      width: 3px;
+      background: var(--accent-cyan);
+      z-index: 4;
+      transform: translateX(-50%);
+      box-shadow: 0 0 12px rgba(6, 182, 212, 0.5);
+    }
+
+    .slider-grip {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 36px;
+      height: 36px;
+      background: var(--accent-cyan);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 0 16px rgba(6, 182, 212, 0.45), 0 2px 8px rgba(0,0,0,0.4);
+      cursor: ew-resize;
+    }
+
+    .slider-grip svg {
+      width: 20px;
+      height: 20px;
+      color: var(--bg-primary);
+      pointer-events: none;
+    }
+
+    .slider-label {
+      position: absolute;
+      bottom: 8px;
+      z-index: 3;
+      font-size: 0.65rem;
+      font-weight: 700;
+      color: rgba(226, 228, 233, 0.6);
+      background: rgba(12, 13, 20, 0.6);
+      padding: 2px 8px;
+      border-radius: 3px;
+      pointer-events: none;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .slider-label-min {
+      left: 8px;
+    }
+
+    .slider-label-max {
+      right: 8px;
+    }
+
+    /* ── CTA Section ─────────────────────────────── */
+
+    .cta {
+      text-align: center;
+      padding: 64px 24px 48px;
+      border-top: 1px solid var(--border);
+      max-width: var(--max-width);
+      margin: 0 auto;
+    }
+
+    .cta-install {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px 24px;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+      position: relative;
+    }
+
+    .cta-install:hover {
+      border-color: var(--accent-cyan);
+      background: var(--bg-card-hover);
+    }
+
+    .cta-install code {
+      font-family: var(--font-mono);
+      font-size: 1rem;
+      color: var(--accent-cyan);
+    }
+
+    .cta-install .copy-icon {
+      width: 18px;
+      height: 18px;
+      color: var(--text-secondary);
+      transition: color 0.2s;
+      flex-shrink: 0;
+    }
+
+    .cta-install:hover .copy-icon {
+      color: var(--accent-cyan);
+    }
+
+    .cta-install .copy-feedback {
+      position: absolute;
+      top: -32px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--accent-cyan);
+      color: var(--bg-primary);
+      font-size: 0.75rem;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 4px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s, top 0.2s;
+    }
+
+    .cta-install .copy-feedback.show {
+      opacity: 1;
+      top: -36px;
+    }
+
+    .cta-requirements {
+      margin-top: 20px;
+      font-size: 0.78rem;
+      color: var(--text-secondary);
+    }
+
+    .cta-links {
+      margin-top: 24px;
+      display: flex;
+      justify-content: center;
+      gap: 24px;
+    }
+
+    .cta-links a {
+      font-size: 0.85rem;
+      color: var(--accent-cyan);
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+
+    .cta-links a:hover {
+      color: var(--accent-magenta);
+    }
+
+    /* ── Footer ───────────────────────────────────── */
+
+    .footer {
+      text-align: center;
+      padding: 32px 24px;
+      border-top: 1px solid var(--border);
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+    }
+
+    .footer a {
+      color: var(--text-secondary);
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+
+    .footer a:hover {
+      color: var(--accent-cyan);
+    }
+
+    .footer-sep {
+      margin: 0 12px;
+      opacity: 0.4;
+    }
+
+    /* ── Responsive ───────────────────────────────── */
+
+    @media (max-width: 1024px) {
+      .gallery-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+
+    @media (max-width: 640px) {
+      .hero {
+        padding: 56px 16px 48px;
+      }
+      .gallery {
+        padding: 0 16px 56px;
+      }
+      .gallery-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ── Hero ──────────────────────────────────────── -->
+  <section class="hero">
+    <h1 class="hero-wordmark">summon</h1>
+    <p class="hero-tagline">One command. Your entire workspace.</p>
+    <div class="hero-install" onclick="copyInstall(this)" role="button" tabindex="0" aria-label="Copy install command">
+      <code>npm i -g summon-ws</code>
+      <svg class="copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+      <span class="copy-feedback">Copied!</span>
+    </div>
+    <p class="hero-subtitle">Drag the slider on each card to compare minimal and full workspace configurations.</p>
+  </section>
+
+  <!-- ── Gallery ───────────────────────────────────── -->
+  <section class="gallery">
+    <div class="gallery-grid" id="gallery-grid"></div>
+  </section>
+
+  <!-- ── CTA ───────────────────────────────────────── -->
+  <section class="cta">
+    <div class="cta-install" onclick="copyInstall(this)" role="button" tabindex="0" aria-label="Copy install command">
+      <code>npm i -g summon-ws</code>
+      <svg class="copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+      <span class="copy-feedback">Copied!</span>
+    </div>
+    <p class="cta-requirements">Requires Node &ge; 18 &middot; macOS &middot; Ghostty terminal</p>
+    <div class="cta-links">
+      <a href="https://github.com/juan294/summon" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://www.npmjs.com/package/summon-ws" target="_blank" rel="noopener">npm</a>
+    </div>
+  </section>
+
+  <!-- ── Footer ────────────────────────────────────── -->
+  <footer class="footer">
+    <a href="https://github.com/juan294/summon" target="_blank" rel="noopener">GitHub</a>
+    <span class="footer-sep">&middot;</span>
+    <a href="https://www.npmjs.com/package/summon-ws" target="_blank" rel="noopener">npm</a>
+    <span class="footer-sep">&middot;</span>
+    <a href="https://github.com/juan294/summon#readme" target="_blank" rel="noopener">Docs</a>
+  </footer>
+
+  <script>
+    /* ── Card Data ──────────────────────────────────── */
+    var CARDS = [
+      {
+        id: 'fullstack',
+        title: 'Fullstack',
+        desc: 'Full-stack development with editor, shell, and git in one view.',
+        tools: ['Claude', 'lazygit', 'btop', 'shell']
+      },
+      {
+        id: 'backend',
+        title: 'Backend',
+        desc: 'Server and API development with code review and monitoring.',
+        tools: ['Claude', 'lazygit', 'btop', 'docs']
+      },
+      {
+        id: 'devops',
+        title: 'DevOps',
+        desc: 'Infrastructure, containers, and deployment with live monitoring.',
+        tools: ['Vim', 'Docker', 'btop', 'logs']
+      },
+      {
+        id: 'data',
+        title: 'Data',
+        desc: 'Data science workspace with file browsing, REPL, and visualization.',
+        tools: ['Claude', 'Python', 'yazi', 'btop']
+      },
+      {
+        id: 'systems',
+        title: 'Systems',
+        desc: 'Systems programming with performance metrics and deep monitoring.',
+        tools: ['Editor', 'btop', 'lazygit', 'metrics']
+      },
+      {
+        id: 'frontend',
+        title: 'Frontend',
+        desc: 'Web UI development with test runner and live build output.',
+        tools: ['Claude', 'npm', 'lazygit', 'btop']
+      },
+      {
+        id: 'network',
+        title: 'Network',
+        desc: 'Network monitoring with bandwidth charts and traffic analysis.',
+        tools: ['bandwhich', 'btop', 'tcpdump', 'logs']
+      },
+      {
+        id: 'ml',
+        title: 'ML',
+        desc: 'Machine learning with training visualization and resource monitoring.',
+        tools: ['Claude', 'training logs', 'btop', 'lazygit']
+      },
+      {
+        id: 'flex',
+        title: 'Flex',
+        desc: 'Creative multi-tool workspace \u2014 because your terminal can be fun too.',
+        tools: ['cmatrix', 'btop', 'neofetch', 'Claude']
+      },
+      {
+        id: 'dual-editor',
+        title: 'Dual Editor',
+        desc: 'Side-by-side editors for pair programming or code review.',
+        tools: ['Claude', 'Helix', 'btop', 'lazygit']
+      }
+    ];
+
+    /* ── Render Cards ──────────────────────────────── */
+    var grid = document.getElementById('gallery-grid');
+
+    CARDS.forEach(function(card) {
+      var el = document.createElement('article');
+      el.className = 'card';
+      el.innerHTML =
+        '<div class="slider-container" data-card-id="' + card.id + '">' +
+          '<picture class="slider-after">' +
+            '<source srcset="../images/' + card.id + '-max.webp" type="image/webp">' +
+            '<img src="../images/' + card.id + '-max.png" alt="' + card.title + ' full layout" loading="lazy">' +
+          '</picture>' +
+          '<picture class="slider-before">' +
+            '<source srcset="../images/' + card.id + '-min.webp" type="image/webp">' +
+            '<img src="../images/' + card.id + '-min.png" alt="' + card.title + ' minimal layout" loading="lazy">' +
+          '</picture>' +
+          '<span class="slider-label slider-label-min">minimal</span>' +
+          '<span class="slider-label slider-label-max">full</span>' +
+          '<div class="slider-handle">' +
+            '<div class="slider-grip">' +
+              '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">' +
+                '<polyline points="8 4 4 8 8 12"></polyline>' +
+                '<polyline points="16 4 20 8 16 12"></polyline>' +
+              '</svg>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="card-body">' +
+          '<h2 class="card-title">' + card.title + '</h2>' +
+          '<p class="card-desc">' + card.desc + '</p>' +
+          '<div class="card-tools">' +
+            card.tools.map(function(t) { return '<span>' + t + '</span>'; }).join('') +
+          '</div>' +
+        '</div>';
+      grid.appendChild(el);
+    });
+
+    /* ── Slider Interaction ────────────────────────── */
+    var sliders = document.querySelectorAll('.slider-container');
+
+    sliders.forEach(function(container) {
+      var handle = container.querySelector('.slider-handle');
+      var beforePicture = container.querySelector('.slider-before');
+      var dragging = false;
+
+      function setPosition(pct) {
+        pct = Math.max(0, Math.min(100, pct));
+        handle.style.left = pct + '%';
+        beforePicture.style.clipPath = 'inset(0 ' + (100 - pct) + '% 0 0)';
+      }
+
+      function getPercentage(clientX) {
+        var rect = container.getBoundingClientRect();
+        return ((clientX - rect.left) / rect.width) * 100;
+      }
+
+      /* Mouse events */
+      handle.addEventListener('mousedown', function(e) {
+        e.preventDefault();
+        dragging = true;
+      });
+
+      container.addEventListener('mousedown', function(e) {
+        /* Click-to-jump: reposition handle on click anywhere in the container */
+        setPosition(getPercentage(e.clientX));
+        dragging = true;
+      });
+
+      document.addEventListener('mousemove', function(e) {
+        if (!dragging) return;
+        e.preventDefault();
+        setPosition(getPercentage(e.clientX));
+      });
+
+      document.addEventListener('mouseup', function() {
+        dragging = false;
+      });
+
+      /* Touch events */
+      handle.addEventListener('touchstart', function(e) {
+        e.preventDefault();
+        dragging = true;
+      });
+
+      container.addEventListener('touchstart', function(e) {
+        if (e.touches.length === 1) {
+          setPosition(getPercentage(e.touches[0].clientX));
+          dragging = true;
+        }
+      });
+
+      document.addEventListener('touchmove', function(e) {
+        if (!dragging) return;
+        if (e.touches.length === 1) {
+          setPosition(getPercentage(e.touches[0].clientX));
+        }
+      });
+
+      document.addEventListener('touchend', function() {
+        dragging = false;
+      });
+    });
+
+    /* ── Copy Install Command ──────────────────────── */
+    function copyInstall(el) {
+      var text = 'npm i -g summon-ws';
+      var feedback = el.querySelector('.copy-feedback');
+
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function() {
+          showFeedback(feedback);
+        });
+      } else {
+        /* Fallback for older browsers / non-HTTPS */
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); } catch (_) { /* noop */ }
+        document.body.removeChild(ta);
+        showFeedback(feedback);
+      }
+    }
+
+    function showFeedback(el) {
+      el.classList.add('show');
+      setTimeout(function() {
+        el.classList.remove('show');
+      }, 1200);
+    }
+
+    /* Keyboard support for install buttons */
+    document.querySelectorAll('.hero-install, .cta-install').forEach(function(btn) {
+      btn.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          copyInstall(btn);
+        }
+      });
+    });
+  </script>
+</body>
+</html>
