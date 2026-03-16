@@ -834,5 +834,6 @@ This protects against accidentally executing unreviewed commands from cloned rep
 | `--dry-run` | Skipped (no commands are executed) |
 | CLI flags | Not checked (you typed them yourself) |
 | Machine config | Not checked (you set them via `summon set`) |
+| `on-start` (any source) | Always checked (runs via shell execution) |
 
-Only `.summon` project files are checked — CLI flags and machine config are trusted sources since you control them directly.
+`.summon` project files are checked for all command keys. The `on-start` value is additionally checked regardless of source (CLI, machine config, or project file) since it executes via shell.
