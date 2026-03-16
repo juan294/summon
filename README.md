@@ -179,6 +179,7 @@ summon set env.API_KEY sk-123          # per-workspace environment variable
 
 ## Docs
 
+- [Workspace Gallery](https://juan294.github.io/summon/gallery/) -- visual showcase of layout examples
 - [Architecture](docs/architecture.md) -- module map, AppleScript generation, layout algorithm
 - [User Manual](docs/user-manual.md) -- full command reference, walkthrough, troubleshooting
 - [Changelog](CHANGELOG.md) -- release history
