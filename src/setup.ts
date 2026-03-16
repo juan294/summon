@@ -1,6 +1,5 @@
-import { existsSync } from "node:fs";
 import { setConfig, isValidLayoutName, isCustomLayout, saveCustomLayout } from "./config.js";
-import { SAFE_COMMAND_RE, GHOSTTY_PATHS, resolveCommand as resolveCommandPath, promptUser, checkAccessibility, openAccessibilitySettings, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT } from "./utils.js";
+import { SAFE_COMMAND_RE, resolveCommand as resolveCommandPath, promptUser, checkAccessibility, openAccessibilitySettings, isGhosttyInstalled, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT } from "./utils.js";
 import { isStarshipInstalled, listStarshipPresets } from "./starship.js";
 
 // ---------------------------------------------------------------------------
@@ -717,7 +716,7 @@ const INSTALL_HINTS: Record<string, string> = {
   starship: "brew install starship  OR  curl -sS https://starship.rs/install.sh | sh",
 };
 
-// GHOSTTY_PATHS is imported from ./utils.js
+// isGhosttyInstalled is imported from ./utils.js
 
 // ---------------------------------------------------------------------------
 // Phase 2 — Wizard functions
@@ -1005,7 +1004,7 @@ export function validateSetup(result: SetupResult): ValidationResult {
   }
 
   // Check Ghostty
-  const ghosttyFound = GHOSTTY_PATHS.some((p) => existsSync(p));
+  const ghosttyFound = isGhosttyInstalled();
   const accessibilityGranted = checkAccessibility();
 
   return { warnings, ghosttyFound, accessibilityGranted };

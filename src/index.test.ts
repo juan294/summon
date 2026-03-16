@@ -1115,8 +1115,8 @@ describe("CLI integration", () => {
         env: { ...process.env, HOME: TEMP_HOME },
         timeout: 30_000,
       });
-      // Process exits 0 on EOF (Ctrl+C / stream close is handled gracefully)
-      expect(result.status).toBe(0);
+      // Process exits 130 on EOF (128 + SIGINT signal 2)
+      expect(result.status).toBe(130);
       expect(result.stderr).toContain("Enter a number between 1 and");
     });
   });
@@ -1207,8 +1207,8 @@ describe("CLI integration", () => {
       rmSync(freshHome, { recursive: true, force: true });
       // With the re-prompt loop, at least one "Invalid selection" on stderr
       expect(result.stderr).toContain("Invalid selection");
-      // Process exits 0 when EOF is reached (graceful close)
-      expect(result.status).toBe(0);
+      // Process exits 130 when EOF is reached (128 + SIGINT signal 2)
+      expect(result.status).toBe(130);
     });
   });
 

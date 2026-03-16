@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { homedir } from "node:os";
@@ -10,6 +11,13 @@ export const GHOSTTY_PATHS = [
   "/Applications/Ghostty.app",
   join(homedir(), "Applications", "Ghostty.app"),
 ];
+
+/**
+ * Check whether Ghostty.app is installed at any known location.
+ */
+export function isGhosttyInstalled(): boolean {
+  return GHOSTTY_PATHS.some((p) => existsSync(p));
+}
 
 /** Application name used in AppleScript `tell` blocks. */
 export const GHOSTTY_APP_NAME = "Ghostty";
@@ -26,9 +34,9 @@ export async function promptUser(question: string): Promise<string> {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   return new Promise((resolve) => {
     const onClose = () => {
-      // Ctrl+C or EOF — exit cleanly without error dump
+      // Ctrl+C or EOF — exit with standard SIGINT code (128 + 2)
       console.log();
-      process.exit(0);
+      process.exit(130);
     };
     rl.on("close", onClose);
     rl.question(question, (answer) => {
