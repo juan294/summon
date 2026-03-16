@@ -6,7 +6,7 @@ Technical reference for contributors.
 
 | Module | Role | Side Effects | Dependencies |
 |--------|------|:------------:|--------------|
-| `index.ts` | CLI entry point — parseArgs, subcommand dispatch, first-run detection | yes | config, launcher, layout, validation, utils, setup (dynamic), completions (dynamic) |
+| `index.ts` | CLI entry point — parseArgs, subcommand dispatch, first-run detection | yes | config, launcher, validation, utils, setup (dynamic), completions (dynamic), keybindings (dynamic), tree (dynamic), layout (dynamic) |
 | `launcher.ts` | Orchestrator — config resolution, command checks, script execution via osascript | yes | config, layout, script, tree, utils, validation, starship, setup (dynamic) |
 | `config.ts` | Config file read/write (`~/.config/summon/` and `.summon`), first-run detection | yes | Node stdlib only |
 | `setup.ts` | Interactive setup wizard — TUI primitives, tool catalogs, numbered-selection flow | yes | config, utils, starship |
@@ -16,6 +16,7 @@ Technical reference for contributors.
 | `completions.ts` | Shell completion script generator (zsh, bash) | **pure** | config, layout |
 | `starship.ts` | Starship detection, preset listing, TOML config caching | yes | config, utils |
 | `tree.ts` | Tree data model, DSL parser, plan builder (pure — no side effects) | **pure** | layout |
+| `keybindings.ts` | Ghostty key table config generator (pure function) | **pure** | none |
 | `validation.ts` | Input validation helpers (`parseIntInRange`, `validateIntFlag`, `validateFloatFlag`) | **pure** | none |
 | `globals.d.ts` | Build-time constant declarations (`__VERSION__`) | — | — |
 | `*.test.ts` | Co-located unit tests (Vitest) | — | — |
@@ -26,15 +27,17 @@ Technical reference for contributors.
 graph TD
     index[index.ts] --> config[config.ts]
     index --> launcher[launcher.ts]
-    index --> layout[layout.ts]
     index --> validation[validation.ts]
     index --> utils[utils.ts]
-    index -.->|dynamic import| setup[setup.ts]
-    index -.->|dynamic import| completions[completions.ts]
+    index -.->|dynamic| setup[setup.ts]
+    index -.->|dynamic| completions[completions.ts]
+    index -.->|dynamic| keybindings[keybindings.ts]
+    index -.->|dynamic| tree[tree.ts]
+    index -.->|dynamic| layout[layout.ts]
     launcher --> config
     launcher --> layout
     launcher --> script[script.ts]
-    launcher --> tree[tree.ts]
+    launcher --> tree
     launcher --> utils
     launcher --> validation
     launcher --> starship[starship.ts]
@@ -58,6 +61,7 @@ graph TD
     listCustomLayouts, readCustomLayout,
     saveCustomLayout, deleteCustomLayout,
     isValidLayoutName, isCustomLayout,
+    layoutPath,
     VALID_KEYS, BOOLEAN_KEYS, CLI_FLAGS,
     LAYOUT_NAME_RE, CONFIG_DIR"]
     layout -.- lay_fns["planLayout, isPresetName,
@@ -69,12 +73,15 @@ graph TD
     walkLeaves, collectLeaves,
     firstLeaf, findPaneByName,
     extractPaneDefinitions,
+    extractPaneCwds,
     resolveTreeCommands"]
     utils -.- util_fns["SAFE_COMMAND_RE,
     GHOSTTY_PATHS,
     GHOSTTY_APP_NAME,
     SUMMON_WORKSPACE_ENV,
     resolveCommand,
+    isGhosttyInstalled,
+    checkAccessibility,
     getErrorMessage,
     promptUser"]
     starship -.- star_fns["isStarshipInstalled,
@@ -125,7 +132,7 @@ flowchart TD
     --editor, --panes, --editor-size,
     --sidebar, --shell, --starship-preset,
     --auto-resize, --no-auto-resize, --dry-run,
-    --env, --font-size, --on-start,
+    --env, --font-size, --on-start, --theme,
     --new-window, --fullscreen, --maximize, --float"]
     parse --> helpcheck{"--help flag?"}
 
@@ -167,6 +174,10 @@ flowchart TD
     → launch selected project"]
     dispatch -->|"export"| export["export resolved config
     as .summon file"]
+    dispatch -->|"keybindings"| keybindgen["keybindings.ts:
+    generate key table config to stdout"]
+    dispatch -->|"freeze"| freeze["snapshot config
+    as custom layout"]
     dispatch -->|"layout"| layoutcmd["layout subcommand
     create / save / list / show / delete / edit"]
     dispatch -->|"default (launch target)"| resolve["resolve target directory

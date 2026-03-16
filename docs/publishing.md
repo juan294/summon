@@ -50,9 +50,8 @@ rm summon-ws-<version>.tgz
 - [ ] Verify commands run in correct panes
 
 ### 4. Version Strategy
-- `0.x.y` while pre-stable (see `package.json` for current version)
-- `1.0.0` when the CLI is stable and API won't change
 - Follow semver: breaking changes = major, features = minor, fixes = patch
+- The project is stable (1.x). Minor releases add features, patch releases fix bugs.
 
 ### 5. Publish
 ```bash

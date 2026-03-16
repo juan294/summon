@@ -99,6 +99,7 @@ Drop a `.summon` file in your project root to override machine-level config:
 layout=minimal
 editor=vim
 shell=npm run dev
+theme=nord
 env.PORT=3000
 ```
 
@@ -117,7 +118,9 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 | `summon config` | Show current machine configuration |
 | `summon open` | Select and launch a registered project interactively |
 | `summon export [path]` | Export resolved config as a `.summon` file |
-| `summon doctor` | Check Ghostty config for recommended settings |
+| `summon doctor [--fix]` | Check Ghostty config for recommended settings (--fix auto-adds missing) |
+| `summon freeze <name>` | Save current resolved config as a reusable custom layout |
+| `summon keybindings [--vim]` | Generate Ghostty key table config for pane navigation |
 | `summon layout <action>` | Manage custom layouts (create, save, list, show, delete, edit) |
 | `summon completions <shell>` | Generate shell completion script (`zsh`, `bash`) |
 
@@ -134,6 +137,7 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 | `--auto-resize` | Resize sidebar to match editor-size (default: on) |
 | `--no-auto-resize` | Disable auto-resize |
 | `--starship-preset <preset>` | Starship prompt preset name (per-workspace) |
+| `--theme <name>` | Ghostty theme for workspace |
 | `--font-size <n>` | Override font size for workspace panes |
 | `--env KEY=VALUE` | Set environment variable (repeatable) |
 | `--on-start <cmd>` | Run a command before workspace creation |
@@ -157,6 +161,7 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 | `layout` | | Default layout preset |
 | `auto-resize` | `true` | Auto-resize sidebar to match editor-size |
 | `starship-preset` | | Starship prompt theme preset (per-workspace) |
+| `theme` | | Ghostty theme for workspace |
 | `font-size` | | Font size for workspace panes (points) |
 | `on-start` | | Command to run before workspace creation |
 | `new-window` | `false` | Open workspace in a new Ghostty window |
@@ -171,6 +176,7 @@ summon set editor vim               # use vim as the editor
 summon set shell "npm run dev"      # run a command in the shell pane
 summon set layout minimal           # default to minimal preset
 summon set starship-preset tokyo-night  # per-workspace Starship prompt theme
+summon set theme nord                  # Ghostty theme for workspace
 summon set font-size 14                # font size for workspace panes
 summon set on-start "npm install"      # run before workspace creation
 summon set new-window true             # always open in a new window
