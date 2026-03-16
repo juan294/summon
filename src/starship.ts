@@ -17,7 +17,7 @@ function getStarshipPath(): string | null {
   return cachedStarshipPath;
 }
 
-/** @internal — test-only, reset the cached starship path */
+/** @internal — exported for testing only */
 export function resetStarshipCache(): void {
   cachedStarshipPath = undefined;
 }
@@ -44,7 +44,7 @@ export function listStarshipPresets(): string[] {
   }
 }
 
-/** @internal — exported for testing only. Check if a preset name is safe AND exists in Starship's built-in list. */
+/** @internal — exported for testing only */
 export function isValidPreset(name: string): boolean {
   if (!SAFE_COMMAND_RE.test(name)) return false;
   return listStarshipPresets().includes(name);
