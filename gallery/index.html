@@ -24,18 +24,17 @@
     :root {
       --bg-primary: #0C0D14;
       --bg-card: #13141D;
-      --bg-card-hover: #1A1B26;
       --text-primary: #E2E4E9;
       --text-secondary: #8B8FA3;
       --accent-magenta: #D946EF;
       --accent-cyan: #06B6D4;
       --border: #2A2B36;
       --font-mono: 'JetBrains Mono', monospace;
-      --radius: 12px;
-      --max-width: 1200px;
     }
 
-    html { scroll-behavior: smooth; }
+    html {
+      scroll-behavior: smooth;
+    }
 
     body {
       background: var(--bg-primary);
@@ -46,684 +45,1078 @@
       -moz-osx-font-smoothing: grayscale;
     }
 
-    /* ── Hero ─────────────────────────────────────── */
+    /* ── Fixed Header ─────────────────────────────── */
 
-    .hero {
-      text-align: center;
-      padding: 60px 24px 48px;
-      position: relative;
-      overflow: hidden;
+    .header {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 24px;
+      background: rgba(12, 13, 20, 0.85);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
     }
 
-    .hero::before {
-      content: '';
-      position: absolute;
-      top: -80px;
-      left: 50%;
-      transform: translateX(-50%);
-      width: 500px;
-      height: 350px;
-      background: radial-gradient(ellipse, rgba(217, 70, 239, 0.12) 0%, transparent 70%);
-      pointer-events: none;
-    }
-
-    .hero-logo {
-      width: 120px;
-      height: 120px;
-      margin: 0 auto 8px;
-      display: block;
-      border-radius: 20px;
-    }
-
-    .hero-tagline {
-      font-size: clamp(1rem, 2.5vw, 1.25rem);
-      color: var(--text-primary);
-      margin-top: 8px;
-      font-weight: 400;
-    }
-
-    .hero-install {
-      margin-top: 24px;
-      display: inline-flex;
+    .header-left {
+      display: flex;
       align-items: center;
       gap: 12px;
+    }
+
+    .header-logo {
+      width: 48px;
+      height: 48px;
+      border-radius: 10px;
+    }
+
+    .header-title {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--text-primary);
+      letter-spacing: -0.02em;
+    }
+
+    .header-install {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 16px;
       background: var(--bg-card);
       border: 1px solid var(--border);
       border-radius: 8px;
-      padding: 12px 20px;
+      color: var(--text-secondary);
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
       cursor: pointer;
-      transition: border-color 0.2s, background 0.2s;
-      position: relative;
+      transition: border-color 0.2s, color 0.2s;
     }
 
-    .hero-install:hover {
+    .header-install:hover {
       border-color: var(--accent-cyan);
-      background: var(--bg-card-hover);
-    }
-
-    .hero-install code {
-      font-family: var(--font-mono);
-      font-size: 0.95rem;
-      color: var(--accent-cyan);
-    }
-
-    .copy-icon {
-      width: 18px;
-      height: 18px;
-      color: var(--text-secondary);
-      transition: color 0.2s;
-      flex-shrink: 0;
-    }
-
-    .hero-install:hover .copy-icon { color: var(--accent-cyan); }
-
-    .copy-feedback {
-      position: absolute;
-      top: -32px;
-      left: 50%;
-      transform: translateX(-50%);
-      background: var(--accent-cyan);
-      color: var(--bg-primary);
-      font-size: 0.75rem;
-      font-weight: 700;
-      padding: 4px 10px;
-      border-radius: 4px;
-      opacity: 0;
-      pointer-events: none;
-      transition: opacity 0.2s, top 0.2s;
-    }
-
-    .copy-feedback.show {
-      opacity: 1;
-      top: -36px;
-    }
-
-    .hero-subtitle {
-      margin-top: 16px;
-      font-size: 0.82rem;
-      color: var(--text-secondary);
-      max-width: 420px;
-      margin-left: auto;
-      margin-right: auto;
-    }
-
-    /* ── Gallery Grid ────────────────────────────── */
-
-    .gallery {
-      max-width: var(--max-width);
-      margin: 0 auto;
-      padding: 0 24px 80px;
-    }
-
-    .gallery-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-      gap: 24px;
-    }
-
-    /* ── Card ─────────────────────────────────────── */
-
-    .card {
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      overflow: hidden;
-      transition: background 0.25s, border-color 0.25s, transform 0.25s;
-      cursor: pointer;
-    }
-
-    .card:hover {
-      background: var(--bg-card-hover);
-      border-color: rgba(6, 182, 212, 0.3);
-      transform: translateY(-2px);
-    }
-
-    .card-image-wrap {
-      position: relative;
-      aspect-ratio: 16 / 9;
-      overflow: hidden;
-      background: var(--bg-primary);
-    }
-
-    .card-image-wrap picture {
-      display: block;
-      width: 100%;
-      height: 100%;
-    }
-
-    .card-image-wrap img {
-      display: block;
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      transition: transform 0.3s;
-    }
-
-    .card:hover .card-image-wrap img {
-      transform: scale(1.03);
-    }
-
-    .card-expand-hint {
-      position: absolute;
-      bottom: 10px;
-      right: 10px;
-      background: rgba(12, 13, 20, 0.7);
-      border: 1px solid rgba(226, 228, 233, 0.15);
       color: var(--text-primary);
-      font-size: 0.65rem;
-      padding: 4px 10px;
-      border-radius: 4px;
-      opacity: 0;
-      transition: opacity 0.2s;
-      pointer-events: none;
+    }
+
+    .header-install-icon {
+      width: 14px;
+      height: 14px;
+      opacity: 0.5;
+    }
+
+    /* ── Scroll-Snap Container ────────────────────── */
+
+    .snap-container {
+      height: 100vh;
+      overflow-y: auto;
+      scroll-snap-type: y mandatory;
+      scroll-behavior: smooth;
+    }
+
+    /* ── Section ──────────────────────────────────── */
+
+    .section {
+      height: 100vh;
+      scroll-snap-align: start;
       display: flex;
-      align-items: center;
-      gap: 5px;
-    }
-
-    .card:hover .card-expand-hint {
-      opacity: 1;
-    }
-
-    .card-expand-hint svg {
-      width: 12px;
-      height: 12px;
-    }
-
-    .card-body {
-      padding: 20px;
-    }
-
-    .card-title {
-      font-size: 1.15rem;
-      font-weight: 700;
-      color: var(--accent-cyan);
-      margin-bottom: 6px;
-    }
-
-    .card-desc {
-      font-size: 0.82rem;
-      color: var(--text-secondary);
-      line-height: 1.5;
-      margin-bottom: 12px;
-    }
-
-    .card-tools {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-    }
-
-    .card-tools span {
-      font-size: 0.7rem;
-      color: var(--text-secondary);
-      background: rgba(139, 143, 163, 0.08);
-      border: 1px solid rgba(139, 143, 163, 0.12);
-      border-radius: 4px;
-      padding: 3px 8px;
-      font-family: var(--font-mono);
-    }
-
-    /* ── Lightbox ─────────────────────────────────── */
-
-    .lightbox {
-      display: none;
-      position: fixed;
-      inset: 0;
-      z-index: 1000;
-      background: rgba(6, 7, 10, 0.92);
-      backdrop-filter: blur(8px);
-      -webkit-backdrop-filter: blur(8px);
       flex-direction: column;
       align-items: center;
       justify-content: center;
-    }
-
-    .lightbox.open {
-      display: flex;
-    }
-
-    .lightbox-header {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 16px;
-      padding: 16px 24px;
-      width: 100%;
-      max-width: 1100px;
-    }
-
-    .lightbox-title {
-      font-size: 1.1rem;
-      font-weight: 700;
-      color: var(--accent-cyan);
-    }
-
-    .lightbox-toggle {
-      display: flex;
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: 6px;
+      position: relative;
       overflow: hidden;
+      padding: 80px 24px 40px;
     }
 
-    .lightbox-toggle button {
-      font-family: var(--font-mono);
-      font-size: 0.75rem;
-      font-weight: 700;
-      padding: 6px 16px;
-      border: none;
-      cursor: pointer;
-      color: var(--text-secondary);
-      background: transparent;
-      transition: background 0.15s, color 0.15s;
-    }
+    /* ── Glow Effect ──────────────────────────────── */
 
-    .lightbox-toggle button.active {
-      background: var(--accent-cyan);
-      color: var(--bg-primary);
-    }
-
-    .lightbox-toggle button:not(.active):hover {
-      background: var(--bg-card-hover);
-      color: var(--text-primary);
-    }
-
-    .lightbox-close {
+    .section-glow {
       position: absolute;
-      top: 16px;
-      right: 20px;
-      background: none;
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      color: var(--text-secondary);
+      width: 70%;
+      height: 60%;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -55%);
+      border-radius: 50%;
+      pointer-events: none;
+      filter: blur(40px);
+      opacity: 0;
+      transition: opacity 0.8s ease;
+    }
+
+    .section.is-active .section-glow {
+      opacity: 1;
+    }
+
+    .glow-magenta {
+      background: radial-gradient(ellipse, rgba(217, 70, 239, 0.15) 0%, transparent 70%);
+    }
+
+    .glow-cyan {
+      background: radial-gradient(ellipse, rgba(6, 182, 212, 0.15) 0%, transparent 70%);
+    }
+
+    /* ── Screenshot ───────────────────────────────── */
+
+    .screenshot-wrapper {
+      position: relative;
+      z-index: 2;
       cursor: pointer;
-      width: 40px;
-      height: 40px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      transition: color 0.2s, border-color 0.2s;
-      font-family: var(--font-mono);
-      font-size: 1.2rem;
+      transition: transform 0.4s ease;
     }
 
-    .lightbox-close:hover {
-      color: var(--text-primary);
-      border-color: var(--text-secondary);
+    .screenshot-wrapper:hover {
+      transform: scale(1.015);
     }
 
-    .lightbox-image-wrap {
-      flex: 1;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      width: 100%;
-      max-width: 1100px;
-      padding: 0 24px 16px;
-      min-height: 0;
-    }
-
-    .lightbox-image-wrap picture {
+    .screenshot-wrapper picture {
       display: block;
-      max-width: 100%;
-      max-height: 100%;
     }
 
-    .lightbox-image-wrap img {
+    .screenshot {
       display: block;
-      max-width: 100%;
-      max-height: calc(100vh - 140px);
-      object-fit: contain;
+      max-width: 85vw;
+      max-height: 60vh;
+      width: auto;
+      height: auto;
       border-radius: 8px;
       border: 1px solid var(--border);
+      object-fit: contain;
     }
 
-    .lightbox-nav {
-      position: absolute;
+    .glow-magenta ~ .screenshot-wrapper .screenshot {
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 80px rgba(217, 70, 239, 0.08);
+    }
+
+    .glow-cyan ~ .screenshot-wrapper .screenshot {
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 80px rgba(6, 182, 212, 0.08);
+    }
+
+    /* ── Section Text ─────────────────────────────── */
+
+    .section-info {
+      position: relative;
+      z-index: 2;
+      text-align: center;
+      margin-top: 28px;
+      max-width: 640px;
+    }
+
+    .section-title {
+      font-size: clamp(1.3rem, 3vw, 1.75rem);
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-bottom: 6px;
+    }
+
+    .title-magenta { color: var(--accent-magenta); }
+    .title-cyan { color: var(--accent-cyan); }
+
+    .section-desc {
+      font-size: clamp(0.78rem, 1.5vw, 0.9rem);
+      color: var(--text-secondary);
+      margin-bottom: 14px;
+      line-height: 1.5;
+    }
+
+    .section-tools {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .tool-pill {
+      padding: 4px 12px;
+      font-size: 0.72rem;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      color: var(--text-secondary);
+      background: var(--bg-card);
+      white-space: nowrap;
+    }
+
+    /* ── Dot Navigation ───────────────────────────── */
+
+    .dot-nav {
+      position: fixed;
+      right: 24px;
       top: 50%;
       transform: translateY(-50%);
-      background: rgba(19, 20, 29, 0.8);
-      border: 1px solid var(--border);
-      color: var(--text-secondary);
-      cursor: pointer;
-      width: 44px;
-      height: 44px;
+      z-index: 90;
       display: flex;
-      align-items: center;
-      justify-content: center;
-      border-radius: 8px;
-      transition: color 0.2s, border-color 0.2s, background 0.2s;
-    }
-
-    .lightbox-nav:hover {
-      color: var(--text-primary);
-      border-color: var(--accent-cyan);
-      background: rgba(19, 20, 29, 0.95);
-    }
-
-    .lightbox-nav svg {
-      width: 20px;
-      height: 20px;
-    }
-
-    .lightbox-prev { left: 16px; }
-    .lightbox-next { right: 16px; }
-
-    .lightbox-desc {
-      text-align: center;
-      padding: 0 24px 20px;
-      font-size: 0.78rem;
-      color: var(--text-secondary);
-      max-width: 600px;
-    }
-
-    /* ── CTA Section ─────────────────────────────── */
-
-    .cta {
-      text-align: center;
-      padding: 64px 24px 48px;
-      border-top: 1px solid var(--border);
-      max-width: var(--max-width);
-      margin: 0 auto;
-    }
-
-    .cta-install {
-      display: inline-flex;
+      flex-direction: column;
       align-items: center;
       gap: 12px;
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 14px 24px;
+    }
+
+    .dot-nav-item {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      border: 1.5px solid var(--text-secondary);
+      background: transparent;
       cursor: pointer;
-      transition: border-color 0.2s, background 0.2s;
+      transition: all 0.3s ease;
+      padding: 0;
       position: relative;
     }
 
-    .cta-install:hover {
+    .dot-nav-item:hover {
+      border-color: var(--text-primary);
+    }
+
+    .dot-nav-item.is-active {
+      background: var(--accent-magenta);
+      border-color: var(--accent-magenta);
+      transform: scale(1.3);
+    }
+
+    .dot-nav-item.is-active.dot-cyan {
+      background: var(--accent-cyan);
       border-color: var(--accent-cyan);
-      background: var(--bg-card-hover);
     }
 
-    .cta-install code {
+    .dot-nav-tooltip {
+      position: absolute;
+      right: 22px;
+      top: 50%;
+      transform: translateY(-50%);
+      padding: 4px 10px;
+      border-radius: 6px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      color: var(--text-primary);
       font-family: var(--font-mono);
-      font-size: 1rem;
-      color: var(--accent-cyan);
+      font-size: 0.7rem;
+      white-space: nowrap;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.2s;
     }
 
-    .cta-install:hover .copy-icon { color: var(--accent-cyan); }
+    .dot-nav-item:hover .dot-nav-tooltip {
+      opacity: 1;
+    }
 
-    .cta-requirements {
-      margin-top: 20px;
-      font-size: 0.78rem;
+    /* ── CTA Section ──────────────────────────────── */
+
+    .cta-section {
+      height: 100vh;
+      scroll-snap-align: start;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      overflow: hidden;
+      padding: 80px 24px 40px;
+    }
+
+    .cta-glow {
+      position: absolute;
+      width: 50%;
+      height: 50%;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: radial-gradient(
+        ellipse,
+        rgba(217, 70, 239, 0.1) 0%,
+        rgba(6, 182, 212, 0.05) 40%,
+        transparent 70%
+      );
+      filter: blur(60px);
+      pointer-events: none;
+    }
+
+    .cta-content {
+      position: relative;
+      z-index: 2;
+      text-align: center;
+    }
+
+    .cta-logo {
+      width: 96px;
+      height: 96px;
+      border-radius: 18px;
+      margin-bottom: 20px;
+    }
+
+    .cta-heading {
+      font-size: clamp(1.8rem, 4vw, 2.8rem);
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      margin-bottom: 12px;
+    }
+
+    .cta-heading .magenta { color: var(--accent-magenta); }
+    .cta-heading .cyan { color: var(--accent-cyan); }
+
+    .cta-sub {
+      font-size: clamp(0.85rem, 1.8vw, 1.05rem);
       color: var(--text-secondary);
+      margin-bottom: 32px;
+      max-width: 500px;
+    }
+
+    .cta-install-box {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 24px;
+      border-radius: 10px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      font-size: 1rem;
+      cursor: pointer;
+      transition: border-color 0.3s, box-shadow 0.3s;
+    }
+
+    .cta-install-box:hover {
+      border-color: var(--accent-magenta);
+      box-shadow: 0 0 30px rgba(217, 70, 239, 0.1);
+    }
+
+    .cta-install-box code {
+      color: var(--text-primary);
+      font-family: var(--font-mono);
+    }
+
+    .cta-install-box .copy-icon {
+      width: 16px;
+      height: 16px;
+      color: var(--text-secondary);
+      transition: color 0.2s;
+    }
+
+    .cta-install-box:hover .copy-icon {
+      color: var(--accent-cyan);
     }
 
     .cta-links {
       margin-top: 24px;
       display: flex;
-      justify-content: center;
       gap: 24px;
+      justify-content: center;
     }
 
-    .cta-links a {
+    .cta-link {
+      color: var(--text-secondary);
+      text-decoration: none;
       font-size: 0.85rem;
+      transition: color 0.2s;
+    }
+
+    .cta-link:hover {
       color: var(--accent-cyan);
-      text-decoration: none;
-      transition: color 0.2s;
     }
 
-    .cta-links a:hover { color: var(--accent-magenta); }
+    /* ── Lightbox ─────────────────────────────────── */
 
-    /* ── Footer ───────────────────────────────────── */
+    .lightbox {
+      position: fixed;
+      inset: 0;
+      z-index: 200;
+      background: rgba(12, 13, 20, 0.95);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s ease;
+    }
 
-    .footer {
-      text-align: center;
-      padding: 32px 24px;
-      border-top: 1px solid var(--border);
+    .lightbox.is-open {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .lightbox-inner {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .lightbox-img {
+      max-width: 95vw;
+      max-height: 88vh;
+      width: auto;
+      height: auto;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      object-fit: contain;
+      transition: opacity 0.25s ease;
+    }
+
+    .lightbox-controls {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .lightbox-btn {
+      padding: 6px 14px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--bg-card);
+      color: var(--text-secondary);
+      font-family: var(--font-mono);
       font-size: 0.75rem;
+      cursor: pointer;
+      transition: border-color 0.2s, color 0.2s;
+    }
+
+    .lightbox-btn:hover {
+      border-color: var(--accent-cyan);
+      color: var(--text-primary);
+    }
+
+    .lightbox-btn.is-active {
+      border-color: var(--accent-magenta);
+      color: var(--accent-magenta);
+    }
+
+    .lightbox-close {
+      position: absolute;
+      top: -48px;
+      right: 0;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      border: 1px solid var(--border);
+      background: var(--bg-card);
+      color: var(--text-secondary);
+      font-size: 1.1rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: border-color 0.2s, color 0.2s;
+    }
+
+    .lightbox-close:hover {
+      border-color: var(--accent-magenta);
+      color: var(--text-primary);
+    }
+
+    .lightbox-title {
+      font-size: 0.85rem;
       color: var(--text-secondary);
     }
 
-    .footer a {
+    /* ── Scroll Hint ──────────────────────────────── */
+
+    .scroll-hint {
+      position: absolute;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 3;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
       color: var(--text-secondary);
-      text-decoration: none;
-      transition: color 0.2s;
+      font-size: 0.7rem;
+      opacity: 0.6;
+      animation: scrollPulse 2s ease-in-out infinite;
     }
 
-    .footer a:hover { color: var(--accent-cyan); }
-
-    .footer-sep {
-      margin: 0 12px;
-      opacity: 0.4;
+    .scroll-hint svg {
+      width: 20px;
+      height: 20px;
     }
 
-    /* ── Responsive ───────────────────────────────── */
+    @keyframes scrollPulse {
+      0%, 100% { opacity: 0.6; transform: translateX(-50%) translateY(0); }
+      50% { opacity: 1; transform: translateX(-50%) translateY(4px); }
+    }
 
-    @media (max-width: 1024px) {
-      .gallery-grid {
-        grid-template-columns: repeat(2, 1fr);
+    /* ── Entrance Animations ──────────────────────── */
+
+    .section .screenshot-wrapper,
+    .section .section-info {
+      opacity: 0;
+      transform: translateY(20px);
+      transition: opacity 0.6s ease, transform 0.6s ease;
+    }
+
+    .section .section-info {
+      transition-delay: 0.15s;
+    }
+
+    .section.is-active .screenshot-wrapper,
+    .section.is-active .section-info {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    /* ── Mobile ───────────────────────────────────── */
+
+    @media (max-width: 768px) {
+      .dot-nav {
+        display: none;
+      }
+
+      .section {
+        padding: 72px 16px 32px;
+        height: 100vh;
+      }
+
+      .screenshot {
+        max-width: 95vw;
+        max-height: 50vh;
+      }
+
+      .section-glow {
+        width: 90%;
+        height: 50%;
+        filter: blur(30px);
+      }
+
+      .section-info {
+        margin-top: 20px;
+      }
+
+      .header-install {
+        display: none;
+      }
+
+      .header {
+        padding: 10px 16px;
+      }
+
+      .header-logo {
+        width: 36px;
+        height: 36px;
+        border-radius: 8px;
+      }
+
+      .header-title {
+        font-size: 1rem;
+      }
+
+      .cta-install-box {
+        padding: 12px 18px;
+        font-size: 0.85rem;
+      }
+
+      .lightbox-img {
+        max-width: 98vw;
+        max-height: 85vh;
+      }
+
+      .lightbox-img.is-minimal {
+        max-width: 90vw;
+        max-height: 75vh;
       }
     }
 
-    @media (max-width: 640px) {
-      .hero { padding: 48px 16px 36px; }
-      .hero-logo { width: 96px; height: 96px; }
-      .gallery { padding: 0 16px 56px; }
-      .gallery-grid { grid-template-columns: 1fr; }
-      .lightbox-nav { display: none; }
-      .lightbox-header { padding: 12px 16px; }
-      .lightbox-image-wrap { padding: 0 12px 12px; }
+    @media (max-width: 480px) {
+      .section-title {
+        font-size: 1.15rem;
+      }
+
+      .section-desc {
+        font-size: 0.75rem;
+      }
+
+      .tool-pill {
+        font-size: 0.65rem;
+        padding: 3px 8px;
+      }
+    }
+
+    /* ── Scrollbar ────────────────────────────────── */
+
+    .snap-container::-webkit-scrollbar {
+      width: 0;
+    }
+
+    .snap-container {
+      scrollbar-width: none;
     }
   </style>
 </head>
 <body>
 
-  <!-- ── Hero ──────────────────────────────────────── -->
-  <section class="hero">
-    <img src="../images/logo.png" alt="summon logo" class="hero-logo">
-    <p class="hero-tagline">One command. Your entire workspace.</p>
-    <div class="hero-install" onclick="copyInstall(this)" role="button" tabindex="0" aria-label="Copy install command">
-      <code>npm i -g summon-ws</code>
-      <svg class="copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-      <span class="copy-feedback">Copied!</span>
+  <!-- Fixed Header -->
+  <header class="header">
+    <div class="header-left">
+      <img src="../images/logo.png" alt="summon" class="header-logo" width="48" height="48">
+      <span class="header-title">Summon your Ghostty workspace</span>
     </div>
-    <p class="hero-subtitle">Click any layout to view full-size. Toggle between minimal and full configurations.</p>
-  </section>
+    <button class="header-install" onclick="copyInstall(this)" title="Click to copy">
+      <svg class="header-install-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+      <span>npm i -g summon-ws</span>
+    </button>
+  </header>
 
-  <!-- ── Gallery ───────────────────────────────────── -->
-  <section class="gallery">
-    <div class="gallery-grid" id="gallery-grid"></div>
-  </section>
+  <!-- Dot Navigation -->
+  <nav class="dot-nav" id="dotNav" aria-label="Section navigation">
+    <button class="dot-nav-item" data-index="0" aria-label="fullstack">
+      <span class="dot-nav-tooltip">fullstack</span>
+    </button>
+    <button class="dot-nav-item dot-cyan" data-index="1" aria-label="backend">
+      <span class="dot-nav-tooltip">backend</span>
+    </button>
+    <button class="dot-nav-item" data-index="2" aria-label="devops">
+      <span class="dot-nav-tooltip">devops</span>
+    </button>
+    <button class="dot-nav-item dot-cyan" data-index="3" aria-label="data">
+      <span class="dot-nav-tooltip">data</span>
+    </button>
+    <button class="dot-nav-item" data-index="4" aria-label="systems">
+      <span class="dot-nav-tooltip">systems</span>
+    </button>
+    <button class="dot-nav-item dot-cyan" data-index="5" aria-label="frontend">
+      <span class="dot-nav-tooltip">frontend</span>
+    </button>
+    <button class="dot-nav-item" data-index="6" aria-label="network">
+      <span class="dot-nav-tooltip">network</span>
+    </button>
+    <button class="dot-nav-item dot-cyan" data-index="7" aria-label="ml">
+      <span class="dot-nav-tooltip">ml</span>
+    </button>
+    <button class="dot-nav-item" data-index="8" aria-label="flex">
+      <span class="dot-nav-tooltip">flex</span>
+    </button>
+    <button class="dot-nav-item dot-cyan" data-index="9" aria-label="dual-editor">
+      <span class="dot-nav-tooltip">dual-editor</span>
+    </button>
+    <button class="dot-nav-item" data-index="10" aria-label="install" style="margin-top: 4px; width: 8px; height: 8px; border-style: dashed;">
+      <span class="dot-nav-tooltip">install</span>
+    </button>
+  </nav>
 
-  <!-- ── Lightbox ──────────────────────────────────── -->
-  <div class="lightbox" id="lightbox">
-    <div class="lightbox-header">
-      <span class="lightbox-title" id="lb-title"></span>
-      <div class="lightbox-toggle">
-        <button id="lb-btn-min" onclick="setLightboxMode('min')">Minimal</button>
-        <button id="lb-btn-max" onclick="setLightboxMode('max')" class="active">Full</button>
+  <!-- Scroll-Snap Container -->
+  <div class="snap-container" id="snapContainer">
+
+    <!-- 1. fullstack -->
+    <section class="section" id="section-0" data-id="fullstack">
+      <div class="section-glow glow-magenta"></div>
+      <div class="screenshot-wrapper" onclick="openLightbox(0)">
+        <picture>
+          <source srcset="../images/fullstack-max.webp" type="image/webp">
+          <img class="screenshot" src="../images/fullstack-max.png" alt="fullstack workspace layout" loading="eager" width="1920" height="1080">
+        </picture>
       </div>
-    </div>
-    <div class="lightbox-image-wrap">
-      <picture id="lb-picture">
-        <source id="lb-source" srcset="" type="image/webp">
-        <img id="lb-img" src="" alt="">
-      </picture>
-    </div>
-    <p class="lightbox-desc" id="lb-desc"></p>
-    <button class="lightbox-close" onclick="closeLightbox()" aria-label="Close">&times;</button>
-    <button class="lightbox-nav lightbox-prev" onclick="navLightbox(-1)" aria-label="Previous">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-    </button>
-    <button class="lightbox-nav lightbox-next" onclick="navLightbox(1)" aria-label="Next">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>
-    </button>
+      <div class="section-info">
+        <h2 class="section-title title-magenta">fullstack</h2>
+        <p class="section-desc">Full-stack development with editor, shell, and git in one view.</p>
+        <div class="section-tools">
+          <span class="tool-pill">Claude</span>
+          <span class="tool-pill">lazygit</span>
+          <span class="tool-pill">btop</span>
+          <span class="tool-pill">shell</span>
+        </div>
+      </div>
+      <div class="scroll-hint">
+        scroll
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M19 12l-7 7-7-7"/></svg>
+      </div>
+    </section>
+
+    <!-- 2. backend -->
+    <section class="section" id="section-1" data-id="backend">
+      <div class="section-glow glow-cyan"></div>
+      <div class="screenshot-wrapper" onclick="openLightbox(1)">
+        <picture>
+          <source srcset="../images/backend-max.webp" type="image/webp">
+          <img class="screenshot" src="../images/backend-max.png" alt="backend workspace layout" loading="lazy" width="1920" height="1080">
+        </picture>
+      </div>
+      <div class="section-info">
+        <h2 class="section-title title-cyan">backend</h2>
+        <p class="section-desc">Server and API development with code review and monitoring.</p>
+        <div class="section-tools">
+          <span class="tool-pill">Claude</span>
+          <span class="tool-pill">lazygit</span>
+          <span class="tool-pill">btop</span>
+          <span class="tool-pill">docs</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3. devops -->
+    <section class="section" id="section-2" data-id="devops">
+      <div class="section-glow glow-magenta"></div>
+      <div class="screenshot-wrapper" onclick="openLightbox(2)">
+        <picture>
+          <source srcset="../images/devops-max.webp" type="image/webp">
+          <img class="screenshot" src="../images/devops-max.png" alt="devops workspace layout" loading="lazy" width="1920" height="1080">
+        </picture>
+      </div>
+      <div class="section-info">
+        <h2 class="section-title title-magenta">devops</h2>
+        <p class="section-desc">Infrastructure, containers, and deployment with live monitoring.</p>
+        <div class="section-tools">
+          <span class="tool-pill">Vim</span>
+          <span class="tool-pill">Docker</span>
+          <span class="tool-pill">btop</span>
+          <span class="tool-pill">logs</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4. data -->
+    <section class="section" id="section-3" data-id="data">
+      <div class="section-glow glow-cyan"></div>
+      <div class="screenshot-wrapper" onclick="openLightbox(3)">
+        <picture>
+          <source srcset="../images/data-max.webp" type="image/webp">
+          <img class="screenshot" src="../images/data-max.png" alt="data workspace layout" loading="lazy" width="1920" height="1080">
+        </picture>
+      </div>
+      <div class="section-info">
+        <h2 class="section-title title-cyan">data</h2>
+        <p class="section-desc">Data science workspace with file browsing, REPL, and visualization.</p>
+        <div class="section-tools">
+          <span class="tool-pill">Claude</span>
+          <span class="tool-pill">Python</span>
+          <span class="tool-pill">yazi</span>
+          <span class="tool-pill">btop</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5. systems -->
+    <section class="section" id="section-4" data-id="systems">
+      <div class="section-glow glow-magenta"></div>
+      <div class="screenshot-wrapper" onclick="openLightbox(4)">
+        <picture>
+          <source srcset="../images/systems-max.webp" type="image/webp">
+          <img class="screenshot" src="../images/systems-max.png" alt="systems workspace layout" loading="lazy" width="1920" height="1080">
+        </picture>
+      </div>
+      <div class="section-info">
+        <h2 class="section-title title-magenta">systems</h2>
+        <p class="section-desc">Systems programming with performance metrics and deep monitoring.</p>
+        <div class="section-tools">
+          <span class="tool-pill">Editor</span>
+          <span class="tool-pill">btop</span>
+          <span class="tool-pill">lazygit</span>
+          <span class="tool-pill">metrics</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6. frontend -->
+    <section class="section" id="section-5" data-id="frontend">
+      <div class="section-glow glow-cyan"></div>
+      <div class="screenshot-wrapper" onclick="openLightbox(5)">
+        <picture>
+          <source srcset="../images/frontend-max.webp" type="image/webp">
+          <img class="screenshot" src="../images/frontend-max.png" alt="frontend workspace layout" loading="lazy" width="1920" height="1080">
+        </picture>
+      </div>
+      <div class="section-info">
+        <h2 class="section-title title-cyan">frontend</h2>
+        <p class="section-desc">Web UI development with test runner and live build output.</p>
+        <div class="section-tools">
+          <span class="tool-pill">Claude</span>
+          <span class="tool-pill">npm</span>
+          <span class="tool-pill">lazygit</span>
+          <span class="tool-pill">btop</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7. network -->
+    <section class="section" id="section-6" data-id="network">
+      <div class="section-glow glow-magenta"></div>
+      <div class="screenshot-wrapper" onclick="openLightbox(6)">
+        <picture>
+          <source srcset="../images/network-max.webp" type="image/webp">
+          <img class="screenshot" src="../images/network-max.png" alt="network workspace layout" loading="lazy" width="1920" height="1080">
+        </picture>
+      </div>
+      <div class="section-info">
+        <h2 class="section-title title-magenta">network</h2>
+        <p class="section-desc">Network monitoring with bandwidth charts and traffic analysis.</p>
+        <div class="section-tools">
+          <span class="tool-pill">bandwhich</span>
+          <span class="tool-pill">btop</span>
+          <span class="tool-pill">tcpdump</span>
+          <span class="tool-pill">logs</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8. ml -->
+    <section class="section" id="section-7" data-id="ml">
+      <div class="section-glow glow-cyan"></div>
+      <div class="screenshot-wrapper" onclick="openLightbox(7)">
+        <picture>
+          <source srcset="../images/ml-max.webp" type="image/webp">
+          <img class="screenshot" src="../images/ml-max.png" alt="ml workspace layout" loading="lazy" width="1920" height="1080">
+        </picture>
+      </div>
+      <div class="section-info">
+        <h2 class="section-title title-cyan">ml</h2>
+        <p class="section-desc">Machine learning with training visualization and resource monitoring.</p>
+        <div class="section-tools">
+          <span class="tool-pill">Claude</span>
+          <span class="tool-pill">training logs</span>
+          <span class="tool-pill">btop</span>
+          <span class="tool-pill">lazygit</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9. flex -->
+    <section class="section" id="section-8" data-id="flex">
+      <div class="section-glow glow-magenta"></div>
+      <div class="screenshot-wrapper" onclick="openLightbox(8)">
+        <picture>
+          <source srcset="../images/flex-max.webp" type="image/webp">
+          <img class="screenshot" src="../images/flex-max.png" alt="flex workspace layout" loading="lazy" width="1920" height="1080">
+        </picture>
+      </div>
+      <div class="section-info">
+        <h2 class="section-title title-magenta">flex</h2>
+        <p class="section-desc">Creative multi-tool workspace -- because your terminal can be fun too.</p>
+        <div class="section-tools">
+          <span class="tool-pill">cmatrix</span>
+          <span class="tool-pill">btop</span>
+          <span class="tool-pill">neofetch</span>
+          <span class="tool-pill">Claude</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10. dual-editor -->
+    <section class="section" id="section-9" data-id="dual-editor">
+      <div class="section-glow glow-cyan"></div>
+      <div class="screenshot-wrapper" onclick="openLightbox(9)">
+        <picture>
+          <source srcset="../images/dual-editor-max.webp" type="image/webp">
+          <img class="screenshot" src="../images/dual-editor-max.png" alt="dual-editor workspace layout" loading="lazy" width="1920" height="1080">
+        </picture>
+      </div>
+      <div class="section-info">
+        <h2 class="section-title title-cyan">dual-editor</h2>
+        <p class="section-desc">Side-by-side editors for pair programming or code review.</p>
+        <div class="section-tools">
+          <span class="tool-pill">Claude</span>
+          <span class="tool-pill">Helix</span>
+          <span class="tool-pill">btop</span>
+          <span class="tool-pill">lazygit</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- CTA Section -->
+    <section class="cta-section" id="section-10">
+      <div class="cta-glow"></div>
+      <div class="cta-content">
+        <img src="../images/logo.png" alt="summon" class="cta-logo" width="96" height="96">
+        <h2 class="cta-heading"><span class="magenta">summon</span> your <span class="cyan">workspace</span></h2>
+        <p class="cta-sub">One command. Every pane, every tool, every time.</p>
+        <div class="cta-install-box" onclick="copyInstall(this)" title="Click to copy">
+          <code>npm i -g summon-ws</code>
+          <svg class="copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+        </div>
+        <div class="cta-links">
+          <a href="https://github.com/juan294/summon" class="cta-link" target="_blank" rel="noopener">GitHub</a>
+          <a href="https://www.npmjs.com/package/summon-ws" class="cta-link" target="_blank" rel="noopener">npm</a>
+        </div>
+      </div>
+    </section>
+
   </div>
 
-  <!-- ── CTA ───────────────────────────────────────── -->
-  <section class="cta">
-    <div class="cta-install" onclick="copyInstall(this)" role="button" tabindex="0" aria-label="Copy install command">
-      <code>npm i -g summon-ws</code>
-      <svg class="copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-      <span class="copy-feedback">Copied!</span>
+  <!-- Lightbox -->
+  <div class="lightbox" id="lightbox" onclick="closeLightboxBackdrop(event)">
+    <div class="lightbox-inner">
+      <button class="lightbox-close" onclick="closeLightbox()" aria-label="Close">&times;</button>
+      <img class="lightbox-img" id="lightboxImg" src="" alt="">
+      <div class="lightbox-controls">
+        <span class="lightbox-title" id="lightboxTitle"></span>
+        <button class="lightbox-btn" id="lightboxMinimal" onclick="setLightboxMode('min')">Minimal</button>
+        <button class="lightbox-btn is-active" id="lightboxFull" onclick="setLightboxMode('max')">Full</button>
+      </div>
     </div>
-    <p class="cta-requirements">Requires Node &ge; 18 &middot; macOS &middot; Ghostty terminal</p>
-    <div class="cta-links">
-      <a href="https://github.com/juan294/summon" target="_blank" rel="noopener">GitHub</a>
-      <a href="https://www.npmjs.com/package/summon-ws" target="_blank" rel="noopener">npm</a>
-    </div>
-  </section>
-
-  <!-- ── Footer ────────────────────────────────────── -->
-  <footer class="footer">
-    <a href="https://github.com/juan294/summon" target="_blank" rel="noopener">GitHub</a>
-    <span class="footer-sep">&middot;</span>
-    <a href="https://www.npmjs.com/package/summon-ws" target="_blank" rel="noopener">npm</a>
-    <span class="footer-sep">&middot;</span>
-    <a href="https://github.com/juan294/summon#readme" target="_blank" rel="noopener">Docs</a>
-  </footer>
+  </div>
 
   <script>
-    /* ── Card Data ──────────────────────────────────── */
-    var CARDS = [
-      { id: 'fullstack', title: 'Fullstack', desc: 'Full-stack development with editor, shell, and git in one view.', tools: ['Claude', 'lazygit', 'btop', 'shell'] },
-      { id: 'backend', title: 'Backend', desc: 'Server and API development with code review and monitoring.', tools: ['Claude', 'lazygit', 'btop', 'docs'] },
-      { id: 'devops', title: 'DevOps', desc: 'Infrastructure, containers, and deployment with live monitoring.', tools: ['Vim', 'Docker', 'btop', 'logs'] },
-      { id: 'data', title: 'Data', desc: 'Data science workspace with file browsing, REPL, and visualization.', tools: ['Claude', 'Python', 'yazi', 'btop'] },
-      { id: 'systems', title: 'Systems', desc: 'Systems programming with performance metrics and deep monitoring.', tools: ['Editor', 'btop', 'lazygit', 'metrics'] },
-      { id: 'frontend', title: 'Frontend', desc: 'Web UI development with test runner and live build output.', tools: ['Claude', 'npm', 'lazygit', 'btop'] },
-      { id: 'network', title: 'Network', desc: 'Network monitoring with bandwidth charts and traffic analysis.', tools: ['bandwhich', 'btop', 'tcpdump', 'logs'] },
-      { id: 'ml', title: 'ML', desc: 'Machine learning with training visualization and resource monitoring.', tools: ['Claude', 'training logs', 'btop', 'lazygit'] },
-      { id: 'flex', title: 'Flex', desc: 'Creative multi-tool workspace \u2014 because your terminal can be fun too.', tools: ['cmatrix', 'btop', 'neofetch', 'Claude'] },
-      { id: 'dual-editor', title: 'Dual Editor', desc: 'Side-by-side editors for pair programming or code review.', tools: ['Claude', 'Helix', 'btop', 'lazygit'] }
+    // ── Layout Data ──────────────────────────────────
+    var layouts = [
+      { id: 'fullstack', title: 'fullstack' },
+      { id: 'backend', title: 'backend' },
+      { id: 'devops', title: 'devops' },
+      { id: 'data', title: 'data' },
+      { id: 'systems', title: 'systems' },
+      { id: 'frontend', title: 'frontend' },
+      { id: 'network', title: 'network' },
+      { id: 'ml', title: 'ml' },
+      { id: 'flex', title: 'flex' },
+      { id: 'dual-editor', title: 'dual-editor' }
     ];
 
-    /* ── Render Cards ──────────────────────────────── */
-    var grid = document.getElementById('gallery-grid');
+    var container = document.getElementById('snapContainer');
+    var dots = document.querySelectorAll('.dot-nav-item');
+    var sections = container.querySelectorAll('.section, .cta-section');
+    var lightboxEl = document.getElementById('lightbox');
+    var lightboxImg = document.getElementById('lightboxImg');
+    var lightboxTitle = document.getElementById('lightboxTitle');
+    var lightboxMinBtn = document.getElementById('lightboxMinimal');
+    var lightboxFullBtn = document.getElementById('lightboxFull');
+    var currentSection = 0;
+    var currentLightboxIndex = 0;
+    var currentLightboxMode = 'max';
 
-    CARDS.forEach(function(card, idx) {
-      var el = document.createElement('article');
-      el.className = 'card';
-      el.setAttribute('data-index', idx);
-      el.innerHTML =
-        '<div class="card-image-wrap">' +
-          '<picture>' +
-            '<source srcset="../images/' + card.id + '-max.webp" type="image/webp">' +
-            '<img src="../images/' + card.id + '-max.png" alt="' + card.title + ' workspace layout" loading="lazy">' +
-          '</picture>' +
-          '<span class="card-expand-hint">' +
-            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>' +
-            'Click to expand' +
-          '</span>' +
-        '</div>' +
-        '<div class="card-body">' +
-          '<h2 class="card-title">' + card.title + '</h2>' +
-          '<p class="card-desc">' + card.desc + '</p>' +
-          '<div class="card-tools">' +
-            card.tools.map(function(t) { return '<span>' + t + '</span>'; }).join('') +
-          '</div>' +
-        '</div>';
-      el.addEventListener('click', function() { openLightbox(idx); });
-      grid.appendChild(el);
+    // ── Scroll Observer ──────────────────────────────
+    var observer = new IntersectionObserver(function(entries) {
+      entries.forEach(function(entry) {
+        if (entry.isIntersecting) {
+          var index = Array.prototype.indexOf.call(sections, entry.target);
+          if (index !== -1) {
+            currentSection = index;
+            updateDots(index);
+            updateActiveSections(index);
+          }
+        }
+      });
+    }, {
+      root: container,
+      threshold: 0.6
     });
 
-    /* ── Lightbox ──────────────────────────────────── */
-    var lightbox = document.getElementById('lightbox');
-    var lbTitle = document.getElementById('lb-title');
-    var lbDesc = document.getElementById('lb-desc');
-    var lbImg = document.getElementById('lb-img');
-    var lbSource = document.getElementById('lb-source');
-    var lbBtnMin = document.getElementById('lb-btn-min');
-    var lbBtnMax = document.getElementById('lb-btn-max');
-    var currentIndex = 0;
-    var currentMode = 'max';
+    sections.forEach(function(section) {
+      observer.observe(section);
+    });
 
-    function openLightbox(idx) {
-      currentIndex = idx;
-      currentMode = 'max';
-      updateLightbox();
-      lightbox.classList.add('open');
+    function updateDots(activeIndex) {
+      dots.forEach(function(dot, i) {
+        if (i === activeIndex) {
+          dot.classList.add('is-active');
+        } else {
+          dot.classList.remove('is-active');
+        }
+      });
+    }
+
+    function updateActiveSections(activeIndex) {
+      sections.forEach(function(section, i) {
+        if (i === activeIndex) {
+          section.classList.add('is-active');
+        } else {
+          section.classList.remove('is-active');
+        }
+      });
+    }
+
+    // Activate first section on load
+    sections[0].classList.add('is-active');
+    dots[0].classList.add('is-active');
+
+    // ── Dot Navigation Click ─────────────────────────
+    dots.forEach(function(dot) {
+      dot.addEventListener('click', function() {
+        var index = parseInt(this.dataset.index, 10);
+        sections[index].scrollIntoView({ behavior: 'smooth' });
+      });
+    });
+
+    // ── Lightbox ─────────────────────────────────────
+    function openLightbox(index) {
+      currentLightboxIndex = index;
+      currentLightboxMode = 'max';
+      updateLightboxImage();
+      lightboxEl.classList.add('is-open');
       document.body.style.overflow = 'hidden';
     }
 
-    function closeLightbox() {
-      lightbox.classList.remove('open');
-      document.body.style.overflow = '';
-    }
-
-    function navLightbox(dir) {
-      currentIndex = (currentIndex + dir + CARDS.length) % CARDS.length;
-      updateLightbox();
-    }
-
-    function setLightboxMode(mode) {
-      currentMode = mode;
-      updateLightbox();
-    }
-
-    function updateLightbox() {
-      var card = CARDS[currentIndex];
-      lbTitle.textContent = card.title;
-      lbDesc.textContent = card.desc;
-      lbSource.setAttribute('srcset', '../images/' + card.id + '-' + currentMode + '.webp');
-      lbImg.src = '../images/' + card.id + '-' + currentMode + '.png';
-      lbImg.alt = card.title + ' ' + currentMode + ' layout';
-      lbBtnMin.className = currentMode === 'min' ? 'active' : '';
-      lbBtnMax.className = currentMode === 'max' ? 'active' : '';
-    }
-
-    /* Close on backdrop click */
-    lightbox.addEventListener('click', function(e) {
-      if (e.target === lightbox) closeLightbox();
-    });
-
-    /* Keyboard navigation */
-    document.addEventListener('keydown', function(e) {
-      if (!lightbox.classList.contains('open')) return;
-      if (e.key === 'Escape') closeLightbox();
-      else if (e.key === 'ArrowLeft') navLightbox(-1);
-      else if (e.key === 'ArrowRight') navLightbox(1);
-      else if (e.key === 'm' || e.key === '1') setLightboxMode('min');
-      else if (e.key === 'f' || e.key === '2') setLightboxMode('max');
-    });
-
-    /* ── Copy Install Command ──────────────────────── */
-    function copyInstall(el) {
-      var text = 'npm i -g summon-ws';
-      var feedback = el.querySelector('.copy-feedback');
-
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(text).then(function() {
-          showFeedback(feedback);
-        });
+    function updateLightboxImage() {
+      var layout = layouts[currentLightboxIndex];
+      var src = '../images/' + layout.id + '-' + currentLightboxMode + '.png';
+      lightboxImg.style.opacity = '0';
+      setTimeout(function() {
+        lightboxImg.src = src;
+        lightboxImg.alt = layout.title + ' ' + currentLightboxMode + ' layout';
+        lightboxTitle.textContent = layout.title;
+        lightboxImg.style.opacity = '1';
+      }, 150);
+      if (currentLightboxMode === 'min') {
+        lightboxMinBtn.classList.add('is-active');
+        lightboxFullBtn.classList.remove('is-active');
       } else {
-        var ta = document.createElement('textarea');
-        ta.value = text;
-        ta.style.position = 'fixed';
-        ta.style.opacity = '0';
-        document.body.appendChild(ta);
-        ta.select();
-        try { document.execCommand('copy'); } catch (_) {}
-        document.body.removeChild(ta);
-        showFeedback(feedback);
+        lightboxMinBtn.classList.remove('is-active');
+        lightboxFullBtn.classList.add('is-active');
       }
     }
 
-    function showFeedback(el) {
-      el.classList.add('show');
-      setTimeout(function() { el.classList.remove('show'); }, 1200);
+    function setLightboxMode(mode) {
+      if (mode === currentLightboxMode) return;
+      currentLightboxMode = mode;
+      updateLightboxImage();
     }
 
-    document.querySelectorAll('.hero-install, .cta-install').forEach(function(btn) {
-      btn.addEventListener('keydown', function(e) {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          copyInstall(btn);
+    function closeLightbox() {
+      lightboxEl.classList.remove('is-open');
+      document.body.style.overflow = '';
+    }
+
+    function closeLightboxBackdrop(e) {
+      if (e.target === lightboxEl) {
+        closeLightbox();
+      }
+    }
+
+    // ESC to close lightbox
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') {
+        closeLightbox();
+      }
+    });
+
+    // ── Keyboard navigation ──────────────────────────
+    document.addEventListener('keydown', function(e) {
+      if (lightboxEl.classList.contains('is-open')) return;
+      if (e.key === 'ArrowDown' || e.key === 'j') {
+        e.preventDefault();
+        var next = Math.min(currentSection + 1, sections.length - 1);
+        sections[next].scrollIntoView({ behavior: 'smooth' });
+      } else if (e.key === 'ArrowUp' || e.key === 'k') {
+        e.preventDefault();
+        var prev = Math.max(currentSection - 1, 0);
+        sections[prev].scrollIntoView({ behavior: 'smooth' });
+      }
+    });
+
+    // ── Copy Install ─────────────────────────────────
+    function copyInstall(el) {
+      navigator.clipboard.writeText('npm i -g summon-ws').then(function() {
+        var original = el.querySelector('span, code');
+        if (original) {
+          var text = original.textContent;
+          original.textContent = 'copied!';
+          setTimeout(function() { original.textContent = text; }, 1500);
         }
       });
-    });
+    }
+
+    // ── Hide scroll hint after first scroll ──────────
+    var scrollHint = document.querySelector('.scroll-hint');
+    if (scrollHint) {
+      container.addEventListener('scroll', function onFirstScroll() {
+        scrollHint.style.transition = 'opacity 0.5s';
+        scrollHint.style.opacity = '0';
+        setTimeout(function() {
+          scrollHint.style.display = 'none';
+        }, 500);
+        container.removeEventListener('scroll', onFirstScroll);
+      });
+    }
   </script>
 </body>
 </html>

@@ -453,12 +453,7 @@
       border-radius: 8px;
       border: 1px solid var(--border);
       object-fit: contain;
-      transition: max-width 0.3s ease, max-height 0.3s ease;
-    }
-
-    .lightbox-img.is-minimal {
-      max-width: 70vw;
-      max-height: 70vh;
+      transition: opacity 0.25s ease;
     }
 
     .lightbox-controls {
@@ -657,7 +652,7 @@
   <header class="header">
     <div class="header-left">
       <img src="../images/logo.png" alt="summon" class="header-logo" width="48" height="48">
-      <span class="header-title">summon</span>
+      <span class="header-title">Summon your Ghostty workspace</span>
     </div>
     <button class="header-install" onclick="copyInstall(this)" title="Click to copy">
       <svg class="header-install-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
@@ -946,8 +941,8 @@
       <img class="lightbox-img" id="lightboxImg" src="" alt="">
       <div class="lightbox-controls">
         <span class="lightbox-title" id="lightboxTitle"></span>
-        <button class="lightbox-btn" id="lightboxMinimal" onclick="toggleLightboxSize()">Minimal</button>
-        <button class="lightbox-btn is-active" id="lightboxFull" onclick="toggleLightboxSize()">Full</button>
+        <button class="lightbox-btn" id="lightboxMinimal" onclick="setLightboxMode('min')">Minimal</button>
+        <button class="lightbox-btn is-active" id="lightboxFull" onclick="setLightboxMode('max')">Full</button>
       </div>
     </div>
   </div>
@@ -976,7 +971,8 @@
     var lightboxMinBtn = document.getElementById('lightboxMinimal');
     var lightboxFullBtn = document.getElementById('lightboxFull');
     var currentSection = 0;
-    var lightboxIsMinimal = false;
+    var currentLightboxIndex = 0;
+    var currentLightboxMode = 'max';
 
     // ── Scroll Observer ──────────────────────────────
     var observer = new IntersectionObserver(function(entries) {
@@ -1033,16 +1029,36 @@
 
     // ── Lightbox ─────────────────────────────────────
     function openLightbox(index) {
-      var layout = layouts[index];
-      lightboxImg.src = '../images/' + layout.id + '-max.png';
-      lightboxTitle.textContent = layout.title;
-      lightboxImg.alt = layout.title + ' workspace layout';
-      lightboxIsMinimal = false;
-      lightboxImg.classList.remove('is-minimal');
-      lightboxMinBtn.classList.remove('is-active');
-      lightboxFullBtn.classList.add('is-active');
+      currentLightboxIndex = index;
+      currentLightboxMode = 'max';
+      updateLightboxImage();
       lightboxEl.classList.add('is-open');
       document.body.style.overflow = 'hidden';
+    }
+
+    function updateLightboxImage() {
+      var layout = layouts[currentLightboxIndex];
+      var src = '../images/' + layout.id + '-' + currentLightboxMode + '.png';
+      lightboxImg.style.opacity = '0';
+      setTimeout(function() {
+        lightboxImg.src = src;
+        lightboxImg.alt = layout.title + ' ' + currentLightboxMode + ' layout';
+        lightboxTitle.textContent = layout.title;
+        lightboxImg.style.opacity = '1';
+      }, 150);
+      if (currentLightboxMode === 'min') {
+        lightboxMinBtn.classList.add('is-active');
+        lightboxFullBtn.classList.remove('is-active');
+      } else {
+        lightboxMinBtn.classList.remove('is-active');
+        lightboxFullBtn.classList.add('is-active');
+      }
+    }
+
+    function setLightboxMode(mode) {
+      if (mode === currentLightboxMode) return;
+      currentLightboxMode = mode;
+      updateLightboxImage();
     }
 
     function closeLightbox() {
@@ -1053,19 +1069,6 @@
     function closeLightboxBackdrop(e) {
       if (e.target === lightboxEl) {
         closeLightbox();
-      }
-    }
-
-    function toggleLightboxSize() {
-      lightboxIsMinimal = !lightboxIsMinimal;
-      if (lightboxIsMinimal) {
-        lightboxImg.classList.add('is-minimal');
-        lightboxMinBtn.classList.add('is-active');
-        lightboxFullBtn.classList.remove('is-active');
-      } else {
-        lightboxImg.classList.remove('is-minimal');
-        lightboxMinBtn.classList.remove('is-active');
-        lightboxFullBtn.classList.add('is-active');
       }
     }
 
