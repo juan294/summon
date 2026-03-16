@@ -18,7 +18,7 @@ function ensureConfig(): void {
   configEnsured = true;
 }
 
-/** @internal — test-only, reset the ensureConfig cache */
+/** @internal — exported for testing only */
 export function resetConfigCache(): void {
   configEnsured = false;
 }
@@ -106,7 +106,7 @@ export function removeConfig(key: string): boolean {
   return existed;
 }
 
-/** @internal — test-only, not used in production */
+/** @internal — exported for testing only */
 export function getConfig(key: string): string | undefined {
   return readKV(CONFIG_FILE).get(key);
 }
