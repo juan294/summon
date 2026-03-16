@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { execFile } from "node:child_process";
 import { setConfig, isValidLayoutName, isCustomLayout, saveCustomLayout } from "./config.js";
 import { SAFE_COMMAND_RE, GHOSTTY_PATHS, resolveCommand as resolveCommandPath, promptUser } from "./utils.js";
 import { isStarshipInstalled, listStarshipPresets } from "./starship.js";
@@ -93,6 +94,336 @@ export function colorSwatch(colors: string[]): string {
 }
 
 // ---------------------------------------------------------------------------
+// Box-drawing characters
+// ---------------------------------------------------------------------------
+
+/** Box-drawing characters for layout preview rendering. */
+const BOX = {
+  topLeft:     "\u250c",  // ┌
+  topRight:    "\u2510",  // ┐
+  bottomLeft:  "\u2514",  // └
+  bottomRight: "\u2518",  // ┘
+  horizontal:  "\u2500",  // ─
+  vertical:    "\u2502",  // │
+  teeDown:     "\u252c",  // ┬
+  teeUp:       "\u2534",  // ┴
+  teeRight:    "\u251c",  // ├
+  teeLeft:     "\u2524",  // ┤
+  cross:       "\u253c",  // ┼
+} as const;
+
+// ---------------------------------------------------------------------------
+// ANSI cursor control helpers
+// ---------------------------------------------------------------------------
+
+/** @internal — exported for testing only */
+export function ansiUp(n: number): string {
+  return n > 0 ? `\x1b[${n}A` : "";
+}
+
+/** @internal — exported for testing only */
+export function ansiClearDown(): string {
+  return "\x1b[0J";
+}
+
+function ansiLineStart(): string {
+  return "\r";
+}
+
+/** @internal — exported for testing only */
+export function ansiSyncStart(): string {
+  return "\x1b[?2026h";
+}
+
+/** @internal — exported for testing only */
+export function ansiSyncEnd(): string {
+  return "\x1b[?2026l";
+}
+
+// ---------------------------------------------------------------------------
+// PreviewRenderer — in-place terminal preview
+// ---------------------------------------------------------------------------
+
+/**
+ * Manages an in-place preview region on the terminal.
+ * Tracks how many lines were rendered and how many lines were printed after
+ * the preview, so it can move the cursor back and redraw.
+ */
+export class PreviewRenderer {
+  private lastHeight = 0;
+  private linesSince = 0;
+  private active = false;
+
+  /** Print a line and track it for cursor math. */
+  log(msg: string = ""): void {
+    console.log(msg);
+    this.linesSince++;
+  }
+
+  /** Account for a promptUser() call (prompt + user answer = 1 line). */
+  countPrompt(): void {
+    this.linesSince++;
+  }
+
+  /**
+   * Draw or redraw the preview in place.
+   * First call: prints normally.
+   * Subsequent calls: moves cursor up, clears, redraws.
+   */
+  draw(grid: string[][]): void {
+    const preview = renderLayoutPreview(grid);
+    const lines = preview.split("\n");
+
+    if (this.active) {
+      const totalUp = this.lastHeight + this.linesSince;
+      process.stdout.write(ansiSyncStart());
+      process.stdout.write(ansiLineStart() + ansiUp(totalUp) + ansiClearDown());
+    }
+
+    for (const line of lines) {
+      console.log(`  ${line}`);
+    }
+
+    if (this.active) {
+      process.stdout.write(ansiSyncEnd());
+    }
+
+    this.lastHeight = lines.length;
+    this.linesSince = 0;
+    this.active = true;
+  }
+
+  /** Reset state (for reuse or cleanup). */
+  reset(): void {
+    this.lastHeight = 0;
+    this.linesSince = 0;
+    this.active = false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Grid builder — state management
+// ---------------------------------------------------------------------------
+
+/** State for the interactive grid builder. */
+export interface GridBuilderState {
+  columns: number[];
+  focusCol: number;
+  focusRow: number;
+}
+
+/** Create initial grid builder state (1 column, 1 pane). */
+export function createGridState(): GridBuilderState {
+  return { columns: [1], focusCol: 0, focusRow: 0 };
+}
+
+/**
+ * Apply a keypress action to the grid state. Returns new state (immutable).
+ * Returns null if the action is invalid.
+ */
+export function applyGridAction(
+  state: GridBuilderState,
+  action: "addCol" | "removeCol" | "addPane" | "removePane" | "nextFocus" | "prevFocus",
+): GridBuilderState | null {
+  const cols = [...state.columns];
+  let { focusCol, focusRow } = state;
+
+  switch (action) {
+    case "addCol":
+      cols.push(1);
+      focusCol = cols.length - 1;
+      focusRow = 0;
+      break;
+    case "removeCol":
+      if (cols.length <= 1) return null;
+      cols.pop();
+      if (focusCol >= cols.length) {
+        focusCol = cols.length - 1;
+        focusRow = Math.min(focusRow, cols[focusCol]! - 1);
+      }
+      break;
+    case "addPane":
+      cols[focusCol] = cols[focusCol]! + 1;
+      focusRow = cols[focusCol]! - 1;
+      break;
+    case "removePane":
+      if (cols[focusCol]! <= 1) return null;
+      cols[focusCol] = cols[focusCol]! - 1;
+      if (focusRow >= cols[focusCol]!) {
+        focusRow = cols[focusCol]! - 1;
+      }
+      break;
+    case "nextFocus": {
+      focusRow++;
+      if (focusRow >= cols[focusCol]!) {
+        focusCol = (focusCol + 1) % cols.length;
+        focusRow = 0;
+      }
+      break;
+    }
+    case "prevFocus": {
+      focusRow--;
+      if (focusRow < 0) {
+        focusCol = (focusCol - 1 + cols.length) % cols.length;
+        focusRow = cols[focusCol]! - 1;
+      }
+      break;
+    }
+  }
+
+  return { columns: cols, focusCol, focusRow };
+}
+
+// ---------------------------------------------------------------------------
+// Grid builder — rendering
+// ---------------------------------------------------------------------------
+
+/**
+ * Render layout preview for the grid builder with focus highlighting.
+ * Focused cell shows cyan "*", other cells show dim "·".
+ * @internal — exported for testing only
+ */
+export function renderGridBuilderPreview(
+  columns: number[],
+  focusCol: number,
+  focusRow: number,
+): string {
+  const grid: string[][] = columns.map((paneCount, c) => {
+    const col: string[] = [];
+    for (let p = 0; p < paneCount; p++) {
+      col.push(c === focusCol && p === focusRow ? cyan("*") : dim("\u00b7"));
+    }
+    return col;
+  });
+  return renderLayoutPreview(grid);
+}
+
+/**
+ * Render key binding hints for the grid builder.
+ * Dims unavailable actions based on current state.
+ */
+/** @internal — exported for testing only */
+export function renderGridBuilderHints(state: GridBuilderState): string {
+  const canRemoveCol = state.columns.length > 1;
+  const canRemovePane = state.columns[state.focusCol]! > 1;
+
+  const hints = [
+    "[→] add column",
+    canRemoveCol ? "[←] remove column" : dim("[←] remove column"),
+    "[↓] add pane",
+    canRemovePane ? "[↑] remove pane" : dim("[↑] remove pane"),
+    "[Tab] move focus",
+    "[Enter] done",
+    "[Esc] cancel",
+  ];
+  return "  " + hints.join("  ");
+}
+
+// ---------------------------------------------------------------------------
+// Grid builder — interactive flow
+// ---------------------------------------------------------------------------
+
+/**
+ * Interactive arrow-key grid builder.
+ * Enters raw mode, renders grid with focus, responds to keypresses.
+ * Returns the column pane counts when user presses Enter.
+ * Returns null if user presses Escape (cancel).
+ */
+export async function runGridBuilder(): Promise<number[] | null> {
+  const { emitKeypressEvents } = await import("node:readline");
+
+  let state = createGridState();
+  const renderer = new PreviewRenderer();
+
+  const render = (): void => {
+    const grid: string[][] = state.columns.map((paneCount, c) => {
+      const col: string[] = [];
+      for (let p = 0; p < paneCount; p++) {
+        col.push(c === state.focusCol && p === state.focusRow ? cyan("*") : dim("\u00b7"));
+      }
+      return col;
+    });
+    renderer.draw(grid);
+    renderer.log(renderGridBuilderHints(state));
+  };
+
+  console.log(bold("  Build your grid:"));
+  console.log();
+  render();
+
+  process.stdin.setRawMode(true);
+  emitKeypressEvents(process.stdin);
+  process.stdin.resume();
+
+  return new Promise((resolve) => {
+    const cleanup = (): void => {
+      process.stdin.setRawMode(false);
+      process.stdin.pause();
+      process.stdin.removeListener("keypress", onKey);
+      process.removeListener("SIGINT", onSigInt);
+    };
+
+    const onSigInt = (): void => {
+      cleanup();
+      console.log();
+      process.exit(0);
+    };
+    process.once("SIGINT", onSigInt);
+
+    const onKey = (_str: string | undefined, key: { name: string; ctrl?: boolean; shift?: boolean }): void => {
+      if (!key) return;
+
+      if (key.ctrl && key.name === "c") {
+        cleanup();
+        console.log();
+        process.exit(0);
+      }
+
+      if (key.name === "escape") {
+        cleanup();
+        resolve(null);
+        return;
+      }
+
+      if (key.name === "return") {
+        cleanup();
+        resolve([...state.columns]);
+        return;
+      }
+
+      // Shift+Tab → prevFocus (must be checked before regular tab mapping)
+      if (key.name === "tab" && key.shift) {
+        const next = applyGridAction(state, "prevFocus");
+        if (next) {
+          state = next;
+          render();
+        }
+        return;
+      }
+
+      const actionMap: Record<string, Parameters<typeof applyGridAction>[1]> = {
+        right: "addCol",
+        left: "removeCol",
+        down: "addPane",
+        up: "removePane",
+        tab: "nextFocus",
+      };
+
+      const action = actionMap[key.name];
+      if (action) {
+        const next = applyGridAction(state, action);
+        if (next) {
+          state = next;
+          render();
+        }
+      }
+    };
+
+    process.stdin.on("keypress", onKey);
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Mascot & Logo
 // ---------------------------------------------------------------------------
 
@@ -155,19 +486,37 @@ export function printSection(title: string): void {
 // Tool detection
 // ---------------------------------------------------------------------------
 
-// resolveCommandPath is imported from ./utils.js
-export { resolveCommandPath };
+/**
+ * Async command resolution — spawns a shell lookup without blocking.
+ * Returns the resolved path or null if the command is not found.
+ */
+function resolveCommandAsync(cmd: string): Promise<string | null> {
+  if (!SAFE_COMMAND_RE.test(cmd)) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    execFile("/bin/sh", ["-c", `command -v "$1"`, "--", cmd], { encoding: "utf-8" }, (err, stdout) => {
+      if (err) {
+        resolve(null);
+      } else {
+        resolve(stdout.trim() || null);
+      }
+    });
+  });
+}
 
 /**
  * Check catalog of tools, return each with `available` flag.
+ * Shell lookups run in parallel via Promise.all for faster detection.
  */
-export function detectTools(
+export async function detectTools(
   catalog: readonly ToolEntry[],
-): DetectedTool[] {
-  return catalog.map((entry) => ({
-    ...entry,
-    available: resolveCommandPath(entry.cmd) !== null,
-  }));
+): Promise<DetectedTool[]> {
+  const results = await Promise.all(
+    catalog.map(async (entry) => ({
+      ...entry,
+      available: (await resolveCommandAsync(entry.cmd)) !== null,
+    })),
+  );
+  return results;
 }
 
 // ---------------------------------------------------------------------------
@@ -288,18 +637,12 @@ interface ValidationResult {
 // Phase 2 — Constants
 // ---------------------------------------------------------------------------
 
-// SAFE_COMMAND_RE is imported from ./utils.js
-export { SAFE_COMMAND_RE };
-
 export const EDITOR_CATALOG: readonly ToolEntry[] = [
   { cmd: "claude", name: "Claude Code", desc: "AI pair programmer" },
-  { cmd: "cursor", name: "Cursor", desc: "AI-powered editor" },
   { cmd: "nvim", name: "Neovim", desc: "Modern Vim" },
   { cmd: "vim", name: "Vim", desc: "Classic modal editor" },
-  { cmd: "code", name: "VS Code", desc: "Visual Studio Code" },
   { cmd: "emacs", name: "Emacs", desc: "Extensible editor" },
   { cmd: "hx", name: "Helix", desc: "Post-modern modal editor" },
-  { cmd: "zed", name: "Zed", desc: "High-performance editor" },
   { cmd: "nano", name: "Nano", desc: "Simple text editor" },
 ];
 
@@ -324,10 +667,10 @@ export const LAYOUT_INFO: Record<string, { desc: string; diagram: string }> = {
     desc: "Two editors + sidebar + shell",
     diagram: [
       "  ┌────────┬────────┬──────┐",
-      "  │ editor │ editor │ side │",
-      "  ├────────┴────────┤      │",
-      "  │ shell           │      │",
-      "  └─────────────────┴──────┘",
+      "  │        │ editor │      │",
+      "  │ editor ├────────┤ side │",
+      "  │        │ shell  │      │",
+      "  └────────┴────────┴──────┘",
     ].join("\n"),
   },
   full: {
@@ -352,13 +695,32 @@ export const LAYOUT_INFO: Record<string, { desc: string; diagram: string }> = {
     desc: "Editor + system monitor + sidebar + shell",
     diagram: [
       "  ┌────────┬────────┬──────┐",
-      "  │ editor │  btop  │ side │",
-      "  ├────────┼────────┤      │",
-      "  │ (term) │ shell  │      │",
+      "  │        │  btop  │      │",
+      "  │ editor ├────────┤ side │",
+      "  │        │ shell  │      │",
       "  └────────┴────────┴──────┘",
     ].join("\n"),
   },
 };
+
+// ---------------------------------------------------------------------------
+// Grid templates for visual layout builder
+// ---------------------------------------------------------------------------
+
+export interface GridTemplate {
+  label: string;       // display name, e.g., "2 + 1"
+  columns: number[];   // pane count per column (sidebar always appended)
+}
+
+export const GRID_TEMPLATES: readonly GridTemplate[] = [
+  { label: "1 + 1",     columns: [1, 1] },
+  { label: "2 + 1",     columns: [2, 1] },
+  { label: "1 + 1 + 1", columns: [1, 1, 1] },
+  { label: "1 + 2",     columns: [1, 2] },
+  { label: "1 + 2 + 1", columns: [1, 2, 1] },
+  { label: "2 + 2",     columns: [2, 2] },
+  { label: "2 + 1 + 1", columns: [2, 1, 1] },
+];
 
 const INSTALL_HINTS: Record<string, string> = {
   claude: "npm install -g @anthropic-ai/claude-code",
@@ -421,13 +783,39 @@ export async function selectLayout(): Promise<string> {
       value: name,
     };
   });
+  // Add "custom" option at the end
+  options.push({
+    label: "custom".padEnd(10) + "Create your own layout",
+    value: "custom",
+  });
   // Default to "pair" (index 1)
   const defaultIdx = presetNames.indexOf("pair");
+  const totalCount = options.length;
   const idx = await numberedSelect(
     options,
-    `  Select [1-${presetNames.length}] (default: ${defaultIdx + 1}): `,
+    `  Select [1-${totalCount}] (default: ${defaultIdx + 1}): `,
     defaultIdx,
   );
+
+  // Custom layout: flow into the layout builder
+  if (idx === presetNames.length) {
+    console.log();
+    let name = "";
+    while (!name) {
+      name = await promptUser("  Name your layout (e.g., mysetup): ");
+      if (!name) {
+        console.log(yellow("  No name provided. Please enter a layout name."));
+        continue;
+      }
+      if (!isValidLayoutName(name)) {
+        console.log(yellow("  Invalid name. Use letters, digits, hyphens, underscores (start with a letter)."));
+        name = "";
+      }
+    }
+    await runLayoutBuilder(name);
+    return name;
+  }
+
   const chosen = presetNames[idx]!;
   // Show the diagram for the chosen layout
   console.log();
@@ -439,10 +827,9 @@ export async function selectLayout(): Promise<string> {
 export async function selectToolFromCatalog(
   catalog: readonly ToolEntry[],
   sectionTitle: string,
-  _fallbackCmd: string,
 ): Promise<string> {
   printSection(sectionTitle);
-  const detected = detectTools(catalog);
+  const detected = await detectTools(catalog);
   const available = detected.filter((t) => t.available);
 
   const askCustom = async (): Promise<string> => {
@@ -494,18 +881,18 @@ export async function selectToolFromCatalog(
 }
 
 async function selectEditor(): Promise<string> {
-  return selectToolFromCatalog(EDITOR_CATALOG, "Editor", "claude");
+  return selectToolFromCatalog(EDITOR_CATALOG, "Editor");
 }
 
 async function selectSidebar(): Promise<string> {
-  return selectToolFromCatalog(SIDEBAR_CATALOG, "Sidebar", "lazygit");
+  return selectToolFromCatalog(SIDEBAR_CATALOG, "Sidebar");
 }
 
 export async function selectShell(): Promise<string> {
   printSection("Shell Pane");
   const options: SelectOption[] = [
     {
-      label: "Shell".padEnd(12) + "Plain terminal (run commands manually)",
+      label: "Shell".padEnd(12) + "Open a plain shell (run commands manually)",
       value: "true",
     },
     { label: "Disabled".padEnd(12) + "No shell pane", value: "false" },
@@ -517,7 +904,11 @@ export async function selectShell(): Promise<string> {
   const idx = await numberedSelect(options, "  Select [1-3] (default: 1): ", 0);
   const chosen = options[idx]!;
   if (chosen.value === "__custom__") {
-    return textInput("  Enter shell command:");
+    let cmd = "";
+    while (!cmd) {
+      cmd = await textInput("  Enter shell command:");
+    }
+    return cmd;
   }
   return chosen.value;
 }
@@ -674,34 +1065,60 @@ export async function runSetup(): Promise<void> {
 
   while (true) {
     const layout = await selectLayout();
-    const editor = await selectEditor();
-    const sidebar = await selectSidebar();
+    const isCustom = isCustomLayout(layout);
 
+    // Custom layouts define their own pane commands — skip editor/sidebar/shell
+    let editor = "claude";
+    let sidebar = "lazygit";
     let shell = "false";
-    if (layout === "minimal") {
-      console.log(dim("  Minimal layout has no shell pane."));
-      console.log();
+
+    if (!isCustom) {
+      editor = await selectEditor();
+      sidebar = await selectSidebar();
+
+      if (layout === "minimal") {
+        console.log(dim("  Minimal layout has no shell pane."));
+        console.log();
+      } else {
+        shell = await selectShell();
+      }
     } else {
-      shell = await selectShell();
+      console.log(dim("  Custom layout — pane commands are defined in the layout."));
+      console.log(dim("  Skipping editor, sidebar, and shell selection."));
+      console.log();
     }
 
     const starshipPreset = await selectStarshipPreset();
 
     const result: SetupResult = { layout, editor, sidebar, shell };
-    printSummary(result, starshipPreset);
+
+    if (isCustom) {
+      printSection("Summary");
+      console.log(`  Layout:    ${bold(layout)} (custom)`);
+      if (starshipPreset) {
+        console.log(`  Starship:  ${bold(starshipPreset)}`);
+      }
+      console.log();
+    } else {
+      printSummary(result, starshipPreset);
+    }
 
     const accepted = await confirm("  Save these settings?");
     if (accepted) {
       setConfig("layout", result.layout);
-      setConfig("editor", result.editor);
-      setConfig("sidebar", result.sidebar);
-      setConfig("shell", result.shell);
+      if (!isCustom) {
+        setConfig("editor", result.editor);
+        setConfig("sidebar", result.sidebar);
+        setConfig("shell", result.shell);
+      }
       if (starshipPreset) {
         setConfig("starship-preset", starshipPreset);
       }
 
-      const validation = validateSetup(result);
-      printValidation(validation);
+      if (!isCustom) {
+        const validation = validateSetup(result);
+        printValidation(validation);
+      }
 
       console.log(green("  Settings saved to ~/.config/summon/config"));
       console.log();
@@ -721,6 +1138,66 @@ export async function runSetup(): Promise<void> {
 // ---------------------------------------------------------------------------
 // Layout Builder — pure helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Find the closest match to `input` from a list of known commands.
+ * Uses simple edit distance (Levenshtein). Returns null if no close match.
+ */
+/** @internal — exported for testing */
+export function findClosestCommand(input: string, known: string[]): string | null {
+  let best: string | null = null;
+  let bestDist = Infinity;
+  for (const cmd of known) {
+    const d = editDistance(input.toLowerCase(), cmd.toLowerCase());
+    if (d < bestDist && d <= 3) {
+      bestDist = d;
+      best = cmd;
+    }
+  }
+  return best;
+}
+
+/** Simple Levenshtein distance for short command names. */
+function editDistance(a: string, b: string): number {
+  const m = a.length;
+  const n = b.length;
+  const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0) as number[]);
+  for (let i = 0; i <= m; i++) dp[i]![0] = i;
+  for (let j = 0; j <= n; j++) dp[0]![j] = j;
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i]![j] = a[i - 1] === b[j - 1]
+        ? dp[i - 1]![j - 1]!
+        : 1 + Math.min(dp[i - 1]![j]!, dp[i]![j - 1]!, dp[i - 1]![j - 1]!);
+    }
+  }
+  return dp[m]![n]!;
+}
+
+/**
+ * Validate a command entered in the layout builder.
+ * If the command isn't found, warns the user and suggests the closest match.
+ * Returns the command to use (original, corrected, or empty string to re-prompt).
+ */
+async function validateBuilderCommand(cmd: string, knownCmds: string[]): Promise<string> {
+  if (cmd === "shell") return cmd; // special value — plain shell
+  const cmdName = cmd.split(/\s+/)[0] ?? cmd;
+  if (resolveCommandPath(cmdName)) return cmd; // found in PATH
+
+  const suggestion = findClosestCommand(cmdName, knownCmds);
+  if (suggestion) {
+    console.log(yellow(`  '${cmdName}' not found. Did you mean '${suggestion}'?`));
+    const useSuggestion = await confirm(`  Use '${suggestion}' instead?`);
+    if (useSuggestion) {
+      return cmd.replace(cmdName, suggestion);
+    }
+  } else {
+    console.log(yellow(`  '${cmdName}' not found on this system.`));
+  }
+  const keepAnyway = await confirm("  Keep it anyway?");
+  if (keepAnyway) return cmd;
+  return ""; // empty = re-prompt
+}
 
 /**
  * Extract a pane name from a command string: first word, deduped.
@@ -744,11 +1221,9 @@ function derivePaneName(command: string, usedNames: Set<string>): string {
  * - `grid` is an array of columns, each column is an array of command strings
  * - Each column's panes are joined with `/` (down splits)
  * - Columns are joined with `|` (right splits)
- * - Sidebar pane appended with `|` on the right
  */
 export function gridToTree(
   grid: string[][],
-  sidebar: string,
 ): { tree: string; panes: Map<string, string> } {
   const panes = new Map<string, string>();
   const usedNames = new Set<string>();
@@ -768,12 +1243,36 @@ export function gridToTree(
     }
   }
 
-  // Add sidebar
-  const sidebarName = derivePaneName(sidebar, usedNames);
-  panes.set(sidebarName, sidebar);
-  columnExprs.push(sidebarName);
-
   return { tree: columnExprs.join(" | "), panes };
+}
+
+/** Measure visible width of a string, ignoring ANSI escape codes. */
+// eslint-disable-next-line no-control-regex
+const ANSI_RE = /\x1b\[[0-9;]*m/g;
+/** @internal — exported for testing only */
+export function visibleLength(s: string): number {
+  let stripped = 0;
+  ANSI_RE.lastIndex = 0;
+  let match;
+  while ((match = ANSI_RE.exec(s)) !== null) {
+    stripped += match[0].length;
+  }
+  return s.length - stripped;
+}
+
+/** Center text within a fixed width, dimming "?" placeholders. */
+/** @internal — exported for testing only */
+export function centerLabel(text: string, width: number): string {
+  const maxLen = width - 2;
+  const vis = visibleLength(text);
+  // Truncate by visible length, adding ellipsis indicator when truncated
+  const truncated = vis > maxLen;
+  const label = truncated ? text.slice(0, maxLen - 1) + "\u2026" : text;
+  const labelVis = truncated ? maxLen : vis;
+  const leftPad = Math.floor((width - labelVis) / 2);
+  const rightPad = width - labelVis - leftPad;
+  const display = text === "?" ? dim(label) : label;
+  return " ".repeat(leftPad) + display + " ".repeat(rightPad);
 }
 
 /**
@@ -782,11 +1281,9 @@ export function gridToTree(
  */
 export function renderLayoutPreview(
   grid: string[][],
-  sidebar: string,
 ): string {
-  const COL_WIDTH = 14;
-  const SIDEBAR_WIDTH = 11;
-  const PANE_HEIGHT = 3; // lines per pane cell
+  const COL_WIDTH = 14;       // chars per column (fits ~12-char command + 2 padding)
+  const PANE_HEIGHT = 3;      // lines per pane cell (1 content line + 2 border/spacing)
 
   // Find max row count across all columns
   const maxRows = Math.max(...grid.map((col) => col.length));
@@ -796,14 +1293,12 @@ export function renderLayoutPreview(
   // --- Top border ---
   const topParts: string[] = [];
   for (let c = 0; c < grid.length; c++) {
-    topParts.push("\u2500".repeat(COL_WIDTH));
+    topParts.push(BOX.horizontal.repeat(COL_WIDTH));
   }
   lines.push(
-    "\u250c" +
-      topParts.join("\u252c") +
-      "\u252c" +
-      "\u2500".repeat(SIDEBAR_WIDTH) +
-      "\u2510",
+    BOX.topLeft +
+      topParts.join(BOX.teeDown) +
+      BOX.topRight,
   );
 
   // --- Content rows ---
@@ -814,31 +1309,14 @@ export function renderLayoutPreview(
       for (let c = 0; c < grid.length; c++) {
         const col = grid[c]!;
         const cmd = col[row] ?? "";
-        rowStr += "\u2502";
+        rowStr += BOX.vertical;
         if (lineInPane === Math.floor(PANE_HEIGHT / 2) && cmd) {
-          // Center the command name
-          const padded = cmd.slice(0, COL_WIDTH - 2);
-          const leftPad = Math.floor((COL_WIDTH - padded.length) / 2);
-          const rightPad = COL_WIDTH - padded.length - leftPad;
-          rowStr += " ".repeat(leftPad) + padded + " ".repeat(rightPad);
+          rowStr += centerLabel(cmd, COL_WIDTH);
         } else {
           rowStr += " ".repeat(COL_WIDTH);
         }
       }
-
-      // Sidebar spans full height — show label in the middle
-      const sidebarMiddleRow = Math.floor((maxRows * PANE_HEIGHT) / 2);
-      const currentAbsLine = row * PANE_HEIGHT + lineInPane;
-      rowStr += "\u2502";
-      if (currentAbsLine === sidebarMiddleRow) {
-        const padded = sidebar.slice(0, SIDEBAR_WIDTH - 2);
-        const leftPad = Math.floor((SIDEBAR_WIDTH - padded.length) / 2);
-        const rightPad = SIDEBAR_WIDTH - padded.length - leftPad;
-        rowStr += " ".repeat(leftPad) + padded + " ".repeat(rightPad);
-      } else {
-        rowStr += " ".repeat(SIDEBAR_WIDTH);
-      }
-      rowStr += "\u2502";
+      rowStr += BOX.vertical;
       lines.push(rowStr);
     }
 
@@ -849,7 +1327,7 @@ export function renderLayoutPreview(
         const col = grid[c]!;
         // Only draw horizontal line if this column has a pane in the next row
         if (row + 1 < col.length) {
-          sepParts.push("\u2500".repeat(COL_WIDTH));
+          sepParts.push(BOX.horizontal.repeat(COL_WIDTH));
         } else {
           sepParts.push(" ".repeat(COL_WIDTH));
         }
@@ -860,24 +1338,22 @@ export function renderLayoutPreview(
         const col = grid[c]!;
         const hasSplitHere = row + 1 < col.length;
         if (c === 0) {
-          sep += hasSplitHere ? "\u251c" : "\u2502";
+          sep += hasSplitHere ? BOX.teeRight : BOX.vertical;
         } else {
           // Junction between columns
           const prevCol = grid[c - 1]!;
           const prevHasSplit = row + 1 < prevCol.length;
-          if (prevHasSplit && hasSplitHere) sep += "\u253c";
-          else if (prevHasSplit) sep += "\u2524";
-          else if (hasSplitHere) sep += "\u251c";
-          else sep += "\u2502";
+          if (prevHasSplit && hasSplitHere) sep += BOX.cross;
+          else if (prevHasSplit) sep += BOX.teeLeft;
+          else if (hasSplitHere) sep += BOX.teeRight;
+          else sep += BOX.vertical;
         }
         sep += sepParts[c]!;
       }
-      // Junction before sidebar (sidebar spans full height, no split)
+      // Right edge
       const lastCol = grid[grid.length - 1]!;
       const lastHasSplit = row + 1 < lastCol.length;
-      sep += lastHasSplit ? "\u2524" : "\u2502";
-      sep += " ".repeat(SIDEBAR_WIDTH);
-      sep += "\u2502";
+      sep += lastHasSplit ? BOX.teeLeft : BOX.vertical;
       lines.push(sep);
     }
   }
@@ -885,17 +1361,212 @@ export function renderLayoutPreview(
   // --- Bottom border ---
   const bottomParts: string[] = [];
   for (let c = 0; c < grid.length; c++) {
-    bottomParts.push("\u2500".repeat(COL_WIDTH));
+    bottomParts.push(BOX.horizontal.repeat(COL_WIDTH));
   }
   lines.push(
-    "\u2514" +
-      bottomParts.join("\u2534") +
-      "\u2534" +
-      "\u2500".repeat(SIDEBAR_WIDTH) +
-      "\u2518",
+    BOX.bottomLeft +
+      bottomParts.join(BOX.teeUp) +
+      BOX.bottomRight,
   );
 
   return lines.join("\n");
+}
+
+/**
+ * Render a compact box diagram showing grid shape (no command names).
+ * Returns array of lines (not joined) for side-by-side composition.
+ * @internal — exported for testing only
+ */
+export function renderMiniPreview(columns: number[]): string[] {
+  const COL_W = 5;
+
+  const maxRows = Math.max(...columns);
+  const lines: string[] = [];
+
+  // Top border
+  const topParts = columns.map(() => BOX.horizontal.repeat(COL_W));
+  lines.push(
+    BOX.topLeft +
+      topParts.join(BOX.teeDown) +
+      BOX.topRight,
+  );
+
+  // Content rows
+  for (let row = 0; row < maxRows; row++) {
+    let rowStr = "";
+    for (let c = 0; c < columns.length; c++) {
+      rowStr += BOX.vertical;
+      rowStr += " ".repeat(COL_W);
+    }
+    rowStr += BOX.vertical;
+    lines.push(rowStr);
+
+    // Row separator (between pane rows, not after last)
+    if (row < maxRows - 1) {
+      let sep = "";
+      for (let c = 0; c < columns.length; c++) {
+        const paneCount = columns[c]!;
+        const hasSplit = row + 1 < paneCount;
+        if (c === 0) {
+          sep += hasSplit ? BOX.teeRight : BOX.vertical;
+        } else {
+          const prevCount = columns[c - 1]!;
+          const prevSplit = row + 1 < prevCount;
+          if (prevSplit && hasSplit) sep += BOX.cross;
+          else if (prevSplit) sep += BOX.teeLeft;
+          else if (hasSplit) sep += BOX.teeRight;
+          else sep += BOX.vertical;
+        }
+        sep += hasSplit ? BOX.horizontal.repeat(COL_W) : " ".repeat(COL_W);
+      }
+      // Right edge
+      const lastCount = columns[columns.length - 1]!;
+      const lastSplit = row + 1 < lastCount;
+      sep += lastSplit ? BOX.teeLeft : BOX.vertical;
+      lines.push(sep);
+    }
+  }
+
+  // Bottom border
+  const bottomParts = columns.map(() => BOX.horizontal.repeat(COL_W));
+  lines.push(
+    BOX.bottomLeft +
+      bottomParts.join(BOX.teeUp) +
+      BOX.bottomRight,
+  );
+
+  return lines;
+}
+
+/**
+ * Render template gallery showing grid shapes side by side.
+ * Adapts items per row based on terminal width.
+ * @internal — exported for testing only
+ */
+export function renderTemplateGallery(
+  templates: readonly GridTemplate[],
+  termWidth: number,
+): string {
+  if (templates.length === 0) return "";
+
+  // Render each template's mini preview
+  const previews = templates.map((t) => renderMiniPreview(t.columns));
+
+  // Calculate item width: mini preview width + number prefix ("1) ") + gap
+  const previewWidth = previews[0]!.length > 0 ? previews[0]![0]!.length : 10;
+  const prefixWidth = 4; // "1)  " or "c)  "
+  const gapWidth = 5;
+  const itemWidth = prefixWidth + previewWidth + gapWidth;
+  const perRow = Math.max(1, Math.min(3, Math.floor(termWidth / itemWidth)));
+
+  const outputLines: string[] = [];
+
+  // Process templates in row groups
+  for (let rowStart = 0; rowStart < templates.length; rowStart += perRow) {
+    const rowEnd = Math.min(rowStart + perRow, templates.length);
+    const rowTemplates = templates.slice(rowStart, rowEnd);
+    const rowPreviews = previews.slice(rowStart, rowEnd);
+
+    // Find max height in this row
+    const maxHeight = Math.max(...rowPreviews.map((p) => p.length));
+
+    // Render numbered previews side by side
+    for (let line = 0; line < maxHeight; line++) {
+      let rowStr = "";
+      for (let i = 0; i < rowTemplates.length; i++) {
+        const idx = rowStart + i;
+        const preview = rowPreviews[i]!;
+        const prefix = line === 0 ? `${idx + 1})  ` : "    ";
+        const content = line < preview.length ? preview[line]! : " ".repeat(previewWidth);
+        rowStr += prefix + content;
+        if (i < rowTemplates.length - 1) {
+          rowStr += " ".repeat(gapWidth);
+        }
+      }
+      outputLines.push(rowStr);
+    }
+
+    // Labels below previews
+    let labelStr = "";
+    for (let i = 0; i < rowTemplates.length; i++) {
+      const t = rowTemplates[i]!;
+      const label = t.label.padEnd(previewWidth);
+      labelStr += "    " + label;
+      if (i < rowTemplates.length - 1) {
+        labelStr += " ".repeat(gapWidth);
+      }
+    }
+    outputLines.push(labelStr);
+    outputLines.push("");
+  }
+
+  // Add "Build from scratch" option (numbered sequentially after templates)
+  outputLines.push(`${templates.length + 1})  Build from scratch`);
+
+  return outputLines.join("\n");
+}
+
+/**
+ * Display template gallery and prompt for selection.
+ * Returns selected template's columns array, or null for "build from scratch".
+ */
+export async function selectGridTemplate(): Promise<number[]> {
+  const termWidth = process.stdout.columns || 80;
+  const gallery = renderTemplateGallery(GRID_TEMPLATES, termWidth);
+  console.log(gallery);
+  console.log();
+
+  const customOption = GRID_TEMPLATES.length + 1;
+
+  const ask = async (): Promise<number[]> => {
+    const trimmed = (
+      await promptUser(`  Select [1-${customOption}] (default: 1): `)
+    ).trim();
+
+    if (trimmed === "") {
+      return [...GRID_TEMPLATES[0]!.columns];
+    }
+    const num = parseInt(trimmed, 10);
+    if (Number.isNaN(num) || num < 1 || num > customOption) {
+      console.log(
+        yellow(
+          `  Invalid selection. Enter 1-${customOption}.`,
+        ),
+      );
+      return ask();
+    }
+    if (num === customOption) {
+      console.log();
+      const result = await runGridBuilder();
+      if (result === null) {
+        // User pressed Escape — re-show template gallery
+        console.log(dim("  Returning to template selection..."));
+        return selectGridTemplate();
+      }
+      return result;
+    }
+    return [...GRID_TEMPLATES[num - 1]!.columns];
+  };
+
+  return ask();
+}
+
+/**
+ * Build a grid with filled commands and "?" placeholders for unfilled cells.
+ * @internal — exported for testing only
+ */
+export function buildPartialGrid(
+  columns: number[],
+  commands: string[][],
+): string[][] {
+  return columns.map((paneCount, c) => {
+    const col: string[] = [];
+    for (let p = 0; p < paneCount; p++) {
+      const cmd = commands[c]?.[p];
+      col.push(cmd && cmd.length > 0 ? cmd : "?");
+    }
+    return col;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -933,24 +1604,15 @@ export async function runLayoutBuilder(name: string): Promise<void> {
     }
   }
 
-  // --- Column count ---
-  const columnOptions: SelectOption[] = [
-    { label: "1 column", value: "1" },
-    { label: "2 columns", value: "2" },
-    { label: "3 columns", value: "3" },
-  ];
-  console.log(bold("  How many columns?") + dim(" (not counting sidebar)"));
-  const colIdx = await numberedSelect(
-    columnOptions,
-    "  Select [1-3] (default: 1): ",
-    0,
-  );
-  const columnCount = colIdx + 1;
+  // --- Grid shape selection ---
+  console.log(bold("  Choose a grid shape:"));
   console.log();
+  const paneCountsPerColumn = await selectGridTemplate();
+  const columnCount = paneCountsPerColumn.length;
 
-  // --- Pane count per column ---
-  // Detect available tools once (shell lookups are expensive)
-  const detected = detectTools([...EDITOR_CATALOG, ...SIDEBAR_CATALOG]);
+  // --- Command assignment with in-place preview ---
+  // Detect available tools once (shell lookups run in parallel)
+  const detected = await detectTools([...EDITOR_CATALOG, ...SIDEBAR_CATALOG]);
   const availableCmds = detected
     .filter((t) => t.available)
     .map((t) => t.cmd);
@@ -959,54 +1621,47 @@ export async function runLayoutBuilder(name: string): Promise<void> {
       ? dim(`  Detected: ${availableCmds.join(", ")}`)
       : "";
 
+  const renderer = new PreviewRenderer();
+
+  // Initial preview with all placeholders
+  const initialGrid = buildPartialGrid(paneCountsPerColumn, []);
+  renderer.draw(initialGrid);
+  renderer.log();
+
   const grid: string[][] = [];
   for (let c = 0; c < columnCount; c++) {
-    const paneOptions: SelectOption[] = [
-      { label: "1 pane", value: "1" },
-      { label: "2 panes", value: "2" },
-      { label: "3 panes", value: "3" },
-    ];
-    console.log(bold(`  Column ${c + 1}`) + dim(" \u2014 how many panes stacked?"));
-    const paneIdx = await numberedSelect(
-      paneOptions,
-      "  Select [1-3] (default: 1): ",
-      0,
-    );
-    const paneCount = paneIdx + 1;
-    console.log();
-
-    // --- Command per pane ---
+    const paneCount = paneCountsPerColumn[c]!;
     const column: string[] = [];
     for (let p = 0; p < paneCount; p++) {
-      if (hintStr) console.log(hintStr);
-      const cmd = await promptUser(
-        `  Column ${c + 1}, Pane ${p + 1} \u2014 command: `,
-      );
-      column.push(cmd || "shell");
+      if (hintStr) renderer.log(hintStr);
+      let cmd = "";
+      while (!cmd) {
+        renderer.countPrompt();
+        const input = await promptUser(
+          `  Column ${c + 1}, Pane ${p + 1} \u2014 command [shell]: `,
+        );
+        cmd = input || "shell";
+        const validated = await validateBuilderCommand(cmd, availableCmds);
+        if (validated !== cmd) {
+          // Validation printed extra lines — line counts are unreliable now
+          renderer.reset();
+        }
+        cmd = validated;
+      }
+      column.push(cmd);
+
+      // In-place preview update
+      grid[c] = [...column];
+      const partial = buildPartialGrid(paneCountsPerColumn, grid);
+      renderer.draw(partial);
+      renderer.log();
     }
-    grid.push(column);
-    console.log();
+    grid[c] = column;
   }
 
-  // --- Sidebar ---
-  const sidebarAvailable = detected
-    .filter((t) => t.available && SIDEBAR_CATALOG.some((s) => s.cmd === t.cmd))
-    .map((t) => t.cmd);
-  if (sidebarAvailable.length > 0) {
-    console.log(dim(`  Detected: ${sidebarAvailable.join(", ")}`));
-  }
-  const sidebarCmd = await promptUser("  Sidebar \u2014 command: ");
-  const sidebar = sidebarCmd || "lazygit";
-  console.log();
-
-  // --- Preview ---
-  console.log(bold("  Preview:"));
-  console.log();
-  const preview = renderLayoutPreview(grid, sidebar);
-  for (const line of preview.split("\n")) {
-    console.log(`  ${line}`);
-  }
-  console.log();
+  // --- Final preview ---
+  renderer.draw(grid);
+  renderer.log();
 
   // --- Confirm ---
   const accepted = await confirm(`  Save as "${name}"?`);
@@ -1016,7 +1671,7 @@ export async function runLayoutBuilder(name: string): Promise<void> {
   }
 
   // --- Build and save ---
-  const { tree, panes } = gridToTree(grid, sidebar);
+  const { tree, panes } = gridToTree(grid);
   const entries = new Map<string, string>();
   for (const [paneName, command] of panes) {
     entries.set(`pane.${paneName}`, command);

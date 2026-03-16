@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { generateAppleScript, generateTreeAppleScript } from "./script.js";
 import { planLayout, getPreset } from "./layout.js";
+import { collectLeaves } from "./tree.js";
 import type { TreeLayoutPlan, LayoutNode } from "./tree.js";
 
 describe("generateAppleScript", () => {
@@ -147,7 +148,7 @@ describe("generateAppleScript", () => {
     // Sidebar and right editor get commands via config
     // Shell pane has no command (plain shell) — gets clear instead
     const inputTexts = (script.match(/input text/g) ?? []).length;
-    expect(inputTexts).toBe(4); // env export + cd + editor on root pane + clear on shell pane
+    expect(inputTexts).toBe(5); // env export + cd + clear + editor on root pane + clear on shell pane
   });
 
   it("skips command for empty editor", () => {
@@ -465,6 +466,33 @@ describe("generateAppleScript", () => {
     expect(script).toContain("paneRight3");
   });
 
+  it("multi-pane right column with no secondary editor uses role-only title", () => {
+    // rightColumnEditorCount=2 (editorPanes=4) with both editor and secondaryEditor empty.
+    // Exercises the falsy secondaryCmd branch in emitRightColumnSplits (script.ts line 293).
+    const plan = planLayout({ editorPanes: 4, editor: "", secondaryEditor: "" });
+    const script = generateAppleScript(plan, "/tmp");
+
+    // Right column panes still exist with down splits
+    expect(script).toContain("paneRight2");
+    expect(script).toContain("paneRightCol");
+
+    // With empty secondaryCmd, the title shows just "editor" (no " · cmd" suffix)
+    expect(script).toContain('perform action "set_surface_title:editor" on paneRight2');
+  });
+
+  it("multi-pane left column with no editor command uses role-only title", () => {
+    // leftColumnCount=2 (editorPanes=3) with empty editor command.
+    // Exercises the falsy editorCmd branch in emitEditorColumnSplits (script.ts line 329).
+    const plan = planLayout({ editorPanes: 3, editor: "" });
+    const script = generateAppleScript(plan, "/tmp");
+
+    // Left column split still exists
+    expect(script).toContain("paneLeft2");
+
+    // With empty editorCmd, the title shows just "editor" (no " · cmd" suffix)
+    expect(script).toContain('perform action "set_surface_title:editor" on paneLeft2');
+  });
+
   // --- Pane & tab title tests ---
 
   it("sets pane titles for default layout", () => {
@@ -479,7 +507,7 @@ describe("generateAppleScript", () => {
     expect(script).toContain('perform action "set_surface_title:editor \u00B7 claude" on paneRoot');
     expect(script).toContain('perform action "set_surface_title:sidebar \u00B7 lazygit" on paneSidebar');
     expect(script).toContain('perform action "set_surface_title:editor \u00B7 claude" on paneRightCol');
-    expect(script).toContain('perform action "set_surface_title:server" on paneRight2');
+    expect(script).toContain('perform action "set_surface_title:shell" on paneRight2');
   });
 
   it("pane titles appear before focus", () => {
@@ -501,7 +529,7 @@ describe("generateAppleScript", () => {
     expect(script).toContain('perform action "set_surface_title:sidebar \u00B7 lazygit" on paneSidebar');
     // No right column panes
     expect(script).not.toContain("set_surface_title:editor" + '" on paneRightCol');
-    expect(script).not.toContain("set_surface_title:server" + '" on paneRight');
+    expect(script).not.toContain("set_surface_title:shell" + '" on paneRight');
   });
 
   it("full preset sets titles for all panes", () => {
@@ -512,7 +540,7 @@ describe("generateAppleScript", () => {
     expect(script).toContain('perform action "set_surface_title:sidebar \u00B7 lazygit" on paneSidebar');
     expect(script).toContain('perform action "set_surface_title:editor \u00B7 claude" on paneRightCol');
     expect(script).toContain('perform action "set_surface_title:editor \u00B7 claude" on paneLeft2');
-    expect(script).toContain('perform action "set_surface_title:server" on paneRight2');
+    expect(script).toContain('perform action "set_surface_title:shell" on paneRight2');
   });
 
   it("btop preset shows secondary editor in right column title", () => {
@@ -526,7 +554,7 @@ describe("generateAppleScript", () => {
     const plan = planLayout({ shell: "npm run dev" });
     const script = generateAppleScript(plan, "/tmp/proj");
 
-    expect(script).toContain('perform action "set_surface_title:server \u00B7 npm run dev" on paneRight2');
+    expect(script).toContain('perform action "set_surface_title:shell \u00B7 npm run dev" on paneRight2');
   });
 
   it("tab title uses basename of target directory", () => {
@@ -557,7 +585,7 @@ describe("generateAppleScript", () => {
     const plan = planLayout(getPreset("cli"));
     const script = generateAppleScript(plan, "/tmp/proj");
 
-    expect(script).toContain('perform action "set_surface_title:server" on paneRightCol');
+    expect(script).toContain('perform action "set_surface_title:shell" on paneRightCol');
   });
 
   // --- SUMMON_WORKSPACE marker ---
@@ -839,6 +867,7 @@ describe("generateTreeAppleScript", () => {
     })(tree);
     return {
       tree,
+      leaves: collectLeaves(tree),
       focusPane: defaultFocus,
       autoResize: false,
       editorSize: 75,
@@ -1021,8 +1050,9 @@ describe("generateTreeAppleScript", () => {
     );
     const script = generateTreeAppleScript(plan, "/tmp/project");
 
-    expect(script).toContain("make new window with configuration cfg");
-    expect(script).not.toContain("set win to front window");
+    expect(script).toContain('keystroke "n" using command down');
+    expect(script).toContain("set win to front window");
+    expect(script).not.toContain("make new window");
   });
 
   it("fullscreen mode", () => {
@@ -1098,7 +1128,7 @@ describe("generateTreeAppleScript", () => {
     expect(script).toContain("export NODE_ENV='development'");
   });
 
-  it("no env exports for root pane in new-window mode", () => {
+  it("env exports for root pane in new-window mode", () => {
     const plan = makePlan(
       { type: "pane", name: "editor", command: "claude" },
       { newWindow: true },
@@ -1106,8 +1136,8 @@ describe("generateTreeAppleScript", () => {
     const script = generateTreeAppleScript(plan, "/tmp/project", "/bin/bash", null,
       { NODE_ENV: "development" });
 
-    // Root pane inherits env vars from cfg in new-window mode
-    expect(script).not.toContain("export NODE_ENV=");
+    // Root pane gets env exports via input text (keystroke new window doesn't carry cfg)
+    expect(script).toContain("export NODE_ENV='development'");
   });
 
   it("pane titles with name and command", () => {

@@ -1,89 +1,79 @@
-# Pre-Launch Audit Report
-> Generated on 2026-03-14 | Branch: `develop` | Commit: `9567636` | 6 parallel specialists
+# Pre-Launch Audit Report (Final)
+> Generated on 2026-03-16 | Branch: `develop` | 6 parallel specialists | Pre-v1.0.0
 
 ## Verdict: READY
 
-No blockers. All previous audit findings resolved. Remaining items are documentation gaps and minor cleanup — all deferrable to `/update-docs` and `/release`.
+No blockers. Version bump (0.8.0 -> 1.0.0) is expected and handled by `/release`. All 6 specialists report GREEN.
+
+## Blockers (must fix before release)
+
+None.
 
 ## Warnings
 
 | # | Issue | Severity | Found by | Risk |
 |---|-------|----------|----------|------|
-| W1 | `SUMMON_WORKSPACE` env var undocumented in user manual | LOW | ux-reviewer | Users won't know about nested workspace detection |
-| W2 | Custom layout docs missing `auto-resize` and `font-size` options | LOW | ux-reviewer | Incomplete feature documentation |
-| W3 | `.summon` file layout names not validated against `LAYOUT_NAME_RE` | LOW | security | Path traversal via malicious .summon (attacker needs FS access) |
-| W4 | 3 unpushed commits on develop | LOW | devops | Expected — will push after audit |
-| W5 | CHANGELOG `[Unreleased]` empty for 17 post-v0.7.0 commits | LOW | devops | Handled by `/release` |
-| W6 | Dead exports: `hexToRgb`, `colorSwatch`, `resolveConfig` | LOW | architect | Minor cleanup |
-
-## Previous Audit Findings — All Resolved
-
-| Original | Status |
-|----------|--------|
-| W1-W2: Coverage thresholds failing | **FIXED** — 98.47% stmts, 91.59% branches, 99.18% lines |
-| W3: Custom layouts undocumented | **FIXED** — 198 lines added to user manual |
-| W4: Layout missing from completions | **FIXED** — zsh + bash completions added |
-| W5: --env key validation gap | **FIXED** — ENV_KEY_RE applied to CLI env keys |
-| W6: layout show/delete name validation | **FIXED** — validateLayoutNameOrExit on all paths |
-| W7: Script duplication (~200 lines) | **FIXED** — 9 shared helpers extracted |
-| W8: Unpushed commit | **FIXED** — CI passed |
-| W10: Dead code tree.ts:238 | **FIXED** — removed |
+| W1 | `package.json` version is 0.8.0, needs 1.0.0 bump | Medium | devops | `/release` handles this |
+| W2 | `layout` help text missing `create` action in parenthetical | Low | ux-reviewer | Cosmetic |
+| W3 | Empty custom shell command accepted in setup wizard | Low | ux-reviewer | Edge case — user must choose option 3 then enter nothing |
+| W4 | `executeOnStart` uses `execSync` with shell interpretation | Low | security | By design; `.summon` gated by confirmation prompt |
+| W5 | Repeated `console.error` + `process.exit(1)` pattern (6x) | Low | architect | Minor duplication |
 
 ## Detailed Findings
 
-### 1. Quality Assurance (qa-lead) — GREEN
+### 1. Quality Assurance (qa-lead) -- GREEN
 
-- **Tests:** 675 passed, 0 failed, 100% pass rate
-- **Typecheck:** PASS | **Lint:** PASS
-- **Coverage:** 98.47% stmts / 91.59% branches / 98.68% funcs / 99.18% lines
-- All thresholds passing. No file below 95% line coverage.
-- Error handling comprehensive across all modules.
+- **817/817 tests pass** (100% pass rate)
+- **Typecheck:** Clean
+- **Lint:** Clean
+- **Coverage:** 96.89% stmts, 90.56% branches, 98.56% functions, 97.49% lines
+- All coverage thresholds met (95/90/95/95)
+- Every source file has co-located tests
+- Uncovered paths: interactive TUI flows (require real Ghostty), defensive parser guards
 
-### 2. Security (security-reviewer) — GREEN
+### 2. Security (security-reviewer) -- GREEN
 
-- **Dependency audit:** No vulnerabilities. Zero runtime deps.
-- **Secrets:** None found.
-- **Command injection:** Well-defended. `execFileSync` used throughout, `SAFE_COMMAND_RE` gates all command names, `.summon` metacharacters trigger user confirmation.
-- **File permissions:** Correct (dirs 0o700, files 0o600, exports 0o644).
-- **AppleScript injection:** `escapeAppleScript` + `shellQuote` cover all vectors.
-- **Minor:** `.summon` layout names bypass `LAYOUT_NAME_RE` (low severity — attacker needs FS access).
+- `pnpm audit`: No vulnerabilities (zero runtime deps)
+- No hardcoded secrets
+- Command injection: Well-defended at every boundary (SAFE_COMMAND_RE, escapeAppleScript, shellQuote, SAFE_SHELL_RE, ENV_KEY_RE)
+- osascript: Script via stdin, not shell arg
+- Path traversal: Layout names validated by strict regex
+- File permissions: Config 0o600, dirs 0o700
+- Licenses: All permissive (MIT, ISC, Apache-2.0, BSD)
 
-### 3. Infrastructure (devops) — GREEN
+### 3. Infrastructure (devops) -- GREEN
 
-- **Build:** Success in 12ms, ~60 KB total.
-- **CI:** Last 5 runs all passed.
-- **CI config:** Node 18/20/22 matrix on macOS, CodeQL, dependency review, Dependabot.
-- **Package:** Correct entry points, OS restriction, engine requirement, lean publish.
-- **Hooks:** Husky pre-commit runs typecheck + lint + test.
-- **Note:** 3 unpushed commits, CHANGELOG stale (both expected pre-release).
+- Build succeeds (7 ESM chunks, ~67 KB total)
+- CI: Last 5 runs on develop all pass
+- Git: Clean working tree, up to date with origin
+- package.json: All fields correct (version bump pending for release)
+- CHANGELOG [Unreleased] has substantial content ready for v1.0.0
+- Shebang present, dist files executable
+- All 5 env vars documented in README
 
-### 4. Architecture (architect) — GREEN
+### 4. Architecture (architect) -- GREEN
 
-- **Typecheck:** PASS. **Dependencies:** All current.
-- **Circular deps:** None. Clean DAG.
-- **Dead code:** Minor — `hexToRgb`, `colorSwatch` marked @internal but never tested; `resolveConfig` exported but only called internally.
-- **Duplicate code:** Minor — font-size validation (3 lines, 2 places), layout validation error message (2 places).
-- **Architecture:** Clean separation of concerns, zero runtime deps maintained, appropriate lazy loading.
+- Typecheck: Clean
+- Dependencies: All current
+- Circular dependencies: None (clean DAG)
+- Dead code: Only test-only exports (all annotated @internal)
+- No meaningful duplication in production code
 
-### 5. Performance (performance-eng) — GREEN
+### 5. Performance (performance-eng) -- GREEN
 
-- **Build:** 33.43 KB main chunk, 12ms build time.
-- **Startup:** Excellent lazy-loading. Heavy modules (setup, completions) dynamically imported.
-- **Anti-patterns:** None found. Caching in place for starship/commands.
-- **Bundle:** Lean, properly code-split.
+- Bundle: 34 KB entry point, ~67 KB total
+- Code splitting: 41% deferred via dynamic imports (setup + completions)
+- Startup path: Well-ordered early exits for --help/--version
+- Command resolution: Cached (resolvedCache Map)
+- Sync I/O: Appropriate for CLI context
+- No performance anti-patterns on hot paths
 
-### 6. UX/Accessibility (ux-reviewer) — GREEN
+### 6. UX/Accessibility (ux-reviewer) -- GREEN
 
-- **Help text:** Comprehensive, well-structured, shows on no-args.
-- **Error messages:** Consistently actionable with guidance.
-- **Wizard:** Polished TUI, TTY-aware, tool filtering, NO_COLOR support.
-- **Completions:** All 11 subcommands + layout actions covered.
-- **Exit codes:** Correct throughout.
-- **Recent changes:** No-args help, nested workspace warning, wizard tool filtering — all well-implemented.
-- **Gaps:** `SUMMON_WORKSPACE` undocumented, custom layout docs missing `auto-resize`/`font-size`.
-
-## Fix Priority
-
-**Handled by `/update-docs`:** W1, W2
-**Handled by `/release`:** W4, W5
-**Optional cleanup:** W3 (add LAYOUT_NAME_RE check in launcher.ts:267), W6 (remove dead exports)
+- Help text: Clear and comprehensive with examples
+- Error messages: Actionable with corrective hints
+- Exit codes: Correct throughout (0 success, 1 error)
+- Setup wizard: Polished flow with auto-detection, visual builder, confirmation loop
+- Grid builder: Intuitive keys, dimmed unavailable actions, clean Ctrl+C
+- Empty states: All handled with helpful hints
+- Terminology: Consistent (preset/custom layout/template well-differentiated)

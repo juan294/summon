@@ -10,13 +10,13 @@ Technical reference for contributors.
 | `launcher.ts` | Orchestrator — config resolution, command checks, script execution via osascript | yes | config, layout, script, tree, utils, validation, starship |
 | `config.ts` | Config file read/write (`~/.config/summon/` and `.summon`), first-run detection | yes | Node stdlib only |
 | `setup.ts` | Interactive setup wizard — TUI primitives, tool catalogs, numbered-selection flow | yes | config, utils, starship |
-| `utils.ts` | Shared utilities — `SAFE_COMMAND_RE`, `GHOSTTY_PATHS`, `resolveCommand`, `promptUser` (shared readline wrapper) | yes | Node stdlib only |
+| `utils.ts` | Shared utilities — `SAFE_COMMAND_RE`, `GHOSTTY_PATHS`, `GHOSTTY_APP_NAME`, `SUMMON_WORKSPACE_ENV`, `resolveCommand`, `getErrorMessage`, `promptUser` | yes | Node stdlib only |
 | `layout.ts` | Layout calculation and presets | **pure** | none |
-| `script.ts` | AppleScript generator — builds script string from LayoutPlan or TreeLayoutPlan | **pure** | tree |
+| `script.ts` | AppleScript generator — builds script string from LayoutPlan or TreeLayoutPlan | **pure** | tree, utils |
 | `completions.ts` | Shell completion script generator (zsh, bash) | **pure** | config, layout |
 | `starship.ts` | Starship detection, preset listing, TOML config caching | yes | config, utils |
 | `tree.ts` | Tree data model, DSL parser, plan builder (pure — no side effects) | **pure** | layout |
-| `validation.ts` | Input validation helpers (`parseIntInRange`) | **pure** | none |
+| `validation.ts` | Input validation helpers (`parseIntInRange`, `validateIntFlag`, `validateFloatFlag`) | **pure** | none |
 | `globals.d.ts` | Build-time constant declarations (`__VERSION__`) | — | — |
 | `*.test.ts` | Co-located unit tests (Vitest) | — | — |
 
@@ -39,6 +39,9 @@ graph TD
     launcher --> validation
     launcher --> starship[starship.ts]
     script --> tree
+    script --> utils
+    tree --> layout
+    config --> layout
     setup --> config
     setup --> utils
     setup --> starship
@@ -49,33 +52,51 @@ graph TD
 
     config -.- cfg_fns["addProject, removeProject,
     getProject, listProjects,
-    setConfig, listConfig,
+    setConfig, removeConfig, listConfig,
     isFirstRun, readKVFile,
     listCustomLayouts, readCustomLayout,
-    saveCustomLayout, isValidLayoutName,
-    VALID_KEYS, BOOLEAN_KEYS, CLI_FLAGS"]
+    saveCustomLayout, deleteCustomLayout,
+    isValidLayoutName, isCustomLayout,
+    VALID_KEYS, BOOLEAN_KEYS, CLI_FLAGS,
+    LAYOUT_NAME_RE, CONFIG_DIR"]
     layout -.- lay_fns["planLayout, isPresetName,
     getPreset, getPresetNames,
     LayoutOptions, LayoutPlan"]
     script -.- scr_fns["generateAppleScript,
     generateTreeAppleScript"]
     tree -.- tree_fns["parseTreeDSL, buildTreePlan,
-    collectLeaves, firstLeaf,
-    findPaneByName"]
+    walkLeaves, collectLeaves,
+    firstLeaf, findPaneByName,
+    extractPaneDefinitions,
+    resolveTreeCommands"]
     utils -.- util_fns["SAFE_COMMAND_RE,
     GHOSTTY_PATHS,
+    GHOSTTY_APP_NAME,
+    SUMMON_WORKSPACE_ENV,
     resolveCommand,
+    getErrorMessage,
     promptUser"]
     starship -.- star_fns["isStarshipInstalled,
     listStarshipPresets,
     isValidPreset,
     ensurePresetConfig,
-    getPresetConfigPath"]
-    setup -.- setup_fns["runSetup, detectTools,
-    validateSetup, EDITOR_CATALOG,
-    SIDEBAR_CATALOG"]
+    getPresetConfigPath,
+    resetStarshipCache"]
+    setup -.- setup_fns["runSetup, runLayoutBuilder,
+    selectGridTemplate, runGridBuilder,
+    PreviewRenderer, GRID_TEMPLATES,
+    detectTools, validateSetup,
+    gridToTree, renderLayoutPreview,
+    renderMiniPreview, renderTemplateGallery,
+    findClosestCommand, centerLabel,
+    visibleLength, buildPartialGrid,
+    EDITOR_CATALOG, SIDEBAR_CATALOG"]
     completions -.- comp_fns["generateZshCompletion,
     generateBashCompletion"]
+    validation -.- val_fns["parseIntInRange,
+    parsePositiveFloat,
+    validateIntFlag,
+    validateFloatFlag"]
 
     style cfg_fns fill:none,stroke-dasharray:5
     style lay_fns fill:none,stroke-dasharray:5
@@ -85,6 +106,7 @@ graph TD
     style setup_fns fill:none,stroke-dasharray:5
     style star_fns fill:none,stroke-dasharray:5
     style comp_fns fill:none,stroke-dasharray:5
+    style val_fns fill:none,stroke-dasharray:5
 ```
 
 `layout.ts`, `script.ts`, `tree.ts`, `completions.ts`, and `validation.ts` are pure modules with no side effects. `config.ts` and `utils.ts` only use Node stdlib. `starship.ts` handles Starship binary detection (cached), preset listing, and TOML config file generation — it depends on `config.ts` (for `CONFIG_DIR`) and `utils.ts` (for `resolveCommand`, `SAFE_COMMAND_RE`). `setup.ts` and `completions.ts` are loaded via dynamic `import()` from `index.ts` — they're only parsed when needed (`summon setup` or `summon completions`), keeping normal launch times unaffected.
@@ -220,15 +242,24 @@ The auto-trigger in `index.ts` fires when:
 ### Wizard Flow
 
 1. **Welcome banner** — wizard hat mascot (magenta Unicode art), colored SUMMON logo (cyan→green gradient), and a random rotating tip from 10 feature-discovery hints. Respects `NO_COLOR`.
-2. **Layout selection** — numbered list of 5 presets with ASCII diagrams
-3. **Editor selection** — catalog of common editors, detected via `resolveCommand()`, sorted available-first
-4. **Sidebar selection** — catalog of common sidebar tools, same detection pattern
-5. **Shell selection** — plain shell, disabled, or custom command
+2. **Layout selection** — numbered list of 5 presets with ASCII diagrams, plus a "custom" option that flows into the layout builder
+3. **Editor selection** — catalog of common editors, detected via `resolveCommand()`, sorted available-first (skipped for custom layouts)
+4. **Sidebar selection** — catalog of common sidebar tools, same detection pattern (skipped for custom layouts)
+5. **Shell selection** — plain shell, disabled, or custom command (skipped for custom layouts)
 6. **Starship prompt theme** — if Starship is installed, shows available presets with true-color palette swatches for the 4 color-rich presets (pastel-powerline, tokyo-night, gruvbox-rainbow, catppuccin-powerline). Includes Skip and "Random (surprise me!)" options. Gracefully skipped if Starship is not installed.
 7. **Summary** — display chosen configuration
 8. **Confirmation** — Y/n; declining loops back to step 2
-8. **Validation** — check each chosen command with `resolveCommand()`, check Ghostty installation, show install hints for missing tools
-9. **Save** — write each key via `setConfig()`
+9. **Validation** — check each chosen command with `resolveCommand()`, check Ghostty installation, show install hints for missing tools (skipped for custom layouts)
+10. **Save** — write each key via `setConfig()`
+
+### Visual Layout Builder
+
+The layout builder (`runLayoutBuilder`) provides a visual way to create custom layouts:
+
+1. **Template gallery** — side-by-side mini diagrams of 7 common grid shapes (`GRID_TEMPLATES`), rendered via `renderMiniPreview()` and composed by `renderTemplateGallery()`. Adapts items per row to terminal width.
+2. **Arrow-key grid builder** — selecting "Build from scratch" enters raw mode (`runGridBuilder`). Users sculpt a grid shape with arrow keys (←→ columns, ↑↓ panes, Tab/Shift+Tab focus). Uses `applyGridAction()` for immutable state management and `PreviewRenderer` for flicker-free in-place rendering.
+3. **Command assignment** — sequential prompts for each pane command with in-place live preview. After each command entry, the layout diagram redraws in place via ANSI cursor control (`ansiUp`, `ansiClearDown`, `ansiSyncStart/End`). Unfilled cells show dimmed `?` placeholders.
+4. **Validation** — commands validated against PATH with typo detection (`findClosestCommand` using Levenshtein distance). Closest match suggested if not found.
 
 ### Tool Catalogs
 
@@ -371,7 +402,7 @@ Each diagram shows the resulting Ghostty window. The sidebar (lazygit) is always
             75%                    25%
 ```
 
-#### `full` — 3 editors + shell (default)
+#### `full` — 3 editors + shell
 
 ```
 ┌──────────────┬──────────────┬───────────┐
@@ -431,7 +462,7 @@ Each diagram shows the resulting Ghostty window. The sidebar (lazygit) is always
 
 ## Layout Algorithm
 
-Given `N` editor panes (default 3) and shell toggle:
+Given `N` editor panes (default 2) and shell toggle:
 
 1. **Left column**: `ceil(N/2)` editor panes
 2. **Right column**: `N - ceil(N/2)` editor panes + (1 shell pane if `hasShell`)
@@ -486,4 +517,4 @@ A `.summon` file in the project root uses the same `key=value` format.
 4. **Code splitting**: `setup.ts` and `completions.ts` are auto-split into separate chunks via dynamic `import()`
 5. **prepublishOnly**: runs `pnpm run build` before any `npm publish`
 
-The `files` field in package.json limits the published package to `dist/` only. Total bundle size is ~60 KB across 7 chunks.
+The `files` field in package.json limits the published package to `dist/` only. Total bundle size is ~84 KB across 7 chunks.

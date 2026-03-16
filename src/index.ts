@@ -23,8 +23,8 @@ import {
 import { launch } from "./launcher.js";
 import type { CLIOverrides } from "./launcher.js";
 import { PANES_MIN, EDITOR_SIZE_MIN, EDITOR_SIZE_MAX, isPresetName, getPresetNames } from "./layout.js";
-import { parseIntInRange } from "./validation.js";
-import { SAFE_COMMAND_RE } from "./utils.js";
+import { validateIntFlag, validateFloatFlag } from "./validation.js";
+import { SAFE_COMMAND_RE, getErrorMessage, exitWithUsageHint } from "./utils.js";
 
 function validateLayoutNameOrExit(name: string): void {
   if (isPresetName(name)) {
@@ -35,6 +35,18 @@ function validateLayoutNameOrExit(name: string): void {
     console.error(`Error: Invalid layout name "${name}".`);
     console.error("Names must start with a letter and contain only letters, digits, hyphens, and underscores.");
     process.exit(1);
+  }
+}
+
+function validateLayoutOrExit(value: string, label: string): void {
+  if (!isPresetName(value) && !isCustomLayout(value)) {
+    console.error(`Error: ${label} must be a valid preset or custom layout name, got "${value}".`);
+    console.error(`Valid presets: ${getPresetNames().join(", ")}`);
+    const custom = listCustomLayouts();
+    if (custom.length > 0) {
+      console.error(`Custom layouts: ${custom.join(", ")}`);
+    }
+    exitWithUsageHint();
   }
 }
 
@@ -57,7 +69,7 @@ Usage:
   summon config               Show current machine configuration
   summon doctor               Check Ghostty config for recommended settings
   summon open                 Select and launch a registered project
-  summon layout <action>      Manage custom layouts (save, list, show, delete, edit)
+  summon layout <action>      Manage custom layouts (create, save, list, show, delete, edit)
   summon export [path]        Export config as a .summon project file
   summon completions <shell>  Generate shell completion script (zsh, bash)
 
@@ -233,13 +245,12 @@ function safeParse() {
   try {
     return parseArgs(parseOpts);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+    const msg = getErrorMessage(err);
     console.error(`Error: ${msg}`);
     if (msg.includes("ambiguous")) {
       console.error(`Tip: To pass a value starting with '-', use '--flag=-value' syntax.`);
     }
-    console.error(`Run 'summon --help' for usage information.`);
-    process.exit(1);
+    exitWithUsageHint();
   }
 }
 
@@ -247,53 +258,31 @@ const { values, positionals } = safeParse();
 
 // Validate numeric flags at parse time
 if (values.panes !== undefined) {
-  if (!parseIntInRange(values.panes, PANES_MIN).ok) {
-    console.error(`Error: --panes must be a positive integer, got "${values.panes}".`);
-    console.error(`Run 'summon --help' for usage information.`);
-    process.exit(1);
-  }
+  validateIntFlag("panes", values.panes, PANES_MIN);
 }
 
 if (values["editor-size"] !== undefined) {
-  if (!parseIntInRange(values["editor-size"], EDITOR_SIZE_MIN, EDITOR_SIZE_MAX).ok) {
-    console.error(`Error: --editor-size must be an integer between ${EDITOR_SIZE_MIN}-${EDITOR_SIZE_MAX}, got "${values["editor-size"]}".`);
-    console.error(`Run 'summon --help' for usage information.`);
-    process.exit(1);
-  }
+  validateIntFlag("editor-size", values["editor-size"], EDITOR_SIZE_MIN, EDITOR_SIZE_MAX);
 }
 
 if (values.env) {
   for (const entry of values.env) {
     if (!entry.includes("=")) {
-      console.error(`Error: --env must be in KEY=VALUE format, got "${entry}".`);
-      console.error(`Run 'summon --help' for usage information.`);
-      process.exit(1);
+      exitWithUsageHint(`Error: --env must be in KEY=VALUE format, got "${entry}".`);
     }
   }
 }
 
 if (values["font-size"] !== undefined) {
-  const parsed = parseFloat(values["font-size"]);
-  if (isNaN(parsed) || parsed <= 0) {
-    console.error(`Error: --font-size must be a positive number, got "${values["font-size"]}".`);
-    console.error(`Run 'summon --help' for usage information.`);
-    process.exit(1);
-  }
+  validateFloatFlag("font-size", values["font-size"]);
 }
 
-if (values.layout !== undefined && !isPresetName(values.layout) && !isCustomLayout(values.layout)) {
-  console.error(`Error: --layout must be a valid preset or custom layout name, got "${values.layout}".`);
-  console.error(`Valid presets: ${getPresetNames().join(", ")}`);
-  const custom = listCustomLayouts();
-  if (custom.length > 0) {
-    console.error(`Custom layouts: ${custom.join(", ")}`);
-  }
-  console.error(`Run 'summon --help' for usage information.`);
-  process.exit(1);
+if (values.layout !== undefined) {
+  validateLayoutOrExit(values.layout, "--layout");
 }
 
 if (values["auto-resize"] && values["no-auto-resize"]) {
-  console.error("Warning: both --auto-resize and --no-auto-resize specified; using --no-auto-resize.");
+  console.warn("Warning: both --auto-resize and --no-auto-resize specified; using --no-auto-resize.");
 }
 
 if (values.version) {
@@ -404,27 +393,13 @@ switch (subcommand) {
       process.exit(1);
     }
     if (key === "panes" && value !== undefined) {
-      if (!parseIntInRange(value, PANES_MIN).ok) {
-        console.error(`Error: panes must be a positive integer (>= ${PANES_MIN}), got "${value}".`);
-        process.exit(1);
-      }
+      validateIntFlag("panes", value, PANES_MIN);
     }
     if (key === "editor-size" && value !== undefined) {
-      if (!parseIntInRange(value, EDITOR_SIZE_MIN, EDITOR_SIZE_MAX).ok) {
-        console.error(`Error: editor-size must be an integer between ${EDITOR_SIZE_MIN}-${EDITOR_SIZE_MAX}, got "${value}".`);
-        process.exit(1);
-      }
+      validateIntFlag("editor-size", value, EDITOR_SIZE_MIN, EDITOR_SIZE_MAX);
     }
     if (key === "layout" && value !== undefined) {
-      if (!isPresetName(value) && !isCustomLayout(value)) {
-        console.error(`Error: layout must be a valid preset or custom layout name, got "${value}".`);
-        console.error(`Valid presets: ${getPresetNames().join(", ")}`);
-        const custom = listCustomLayouts();
-        if (custom.length > 0) {
-          console.error(`Custom layouts: ${custom.join(", ")}`);
-        }
-        process.exit(1);
-      }
+      validateLayoutOrExit(value, "layout");
     }
     if (BOOLEAN_KEYS.has(key) && value !== undefined) {
       if (value !== "true" && value !== "false") {
@@ -433,11 +408,7 @@ switch (subcommand) {
       }
     }
     if (key === "font-size" && value !== undefined) {
-      const parsed = parseFloat(value);
-      if (isNaN(parsed) || parsed <= 0) {
-        console.error(`Error: font-size must be a positive number, got "${value}".`);
-        process.exit(1);
-      }
+      validateFloatFlag("font-size", value);
     }
     if (key === "starship-preset" && value !== undefined) {
       if (!SAFE_COMMAND_RE.test(value)) {
@@ -504,11 +475,10 @@ switch (subcommand) {
 
   case "doctor": {
     const { existsSync: ghosttyExists, readFileSync: readGhostty } = await import("node:fs");
-    const { join: joinPath } = await import("node:path");
 
     console.log("Checking Ghostty configuration...\n");
 
-    const ghosttyConfigPath = joinPath(homedir(), ".config", "ghostty", "config");
+    const ghosttyConfigPath = join(homedir(), ".config", "ghostty", "config");
 
     if (!ghosttyExists(ghosttyConfigPath)) {
       console.log("  ! No Ghostty config file found at ~/.config/ghostty/config");
@@ -526,26 +496,28 @@ switch (subcommand) {
         key: "window-save-state",
         recommended: "always",
         reason: "Restore your workspace layout after Ghostty restarts",
+        regex: /^\s*window-save-state\s*=/m,
       },
       {
         name: "Command Notifications",
         key: "notify-on-command-finish",
         recommended: "unfocused",
         reason: "Get notified when long-running commands finish",
+        regex: /^\s*notify-on-command-finish\s*=/m,
       },
       {
         name: "Shell Integration",
         key: "shell-integration",
         recommended: "detect",
         reason: "Enable prompt navigation, click-to-move cursor, and smart close",
+        regex: /^\s*shell-integration\s*=/m,
       },
     ];
 
     let allGood = true;
 
     for (const check of checks) {
-      const regex = new RegExp(`^\\s*${check.key}\\s*=`, "m");
-      const isSet = regex.test(configContent);
+      const isSet = check.regex.test(configContent);
 
       if (isSet) {
         console.log(`  + ${check.name} (${check.key}) is configured`);
@@ -561,8 +533,6 @@ switch (subcommand) {
 
     if (allGood) {
       console.log("\n  All recommended settings are configured!");
-    } else {
-      process.exit(1);
     }
 
     break;
@@ -587,7 +557,7 @@ switch (subcommand) {
     const idx = parseInt(answer, 10) - 1;
 
     if (isNaN(idx) || idx < 0 || idx >= entries.length) {
-      console.error("Invalid selection.");
+      console.error(`Invalid selection. Enter a number between 1 and ${entries.length}.`);
       process.exit(1);
     }
 
@@ -687,7 +657,15 @@ switch (subcommand) {
           console.error("Usage: summon layout show <name>");
           process.exit(1);
         }
-        validateLayoutNameOrExit(layoutName);
+        if (isPresetName(layoutName)) {
+          console.error(`Error: "${layoutName}" is a built-in preset, not a custom layout. Run 'summon --help' to see preset descriptions.`);
+          process.exit(1);
+        }
+        if (!isValidLayoutName(layoutName)) {
+          console.error(`Error: Invalid layout name "${layoutName}".`);
+          console.error("Names must start with a letter and contain only letters, digits, hyphens, and underscores.");
+          process.exit(1);
+        }
         const data = readCustomLayout(layoutName);
         if (!data) {
           layoutNotFoundOrExit(layoutName);
@@ -730,6 +708,7 @@ switch (subcommand) {
           execEditFile(editorCmd, [filePath], { stdio: "inherit" });
         } catch {
           console.error(`Failed to open editor: ${editorCmd}`);
+          console.error("Check your EDITOR environment variable or ensure the editor is installed.");
           process.exit(1);
         }
         break;

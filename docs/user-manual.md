@@ -229,7 +229,7 @@ summon layout edit my-layout       # open layout file in $EDITOR
 
 | Action | Description |
 |---|---|
-| `create <name>` | Interactive wizard that walks you through choosing columns, panes per column, and commands. Generates a tree DSL expression and saves the layout. Requires a TTY. |
+| `create <name>` | Interactive visual builder with a template gallery, arrow-key grid sculptor, and live preview. Choose a grid shape or build from scratch with unlimited columns and panes. Generates a tree DSL expression and saves the layout. Requires a TTY. |
 | `save <name>` | Saves the current machine config (from `summon set`) as a custom layout file. Useful for capturing your current setup as a reusable layout. |
 | `list` | Lists all saved custom layouts with a summary of their settings. |
 | `show <name>` | Displays the full contents of a custom layout file. |

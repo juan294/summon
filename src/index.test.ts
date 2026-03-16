@@ -785,11 +785,11 @@ describe("CLI integration", () => {
     });
   });
 
-  describe("summon doctor (#113, #116)", () => {
-    it("exits 1 when recommendations are found (#124)", () => {
-      // With temp HOME, no Ghostty config exists → all checks will fail → exit 1
+  describe("summon doctor (#113, #116, #153)", () => {
+    it("exits 0 when recommendations are missing but Ghostty config path is valid (#153)", () => {
+      // With temp HOME, no Ghostty config exists → recommendations missing → exit 0 (not an error)
       const result = run("doctor");
-      expect(result.status).toBe(1);
+      expect(result.status).toBe(0);
       expect(result.stdout).toContain("Checking Ghostty configuration");
     });
 
@@ -844,6 +844,14 @@ describe("CLI integration", () => {
       const result = run("layout", "save", "minimal");
       expect(result.status).toBe(1);
       expect(result.stderr).toContain("reserved");
+    });
+
+    it("summon layout show gives helpful error for built-in preset name (#156)", () => {
+      const result = run("layout", "show", "pair");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("built-in preset");
+      expect(result.stderr).toContain("not a custom layout");
+      expect(result.stderr).toContain("summon --help");
     });
 
     it("summon layout show displays layout contents", () => {
@@ -926,6 +934,83 @@ describe("CLI integration", () => {
       const result = run(".", "--layout", "nonexistent");
       expect(result.status).toBe(1);
       expect(result.stderr).toContain("Error:");
+    });
+  });
+
+  // #161: Help text lists 'create' in layout actions
+  describe("layout help text includes create (#161)", () => {
+    it("lists create in the layout parenthetical", () => {
+      const result = run("--help");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("(create, save, list, show, delete, edit)");
+    });
+  });
+
+  // #161: 'summon open' invalid selection shows range hint
+  describe("summon open invalid selection hint (#161)", () => {
+    it("shows range hint when project list is available", () => {
+      // Register projects first so the list is non-empty
+      run("add", "proj1", "/tmp/proj1");
+      run("add", "proj2", "/tmp/proj2");
+      // Use echo to pipe an invalid selection
+      const result = spawnSync("sh", ["-c", `echo "99" | node dist/index.js open`], {
+        encoding: "utf-8",
+        cwd: PROJECT_ROOT,
+        env: { ...process.env, HOME: TEMP_HOME },
+      });
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("Enter a number between 1 and");
+    });
+  });
+
+  // #161: 'summon layout edit' failure shows editor hint
+  describe("layout edit failure shows editor hint (#161)", () => {
+    it("shows hint about EDITOR env var when editor fails", () => {
+      // Save a layout so edit has something to open
+      run("set", "editor", "vim");
+      run("layout", "save", "edithint");
+      // Use a nonexistent editor command
+      const result = spawnSync("node", ["dist/index.js", "layout", "edit", "edithint"], {
+        encoding: "utf-8",
+        cwd: PROJECT_ROOT,
+        env: { ...process.env, HOME: TEMP_HOME, EDITOR: "nonexistent-editor-xyz" },
+      });
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("Failed to open editor");
+      expect(result.stderr).toContain("EDITOR");
+    });
+  });
+
+  // #147: Both --layout flag and summon set layout share the same validation
+  describe("shared layout validation (#147)", () => {
+    it("--layout flag shows 'Valid presets:' for invalid layout", () => {
+      const result = run(".", "--layout", "bogus");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("Valid presets:");
+    });
+
+    it("summon set layout shows 'Valid presets:' for invalid layout", () => {
+      const result = run("set", "layout", "bogus");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("Valid presets:");
+    });
+
+    it("--layout flag lists custom layouts when they exist", () => {
+      run("set", "panes", "2");
+      run("layout", "save", "customcheck");
+      const result = run(".", "--layout", "bogus147");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("Custom layouts:");
+      expect(result.stderr).toContain("customcheck");
+    });
+
+    it("summon set layout lists custom layouts when they exist", () => {
+      run("set", "panes", "2");
+      run("layout", "save", "customcheck2");
+      const result = run("set", "layout", "bogus147");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("Custom layouts:");
+      expect(result.stderr).toContain("customcheck2");
     });
   });
 });

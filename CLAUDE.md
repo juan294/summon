@@ -31,10 +31,11 @@ src/
   tree.ts          Tree DSL parser, layout node model, plan builder (pure function)
   script.ts        AppleScript generator (pure function — builds script string)
   launcher.ts      Orchestrator: resolve config, generate script, execute via osascript
-  setup.ts         Interactive setup wizard (first-run onboarding, tool detection, layout builder TUI)
+  setup.ts         Interactive setup wizard, visual layout builder (template gallery, grid builder, live preview)
   starship.ts      Starship detection, preset listing, TOML config caching
-  utils.ts         Shared utilities (SAFE_COMMAND_RE, GHOSTTY_PATHS, resolveCommand)
-  validation.ts    Input validation helpers (parseIntInRange)
+  completions.ts   Shell completion script generator (bash, zsh)
+  utils.ts         Shared utilities (SAFE_COMMAND_RE, GHOSTTY_PATHS, resolveCommand, promptUser, getErrorMessage)
+  validation.ts    Input validation helpers (parseIntInRange, parsePositiveFloat, validateIntFlag, validateFloatFlag)
   globals.d.ts     Build-time constants (__VERSION__)
   *.test.ts        Co-located unit tests
 ```
@@ -100,9 +101,10 @@ All significant changes go through four phases:
 ### Pre-Release Workflow
 
 ```
-/pre-launch -> fix findings -> /update-docs -> /release
+/pre-launch -> /remediate -> /update-docs -> /release
 ```
 
+- `/remediate` -- resolve all pre-launch findings with parallel TDD agents, CI verification
 - `/update-docs` -- refreshes all documentation, diagrams, version references, and inline code docs
 - `/release` -- version bump, CHANGELOG, tag, GitHub release, registry publish advisory
 

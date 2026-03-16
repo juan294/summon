@@ -9,15 +9,19 @@ vi.mock("node:child_process", () => ({
 // Mock readline for promptUser tests
 const mockQuestion = vi.fn();
 const mockClose = vi.fn();
+const mockOn = vi.fn();
+const mockOff = vi.fn();
 vi.mock("node:readline", () => ({
   createInterface: () => ({
     question: (_q: string, cb: (a: string) => void) => mockQuestion(_q, cb),
     close: mockClose,
+    on: (event: string, cb: () => void) => mockOn(event, cb),
+    off: (event: string, cb: () => void) => mockOff(event, cb),
   }),
 }));
 
 // Import after mocks
-const { SAFE_COMMAND_RE, GHOSTTY_PATHS, resolveCommand, promptUser } = await import("./utils.js");
+const { SAFE_COMMAND_RE, GHOSTTY_PATHS, GHOSTTY_APP_NAME, SUMMON_WORKSPACE_ENV, resolveCommand, promptUser, getErrorMessage } = await import("./utils.js");
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -114,6 +118,16 @@ describe("GHOSTTY_PATHS", () => {
   });
 });
 
+describe("shared constants", () => {
+  it("GHOSTTY_APP_NAME is 'Ghostty'", () => {
+    expect(GHOSTTY_APP_NAME).toBe("Ghostty");
+  });
+
+  it("SUMMON_WORKSPACE_ENV is 'SUMMON_WORKSPACE'", () => {
+    expect(SUMMON_WORKSPACE_ENV).toBe("SUMMON_WORKSPACE");
+  });
+});
+
 describe("resolveCommand", () => {
   it("returns path when command is found", () => {
     mockExecFileSync.mockReturnValue("/usr/bin/vim\n");
@@ -170,6 +184,32 @@ describe("resolveCommand", () => {
   });
 });
 
+describe("getErrorMessage", () => {
+  it("extracts message from Error instances", () => {
+    expect(getErrorMessage(new Error("boom"))).toBe("boom");
+  });
+
+  it("extracts message from Error subclasses", () => {
+    expect(getErrorMessage(new TypeError("type fail"))).toBe("type fail");
+  });
+
+  it("converts string to itself", () => {
+    expect(getErrorMessage("plain string")).toBe("plain string");
+  });
+
+  it("converts number to string", () => {
+    expect(getErrorMessage(42)).toBe("42");
+  });
+
+  it("converts null to string", () => {
+    expect(getErrorMessage(null)).toBe("null");
+  });
+
+  it("converts undefined to string", () => {
+    expect(getErrorMessage(undefined)).toBe("undefined");
+  });
+});
+
 describe("promptUser", () => {
   it("returns trimmed user input", async () => {
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) =>
@@ -193,6 +233,37 @@ describe("promptUser", () => {
     );
     await promptUser("Q: ");
     expect(mockClose).toHaveBeenCalled();
+  });
+
+  it("removes close listener before closing on normal answer", async () => {
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) =>
+      cb("answer"),
+    );
+    await promptUser("Q: ");
+    expect(mockOff).toHaveBeenCalledWith("close", expect.any(Function));
+  });
+
+  it("registers a close handler for Ctrl+C", async () => {
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) =>
+      cb("answer"),
+    );
+    await promptUser("Q: ");
+    expect(mockOn).toHaveBeenCalledWith("close", expect.any(Function));
+  });
+
+  it("exits cleanly on Ctrl+C (close event)", async () => {
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => { throw new Error("exit"); });
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    // Simulate Ctrl+C: question never calls back, close handler fires instead
+    mockQuestion.mockImplementation(() => {}); // no callback
+    mockOn.mockImplementation((_event: string, cb: () => void) => cb());
+
+    await expect(promptUser("Q: ")).rejects.toThrow("exit");
+    expect(exitSpy).toHaveBeenCalledWith(0);
+
+    exitSpy.mockRestore();
+    logSpy.mockRestore();
+    mockOn.mockReset();
   });
 
   it("does NOT lowercase the answer (callers handle that)", async () => {

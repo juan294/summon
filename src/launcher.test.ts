@@ -19,6 +19,7 @@ vi.mock("./config.js", () => ({
   readCustomLayout: (name: string) => mockReadCustomLayout(name),
   isCustomLayout: (name: string) => mockIsCustomLayout(name),
   CONFIG_DIR: "/mock/.config/summon",
+  LAYOUT_NAME_RE: /^[a-zA-Z][a-zA-Z0-9_-]*$/,
 }));
 
 // Mock starship
@@ -43,6 +44,8 @@ vi.mock("node:readline", () => ({
   createInterface: () => ({
     question: (_q: string, cb: (a: string) => void) => mockQuestion(_q, cb),
     close: vi.fn(),
+    on: vi.fn(),
+    off: vi.fn(),
   }),
 }));
 
@@ -276,7 +279,11 @@ describe("config resolution", () => {
 
     // full preset: editorPanes=3
     expect(opts.editorPanes).toBe(3);
-    expect(warnSpy).not.toHaveBeenCalled();
+    // Only the project config log should appear — no validation warnings
+    const nonConfigMsgs = warnSpy.mock.calls
+      .map((c) => c[0] as string)
+      .filter((m) => !m.startsWith("Using project config:"));
+    expect(nonConfigMsgs).toHaveLength(0);
     warnSpy.mockRestore();
   });
 
@@ -300,12 +307,14 @@ describe("config resolution", () => {
 
     resolveConfig("/tmp/workspace", {});
 
-    const warnMsg = warnSpy.mock.calls[0]![0] as string;
-    expect(warnMsg).toContain("minimal");
-    expect(warnMsg).toContain("full");
-    expect(warnMsg).toContain("pair");
-    expect(warnMsg).toContain("cli");
-    expect(warnMsg).toContain("btop");
+    const warnMessages = warnSpy.mock.calls.map((c) => c[0] as string);
+    const presetWarn = warnMessages.find((m) => m.includes("Unknown layout preset"));
+    expect(presetWarn).toBeDefined();
+    expect(presetWarn).toContain("minimal");
+    expect(presetWarn).toContain("full");
+    expect(presetWarn).toContain("pair");
+    expect(presetWarn).toContain("cli");
+    expect(presetWarn).toContain("btop");
     warnSpy.mockRestore();
   });
 });
@@ -780,7 +789,12 @@ describe("osascript error handling", () => {
     expect(errorSpy).toHaveBeenCalledWith(
       expect.stringContaining("connection is invalid (-609)"),
     );
-    expect(errorSpy).toHaveBeenCalledWith("Is Ghostty running?");
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Ghostty running"),
+    );
+    // Should also mention Automation permissions (#143)
+    const allErrors = errorSpy.mock.calls.map((c) => c[0] as string).join(" ");
+    expect(allErrors).toMatch(/Automation|Privacy & Security/);
     mockExit.mockRestore();
     errorSpy.mockRestore();
   });
@@ -2203,5 +2217,67 @@ describe("custom tree layout integration (Phase 4)", () => {
       expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining("existing summon workspace"));
       warnSpy.mockRestore();
     });
+  });
+});
+
+describe("launch feedback (#144)", () => {
+  it("prints a feedback message to stderr on successful non-dry-run launch", async () => {
+    vi.mocked(listConfig).mockReturnValue(new Map());
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await launch("/tmp/workspace");
+
+    const warnMessages = warnSpy.mock.calls.map((c) => c[0] as string);
+    const feedbackMsg = warnMessages.find((m) => m.toLowerCase().includes("summon"));
+    expect(feedbackMsg).toBeDefined();
+    warnSpy.mockRestore();
+  });
+
+  it("does NOT print launch feedback in dry-run mode", async () => {
+    vi.mocked(listConfig).mockReturnValue(new Map());
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await launch("/tmp/workspace", { dryRun: true });
+
+    const warnMessages = warnSpy.mock.calls.map((c) => c[0] as string);
+    const feedbackMsg = warnMessages.find((m) => m.toLowerCase().includes("summon"));
+    expect(feedbackMsg).toBeUndefined();
+    warnSpy.mockRestore();
+    logSpy.mockRestore();
+  });
+});
+
+describe("project config log (#146)", () => {
+  it("logs which .summon file is being loaded to stderr", () => {
+    mockReadKVFile.mockImplementation((path: string) => {
+      if (path === "/tmp/workspace/.summon") {
+        return new Map([["editor", "vim"]]);
+      }
+      return new Map();
+    });
+    vi.mocked(listConfig).mockReturnValue(new Map());
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    resolveConfig("/tmp/workspace", {});
+
+    const warnMessages = warnSpy.mock.calls.map((c) => c[0] as string);
+    const configMsg = warnMessages.find((m) => m.includes(".summon"));
+    expect(configMsg).toBeDefined();
+    expect(configMsg).toContain("/tmp/workspace/.summon");
+    warnSpy.mockRestore();
+  });
+
+  it("does NOT log .summon path when no project config exists", () => {
+    mockReadKVFile.mockReturnValue(new Map());
+    vi.mocked(listConfig).mockReturnValue(new Map());
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    resolveConfig("/tmp/workspace", {});
+
+    const warnMessages = warnSpy.mock.calls.map((c) => c[0] as string);
+    const configMsg = warnMessages.find((m) => m.includes(".summon"));
+    expect(configMsg).toBeUndefined();
+    warnSpy.mockRestore();
   });
 });

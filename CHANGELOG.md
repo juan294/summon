@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-03-16
+
+### Added
+
+- Visual template gallery in layout builder — pick grid shapes from side-by-side mini diagrams instead of specifying column/pane counts numerically
+- In-place live preview in layout builder — layout diagram redraws in the same screen region as commands are filled in, using ANSI cursor control
+- Arrow-key grid builder — interactive raw-mode builder for custom grid shapes (←→ columns, ↑↓ panes, Tab/Shift+Tab focus, Enter confirm, Esc cancel)
+- Command validation with typo detection in layout builder — Levenshtein-distance fuzzy matching suggests closest tool name
+- Truncation indicator (`…`) for long commands in layout preview
+- Layout name prompt now shows example hint `(e.g., mysetup)`
+- `exitWithUsageHint` shared helper for consistent CLI error messaging
+- `parsePositiveFloat` validation helper
+
+### Changed
+
+- Custom layout builder no longer forces a mandatory sidebar — total design freedom for workspace layouts
+- Grid builder has no column/pane limits — build as many splits as your screen fits
+- `detectTools` runs shell lookups in parallel via `Promise.all` for faster wizard startup
+- `summon doctor` exits 0 for missing recommendations (reserved exit 1 for actual errors)
+- `summon layout show <preset>` gives a helpful message for built-in presets instead of a generic "reserved name" error
+- ANSI-aware text centering in layout previews — correctly measures visible width excluding escape codes
+- Empty custom shell command in setup wizard now re-prompts instead of accepting
+- Standardized "plain shell" terminology throughout setup wizard
+- Improved error messages: `summon open` shows valid range, editor failure suggests checking EDITOR env var
+- `--auto-resize`/`--no-auto-resize` conflict now uses `console.warn` instead of `console.error`
+- Safe error handling: replaced unsafe `(err as Error)` casts with `getErrorMessage()` utility
+- Decomposed large functions in launcher.ts and script.ts into focused helpers
+- `readKVFile` optimized to single syscall (try/catch instead of existsSync + readFileSync)
+- `collectLeaves` result cached in `TreeLayoutPlan` to avoid redundant tree traversals
+
+### Fixed
+
+- `--new-window` with custom/tree layouts on Ghostty 1.3.x — unified new-window creation to use Cmd+N via System Events instead of `make new window` which returns unusable tab-group references
+
+### Tests
+
+- 828 total tests (was 677 in v0.8.0), 97%+ statement coverage, script.ts at 100% branch coverage
+- New tests for: centerLabel truncation, visibleLength, async detectTools, parsePositiveFloat, doctor exit codes, layout show error messages, grid builder unlimited columns/panes, tree.ts parser guards, script.ts layout branches, readKVFile error propagation, empty shell rejection
+
 ## [0.8.0] - 2026-03-14
 
 ### Added
@@ -269,7 +308,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CodeQL security scanning
 - Dependabot for npm and GitHub Actions
 
-[Unreleased]: https://github.com/juan294/summon/compare/v0.8.0...develop
+[Unreleased]: https://github.com/juan294/summon/compare/v1.0.0...develop
+[1.0.0]: https://github.com/juan294/summon/compare/v0.8.0...v1.0.0
 [0.8.0]: https://github.com/juan294/summon/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/juan294/summon/compare/v0.6.2...v0.7.0
 [0.6.2]: https://github.com/juan294/summon/compare/v0.6.1...v0.6.2

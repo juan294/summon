@@ -21,6 +21,7 @@ export type LayoutNode = PaneNode | SplitNode;
 
 export interface TreeLayoutPlan {
   tree: LayoutNode;
+  leaves: string[];
   focusPane: string;
   autoResize: boolean;
   editorSize: number;
@@ -301,7 +302,7 @@ export function resolveTreeCommands(
   return resolved;
 }
 
-export interface TreePlanOptions {
+interface TreePlanOptions {
   autoResize?: boolean;
   editorSize?: number;
   fontSize?: number | null;
@@ -320,6 +321,7 @@ export function buildTreePlan(
   const focusPane = leaves[0] ?? "";
   return {
     tree,
+    leaves,
     focusPane,
     autoResize: opts?.autoResize ?? true,
     editorSize: opts?.editorSize ?? EDITOR_SIZE_DEFAULT,
@@ -331,12 +333,24 @@ export function buildTreePlan(
   };
 }
 
+/** Walk all leaf panes in depth-first order, applying a mapper to each. */
+export function walkLeaves<T>(node: LayoutNode, mapper: (pane: PaneNode) => T): T[] {
+  const result: T[] = [];
+  function walk(n: LayoutNode): void {
+    if (n.type === "pane") {
+      result.push(mapper(n));
+    } else {
+      walk(n.first);
+      walk(n.second);
+    }
+  }
+  walk(node);
+  return result;
+}
+
 /** Collect all pane names in depth-first order. */
 export function collectLeaves(node: LayoutNode): string[] {
-  if (node.type === "pane") {
-    return [node.name];
-  }
-  return [...collectLeaves(node.first), ...collectLeaves(node.second)];
+  return walkLeaves(node, (p) => p.name);
 }
 
 /** Returns the first leaf pane node in depth-first order. */

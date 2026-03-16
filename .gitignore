@@ -35,6 +35,9 @@ docs/prs/
 # Launch content (local only)
 content/
 
+# Gallery build staging (local only)
+.gallery-build/
+
 # Manual testbed
 MANUAL_TESTBED.md
 

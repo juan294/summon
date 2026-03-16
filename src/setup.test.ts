@@ -4,6 +4,16 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 const mockExecFileSync = vi.fn();
 vi.mock("node:child_process", () => ({
   execFileSync: (...args: unknown[]) => mockExecFileSync(...args),
+  execFile: (...args: unknown[]) => {
+    // Last argument is the callback: (error, stdout, stderr) => void
+    const cb = args[args.length - 1] as (err: Error | null, stdout?: string, stderr?: string) => void;
+    try {
+      const result = mockExecFileSync(...args.slice(0, -1));
+      cb(null, result as string, "");
+    } catch (err) {
+      cb(err as Error, "", "");
+    }
+  },
 }));
 
 // Mock readline for interactive input
@@ -12,7 +22,10 @@ vi.mock("node:readline", () => ({
   createInterface: () => ({
     question: (_q: string, cb: (a: string) => void) => mockQuestion(_q, cb),
     close: vi.fn(),
+    on: vi.fn(),
+    off: vi.fn(),
   }),
+  emitKeypressEvents: vi.fn(),
 }));
 
 // Mock config for runSetup
@@ -44,9 +57,11 @@ vi.mock("node:fs", () => ({
   existsSync: (path: string) => mockExistsSync(path),
 }));
 
+// Import test-only utils directly from utils.js (not re-exported through setup.js)
+const { resolveCommand: resolveCommandPath, SAFE_COMMAND_RE } = await import("./utils.js");
+
 // Import after mocks
 const {
-  resolveCommandPath,
   detectTools,
   numberedSelect,
   textInput,
@@ -67,7 +82,6 @@ const {
   EDITOR_CATALOG,
   SIDEBAR_CATALOG,
   LAYOUT_INFO,
-  SAFE_COMMAND_RE,
   selectLayout,
   selectToolFromCatalog,
   selectShell,
@@ -80,6 +94,28 @@ const {
   gridToTree,
   renderLayoutPreview,
   runLayoutBuilder,
+  findClosestCommand,
+  // Visual layout builder additions:
+  GRID_TEMPLATES,
+  renderMiniPreview,
+  renderTemplateGallery,
+  selectGridTemplate,
+  buildPartialGrid,
+  // Phase 2 — in-place preview:
+  ansiUp,
+  ansiClearDown,
+  ansiSyncStart,
+  ansiSyncEnd,
+  PreviewRenderer,
+  // Phase 3 — arrow-key grid builder:
+  createGridState,
+  applyGridAction,
+  renderGridBuilderPreview,
+  renderGridBuilderHints,
+  runGridBuilder,
+  // #154 — truncation indicator:
+  centerLabel,
+  visibleLength,
 } = await import("./setup.js");
 
 beforeEach(() => {
@@ -107,25 +143,25 @@ describe("resolveCommandPath", () => {
 });
 
 describe("detectTools", () => {
-  it("marks available tools with available: true", () => {
+  it("marks available tools with available: true", async () => {
     mockExecFileSync.mockReturnValue("/usr/bin/vim\n");
-    const result = detectTools([{ cmd: "vim", name: "Vim", desc: "Editor" }]);
+    const result = await detectTools([{ cmd: "vim", name: "Vim", desc: "Editor" }]);
     expect(result[0]!.available).toBe(true);
   });
 
-  it("marks missing tools with available: false", () => {
+  it("marks missing tools with available: false", async () => {
     mockExecFileSync.mockImplementation(() => {
       throw new Error("not found");
     });
-    const result = detectTools([{ cmd: "vim", name: "Vim", desc: "Editor" }]);
+    const result = await detectTools([{ cmd: "vim", name: "Vim", desc: "Editor" }]);
     expect(result[0]!.available).toBe(false);
   });
 
-  it("handles empty catalog", () => {
-    expect(detectTools([])).toEqual([]);
+  it("handles empty catalog", async () => {
+    expect(await detectTools([])).toEqual([]);
   });
 
-  it("handles all-missing catalog", () => {
+  it("handles all-missing catalog", async () => {
     mockExecFileSync.mockImplementation(() => {
       throw new Error("not found");
     });
@@ -133,17 +169,17 @@ describe("detectTools", () => {
       { cmd: "a", name: "A", desc: "a" },
       { cmd: "b", name: "B", desc: "b" },
     ];
-    const result = detectTools(catalog);
+    const result = await detectTools(catalog);
     expect(result.every((t) => !t.available)).toBe(true);
   });
 
-  it("handles all-available catalog", () => {
+  it("handles all-available catalog", async () => {
     mockExecFileSync.mockReturnValue("/usr/bin/stub\n");
     const catalog = [
       { cmd: "a", name: "A", desc: "a" },
       { cmd: "b", name: "B", desc: "b" },
     ];
-    const result = detectTools(catalog);
+    const result = await detectTools(catalog);
     expect(result.every((t) => t.available)).toBe(true);
   });
 });
@@ -471,6 +507,40 @@ describe("LAYOUT_INFO", () => {
   });
 });
 
+describe("findClosestCommand", () => {
+  it("finds exact match", () => {
+    expect(findClosestCommand("lazygit", ["vim", "lazygit", "btop"])).toBe("lazygit");
+  });
+
+  it("finds close typo (missing letter)", () => {
+    expect(findClosestCommand("lzgit", ["vim", "lazygit", "btop"])).toBe("lazygit");
+  });
+
+  it("finds close typo (swapped letters)", () => {
+    expect(findClosestCommand("lazygti", ["vim", "lazygit", "btop"])).toBe("lazygit");
+  });
+
+  it("finds close typo (extra letter)", () => {
+    expect(findClosestCommand("lazyygit", ["vim", "lazygit", "btop"])).toBe("lazygit");
+  });
+
+  it("returns null when no close match (distance > 3)", () => {
+    expect(findClosestCommand("something", ["vim", "lazygit", "btop"])).toBeNull();
+  });
+
+  it("returns null for empty known list", () => {
+    expect(findClosestCommand("vim", [])).toBeNull();
+  });
+
+  it("is case-insensitive", () => {
+    expect(findClosestCommand("VIM", ["vim", "nano"])).toBe("vim");
+  });
+
+  it("picks closest when multiple candidates", () => {
+    expect(findClosestCommand("btop", ["btop", "htop"])).toBe("btop");
+  });
+});
+
 describe("selectLayout", () => {
   it("returns preset name for valid selection", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
@@ -506,7 +576,6 @@ describe("selectToolFromCatalog", () => {
         { cmd: "nano", name: "Nano", desc: "Simple" },
       ],
       "Editor",
-      "vim",
     );
     expect(result).toBe("vim");
     logSpy.mockRestore();
@@ -523,7 +592,6 @@ describe("selectToolFromCatalog", () => {
     const result = await selectToolFromCatalog(
       [{ cmd: "vim", name: "Vim", desc: "Editor" }],
       "Editor",
-      "vim",
     );
     expect(result).toBe("my-editor");
     logSpy.mockRestore();
@@ -545,7 +613,6 @@ describe("selectToolFromCatalog", () => {
         { cmd: "nano", name: "Nano", desc: "Simple" },
       ],
       "Editor",
-      "vim",
     );
     // First (and only) listed option should be nano (detected)
     expect(result).toBe("nano");
@@ -576,7 +643,6 @@ describe("selectToolFromCatalog", () => {
         { cmd: "nano", name: "Nano", desc: "Simple" },
       ],
       "Editor",
-      "vim",
     );
     expect(result).toBe("nano");
     logSpy.mockRestore();
@@ -596,7 +662,6 @@ describe("selectToolFromCatalog", () => {
         { cmd: "nano", name: "Nano", desc: "Simple" },
       ],
       "Editor",
-      "claude",
     );
     expect(result).toBe("my-tool");
     const allOutput = logSpy.mock.calls.map((c) => String(c[0]));
@@ -620,7 +685,6 @@ describe("selectToolFromCatalog", () => {
         { cmd: "nano", name: "Nano", desc: "Simple" },
       ],
       "Editor",
-      "vim",
     );
     expect(result).toBe("vim");
     const allOutput = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
@@ -644,7 +708,6 @@ describe("selectToolFromCatalog", () => {
         { cmd: "nano", name: "Nano", desc: "Simple" },
       ],
       "Editor",
-      "vim",
     );
     const allOutput = logSpy.mock.calls.map((c) => String(c[0]));
     // nano should appear in the numbered list
@@ -700,6 +763,35 @@ describe("selectShell", () => {
     );
     const result = await selectShell();
     expect(result).toBe("true");
+    logSpy.mockRestore();
+  });
+
+  it("re-prompts when custom command input is empty", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    let callCount = 0;
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      callCount++;
+      if (callCount === 1) cb("3"); // Select "Command"
+      else if (callCount === 2) cb(""); // Empty input — should re-prompt
+      else if (callCount === 3) cb("  "); // Whitespace-only — should re-prompt
+      else cb("npm run dev"); // Valid input
+    });
+    const result = await selectShell();
+    expect(result).toBe("npm run dev");
+    expect(callCount).toBe(4);
+    logSpy.mockRestore();
+  });
+
+  it("uses 'plain shell' terminology in option label", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) =>
+      cb("1"),
+    );
+    await selectShell();
+    const allOutput = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    // Should say "plain shell", NOT "Plain terminal"
+    expect(allOutput.some((s) => s.includes("plain shell"))).toBe(true);
+    expect(allOutput.some((s) => s.toLowerCase().includes("plain terminal"))).toBe(false);
     logSpy.mockRestore();
   });
 });
@@ -1136,7 +1228,7 @@ describe("runSetup", () => {
     mockExistsSync.mockReturnValue(true);
 
     // runSetup question sequence for pair layout:
-    // 1. selectLayout (numberedSelect) → "Select [1-5]" → "2" (pair)
+    // 1. selectLayout (numberedSelect) → "Select [1-6]" → "2" (pair)
     // 2. selectEditor (selectToolFromCatalog) → "Select (default:" → "1"
     // 3. selectSidebar (selectToolFromCatalog) → "Select (default:" → "1"
     // 4. selectShell (numberedSelect) → "Select [1-3]" → "1" (plain shell)
@@ -1144,7 +1236,7 @@ describe("runSetup", () => {
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
       if (_q.includes("[Y/n]")) {
         cb("y");
-      } else if (_q.includes("Select [1-5]")) {
+      } else if (_q.includes("Select [1-6]")) {
         cb("2"); // pair layout
       } else if (_q.includes("Select [1-3]")) {
         cb("1"); // plain shell
@@ -1182,7 +1274,7 @@ describe("runSetup", () => {
     mockExistsSync.mockReturnValue(true);
 
     // runSetup question sequence for pair layout with custom shell:
-    // 1. selectLayout (numberedSelect) → "Select [1-5]" → "2" (pair)
+    // 1. selectLayout (numberedSelect) → "Select [1-6]" → "2" (pair)
     // 2. selectEditor (selectToolFromCatalog) → "Select (default:" → "1"
     // 3. selectSidebar (selectToolFromCatalog) → "Select (default:" → "1"
     // 4. selectShell (numberedSelect) → "Select [1-3]" → "3" (command)
@@ -1191,7 +1283,7 @@ describe("runSetup", () => {
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
       if (_q.includes("[Y/n]")) {
         cb("y");
-      } else if (_q.includes("Select [1-5]")) {
+      } else if (_q.includes("Select [1-6]")) {
         cb("2"); // pair layout
       } else if (_q.includes("Select [1-3]")) {
         cb("3"); // custom command
@@ -1473,72 +1565,68 @@ describe("runSetup with starship", () => {
 });
 
 describe("gridToTree", () => {
-  it("converts single column with 2 panes and sidebar", () => {
-    const result = gridToTree([["claude", "npm run dev"]], "lazygit");
-    expect(result.tree).toBe("(claude / npm) | lazygit");
+  it("converts single column with 2 panes", () => {
+    const result = gridToTree([["claude", "npm run dev"]]);
+    expect(result.tree).toBe("(claude / npm)");
     expect(result.panes.get("claude")).toBe("claude");
     expect(result.panes.get("npm")).toBe("npm run dev");
-    expect(result.panes.get("lazygit")).toBe("lazygit");
   });
 
-  it("converts two columns with sidebar", () => {
-    const result = gridToTree([["claude", "shell"], ["vim", "btop"]], "lazygit");
-    expect(result.tree).toBe("(claude / shell) | (vim / btop) | lazygit");
-    expect(result.panes.size).toBe(5);
+  it("converts two columns", () => {
+    const result = gridToTree([["claude", "shell"], ["vim", "btop"]]);
+    expect(result.tree).toBe("(claude / shell) | (vim / btop)");
+    expect(result.panes.size).toBe(4);
   });
 
-  it("converts single pane with sidebar", () => {
-    const result = gridToTree([["claude"]], "lazygit");
-    expect(result.tree).toBe("claude | lazygit");
-    expect(result.panes.size).toBe(2);
+  it("converts single pane", () => {
+    const result = gridToTree([["claude"]]);
+    expect(result.tree).toBe("claude");
+    expect(result.panes.size).toBe(1);
   });
 
   it("deduplicates pane names from same command", () => {
-    const result = gridToTree([["claude", "claude"]], "lazygit");
+    const result = gridToTree([["claude", "claude"]]);
     expect(result.panes.has("claude")).toBe(true);
     expect(result.panes.has("claude_2")).toBe(true);
   });
 
   it("handles three columns with various pane counts", () => {
-    const result = gridToTree([["vim"], ["claude", "shell"], ["btop"]], "lazygit");
-    expect(result.tree).toBe("vim | (claude / shell) | btop | lazygit");
-    expect(result.panes.size).toBe(5);
+    const result = gridToTree([["vim"], ["claude", "shell"], ["btop"]]);
+    expect(result.tree).toBe("vim | (claude / shell) | btop");
+    expect(result.panes.size).toBe(4);
   });
 
-  it("deduplicates across columns and sidebar", () => {
-    const result = gridToTree([["lazygit"]], "lazygit");
+  it("deduplicates across columns", () => {
+    const result = gridToTree([["lazygit"], ["lazygit"]]);
     expect(result.panes.has("lazygit")).toBe(true);
     expect(result.panes.has("lazygit_2")).toBe(true);
   });
 });
 
 describe("renderLayoutPreview", () => {
-  it("renders a 2-column layout with sidebar", () => {
-    const preview = renderLayoutPreview([["claude", "npm run dev"], ["vim"]], "lazygit");
+  it("renders a 2-column layout", () => {
+    const preview = renderLayoutPreview([["claude", "npm run dev"], ["vim"]]);
     expect(preview).toContain("claude");
     expect(preview).toContain("vim");
-    expect(preview).toContain("lazygit");
     expect(preview).toContain("\u250c"); // ┌
     expect(preview).toContain("\u2514"); // └
   });
 
-  it("renders a single column with sidebar", () => {
-    const preview = renderLayoutPreview([["claude"]], "lazygit");
+  it("renders a single column", () => {
+    const preview = renderLayoutPreview([["claude"]]);
     expect(preview).toContain("claude");
-    expect(preview).toContain("lazygit");
     expect(preview).toContain("\u2500"); // ─
   });
 
-  it("renders 3 columns with sidebar", () => {
-    const preview = renderLayoutPreview([["vim"], ["claude"], ["btop"]], "lazygit");
+  it("renders 3 columns", () => {
+    const preview = renderLayoutPreview([["vim"], ["claude"], ["btop"]]);
     expect(preview).toContain("vim");
     expect(preview).toContain("claude");
     expect(preview).toContain("btop");
-    expect(preview).toContain("lazygit");
   });
 
   it("renders multi-row columns correctly", () => {
-    const preview = renderLayoutPreview([["claude", "shell"], ["vim", "btop"]], "lazygit");
+    const preview = renderLayoutPreview([["claude", "shell"], ["vim", "btop"]]);
     const lines = preview.split("\n");
     // Should have top border, content rows for each pane, middle border, and bottom border
     expect(lines.length).toBeGreaterThanOrEqual(5);
@@ -1583,8 +1671,6 @@ describe("runLayoutBuilder", () => {
         cb("1"); // 1 column, 1 pane
       } else if (q.includes("Pane 1")) {
         cb("claude"); // command for pane
-      } else if (q.includes("Sidebar")) {
-        cb("lazygit"); // sidebar command
       } else {
         cb("1");
       }
@@ -1597,32 +1683,25 @@ describe("runLayoutBuilder", () => {
     expect(savedName).toBe("mytest");
     expect(savedEntries.get("tree")).toBeDefined();
     expect(savedEntries.get("tree")).toContain("claude");
-    expect(savedEntries.get("tree")).toContain("lazygit");
     // Pane definitions should be present
     expect(savedEntries.get("pane.claude")).toBe("claude");
-    expect(savedEntries.get("pane.lazygit")).toBe("lazygit");
   });
 
   it("saves layout with 2 columns and multiple panes", async () => {
-    // Flow: 2 columns, col 1: 2 panes, col 2: 1 pane, sidebar, confirm
+    // Flow: template "2" (2+1), col 1 pane 1 "vim", col 1 pane 2 "shell",
+    //       col 2 pane 1 "btop", confirm
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
       const q = _q;
       if (q.includes("[Y/n]")) {
         cb("y");
-      } else if (q.includes("Column 1") && q.includes("how many")) {
-        cb("2");
-      } else if (q.includes("Column 2") && q.includes("how many")) {
-        cb("1");
+      } else if (q.includes("[1-8]") || q.includes(`[1-${GRID_TEMPLATES.length}`)) {
+        cb("2"); // template [2, 1]
       } else if (q.includes("Column 1, Pane 1")) {
         cb("vim");
       } else if (q.includes("Column 1, Pane 2")) {
         cb("shell");
       } else if (q.includes("Column 2, Pane 1")) {
         cb("btop");
-      } else if (q.includes("Sidebar")) {
-        cb("lazygit");
-      } else if (q.includes("How many columns") || q.includes("Select [1-3]")) {
-        cb("2"); // 2 columns
       } else {
         cb("1");
       }
@@ -1634,6 +1713,8 @@ describe("runLayoutBuilder", () => {
     const [savedName, savedEntries] = mockSaveCustomLayout.mock.calls[0] as [string, Map<string, string>];
     expect(savedName).toBe("devsetup");
     expect(savedEntries.get("tree")).toBeDefined();
+    expect(savedEntries.get("tree")).toContain("vim");
+    expect(savedEntries.get("tree")).toContain("shell");
   });
 
   it("shows preview before saving", async () => {
@@ -1641,15 +1722,13 @@ describe("runLayoutBuilder", () => {
       const q = _q;
       if (q.includes("[Y/n]")) cb("y");
       else if (q.includes("Pane 1")) cb("claude");
-      else if (q.includes("Sidebar")) cb("lazygit");
       else cb("1");
     });
 
     await runLayoutBuilder("previewtest");
 
     const allOutput = getLogOutput(logSpy);
-    expect(allOutput.some((s: string) => s.includes("Preview:"))).toBe(true);
-    // Should contain box-drawing characters from renderLayoutPreview
+    // Should contain box-drawing characters from renderLayoutPreview (in-place preview)
     expect(allOutput.some((s: string) => s.includes("\u2500") || s.includes("\u250c") || s.includes("\u2502"))).toBe(true);
   });
 
@@ -1658,7 +1737,6 @@ describe("runLayoutBuilder", () => {
       const q = _q;
       if (q.includes("[Y/n]")) cb("y");
       else if (q.includes("Pane 1")) cb("claude");
-      else if (q.includes("Sidebar")) cb("lazygit");
       else cb("1");
     });
 
@@ -1676,7 +1754,6 @@ describe("runLayoutBuilder", () => {
       const q = _q;
       if (q.includes("[Y/n]")) cb("y"); // confirm overwrite and save
       else if (q.includes("Pane 1")) cb("claude");
-      else if (q.includes("Sidebar")) cb("lazygit");
       else cb("1");
     });
 
@@ -1745,7 +1822,6 @@ describe("runLayoutBuilder", () => {
       const q = _q;
       if (q.includes("[Y/n]")) cb("y");
       else if (q.includes("Pane 1")) cb(""); // empty → defaults to "shell"
-      else if (q.includes("Sidebar")) cb(""); // empty → defaults to "lazygit"
       else cb("1");
     });
 
@@ -1756,27 +1832,11 @@ describe("runLayoutBuilder", () => {
     expect(savedEntries.get("pane.shell")).toBe("shell");
   });
 
-  it("defaults empty sidebar input to 'lazygit'", async () => {
-    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
-      const q = _q;
-      if (q.includes("[Y/n]")) cb("y");
-      else if (q.includes("Pane 1")) cb("vim");
-      else if (q.includes("Sidebar")) cb(""); // empty → defaults to "lazygit"
-      else cb("1");
-    });
-
-    await runLayoutBuilder("sidebardefault");
-
-    const [, savedEntries] = mockSaveCustomLayout.mock.calls[0] as [string, Map<string, string>];
-    expect(savedEntries.get("pane.lazygit")).toBe("lazygit");
-  });
-
   it("cancels when user declines to save at the end", async () => {
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
       const q = _q;
       if (q.includes("[Y/n]")) cb("n"); // decline save
       else if (q.includes("Pane 1")) cb("claude");
-      else if (q.includes("Sidebar")) cb("lazygit");
       else cb("1");
     });
 
@@ -1787,28 +1847,18 @@ describe("runLayoutBuilder", () => {
     expect(mockSaveCustomLayout).not.toHaveBeenCalled();
   });
 
-  it("saves 3-column layout with 3 panes each", async () => {
+  it("saves multi-column layout via template selection", async () => {
+    // Template 6 is [2, 2] — 2 columns, 2 panes each
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
       const q = _q;
       if (q.includes("[Y/n]")) {
         cb("y");
-      } else if (q.includes("How many columns") || (q.includes("Select [1-3]") && q.includes("default: 1"))) {
-        // Column count select — need to detect which prompt
-        if (q.includes("How many columns")) {
-          cb("3"); // 3 columns
-        } else if (q.includes("how many panes")) {
-          cb("3"); // 3 panes per column
-        } else {
-          cb("3");
-        }
-      } else if (q.includes("how many panes")) {
-        cb("3");
+      } else if (q.includes("[1-8]") || q.includes(`[1-${GRID_TEMPLATES.length}`)) {
+        cb("6"); // template [2, 2]
       } else if (q.includes("Pane")) {
         cb("vim"); // all panes get vim
-      } else if (q.includes("Sidebar")) {
-        cb("lazygit");
       } else {
-        cb("3");
+        cb("1");
       }
     });
 
@@ -1817,11 +1867,8 @@ describe("runLayoutBuilder", () => {
     expect(mockSaveCustomLayout).toHaveBeenCalledTimes(1);
     const [savedName, savedEntries] = mockSaveCustomLayout.mock.calls[0] as [string, Map<string, string>];
     expect(savedName).toBe("bigsetup");
-    // With 3 columns x 3 panes + sidebar = 10 panes
-    // All "vim" commands will be deduped: vim, vim_2, vim_3, ...
     const tree = savedEntries.get("tree")!;
     expect(tree).toContain("vim");
-    expect(tree).toContain("lazygit");
   });
 
   it("prints Layout Builder section header", async () => {
@@ -1829,7 +1876,6 @@ describe("runLayoutBuilder", () => {
       const q = _q;
       if (q.includes("[Y/n]")) cb("y");
       else if (q.includes("Pane 1")) cb("claude");
-      else if (q.includes("Sidebar")) cb("lazygit");
       else cb("1");
     });
 
@@ -1837,5 +1883,890 @@ describe("runLayoutBuilder", () => {
 
     const allOutput = getLogOutput(logSpy);
     expect(allOutput.some((s: string) => s.includes("Layout Builder"))).toBe(true);
+  });
+
+  it("template selection skips column/pane count prompts", async () => {
+    const promptTexts: string[] = [];
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      promptTexts.push(_q);
+      const q = _q;
+      if (q.includes("[Y/n]")) cb("y");
+      else if (q.includes("[1-8]") || q.includes(`[1-${GRID_TEMPLATES.length}`)) cb("1"); // template [1,1]
+      else if (q.includes("Pane 1")) cb("claude");
+      else cb("1");
+    });
+
+    await runLayoutBuilder("templatetest");
+
+    expect(promptTexts.some((p) => p.includes("How many columns"))).toBe(false);
+    expect(promptTexts.some((p) => p.includes("how many panes"))).toBe(false);
+    expect(mockSaveCustomLayout).toHaveBeenCalledTimes(1);
+  });
+
+  it("progressive preview shown after each command", async () => {
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      const q = _q;
+      if (q.includes("[Y/n]")) cb("y");
+      else if (q.includes("[1-8]") || q.includes(`[1-${GRID_TEMPLATES.length}`)) cb("1"); // template [1,1]
+      else if (q.includes("Column 1, Pane 1")) cb("nvim");
+      else if (q.includes("Column 2, Pane 1")) cb("lazygit");
+      else cb("1");
+    });
+
+    await runLayoutBuilder("progresstest");
+
+    const allOutput = getLogOutput(logSpy);
+    // After first command, preview should show "nvim" and "?" placeholders
+    const nvimIdx = allOutput.findIndex((s: string) => s.includes("nvim") && s.includes("\u2502"));
+    expect(nvimIdx).toBeGreaterThan(-1);
+    // Should also have "?" somewhere in the output (placeholder for unfilled panes)
+    expect(allOutput.some((s: string) => s.includes("?"))).toBe(true);
+  });
+
+  it("old column/pane count prompts are removed", async () => {
+    const promptTexts: string[] = [];
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      promptTexts.push(_q);
+      const q = _q;
+      if (q.includes("[Y/n]")) cb("y");
+      else if (q.includes("[1-8]") || q.includes(`[1-${GRID_TEMPLATES.length}`)) cb("1"); // template [1,1]
+      else if (q.includes("Pane 1")) cb("claude");
+      else cb("1");
+    });
+
+    await runLayoutBuilder("nooldflow");
+
+    expect(promptTexts.some((p) => p.includes("How many columns"))).toBe(false);
+    expect(promptTexts.some((p) => p.includes("how many panes"))).toBe(false);
+    const allOutput = getLogOutput(logSpy);
+    expect(allOutput.some((s: string) => s.includes("How many columns"))).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Visual Layout Builder — pure function tests
+// ---------------------------------------------------------------------------
+
+describe("renderMiniPreview", () => {
+  it("renders single-column template", () => {
+    const result = renderMiniPreview([1]);
+    expect(result.length).toBeGreaterThanOrEqual(3); // top + content + bottom
+    expect(result[0]).toContain("\u250c"); // ┌
+    expect(result[result.length - 1]).toContain("\u2514"); // └
+  });
+
+  it("renders two-column template with different pane counts", () => {
+    const result = renderMiniPreview([2, 1]);
+    const joined = result.join("\n");
+    expect(joined).toContain("\u251c"); // ├ (row separator)
+    // Taller than equal panes
+    expect(result.length).toBeGreaterThan(renderMiniPreview([1, 1]).length);
+  });
+
+  it("renders three-column template", () => {
+    const result = renderMiniPreview([1, 2, 1]);
+    // Top border should have ┬ separators between columns
+    const teeDownCount = (result[0]!.match(/\u252c/g) ?? []).length;
+    expect(teeDownCount).toBe(2); // 2 separators between 3 columns
+  });
+
+  it("single column has no ┬ separators", () => {
+    const result = renderMiniPreview([1]);
+    const teeDownCount = (result[0]!.match(/\u252c/g) ?? []).length;
+    expect(teeDownCount).toBe(0);
+  });
+});
+
+describe("renderTemplateGallery", () => {
+  it("renders templates side by side in wide terminal", () => {
+    const output = renderTemplateGallery(GRID_TEMPLATES, 120);
+    expect(output).toContain("1)");
+    expect(output).toContain("2)");
+    expect(output).toContain("3)");
+  });
+
+  it("renders single column in narrow terminal", () => {
+    const output = renderTemplateGallery(GRID_TEMPLATES, 25);
+    // With very narrow width, each template on its own row
+    const lines = output.split("\n");
+    // Should have more lines than wide layout
+    const wideOutput = renderTemplateGallery(GRID_TEMPLATES, 120);
+    expect(lines.length).toBeGreaterThan(wideOutput.split("\n").length);
+  });
+
+  it("includes build from scratch option", () => {
+    const output = renderTemplateGallery(GRID_TEMPLATES, 120);
+    expect(output).toContain("Build from scratch");
+  });
+
+  it("shows template labels", () => {
+    const output = renderTemplateGallery(GRID_TEMPLATES, 120);
+    expect(output).toContain("1 + 1");
+    expect(output).toContain("2 + 1");
+  });
+});
+
+describe("selectGridTemplate", () => {
+  it("returns template columns for numeric selection", async () => {
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      cb("1");
+    });
+    const result = await selectGridTemplate();
+    expect(result).toEqual([1, 1]); // first template
+  });
+
+  it("custom option selection launches grid builder and returns its result", async () => {
+    // Mock: first call to promptUser → "8" (triggers grid builder)
+    // Grid builder enters raw mode and listens for keypresses
+    // We simulate Enter immediately, returning [1] (initial state)
+    const mockSetRawMode = vi.fn();
+    const origSetRawMode = process.stdin.setRawMode;
+    const origResume = process.stdin.resume;
+    const origPause = process.stdin.pause;
+    Object.defineProperty(process.stdin, "setRawMode", { value: mockSetRawMode, writable: true, configurable: true });
+    process.stdin.resume = vi.fn();
+    process.stdin.pause = vi.fn();
+
+    // Capture the keypress handler and simulate Enter
+    const stdinOnSpy = vi.spyOn(process.stdin, "on").mockImplementation((event: string | symbol, handler: (...args: unknown[]) => void) => {
+      if (event === "keypress") {
+        // Simulate Enter keypress immediately
+        setTimeout(() => handler(undefined, { name: "return", ctrl: false }), 0);
+      }
+      return process.stdin;
+    });
+
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      cb("8");
+    });
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    const result = await selectGridTemplate();
+
+    expect(result).toEqual([1]); // initial grid state = [1]
+    expect(mockSetRawMode).toHaveBeenCalledWith(true);
+
+    logSpy.mockRestore();
+    stdoutSpy.mockRestore();
+    stdinOnSpy.mockRestore();
+    Object.defineProperty(process.stdin, "setRawMode", { value: origSetRawMode, writable: true, configurable: true });
+    process.stdin.resume = origResume;
+    process.stdin.pause = origPause;
+  });
+
+  it("returns correct template for middle selection", async () => {
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      cb("2");
+    });
+    const result = await selectGridTemplate();
+    expect(result).toEqual([2, 1]); // second template
+  });
+
+  it("re-prompts on invalid input", async () => {
+    let callCount = 0;
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      callCount++;
+      if (callCount === 1) cb("99"); // invalid
+      else cb("1"); // valid
+    });
+    const result = await selectGridTemplate();
+    expect(callCount).toBe(2);
+    expect(result).toEqual([1, 1]);
+  });
+
+  it("returns first template on empty input (default)", async () => {
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      cb(""); // empty → default
+    });
+    const result = await selectGridTemplate();
+    expect(result).toEqual([1, 1]);
+  });
+});
+
+describe("buildPartialGrid", () => {
+  it("fills known commands and ? for missing", () => {
+    const result = buildPartialGrid([2, 1], [["nvim"]]);
+    expect(result[0]![0]).toBe("nvim");
+    expect(result[0]![1]).toBe("?");
+    expect(result[1]![0]).toBe("?");
+  });
+
+  it("fully filled grid has no placeholders", () => {
+    const result = buildPartialGrid([1, 1], [["nvim"], ["lazygit"]]);
+    expect(result[0]![0]).toBe("nvim");
+    expect(result[1]![0]).toBe("lazygit");
+  });
+
+  it("handles empty commands array", () => {
+    const result = buildPartialGrid([2, 1], []);
+    expect(result[0]![0]).toBe("?");
+    expect(result[0]![1]).toBe("?");
+    expect(result[1]![0]).toBe("?");
+  });
+
+  it("handles partial column fill", () => {
+    const result = buildPartialGrid([3], [["a", "b"]]);
+    expect(result[0]![0]).toBe("a");
+    expect(result[0]![1]).toBe("b");
+    expect(result[0]![2]).toBe("?");
+  });
+});
+
+describe("renderLayoutPreview — placeholders", () => {
+  it("renders ? as placeholder text", () => {
+    const preview = renderLayoutPreview([["nvim", "?"]]);
+    expect(preview).toContain("nvim");
+    expect(preview).toContain("?");
+  });
+
+  it("placeholder cells are rendered", () => {
+    const preview = renderLayoutPreview([["?"]]);
+    expect(preview).toContain("?");
+    // Still has proper box drawing
+    expect(preview).toContain("\u250c"); // ┌
+    expect(preview).toContain("\u2514"); // └
+  });
+});
+
+describe("GRID_TEMPLATES", () => {
+  it("has at least 5 templates", () => {
+    expect(GRID_TEMPLATES.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it("each template has valid columns", () => {
+    for (const t of GRID_TEMPLATES) {
+      expect(t.columns.length).toBeGreaterThanOrEqual(1);
+      expect(t.columns.length).toBeLessThanOrEqual(3);
+      for (const n of t.columns) {
+        expect(n).toBeGreaterThanOrEqual(1);
+        expect(n).toBeLessThanOrEqual(3);
+      }
+    }
+  });
+
+  it("each template has a label", () => {
+    for (const t of GRID_TEMPLATES) {
+      expect(t.label.length).toBeGreaterThan(0);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 2 — ANSI helpers + PreviewRenderer tests
+// ---------------------------------------------------------------------------
+
+describe("ANSI helpers", () => {
+  it("ansiUp generates correct escape sequence", () => {
+    expect(ansiUp(5)).toBe("\x1b[5A");
+  });
+
+  it("ansiUp(0) returns empty string", () => {
+    expect(ansiUp(0)).toBe("");
+  });
+
+  it("ansiUp(1) moves cursor up 1 line", () => {
+    expect(ansiUp(1)).toBe("\x1b[1A");
+  });
+
+  it("ansiClearDown returns correct sequence", () => {
+    expect(ansiClearDown()).toBe("\x1b[0J");
+  });
+
+  it("ansiSyncStart returns correct sequence", () => {
+    expect(ansiSyncStart()).toBe("\x1b[?2026h");
+  });
+
+  it("ansiSyncEnd returns correct sequence", () => {
+    expect(ansiSyncEnd()).toBe("\x1b[?2026l");
+  });
+});
+
+describe("PreviewRenderer", () => {
+  let logSpy: ReturnType<typeof vi.spyOn>;
+  let stdoutSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+  });
+
+  afterEach(() => {
+    logSpy.mockRestore();
+    stdoutSpy.mockRestore();
+  });
+
+  it("first draw prints preview without cursor control", () => {
+    const renderer = new PreviewRenderer();
+    renderer.draw([["nvim"]]);
+
+    // Should NOT write ANSI cursor sequences on first draw
+    const stdoutCalls = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(stdoutCalls.some((c: string) => c.includes("\x1b[") && c.includes("A"))).toBe(false);
+
+    // Should log preview lines containing command names
+    const logCalls = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(logCalls.some((c: string) => c.includes("nvim"))).toBe(true);
+  });
+
+  it("second draw moves cursor up and clears", () => {
+    const renderer = new PreviewRenderer();
+    renderer.draw([["?"]]);
+    renderer.log("some text");
+    renderer.countPrompt();
+    renderer.draw([["nvim"]]);
+
+    const stdoutCalls = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    // Should contain ansiUp sequence
+    expect(stdoutCalls.some((c: string) => c.includes("A"))).toBe(true);
+    // Should contain ansiClearDown sequence
+    expect(stdoutCalls.some((c: string) => c.includes("\x1b[0J"))).toBe(true);
+    // Should contain sync start/end
+    expect(stdoutCalls.some((c: string) => c.includes("\x1b[?2026h"))).toBe(true);
+    expect(stdoutCalls.some((c: string) => c.includes("\x1b[?2026l"))).toBe(true);
+  });
+
+  it("log increments line counter", () => {
+    const renderer = new PreviewRenderer();
+    renderer.draw([["?"]]);
+
+    // Count how many lines the first draw produced
+    const firstDrawLogCount = logSpy.mock.calls.length;
+
+    renderer.log("line 1");
+    renderer.log("line 2");
+    renderer.countPrompt();
+
+    stdoutSpy.mockClear();
+    renderer.draw([["nvim"]]);
+
+    // Should move up by: firstDrawLogCount (preview height) + 3 (2 logs + 1 prompt)
+    const stdoutCalls = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    const upSequence = stdoutCalls.find((c: string) => c.includes("A"));
+    expect(upSequence).toBeDefined();
+    // Extract the number from \x1b[NA
+    // eslint-disable-next-line no-control-regex
+    const match = upSequence!.match(/\x1b\[(\d+)A/);
+    expect(match).not.toBeNull();
+    const upCount = parseInt(match![1]!, 10);
+    expect(upCount).toBe(firstDrawLogCount + 3);
+  });
+
+  it("reset makes next draw act as first draw", () => {
+    const renderer = new PreviewRenderer();
+    renderer.draw([["?"]]);
+    renderer.reset();
+
+    stdoutSpy.mockClear();
+    renderer.draw([["nvim"]]);
+
+    // Should NOT attempt cursor control after reset
+    const stdoutCalls = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(stdoutCalls.some((c: string) => c.includes("A"))).toBe(false);
+  });
+
+  it("countPrompt increments line counter by 1", () => {
+    const renderer = new PreviewRenderer();
+    renderer.draw([["?"]]);
+
+    const firstDrawLogCount = logSpy.mock.calls.length;
+
+    renderer.countPrompt();
+    renderer.countPrompt();
+    renderer.countPrompt();
+
+    stdoutSpy.mockClear();
+    renderer.draw([["nvim"]]);
+
+    const stdoutCalls = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    const upSequence = stdoutCalls.find((c: string) => c.includes("A"));
+    // eslint-disable-next-line no-control-regex
+    const match = upSequence!.match(/\x1b\[(\d+)A/);
+    const upCount = parseInt(match![1]!, 10);
+    expect(upCount).toBe(firstDrawLogCount + 3);
+  });
+});
+
+describe("runLayoutBuilder — in-place preview", () => {
+  let logSpy: ReturnType<typeof vi.spyOn>;
+  let stdoutSpy: ReturnType<typeof vi.spyOn>;
+  let origIsTTY: boolean | undefined;
+
+  beforeEach(() => {
+    logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    origIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", { value: true, writable: true });
+    mockIsValidLayoutName.mockReturnValue(true);
+    mockIsCustomLayout.mockReturnValue(false);
+  });
+
+  afterEach(() => {
+    Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, writable: true });
+    logSpy.mockRestore();
+    stdoutSpy.mockRestore();
+  });
+
+  it("preview redraws in place after each command", async () => {
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      const q = _q;
+      if (q.includes("[Y/n]")) cb("y");
+      else if (q.includes("[1-8]") || q.includes(`[1-${GRID_TEMPLATES.length}`)) cb("1"); // template [1,1]
+      else if (q.includes("Column 1, Pane 1")) cb("nvim");
+      else if (q.includes("Column 2, Pane 1")) cb("lazygit");
+      else cb("1");
+    });
+
+    await runLayoutBuilder("inplacetest");
+
+    const stdoutCalls = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    // Should contain ansiUp sequences (in-place redraws after first draw)
+    expect(stdoutCalls.some((c: string) => c.includes("\x1b[") && c.includes("A"))).toBe(true);
+    // Should contain sync sequences
+    expect(stdoutCalls.some((c: string) => c.includes("\x1b[?2026h"))).toBe(true);
+  });
+
+  it("initial preview is drawn before any command prompts", async () => {
+    const logOrder: string[] = [];
+    logSpy.mockImplementation((...args: unknown[]) => {
+      logOrder.push(String(args[0]));
+    });
+
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      const q = _q;
+      if (q.includes("[Y/n]")) cb("y");
+      else if (q.includes("Pane 1")) cb("nvim");
+      else cb("1");
+    });
+
+    await runLayoutBuilder("initialtest");
+
+    // Preview box characters should appear before any "Column" text
+    const firstBoxIdx = logOrder.findIndex((s) => s.includes("\u250c")); // ┌
+    expect(firstBoxIdx).toBeGreaterThan(-1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 3 — Grid builder state + rendering tests
+// ---------------------------------------------------------------------------
+
+describe("createGridState", () => {
+  it("creates initial state with 1 column, 1 pane, focus at 0,0", () => {
+    const state = createGridState();
+    expect(state.columns).toEqual([1]);
+    expect(state.focusCol).toBe(0);
+    expect(state.focusRow).toBe(0);
+  });
+});
+
+describe("applyGridAction", () => {
+  it("addCol appends column and moves focus", () => {
+    const next = applyGridAction(createGridState(), "addCol");
+    expect(next).not.toBeNull();
+    expect(next!.columns).toEqual([1, 1]);
+    expect(next!.focusCol).toBe(1);
+    expect(next!.focusRow).toBe(0);
+  });
+
+  it("addCol always succeeds", () => {
+    const state = { columns: [1, 1, 1, 1], focusCol: 0, focusRow: 0 };
+    const next = applyGridAction(state, "addCol");
+    expect(next).not.toBeNull();
+    expect(next!.columns.length).toBe(5);
+  });
+
+  it("removeCol removes last column", () => {
+    const state = { columns: [1, 2], focusCol: 0, focusRow: 0 };
+    const next = applyGridAction(state, "removeCol");
+    expect(next).not.toBeNull();
+    expect(next!.columns).toEqual([1]);
+  });
+
+  it("removeCol returns null with 1 column", () => {
+    expect(applyGridAction(createGridState(), "removeCol")).toBeNull();
+  });
+
+  it("removeCol clamps focus when focused column removed", () => {
+    const state = { columns: [1, 1], focusCol: 1, focusRow: 0 };
+    const next = applyGridAction(state, "removeCol");
+    expect(next!.columns).toEqual([1]);
+    expect(next!.focusCol).toBe(0);
+  });
+
+  it("addPane increments focused column pane count", () => {
+    const next = applyGridAction(createGridState(), "addPane");
+    expect(next!.columns).toEqual([2]);
+    expect(next!.focusRow).toBe(1);
+  });
+
+  it("addPane always succeeds", () => {
+    const state = { columns: [4], focusCol: 0, focusRow: 0 };
+    const next = applyGridAction(state, "addPane");
+    expect(next).not.toBeNull();
+    expect(next!.columns[0]).toBe(5);
+  });
+
+  it("removePane decrements focused column pane count", () => {
+    const state = { columns: [2], focusCol: 0, focusRow: 1 };
+    const next = applyGridAction(state, "removePane");
+    expect(next!.columns).toEqual([1]);
+    expect(next!.focusRow).toBe(0);
+  });
+
+  it("removePane returns null with 1 pane", () => {
+    expect(applyGridAction(createGridState(), "removePane")).toBeNull();
+  });
+
+  it("nextFocus moves to next row in same column", () => {
+    const state = { columns: [2, 1], focusCol: 0, focusRow: 0 };
+    const next = applyGridAction(state, "nextFocus");
+    expect(next!.focusCol).toBe(0);
+    expect(next!.focusRow).toBe(1);
+  });
+
+  it("nextFocus wraps to next column", () => {
+    const state = { columns: [2, 1], focusCol: 0, focusRow: 1 };
+    const next = applyGridAction(state, "nextFocus");
+    expect(next!.focusCol).toBe(1);
+    expect(next!.focusRow).toBe(0);
+  });
+
+  it("nextFocus wraps to first cell from last", () => {
+    const state = { columns: [1, 1], focusCol: 1, focusRow: 0 };
+    const next = applyGridAction(state, "nextFocus");
+    expect(next!.focusCol).toBe(0);
+    expect(next!.focusRow).toBe(0);
+  });
+
+  it("prevFocus moves backwards through cells", () => {
+    const state = { columns: [2, 1], focusCol: 1, focusRow: 0 };
+    const next = applyGridAction(state, "prevFocus");
+    expect(next!.focusCol).toBe(0);
+    expect(next!.focusRow).toBe(1);
+  });
+
+  it("prevFocus wraps from first cell to last", () => {
+    const state = { columns: [2, 1], focusCol: 0, focusRow: 0 };
+    const next = applyGridAction(state, "prevFocus");
+    expect(next!.focusCol).toBe(1);
+    expect(next!.focusRow).toBe(0);
+  });
+
+  it("does not mutate original state", () => {
+    const state = createGridState();
+    const original = { ...state, columns: [...state.columns] };
+    applyGridAction(state, "addCol");
+    expect(state).toEqual(original);
+  });
+});
+
+describe("renderGridBuilderPreview", () => {
+  it("focused cell contains marker character", () => {
+    const preview = renderGridBuilderPreview([2, 1], 0, 0);
+    expect(preview).toContain("*");
+  });
+
+  it("non-focused cells contain dot marker", () => {
+    const preview = renderGridBuilderPreview([2, 1], 0, 0);
+    expect(preview).toContain("\u00b7"); // ·
+  });
+
+  it("single column renders correctly", () => {
+    const preview = renderGridBuilderPreview([1], 0, 0);
+    expect(preview).toContain("\u250c"); // ┌
+    expect(preview).toContain("\u2514"); // └
+  });
+
+  it("renders correct number of separators for multi-pane column", () => {
+    const preview = renderGridBuilderPreview([3, 1], 0, 0);
+    const lines = preview.split("\n");
+    const separatorCount = lines.filter((l: string) => l.includes("\u251c")).length; // ├
+    expect(separatorCount).toBe(2);
+  });
+});
+
+describe("runGridBuilder", () => {
+  let logSpy: ReturnType<typeof vi.spyOn>;
+  let stdoutSpy: ReturnType<typeof vi.spyOn>;
+  let mockSetRawMode: ReturnType<typeof vi.fn>;
+  let capturedKeyHandler: ((_str: string | undefined, key: { name: string; ctrl?: boolean; shift?: boolean }) => void) | null;
+  let stdinOnSpy: ReturnType<typeof vi.spyOn>;
+  let origSetRawMode: typeof process.stdin.setRawMode;
+  let origResume: typeof process.stdin.resume;
+  let origPause: typeof process.stdin.pause;
+
+  /** Wait for the keypress handler to be registered (async setup in runGridBuilder). */
+  async function waitForHandler(): Promise<void> {
+    for (let i = 0; i < 50; i++) {
+      if (capturedKeyHandler) return;
+      await new Promise((r) => setTimeout(r, 10));
+    }
+  }
+
+  function simulateKey(name: string, ctrl = false, shift = false): void {
+    if (capturedKeyHandler) {
+      capturedKeyHandler(undefined, { name, ctrl, shift });
+    }
+  }
+
+  beforeEach(() => {
+    logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    mockSetRawMode = vi.fn();
+    origSetRawMode = process.stdin.setRawMode;
+    origResume = process.stdin.resume;
+    origPause = process.stdin.pause;
+    Object.defineProperty(process.stdin, "setRawMode", { value: mockSetRawMode, writable: true, configurable: true });
+    process.stdin.resume = vi.fn();
+    process.stdin.pause = vi.fn();
+
+    capturedKeyHandler = null;
+    stdinOnSpy = vi.spyOn(process.stdin, "on").mockImplementation((event: string | symbol, handler: (...args: unknown[]) => void) => {
+      if (event === "keypress") {
+        capturedKeyHandler = handler as typeof capturedKeyHandler;
+      }
+      return process.stdin;
+    });
+  });
+
+  afterEach(() => {
+    logSpy.mockRestore();
+    stdoutSpy.mockRestore();
+    stdinOnSpy.mockRestore();
+    Object.defineProperty(process.stdin, "setRawMode", { value: origSetRawMode, writable: true, configurable: true });
+    process.stdin.resume = origResume;
+    process.stdin.pause = origPause;
+  });
+
+  it("Enter with initial state returns [1]", async () => {
+    const promise = runGridBuilder();
+    await waitForHandler();
+    simulateKey("return");
+    const result = await promise;
+    expect(result).toEqual([1]);
+  });
+
+  it("right arrow + Enter returns [1, 1]", async () => {
+    const promise = runGridBuilder();
+    await waitForHandler();
+    simulateKey("right");
+    simulateKey("return");
+    const result = await promise;
+    expect(result).toEqual([1, 1]);
+  });
+
+  it("right + down + Enter returns [1, 2]", async () => {
+    const promise = runGridBuilder();
+    await waitForHandler();
+    simulateKey("right");
+    simulateKey("down");
+    simulateKey("return");
+    const result = await promise;
+    expect(result).toEqual([1, 2]);
+  });
+
+  it("Escape returns null", async () => {
+    const promise = runGridBuilder();
+    await waitForHandler();
+    simulateKey("escape");
+    const result = await promise;
+    expect(result).toBeNull();
+  });
+
+  it("restores raw mode on Enter", async () => {
+    const promise = runGridBuilder();
+    await waitForHandler();
+    simulateKey("return");
+    await promise;
+    expect(mockSetRawMode).toHaveBeenCalledWith(false);
+  });
+
+  it("restores raw mode on Escape", async () => {
+    const promise = runGridBuilder();
+    await waitForHandler();
+    simulateKey("escape");
+    await promise;
+    expect(mockSetRawMode).toHaveBeenCalledWith(false);
+  });
+
+  it("Ctrl+C exits cleanly", async () => {
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => undefined as never);
+    const promise = runGridBuilder();
+    await waitForHandler();
+    simulateKey("c", true);
+    expect(mockSetRawMode).toHaveBeenCalledWith(false);
+    expect(exitSpy).toHaveBeenCalledWith(0);
+    exitSpy.mockRestore();
+    // Prevent unhandled rejection — promise never resolves after exit
+    promise.catch(() => {});
+  });
+
+  it("shift+tab moves focus backward", async () => {
+    const promise = runGridBuilder();
+    await waitForHandler();
+    // Build a grid with 2 columns: right adds col, focus moves to col 1
+    simulateKey("right");
+    // Now shift+tab should move focus back to col 0
+    simulateKey("tab", false, true);
+    simulateKey("return");
+    const result = await promise;
+    // Grid is [1, 1] — shift+tab moved focus from col 1 back to col 0
+    expect(result).toEqual([1, 1]);
+  });
+});
+
+describe("renderGridBuilderHints", () => {
+  it("includes [Esc] cancel hint", () => {
+    const state = createGridState();
+    const hints = renderGridBuilderHints(state);
+    expect(hints).toContain("[Esc] cancel");
+  });
+
+  it("includes [Enter] done hint", () => {
+    const state = createGridState();
+    const hints = renderGridBuilderHints(state);
+    expect(hints).toContain("[Enter] done");
+  });
+
+  it("includes [Tab] move focus hint", () => {
+    const state = createGridState();
+    const hints = renderGridBuilderHints(state);
+    expect(hints).toContain("[Tab] move focus");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #154 — centerLabel truncation indicator
+// ---------------------------------------------------------------------------
+
+describe("visibleLength", () => {
+  it("returns length of plain text", () => {
+    expect(visibleLength("hello")).toBe(5);
+  });
+
+  it("strips ANSI codes from length calculation", () => {
+    expect(visibleLength("\x1b[1mhello\x1b[0m")).toBe(5);
+  });
+
+  it("returns 0 for empty string", () => {
+    expect(visibleLength("")).toBe(0);
+  });
+});
+
+describe("centerLabel", () => {
+  it("centers short text within width", () => {
+    const result = centerLabel("vim", 12);
+    // "vim" is 3 chars, width is 12 → padding on both sides
+    expect(result.length).toBe(12);
+    expect(result).toContain("vim");
+  });
+
+  it("adds ellipsis when text is truncated", () => {
+    // width=8, maxLen=6, "longcommand" (11 chars) > 6, so truncate to 5 + "…"
+    const result = centerLabel("longcommand", 8);
+    expect(result).toContain("\u2026"); // …
+  });
+
+  it("does not add ellipsis when text fits", () => {
+    const result = centerLabel("vim", 12);
+    expect(result).not.toContain("\u2026");
+  });
+
+  it("truncated label fits within width", () => {
+    const result = centerLabel("verylongcommandname", 10);
+    expect(result.length).toBe(10);
+    expect(result).toContain("\u2026");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #155 — layout name prompt includes example
+// ---------------------------------------------------------------------------
+
+describe("selectLayout — custom layout name prompt", () => {
+  it("prompt includes example hint (e.g., mysetup)", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const promptTexts: string[] = [];
+
+    // Track all prompts
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      promptTexts.push(_q);
+      const q = _q;
+      if (q.includes("[Y/n]")) cb("y");
+      else if (q.includes("Select [1-")) cb("6"); // "Custom" option (last preset + 1)
+      else if (q.includes("Name your layout")) cb("mytest");
+      else if (q.includes("Pane 1") || q.includes("Pane")) cb("vim");
+      else cb("1");
+    });
+
+    // We need isTTY for runLayoutBuilder
+    const origIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", { value: true, writable: true });
+    mockIsValidLayoutName.mockReturnValue(true);
+    mockIsCustomLayout.mockReturnValue(false);
+
+    await selectLayout();
+
+    // The "Name your layout" prompt should include an example
+    const namePrompt = promptTexts.find((p) => p.includes("Name your layout"));
+    expect(namePrompt).toBeDefined();
+    expect(namePrompt).toContain("e.g.");
+
+    Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, writable: true });
+    logSpy.mockRestore();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #160 — detectTools is async (parallelized)
+// ---------------------------------------------------------------------------
+
+describe("detectTools — async", () => {
+  it("returns a promise", () => {
+    mockExecFileSync.mockReturnValue("/usr/bin/stub\n");
+    const result = detectTools([{ cmd: "vim", name: "Vim", desc: "Editor" }]);
+    expect(result).toBeInstanceOf(Promise);
+  });
+
+  it("marks available tools with available: true", async () => {
+    mockExecFileSync.mockReturnValue("/usr/bin/vim\n");
+    const result = await detectTools([{ cmd: "vim", name: "Vim", desc: "Editor" }]);
+    expect(result[0]!.available).toBe(true);
+  });
+
+  it("marks missing tools with available: false", async () => {
+    mockExecFileSync.mockImplementation(() => {
+      throw new Error("not found");
+    });
+    const result = await detectTools([{ cmd: "vim", name: "Vim", desc: "Editor" }]);
+    expect(result[0]!.available).toBe(false);
+  });
+
+  it("handles empty catalog", async () => {
+    expect(await detectTools([])).toEqual([]);
+  });
+
+  it("handles all-missing catalog", async () => {
+    mockExecFileSync.mockImplementation(() => {
+      throw new Error("not found");
+    });
+    const catalog = [
+      { cmd: "a", name: "A", desc: "a" },
+      { cmd: "b", name: "B", desc: "b" },
+    ];
+    const result = await detectTools(catalog);
+    expect(result.every((t) => !t.available)).toBe(true);
+  });
+
+  it("handles all-available catalog", async () => {
+    mockExecFileSync.mockReturnValue("/usr/bin/stub\n");
+    const catalog = [
+      { cmd: "a", name: "A", desc: "a" },
+      { cmd: "b", name: "B", desc: "b" },
+    ];
+    const result = await detectTools(catalog);
+    expect(result.every((t) => t.available)).toBe(true);
   });
 });

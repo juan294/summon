@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { parseIntInRange } from "./validation.js";
+import { describe, it, expect, vi } from "vitest";
+import { parseIntInRange, parsePositiveFloat, validateIntFlag, validateFloatFlag } from "./validation.js";
 
 describe("parseIntInRange", () => {
   it("returns ok:true with parsed value for valid integer in range", () => {
@@ -51,5 +51,99 @@ describe("parseIntInRange", () => {
     // parseInt("3.7") returns 3
     const result = parseIntInRange("3.7", 1, 10);
     expect(result).toEqual({ ok: true, value: 3 });
+  });
+});
+
+describe("parsePositiveFloat", () => {
+  it("returns ok:true with parsed value for valid positive float", () => {
+    const result = parsePositiveFloat("14.5");
+    expect(result).toEqual({ ok: true, value: 14.5 });
+  });
+
+  it("returns ok:true for integer string", () => {
+    const result = parsePositiveFloat("10");
+    expect(result).toEqual({ ok: true, value: 10 });
+  });
+
+  it("returns ok:true for small positive float", () => {
+    const result = parsePositiveFloat("0.5");
+    expect(result).toEqual({ ok: true, value: 0.5 });
+  });
+
+  it("returns ok:false for zero", () => {
+    const result = parsePositiveFloat("0");
+    expect(result).toEqual({ ok: false });
+  });
+
+  it("returns ok:false for negative value", () => {
+    const result = parsePositiveFloat("-1.5");
+    expect(result).toEqual({ ok: false });
+  });
+
+  it("returns ok:false for NaN input", () => {
+    const result = parsePositiveFloat("foo");
+    expect(result).toEqual({ ok: false });
+  });
+
+  it("returns ok:false for empty string", () => {
+    const result = parsePositiveFloat("");
+    expect(result).toEqual({ ok: false });
+  });
+});
+
+describe("validateIntFlag", () => {
+  it("returns parsed value on success", () => {
+    expect(validateIntFlag("panes", "3", 1)).toBe(3);
+  });
+
+  it("exits on invalid value", () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => { throw new Error("exit"); });
+
+    expect(() => validateIntFlag("panes", "abc", 1)).toThrow("exit");
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("--panes"));
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("positive integer"));
+
+    errorSpy.mockRestore();
+    exitSpy.mockRestore();
+  });
+
+  it("exits on out-of-range value with range description", () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => { throw new Error("exit"); });
+
+    expect(() => validateIntFlag("editor-size", "200", 1, 99)).toThrow("exit");
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("1-99"));
+
+    errorSpy.mockRestore();
+    exitSpy.mockRestore();
+  });
+});
+
+describe("validateFloatFlag", () => {
+  it("returns parsed value on success", () => {
+    expect(validateFloatFlag("font-size", "14.5")).toBe(14.5);
+  });
+
+  it("exits on non-numeric value", () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => { throw new Error("exit"); });
+
+    expect(() => validateFloatFlag("font-size", "abc")).toThrow("exit");
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("--font-size"));
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("positive number"));
+
+    errorSpy.mockRestore();
+    exitSpy.mockRestore();
+  });
+
+  it("exits on zero", () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => { throw new Error("exit"); });
+
+    expect(() => validateFloatFlag("font-size", "0")).toThrow("exit");
+
+    errorSpy.mockRestore();
+    exitSpy.mockRestore();
   });
 });
