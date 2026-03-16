@@ -1,19 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-// Mock child_process for tool detection
+// Mock child_process for tool detection (resolveCommand in utils.ts uses execFileSync)
 const mockExecFileSync = vi.fn();
 vi.mock("node:child_process", () => ({
   execFileSync: (...args: unknown[]) => mockExecFileSync(...args),
-  execFile: (...args: unknown[]) => {
-    // Last argument is the callback: (error, stdout, stderr) => void
-    const cb = args[args.length - 1] as (err: Error | null, stdout?: string, stderr?: string) => void;
-    try {
-      const result = mockExecFileSync(...args.slice(0, -1));
-      cb(null, result as string, "");
-    } catch (err) {
-      cb(err as Error, "", "");
-    }
-  },
 }));
 
 // Mock readline for interactive input
