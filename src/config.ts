@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, unlinkSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { isPresetName } from "./layout.js";
 
@@ -136,25 +136,34 @@ export function isValidLayoutName(name: string): boolean {
   return LAYOUT_NAME_RE.test(name) && !isPresetName(name);
 }
 
+/** Defense-in-depth: verify resolved path stays within LAYOUTS_DIR. */
+export function layoutPath(name: string): string {
+  const filePath = join(LAYOUTS_DIR, name);
+  if (!resolve(filePath).startsWith(resolve(LAYOUTS_DIR))) {
+    throw new Error(`Invalid layout path: "${name}"`);
+  }
+  return filePath;
+}
+
 export function listCustomLayouts(): string[] {
   if (!existsSync(LAYOUTS_DIR)) return [];
   return readdirSync(LAYOUTS_DIR).sort();
 }
 
 export function readCustomLayout(name: string): Map<string, string> | null {
-  const filePath = join(LAYOUTS_DIR, name);
+  const filePath = layoutPath(name);
   if (!existsSync(filePath)) return null;
   return readKVFile(filePath);
 }
 
 export function saveCustomLayout(name: string, entries: Map<string, string>): void {
   mkdirSync(LAYOUTS_DIR, { recursive: true, mode: 0o700 });
-  writeFileSync(join(LAYOUTS_DIR, name), formatKVLines(entries), { mode: 0o600 });
+  writeFileSync(layoutPath(name), formatKVLines(entries), { mode: 0o600 });
 }
 
 export function deleteCustomLayout(name: string): boolean {
   try {
-    unlinkSync(join(LAYOUTS_DIR, name));
+    unlinkSync(layoutPath(name));
     return true;
   } catch {
     return false;
@@ -162,5 +171,5 @@ export function deleteCustomLayout(name: string): boolean {
 }
 
 export function isCustomLayout(name: string): boolean {
-  return existsSync(join(LAYOUTS_DIR, name));
+  return existsSync(layoutPath(name));
 }
