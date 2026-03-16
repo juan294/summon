@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { parseIntInRange, validateIntFlag, validateFloatFlag } from "./validation.js";
+import { parseIntInRange, parsePositiveFloat, validateIntFlag, validateFloatFlag } from "./validation.js";
 
 describe("parseIntInRange", () => {
   it("returns ok:true with parsed value for valid integer in range", () => {
@@ -51,6 +51,43 @@ describe("parseIntInRange", () => {
     // parseInt("3.7") returns 3
     const result = parseIntInRange("3.7", 1, 10);
     expect(result).toEqual({ ok: true, value: 3 });
+  });
+});
+
+describe("parsePositiveFloat", () => {
+  it("returns ok:true with parsed value for valid positive float", () => {
+    const result = parsePositiveFloat("14.5");
+    expect(result).toEqual({ ok: true, value: 14.5 });
+  });
+
+  it("returns ok:true for integer string", () => {
+    const result = parsePositiveFloat("10");
+    expect(result).toEqual({ ok: true, value: 10 });
+  });
+
+  it("returns ok:true for small positive float", () => {
+    const result = parsePositiveFloat("0.5");
+    expect(result).toEqual({ ok: true, value: 0.5 });
+  });
+
+  it("returns ok:false for zero", () => {
+    const result = parsePositiveFloat("0");
+    expect(result).toEqual({ ok: false });
+  });
+
+  it("returns ok:false for negative value", () => {
+    const result = parsePositiveFloat("-1.5");
+    expect(result).toEqual({ ok: false });
+  });
+
+  it("returns ok:false for NaN input", () => {
+    const result = parsePositiveFloat("foo");
+    expect(result).toEqual({ ok: false });
+  });
+
+  it("returns ok:false for empty string", () => {
+    const result = parsePositiveFloat("");
+    expect(result).toEqual({ ok: false });
   });
 });
 

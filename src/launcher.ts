@@ -18,7 +18,7 @@ import { generateAppleScript, generateTreeAppleScript } from "./script.js";
 import { parseTreeDSL, extractPaneDefinitions, resolveTreeCommands as resolveTreeCmds, buildTreePlan, collectLeaves, findPaneByName } from "./tree.js";
 import type { LayoutNode } from "./tree.js";
 import { SAFE_COMMAND_RE, GHOSTTY_PATHS, resolveCommand as resolveCommandPath, promptUser, getErrorMessage, SUMMON_WORKSPACE_ENV } from "./utils.js";
-import { parseIntInRange } from "./validation.js";
+import { parseIntInRange, parsePositiveFloat } from "./validation.js";
 import { isStarshipInstalled, ensurePresetConfig, getPresetConfigPath } from "./starship.js";
 
 const SAFE_SHELL_RE = /^\/[a-zA-Z0-9_/.-]+$/;
@@ -288,8 +288,8 @@ function resolveLayoutBase(
     }
     if (customData.has("auto-resize")) base.autoResize = customData.get("auto-resize") === "true";
     if (customData.has("font-size")) {
-      const fs = parseFloat(customData.get("font-size")!);
-      if (!isNaN(fs) && fs > 0) base.fontSize = fs;
+      const fs = parsePositiveFloat(customData.get("font-size")!);
+      if (fs.ok) base.fontSize = fs.value;
     }
     if (customData.has("new-window")) base.newWindow = customData.get("new-window") === "true";
     if (customData.has("fullscreen")) base.fullscreen = customData.get("fullscreen") === "true";
@@ -370,9 +370,9 @@ function layerConfigValues(
 
   const fontSize = pick(cliOverrides["font-size"], "font-size");
   if (fontSize !== undefined) {
-    const parsed = parseFloat(fontSize);
-    if (!isNaN(parsed) && parsed > 0) {
-      result.fontSize = parsed;
+    const parsed = parsePositiveFloat(fontSize);
+    if (parsed.ok) {
+      result.fontSize = parsed.value;
     }
   }
 
