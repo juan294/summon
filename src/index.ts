@@ -537,8 +537,6 @@ switch (subcommand) {
 
     if (allGood) {
       console.log("\n  All recommended settings are configured!");
-    } else {
-      process.exit(1);
     }
 
     break;
@@ -663,7 +661,15 @@ switch (subcommand) {
           console.error("Usage: summon layout show <name>");
           process.exit(1);
         }
-        validateLayoutNameOrExit(layoutName);
+        if (isPresetName(layoutName)) {
+          console.error(`Error: "${layoutName}" is a built-in preset, not a custom layout. Run 'summon --help' to see preset descriptions.`);
+          process.exit(1);
+        }
+        if (!isValidLayoutName(layoutName)) {
+          console.error(`Error: Invalid layout name "${layoutName}".`);
+          console.error("Names must start with a letter and contain only letters, digits, hyphens, and underscores.");
+          process.exit(1);
+        }
         const data = readCustomLayout(layoutName);
         if (!data) {
           layoutNotFoundOrExit(layoutName);

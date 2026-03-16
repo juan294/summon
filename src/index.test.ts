@@ -785,11 +785,11 @@ describe("CLI integration", () => {
     });
   });
 
-  describe("summon doctor (#113, #116)", () => {
-    it("exits 1 when recommendations are found (#124)", () => {
-      // With temp HOME, no Ghostty config exists → all checks will fail → exit 1
+  describe("summon doctor (#113, #116, #153)", () => {
+    it("exits 0 when recommendations are missing but Ghostty config path is valid (#153)", () => {
+      // With temp HOME, no Ghostty config exists → recommendations missing → exit 0 (not an error)
       const result = run("doctor");
-      expect(result.status).toBe(1);
+      expect(result.status).toBe(0);
       expect(result.stdout).toContain("Checking Ghostty configuration");
     });
 
@@ -844,6 +844,14 @@ describe("CLI integration", () => {
       const result = run("layout", "save", "minimal");
       expect(result.status).toBe(1);
       expect(result.stderr).toContain("reserved");
+    });
+
+    it("summon layout show gives helpful error for built-in preset name (#156)", () => {
+      const result = run("layout", "show", "pair");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("built-in preset");
+      expect(result.stderr).toContain("not a custom layout");
+      expect(result.stderr).toContain("summon --help");
     });
 
     it("summon layout show displays layout contents", () => {
