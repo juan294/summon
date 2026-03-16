@@ -6,6 +6,12 @@ vi.mock("node:child_process", () => ({
   execFileSync: (...args: unknown[]) => mockExecFileSync(...args),
 }));
 
+// Mock node:fs for isGhosttyInstalled tests
+const mockExistsSync = vi.fn((_path: string) => false);
+vi.mock("node:fs", () => ({
+  existsSync: (path: string) => mockExistsSync(path),
+}));
+
 // Mock readline for promptUser tests
 const mockQuestion = vi.fn();
 const mockClose = vi.fn();
@@ -21,7 +27,7 @@ vi.mock("node:readline", () => ({
 }));
 
 // Import after mocks
-const { SAFE_COMMAND_RE, GHOSTTY_PATHS, GHOSTTY_APP_NAME, SUMMON_WORKSPACE_ENV, resolveCommand, promptUser, getErrorMessage, exitWithUsageHint, checkAccessibility, openAccessibilitySettings, isAccessibilityError, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT } = await import("./utils.js");
+const { SAFE_COMMAND_RE, GHOSTTY_PATHS, GHOSTTY_APP_NAME, SUMMON_WORKSPACE_ENV, resolveCommand, promptUser, getErrorMessage, exitWithUsageHint, checkAccessibility, openAccessibilitySettings, isAccessibilityError, isGhosttyInstalled, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT } = await import("./utils.js");
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -259,7 +265,7 @@ describe("promptUser", () => {
     mockOn.mockImplementation((_event: string, cb: () => void) => cb());
 
     await expect(promptUser("Q: ")).rejects.toThrow("exit");
-    expect(exitSpy).toHaveBeenCalledWith(0);
+    expect(exitSpy).toHaveBeenCalledWith(130);
 
     exitSpy.mockRestore();
     logSpy.mockRestore();
@@ -390,5 +396,26 @@ describe("accessibility constants", () => {
 
   it("ACCESSIBILITY_ENABLE_HINT mentions terminal app", () => {
     expect(ACCESSIBILITY_ENABLE_HINT).toContain("terminal app");
+  });
+});
+
+describe("isGhosttyInstalled", () => {
+  it("returns true when Ghostty exists at /Applications", () => {
+    mockExistsSync.mockImplementation((p: string) =>
+      p === "/Applications/Ghostty.app",
+    );
+    expect(isGhosttyInstalled()).toBe(true);
+  });
+
+  it("returns true when Ghostty exists at ~/Applications", () => {
+    mockExistsSync.mockImplementation((p: string) =>
+      p.endsWith("/Applications/Ghostty.app") && p !== "/Applications/Ghostty.app",
+    );
+    expect(isGhosttyInstalled()).toBe(true);
+  });
+
+  it("returns false when Ghostty is not found at any known path", () => {
+    mockExistsSync.mockReturnValue(false);
+    expect(isGhosttyInstalled()).toBe(false);
   });
 });

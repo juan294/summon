@@ -17,7 +17,7 @@ import { listConfig, readKVFile, readCustomLayout, isCustomLayout, LAYOUT_NAME_R
 import { generateAppleScript, generateTreeAppleScript } from "./script.js";
 import { parseTreeDSL, extractPaneDefinitions, extractPaneCwds, resolveTreeCommands as resolveTreeCmds, buildTreePlan, findPaneByName } from "./tree.js";
 import type { LayoutNode } from "./tree.js";
-import { GHOSTTY_PATHS, resolveCommand as resolveCommandPath, promptUser, getErrorMessage, SUMMON_WORKSPACE_ENV, isAccessibilityError, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT } from "./utils.js";
+import { resolveCommand as resolveCommandPath, promptUser, getErrorMessage, SUMMON_WORKSPACE_ENV, isAccessibilityError, isGhosttyInstalled, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT } from "./utils.js";
 import { parseIntInRange, parsePositiveFloat } from "./validation.js";
 import { isStarshipInstalled, ensurePresetConfig, getPresetConfigPath } from "./starship.js";
 
@@ -83,7 +83,7 @@ export interface CLIOverrides {
 }
 
 function ensureGhostty(): void {
-  if (!GHOSTTY_PATHS.some((p) => existsSync(p))) {
+  if (!isGhosttyInstalled()) {
     console.error(
       "Ghostty.app not found. Please install Ghostty 1.3.1+ from https://ghostty.org",
     );
@@ -116,15 +116,6 @@ function executeScript(script: string): void {
     }
     process.exit(1);
   }
-}
-
-/**
- * Resolve a command name to its full path.
- * Returns null if the command is not found on the system or the name is invalid.
- * Command name format validation (SAFE_COMMAND_RE) is performed by resolveCommandPath in utils.ts.
- */
-function resolveCommand(cmd: string): string | null {
-  return resolveCommandPath(cmd);
 }
 
 async function prompt(question: string): Promise<string> {
@@ -182,7 +173,7 @@ const KNOWN_INSTALL_COMMANDS: Record<string, () => [string, string[]] | null> = 
 };
 
 async function ensureCommand(cmd: string, configKey: string): Promise<string> {
-  const resolved = resolveCommand(cmd);
+  const resolved = resolveCommandPath(cmd);
   if (resolved) return resolved;
 
   const getInstall = KNOWN_INSTALL_COMMANDS[cmd];
@@ -219,7 +210,7 @@ async function ensureCommand(cmd: string, configKey: string): Promise<string> {
     process.exit(1);
   }
 
-  const postInstallPath = resolveCommand(cmd);
+  const postInstallPath = resolveCommandPath(cmd);
   if (!postInstallPath) {
     console.error(`\`${cmd}\` still not found after install. Please check your PATH.`);
     process.exit(1);
@@ -474,7 +465,7 @@ async function warnIfNested(
     return false;
   }
   console.warn("Warning: You're inside an existing summon workspace.");
-  console.warn("Launching here will nest splits inside this pane, which can get too scary.");
+  console.warn("Launching here will nest splits inside this pane, which can get messy.");
   console.warn("Tip: Use --new-window to open in a separate window instead.\n");
   const answer = await prompt("Continue anyway? [y/N] ");
   return answer !== "y";

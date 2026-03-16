@@ -66,7 +66,7 @@ vi.mock("./script.js", () => ({
 }));
 
 // Import after mocks are set up
-const { launch, resolveConfig } = await import("./launcher.js");
+const { launch, resolveConfig, optsToConfigMap } = await import("./launcher.js");
 const { getConfig, listConfig } = await import("./config.js");
 const { existsSync } = await import("node:fs");
 
@@ -2688,5 +2688,79 @@ describe("project config log (#146)", () => {
     const configMsg = warnMessages.find((m) => m.includes(".summon"));
     expect(configMsg).toBeUndefined();
     warnSpy.mockRestore();
+  });
+});
+
+describe("optsToConfigMap", () => {
+  it("returns empty map for empty opts", () => {
+    const result = optsToConfigMap({});
+    expect(result.size).toBe(0);
+  });
+
+  it("returns empty map for opts with only undefined values", () => {
+    const result = optsToConfigMap({ editor: undefined, sidebarCommand: undefined });
+    expect(result.size).toBe(0);
+  });
+
+  it("maps all fields when set", () => {
+    const result = optsToConfigMap({
+      editor: "vim",
+      sidebarCommand: "lazygit",
+      editorPanes: 3,
+      editorSize: 60,
+      shell: "zsh",
+      autoResize: true,
+      fontSize: 14,
+      theme: "tokyo-night",
+      newWindow: true,
+      fullscreen: true,
+      maximize: true,
+      float: true,
+    });
+    expect(result.get("editor")).toBe("vim");
+    expect(result.get("sidebar")).toBe("lazygit");
+    expect(result.get("panes")).toBe("3");
+    expect(result.get("editor-size")).toBe("60");
+    expect(result.get("shell")).toBe("zsh");
+    expect(result.get("auto-resize")).toBe("true");
+    expect(result.get("font-size")).toBe("14");
+    expect(result.get("theme")).toBe("tokyo-night");
+    expect(result.get("new-window")).toBe("true");
+    expect(result.get("fullscreen")).toBe("true");
+    expect(result.get("maximize")).toBe("true");
+    expect(result.get("float")).toBe("true");
+  });
+
+  it("excludes null fontSize", () => {
+    const result = optsToConfigMap({ fontSize: null });
+    expect(result.has("font-size")).toBe(false);
+  });
+
+  it("excludes null theme", () => {
+    const result = optsToConfigMap({ theme: null });
+    expect(result.has("theme")).toBe(false);
+  });
+
+  it("excludes boolean flags when false", () => {
+    const result = optsToConfigMap({
+      newWindow: false,
+      fullscreen: false,
+      maximize: false,
+      float: false,
+    });
+    expect(result.has("new-window")).toBe(false);
+    expect(result.has("fullscreen")).toBe(false);
+    expect(result.has("maximize")).toBe(false);
+    expect(result.has("float")).toBe(false);
+  });
+
+  it("includes fontSize when set to a number", () => {
+    const result = optsToConfigMap({ fontSize: 18.5 });
+    expect(result.get("font-size")).toBe("18.5");
+  });
+
+  it("includes theme when set to a string", () => {
+    const result = optsToConfigMap({ theme: "dracula" });
+    expect(result.get("theme")).toBe("dracula");
   });
 });
