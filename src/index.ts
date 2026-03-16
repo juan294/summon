@@ -418,7 +418,9 @@ switch (subcommand) {
     }
     if (value !== undefined) {
       if (value === "" && (key === "editor" || key === "sidebar" || key === "shell" || key === "on-start")) {
-        console.warn(`Warning: setting ${key} to empty string. Use 'summon set ${key}' (without value) to reset to default.`);
+        console.error(`Error: ${key} cannot be set to an empty string.`);
+        console.error(`To reset to default, run: summon set ${key}  (without a value)`);
+        process.exit(1);
       }
       setConfig(key, value);
       console.log(`Set ${key} → ${value}`);
@@ -553,15 +555,18 @@ switch (subcommand) {
     console.log();
 
     const { promptUser } = await import("./utils.js");
-    const answer = await promptUser("Project number: ");
-    const idx = parseInt(answer, 10) - 1;
+    let selectedPath: string | undefined;
+    while (selectedPath === undefined) {
+      const answer = await promptUser("Project number: ");
+      const idx = parseInt(answer, 10) - 1;
 
-    if (isNaN(idx) || idx < 0 || idx >= entries.length) {
-      console.error(`Invalid selection. Enter a number between 1 and ${entries.length}.`);
-      process.exit(1);
+      if (isNaN(idx) || idx < 0 || idx >= entries.length) {
+        console.error(`Invalid selection. Enter a number between 1 and ${entries.length}.`);
+        continue;
+      }
+
+      selectedPath = entries[idx]![1];
     }
-
-    const [, selectedPath] = entries[idx]!;
     await launch(selectedPath, buildOverrides());
     break;
   }
@@ -702,6 +707,12 @@ switch (subcommand) {
           layoutNotFoundOrExit(layoutName);
         }
         const editorCmd = process.env.EDITOR || "vi";
+        if (!SAFE_COMMAND_RE.test(editorCmd)) {
+          console.error(`Error: unsafe EDITOR value "${editorCmd}".`);
+          console.error("EDITOR must be a simple command name (e.g. vim, nano, code).");
+          console.error("Set a valid editor: export EDITOR=vim");
+          process.exit(1);
+        }
         const { execFileSync: execEditFile } = await import("node:child_process");
         const filePath = join(LAYOUTS_DIR, layoutName);
         try {
