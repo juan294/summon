@@ -3,9 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>summon -- Workspace Layout Gallery</title>
+  <title>summon — Workspace Layout Gallery</title>
   <meta name="description" content="One command to summon your entire Ghostty dev environment. Browse 10 workspace layouts.">
-  <meta property="og:title" content="summon -- Workspace Layout Gallery">
+  <meta property="og:title" content="summon — Workspace Layout Gallery">
   <meta property="og:description" content="One command to summon your entire Ghostty dev environment. Browse 10 workspace layouts.">
   <meta property="og:image" content="https://juan294.github.io/summon/images/og-image.png">
   <meta property="og:url" content="https://juan294.github.io/summon/gallery/">
@@ -35,9 +35,7 @@
       --max-width: 1200px;
     }
 
-    html {
-      scroll-behavior: smooth;
-    }
+    html { scroll-behavior: smooth; }
 
     body {
       background: var(--bg-primary);
@@ -52,7 +50,7 @@
 
     .hero {
       text-align: center;
-      padding: 80px 24px 64px;
+      padding: 60px 24px 48px;
       position: relative;
       overflow: hidden;
     }
@@ -60,34 +58,32 @@
     .hero::before {
       content: '';
       position: absolute;
-      top: -120px;
+      top: -80px;
       left: 50%;
       transform: translateX(-50%);
-      width: 600px;
-      height: 400px;
-      background: radial-gradient(ellipse, rgba(217, 70, 239, 0.15) 0%, transparent 70%);
+      width: 500px;
+      height: 350px;
+      background: radial-gradient(ellipse, rgba(217, 70, 239, 0.12) 0%, transparent 70%);
       pointer-events: none;
     }
 
-    .hero-wordmark {
-      font-size: clamp(3rem, 8vw, 5.5rem);
-      font-weight: 700;
-      color: var(--accent-magenta);
-      letter-spacing: -0.02em;
-      position: relative;
-      display: inline-block;
-      text-shadow: 0 0 60px rgba(217, 70, 239, 0.35);
+    .hero-logo {
+      width: 120px;
+      height: 120px;
+      margin: 0 auto 8px;
+      display: block;
+      border-radius: 20px;
     }
 
     .hero-tagline {
-      font-size: clamp(1rem, 2.5vw, 1.35rem);
+      font-size: clamp(1rem, 2.5vw, 1.25rem);
       color: var(--text-primary);
-      margin-top: 16px;
+      margin-top: 8px;
       font-weight: 400;
     }
 
     .hero-install {
-      margin-top: 28px;
+      margin-top: 24px;
       display: inline-flex;
       align-items: center;
       gap: 12px;
@@ -111,7 +107,7 @@
       color: var(--accent-cyan);
     }
 
-    .hero-install .copy-icon {
+    .copy-icon {
       width: 18px;
       height: 18px;
       color: var(--text-secondary);
@@ -119,11 +115,9 @@
       flex-shrink: 0;
     }
 
-    .hero-install:hover .copy-icon {
-      color: var(--accent-cyan);
-    }
+    .hero-install:hover .copy-icon { color: var(--accent-cyan); }
 
-    .hero-install .copy-feedback {
+    .copy-feedback {
       position: absolute;
       top: -32px;
       left: 50%;
@@ -139,16 +133,16 @@
       transition: opacity 0.2s, top 0.2s;
     }
 
-    .hero-install .copy-feedback.show {
+    .copy-feedback.show {
       opacity: 1;
       top: -36px;
     }
 
     .hero-subtitle {
-      margin-top: 20px;
-      font-size: 0.85rem;
+      margin-top: 16px;
+      font-size: 0.82rem;
       color: var(--text-secondary);
-      max-width: 480px;
+      max-width: 420px;
       margin-left: auto;
       margin-right: auto;
     }
@@ -174,12 +168,66 @@
       border: 1px solid var(--border);
       border-radius: var(--radius);
       overflow: hidden;
-      transition: background 0.25s, border-color 0.25s;
+      transition: background 0.25s, border-color 0.25s, transform 0.25s;
+      cursor: pointer;
     }
 
     .card:hover {
       background: var(--bg-card-hover);
       border-color: rgba(6, 182, 212, 0.3);
+      transform: translateY(-2px);
+    }
+
+    .card-image-wrap {
+      position: relative;
+      aspect-ratio: 16 / 9;
+      overflow: hidden;
+      background: var(--bg-primary);
+    }
+
+    .card-image-wrap picture {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    .card-image-wrap img {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transition: transform 0.3s;
+    }
+
+    .card:hover .card-image-wrap img {
+      transform: scale(1.03);
+    }
+
+    .card-expand-hint {
+      position: absolute;
+      bottom: 10px;
+      right: 10px;
+      background: rgba(12, 13, 20, 0.7);
+      border: 1px solid rgba(226, 228, 233, 0.15);
+      color: var(--text-primary);
+      font-size: 0.65rem;
+      padding: 4px 10px;
+      border-radius: 4px;
+      opacity: 0;
+      transition: opacity 0.2s;
+      pointer-events: none;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .card:hover .card-expand-hint {
+      opacity: 1;
+    }
+
+    .card-expand-hint svg {
+      width: 12px;
+      height: 12px;
     }
 
     .card-body {
@@ -216,97 +264,158 @@
       font-family: var(--font-mono);
     }
 
-    /* ── Slider ───────────────────────────────────── */
+    /* ── Lightbox ─────────────────────────────────── */
 
-    .slider-container {
-      position: relative;
-      aspect-ratio: 16 / 9;
-      overflow: hidden;
-      border-radius: 8px 8px 0 0;
-      cursor: ew-resize;
-      user-select: none;
-      -webkit-user-select: none;
-      background: var(--bg-primary);
-    }
-
-    .slider-container picture {
-      display: block;
-      position: absolute;
+    .lightbox {
+      display: none;
+      position: fixed;
       inset: 0;
+      z-index: 1000;
+      background: rgba(6, 7, 10, 0.92);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
     }
 
-    .slider-container picture img {
-      display: block;
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
+    .lightbox.open {
+      display: flex;
     }
 
-    .slider-after {
-      z-index: 1;
-    }
-
-    .slider-before {
-      z-index: 2;
-      clip-path: inset(0 50% 0 0);
-    }
-
-    .slider-handle {
-      position: absolute;
-      top: 0;
-      bottom: 0;
-      left: 50%;
-      width: 3px;
-      background: var(--accent-cyan);
-      z-index: 4;
-      transform: translateX(-50%);
-      box-shadow: 0 0 12px rgba(6, 182, 212, 0.5);
-    }
-
-    .slider-grip {
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      width: 36px;
-      height: 36px;
-      background: var(--accent-cyan);
-      border-radius: 50%;
+    .lightbox-header {
       display: flex;
       align-items: center;
       justify-content: center;
-      box-shadow: 0 0 16px rgba(6, 182, 212, 0.45), 0 2px 8px rgba(0,0,0,0.4);
-      cursor: ew-resize;
+      gap: 16px;
+      padding: 16px 24px;
+      width: 100%;
+      max-width: 1100px;
     }
 
-    .slider-grip svg {
+    .lightbox-title {
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: var(--accent-cyan);
+    }
+
+    .lightbox-toggle {
+      display: flex;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      overflow: hidden;
+    }
+
+    .lightbox-toggle button {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      font-weight: 700;
+      padding: 6px 16px;
+      border: none;
+      cursor: pointer;
+      color: var(--text-secondary);
+      background: transparent;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    .lightbox-toggle button.active {
+      background: var(--accent-cyan);
+      color: var(--bg-primary);
+    }
+
+    .lightbox-toggle button:not(.active):hover {
+      background: var(--bg-card-hover);
+      color: var(--text-primary);
+    }
+
+    .lightbox-close {
+      position: absolute;
+      top: 16px;
+      right: 20px;
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text-secondary);
+      cursor: pointer;
+      width: 40px;
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: color 0.2s, border-color 0.2s;
+      font-family: var(--font-mono);
+      font-size: 1.2rem;
+    }
+
+    .lightbox-close:hover {
+      color: var(--text-primary);
+      border-color: var(--text-secondary);
+    }
+
+    .lightbox-image-wrap {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      max-width: 1100px;
+      padding: 0 24px 16px;
+      min-height: 0;
+    }
+
+    .lightbox-image-wrap picture {
+      display: block;
+      max-width: 100%;
+      max-height: 100%;
+    }
+
+    .lightbox-image-wrap img {
+      display: block;
+      max-width: 100%;
+      max-height: calc(100vh - 140px);
+      object-fit: contain;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+
+    .lightbox-nav {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      background: rgba(19, 20, 29, 0.8);
+      border: 1px solid var(--border);
+      color: var(--text-secondary);
+      cursor: pointer;
+      width: 44px;
+      height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 8px;
+      transition: color 0.2s, border-color 0.2s, background 0.2s;
+    }
+
+    .lightbox-nav:hover {
+      color: var(--text-primary);
+      border-color: var(--accent-cyan);
+      background: rgba(19, 20, 29, 0.95);
+    }
+
+    .lightbox-nav svg {
       width: 20px;
       height: 20px;
-      color: var(--bg-primary);
-      pointer-events: none;
     }
 
-    .slider-label {
-      position: absolute;
-      bottom: 8px;
-      z-index: 3;
-      font-size: 0.65rem;
-      font-weight: 700;
-      color: rgba(226, 228, 233, 0.6);
-      background: rgba(12, 13, 20, 0.6);
-      padding: 2px 8px;
-      border-radius: 3px;
-      pointer-events: none;
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
-    }
+    .lightbox-prev { left: 16px; }
+    .lightbox-next { right: 16px; }
 
-    .slider-label-min {
-      left: 8px;
-    }
-
-    .slider-label-max {
-      right: 8px;
+    .lightbox-desc {
+      text-align: center;
+      padding: 0 24px 20px;
+      font-size: 0.78rem;
+      color: var(--text-secondary);
+      max-width: 600px;
     }
 
     /* ── CTA Section ─────────────────────────────── */
@@ -343,38 +452,7 @@
       color: var(--accent-cyan);
     }
 
-    .cta-install .copy-icon {
-      width: 18px;
-      height: 18px;
-      color: var(--text-secondary);
-      transition: color 0.2s;
-      flex-shrink: 0;
-    }
-
-    .cta-install:hover .copy-icon {
-      color: var(--accent-cyan);
-    }
-
-    .cta-install .copy-feedback {
-      position: absolute;
-      top: -32px;
-      left: 50%;
-      transform: translateX(-50%);
-      background: var(--accent-cyan);
-      color: var(--bg-primary);
-      font-size: 0.75rem;
-      font-weight: 700;
-      padding: 4px 10px;
-      border-radius: 4px;
-      opacity: 0;
-      pointer-events: none;
-      transition: opacity 0.2s, top 0.2s;
-    }
-
-    .cta-install .copy-feedback.show {
-      opacity: 1;
-      top: -36px;
-    }
+    .cta-install:hover .copy-icon { color: var(--accent-cyan); }
 
     .cta-requirements {
       margin-top: 20px;
@@ -396,9 +474,7 @@
       transition: color 0.2s;
     }
 
-    .cta-links a:hover {
-      color: var(--accent-magenta);
-    }
+    .cta-links a:hover { color: var(--accent-magenta); }
 
     /* ── Footer ───────────────────────────────────── */
 
@@ -416,9 +492,7 @@
       transition: color 0.2s;
     }
 
-    .footer a:hover {
-      color: var(--accent-cyan);
-    }
+    .footer a:hover { color: var(--accent-cyan); }
 
     .footer-sep {
       margin: 0 12px;
@@ -434,15 +508,13 @@
     }
 
     @media (max-width: 640px) {
-      .hero {
-        padding: 56px 16px 48px;
-      }
-      .gallery {
-        padding: 0 16px 56px;
-      }
-      .gallery-grid {
-        grid-template-columns: 1fr;
-      }
+      .hero { padding: 48px 16px 36px; }
+      .hero-logo { width: 96px; height: 96px; }
+      .gallery { padding: 0 16px 56px; }
+      .gallery-grid { grid-template-columns: 1fr; }
+      .lightbox-nav { display: none; }
+      .lightbox-header { padding: 12px 16px; }
+      .lightbox-image-wrap { padding: 0 12px 12px; }
     }
   </style>
 </head>
@@ -450,20 +522,45 @@
 
   <!-- ── Hero ──────────────────────────────────────── -->
   <section class="hero">
-    <h1 class="hero-wordmark">summon</h1>
+    <img src="../images/logo.png" alt="summon logo" class="hero-logo">
     <p class="hero-tagline">One command. Your entire workspace.</p>
     <div class="hero-install" onclick="copyInstall(this)" role="button" tabindex="0" aria-label="Copy install command">
       <code>npm i -g summon-ws</code>
       <svg class="copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
       <span class="copy-feedback">Copied!</span>
     </div>
-    <p class="hero-subtitle">Drag the slider on each card to compare minimal and full workspace configurations.</p>
+    <p class="hero-subtitle">Click any layout to view full-size. Toggle between minimal and full configurations.</p>
   </section>
 
   <!-- ── Gallery ───────────────────────────────────── -->
   <section class="gallery">
     <div class="gallery-grid" id="gallery-grid"></div>
   </section>
+
+  <!-- ── Lightbox ──────────────────────────────────── -->
+  <div class="lightbox" id="lightbox">
+    <div class="lightbox-header">
+      <span class="lightbox-title" id="lb-title"></span>
+      <div class="lightbox-toggle">
+        <button id="lb-btn-min" onclick="setLightboxMode('min')">Minimal</button>
+        <button id="lb-btn-max" onclick="setLightboxMode('max')" class="active">Full</button>
+      </div>
+    </div>
+    <div class="lightbox-image-wrap">
+      <picture id="lb-picture">
+        <source id="lb-source" srcset="" type="image/webp">
+        <img id="lb-img" src="" alt="">
+      </picture>
+    </div>
+    <p class="lightbox-desc" id="lb-desc"></p>
+    <button class="lightbox-close" onclick="closeLightbox()" aria-label="Close">&times;</button>
+    <button class="lightbox-nav lightbox-prev" onclick="navLightbox(-1)" aria-label="Previous">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+    </button>
+    <button class="lightbox-nav lightbox-next" onclick="navLightbox(1)" aria-label="Next">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>
+    </button>
+  </div>
 
   <!-- ── CTA ───────────────────────────────────────── -->
   <section class="cta">
@@ -491,94 +588,35 @@
   <script>
     /* ── Card Data ──────────────────────────────────── */
     var CARDS = [
-      {
-        id: 'fullstack',
-        title: 'Fullstack',
-        desc: 'Full-stack development with editor, shell, and git in one view.',
-        tools: ['Claude', 'lazygit', 'btop', 'shell']
-      },
-      {
-        id: 'backend',
-        title: 'Backend',
-        desc: 'Server and API development with code review and monitoring.',
-        tools: ['Claude', 'lazygit', 'btop', 'docs']
-      },
-      {
-        id: 'devops',
-        title: 'DevOps',
-        desc: 'Infrastructure, containers, and deployment with live monitoring.',
-        tools: ['Vim', 'Docker', 'btop', 'logs']
-      },
-      {
-        id: 'data',
-        title: 'Data',
-        desc: 'Data science workspace with file browsing, REPL, and visualization.',
-        tools: ['Claude', 'Python', 'yazi', 'btop']
-      },
-      {
-        id: 'systems',
-        title: 'Systems',
-        desc: 'Systems programming with performance metrics and deep monitoring.',
-        tools: ['Editor', 'btop', 'lazygit', 'metrics']
-      },
-      {
-        id: 'frontend',
-        title: 'Frontend',
-        desc: 'Web UI development with test runner and live build output.',
-        tools: ['Claude', 'npm', 'lazygit', 'btop']
-      },
-      {
-        id: 'network',
-        title: 'Network',
-        desc: 'Network monitoring with bandwidth charts and traffic analysis.',
-        tools: ['bandwhich', 'btop', 'tcpdump', 'logs']
-      },
-      {
-        id: 'ml',
-        title: 'ML',
-        desc: 'Machine learning with training visualization and resource monitoring.',
-        tools: ['Claude', 'training logs', 'btop', 'lazygit']
-      },
-      {
-        id: 'flex',
-        title: 'Flex',
-        desc: 'Creative multi-tool workspace \u2014 because your terminal can be fun too.',
-        tools: ['cmatrix', 'btop', 'neofetch', 'Claude']
-      },
-      {
-        id: 'dual-editor',
-        title: 'Dual Editor',
-        desc: 'Side-by-side editors for pair programming or code review.',
-        tools: ['Claude', 'Helix', 'btop', 'lazygit']
-      }
+      { id: 'fullstack', title: 'Fullstack', desc: 'Full-stack development with editor, shell, and git in one view.', tools: ['Claude', 'lazygit', 'btop', 'shell'] },
+      { id: 'backend', title: 'Backend', desc: 'Server and API development with code review and monitoring.', tools: ['Claude', 'lazygit', 'btop', 'docs'] },
+      { id: 'devops', title: 'DevOps', desc: 'Infrastructure, containers, and deployment with live monitoring.', tools: ['Vim', 'Docker', 'btop', 'logs'] },
+      { id: 'data', title: 'Data', desc: 'Data science workspace with file browsing, REPL, and visualization.', tools: ['Claude', 'Python', 'yazi', 'btop'] },
+      { id: 'systems', title: 'Systems', desc: 'Systems programming with performance metrics and deep monitoring.', tools: ['Editor', 'btop', 'lazygit', 'metrics'] },
+      { id: 'frontend', title: 'Frontend', desc: 'Web UI development with test runner and live build output.', tools: ['Claude', 'npm', 'lazygit', 'btop'] },
+      { id: 'network', title: 'Network', desc: 'Network monitoring with bandwidth charts and traffic analysis.', tools: ['bandwhich', 'btop', 'tcpdump', 'logs'] },
+      { id: 'ml', title: 'ML', desc: 'Machine learning with training visualization and resource monitoring.', tools: ['Claude', 'training logs', 'btop', 'lazygit'] },
+      { id: 'flex', title: 'Flex', desc: 'Creative multi-tool workspace \u2014 because your terminal can be fun too.', tools: ['cmatrix', 'btop', 'neofetch', 'Claude'] },
+      { id: 'dual-editor', title: 'Dual Editor', desc: 'Side-by-side editors for pair programming or code review.', tools: ['Claude', 'Helix', 'btop', 'lazygit'] }
     ];
 
     /* ── Render Cards ──────────────────────────────── */
     var grid = document.getElementById('gallery-grid');
 
-    CARDS.forEach(function(card) {
+    CARDS.forEach(function(card, idx) {
       var el = document.createElement('article');
       el.className = 'card';
+      el.setAttribute('data-index', idx);
       el.innerHTML =
-        '<div class="slider-container" data-card-id="' + card.id + '">' +
-          '<picture class="slider-after">' +
+        '<div class="card-image-wrap">' +
+          '<picture>' +
             '<source srcset="../images/' + card.id + '-max.webp" type="image/webp">' +
-            '<img src="../images/' + card.id + '-max.png" alt="' + card.title + ' full layout" loading="lazy">' +
+            '<img src="../images/' + card.id + '-max.png" alt="' + card.title + ' workspace layout" loading="lazy">' +
           '</picture>' +
-          '<picture class="slider-before">' +
-            '<source srcset="../images/' + card.id + '-min.webp" type="image/webp">' +
-            '<img src="../images/' + card.id + '-min.png" alt="' + card.title + ' minimal layout" loading="lazy">' +
-          '</picture>' +
-          '<span class="slider-label slider-label-min">minimal</span>' +
-          '<span class="slider-label slider-label-max">full</span>' +
-          '<div class="slider-handle">' +
-            '<div class="slider-grip">' +
-              '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">' +
-                '<polyline points="8 4 4 8 8 12"></polyline>' +
-                '<polyline points="16 4 20 8 16 12"></polyline>' +
-              '</svg>' +
-            '</div>' +
-          '</div>' +
+          '<span class="card-expand-hint">' +
+            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>' +
+            'Click to expand' +
+          '</span>' +
         '</div>' +
         '<div class="card-body">' +
           '<h2 class="card-title">' + card.title + '</h2>' +
@@ -587,73 +625,68 @@
             card.tools.map(function(t) { return '<span>' + t + '</span>'; }).join('') +
           '</div>' +
         '</div>';
+      el.addEventListener('click', function() { openLightbox(idx); });
       grid.appendChild(el);
     });
 
-    /* ── Slider Interaction ────────────────────────── */
-    var sliders = document.querySelectorAll('.slider-container');
+    /* ── Lightbox ──────────────────────────────────── */
+    var lightbox = document.getElementById('lightbox');
+    var lbTitle = document.getElementById('lb-title');
+    var lbDesc = document.getElementById('lb-desc');
+    var lbImg = document.getElementById('lb-img');
+    var lbSource = document.getElementById('lb-source');
+    var lbBtnMin = document.getElementById('lb-btn-min');
+    var lbBtnMax = document.getElementById('lb-btn-max');
+    var currentIndex = 0;
+    var currentMode = 'max';
 
-    sliders.forEach(function(container) {
-      var handle = container.querySelector('.slider-handle');
-      var beforePicture = container.querySelector('.slider-before');
-      var dragging = false;
+    function openLightbox(idx) {
+      currentIndex = idx;
+      currentMode = 'max';
+      updateLightbox();
+      lightbox.classList.add('open');
+      document.body.style.overflow = 'hidden';
+    }
 
-      function setPosition(pct) {
-        pct = Math.max(0, Math.min(100, pct));
-        handle.style.left = pct + '%';
-        beforePicture.style.clipPath = 'inset(0 ' + (100 - pct) + '% 0 0)';
-      }
+    function closeLightbox() {
+      lightbox.classList.remove('open');
+      document.body.style.overflow = '';
+    }
 
-      function getPercentage(clientX) {
-        var rect = container.getBoundingClientRect();
-        return ((clientX - rect.left) / rect.width) * 100;
-      }
+    function navLightbox(dir) {
+      currentIndex = (currentIndex + dir + CARDS.length) % CARDS.length;
+      updateLightbox();
+    }
 
-      /* Mouse events */
-      handle.addEventListener('mousedown', function(e) {
-        e.preventDefault();
-        dragging = true;
-      });
+    function setLightboxMode(mode) {
+      currentMode = mode;
+      updateLightbox();
+    }
 
-      container.addEventListener('mousedown', function(e) {
-        /* Click-to-jump: reposition handle on click anywhere in the container */
-        setPosition(getPercentage(e.clientX));
-        dragging = true;
-      });
+    function updateLightbox() {
+      var card = CARDS[currentIndex];
+      lbTitle.textContent = card.title;
+      lbDesc.textContent = card.desc;
+      lbSource.setAttribute('srcset', '../images/' + card.id + '-' + currentMode + '.webp');
+      lbImg.src = '../images/' + card.id + '-' + currentMode + '.png';
+      lbImg.alt = card.title + ' ' + currentMode + ' layout';
+      lbBtnMin.className = currentMode === 'min' ? 'active' : '';
+      lbBtnMax.className = currentMode === 'max' ? 'active' : '';
+    }
 
-      document.addEventListener('mousemove', function(e) {
-        if (!dragging) return;
-        e.preventDefault();
-        setPosition(getPercentage(e.clientX));
-      });
+    /* Close on backdrop click */
+    lightbox.addEventListener('click', function(e) {
+      if (e.target === lightbox) closeLightbox();
+    });
 
-      document.addEventListener('mouseup', function() {
-        dragging = false;
-      });
-
-      /* Touch events */
-      handle.addEventListener('touchstart', function(e) {
-        e.preventDefault();
-        dragging = true;
-      });
-
-      container.addEventListener('touchstart', function(e) {
-        if (e.touches.length === 1) {
-          setPosition(getPercentage(e.touches[0].clientX));
-          dragging = true;
-        }
-      });
-
-      document.addEventListener('touchmove', function(e) {
-        if (!dragging) return;
-        if (e.touches.length === 1) {
-          setPosition(getPercentage(e.touches[0].clientX));
-        }
-      });
-
-      document.addEventListener('touchend', function() {
-        dragging = false;
-      });
+    /* Keyboard navigation */
+    document.addEventListener('keydown', function(e) {
+      if (!lightbox.classList.contains('open')) return;
+      if (e.key === 'Escape') closeLightbox();
+      else if (e.key === 'ArrowLeft') navLightbox(-1);
+      else if (e.key === 'ArrowRight') navLightbox(1);
+      else if (e.key === 'm' || e.key === '1') setLightboxMode('min');
+      else if (e.key === 'f' || e.key === '2') setLightboxMode('max');
     });
 
     /* ── Copy Install Command ──────────────────────── */
@@ -666,14 +699,13 @@
           showFeedback(feedback);
         });
       } else {
-        /* Fallback for older browsers / non-HTTPS */
         var ta = document.createElement('textarea');
         ta.value = text;
         ta.style.position = 'fixed';
         ta.style.opacity = '0';
         document.body.appendChild(ta);
         ta.select();
-        try { document.execCommand('copy'); } catch (_) { /* noop */ }
+        try { document.execCommand('copy'); } catch (_) {}
         document.body.removeChild(ta);
         showFeedback(feedback);
       }
@@ -681,12 +713,9 @@
 
     function showFeedback(el) {
       el.classList.add('show');
-      setTimeout(function() {
-        el.classList.remove('show');
-      }, 1200);
+      setTimeout(function() { el.classList.remove('show'); }, 1200);
     }
 
-    /* Keyboard support for install buttons */
     document.querySelectorAll('.hero-install, .cta-install').forEach(function(btn) {
       btn.addEventListener('keydown', function(e) {
         if (e.key === 'Enter' || e.key === ' ') {
