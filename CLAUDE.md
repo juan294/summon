@@ -101,9 +101,10 @@ All significant changes go through four phases:
 ### Pre-Release Workflow
 
 ```
-/pre-launch -> fix findings -> /update-docs -> /release
+/pre-launch -> /remediate -> /update-docs -> /release
 ```
 
+- `/remediate` -- resolve all pre-launch findings with parallel TDD agents, CI verification
 - `/update-docs` -- refreshes all documentation, diagrams, version references, and inline code docs
 - `/release` -- version bump, CHANGELOG, tag, GitHub release, registry publish advisory
 

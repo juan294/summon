@@ -49,13 +49,13 @@ After all 6 complete, collect results into a single report at `docs/agents/pre-l
 
 ### After the Audit
 
-If the verdict is CONDITIONAL or NOT READY with code quality findings (dead code, duplicates,
-inefficiencies, reuse opportunities), recommend running `/simplify` as the first fix action.
-`/simplify` spawns 3 specialized agents (code reuse, code quality, efficiency) and applies
-fixes automatically — it handles the bulk of architect and performance-eng findings in one pass.
+Run `/remediate` to resolve all findings. It creates GitHub issues for every finding, spawns
+parallel TDD agents in worktrees, merges sequentially, verifies CI, and runs `/simplify`
+twice (per-agent and final).
 
-For findings that `/simplify` can't address (security, infrastructure, accessibility), those
-require manual implementation or a targeted `/implement` cycle.
+`/remediate` handles the full spectrum — code quality findings that `/simplify` alone can fix
+AND domain-specific findings (security, infrastructure, accessibility) that require targeted
+implementation.
 
 ### Rules
 
