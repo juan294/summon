@@ -5,7 +5,7 @@
  * into a reusable function.
  */
 
-type ParseIntResult = {
+type ParseResult = {
   ok: true;
   value: number;
 } | {
@@ -21,9 +21,22 @@ export function parseIntInRange(
   raw: string,
   min: number,
   max: number = Number.MAX_SAFE_INTEGER,
-): ParseIntResult {
+): ParseResult {
   const parsed = parseInt(raw, 10);
   if (Number.isNaN(parsed) || parsed < min || parsed > max) {
+    return { ok: false };
+  }
+  return { ok: true, value: parsed };
+}
+
+/**
+ * Parse a string as a float and validate it is positive (> 0).
+ * Returns `{ ok: true, value }` on success, `{ ok: false }` on failure
+ * (NaN, zero, negative, etc.).
+ */
+export function parsePositiveFloat(raw: string): ParseResult {
+  const parsed = parseFloat(raw);
+  if (Number.isNaN(parsed) || parsed <= 0) {
     return { ok: false };
   }
   return { ok: true, value: parsed };
@@ -61,11 +74,11 @@ export function validateFloatFlag(
   flagName: string,
   value: string,
 ): number {
-  const parsed = parseFloat(value);
-  if (isNaN(parsed) || parsed <= 0) {
+  const result = parsePositiveFloat(value);
+  if (!result.ok) {
     console.error(`Error: --${flagName} must be a positive number, got "${value}".`);
     console.error("Run 'summon --help' for usage information.");
     process.exit(1);
   }
-  return parsed;
+  return result.value;
 }
