@@ -33,7 +33,7 @@ src/
   launcher.ts      Orchestrator: resolve config, generate script, execute via osascript
   setup.ts         Interactive setup wizard, visual layout builder (template gallery, grid builder, live preview)
   starship.ts      Starship detection, preset listing, TOML config caching
-  completions.ts   Shell completion script generator (bash, zsh, fish)
+  completions.ts   Shell completion script generator (bash, zsh)
   utils.ts         Shared utilities (SAFE_COMMAND_RE, GHOSTTY_PATHS, resolveCommand, promptUser, getErrorMessage)
   validation.ts    Input validation helpers (parseIntInRange, parsePositiveFloat, validateIntFlag, validateFloatFlag)
   globals.d.ts     Build-time constants (__VERSION__)
