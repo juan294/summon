@@ -21,7 +21,7 @@ vi.mock("node:readline", () => ({
 }));
 
 // Import after mocks
-const { SAFE_COMMAND_RE, GHOSTTY_PATHS, GHOSTTY_APP_NAME, SUMMON_WORKSPACE_ENV, resolveCommand, promptUser, getErrorMessage } = await import("./utils.js");
+const { SAFE_COMMAND_RE, GHOSTTY_PATHS, GHOSTTY_APP_NAME, SUMMON_WORKSPACE_ENV, resolveCommand, promptUser, getErrorMessage, exitWithUsageHint } = await import("./utils.js");
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -280,5 +280,46 @@ describe("promptUser", () => {
     );
     const result = await promptUser("Input: ");
     expect(result).toBe("");
+  });
+});
+
+describe("exitWithUsageHint", () => {
+  it("prints message and usage hint when message is provided", () => {
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => { throw new Error("exit"); });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    expect(() => exitWithUsageHint("Bad flag")).toThrow("exit");
+    expect(errorSpy).toHaveBeenCalledWith("Bad flag");
+    expect(errorSpy).toHaveBeenCalledWith("Run 'summon --help' for usage information.");
+    expect(exitSpy).toHaveBeenCalledWith(1);
+
+    exitSpy.mockRestore();
+    errorSpy.mockRestore();
+  });
+
+  it("prints only usage hint when no message is provided", () => {
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => { throw new Error("exit"); });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    expect(() => exitWithUsageHint()).toThrow("exit");
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    expect(errorSpy).toHaveBeenCalledWith("Run 'summon --help' for usage information.");
+    expect(exitSpy).toHaveBeenCalledWith(1);
+
+    exitSpy.mockRestore();
+    errorSpy.mockRestore();
+  });
+
+  it("prints only usage hint when message is empty string", () => {
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => { throw new Error("exit"); });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    expect(() => exitWithUsageHint("")).toThrow("exit");
+    // Empty string is falsy, so only the usage hint is printed
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    expect(errorSpy).toHaveBeenCalledWith("Run 'summon --help' for usage information.");
+
+    exitSpy.mockRestore();
+    errorSpy.mockRestore();
   });
 });

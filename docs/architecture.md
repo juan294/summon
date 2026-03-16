@@ -7,7 +7,7 @@ Technical reference for contributors.
 | Module | Role | Side Effects | Dependencies |
 |--------|------|:------------:|--------------|
 | `index.ts` | CLI entry point — parseArgs, subcommand dispatch, first-run detection | yes | config, launcher, layout, validation, utils, setup (dynamic), completions (dynamic) |
-| `launcher.ts` | Orchestrator — config resolution, command checks, script execution via osascript | yes | config, layout, script, tree, utils, validation, starship |
+| `launcher.ts` | Orchestrator — config resolution, command checks, script execution via osascript | yes | config, layout, script, tree, utils, validation, starship, setup (dynamic) |
 | `config.ts` | Config file read/write (`~/.config/summon/` and `.summon`), first-run detection | yes | Node stdlib only |
 | `setup.ts` | Interactive setup wizard — TUI primitives, tool catalogs, numbered-selection flow | yes | config, utils, starship |
 | `utils.ts` | Shared utilities — `SAFE_COMMAND_RE`, `GHOSTTY_PATHS`, `GHOSTTY_APP_NAME`, `SUMMON_WORKSPACE_ENV`, `resolveCommand`, `getErrorMessage`, `promptUser` | yes | Node stdlib only |
@@ -38,6 +38,7 @@ graph TD
     launcher --> utils
     launcher --> validation
     launcher --> starship[starship.ts]
+    launcher -.->|dynamic import| setup
     script --> tree
     script --> utils
     tree --> layout
@@ -109,7 +110,7 @@ graph TD
     style val_fns fill:none,stroke-dasharray:5
 ```
 
-`layout.ts`, `script.ts`, `tree.ts`, `completions.ts`, and `validation.ts` are pure modules with no side effects. `config.ts` and `utils.ts` only use Node stdlib. `starship.ts` handles Starship binary detection (cached), preset listing, and TOML config file generation — it depends on `config.ts` (for `CONFIG_DIR`) and `utils.ts` (for `resolveCommand`, `SAFE_COMMAND_RE`). `setup.ts` and `completions.ts` are loaded via dynamic `import()` from `index.ts` — they're only parsed when needed (`summon setup` or `summon completions`), keeping normal launch times unaffected.
+`layout.ts`, `script.ts`, `tree.ts`, `completions.ts`, and `validation.ts` are pure modules with no side effects. `config.ts` and `utils.ts` only use Node stdlib. `starship.ts` handles Starship binary detection (cached), preset listing, and TOML config file generation — it depends on `config.ts` (for `CONFIG_DIR`) and `utils.ts` (for `resolveCommand`, `SAFE_COMMAND_RE`). `setup.ts` and `completions.ts` are loaded via dynamic `import()` from `index.ts` — they're only parsed when needed (`summon setup` or `summon completions`), keeping normal launch times unaffected. `launcher.ts` also dynamically imports `setup.ts` when no editor is configured, redirecting to the wizard on first launch.
 
 All interactive prompts in `setup.ts` (`numberedSelect`, `confirm`, `selectToolFromCatalog`, `textInput`) use the shared `promptUser()` helper from `utils.ts`, which wraps readline creation, question, close, and trim in a single async call.
 
@@ -175,9 +176,18 @@ flowchart TD
     from parsed flags"]
     overrides --> launch["launcher.launch(targetDir, cliOverrides)"]
 
-    launch --> ghostty["ensureGhostty()
+    launch --> resolvecfg["resolveConfig(targetDir, cliOverrides)"]
+    resolvecfg --> editorcheck{"editor configured?
+    (from any config layer)"}
+    editorcheck -->|yes| ghostty
+    editorcheck -->|"no + TTY"| wizardredirect["setup.ts: runSetup()
+    (auto-redirect)"]
+    wizardredirect --> resolvecfg2["re-resolve config"]
+    resolvecfg2 --> ghostty
+    editorcheck -->|"no + non-TTY"| abortnoedit["exit 1: run summon setup
+    or summon set editor"]
+    ghostty["ensureGhostty()
     check Ghostty is running"]
-    ghostty --> resolvecfg["resolveConfig(targetDir, cliOverrides)"]
 
     resolvecfg --> readkv["readKVFile(targetDir/.summon)"]
     resolvecfg --> resolvekey["resolve layout key
@@ -339,14 +349,14 @@ The module imports `VALID_KEYS`, `CLI_FLAGS`, and `listCustomLayouts()` from `co
 
 ### Shell Metacharacter Detection
 
-When `launcher.ts` loads a `.summon` project file, it scans command values (`editor`, `sidebar`, `shell`, `on-start`) for shell metacharacters: `;`, `|`, `&`, `` ` ``, `$(`, `${`, `<`, `>`.
+When `launcher.ts` loads a `.summon` project file, it scans command values (`editor`, `sidebar`, `shell`, `on-start`) for shell metacharacters: `;`, `|`, `&`, `` ` ``, `$(`, `${`, `<`, `>`. The `on-start` value is also checked regardless of source (CLI flags, machine config, or project file).
 
 If any are found:
 - **TTY**: displays the suspicious commands and prompts for Y/n confirmation (default: no)
 - **Non-TTY**: refuses to execute and exits with an error
 - **Dry-run**: skips the check entirely (no commands are executed)
 
-Only `.summon` files are checked. CLI flags and machine config (`~/.config/summon/config`) are trusted sources.
+`.summon` project files are checked for all command keys. The resolved `on-start` value is additionally checked from any source since it runs via `execSync` (shell execution).
 
 ### SHELL Validation
 
@@ -517,4 +527,4 @@ A `.summon` file in the project root uses the same `key=value` format.
 4. **Code splitting**: `setup.ts` and `completions.ts` are auto-split into separate chunks via dynamic `import()`
 5. **prepublishOnly**: runs `pnpm run build` before any `npm publish`
 
-The `files` field in package.json limits the published package to `dist/` only. Total bundle size is ~84 KB across 7 chunks.
+The `files` field in package.json limits the published package to `dist/` only. Total bundle size is ~67 KB across 7 chunks.

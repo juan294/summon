@@ -1,5 +1,4 @@
 import { existsSync } from "node:fs";
-import { execFile } from "node:child_process";
 import { setConfig, isValidLayoutName, isCustomLayout, saveCustomLayout } from "./config.js";
 import { SAFE_COMMAND_RE, GHOSTTY_PATHS, resolveCommand as resolveCommandPath, promptUser } from "./utils.js";
 import { isStarshipInstalled, listStarshipPresets } from "./starship.js";
@@ -487,25 +486,8 @@ export function printSection(title: string): void {
 // ---------------------------------------------------------------------------
 
 /**
- * Async command resolution — spawns a shell lookup without blocking.
- * Returns the resolved path or null if the command is not found.
- */
-function resolveCommandAsync(cmd: string): Promise<string | null> {
-  if (!SAFE_COMMAND_RE.test(cmd)) return Promise.resolve(null);
-  return new Promise((resolve) => {
-    execFile("/bin/sh", ["-c", `command -v "$1"`, "--", cmd], { encoding: "utf-8" }, (err, stdout) => {
-      if (err) {
-        resolve(null);
-      } else {
-        resolve(stdout.trim() || null);
-      }
-    });
-  });
-}
-
-/**
  * Check catalog of tools, return each with `available` flag.
- * Shell lookups run in parallel via Promise.all for faster detection.
+ * Reuses resolveCommand from utils.ts — single source of truth for shell resolution.
  */
 export async function detectTools(
   catalog: readonly ToolEntry[],
@@ -513,7 +495,7 @@ export async function detectTools(
   const results = await Promise.all(
     catalog.map(async (entry) => ({
       ...entry,
-      available: (await resolveCommandAsync(entry.cmd)) !== null,
+      available: resolveCommandPath(entry.cmd) !== null,
     })),
   );
   return results;
@@ -638,12 +620,12 @@ interface ValidationResult {
 // ---------------------------------------------------------------------------
 
 export const EDITOR_CATALOG: readonly ToolEntry[] = [
-  { cmd: "claude", name: "Claude Code", desc: "AI pair programmer" },
-  { cmd: "nvim", name: "Neovim", desc: "Modern Vim" },
   { cmd: "vim", name: "Vim", desc: "Classic modal editor" },
-  { cmd: "emacs", name: "Emacs", desc: "Extensible editor" },
+  { cmd: "nvim", name: "Neovim", desc: "Modern Vim" },
   { cmd: "hx", name: "Helix", desc: "Post-modern modal editor" },
+  { cmd: "emacs", name: "Emacs", desc: "Extensible editor" },
   { cmd: "nano", name: "Nano", desc: "Simple text editor" },
+  { cmd: "claude", name: "Claude Code", desc: "AI pair programmer" },
 ];
 
 export const SIDEBAR_CATALOG: readonly ToolEntry[] = [
@@ -1068,8 +1050,8 @@ export async function runSetup(): Promise<void> {
     const isCustom = isCustomLayout(layout);
 
     // Custom layouts define their own pane commands — skip editor/sidebar/shell
-    let editor = "claude";
-    let sidebar = "lazygit";
+    let editor = "";
+    let sidebar = "";
     let shell = "false";
 
     if (!isCustom) {

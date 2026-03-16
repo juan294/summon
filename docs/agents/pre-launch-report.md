@@ -1,79 +1,88 @@
-# Pre-Launch Audit Report (Final)
-> Generated on 2026-03-16 | Branch: `develop` | 6 parallel specialists | Pre-v1.0.0
+# Pre-Launch Audit Report
+> Generated on 2026-03-16 | Branch: `develop` | 6 parallel specialists | Post-v1.0.0 (Claude-optional refactor)
 
-## Verdict: READY
+## Verdict: CONDITIONAL
 
-No blockers. Version bump (0.8.0 -> 1.0.0) is expected and handled by `/release`. All 6 specialists report GREEN.
+One blocker (unpushed commits must go through CI before release). No code-level blockers.
 
 ## Blockers (must fix before release)
 
-None.
+| # | Issue | Found by | Fix |
+|---|-------|----------|-----|
+| B1 | 2 unpushed commits on `develop` (`f495da2`, `befcde1`) — not yet verified by CI | devops | Push and verify CI passes |
 
 ## Warnings
 
 | # | Issue | Severity | Found by | Risk |
 |---|-------|----------|----------|------|
-| W1 | `package.json` version is 0.8.0, needs 1.0.0 bump | Medium | devops | `/release` handles this |
-| W2 | `layout` help text missing `create` action in parenthetical | Low | ux-reviewer | Cosmetic |
-| W3 | Empty custom shell command accepted in setup wizard | Low | ux-reviewer | Edge case — user must choose option 3 then enter nothing |
-| W4 | `executeOnStart` uses `execSync` with shell interpretation | Low | security | By design; `.summon` gated by confirmation prompt |
-| W5 | Repeated `console.error` + `process.exit(1)` pattern (6x) | Low | architect | Minor duplication |
+| W1 | Flaky test under v8 coverage: `"accepts valid layout preset"` (index.test.ts:477) | Medium | qa-lead | May fail CI on slow runners |
+| W2 | `setup.ts` below per-file coverage thresholds (94.56% stmts, 86.42% branches) | Low | qa-lead | Interactive wizard paths least tested |
+| W3 | `launcher.ts` branch coverage 89.50% (below 90% per-file) | Low | qa-lead | Non-dry-run execution paths uncovered |
+| W4 | `utils.ts` branch coverage 83.33% (below 90% per-file) | Low | qa-lead | Line 48 uncovered |
+| W5 | `on-start` from CLI/machine config bypasses `confirmDangerousCommands` | Low | security | User-controlled source, low risk |
+| W6 | `layout edit` uses `$EDITOR` without SAFE_COMMAND_RE validation | Low | security | Standard Unix behavior |
+| W7 | CodeQL only runs on `main` and weekly schedule, not on `develop` | Low | devops | Security scanning delayed until production |
+| W8 | `dependency-review.yml` uses `continue-on-error: true` | Low | devops | Vulnerable deps get green checks |
+| W9 | `summon open` exits on invalid selection instead of re-prompting | Low | ux-reviewer | Minor UX inconsistency |
+| W10 | `summon set editor ""` saves empty value (triggers wizard on next launch) | Low | ux-reviewer | Confusing footgun |
+| W11 | Duplicate `SAFE_COMMAND_RE` check in launcher.ts `resolveCommand` wrapper | Low | architect | Defense-in-depth, not a bug |
+| W12 | `setup.ts` async `resolveCommandAsync` parallels sync `resolveCommand` from utils.ts | Low | architect | Must update both if logic changes |
+| W13 | Test-only exports inflate public API surface (4 `@internal` exports) | Low | architect/perf | Intentional, no runtime impact |
 
 ## Detailed Findings
 
-### 1. Quality Assurance (qa-lead) -- GREEN
+### 1. Quality Assurance (qa-lead) — YELLOW
 
-- **817/817 tests pass** (100% pass rate)
-- **Typecheck:** Clean
-- **Lint:** Clean
-- **Coverage:** 96.89% stmts, 90.56% branches, 98.56% functions, 97.49% lines
-- All coverage thresholds met (95/90/95/95)
-- Every source file has co-located tests
-- Uncovered paths: interactive TUI flows (require real Ghostty), defensive parser guards
+- **829 tests, 100% pass rate** (standard mode)
+- **Typecheck:** clean
+- **Lint:** clean
+- **Global coverage:** 96.86% stmts, 90.70% branches, 98.57% funcs, 97.51% lines — all thresholds met
+- All 10 source files have co-located test files
+- 1 flaky test under coverage mode (W1)
+- Per-file branch coverage below 90% for setup.ts, launcher.ts, utils.ts (W2-W4)
 
-### 2. Security (security-reviewer) -- GREEN
+### 2. Security (security-reviewer) — GREEN
 
-- `pnpm audit`: No vulnerabilities (zero runtime deps)
-- No hardcoded secrets
-- Command injection: Well-defended at every boundary (SAFE_COMMAND_RE, escapeAppleScript, shellQuote, SAFE_SHELL_RE, ENV_KEY_RE)
-- osascript: Script via stdin, not shell arg
-- Path traversal: Layout names validated by strict regex
-- File permissions: Config 0o600, dirs 0o700
-- Licenses: All permissive (MIT, ISC, Apache-2.0, BSD)
+- `pnpm audit`: zero vulnerabilities
+- No hardcoded secrets found
+- Strong command injection protections (SAFE_COMMAND_RE, SAFE_SHELL_RE, SHELL_META_RE, escapeAppleScript, shellQuote)
+- osascript execution uses stdin piping, not string interpolation
+- Config directory permissions correct (0o700/0o600)
+- All dependency licenses permissive (MIT, Apache-2.0, BSD, ISC, 0BSD)
+- Minor: `on-start` from CLI bypasses shell metacharacter check (W5)
 
-### 3. Infrastructure (devops) -- GREEN
+### 3. Infrastructure (devops) — YELLOW
 
-- Build succeeds (7 ESM chunks, ~67 KB total)
-- CI: Last 5 runs on develop all pass
-- Git: Clean working tree, up to date with origin
-- package.json: All fields correct (version bump pending for release)
-- CHANGELOG [Unreleased] has substantial content ready for v1.0.0
-- Shebang present, dist files executable
-- All 5 env vars documented in README
+- Build succeeds (7 ESM chunks, ~67KB total)
+- CI: all 5 recent runs on develop passed
+- Git state clean (but 2 unpushed commits — B1)
+- Package.json publish-ready (name, version, bin, files, os, engines all correct)
+- Environment variables documented
+- CI matrix solid (macOS, Node 18/20/22, frozen lockfile)
 
-### 4. Architecture (architect) -- GREEN
+### 4. Architecture (architect) — GREEN
 
-- Typecheck: Clean
-- Dependencies: All current
-- Circular dependencies: None (clean DAG)
-- Dead code: Only test-only exports (all annotated @internal)
-- No meaningful duplication in production code
+- Typecheck clean
+- All dependencies current (`pnpm outdated` — none)
+- No circular dependencies (11-module acyclic import graph)
+- No truly dead production code (4 test-only exports are intentional)
+- Minor duplication in command resolution (W11, W12)
 
-### 5. Performance (performance-eng) -- GREEN
+### 5. Performance (performance-eng) — GREEN
 
-- Bundle: 34 KB entry point, ~67 KB total
-- Code splitting: 41% deferred via dynamic imports (setup + completions)
-- Startup path: Well-ordered early exits for --help/--version
-- Command resolution: Cached (resolvedCache Map)
-- Sync I/O: Appropriate for CLI context
-- No performance anti-patterns on hot paths
+- Build: 16ms, 67KB total (well under 100KB threshold)
+- Code splitting effective: setup wizard and completions lazy-loaded
+- Startup imports minimal — heavy modules loaded on demand
+- Regexes pre-compiled at module level
+- Filesystem reads appropriately cached
+- No performance anti-patterns detected
 
-### 6. UX/Accessibility (ux-reviewer) -- GREEN
+### 6. UX/Accessibility (ux-reviewer) — GREEN
 
-- Help text: Clear and comprehensive with examples
-- Error messages: Actionable with corrective hints
-- Exit codes: Correct throughout (0 success, 1 error)
-- Setup wizard: Polished flow with auto-detection, visual builder, confirmation loop
-- Grid builder: Intuitive keys, dimmed unavailable actions, clean Ctrl+C
-- Empty states: All handled with helpful hints
-- Terminology: Consistent (preset/custom layout/template well-differentiated)
+- Help text clear and comprehensive
+- Error messages consistently suggest remediation actions
+- Non-TTY handling thorough across all interactive paths
+- NO_COLOR properly respected
+- Dry-run output well-structured with metadata headers
+- Shell completions comprehensive (bash + zsh)
+- Minor: `summon open` doesn't re-prompt on invalid input (W9)

@@ -95,7 +95,7 @@ Options:
   -n, --dry-run               Print generated AppleScript without executing
 
 Config keys:
-  editor        Command for coding panes (default: claude)
+  editor        Command for coding panes (set during setup)
   sidebar       Command for sidebar pane (default: lazygit)
   panes         Number of editor panes (default: 2)
   editor-size   Width % for editor grid (default: 75)
@@ -130,7 +130,7 @@ Examples:
   summon .                        Launch workspace in current directory
   summon myapp                    Launch workspace for registered project
   summon add myapp ~/code/app     Register a project
-  summon set editor claude        Set the editor command
+  summon set editor vim           Set the editor command
   summon . --layout minimal       Launch with minimal preset
   summon . --shell "npm run dev"  Launch with custom shell command
 `.trim();
@@ -418,7 +418,9 @@ switch (subcommand) {
     }
     if (value !== undefined) {
       if (value === "" && (key === "editor" || key === "sidebar" || key === "shell" || key === "on-start")) {
-        console.warn(`Warning: setting ${key} to empty string. Use 'summon set ${key}' (without value) to reset to default.`);
+        console.error(`Error: ${key} cannot be set to an empty string.`);
+        console.error(`To reset to default, run: summon set ${key}  (without a value)`);
+        process.exit(1);
       }
       setConfig(key, value);
       console.log(`Set ${key} → ${value}`);
@@ -553,15 +555,18 @@ switch (subcommand) {
     console.log();
 
     const { promptUser } = await import("./utils.js");
-    const answer = await promptUser("Project number: ");
-    const idx = parseInt(answer, 10) - 1;
+    let selectedPath: string | undefined;
+    while (selectedPath === undefined) {
+      const answer = await promptUser("Project number: ");
+      const idx = parseInt(answer, 10) - 1;
 
-    if (isNaN(idx) || idx < 0 || idx >= entries.length) {
-      console.error(`Invalid selection. Enter a number between 1 and ${entries.length}.`);
-      process.exit(1);
+      if (isNaN(idx) || idx < 0 || idx >= entries.length) {
+        console.error(`Invalid selection. Enter a number between 1 and ${entries.length}.`);
+        continue;
+      }
+
+      selectedPath = entries[idx]![1];
     }
-
-    const [, selectedPath] = entries[idx]!;
     await launch(selectedPath, buildOverrides());
     break;
   }
@@ -578,7 +583,7 @@ switch (subcommand) {
       lines.push("# No machine config set. All values use defaults.");
       lines.push("# Uncomment and modify as needed:");
       lines.push("");
-      lines.push("# editor=claude");
+      lines.push("# editor=vim");
       lines.push("# sidebar=lazygit");
       lines.push("# panes=2");
       lines.push("# editor-size=75");
@@ -702,6 +707,12 @@ switch (subcommand) {
           layoutNotFoundOrExit(layoutName);
         }
         const editorCmd = process.env.EDITOR || "vi";
+        if (!SAFE_COMMAND_RE.test(editorCmd)) {
+          console.error(`Error: unsafe EDITOR value "${editorCmd}".`);
+          console.error("EDITOR must be a simple command name (e.g. vim, nano, code).");
+          console.error("Set a valid editor: export EDITOR=vim");
+          process.exit(1);
+        }
         const { execFileSync: execEditFile } = await import("node:child_process");
         const filePath = join(LAYOUTS_DIR, layoutName);
         try {

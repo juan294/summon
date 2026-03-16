@@ -17,7 +17,7 @@ import { listConfig, readKVFile, readCustomLayout, isCustomLayout, LAYOUT_NAME_R
 import { generateAppleScript, generateTreeAppleScript } from "./script.js";
 import { parseTreeDSL, extractPaneDefinitions, resolveTreeCommands as resolveTreeCmds, buildTreePlan, findPaneByName } from "./tree.js";
 import type { LayoutNode } from "./tree.js";
-import { SAFE_COMMAND_RE, GHOSTTY_PATHS, resolveCommand as resolveCommandPath, promptUser, getErrorMessage, SUMMON_WORKSPACE_ENV } from "./utils.js";
+import { GHOSTTY_PATHS, resolveCommand as resolveCommandPath, promptUser, getErrorMessage, SUMMON_WORKSPACE_ENV } from "./utils.js";
 import { parseIntInRange, parsePositiveFloat } from "./validation.js";
 import { isStarshipInstalled, ensurePresetConfig, getPresetConfigPath } from "./starship.js";
 
@@ -85,14 +85,10 @@ function executeScript(script: string): void {
 
 /**
  * Resolve a command name to its full path.
- * Exits with an error if the command name is invalid (defense-in-depth).
- * Returns null if the command is not found on the system.
+ * Returns null if the command is not found on the system or the name is invalid.
+ * Command name format validation (SAFE_COMMAND_RE) is performed by resolveCommandPath in utils.ts.
  */
 function resolveCommand(cmd: string): string | null {
-  if (!SAFE_COMMAND_RE.test(cmd)) {
-    console.error(`Invalid command name: "${cmd}". Command names may only contain letters, digits, hyphens, dots, underscores, and plus signs.`);
-    process.exit(1);
-  }
   return resolveCommandPath(cmd);
 }
 
@@ -102,21 +98,28 @@ async function prompt(question: string): Promise<string> {
 }
 
 /**
- * Check if any command values from the .summon project file contain shell metacharacters.
- * If so, warn the user and prompt for confirmation (or refuse on non-TTY).
- * Skips if dryRun is set (dry-run doesn't execute anything).
+ * Check if any command values contain shell metacharacters.
+ * Checks both .summon project file command keys and the resolved on-start value
+ * (which may come from CLI, machine config, or project config).
+ * If dangerous values are found, warn the user and prompt for confirmation (or refuse on non-TTY).
  */
-async function confirmDangerousCommands(projectOverrides: Map<string, string>): Promise<void> {
+async function confirmDangerousCommands(projectOverrides: Map<string, string>, onStart?: string): Promise<void> {
   const dangerous: Array<[string, string]> = [];
   for (const [key, value] of projectOverrides) {
     if (COMMAND_KEYS.has(key) && SHELL_META_RE.test(value)) {
       dangerous.push([key, value]);
     }
   }
+  // Check the resolved on-start value from all config sources (CLI, machine, project).
+  // Project-sourced on-start is already checked above via COMMAND_KEYS, but CLI and
+  // machine config sources bypass the projectOverrides map, so we check separately.
+  if (onStart && SHELL_META_RE.test(onStart) && !dangerous.some(([key]) => key === "on-start")) {
+    dangerous.push(["on-start", onStart]);
+  }
   if (dangerous.length === 0) return;
 
   const lines = dangerous.map(([key, value]) => `  ${key} = ${value}`).join("\n");
-  const message = `Warning: .summon file contains commands with shell metacharacters:\n${lines}`;
+  const message = `Warning: config contains commands with shell metacharacters:\n${lines}`;
   console.warn(message);
 
   if (!process.stdin.isTTY) {
@@ -163,11 +166,11 @@ async function ensureCommand(cmd: string, configKey: string): Promise<string> {
   const [installBin, installArgs] = installCmd;
   const installDisplay = [installBin, ...installArgs].join(" ");
 
-  console.log(`\`${cmd}\` is required but not installed on this machine.`);
+  console.log(`\`${cmd}\` is not installed on this machine.`);
   const answer = await prompt(`Install it now with \`${installDisplay}\`? [Y/n] `);
 
   if (answer && answer !== "y" && answer !== "yes") {
-    console.log(`\`${cmd}\` is required for this workspace layout. Exiting.`);
+    console.log(`Exiting — \`${cmd}\` is needed for this workspace layout. Change it with: summon set ${configKey} <command>`);
     process.exit(1);
   }
 
@@ -537,14 +540,31 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
     process.exit(1);
   }
 
-  const { opts, projectOverrides, starshipPreset, onStart, envVars, treeLayout } = resolveConfig(targetDir, cliOverrides ?? {});
+  let config = resolveConfig(targetDir, cliOverrides ?? {});
+
+  // If no editor is configured from any source and this isn't a tree layout
+  // (which defines its own pane commands), redirect to the setup wizard.
+  if (!config.opts.editor && !config.treeLayout && !cliOverrides?.dryRun) {
+    if (process.stdin.isTTY) {
+      console.log("No editor configured. Let's set up your workspace.\n");
+      const { runSetup } = await import("./setup.js");
+      await runSetup();
+      // Re-resolve config after setup saved new values
+      config = resolveConfig(targetDir, cliOverrides ?? {});
+    } else {
+      console.error("No editor configured. Run `summon setup` interactively or use: summon set editor <command>");
+      process.exit(1);
+    }
+  }
+
+  const { opts, projectOverrides, starshipPreset, onStart, envVars, treeLayout } = config;
 
   if (await warnIfNested(opts, cliOverrides?.dryRun)) {
     process.exit(0);
   }
 
   if (!cliOverrides?.dryRun) {
-    await confirmDangerousCommands(projectOverrides);
+    await confirmDangerousCommands(projectOverrides, onStart);
   }
 
   if (onStart && !cliOverrides?.dryRun) {

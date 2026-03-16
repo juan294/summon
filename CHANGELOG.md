@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-03-16
+
+### Changed
+
+- Claude CLI is no longer the default editor — setup wizard runs on first launch when no editor is configured, letting users choose any editor (vim, nvim, emacs, copilot, etc.)
+- Editor catalog reordered: vim and nano (ship with macOS) listed first, Claude moved to end
+- `on-start` commands from CLI flags and machine config are now checked for shell metacharacters (previously only `.summon` project files were checked)
+- `layout edit` validates `$EDITOR` environment variable against `SAFE_COMMAND_RE` before use
+- `summon open` re-prompts on invalid selection instead of exiting with an error
+- `summon set editor ""` (and other command keys) now refuses empty string values
+- `ensureCommand` messaging improved: "is not installed" instead of "is required but not installed"
+- `resolveCommandAsync` in setup.ts replaced with shared `resolveCommand` from utils.ts
+
+### Fixed
+
+- Flaky test under v8 coverage stabilized with timeout and retry
+- Duplicate `SAFE_COMMAND_RE` check removed from launcher.ts `resolveCommand` wrapper
+
+### Tests
+
+- 875 total tests (was 829 in v1.0.0)
+- setup.ts coverage: 94.56% → 98.74% statements, 86.42% → 92.38% branches
+- launcher.ts branch coverage: 89.50% → 92.50%
+- utils.ts branch coverage: 83.33% → 100%
+
+### Infrastructure
+
+- CodeQL now runs on `develop` branch pushes and PRs (was only `main` + weekly)
+- `dependency-review.yml` strict mode — vulnerable deps now fail the check
+- Standardized `@internal` JSDoc on all 4 test-only exports
+
 ## [1.0.0] - 2026-03-16
 
 ### Added
@@ -308,7 +339,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CodeQL security scanning
 - Dependabot for npm and GitHub Actions
 
-[Unreleased]: https://github.com/juan294/summon/compare/v1.0.0...develop
+[Unreleased]: https://github.com/juan294/summon/compare/v1.1.0...develop
+[1.1.0]: https://github.com/juan294/summon/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/juan294/summon/compare/v0.8.0...v1.0.0
 [0.8.0]: https://github.com/juan294/summon/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/juan294/summon/compare/v0.6.2...v0.7.0

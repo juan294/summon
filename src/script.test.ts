@@ -74,22 +74,22 @@ describe("generateAppleScript", () => {
   });
 
   it("sends editor command to root pane via input text", () => {
-    const plan = planLayout();
+    const plan = planLayout({ editor: "vim" });
     const script = generateAppleScript(plan, "/tmp");
 
     // Root pane gets command via input text (buffered until summon exits)
-    expect(script).toContain('input text "claude" to paneRoot');
+    expect(script).toContain('input text "vim" to paneRoot');
     expect(script).toContain('send key "enter" to paneRoot');
   });
 
   it("sends cd to root pane before editor command", () => {
-    const plan = planLayout();
+    const plan = planLayout({ editor: "vim" });
     const script = generateAppleScript(plan, "/Users/me/code/myapp");
 
     // Root pane must cd into the project directory first (single-quoted to prevent shell expansion)
     expect(script).toContain("input text \"cd '/Users/me/code/myapp'\" to paneRoot");
     const cdIndex = script.indexOf("input text \"cd '/Users/me/code/myapp'\" to paneRoot");
-    const editorIndex = script.indexOf('input text "claude" to paneRoot');
+    const editorIndex = script.indexOf('input text "vim" to paneRoot');
     expect(cdIndex).toBeLessThan(editorIndex);
   });
 
@@ -106,11 +106,11 @@ describe("generateAppleScript", () => {
   });
 
   it("sets editor command on config for split editor panes", () => {
-    const plan = planLayout(getPreset("pair"));
+    const plan = planLayout({ ...getPreset("pair"), editor: "vim" });
     const script = generateAppleScript(plan, "/tmp");
 
     // Right column editor gets command via config
-    const expected = "set command of cfg to \"/bin/bash -lc 'cd '\\\\''/tmp'\\\\'' && claude'\"";
+    const expected = "set command of cfg to \"/bin/bash -lc 'cd '\\\\''/tmp'\\\\'' && vim'\"";
     expect(script).toContain(expected);
     const cmdIndex = script.indexOf(expected);
     const splitIndex = script.indexOf("paneRightCol to split");
@@ -141,7 +141,7 @@ describe("generateAppleScript", () => {
   });
 
   it("skips command for plain shell pane", () => {
-    const plan = planLayout({ shell: "true" });
+    const plan = planLayout({ shell: "true", editor: "vim" });
     const script = generateAppleScript(plan, "/tmp");
 
     // Root pane gets cd + editor command via input text
@@ -160,11 +160,11 @@ describe("generateAppleScript", () => {
   });
 
   it("btop preset uses secondary editor in right column via config", () => {
-    const plan = planLayout(getPreset("btop"));
+    const plan = planLayout({ ...getPreset("btop"), editor: "vim" });
     const script = generateAppleScript(plan, "/tmp");
 
     // Left column root pane gets primary editor via input text
-    expect(script).toContain('input text "claude" to paneRoot');
+    expect(script).toContain('input text "vim" to paneRoot');
 
     // Right column gets secondary editor (btop) via config
     expect(script).toContain("set command of cfg to \"/bin/bash -lc 'cd '\\\\''/tmp'\\\\'' && btop'\"");
@@ -308,11 +308,11 @@ describe("generateAppleScript", () => {
   });
 
   it("does not wrap input text commands with login shell", () => {
-    const plan = planLayout();
+    const plan = planLayout({ editor: "vim" });
     const script = generateAppleScript(plan, "/tmp", "/bin/zsh");
 
     // Root pane editor is sent via input text, not config — should NOT be wrapped
-    expect(script).toContain('input text "claude" to paneRoot');
+    expect(script).toContain('input text "vim" to paneRoot');
     expect(script).not.toContain('input text "/bin/zsh');
   });
 
@@ -496,7 +496,7 @@ describe("generateAppleScript", () => {
   // --- Pane & tab title tests ---
 
   it("sets pane titles for default layout", () => {
-    const plan = planLayout();
+    const plan = planLayout({ editor: "vim" });
     const script = generateAppleScript(plan, "/tmp/myproject");
 
     // Tab title from basename of target dir
@@ -504,9 +504,9 @@ describe("generateAppleScript", () => {
     // Comment marker
     expect(script).toContain("-- Set pane and tab titles");
     // Surface titles for all 4 panes (root, sidebar, right col editor, shell)
-    expect(script).toContain('perform action "set_surface_title:editor \u00B7 claude" on paneRoot');
+    expect(script).toContain('perform action "set_surface_title:editor \u00B7 vim" on paneRoot');
     expect(script).toContain('perform action "set_surface_title:sidebar \u00B7 lazygit" on paneSidebar');
-    expect(script).toContain('perform action "set_surface_title:editor \u00B7 claude" on paneRightCol');
+    expect(script).toContain('perform action "set_surface_title:editor \u00B7 vim" on paneRightCol');
     expect(script).toContain('perform action "set_surface_title:shell" on paneRight2');
   });
 
@@ -522,10 +522,10 @@ describe("generateAppleScript", () => {
   });
 
   it("minimal preset sets only root and sidebar titles", () => {
-    const plan = planLayout(getPreset("minimal"));
+    const plan = planLayout({ ...getPreset("minimal"), editor: "vim" });
     const script = generateAppleScript(plan, "/tmp/proj");
 
-    expect(script).toContain('perform action "set_surface_title:editor \u00B7 claude" on paneRoot');
+    expect(script).toContain('perform action "set_surface_title:editor \u00B7 vim" on paneRoot');
     expect(script).toContain('perform action "set_surface_title:sidebar \u00B7 lazygit" on paneSidebar');
     // No right column panes
     expect(script).not.toContain("set_surface_title:editor" + '" on paneRightCol');
@@ -533,13 +533,13 @@ describe("generateAppleScript", () => {
   });
 
   it("full preset sets titles for all panes", () => {
-    const plan = planLayout(getPreset("full"));
+    const plan = planLayout({ ...getPreset("full"), editor: "vim" });
     const script = generateAppleScript(plan, "/tmp/proj");
 
-    expect(script).toContain('perform action "set_surface_title:editor \u00B7 claude" on paneRoot');
+    expect(script).toContain('perform action "set_surface_title:editor \u00B7 vim" on paneRoot');
     expect(script).toContain('perform action "set_surface_title:sidebar \u00B7 lazygit" on paneSidebar');
-    expect(script).toContain('perform action "set_surface_title:editor \u00B7 claude" on paneRightCol');
-    expect(script).toContain('perform action "set_surface_title:editor \u00B7 claude" on paneLeft2');
+    expect(script).toContain('perform action "set_surface_title:editor \u00B7 vim" on paneRightCol');
+    expect(script).toContain('perform action "set_surface_title:editor \u00B7 vim" on paneLeft2');
     expect(script).toContain('perform action "set_surface_title:shell" on paneRight2');
   });
 
