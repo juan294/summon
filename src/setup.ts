@@ -892,7 +892,7 @@ export async function selectShell(): Promise<string> {
   printSection("Shell Pane");
   const options: SelectOption[] = [
     {
-      label: "Shell".padEnd(12) + "Plain terminal (run commands manually)",
+      label: "Shell".padEnd(12) + "Open a plain shell (run commands manually)",
       value: "true",
     },
     { label: "Disabled".padEnd(12) + "No shell pane", value: "false" },
@@ -904,7 +904,11 @@ export async function selectShell(): Promise<string> {
   const idx = await numberedSelect(options, "  Select [1-3] (default: 1): ", 0);
   const chosen = options[idx]!;
   if (chosen.value === "__custom__") {
-    return textInput("  Enter shell command:");
+    let cmd = "";
+    while (!cmd) {
+      cmd = await textInput("  Enter shell command:");
+    }
+    return cmd;
   }
   return chosen.value;
 }
