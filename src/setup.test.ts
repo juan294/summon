@@ -47,9 +47,11 @@ vi.mock("node:fs", () => ({
   existsSync: (path: string) => mockExistsSync(path),
 }));
 
+// Import test-only utils directly from utils.js (not re-exported through setup.js)
+const { resolveCommand: resolveCommandPath, SAFE_COMMAND_RE } = await import("./utils.js");
+
 // Import after mocks
 const {
-  resolveCommandPath,
   detectTools,
   numberedSelect,
   textInput,
@@ -70,7 +72,6 @@ const {
   EDITOR_CATALOG,
   SIDEBAR_CATALOG,
   LAYOUT_INFO,
-  SAFE_COMMAND_RE,
   selectLayout,
   selectToolFromCatalog,
   selectShell,

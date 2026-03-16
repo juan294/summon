@@ -44,7 +44,7 @@ export function listStarshipPresets(): string[] {
   }
 }
 
-/** Check if a preset name is safe AND exists in Starship's built-in list. */
+/** @internal — exported for testing only. Check if a preset name is safe AND exists in Starship's built-in list. */
 export function isValidPreset(name: string): boolean {
   if (!SAFE_COMMAND_RE.test(name)) return false;
   return listStarshipPresets().includes(name);

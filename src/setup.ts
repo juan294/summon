@@ -485,9 +485,6 @@ export function printSection(title: string): void {
 // Tool detection
 // ---------------------------------------------------------------------------
 
-// resolveCommandPath is imported from ./utils.js
-export { resolveCommandPath };
-
 /**
  * Check catalog of tools, return each with `available` flag.
  */
@@ -617,9 +614,6 @@ interface ValidationResult {
 // ---------------------------------------------------------------------------
 // Phase 2 — Constants
 // ---------------------------------------------------------------------------
-
-// SAFE_COMMAND_RE is imported from ./utils.js
-export { SAFE_COMMAND_RE };
 
 export const EDITOR_CATALOG: readonly ToolEntry[] = [
   { cmd: "claude", name: "Claude Code", desc: "AI pair programmer" },
