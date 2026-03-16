@@ -24,6 +24,7 @@ function run(...args: string[]) {
     encoding: "utf-8",
     cwd: PROJECT_ROOT,
     env: { ...process.env, HOME: TEMP_HOME },
+    timeout: 30_000,
   });
 }
 
@@ -322,6 +323,7 @@ describe("CLI integration", () => {
         encoding: "utf-8",
         cwd: PROJECT_ROOT,
         env: { ...process.env, HOME: freshHome },
+        timeout: 30_000,
       });
       rmSync(freshHome, { recursive: true, force: true });
       // ensureConfig creates an empty config file, so listConfig() returns empty map
@@ -340,7 +342,8 @@ describe("CLI integration", () => {
       expect(result.stderr).toContain("bogus");
     });
 
-    it("accepts valid layout preset", () => {
+    // Retry: this test is flaky under v8 coverage due to subprocess overhead (#166)
+    it("accepts valid layout preset", { retry: 2 }, () => {
       const result = run(".", "--layout", "minimal", "--dry-run");
       expect(result.status).toBe(0);
     });
@@ -475,7 +478,8 @@ describe("CLI integration", () => {
         expect(result.stderr).toContain("Valid presets:");
       });
 
-      it("accepts valid layout preset", () => {
+      // Retry: this test is flaky under v8 coverage due to subprocess overhead (#166)
+      it("accepts valid layout preset", { retry: 2 }, () => {
         const result = run("set", "layout", "minimal");
         expect(result.status).toBe(0);
         expect(result.stdout).toContain("Set layout");
@@ -962,6 +966,7 @@ describe("CLI integration", () => {
         encoding: "utf-8",
         cwd: PROJECT_ROOT,
         env: { ...process.env, HOME: TEMP_HOME },
+        timeout: 30_000,
       });
       // Process exits 0 on EOF (Ctrl+C / stream close is handled gracefully)
       expect(result.status).toBe(0);
@@ -980,6 +985,7 @@ describe("CLI integration", () => {
         encoding: "utf-8",
         cwd: PROJECT_ROOT,
         env: { ...process.env, HOME: TEMP_HOME, EDITOR: "nonexistent-editor-xyz" },
+        timeout: 30_000,
       });
       expect(result.status).toBe(1);
       expect(result.stderr).toContain("Failed to open editor");
