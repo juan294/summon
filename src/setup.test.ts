@@ -765,6 +765,35 @@ describe("selectShell", () => {
     expect(result).toBe("true");
     logSpy.mockRestore();
   });
+
+  it("re-prompts when custom command input is empty", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    let callCount = 0;
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      callCount++;
+      if (callCount === 1) cb("3"); // Select "Command"
+      else if (callCount === 2) cb(""); // Empty input — should re-prompt
+      else if (callCount === 3) cb("  "); // Whitespace-only — should re-prompt
+      else cb("npm run dev"); // Valid input
+    });
+    const result = await selectShell();
+    expect(result).toBe("npm run dev");
+    expect(callCount).toBe(4);
+    logSpy.mockRestore();
+  });
+
+  it("uses 'plain shell' terminology in option label", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) =>
+      cb("1"),
+    );
+    await selectShell();
+    const allOutput = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    // Should say "plain shell", NOT "Plain terminal"
+    expect(allOutput.some((s) => s.includes("plain shell"))).toBe(true);
+    expect(allOutput.some((s) => s.toLowerCase().includes("plain terminal"))).toBe(false);
+    logSpy.mockRestore();
+  });
 });
 
 describe("validateSetup", () => {
