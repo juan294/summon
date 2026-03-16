@@ -100,6 +100,16 @@ _summon() {
             compadd zsh bash
           fi
           ;;
+        doctor)
+          if (( CURRENT == 2 )); then
+            compadd -- --fix
+          fi
+          ;;
+        keybindings)
+          if (( CURRENT == 2 )); then
+            compadd -- --vim
+          fi
+          ;;
         layout)
           if (( CURRENT == 2 )); then
             compadd create save list show delete edit
@@ -194,6 +204,12 @@ export function generateBashCompletion(): string {
       if (( cword == 3 )); then
         COMPREPLY=($(compgen -d -- "$cur"))
       fi
+      ;;
+    doctor)
+      COMPREPLY=($(compgen -W "--fix" -- "$cur"))
+      ;;
+    keybindings)
+      COMPREPLY=($(compgen -W "--vim" -- "$cur"))
       ;;
     layout)
       if (( cword == 2 )); then

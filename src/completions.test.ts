@@ -153,6 +153,28 @@ describe("layout subcommand completions", () => {
   });
 });
 
+describe("subcommand-specific flag completions", () => {
+  test("zsh doctor completion includes --fix flag", () => {
+    const result = generateZshCompletion();
+    expect(result).toMatch(/doctor\)[\s\S]*?compadd\s+--\s+--fix/);
+  });
+
+  test("zsh keybindings completion includes --vim flag", () => {
+    const result = generateZshCompletion();
+    expect(result).toMatch(/keybindings\)[\s\S]*?compadd\s+--\s+--vim/);
+  });
+
+  test("bash doctor completion includes --fix flag", () => {
+    const result = generateBashCompletion();
+    expect(result).toMatch(/doctor\)[\s\S]*?compgen\s+-W\s+"--fix"/);
+  });
+
+  test("bash keybindings completion includes --vim flag", () => {
+    const result = generateBashCompletion();
+    expect(result).toMatch(/keybindings\)[\s\S]*?compgen\s+-W\s+"--vim"/);
+  });
+});
+
 describe("custom layout completions", () => {
   test("zsh completions include custom layout names in --layout", async () => {
     // Mock listCustomLayouts to return custom layout names
