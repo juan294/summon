@@ -453,9 +453,9 @@ describe("EDITOR_CATALOG", () => {
 
   it("each entry has cmd, name, desc fields", () => {
     for (const entry of EDITOR_CATALOG) {
-      expect(entry.cmd).toBeTruthy();
-      expect(entry.name).toBeTruthy();
-      expect(entry.desc).toBeTruthy();
+      expect(entry.cmd).toBeTypeOf('string');
+      expect(entry.name).toBeTypeOf('string');
+      expect(entry.desc).toBeTypeOf('string');
     }
   });
 
@@ -473,9 +473,9 @@ describe("SIDEBAR_CATALOG", () => {
 
   it("each entry has cmd, name, desc fields", () => {
     for (const entry of SIDEBAR_CATALOG) {
-      expect(entry.cmd).toBeTruthy();
-      expect(entry.name).toBeTruthy();
-      expect(entry.desc).toBeTruthy();
+      expect(entry.cmd).toBeTypeOf('string');
+      expect(entry.name).toBeTypeOf('string');
+      expect(entry.desc).toBeTypeOf('string');
     }
   });
 });
@@ -490,8 +490,8 @@ describe("LAYOUT_INFO", () => {
 
   it("each entry has desc and diagram fields", () => {
     for (const [, info] of Object.entries(LAYOUT_INFO)) {
-      expect(info.desc).toBeTruthy();
-      expect(info.diagram).toBeTruthy();
+      expect(info.desc).toBeTypeOf('string');
+      expect(info.diagram).toBeTypeOf('string');
       expect(info.diagram).toContain("┌");
     }
   });
