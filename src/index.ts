@@ -22,8 +22,8 @@ import {
 } from "./config.js";
 import { launch, resolveConfig, optsToConfigMap } from "./launcher.js";
 import type { CLIOverrides } from "./launcher.js";
-import { PANES_MIN, EDITOR_SIZE_MIN, EDITOR_SIZE_MAX, isPresetName, getPresetNames } from "./layout.js";
-import { validateIntFlag, validateFloatFlag } from "./validation.js";
+import { PANES_MIN, PANES_DEFAULT, EDITOR_SIZE_MIN, EDITOR_SIZE_MAX, EDITOR_SIZE_DEFAULT, isPresetName, getPresetNames } from "./layout.js";
+import { validateIntFlag, validateFloatFlag, ENV_KEY_RE } from "./validation.js";
 import { SAFE_COMMAND_RE, getErrorMessage, exitWithUsageHint, checkAccessibility, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT } from "./utils.js";
 
 function validateLayoutNameOrExit(name: string): void {
@@ -423,7 +423,7 @@ switch (subcommand) {
     }
     if (key.startsWith("env.")) {
       const envName = key.slice(4);
-      if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(envName)) {
+      if (!ENV_KEY_RE.test(envName)) {
         console.error(`Error: invalid environment variable name "${envName}".`);
         console.error("Environment variable names must start with a letter or underscore and contain only letters, digits, and underscores.");
         process.exit(1);
@@ -471,7 +471,17 @@ switch (subcommand) {
   case "config": {
     const config = listConfig();
     if (config.size === 0) {
-      console.log("No machine config set. Use: summon set <key> <value>");
+      console.log("No machine config set. Effective defaults:");
+      console.log(`  panes → ${PANES_DEFAULT}`);
+      console.log(`  editor-size → ${EDITOR_SIZE_DEFAULT}`);
+      console.log(`  sidebar → lazygit`);
+      console.log(`  shell → true`);
+      console.log(`  auto-resize → true`);
+      console.log(`  new-window → false`);
+      console.log(`  fullscreen → false`);
+      console.log(`  maximize → false`);
+      console.log(`  float → false`);
+      console.log("\nCustomize with: summon set <key> <value>");
     } else {
       console.log("Machine config:");
       for (const [key, value] of config) {
