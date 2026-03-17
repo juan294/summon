@@ -537,13 +537,6 @@ switch (subcommand) {
 
     const checks = [
       {
-        name: "Session Persistence",
-        key: "window-save-state",
-        recommended: "always",
-        reason: "Restore your workspace layout after Ghostty restarts",
-        regex: /^\s*window-save-state\s*=/m,
-      },
-      {
         name: "Command Notifications",
         key: "notify-on-command-finish",
         recommended: "unfocused",
