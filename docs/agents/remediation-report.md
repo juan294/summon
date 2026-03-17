@@ -1,73 +1,49 @@
 # Remediation Report
-> Generated on 2026-03-16 | Branch: `develop` | 24 findings resolved
+> Generated on 2026-03-17 | Branch: `develop` | 4 issues resolved
 >
 > Pre-launch report: `docs/agents/pre-launch-report.md`
 
 ## Summary
-- Findings processed: 32 (5 warnings + 27 recommendations)
-- Issues created: 7 (#175-#181)
-- Issues resolved: 7
-- Tests added: ~25
-- Files modified: 14
-- CI status: PASSING
+- Findings processed: 19 (8 warnings + 11 recommendations)
+- Issues created: 4
+- Issues resolved: 4
+- Tests added: 13 (6 ENV_KEY_RE + 4 tree+CWD merge + 3 starship caching)
+- Files modified: 12
+- CI status: IN PROGRESS (pending)
 
 ## Issues Resolved
-
 | # | Issue | Domain | Severity | Tests Added | Status |
 |---|-------|--------|----------|-------------|--------|
-| #175 | launcher/utils/setup refactors | architecture, qa | WARNING | 10 | Closed |
-| #176 | setup.test.ts test infrastructure | qa | WARNING | 0 (infra fix) | Closed |
-| #177 | index.ts UX fixes | ux | WARNING | 7 | Closed |
-| #178 | completions.ts subcommand flags | ux | RECOMMENDATION | 4 | Closed |
-| #179 | config.ts path traversal hardening | security | WARNING | 2 | Closed |
-| #180 | test coverage gaps (script + tree) | qa | RECOMMENDATION | 2 | Closed |
-| #181 | package.json metadata + deps | devops | RECOMMENDATION | 0 (config) | Closed |
+| #184 | Extract ENV_KEY_RE + show config defaults | architecture, ux | low | 6 | Closed |
+| #185 | Strengthen test assertions + cover tree+CWD merge | qa | low | 4 | Closed |
+| #186 | @internal JSDoc tags + cache listStarshipPresets | architecture, performance | low | 3 | Closed |
+| #187 | Harden branch protection on main | devops | low | 0 (config) | Closed |
 
-## Findings Addressed (24)
-
-| Finding | Work Unit | Fix |
-|---------|-----------|-----|
-| W1 | #175 | optsToConfigMap unit tests added |
-| W2 | #176 | waitForHandler assertion on failure |
-| W3 | #176 | setTimeout(0) patterns documented |
-| W4 | #177 | env var key validation in `summon set` |
-| W5 | #179 | layoutPath helper with resolve+prefix check |
-| R1 | #175 | optsToConfigMap branch coverage |
-| R2 | #176 | waitForHandler throw on timeout |
-| R3 | #180 | 4-pane secondary editor test |
-| R4 | #180 | parser truncated input test |
-| R7 | #181 | package.json main field added |
-| R8 | #181 | publishConfig access: public |
-| R9 | #175 | Removed trivial resolveCommand wrapper |
-| R10 | #175 | Extracted isGhosttyInstalled to utils.ts |
-| R11 | #181 | typescript-eslint updated to 8.57.1 |
-| R17 | #177 | freeze usage consistency |
-| R18 | #177 | btop description fixed |
-| R19 | #177 | layoutNotFoundOrExit Error: prefix |
-| R20 | #177 | doctor exit code 2 on issues |
-| R21 | #177 | export includes env.* keys |
-| R22 | #178 | doctor --fix / keybindings --vim completions |
-| R24 | #177 | config unknown key removal hint |
-| R25 | #177 | export header timestamp |
-| R26 | #175 | Ctrl+C exit code 130 |
-| R27 | #175 | Nested warning "messy" wording |
-
-## Informational (no code change needed)
-- R5: export 0o644 permissions appropriate for project files
-- R6: env var values properly escaped, not exploitable
-
-## Deferred Items
-- R12: Split setup.ts (~1700 lines) — major refactor, separate task
-- R13/R14: Test-only exports (~200 bytes) — cosmetic
-- R15: Doctor subcommand split — marginal savings (<2 KB)
-- R16: Monitor index.js size — informational
-- R23: --fix/--vim global parse scope — parseArgs architectural limitation
+## Findings Disposition
+| Finding | Action | Details |
+|---------|--------|---------|
+| W1 | Resolved | Pushed with release |
+| W2/R1 | Fixed (#184) | ENV_KEY_RE extracted to validation.ts |
+| W3/R2 | Fixed (#185) | 8x .toBeTruthy() → .toBeTypeOf('string') |
+| W4/R3 | Fixed (#185) | 4 tests for tree+CWD merge path |
+| W5 | Skipped | By design (on-start uses shell intentionally) |
+| W6/R9 | Fixed (#187) | enforce_admins + dismiss_stale_reviews enabled |
+| W7/R10 | Skipped | False positive (adding to CLI_FLAGS breaks completions; subcommand-specific handling is correct) |
+| W8 | Skipped | Cosmetic (Ghostty renders Unicode fine) |
+| R4 | Skipped | Feature request (--yes flag for CI) — future release |
+| R5 | Skipped | Security design decision (strict EDITOR validation) |
+| R6 | Skipped | Already implemented (README Trust Model section exists) |
+| R7 | Fixed (#186) | @internal tags added to GHOSTTY_PATHS, layoutPath |
+| R8 | Fixed (#186) | listStarshipPresets() now cached |
+| R11 | Fixed (#184) | `summon config` shows effective defaults |
 
 ## Final Verification
-- [x] All 955 tests passing
+- [x] All tests passing (958)
 - [x] Typecheck clean
 - [x] Lint clean
-- [x] Build succeeds (75 KB total)
-- [x] CI green
-- [x] All worktrees removed
-- [x] All issues closed
+- [x] Build succeeds (75KB, 14ms)
+- [ ] CI green (pending)
+- [x] /simplify final pass complete
+
+## Remaining Items
+None — all actionable findings resolved. Skipped items are by-design, false positives, or future feature requests.

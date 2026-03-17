@@ -17,7 +17,7 @@ Technical reference for contributors.
 | `starship.ts` | Starship detection, preset listing, TOML config caching | yes | config, utils |
 | `tree.ts` | Tree data model, DSL parser, plan builder (pure — no side effects) | **pure** | layout |
 | `keybindings.ts` | Ghostty key table config generator (pure function) | **pure** | none |
-| `validation.ts` | Input validation helpers (`parseIntInRange`, `validateIntFlag`, `validateFloatFlag`) | **pure** | none |
+| `validation.ts` | Input validation helpers (`ENV_KEY_RE`, `parseIntInRange`, `parsePositiveFloat`, `validateIntFlag`, `validateFloatFlag`) | **pure** | utils |
 | `globals.d.ts` | Build-time constant declarations (`__VERSION__`) | — | — |
 | `*.test.ts` | Co-located unit tests (Vitest) | — | — |
 
@@ -101,7 +101,8 @@ graph TD
     EDITOR_CATALOG, SIDEBAR_CATALOG"]
     completions -.- comp_fns["generateZshCompletion,
     generateBashCompletion"]
-    validation -.- val_fns["parseIntInRange,
+    validation -.- val_fns["ENV_KEY_RE,
+    parseIntInRange,
     parsePositiveFloat,
     validateIntFlag,
     validateFloatFlag"]
@@ -132,7 +133,7 @@ flowchart TD
     --editor, --panes, --editor-size,
     --sidebar, --shell, --starship-preset,
     --auto-resize, --no-auto-resize, --dry-run,
-    --env, --font-size, --on-start, --theme,
+    --env, --font-size, --on-start,
     --new-window, --fullscreen, --maximize, --float"]
     parse --> helpcheck{"--help flag?"}
 
