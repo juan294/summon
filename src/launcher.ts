@@ -18,7 +18,7 @@ import { generateAppleScript, generateTreeAppleScript } from "./script.js";
 import { parseTreeDSL, extractPaneDefinitions, extractPaneCwds, resolveTreeCommands as resolveTreeCmds, buildTreePlan, findPaneByName } from "./tree.js";
 import type { LayoutNode } from "./tree.js";
 import { resolveCommand as resolveCommandPath, promptUser, getErrorMessage, SUMMON_WORKSPACE_ENV, isAccessibilityError, isGhosttyInstalled, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT } from "./utils.js";
-import { parseIntInRange, parsePositiveFloat } from "./validation.js";
+import { parseIntInRange, parsePositiveFloat, ENV_KEY_RE } from "./validation.js";
 import { isStarshipInstalled, ensurePresetConfig, getPresetConfigPath } from "./starship.js";
 
 const SAFE_SHELL_RE = /^\/[a-zA-Z0-9_/.-]+$/;
@@ -230,9 +230,6 @@ interface ResolvedConfig {
     paneCwds?: Map<string, string>;
   };
 }
-
-/** Valid environment variable key name: letters, digits, underscores, starting with letter or underscore. */
-const ENV_KEY_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 
 function collectEnvVars(
   machineConfig: Map<string, string>,
