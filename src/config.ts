@@ -136,7 +136,7 @@ export function isValidLayoutName(name: string): boolean {
   return LAYOUT_NAME_RE.test(name) && !isPresetName(name);
 }
 
-/** Defense-in-depth: verify resolved path stays within LAYOUTS_DIR. */
+/** @internal — exported for testing only */
 export function layoutPath(name: string): string {
   const filePath = join(LAYOUTS_DIR, name);
   if (!resolve(filePath).startsWith(resolve(LAYOUTS_DIR))) {

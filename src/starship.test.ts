@@ -210,6 +210,49 @@ describe("getPresetConfigPath", () => {
   });
 });
 
+describe("listStarshipPresets caching", () => {
+  it("returns cached result on repeated calls without re-executing starship", () => {
+    mockResolveCommand.mockReturnValue("/usr/local/bin/starship");
+    mockExecFileSync.mockReturnValue("tokyo-night\npastel-powerline\n");
+
+    const first = listStarshipPresets();
+    const second = listStarshipPresets();
+
+    expect(first).toEqual(["tokyo-night", "pastel-powerline"]);
+    expect(second).toEqual(first);
+    // execFileSync should only be called once — second call uses cache
+    expect(mockExecFileSync).toHaveBeenCalledTimes(1);
+  });
+
+  it("re-fetches after resetStarshipCache clears the preset cache", () => {
+    mockResolveCommand.mockReturnValue("/usr/local/bin/starship");
+    mockExecFileSync.mockReturnValue("tokyo-night\n");
+
+    const first = listStarshipPresets();
+    expect(first).toEqual(["tokyo-night"]);
+
+    resetStarshipCache();
+
+    mockExecFileSync.mockReturnValue("tokyo-night\ngruvbox-rainbow\n");
+    const second = listStarshipPresets();
+    expect(second).toEqual(["tokyo-night", "gruvbox-rainbow"]);
+    expect(mockExecFileSync).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not cache empty results from missing starship", () => {
+    mockResolveCommand.mockReturnValue(null);
+    const first = listStarshipPresets();
+    expect(first).toEqual([]);
+
+    // Now starship becomes available
+    resetStarshipCache();
+    mockResolveCommand.mockReturnValue("/usr/local/bin/starship");
+    mockExecFileSync.mockReturnValue("tokyo-night\n");
+    const second = listStarshipPresets();
+    expect(second).toEqual(["tokyo-night"]);
+  });
+});
+
 describe("starship path caching", () => {
   it("calls resolveCommand only once across multiple function calls", () => {
     mockResolveCommand.mockReturnValue("/usr/local/bin/starship");
