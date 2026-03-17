@@ -31,7 +31,6 @@ export interface TreeLayoutPlan {
   fullscreen: boolean;
   maximize: boolean;
   float: boolean;
-  theme: string | null;
 }
 
 // ---------- Parser internals ----------
@@ -329,7 +328,6 @@ interface TreePlanOptions {
   fullscreen?: boolean;
   maximize?: boolean;
   float?: boolean;
-  theme?: string | null;
 }
 
 /** Build a TreeLayoutPlan from a resolved tree and optional settings. */
@@ -350,7 +348,6 @@ export function buildTreePlan(
     fullscreen: opts?.fullscreen ?? false,
     maximize: opts?.maximize ?? false,
     float: opts?.float ?? false,
-    theme: opts?.theme ?? null,
   };
 }
 

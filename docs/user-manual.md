@@ -204,7 +204,6 @@ summon export .summon            # write to file
 
 Check your Ghostty config for recommended settings and macOS Accessibility permission. Reports on:
 
-- `window-save-state = always` — restore windows after restart
 - `notify-on-command-finish = unfocused` — notifications for long commands
 - `shell-integration = detect` — shell integration for status tracking
 - Accessibility permission — required for pane resizing via System Events
@@ -282,7 +281,6 @@ Flags override both machine and per-project config for a single launch.
 | `--auto-resize` | Resize sidebar to match editor-size (default: on) |
 | `--no-auto-resize` | Disable auto-resize |
 | `--starship-preset <preset>` | Starship prompt preset name (per-workspace) |
-| `--theme <name>` | Ghostty theme for workspace |
 | `--font-size <n>` | Override font size for workspace panes |
 | `--env KEY=VALUE` | Set environment variable for all panes (repeatable) |
 | `--on-start <cmd>` | Run a command in the target directory before workspace creation |
@@ -739,7 +737,6 @@ When summon launches, config values are resolved in this order (first wins):
 | `layout` | string | | Default layout preset (`minimal`, `full`, `pair`, `cli`, `btop`) or a custom layout name. |
 | `auto-resize` | boolean | `true` | Auto-resize sidebar to match editor-size. |
 | `starship-preset` | string | | Starship prompt theme preset. When set, each workspace launches with `STARSHIP_CONFIG` pointing to a cached preset TOML file at `~/.config/summon/starship/<preset>.toml`. Requires [Starship](https://starship.rs) installed. |
-| `theme` | string | | Ghostty theme for workspace. |
 | `font-size` | number | | Font size for workspace panes (in points). |
 | `on-start` | string | | Command to run in the target directory before workspace creation. |
 | `new-window` | boolean | `false` | Open workspace in a new Ghostty window instead of reusing the front window. |

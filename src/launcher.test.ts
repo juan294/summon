@@ -2711,7 +2711,6 @@ describe("optsToConfigMap", () => {
       shell: "zsh",
       autoResize: true,
       fontSize: 14,
-      theme: "tokyo-night",
       newWindow: true,
       fullscreen: true,
       maximize: true,
@@ -2724,7 +2723,6 @@ describe("optsToConfigMap", () => {
     expect(result.get("shell")).toBe("zsh");
     expect(result.get("auto-resize")).toBe("true");
     expect(result.get("font-size")).toBe("14");
-    expect(result.get("theme")).toBe("tokyo-night");
     expect(result.get("new-window")).toBe("true");
     expect(result.get("fullscreen")).toBe("true");
     expect(result.get("maximize")).toBe("true");
@@ -2734,11 +2732,6 @@ describe("optsToConfigMap", () => {
   it("excludes null fontSize", () => {
     const result = optsToConfigMap({ fontSize: null });
     expect(result.has("font-size")).toBe(false);
-  });
-
-  it("excludes null theme", () => {
-    const result = optsToConfigMap({ theme: null });
-    expect(result.has("theme")).toBe(false);
   });
 
   it("excludes boolean flags when false", () => {
@@ -2759,8 +2752,106 @@ describe("optsToConfigMap", () => {
     expect(result.get("font-size")).toBe("18.5");
   });
 
-  it("includes theme when set to a string", () => {
-    const result = optsToConfigMap({ theme: "dracula" });
-    expect(result.get("theme")).toBe("dracula");
+});
+
+describe("tree layout + project CWD merge (#185)", () => {
+  it("merges per-pane cwds from project .summon file into tree layout", () => {
+    // Custom layout defines a tree with pane CWDs in the layout itself
+    mockIsCustomLayout.mockReturnValue(true);
+    mockReadCustomLayout.mockReturnValue(
+      new Map([
+        ["tree", "editor | sidebar"],
+        ["pane.editor", "vim"],
+        ["pane.sidebar", "lazygit"],
+        ["pane.editor.cwd", "src"],
+      ]),
+    );
+    // Project .summon overrides sidebar CWD
+    mockReadKVFile.mockReturnValue(
+      new Map([
+        ["layout", "mywork"],
+        ["pane.sidebar.cwd", "tests"],
+      ]),
+    );
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+
+    const result = resolveConfig("/tmp/workspace", {});
+
+    expect(result.treeLayout).toBeDefined();
+    expect(result.treeLayout!.paneCwds).toBeDefined();
+    // Layout-defined CWD preserved
+    expect(result.treeLayout!.paneCwds!.get("editor")).toBe("src");
+    // Project CWD merged in
+    expect(result.treeLayout!.paneCwds!.get("sidebar")).toBe("tests");
+  });
+
+  it("project pane CWD overrides layout-defined CWD for the same pane", () => {
+    mockIsCustomLayout.mockReturnValue(true);
+    mockReadCustomLayout.mockReturnValue(
+      new Map([
+        ["tree", "editor | sidebar"],
+        ["pane.editor", "vim"],
+        ["pane.sidebar", "lazygit"],
+        ["pane.editor.cwd", "src"],
+      ]),
+    );
+    // Project overrides editor CWD
+    mockReadKVFile.mockReturnValue(
+      new Map([
+        ["layout", "mywork"],
+        ["pane.editor.cwd", "lib"],
+      ]),
+    );
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+
+    const result = resolveConfig("/tmp/workspace", {});
+
+    expect(result.treeLayout).toBeDefined();
+    expect(result.treeLayout!.paneCwds).toBeDefined();
+    // Project CWD overrides the layout's CWD
+    expect(result.treeLayout!.paneCwds!.get("editor")).toBe("lib");
+  });
+
+  it("returns no paneCwds when neither layout nor project defines them", () => {
+    mockIsCustomLayout.mockReturnValue(true);
+    mockReadCustomLayout.mockReturnValue(
+      new Map([
+        ["tree", "editor | sidebar"],
+        ["pane.editor", "vim"],
+        ["pane.sidebar", "lazygit"],
+      ]),
+    );
+    mockReadKVFile.mockReturnValue(new Map([["layout", "mywork"]]));
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+
+    const result = resolveConfig("/tmp/workspace", {});
+
+    expect(result.treeLayout).toBeDefined();
+    expect(result.treeLayout!.paneCwds).toBeUndefined();
+  });
+
+  it("adds project paneCwds to tree layout that has no layout-defined CWDs", () => {
+    mockIsCustomLayout.mockReturnValue(true);
+    mockReadCustomLayout.mockReturnValue(
+      new Map([
+        ["tree", "editor | sidebar"],
+        ["pane.editor", "vim"],
+        ["pane.sidebar", "lazygit"],
+      ]),
+    );
+    // Project defines CWDs even though layout has none
+    mockReadKVFile.mockReturnValue(
+      new Map([
+        ["layout", "mywork"],
+        ["pane.editor.cwd", "app"],
+      ]),
+    );
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+
+    const result = resolveConfig("/tmp/workspace", {});
+
+    expect(result.treeLayout).toBeDefined();
+    expect(result.treeLayout!.paneCwds).toBeDefined();
+    expect(result.treeLayout!.paneCwds!.get("editor")).toBe("app");
   });
 });

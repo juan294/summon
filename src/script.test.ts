@@ -884,25 +884,6 @@ describe("generateAppleScript", () => {
     });
   });
 
-  describe("theme flag", () => {
-    it("sets theme on surface config when theme specified", () => {
-      const plan = planLayout({ theme: "nord" });
-      const script = generateAppleScript(plan, "/tmp/test");
-      expect(script).toContain('set theme of cfg to "nord"');
-    });
-
-    it("omits theme when theme is null (default)", () => {
-      const plan = planLayout();
-      const script = generateAppleScript(plan, "/tmp/test");
-      expect(script).not.toContain("set theme of cfg");
-    });
-
-    it("escapes special characters in theme name", () => {
-      const plan = planLayout({ theme: 'my "custom" theme' });
-      const script = generateAppleScript(plan, "/tmp/test");
-      expect(script).toContain('set theme of cfg to "my \\"custom\\" theme"');
-    });
-  });
 });
 
 describe("generateTreeAppleScript", () => {
@@ -918,7 +899,6 @@ describe("generateTreeAppleScript", () => {
       autoResize: false,
       editorSize: 75,
       fontSize: null,
-      theme: null,
       newWindow: false,
       fullscreen: false,
       maximize: false,
@@ -1140,25 +1120,6 @@ describe("generateTreeAppleScript", () => {
     const script = generateTreeAppleScript(plan, "/tmp/project");
 
     expect(script).toContain("set font size of cfg to 14");
-  });
-
-  it("theme", () => {
-    const plan = makePlan(
-      { type: "pane", name: "editor", command: "vim" },
-      { theme: "tokyo-night" },
-    );
-    const script = generateTreeAppleScript(plan, "/tmp/project");
-
-    expect(script).toContain('set theme of cfg to "tokyo-night"');
-  });
-
-  it("omits theme when null", () => {
-    const plan = makePlan(
-      { type: "pane", name: "editor", command: "vim" },
-    );
-    const script = generateTreeAppleScript(plan, "/tmp/project");
-
-    expect(script).not.toContain("set theme of cfg");
   });
 
   it("always includes SUMMON_WORKSPACE=1 in surface config env vars", () => {

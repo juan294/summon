@@ -103,7 +103,6 @@ function emitSurfaceConfig(
   { add, blank }: ScriptBuilder,
   targetDir: string,
   fontSize: number | null,
-  theme: string | null,
   allEnvVars: string[],
 ): void {
   add(0, `tell application "${GHOSTTY_APP_NAME}"`);
@@ -115,9 +114,6 @@ function emitSurfaceConfig(
   add(1, `set initial working directory of cfg to "${escapeAppleScript(targetDir)}"`);
   if (fontSize !== null) {
     add(1, `set font size of cfg to ${fontSize}`);
-  }
-  if (theme !== null) {
-    add(1, `set theme of cfg to "${escapeAppleScript(theme)}"`);
   }
   const escaped = allEnvVars.map(e => `"${escapeAppleScript(e)}"`).join(", ");
   add(1, `set environment variables of cfg to {${escaped}}`);
@@ -391,7 +387,7 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginSh
 
   const allEnvVars = buildEnvVarsList(starshipConfigPath, envVars);
 
-  emitSurfaceConfig(sb, targetDir, plan.fontSize, plan.theme, allEnvVars);
+  emitSurfaceConfig(sb, targetDir, plan.fontSize, allEnvVars);
   emitNewWindow(sb, plan.newWindow);
   sb.add(1, "set paneRoot to terminal 1 of selected tab of win");
   sb.blank();
@@ -448,7 +444,7 @@ export function generateTreeAppleScript(
   const rootLeaf = firstLeaf(plan.tree);
   const rootPaneVar = paneVar(rootLeaf.name);
 
-  emitSurfaceConfig(sb, targetDir, plan.fontSize, plan.theme, allEnvVars);
+  emitSurfaceConfig(sb, targetDir, plan.fontSize, allEnvVars);
   emitNewWindow(sb, plan.newWindow);
   sb.add(1, `set ${rootPaneVar} to terminal 1 of selected tab of win`);
   sb.blank();

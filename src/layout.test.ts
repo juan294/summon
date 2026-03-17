@@ -200,21 +200,6 @@ describe("validation constants", () => {
     expect(plan.float).toBe(false);
   });
 
-  it("defaults theme to null", () => {
-    const plan = planLayout();
-    expect(plan.theme).toBeNull();
-  });
-
-  it("passes through theme value", () => {
-    const plan = planLayout({ theme: "nord" });
-    expect(plan.theme).toBe("nord");
-  });
-
-  it("passes through theme: null explicitly", () => {
-    const plan = planLayout({ theme: null });
-    expect(plan.theme).toBeNull();
-  });
-
   it("passes through newWindow=true", () => {
     const plan = planLayout({ newWindow: true });
     expect(plan.newWindow).toBe(true);

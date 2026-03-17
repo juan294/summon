@@ -825,12 +825,11 @@ describe("CLI integration", () => {
       const result = run("doctor", "--fix");
       // Exit 0 if all issues fixed, or 2 if accessibility still missing
       expect(result.status === 0 || result.status === 2).toBe(true);
-      expect(result.stdout).toContain("Added 3 setting(s)");
+      expect(result.stdout).toContain("Added 2 setting(s)");
       // Verify the config was created
       const ghosttyConfig = join(TEMP_HOME, ".config", "ghostty", "config");
       expect(existsSync(ghosttyConfig)).toBe(true);
       const content = readFileSync(ghosttyConfig, "utf-8");
-      expect(content).toContain("window-save-state = always");
       expect(content).toContain("notify-on-command-finish = unfocused");
       expect(content).toContain("shell-integration = detect");
       expect(content).toContain("# Added by summon doctor --fix");
@@ -841,20 +840,19 @@ describe("CLI integration", () => {
       mkdirSync(ghosttyDir, { recursive: true });
       const ghosttyConfig = join(ghosttyDir, "config");
       // Write config with one setting already present
-      writeFileSync(ghosttyConfig, "window-save-state = always\n");
+      writeFileSync(ghosttyConfig, "notify-on-command-finish = unfocused\n");
 
       const result = run("doctor", "--fix");
       // Exit 0 if all issues fixed, or 2 if accessibility still missing
       expect(result.status === 0 || result.status === 2).toBe(true);
-      // Should only add the 2 missing settings
-      expect(result.stdout).toContain("Added 2 setting(s)");
+      // Should only add the 1 missing setting
+      expect(result.stdout).toContain("Added 1 setting(s)");
       expect(result.stdout).toContain("Backed up");
       // Verify backup was created (filename includes timestamp)
       const backups = readdirSync(ghosttyDir).filter(f => f.startsWith("config.bak"));
       expect(backups.length).toBeGreaterThanOrEqual(1);
-      // Verify original setting is still present and new ones added
+      // Verify original setting is still present and new one added
       const content = readFileSync(ghosttyConfig, "utf-8");
-      expect(content).toContain("window-save-state = always");
       expect(content).toContain("notify-on-command-finish = unfocused");
       expect(content).toContain("shell-integration = detect");
     });
@@ -863,7 +861,7 @@ describe("CLI integration", () => {
       const ghosttyDir = join(TEMP_HOME, ".config", "ghostty");
       mkdirSync(ghosttyDir, { recursive: true });
       const ghosttyConfig = join(ghosttyDir, "config");
-      writeFileSync(ghosttyConfig, "window-save-state = always\nnotify-on-command-finish = unfocused\nshell-integration = detect\n");
+      writeFileSync(ghosttyConfig, "notify-on-command-finish = unfocused\nshell-integration = detect\n");
 
       const result = run("doctor", "--fix");
       // Exit 0 if accessibility granted, or 2 if not

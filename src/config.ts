@@ -115,7 +115,7 @@ export function listConfig(): Map<string, string> {
   return readKV(CONFIG_FILE);
 }
 
-export const VALID_KEYS = ["editor", "sidebar", "panes", "editor-size", "shell", "layout", "auto-resize", "starship-preset", "new-window", "fullscreen", "maximize", "float", "font-size", "theme", "on-start"];
+export const VALID_KEYS = ["editor", "sidebar", "panes", "editor-size", "shell", "layout", "auto-resize", "starship-preset", "new-window", "fullscreen", "maximize", "float", "font-size", "on-start"];
 
 /** Config keys that accept only "true" or "false" values. */
 export const BOOLEAN_KEYS = new Set(["auto-resize", "new-window", "fullscreen", "maximize", "float"]);
@@ -124,7 +124,7 @@ export const CLI_FLAGS = [
   "--help", "--version", "--layout", "--editor", "--panes",
   "--editor-size", "--sidebar", "--shell", "--auto-resize",
   "--no-auto-resize", "--starship-preset", "--dry-run",
-  "--env", "--new-window", "--fullscreen", "--maximize", "--float", "--font-size", "--theme", "--on-start",
+  "--env", "--new-window", "--fullscreen", "--maximize", "--float", "--font-size", "--on-start",
   "-h", "-v", "-l", "-e", "-p", "-s", "-n",
 ];
 
@@ -136,7 +136,7 @@ export function isValidLayoutName(name: string): boolean {
   return LAYOUT_NAME_RE.test(name) && !isPresetName(name);
 }
 
-/** Defense-in-depth: verify resolved path stays within LAYOUTS_DIR. */
+/** @internal — exported for testing only */
 export function layoutPath(name: string): string {
   const filePath = join(LAYOUTS_DIR, name);
   if (!resolve(filePath).startsWith(resolve(LAYOUTS_DIR))) {

@@ -51,7 +51,6 @@ _summon() {
     '--starship-preset[Starship preset]:preset:->starship_preset' \\
     '*--env[Set environment variable]:var:' \\
     '--font-size[Font size in points]:size:' \\
-    '--theme[Ghostty theme]:theme:' \\
     '--on-start[Run command before workspace creation]:command:' \\
     '--new-window[Open in new Ghostty window]' \\
     '--fullscreen[Start in fullscreen mode]' \\

@@ -10,6 +10,9 @@ const STARSHIP_DIR = join(CONFIG_DIR, "starship");
 /** Cached resolved path for the starship binary — avoids repeated shell-outs. */
 let cachedStarshipPath: string | null | undefined;
 
+/** Cached preset list — avoids repeated `starship preset --list` calls. */
+let cachedPresets: string[] | null = null;
+
 function getStarshipPath(): string | null {
   if (cachedStarshipPath === undefined) {
     cachedStarshipPath = resolveCommand("starship");
@@ -20,6 +23,7 @@ function getStarshipPath(): string | null {
 /** @internal — exported for testing only */
 export function resetStarshipCache(): void {
   cachedStarshipPath = undefined;
+  cachedPresets = null;
 }
 
 /** Check whether the `starship` binary is available in PATH. */
@@ -29,16 +33,18 @@ export function isStarshipInstalled(): boolean {
 
 /** Return the list of built-in Starship preset names, or [] if unavailable. */
 export function listStarshipPresets(): string[] {
+  if (cachedPresets !== null) return cachedPresets;
   const starshipBin = getStarshipPath();
   if (!starshipBin) return [];
   try {
     const output = execFileSync(starshipBin, ["preset", "--list"], {
       encoding: "utf-8",
     });
-    return output
+    cachedPresets = output
       .split("\n")
       .map((l) => l.trim())
       .filter(Boolean);
+    return cachedPresets;
   } catch {
     return [];
   }

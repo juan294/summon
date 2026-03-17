@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-03-17
+
+### Removed
+
+- `--theme` flag and `theme` config key — Ghostty's AppleScript API does not support per-surface themes (error -10006). Set themes globally in `~/.config/ghostty/config` instead.
+- `window-save-state` from `doctor` recommendations — Ghostty restores split layouts but not pane commands, creating stale splits that conflict with summon's layout management.
+
+### Fixed
+
+- `ENV_KEY_RE` extracted to shared constant in `validation.ts` (was duplicated in index.ts and launcher.ts)
+- `summon config` now shows effective defaults when no machine config is set
+
+### Changed
+
+- `@internal` JSDoc tags added to all test-only exports for consistency
+- `listStarshipPresets()` results are now cached (avoids repeated shell-outs)
+- Branch protection on `main` hardened: `enforce_admins` and `dismiss_stale_reviews` enabled
+
+### Tests
+
+- 958 total tests (was 955 in v1.2.0)
+- 8 weak `.toBeTruthy()` assertions replaced with `.toBeTypeOf('string')`
+- 4 new tests covering tree layout + project CWD merge path
+- 3 new tests for starship preset caching
+- 6 new tests for `ENV_KEY_RE` validation
+
 ## [1.2.0] - 2026-03-16
 
 ### Added
@@ -377,7 +403,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CodeQL security scanning
 - Dependabot for npm and GitHub Actions
 
-[Unreleased]: https://github.com/juan294/summon/compare/v1.2.0...develop
+[Unreleased]: https://github.com/juan294/summon/compare/v1.2.1...develop
+[1.2.1]: https://github.com/juan294/summon/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/juan294/summon/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/juan294/summon/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/juan294/summon/compare/v0.8.0...v1.0.0

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { parseIntInRange, parsePositiveFloat, validateIntFlag, validateFloatFlag } from "./validation.js";
+import { parseIntInRange, parsePositiveFloat, validateIntFlag, validateFloatFlag, ENV_KEY_RE } from "./validation.js";
 
 describe("parseIntInRange", () => {
   it("returns ok:true with parsed value for valid integer in range", () => {
@@ -117,6 +117,40 @@ describe("validateIntFlag", () => {
 
     errorSpy.mockRestore();
     exitSpy.mockRestore();
+  });
+});
+
+describe("ENV_KEY_RE", () => {
+  it("matches simple uppercase names", () => {
+    expect(ENV_KEY_RE.test("PATH")).toBe(true);
+    expect(ENV_KEY_RE.test("HOME")).toBe(true);
+  });
+
+  it("matches names starting with underscore", () => {
+    expect(ENV_KEY_RE.test("_PRIVATE")).toBe(true);
+    expect(ENV_KEY_RE.test("_")).toBe(true);
+  });
+
+  it("matches mixed case with digits", () => {
+    expect(ENV_KEY_RE.test("MY_VAR_2")).toBe(true);
+    expect(ENV_KEY_RE.test("node_env")).toBe(true);
+    expect(ENV_KEY_RE.test("A1B2C3")).toBe(true);
+  });
+
+  it("rejects names starting with a digit", () => {
+    expect(ENV_KEY_RE.test("1BAD")).toBe(false);
+    expect(ENV_KEY_RE.test("9_VAR")).toBe(false);
+  });
+
+  it("rejects empty string", () => {
+    expect(ENV_KEY_RE.test("")).toBe(false);
+  });
+
+  it("rejects names with special characters", () => {
+    expect(ENV_KEY_RE.test("MY-VAR")).toBe(false);
+    expect(ENV_KEY_RE.test("MY.VAR")).toBe(false);
+    expect(ENV_KEY_RE.test("MY VAR")).toBe(false);
+    expect(ENV_KEY_RE.test("MY=VAR")).toBe(false);
   });
 });
 

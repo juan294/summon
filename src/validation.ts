@@ -7,6 +7,9 @@
 
 import { exitWithUsageHint } from "./utils.js";
 
+/** Valid environment variable key name: letters, digits, underscores, starting with letter or underscore. */
+export const ENV_KEY_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+
 type ParseResult = {
   ok: true;
   value: number;

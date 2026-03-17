@@ -6,7 +6,7 @@ import { homedir } from "node:os";
 /** Regex for safe command names — only letters, digits, hyphens, dots, underscores, plus signs. */
 export const SAFE_COMMAND_RE = /^[a-zA-Z0-9_][a-zA-Z0-9_.+-]*$/;
 
-/** Known Ghostty.app install locations on macOS. */
+/** @internal — exported for testing only */
 export const GHOSTTY_PATHS = [
   "/Applications/Ghostty.app",
   join(homedir(), "Applications", "Ghostty.app"),
