@@ -204,7 +204,6 @@ summon export .summon            # write to file
 
 Check your Ghostty config for recommended settings and macOS Accessibility permission. Reports on:
 
-- `window-save-state = always` — restore windows after restart
 - `notify-on-command-finish = unfocused` — notifications for long commands
 - `shell-integration = detect` — shell integration for status tracking
 - Accessibility permission — required for pane resizing via System Events
