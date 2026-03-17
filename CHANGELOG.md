@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- `--theme` flag and `theme` config key — Ghostty's AppleScript API does not support per-surface themes (error -10006). Set themes globally in `~/.config/ghostty/config` instead.
+
 ## [1.2.0] - 2026-03-16
 
 ### Added

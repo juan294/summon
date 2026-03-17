@@ -396,7 +396,6 @@ describe("buildTreePlan", () => {
     expect(plan.autoResize).toBe(true);
     expect(plan.editorSize).toBe(75);
     expect(plan.fontSize).toBeNull();
-    expect(plan.theme).toBeNull();
     expect(plan.newWindow).toBe(false);
     expect(plan.fullscreen).toBe(false);
     expect(plan.maximize).toBe(false);
@@ -410,7 +409,6 @@ describe("buildTreePlan", () => {
       autoResize: false,
       editorSize: 60,
       fontSize: 14,
-      theme: "nord",
       newWindow: true,
       fullscreen: true,
       maximize: true,
@@ -419,7 +417,6 @@ describe("buildTreePlan", () => {
     expect(plan.autoResize).toBe(false);
     expect(plan.editorSize).toBe(60);
     expect(plan.fontSize).toBe(14);
-    expect(plan.theme).toBe("nord");
     expect(plan.newWindow).toBe(true);
     expect(plan.fullscreen).toBe(true);
     expect(plan.maximize).toBe(true);

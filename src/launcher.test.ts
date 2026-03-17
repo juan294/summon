@@ -2711,7 +2711,6 @@ describe("optsToConfigMap", () => {
       shell: "zsh",
       autoResize: true,
       fontSize: 14,
-      theme: "tokyo-night",
       newWindow: true,
       fullscreen: true,
       maximize: true,
@@ -2724,7 +2723,6 @@ describe("optsToConfigMap", () => {
     expect(result.get("shell")).toBe("zsh");
     expect(result.get("auto-resize")).toBe("true");
     expect(result.get("font-size")).toBe("14");
-    expect(result.get("theme")).toBe("tokyo-night");
     expect(result.get("new-window")).toBe("true");
     expect(result.get("fullscreen")).toBe("true");
     expect(result.get("maximize")).toBe("true");
@@ -2734,11 +2732,6 @@ describe("optsToConfigMap", () => {
   it("excludes null fontSize", () => {
     const result = optsToConfigMap({ fontSize: null });
     expect(result.has("font-size")).toBe(false);
-  });
-
-  it("excludes null theme", () => {
-    const result = optsToConfigMap({ theme: null });
-    expect(result.has("theme")).toBe(false);
   });
 
   it("excludes boolean flags when false", () => {
@@ -2759,8 +2752,4 @@ describe("optsToConfigMap", () => {
     expect(result.get("font-size")).toBe("18.5");
   });
 
-  it("includes theme when set to a string", () => {
-    const result = optsToConfigMap({ theme: "dracula" });
-    expect(result.get("theme")).toBe("dracula");
-  });
 });

@@ -54,7 +54,6 @@ export function optsToConfigMap(opts: Partial<LayoutOptions>): Map<string, strin
   if (opts.shell !== undefined) entries.set("shell", opts.shell);
   if (opts.autoResize !== undefined) entries.set("auto-resize", String(opts.autoResize));
   if (opts.fontSize !== undefined && opts.fontSize !== null) entries.set("font-size", String(opts.fontSize));
-  if (opts.theme !== undefined && opts.theme !== null) entries.set("theme", opts.theme);
   if (opts.newWindow) entries.set("new-window", "true");
   if (opts.fullscreen) entries.set("fullscreen", "true");
   if (opts.maximize) entries.set("maximize", "true");
@@ -73,7 +72,6 @@ export interface CLIOverrides {
   "starship-preset"?: string;
   env?: string[];
   "font-size"?: string;
-  theme?: string;
   "on-start"?: string;
   "new-window"?: string;
   fullscreen?: string;
@@ -321,7 +319,6 @@ function resolveLayoutBase(
       const fs = parsePositiveFloat(customData.get("font-size")!);
       if (fs.ok) base.fontSize = fs.value;
     }
-    if (customData.has("theme")) base.theme = customData.get("theme")!;
     if (customData.has("new-window")) base.newWindow = customData.get("new-window") === "true";
     if (customData.has("fullscreen")) base.fullscreen = customData.get("fullscreen") === "true";
     if (customData.has("maximize")) base.maximize = customData.get("maximize") === "true";
@@ -408,9 +405,6 @@ function layerConfigValues(
     }
   }
 
-  const theme = pick(cliOverrides.theme, "theme");
-  if (theme !== undefined) result.theme = theme;
-
   const newWindow = pick(cliOverrides["new-window"], "new-window");
   const fullscreen = pick(cliOverrides.fullscreen, "fullscreen");
   const maximize = pick(cliOverrides.maximize, "maximize");
@@ -482,18 +476,14 @@ function executeOnStart(onStart: string, targetDir: string): void {
   }
 }
 
-/** Append shared optional dry-run header lines (starship preset, theme). */
+/** Append shared optional dry-run header lines (starship preset). */
 function appendDryRunExtras(
   headerLines: string[],
   starshipPreset: string | undefined,
   dryRunStarshipPath: string | null,
-  theme: string | null | undefined,
 ): void {
   if (starshipPreset) {
     headerLines.push(`-- Starship preset: ${starshipPreset} (${dryRunStarshipPath})`);
-  }
-  if (theme) {
-    headerLines.push(`-- Theme: ${theme}`);
   }
 }
 
@@ -513,7 +503,6 @@ async function launchTreeLayout(
     autoResize: opts.autoResize,
     editorSize: opts.editorSize,
     fontSize: opts.fontSize,
-    theme: opts.theme,
     newWindow: opts.newWindow,
     fullscreen: opts.fullscreen,
     maximize: opts.maximize,
@@ -531,7 +520,7 @@ async function launchTreeLayout(
       `-- Layout: tree layout, ${paneCount} ${paneCount === 1 ? "pane" : "panes"}`,
       `-- Target: ${targetDir}`,
     ];
-    appendDryRunExtras(headerLines, starshipPreset, dryRunStarshipPath, opts.theme);
+    appendDryRunExtras(headerLines, starshipPreset, dryRunStarshipPath);
     console.log(`${headerLines.join("\n")}\n${script}`);
     return;
   }
@@ -572,7 +561,7 @@ async function launchTraditionalLayout(
       `-- Layout: ${totalPanes} editor ${totalPanes === 1 ? "pane" : "panes"}, editor=${plan.editor}, sidebar=${plan.sidebarCommand}, shell=${plan.hasShell}`,
       `-- Target: ${targetDir}`,
     ];
-    appendDryRunExtras(headerLines, starshipPreset, dryRunStarshipPath, opts.theme);
+    appendDryRunExtras(headerLines, starshipPreset, dryRunStarshipPath);
     console.log(`${headerLines.join("\n")}\n${script}`);
     return;
   }

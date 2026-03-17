@@ -26,7 +26,6 @@ export interface LayoutOptions {
   fullscreen: boolean;
   maximize: boolean;
   float: boolean;
-  theme: string | null;
 }
 
 const DEFAULT_OPTIONS: LayoutOptions = {
@@ -42,7 +41,6 @@ const DEFAULT_OPTIONS: LayoutOptions = {
   fullscreen: false,
   maximize: false,
   float: false,
-  theme: null,
 };
 
 export interface LayoutPlan {
@@ -61,7 +59,6 @@ export interface LayoutPlan {
   fullscreen: boolean;
   maximize: boolean;
   float: boolean;
-  theme: string | null;
 }
 
 function parseShell(value: string): { hasShell: boolean; shellCommand: string | null } {
@@ -116,6 +113,5 @@ export function planLayout(partial?: Partial<LayoutOptions>): LayoutPlan {
     fullscreen: opts.fullscreen,
     maximize: opts.maximize,
     float: opts.float,
-    theme: opts.theme ?? null,
   };
 }

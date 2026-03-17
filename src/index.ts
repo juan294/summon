@@ -91,7 +91,6 @@ Options:
   --starship-preset <preset>  Starship prompt preset name (per-workspace)
   --env <KEY=VALUE>           Set environment variable (repeatable)
   --font-size <n>             Override font size for workspace panes
-  --theme <name>              Ghostty theme for workspace
   --on-start <cmd>            Run command before workspace creation
   --new-window                Open workspace in a new Ghostty window
   --fullscreen                Start workspace in fullscreen mode
@@ -113,7 +112,6 @@ Config keys:
   maximize        Start workspace maximized (default: false)
   float           Float workspace window on top (default: false)
   font-size       Font size in points for workspace panes
-  theme           Ghostty theme for workspace
   on-start        Command to run before workspace launches
   env.<KEY>       Environment variable passed to all panes
 
@@ -257,7 +255,6 @@ const parseOpts = {
     "starship-preset": { type: "string" },
     "env": { type: "string", multiple: true },
     "font-size": { type: "string" },
-    "theme": { type: "string" },
     "on-start": { type: "string" },
     "new-window": { type: "boolean" },
     "fullscreen": { type: "boolean" },
@@ -358,7 +355,6 @@ function buildOverrides(): CLIOverrides {
   if (values["starship-preset"]) overrides["starship-preset"] = values["starship-preset"];
   if (values.env) overrides.env = values.env;
   if (values["font-size"]) overrides["font-size"] = values["font-size"];
-  if (values.theme) overrides.theme = values.theme;
   if (values["on-start"]) overrides["on-start"] = values["on-start"];
   if (values["new-window"]) overrides["new-window"] = "true";
   if (values["fullscreen"]) overrides["fullscreen"] = "true";
