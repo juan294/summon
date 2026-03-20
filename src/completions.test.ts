@@ -175,6 +175,45 @@ describe("subcommand-specific flag completions", () => {
   });
 });
 
+describe("bash _init_completion portability", () => {
+  test("bash completion has fallback when _init_completion is unavailable", () => {
+    const result = generateBashCompletion();
+    // Should check for _init_completion and provide a fallback
+    expect(result).toContain("type _init_completion &>/dev/null");
+    expect(result).toContain('local cur="${COMP_WORDS[COMP_CWORD]}"');
+    expect(result).toContain('local prev="${COMP_WORDS[COMP_CWORD-1]}"');
+  });
+
+  test("bash completion still uses _init_completion when available", () => {
+    const result = generateBashCompletion();
+    expect(result).toContain("_init_completion || return");
+  });
+});
+
+describe("freeze subcommand completions", () => {
+  test("bash freeze completes with layout names", () => {
+    const result = generateBashCompletion();
+    expect(result).toMatch(/freeze\)[\s\S]*?layout_presets/);
+  });
+
+  test("zsh freeze completes with layout names", () => {
+    const result = generateZshCompletion();
+    expect(result).toMatch(/freeze\)[\s\S]*?layout_presets/);
+  });
+});
+
+describe("export subcommand completions", () => {
+  test("bash export completes with file paths", () => {
+    const result = generateBashCompletion();
+    expect(result).toMatch(/export\)[\s\S]*?compgen\s+-f/);
+  });
+
+  test("zsh export completes with file paths", () => {
+    const result = generateZshCompletion();
+    expect(result).toMatch(/export\)[\s\S]*?_files/);
+  });
+});
+
 describe("custom layout completions", () => {
   test("zsh completions include custom layout names in --layout", async () => {
     // Mock listCustomLayouts to return custom layout names

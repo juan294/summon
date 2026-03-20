@@ -109,6 +109,12 @@ _summon() {
             compadd -- --vim
           fi
           ;;
+        freeze)
+          compadd -a layout_presets
+          ;;
+        export)
+          _files
+          ;;
         layout)
           if (( CURRENT == 2 )); then
             compadd create save list show delete edit
@@ -139,7 +145,13 @@ export function generateBashCompletion(): string {
 
   return `_summon() {
   local cur prev words cword
-  _init_completion || return
+  if type _init_completion &>/dev/null; then
+    _init_completion || return
+  else
+    COMPREPLY=()
+    local cur="\${COMP_WORDS[COMP_CWORD]}"
+    local prev="\${COMP_WORDS[COMP_CWORD-1]}"
+  fi
 
   local subcommands="add remove list set config setup completions doctor open export freeze keybindings layout"
   local config_keys="${configKeys}"
@@ -209,6 +221,12 @@ export function generateBashCompletion(): string {
       ;;
     keybindings)
       COMPREPLY=($(compgen -W "--vim" -- "$cur"))
+      ;;
+    freeze)
+      COMPREPLY=($(compgen -W "$layout_presets" -- "$cur"))
+      ;;
+    export)
+      COMPREPLY=($(compgen -f -- "$cur"))
       ;;
     layout)
       if (( cword == 2 )); then
