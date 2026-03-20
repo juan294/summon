@@ -136,11 +136,16 @@ async function prompt(question: string): Promise<string> {
 
 /**
  * Check if any command values contain shell metacharacters.
- * Checks both .summon project file command keys and the resolved on-start value
- * (which may come from CLI, machine config, or project config).
+ * Checks .summon project file command keys, the resolved on-start value
+ * (which may come from CLI, machine config, or project config), and
+ * tree pane.* commands from custom tree layouts.
  * If dangerous values are found, warn the user and prompt for confirmation (or refuse on non-TTY).
  */
-async function confirmDangerousCommands(projectOverrides: Map<string, string>, onStart?: string): Promise<void> {
+async function confirmDangerousCommands(
+  projectOverrides: Map<string, string>,
+  onStart?: string,
+  treePaneCommands?: Map<string, string>,
+): Promise<void> {
   const dangerous: Array<[string, string]> = [];
   for (const [key, value] of projectOverrides) {
     if (COMMAND_KEYS.has(key) && SHELL_META_RE.test(value)) {
@@ -152,6 +157,14 @@ async function confirmDangerousCommands(projectOverrides: Map<string, string>, o
   // machine config sources bypass the projectOverrides map, so we check separately.
   if (onStart && SHELL_META_RE.test(onStart) && !dangerous.some(([key]) => key === "on-start")) {
     dangerous.push(["on-start", onStart]);
+  }
+  // Check tree pane.* commands for metacharacters
+  if (treePaneCommands) {
+    for (const [paneName, cmd] of treePaneCommands) {
+      if (SHELL_META_RE.test(cmd)) {
+        dangerous.push([`pane.${paneName}`, cmd]);
+      }
+    }
   }
   if (dangerous.length === 0) return;
 
@@ -204,9 +217,9 @@ async function ensureCommand(cmd: string, configKey: string): Promise<string> {
   const installDisplay = [installBin, ...installArgs].join(" ");
 
   console.log(`\`${cmd}\` is not installed on this machine.`);
-  const answer = await prompt(`Install it now with \`${installDisplay}\`? [Y/n] `);
+  const answer = await prompt(`Install it now with \`${installDisplay}\`? [y/N] `);
 
-  if (answer && answer !== "y" && answer !== "yes") {
+  if (answer !== "y" && answer !== "yes") {
     console.log(`Exiting — \`${cmd}\` is needed for this workspace layout. Change it with: summon set ${configKey} <command>`);
     process.exit(1);
   }
@@ -477,11 +490,11 @@ async function warnIfNested(
 
 /** Execute the on-start hook command before workspace creation. */
 function executeOnStart(onStart: string, targetDir: string): void {
-  console.log(`Running on-start: ${onStart}`);
+  console.warn(`Running on-start: ${onStart}`);
   try {
     execSync(onStart, { cwd: targetDir, encoding: "utf-8", stdio: "inherit" });
-  } catch {
-    console.error(`on-start command failed: ${onStart}`);
+  } catch (err) {
+    console.error(`on-start command failed: ${onStart} — ${getErrorMessage(err)}`);
     process.exit(1);
   }
 }
@@ -620,7 +633,7 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
   }
 
   if (!cliOverrides?.dryRun) {
-    await confirmDangerousCommands(projectOverrides, onStart);
+    await confirmDangerousCommands(projectOverrides, onStart, treeLayout?.panes);
   }
 
   if (onStart && !cliOverrides?.dryRun) {

