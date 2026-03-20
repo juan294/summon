@@ -97,8 +97,8 @@ describe("generateAppleScript", () => {
     const plan = planLayout();
     const script = generateAppleScript(plan, "/tmp");
 
-    // Sidebar command set on cfg before the split creates the pane
-    const expected = "set command of cfg to \"/bin/bash -lc 'cd '\\\\''/tmp'\\\\'' && lazygit'\"";
+    // Sidebar command set on cfg via initial input before the split creates the pane
+    const expected = 'set initial input of cfg to "lazygit\\n"';
     expect(script).toContain(expected);
     const cmdIndex = script.indexOf(expected);
     const splitIndex = script.indexOf("paneSidebar to split");
@@ -109,19 +109,19 @@ describe("generateAppleScript", () => {
     const plan = planLayout({ ...getPreset("pair"), editor: "vim" });
     const script = generateAppleScript(plan, "/tmp");
 
-    // Right column editor gets command via config
-    const expected = "set command of cfg to \"/bin/bash -lc 'cd '\\\\''/tmp'\\\\'' && vim'\"";
+    // Right column editor gets command via initial input
+    const expected = 'set initial input of cfg to "vim\\n"';
     expect(script).toContain(expected);
     const cmdIndex = script.indexOf(expected);
     const splitIndex = script.indexOf("paneRightCol to split");
     expect(cmdIndex).toBeLessThan(splitIndex);
   });
 
-  it("sends custom shell command via config", () => {
+  it("sends custom shell command via initial input", () => {
     const plan = planLayout({ shell: "npm run dev" });
     const script = generateAppleScript(plan, "/tmp");
 
-    expect(script).toContain("set command of cfg to \"/bin/bash -lc 'cd '\\\\''/tmp'\\\\'' && npm run dev'\"");
+    expect(script).toContain("set initial input of cfg to \"npm 'run' 'dev'\\n\"");
   });
 
   it("does not use delay for pane initialization when auto-resize is off", () => {
@@ -159,15 +159,15 @@ describe("generateAppleScript", () => {
     expect(script).not.toContain('input text "" to paneRoot');
   });
 
-  it("btop preset uses secondary editor in right column via config", () => {
+  it("btop preset uses secondary editor in right column via initial input", () => {
     const plan = planLayout({ ...getPreset("btop"), editor: "vim" });
     const script = generateAppleScript(plan, "/tmp");
 
     // Left column root pane gets primary editor via input text
     expect(script).toContain('input text "vim" to paneRoot');
 
-    // Right column gets secondary editor (btop) via config
-    expect(script).toContain("set command of cfg to \"/bin/bash -lc 'cd '\\\\''/tmp'\\\\'' && btop'\"");
+    // Right column gets secondary editor (btop) via initial input
+    expect(script).toContain('set initial input of cfg to "btop\\n"');
   });
 
   it("focuses root pane", () => {
@@ -186,17 +186,20 @@ describe("generateAppleScript", () => {
     expect(script).not.toContain("new window");
   });
 
-  it("config-launched panes cd into target directory", () => {
+  it("initial-input panes inherit working directory from surface config", () => {
     const plan = planLayout();
     const script = generateAppleScript(plan, "/tmp/project");
 
-    // Every non-empty config command should cd into the target directory
-    const configLines = script.split("\n").filter((l) => l.includes("set command of cfg to"));
-    expect(configLines.length).toBeGreaterThan(0);
-    for (const line of configLines) {
-      if (line.includes('""')) continue; // skip cleared commands (plain shell)
-      expect(line).toContain("/tmp/project");
+    // Initial input commands should NOT embed cd — the working directory is
+    // set on surface config instead
+    const initialInputLines = script.split("\n").filter((l) => l.includes("set initial input of cfg to"));
+    expect(initialInputLines.length).toBeGreaterThan(0);
+    for (const line of initialInputLines) {
+      if (line.includes('""')) continue; // skip cleared initial input
+      expect(line).not.toContain("cd ");
     }
+    // Working directory is set once on the surface config
+    expect(script).toContain('set initial working directory of cfg to "/tmp/project"');
   });
 
   it("escapes special characters in paths and commands", () => {
@@ -280,40 +283,16 @@ describe("generateAppleScript", () => {
     expect(script).toContain("paneRightCol");
     expect(script).not.toContain("paneRight2");
 
-    // Shell pane uses cleared command (plain shell, shell="true")
-    expect(script).toContain('set command of cfg to ""');
+    // Shell pane uses cleared initial input (plain shell, shell="true")
+    expect(script).toContain('set initial input of cfg to ""');
   });
 
-  it("wraps config commands with the specified login shell", () => {
-    const plan = planLayout();
-    const script = generateAppleScript(plan, "/tmp", "/bin/zsh");
-
-    // Sidebar command wrapped in login shell
-    expect(script).toContain("set command of cfg to \"/bin/zsh -lc 'cd '\\\\''/tmp'\\\\'' && lazygit'\"");
-  });
-
-  it("wraps shell command in login shell", () => {
-    const plan = planLayout({ shell: "npm run dev" });
-    const script = generateAppleScript(plan, "/tmp", "/bin/zsh");
-
-    expect(script).toContain("set command of cfg to \"/bin/zsh -lc 'cd '\\\\''/tmp'\\\\'' && npm run dev'\"");
-  });
-
-  it("escapes single quotes in wrapped config commands", () => {
+  it("escapes single quotes in initial input commands", () => {
     const plan = planLayout({ sidebarCommand: "cmd 'arg'" });
-    const script = generateAppleScript(plan, "/tmp", "/bin/bash");
+    const script = generateAppleScript(plan, "/tmp");
 
-    // escapeAppleScript doubles backslashes: '\'' → '\\''
-    expect(script).toContain("set command of cfg to \"/bin/bash -lc 'cd '\\\\''/tmp'\\\\'' && cmd '\\\\''arg'\\\\'''\"");
-  });
-
-  it("does not wrap input text commands with login shell", () => {
-    const plan = planLayout({ editor: "vim" });
-    const script = generateAppleScript(plan, "/tmp", "/bin/zsh");
-
-    // Root pane editor is sent via input text, not config — should NOT be wrapped
-    expect(script).toContain('input text "vim" to paneRoot');
-    expect(script).not.toContain('input text "/bin/zsh');
+    // Single quotes in args still get POSIX-escaped, then AppleScript-escaped
+    expect(script).toContain("set initial input of cfg to \"cmd ''\\\\''arg'\\\\'''\\n\"");
   });
 
   it("escapes shell metacharacters in root pane editor command", () => {
@@ -364,52 +343,52 @@ describe("generateAppleScript", () => {
     expect(script3).toContain("cd '/Users/me/it'\\\\''s a project'");
   });
 
-  it("clears config command for right column when both editors are empty", () => {
+  it("clears initial input for right column when both editors are empty", () => {
     const plan = planLayout({ editorPanes: 2, editor: "", secondaryEditor: "" });
     const script = generateAppleScript(plan, "/tmp");
 
-    // With both editors empty, secondaryCmd is "" (falsy), so clearConfigCommand is called
+    // With both editors empty, secondaryCmd is "" (falsy), so clearInitialInput is called
     // before the right column split
     const lines = script.split("\n");
-    const clearIndex = lines.findIndex((l) => l.includes('set command of cfg to ""'));
+    const clearIndex = lines.findIndex((l) => l.includes('set initial input of cfg to ""'));
     const rightColIndex = lines.findIndex((l) => l.includes("paneRightCol to split"));
     expect(clearIndex).toBeGreaterThan(-1);
     expect(rightColIndex).toBeGreaterThan(-1);
     expect(clearIndex).toBeLessThan(rightColIndex);
   });
 
-  it("sets shell command on config for shell-only right column", () => {
+  it("sets shell command via initial input for shell-only right column", () => {
     // editorPanes=1 → rightColumnEditorCount=0, shell="npm run dev" → shellCommand="npm run dev"
     const plan = planLayout({ editorPanes: 1, shell: "npm run dev" });
     const script = generateAppleScript(plan, "/tmp");
 
     // Right column exists only for shell, and shell has a specific command
     expect(script).toContain("paneRightCol");
-    // The shell command should be set via config before the right column split
-    expect(script).toContain("set command of cfg to \"/bin/bash -lc 'cd '\\\\''/tmp'\\\\'' && npm run dev'\"");
-    const cmdIndex = script.indexOf("npm run dev");
+    // The shell command should be set via initial input before the right column split
+    expect(script).toContain("set initial input of cfg to \"npm 'run' 'dev'\\n\"");
+    const cmdIndex = script.indexOf("npm 'run' 'dev'");
     const splitIndex = script.indexOf("paneRightCol to split");
     expect(cmdIndex).toBeLessThan(splitIndex);
   });
 
-  it("skips sidebar config command when sidebarCommand is empty", () => {
+  it("skips sidebar initial input when sidebarCommand is empty", () => {
     const plan = planLayout({ sidebarCommand: "" });
     const script = generateAppleScript(plan, "/tmp");
 
     // The sidebar split should still happen
     expect(script).toContain("paneSidebar to split paneRoot direction right");
 
-    // No "set command of cfg" should appear before the sidebar split line,
-    // because an empty sidebarCommand means the config command is skipped.
+    // No "set initial input of cfg" should appear before the sidebar split line,
+    // because an empty sidebarCommand means the initial input is skipped.
     const lines = script.split("\n");
     const sidebarSplitIndex = lines.findIndex((l) => l.includes("paneSidebar to split"));
     expect(sidebarSplitIndex).toBeGreaterThan(-1);
 
-    // Find any "set command of cfg" lines before the sidebar split
-    const configCmdBeforeSidebar = lines
+    // Find any "set initial input of cfg" lines before the sidebar split
+    const initialInputBeforeSidebar = lines
       .slice(0, sidebarSplitIndex)
-      .filter((l) => l.includes("set command of cfg to"));
-    expect(configCmdBeforeSidebar).toHaveLength(0);
+      .filter((l) => l.includes("set initial input of cfg to"));
+    expect(initialInputBeforeSidebar).toHaveLength(0);
   });
 
   it("skips shell pane when hasShell is false in multi-editor right column", () => {
@@ -426,22 +405,22 @@ describe("generateAppleScript", () => {
     expect(downSplits).toBe(0);
   });
 
-  it("generates clearConfigCommand for shell pane when hasShell is true without shellCommand", () => {
+  it("clears initial input for shell pane when hasShell is true without shellCommand", () => {
     // pair preset: editorPanes=2 → rightColumnEditorCount=1, shell="true" → hasShell=true, shellCommand=null
     const plan = planLayout({ ...getPreset("pair"), shell: "true" });
     const script = generateAppleScript(plan, "/tmp");
 
-    // The shell pane at the bottom of the right column should get clearConfigCommand()
-    // which produces: set command of cfg to ""
+    // The shell pane at the bottom of the right column should get clearInitialInput()
+    // which produces: set initial input of cfg to ""
     const lines = script.split("\n");
 
     // Find the shell pane split (paneRight2, since rightColumnEditorCount=1 → nextRight starts at 2)
     const shellSplitIdx = lines.findIndex((l) => l.includes("paneRight2 to split"));
     expect(shellSplitIdx).toBeGreaterThan(-1);
 
-    // The clearConfigCommand should appear before this split
+    // The clearInitialInput should appear before this split
     const clearIdx = lines.findIndex(
-      (l, i) => i < shellSplitIdx && l.includes('set command of cfg to ""'),
+      (l, i) => i < shellSplitIdx && l.includes('set initial input of cfg to ""'),
     );
     expect(clearIdx).toBeGreaterThan(-1);
     expect(clearIdx).toBeLessThan(shellSplitIdx);
@@ -473,7 +452,7 @@ describe("generateAppleScript", () => {
     const plan = planLayout({ editorPanes: 4, editor: "vim", secondaryEditor: "btop" });
     const script = generateAppleScript(plan, "/tmp");
 
-    // Right column first pane (paneRightCol) gets btop via config
+    // Right column first pane (paneRightCol) gets btop via initial input
     expect(script).toContain("paneRightCol to split paneRoot direction right");
 
     // Additional right column editor (paneRight2) created with a down split
@@ -483,9 +462,8 @@ describe("generateAppleScript", () => {
     const rightDownSplits = (script.match(/paneRight\d+ to split .+ direction down/g) ?? []);
     expect(rightDownSplits.length).toBeGreaterThanOrEqual(2);
 
-    // The btop command should be set on config for the additional editor panes
-    const btopConfigLine = "set command of cfg to \"/bin/bash -lc 'cd '\\\\''/tmp'\\\\'' && btop'\"";
-    expect(script).toContain(btopConfigLine);
+    // The btop command should be set on initial input for the additional editor panes
+    expect(script).toContain('set initial input of cfg to "btop\\n"');
 
     // Titles reflect the secondary editor command
     expect(script).toContain('set_surface_title:editor \u00B7 btop" on paneRightCol');
@@ -618,7 +596,7 @@ describe("generateAppleScript", () => {
 
   it("always includes SUMMON_WORKSPACE=1 in surface config env vars", () => {
     const plan = planLayout();
-    const script = generateAppleScript(plan, "/tmp/proj", "/bin/zsh", null);
+    const script = generateAppleScript(plan, "/tmp/proj", null);
     expect(script).toContain('"SUMMON_WORKSPACE=1"');
     expect(script).toContain("set environment variables of cfg to");
   });
@@ -636,19 +614,19 @@ describe("generateAppleScript", () => {
 
     it("no STARSHIP_CONFIG references when starshipConfigPath is null", () => {
       const plan = planLayout();
-      const script = generateAppleScript(plan, "/tmp/proj", "/bin/zsh", null);
+      const script = generateAppleScript(plan, "/tmp/proj", null);
       expect(script).not.toContain("STARSHIP_CONFIG");
     });
 
     it("sets environment variables on surface config", () => {
       const plan = planLayout();
-      const script = generateAppleScript(plan, "/tmp/proj", "/bin/zsh", configPath);
+      const script = generateAppleScript(plan, "/tmp/proj", configPath);
       expect(script).toContain(`set environment variables of cfg to {"SUMMON_WORKSPACE=1", "STARSHIP_CONFIG=${configPath}"}`);
     });
 
     it("root pane receives export STARSHIP_CONFIG before cd (non-new-window)", () => {
       const plan = planLayout();
-      const script = generateAppleScript(plan, "/tmp/proj", "/bin/zsh", configPath);
+      const script = generateAppleScript(plan, "/tmp/proj", configPath);
       const exportIdx = script.indexOf("export STARSHIP_CONFIG=");
       const cdIdx = script.indexOf("cd '/tmp/proj'");
       expect(exportIdx).toBeGreaterThan(-1);
@@ -658,25 +636,25 @@ describe("generateAppleScript", () => {
 
     it("root pane receives export even in new-window mode (Cmd+N doesn't apply cfg)", () => {
       const plan = planLayout({ newWindow: true });
-      const script = generateAppleScript(plan, "/tmp/proj", "/bin/zsh", configPath);
+      const script = generateAppleScript(plan, "/tmp/proj", configPath);
       const exportIdx = script.indexOf("export STARSHIP_CONFIG=");
       expect(exportIdx).toBeGreaterThan(-1);
     });
 
-    it("config-launched panes do NOT embed export in -lc argument (env on surface config)", () => {
+    it("initial-input panes do NOT embed exports (env on surface config)", () => {
       const plan = planLayout();
-      const script = generateAppleScript(plan, "/tmp/proj", "/bin/zsh", configPath);
-      // wrapForConfig should NOT contain export STARSHIP_CONFIG
+      const script = generateAppleScript(plan, "/tmp/proj", configPath);
+      // initial input should NOT contain export STARSHIP_CONFIG
       const lines = script.split("\n");
-      const configLines = lines.filter((l) => l.includes("set command of cfg to"));
-      for (const line of configLines) {
+      const initialInputLines = lines.filter((l) => l.includes("set initial input of cfg to"));
+      for (const line of initialInputLines) {
         expect(line).not.toContain("export STARSHIP_CONFIG");
       }
     });
 
     it("interactive shell panes do NOT receive export keystroke (inherit from cfg)", () => {
       const plan = planLayout(getPreset("cli"));
-      const script = generateAppleScript(plan, "/tmp/proj", "/bin/zsh", configPath);
+      const script = generateAppleScript(plan, "/tmp/proj", configPath);
       // paneRightCol is an interactive shell (no command)
       // It inherits env vars from surface config, no input text needed
       const lines = script.split("\n");
@@ -689,7 +667,7 @@ describe("generateAppleScript", () => {
     it("starshipConfigPath with spaces is properly escaped in surface config", () => {
       const pathWithSpaces = "/Users/me/my config/starship/tokyo night.toml";
       const plan = planLayout();
-      const script = generateAppleScript(plan, "/tmp/proj", "/bin/zsh", pathWithSpaces);
+      const script = generateAppleScript(plan, "/tmp/proj", pathWithSpaces);
       expect(script).toContain("STARSHIP_CONFIG=");
       expect(script).toContain("my config/starship/tokyo night.toml");
     });
@@ -697,14 +675,14 @@ describe("generateAppleScript", () => {
     it("starshipConfigPath with single quotes is properly escaped", () => {
       const pathWithQuote = "/Users/me/it's/starship.toml";
       const plan = planLayout();
-      const script = generateAppleScript(plan, "/tmp/proj", "/bin/zsh", pathWithQuote);
+      const script = generateAppleScript(plan, "/tmp/proj", pathWithQuote);
       expect(script).toContain("STARSHIP_CONFIG=");
       expect(script).toContain("starship.toml");
     });
 
     it("interactive shell panes receive clear even without starship config", () => {
       const plan = planLayout(getPreset("cli"));
-      const script = generateAppleScript(plan, "/tmp/proj", "/bin/zsh");
+      const script = generateAppleScript(plan, "/tmp/proj");
       // No starship config, but interactive shell pane should still get clear
       const lines = script.split("\n");
       const clearLine = lines.some(
@@ -713,9 +691,9 @@ describe("generateAppleScript", () => {
       expect(clearLine).toBe(true);
     });
 
-    it("config-launched panes do not receive clear", () => {
+    it("panes with initial input do not receive clear", () => {
       const plan = planLayout(getPreset("pair"));
-      const script = generateAppleScript(plan, "/tmp/proj", "/bin/zsh", configPath);
+      const script = generateAppleScript(plan, "/tmp/proj", configPath);
       // paneSidebar and paneRightCol have commands — they are NOT interactive
       // Only paneRight2 (plain shell) should get clear
       expect(script).not.toContain('input text "clear" to paneSidebar');
@@ -735,6 +713,31 @@ describe("generateAppleScript", () => {
       expect(script).toContain("end tell");
       expect(script).not.toContain("STARSHIP_CONFIG");
     });
+  });
+
+  it("initial input ends with newline", () => {
+    const plan = planLayout({ sidebarCommand: "lazygit" });
+    const script = generateAppleScript(plan, "/tmp");
+
+    // Every non-empty initial input must end with \\n so the command executes
+    const initialInputLines = script.split("\n").filter(
+      (l) => l.includes("set initial input of cfg to") && !l.includes('""'),
+    );
+    expect(initialInputLines.length).toBeGreaterThan(0);
+    for (const line of initialInputLines) {
+      expect(line).toMatch(/\\n"$/);
+    }
+  });
+
+  it("initial input is shell-agnostic (no shell wrapping)", () => {
+    const plan = planLayout({ sidebarCommand: "lazygit", shell: "npm run dev" });
+    const script = generateAppleScript(plan, "/tmp");
+
+    // No shell binary paths or shell flags should appear in the generated script
+    expect(script).not.toContain("/bin/bash");
+    expect(script).not.toContain("/bin/zsh");
+    expect(script).not.toContain("-lic");
+    expect(script).not.toContain("-lc");
   });
 
   describe("window management flags", () => {
@@ -817,7 +820,7 @@ describe("generateAppleScript", () => {
   describe("user environment variables", () => {
     it("sets user env vars on surface config", () => {
       const plan = planLayout();
-      const script = generateAppleScript(plan, "/tmp", "/bin/bash", null,
+      const script = generateAppleScript(plan, "/tmp", null,
         { NODE_ENV: "development", DEBUG: "true" });
       expect(script).toContain("NODE_ENV=development");
       expect(script).toContain("DEBUG=true");
@@ -826,7 +829,7 @@ describe("generateAppleScript", () => {
 
     it("merges user env vars with Starship env var", () => {
       const plan = planLayout();
-      const script = generateAppleScript(plan, "/tmp", "/bin/bash", "/path/starship.toml",
+      const script = generateAppleScript(plan, "/tmp", "/path/starship.toml",
         { NODE_ENV: "development" });
       expect(script).toContain("STARSHIP_CONFIG=/path/starship.toml");
       expect(script).toContain("NODE_ENV=development");
@@ -834,7 +837,7 @@ describe("generateAppleScript", () => {
 
     it("sends shell-quoted export to root pane (non-new-window)", () => {
       const plan = planLayout();
-      const script = generateAppleScript(plan, "/tmp", "/bin/bash", null,
+      const script = generateAppleScript(plan, "/tmp", null,
         { NODE_ENV: "development" });
       // Value should be shell-quoted
       expect(script).toContain("export NODE_ENV='development'");
@@ -842,7 +845,7 @@ describe("generateAppleScript", () => {
 
     it("shell-quotes env values with metacharacters", () => {
       const plan = planLayout();
-      const script = generateAppleScript(plan, "/tmp", "/bin/bash", null,
+      const script = generateAppleScript(plan, "/tmp", null,
         { FOO: "bar; rm -rf /" });
       // Metacharacters should be safely quoted
       expect(script).toContain("export FOO='bar; rm -rf /'");
@@ -851,7 +854,7 @@ describe("generateAppleScript", () => {
 
     it("exports env vars to root pane in new-window mode (Cmd+N doesn't apply cfg)", () => {
       const plan = planLayout({ newWindow: true });
-      const script = generateAppleScript(plan, "/tmp", "/bin/bash", null,
+      const script = generateAppleScript(plan, "/tmp", null,
         { NODE_ENV: "development" });
       expect(script).toContain("export NODE_ENV=");
     });
@@ -1136,7 +1139,7 @@ describe("generateTreeAppleScript", () => {
     const plan = makePlan(
       { type: "pane", name: "editor", command: "claude" },
     );
-    const script = generateTreeAppleScript(plan, "/tmp/project", "/bin/bash", null,
+    const script = generateTreeAppleScript(plan, "/tmp/project", null,
       { NODE_ENV: "development", DEBUG: "true" });
 
     expect(script).toContain("set environment variables of cfg to");
@@ -1144,7 +1147,7 @@ describe("generateTreeAppleScript", () => {
     expect(script).toContain("DEBUG=true");
   });
 
-  it("per-pane cwd: config pane uses resolved cwd in cd command", () => {
+  it("per-pane cwd: config pane uses resolved cwd", () => {
     const tree: LayoutNode = {
       type: "split",
       direction: "right",
@@ -1152,9 +1155,9 @@ describe("generateTreeAppleScript", () => {
       second: { type: "pane", name: "backend", command: "npm run dev", cwd: "./api" },
     };
     const plan = makePlan(tree);
-    const script = generateTreeAppleScript(plan, "/tmp/project", "/bin/bash");
+    const script = generateTreeAppleScript(plan, "/tmp/project");
 
-    // Config pane (backend) should cd to resolved cwd
+    // Non-root pane (backend) should have resolved cwd
     expect(script).toContain("/tmp/project/api");
     // Root pane (editor) should cd to resolved cwd
     expect(script).toContain("/tmp/project/frontend");
@@ -1168,7 +1171,7 @@ describe("generateTreeAppleScript", () => {
       second: { type: "pane", name: "backend", command: "npm run dev" },
     };
     const plan = makePlan(tree);
-    const script = generateTreeAppleScript(plan, "/tmp/project", "/bin/bash");
+    const script = generateTreeAppleScript(plan, "/tmp/project");
 
     // Both panes should use targetDir (no custom cwd)
     expect(script).toContain("cd '/tmp/project'");
@@ -1183,7 +1186,7 @@ describe("generateTreeAppleScript", () => {
       cwd: "../other",
     };
     const plan = makePlan(tree);
-    const script = generateTreeAppleScript(plan, "/tmp/project", "/bin/bash");
+    const script = generateTreeAppleScript(plan, "/tmp/project");
 
     // Relative cwd should resolve against targetDir
     expect(script).toContain("/tmp/other");
@@ -1193,7 +1196,7 @@ describe("generateTreeAppleScript", () => {
     const plan = makePlan(
       { type: "pane", name: "editor", command: "claude" },
     );
-    const script = generateTreeAppleScript(plan, "/tmp/project", "/bin/bash", null,
+    const script = generateTreeAppleScript(plan, "/tmp/project", null,
       { NODE_ENV: "development" });
 
     // Root pane should get export command via input text
@@ -1205,7 +1208,7 @@ describe("generateTreeAppleScript", () => {
       { type: "pane", name: "editor", command: "claude" },
       { newWindow: true },
     );
-    const script = generateTreeAppleScript(plan, "/tmp/project", "/bin/bash", null,
+    const script = generateTreeAppleScript(plan, "/tmp/project", null,
       { NODE_ENV: "development" });
 
     // Root pane gets env exports via input text (keystroke new window doesn't carry cfg)
@@ -1252,19 +1255,19 @@ describe("generateTreeAppleScript", () => {
     expect(script).not.toContain("set_surface_title:shell \u00B7");
   });
 
-  it("config command wraps in login shell with cd", () => {
+  it("non-root pane command uses initial input", () => {
     const plan = makePlan({
       type: "split", direction: "right",
       first: { type: "pane", name: "editor", command: "claude" },
       second: { type: "pane", name: "sidebar", command: "lazygit" },
     });
-    const script = generateTreeAppleScript(plan, "/tmp/project", "/bin/zsh");
+    const script = generateTreeAppleScript(plan, "/tmp/project");
 
-    // The sidebar's command should be set on cfg before the split, wrapped in login shell
-    expect(script).toContain("set command of cfg to \"/bin/zsh -lc 'cd '\\\\''/tmp/project'\\\\'' && lazygit'\"");
+    // The sidebar's command should be set on cfg via initial input before the split
+    expect(script).toContain('set initial input of cfg to "lazygit\\n"');
   });
 
-  it("empty command on second child clears config command", () => {
+  it("empty command on second child clears initial input", () => {
     const plan = makePlan({
       type: "split", direction: "right",
       first: { type: "pane", name: "editor", command: "claude" },
@@ -1272,9 +1275,9 @@ describe("generateTreeAppleScript", () => {
     });
     const script = generateTreeAppleScript(plan, "/tmp/project");
 
-    // Empty command → clearConfigCommand
+    // Empty command → clearInitialInput
     const lines = script.split("\n");
-    const clearIdx = lines.findIndex((l) => l.includes('set command of cfg to ""'));
+    const clearIdx = lines.findIndex((l) => l.includes('set initial input of cfg to ""'));
     const splitIdx = lines.findIndex((l) => l.includes("pane_shell to split"));
     expect(clearIdx).toBeGreaterThan(-1);
     expect(splitIdx).toBeGreaterThan(-1);
@@ -1318,7 +1321,7 @@ describe("generateTreeAppleScript", () => {
       { type: "pane", name: "editor", command: "claude" },
     );
     const configPath = "/Users/me/.config/summon/starship/tokyo-night.toml";
-    const script = generateTreeAppleScript(plan, "/tmp/project", "/bin/bash", configPath);
+    const script = generateTreeAppleScript(plan, "/tmp/project", configPath);
 
     expect(script).toContain(`STARSHIP_CONFIG=${configPath}`);
     expect(script).toContain("set environment variables of cfg to");
@@ -1371,5 +1374,24 @@ describe("generateTreeAppleScript", () => {
     expect(splitIdx).toBeGreaterThan(-1);
     expect(resizeIdx).toBeGreaterThan(-1);
     expect(resizeIdx).toBeGreaterThan(splitIdx);
+  });
+
+  it("per-pane cwd updates initial working directory before split", () => {
+    const tree: LayoutNode = {
+      type: "split",
+      direction: "right",
+      first: { type: "pane", name: "editor", command: "vim" },
+      second: { type: "pane", name: "backend", command: "npm run dev", cwd: "./api" },
+    };
+    const plan = makePlan(tree);
+    const script = generateTreeAppleScript(plan, "/tmp/project");
+
+    // The working directory should be updated before the split
+    const lines = script.split("\n");
+    const cwdIdx = lines.findIndex((l) => l.includes('set initial working directory of cfg to "/tmp/project/api"'));
+    const splitIdx = lines.findIndex((l) => l.includes("pane_backend to split"));
+    expect(cwdIdx).toBeGreaterThan(-1);
+    expect(splitIdx).toBeGreaterThan(-1);
+    expect(cwdIdx).toBeLessThan(splitIdx);
   });
 });

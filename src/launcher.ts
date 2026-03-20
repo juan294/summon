@@ -21,28 +21,11 @@ import { resolveCommand as resolveCommandPath, promptUser, getErrorMessage, SUMM
 import { parseIntInRange, parsePositiveFloat, ENV_KEY_RE } from "./validation.js";
 import { isStarshipInstalled, ensurePresetConfig, getPresetConfigPath } from "./starship.js";
 
-const SAFE_SHELL_RE = /^\/[a-zA-Z0-9_/.-]+$/;
-
 /** Shell metacharacters that indicate potentially dangerous commands. */
 const SHELL_META_RE = /[;|&`]|\$[({]|[><]/;
 
 /** Keys in .summon files that hold command values (as opposed to config like layout/panes). */
 const COMMAND_KEYS = new Set(["editor", "sidebar", "shell", "on-start"]);
-
-/**
- * Read and validate process.env.SHELL.
- * Falls back to /bin/bash with a warning if undefined or unsafe.
- */
-function getLoginShell(): string {
-  const shell = process.env.SHELL;
-  if (shell === undefined || !SAFE_SHELL_RE.test(shell)) {
-    if (shell !== undefined) {
-      console.warn(`Unsafe SHELL value: "${shell}". Falling back to /bin/bash.`);
-    }
-    return "/bin/bash";
-  }
-  return shell;
-}
 
 /** Convert resolved layout options to a key-value config map suitable for saving as a custom layout. */
 export function optsToConfigMap(opts: Partial<LayoutOptions>): Map<string, string> {
@@ -515,7 +498,6 @@ async function launchTreeLayout(
   opts: Partial<LayoutOptions>,
   cliOverrides: CLIOverrides,
   targetDir: string,
-  loginShell: string,
   starshipPreset: string | undefined,
   envVars: Record<string, string>,
   ensureAndResolve: (cmd: string, key: string) => Promise<string>,
@@ -536,7 +518,7 @@ async function launchTreeLayout(
 
   if (cliOverrides.dryRun) {
     const dryRunStarshipPath = starshipPreset ? getPresetConfigPath(starshipPreset) : null;
-    const script = generateTreeAppleScript(treePlan, targetDir, loginShell, dryRunStarshipPath, hasEnvVars ? envVars : undefined);
+    const script = generateTreeAppleScript(treePlan, targetDir, dryRunStarshipPath, hasEnvVars ? envVars : undefined);
     const paneCount = treePlan.leaves.length;
     const headerLines = [
       "-- summon dry-run",
@@ -559,7 +541,7 @@ async function launchTreeLayout(
   }
 
   const starshipConfigPath = resolveStarship();
-  const script = generateTreeAppleScript(treePlan, targetDir, loginShell, starshipConfigPath, hasEnvVars ? envVars : undefined);
+  const script = generateTreeAppleScript(treePlan, targetDir, starshipConfigPath, hasEnvVars ? envVars : undefined);
   executeScript(script);
 }
 
@@ -567,7 +549,6 @@ async function launchTraditionalLayout(
   opts: Partial<LayoutOptions>,
   cliOverrides: CLIOverrides,
   targetDir: string,
-  loginShell: string,
   starshipPreset: string | undefined,
   envVars: Record<string, string>,
   ensureAndResolve: (cmd: string, key: string) => Promise<string>,
@@ -578,7 +559,7 @@ async function launchTraditionalLayout(
 
   if (cliOverrides.dryRun) {
     const dryRunStarshipPath = starshipPreset ? getPresetConfigPath(starshipPreset) : null;
-    const script = generateAppleScript(plan, targetDir, loginShell, dryRunStarshipPath, hasEnvVars ? envVars : undefined);
+    const script = generateAppleScript(plan, targetDir, dryRunStarshipPath, hasEnvVars ? envVars : undefined);
     const totalPanes = plan.leftColumnCount + plan.rightColumnEditorCount;
     const headerLines = [
       "-- summon dry-run",
@@ -599,7 +580,7 @@ async function launchTraditionalLayout(
   if (plan.shellCommand) plan.shellCommand = await ensureAndResolve(plan.shellCommand, "shell");
 
   const starshipConfigPath = resolveStarship();
-  const script = generateAppleScript(plan, targetDir, loginShell, starshipConfigPath, hasEnvVars ? envVars : undefined);
+  const script = generateAppleScript(plan, targetDir, starshipConfigPath, hasEnvVars ? envVars : undefined);
   executeScript(script);
 }
 
@@ -640,8 +621,6 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
     executeOnStart(onStart, targetDir);
   }
 
-  const loginShell = getLoginShell();
-
   // Cache resolved command paths so the same binary is only looked up once
   const resolvedCache = new Map<string, string>();
   const ensureAndResolve = async (cmdString: string, configKey: string): Promise<string> => {
@@ -677,8 +656,8 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
   };
 
   if (treeLayout) {
-    await launchTreeLayout(treeLayout, opts, cliOverrides ?? {}, targetDir, loginShell, starshipPreset, envVars, ensureAndResolve, resolveStarship);
+    await launchTreeLayout(treeLayout, opts, cliOverrides ?? {}, targetDir, starshipPreset, envVars, ensureAndResolve, resolveStarship);
   } else {
-    await launchTraditionalLayout(opts, cliOverrides ?? {}, targetDir, loginShell, starshipPreset, envVars, ensureAndResolve, resolveStarship);
+    await launchTraditionalLayout(opts, cliOverrides ?? {}, targetDir, starshipPreset, envVars, ensureAndResolve, resolveStarship);
   }
 }

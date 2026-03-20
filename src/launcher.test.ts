@@ -197,33 +197,9 @@ describe("script execution", () => {
         hasShell: false,
       }),
       "/tmp/workspace",
-      expect.any(String),
       null,
       undefined,
     );
-  });
-
-  it("passes login shell to generateAppleScript", async () => {
-    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
-
-    await launch("/tmp/workspace");
-
-    const shellArg = mockGenerateAppleScript.mock.calls[0]![2];
-    expect(shellArg).toBe(process.env.SHELL ?? "/bin/bash");
-  });
-
-  it("falls back to /bin/bash when SHELL env var is undefined", async () => {
-    const origShell = process.env.SHELL;
-    delete process.env.SHELL;
-    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
-
-    try {
-      await launch("/tmp/workspace");
-      const shellArg = mockGenerateAppleScript.mock.calls[0]![2];
-      expect(shellArg).toBe("/bin/bash");
-    } finally {
-      process.env.SHELL = origShell;
-    }
   });
 });
 
@@ -1016,7 +992,6 @@ describe("falsy sidebarCommand guard", () => {
         sidebarCommand: "/usr/bin/stub",
       }),
       "/tmp/workspace",
-      expect.any(String),
       null,
       undefined,
     );
@@ -1034,7 +1009,6 @@ describe("falsy sidebarCommand guard", () => {
         sidebarCommand: "",
       }),
       "/tmp/workspace",
-      expect.any(String),
       null,
       undefined,
     );
@@ -1169,102 +1143,11 @@ describe("command resolution cache for shared binaries (#61)", () => {
         sidebarCommand: "/usr/local/bin/vim",
       }),
       "/tmp/workspace",
-      expect.any(String),
       null,
       undefined,
     );
   });
 });
-
-describe("SHELL validation (#84)", () => {
-  it("falls back to /bin/bash and warns when SHELL contains injection characters", async () => {
-    const origShell = process.env.SHELL;
-    process.env.SHELL = "/bin/bash; rm -rf /";
-    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-
-    try {
-      await launch("/tmp/workspace", { dryRun: true });
-      const shellArg = mockGenerateAppleScript.mock.calls[0]![2];
-      expect(shellArg).toBe("/bin/bash");
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining("SHELL"),
-      );
-    } finally {
-      process.env.SHELL = origShell;
-      warnSpy.mockRestore();
-    }
-  });
-
-  it("falls back to /bin/bash and warns when SHELL has backticks", async () => {
-    const origShell = process.env.SHELL;
-    process.env.SHELL = "`evil`";
-    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-
-    try {
-      await launch("/tmp/workspace", { dryRun: true });
-      const shellArg = mockGenerateAppleScript.mock.calls[0]![2];
-      expect(shellArg).toBe("/bin/bash");
-      expect(warnSpy).toHaveBeenCalled();
-    } finally {
-      process.env.SHELL = origShell;
-      warnSpy.mockRestore();
-    }
-  });
-
-  it("falls back to /bin/bash and warns when SHELL has spaces", async () => {
-    const origShell = process.env.SHELL;
-    process.env.SHELL = "/bin/my shell";
-    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-
-    try {
-      await launch("/tmp/workspace", { dryRun: true });
-      const shellArg = mockGenerateAppleScript.mock.calls[0]![2];
-      expect(shellArg).toBe("/bin/bash");
-      expect(warnSpy).toHaveBeenCalled();
-    } finally {
-      process.env.SHELL = origShell;
-      warnSpy.mockRestore();
-    }
-  });
-
-  it("accepts valid SHELL paths", async () => {
-    const origShell = process.env.SHELL;
-    process.env.SHELL = "/usr/local/bin/zsh";
-    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-
-    try {
-      await launch("/tmp/workspace", { dryRun: true });
-      const shellArg = mockGenerateAppleScript.mock.calls[0]![2];
-      expect(shellArg).toBe("/usr/local/bin/zsh");
-      expect(warnSpy).not.toHaveBeenCalled();
-    } finally {
-      process.env.SHELL = origShell;
-      warnSpy.mockRestore();
-    }
-  });
-
-  it("falls back to /bin/bash when SHELL does not start with /", async () => {
-    const origShell = process.env.SHELL;
-    process.env.SHELL = "zsh";
-    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-
-    try {
-      await launch("/tmp/workspace", { dryRun: true });
-      const shellArg = mockGenerateAppleScript.mock.calls[0]![2];
-      expect(shellArg).toBe("/bin/bash");
-      expect(warnSpy).toHaveBeenCalled();
-    } finally {
-      process.env.SHELL = origShell;
-      warnSpy.mockRestore();
-    }
-  });
-});
-
 describe("dry-run summary header (#85)", () => {
   it("prefixes dry-run output with AppleScript-style summary comments", async () => {
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
@@ -1356,7 +1239,6 @@ describe("path resolution", () => {
         sidebarCommand: "/opt/homebrew/bin/lazygit",
       }),
       "/tmp/workspace",
-      expect.any(String),
       null,
       undefined,
     );
@@ -1378,7 +1260,6 @@ describe("path resolution", () => {
         shellCommand: "/usr/local/bin/npm run dev",
       }),
       "/tmp/workspace",
-      expect.any(String),
       null,
       undefined,
     );
@@ -1790,7 +1671,6 @@ describe("shell metacharacter confirmation (#90)", () => {
       expect(mockGenerateAppleScript).toHaveBeenCalledWith(
         expect.anything(),
         "/tmp/workspace",
-        expect.any(String),
         "/mock/.config/summon/starship/tokyo-night.toml",
         undefined,
       );
@@ -1804,7 +1684,6 @@ describe("shell metacharacter confirmation (#90)", () => {
       expect(mockGenerateAppleScript).toHaveBeenCalledWith(
         expect.anything(),
         "/tmp/workspace",
-        expect.any(String),
         null,
         undefined,
       );
@@ -1822,7 +1701,6 @@ describe("shell metacharacter confirmation (#90)", () => {
       expect(mockGenerateAppleScript).toHaveBeenCalledWith(
         expect.anything(),
         "/tmp/workspace",
-        expect.any(String),
         null,
         undefined,
       );
@@ -1844,7 +1722,6 @@ describe("shell metacharacter confirmation (#90)", () => {
       expect(mockGenerateAppleScript).toHaveBeenCalledWith(
         expect.anything(),
         "/tmp/workspace",
-        expect.any(String),
         null,
         undefined,
       );
@@ -1905,7 +1782,6 @@ describe("shell metacharacter confirmation (#90)", () => {
       expect(mockGenerateAppleScript).toHaveBeenCalledWith(
         expect.anything(),
         "/tmp/workspace",
-        expect.any(String),
         "/mock/.config/summon/starship/tokyo-night.toml",
         undefined,
       );
@@ -2419,7 +2295,6 @@ describe("custom tree layout integration (Phase 4)", () => {
       expect(mockGenerateTreeAppleScript).toHaveBeenCalledWith(
         expect.anything(),
         "/tmp/workspace",
-        expect.any(String),
         "/mock/.config/summon/starship/gruvbox-rainbow.toml",
         undefined,
       );
@@ -2622,7 +2497,6 @@ describe("env vars passed to script generator (#168)", () => {
     expect(mockGenerateAppleScript).toHaveBeenCalledWith(
       expect.anything(),
       "/tmp/workspace",
-      expect.any(String),
       null,
       { NODE_ENV: "production" },
     );
@@ -2637,7 +2511,6 @@ describe("env vars passed to script generator (#168)", () => {
     expect(mockGenerateAppleScript).toHaveBeenCalledWith(
       expect.anything(),
       "/tmp/workspace",
-      expect.any(String),
       null,
       { NODE_ENV: "production" },
     );
@@ -2661,7 +2534,6 @@ describe("env vars passed to script generator (#168)", () => {
     expect(mockGenerateTreeAppleScript).toHaveBeenCalledWith(
       expect.anything(),
       "/tmp/workspace",
-      expect.any(String),
       null,
       { NODE_ENV: "test" },
     );
@@ -2685,7 +2557,6 @@ describe("env vars passed to script generator (#168)", () => {
     expect(mockGenerateTreeAppleScript).toHaveBeenCalledWith(
       expect.anything(),
       "/tmp/workspace",
-      expect.any(String),
       null,
       { MY_VAR: "hello" },
     );
@@ -2749,7 +2620,6 @@ describe("tree dry-run without starship preset (#168)", () => {
     expect(mockGenerateTreeAppleScript).toHaveBeenCalledWith(
       expect.anything(),
       "/tmp/workspace",
-      expect.any(String),
       null,
       undefined,
     );
