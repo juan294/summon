@@ -541,16 +541,13 @@ export function printSection(title: string): void {
  * Check catalog of tools, return each with `available` flag.
  * Reuses resolveCommand from utils.ts — single source of truth for shell resolution.
  */
-export async function detectTools(
+export function detectTools(
   catalog: readonly ToolEntry[],
-): Promise<DetectedTool[]> {
-  const results = await Promise.all(
-    catalog.map(async (entry) => ({
-      ...entry,
-      available: resolveCommandPath(entry.cmd) !== null,
-    })),
-  );
-  return results;
+): DetectedTool[] {
+  return catalog.map((entry) => ({
+    ...entry,
+    available: resolveCommandPath(entry.cmd) !== null,
+  }));
 }
 
 // ---------------------------------------------------------------------------
@@ -863,7 +860,7 @@ export async function selectToolFromCatalog(
   sectionTitle: string,
 ): Promise<string> {
   printSection(sectionTitle);
-  const detected = await detectTools(catalog);
+  const detected = detectTools(catalog);
   const available = detected.filter((t) => t.available);
 
   const askCustom = async (): Promise<string> => {
@@ -1611,8 +1608,8 @@ export async function runLayoutBuilder(name: string): Promise<void> {
   const columnCount = paneCountsPerColumn.length;
 
   // --- Command assignment with in-place preview ---
-  // Detect available tools once (shell lookups run in parallel)
-  const detected = await detectTools([...EDITOR_CATALOG, ...SIDEBAR_CATALOG]);
+  // Detect available tools once
+  const detected = detectTools([...EDITOR_CATALOG, ...SIDEBAR_CATALOG]);
   const availableCmds = detected
     .filter((t) => t.available)
     .map((t) => t.cmd);

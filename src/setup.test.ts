@@ -134,25 +134,25 @@ describe("resolveCommandPath", () => {
 });
 
 describe("detectTools", () => {
-  it("marks available tools with available: true", async () => {
+  it("marks available tools with available: true", () => {
     mockExecFileSync.mockReturnValue("/usr/bin/vim\n");
-    const result = await detectTools([{ cmd: "vim", name: "Vim", desc: "Editor" }]);
+    const result = detectTools([{ cmd: "vim", name: "Vim", desc: "Editor" }]);
     expect(result[0]!.available).toBe(true);
   });
 
-  it("marks missing tools with available: false", async () => {
+  it("marks missing tools with available: false", () => {
     mockExecFileSync.mockImplementation(() => {
       throw new Error("not found");
     });
-    const result = await detectTools([{ cmd: "vim", name: "Vim", desc: "Editor" }]);
+    const result = detectTools([{ cmd: "vim", name: "Vim", desc: "Editor" }]);
     expect(result[0]!.available).toBe(false);
   });
 
-  it("handles empty catalog", async () => {
-    expect(await detectTools([])).toEqual([]);
+  it("handles empty catalog", () => {
+    expect(detectTools([])).toEqual([]);
   });
 
-  it("handles all-missing catalog", async () => {
+  it("handles all-missing catalog", () => {
     mockExecFileSync.mockImplementation(() => {
       throw new Error("not found");
     });
@@ -160,17 +160,17 @@ describe("detectTools", () => {
       { cmd: "a", name: "A", desc: "a" },
       { cmd: "b", name: "B", desc: "b" },
     ];
-    const result = await detectTools(catalog);
+    const result = detectTools(catalog);
     expect(result.every((t) => !t.available)).toBe(true);
   });
 
-  it("handles all-available catalog", async () => {
+  it("handles all-available catalog", () => {
     mockExecFileSync.mockReturnValue("/usr/bin/stub\n");
     const catalog = [
       { cmd: "a", name: "A", desc: "a" },
       { cmd: "b", name: "B", desc: "b" },
     ];
-    const result = await detectTools(catalog);
+    const result = detectTools(catalog);
     expect(result.every((t) => t.available)).toBe(true);
   });
 });
@@ -2810,35 +2810,36 @@ describe("selectLayout — custom layout name prompt", () => {
 });
 
 // ---------------------------------------------------------------------------
-// #160 — detectTools is async (parallelized)
+// #204 — detectTools is synchronous (no faux-async)
 // ---------------------------------------------------------------------------
 
-describe("detectTools — async", () => {
-  it("returns a promise", () => {
+describe("detectTools — synchronous", () => {
+  it("returns an array (not a promise)", () => {
     mockExecFileSync.mockReturnValue("/usr/bin/stub\n");
     const result = detectTools([{ cmd: "vim", name: "Vim", desc: "Editor" }]);
-    expect(result).toBeInstanceOf(Promise);
+    expect(Array.isArray(result)).toBe(true);
+    expect(result).not.toBeInstanceOf(Promise);
   });
 
-  it("marks available tools with available: true", async () => {
+  it("marks available tools with available: true", () => {
     mockExecFileSync.mockReturnValue("/usr/bin/vim\n");
-    const result = await detectTools([{ cmd: "vim", name: "Vim", desc: "Editor" }]);
+    const result = detectTools([{ cmd: "vim", name: "Vim", desc: "Editor" }]);
     expect(result[0]!.available).toBe(true);
   });
 
-  it("marks missing tools with available: false", async () => {
+  it("marks missing tools with available: false", () => {
     mockExecFileSync.mockImplementation(() => {
       throw new Error("not found");
     });
-    const result = await detectTools([{ cmd: "vim", name: "Vim", desc: "Editor" }]);
+    const result = detectTools([{ cmd: "vim", name: "Vim", desc: "Editor" }]);
     expect(result[0]!.available).toBe(false);
   });
 
-  it("handles empty catalog", async () => {
-    expect(await detectTools([])).toEqual([]);
+  it("handles empty catalog", () => {
+    expect(detectTools([])).toEqual([]);
   });
 
-  it("handles all-missing catalog", async () => {
+  it("handles all-missing catalog", () => {
     mockExecFileSync.mockImplementation(() => {
       throw new Error("not found");
     });
@@ -2846,17 +2847,17 @@ describe("detectTools — async", () => {
       { cmd: "a", name: "A", desc: "a" },
       { cmd: "b", name: "B", desc: "b" },
     ];
-    const result = await detectTools(catalog);
+    const result = detectTools(catalog);
     expect(result.every((t) => !t.available)).toBe(true);
   });
 
-  it("handles all-available catalog", async () => {
+  it("handles all-available catalog", () => {
     mockExecFileSync.mockReturnValue("/usr/bin/stub\n");
     const catalog = [
       { cmd: "a", name: "A", desc: "a" },
       { cmd: "b", name: "B", desc: "b" },
     ];
-    const result = await detectTools(catalog);
+    const result = detectTools(catalog);
     expect(result.every((t) => t.available)).toBe(true);
   });
 });
