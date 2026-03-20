@@ -1,4 +1,5 @@
 import { parseArgs } from "node:util";
+import { existsSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { homedir } from "node:os";
 import {
@@ -24,7 +25,7 @@ import { launch, resolveConfig, optsToConfigMap } from "./launcher.js";
 import type { CLIOverrides } from "./launcher.js";
 import { PANES_MIN, PANES_DEFAULT, EDITOR_SIZE_MIN, EDITOR_SIZE_MAX, EDITOR_SIZE_DEFAULT, isPresetName, getPresetNames } from "./layout.js";
 import { validateIntFlag, validateFloatFlag, ENV_KEY_RE } from "./validation.js";
-import { SAFE_COMMAND_RE, getErrorMessage, exitWithUsageHint, checkAccessibility, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT, ACCESSIBILITY_REQUIRED_MSG } from "./utils.js";
+import { SAFE_COMMAND_RE, getErrorMessage, exitWithUsageHint, resolveCommand, checkAccessibility, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT, ACCESSIBILITY_REQUIRED_MSG } from "./utils.js";
 
 function validateLayoutNameOrExit(name: string): void {
   if (isPresetName(name)) {
@@ -99,12 +100,12 @@ Options:
   -n, --dry-run               Print generated AppleScript without executing
 
 Config keys:
-  editor        Command for coding panes (set during setup)
-  sidebar       Command for sidebar pane (default: lazygit)
-  panes         Number of editor panes (default: 2)
-  editor-size   Width % for editor grid (default: 75)
-  shell         Shell pane: true, false, or command (default: true)
-  layout        Default layout preset
+  editor          Command for coding panes (set during setup)
+  sidebar         Command for sidebar pane (default: lazygit)
+  panes           Number of editor panes (default: 2)
+  editor-size     Width % for editor grid (default: 75)
+  shell           Shell pane: true, false, or command (default: true)
+  layout          Default layout preset or custom layout name
   auto-resize     Resize sidebar to match editor-size (default: true)
   starship-preset Starship prompt theme preset (per-workspace)
   new-window      Open workspace in a new window (default: false)
@@ -125,6 +126,7 @@ Layout presets:
 Per-project config:
   Place a .summon file in your project root with key=value pairs.
   Project config overrides machine config; CLI flags override both.
+  Custom layouts support tree DSL syntax for advanced pane arrangements.
   Note: .summon files can specify commands that will be executed.
   Review .summon files before running summon in untrusted directories.
 
@@ -137,6 +139,8 @@ Examples:
   summon set editor vim           Set the editor command
   summon . --layout minimal       Launch with minimal preset
   summon . --shell "npm run dev"  Launch with custom shell command
+  summon doctor                   Check config and fix issues
+  summon freeze mysetup           Save current config as reusable layout
 `.trim();
 
 const DISPLAY_COMMAND_KEYS = ["editor", "sidebar"];
@@ -186,6 +190,7 @@ All workspace flags (--layout, --editor, etc.) are supported.`,
   doctor: `Usage: summon doctor [--fix]
 
 Check your Ghostty configuration for recommended settings.
+Exits with code 2 if issues are found.
 
 Options:
   --fix  Auto-add missing recommended settings (backs up config first)`,
@@ -372,6 +377,9 @@ switch (subcommand) {
       process.exit(1);
     }
     const resolved = expandHome(path);
+    if (!existsSync(resolved)) {
+      console.warn(`Warning: path does not exist: ${resolved}`);
+    }
     addProject(name, resolved);
     console.log(`Registered: ${name} → ${resolved}`);
     break;
@@ -532,7 +540,7 @@ switch (subcommand) {
     const ghosttyConfigPath = join(homedir(), ".config", "ghostty", "config");
 
     if (!ghosttyExists(ghosttyConfigPath)) {
-      console.log("  ! No Ghostty config file found at ~/.config/ghostty/config");
+      console.log("  - No Ghostty config file found at ~/.config/ghostty/config");
       console.log("    Create one to customize your terminal experience.");
       console.log();
     }
@@ -611,6 +619,32 @@ switch (subcommand) {
       console.log();
     }
 
+    // Check configured editor and sidebar commands
+    const userConfig = listConfig();
+    const commandChecks: Array<{ key: string; cmd: string }> = [];
+    const editorCmd = userConfig.get("editor");
+    const sidebarCmd = userConfig.get("sidebar");
+    if (editorCmd) commandChecks.push({ key: "editor", cmd: editorCmd });
+    if (sidebarCmd) commandChecks.push({ key: "sidebar", cmd: sidebarCmd });
+
+    if (commandChecks.length > 0) {
+      console.log();
+      console.log("Checking configured commands...\n");
+
+      for (const { key, cmd } of commandChecks) {
+        const binary = cmd.split(" ")[0]!;
+        const found = resolveCommand(binary);
+        if (found) {
+          console.log(`  + ${key} command "${binary}" found at ${found}`);
+        } else {
+          allGood = false;
+          console.log(`  - ${key} command "${binary}" not found in PATH`);
+          console.log(`    Install "${binary}" or change with: summon set ${key} <command>`);
+          console.log();
+        }
+      }
+    }
+
     if (allGood && missingSettings.length === 0) {
       console.log("\n  All recommended settings are configured!");
     }
@@ -620,6 +654,7 @@ switch (subcommand) {
     const configFixed = fixFlag && missingSettings.length > 0;
     const issuesRemain = configFixed ? !accessOk : !allGood;
     if (issuesRemain) {
+      console.error("\n  Exit code 2: issues were found. See above for details.");
       process.exit(2);
     }
 
@@ -628,8 +663,7 @@ switch (subcommand) {
 
   case "keybindings": {
     const { generateKeyTableConfig } = await import("./keybindings.js");
-    const { collectLeaves } = await import("./tree.js");
-    const { resolveTreeCommands: resolveTreeCmdsLocal } = await import("./tree.js");
+    const { collectLeaves, resolveTreeCommands: resolveTreeCmdsLocal } = await import("./tree.js");
     const style = values.vim ? "vim" as const : "arrows" as const;
     const config = resolveConfig(process.cwd(), buildOverrides());
 
@@ -683,7 +717,7 @@ switch (subcommand) {
     }
 
     const entries = [...projects.entries()];
-    console.log("Select a project to launch:\n");
+    console.log("Select a project to launch (Ctrl+C to cancel):\n");
     for (const [i, [name, path]] of entries.entries()) {
       console.log(`  ${i + 1}) ${name} → ${path}`);
     }
@@ -779,6 +813,9 @@ switch (subcommand) {
         }
         validateLayoutNameOrExit(layoutName);
         const config = listConfig();
+        if (config.size === 0) {
+          console.warn("Warning: saving layout with empty config. Set values first with: summon set <key> <value>");
+        }
         saveCustomLayout(layoutName, config);
         console.log(`Saved custom layout: ${layoutName}`);
         break;

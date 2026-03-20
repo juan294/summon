@@ -338,7 +338,7 @@ describe("checkAccessibility", () => {
     expect(mockExecFileSync).toHaveBeenCalledWith(
       "osascript",
       ["-e", 'tell application "System Events" to get name of first process'],
-      expect.objectContaining({ encoding: "utf-8", timeout: 5000 }),
+      expect.objectContaining({ encoding: "utf-8", timeout: 2000 }),
     );
   });
 

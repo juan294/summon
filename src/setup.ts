@@ -111,6 +111,55 @@ const BOX = {
 } as const;
 
 // ---------------------------------------------------------------------------
+// Box-drawing helpers — shared by renderLayoutPreview and renderMiniPreview
+// ---------------------------------------------------------------------------
+
+/** Build a top border line: ┌──┬──┐ */
+function boxTopBorder(colCount: number, colWidth: number): string {
+  const segment = BOX.horizontal.repeat(colWidth);
+  const parts: string[] = [];
+  for (let c = 0; c < colCount; c++) parts.push(segment);
+  return BOX.topLeft + parts.join(BOX.teeDown) + BOX.topRight;
+}
+
+/** Build a bottom border line: └──┴──┘ */
+function boxBottomBorder(colCount: number, colWidth: number): string {
+  const segment = BOX.horizontal.repeat(colWidth);
+  const parts: string[] = [];
+  for (let c = 0; c < colCount; c++) parts.push(segment);
+  return BOX.bottomLeft + parts.join(BOX.teeUp) + BOX.bottomRight;
+}
+
+/**
+ * Build a row separator line with correct junction characters.
+ * `hasSplitAt(c)` returns true if column `c` has a pane boundary at this row.
+ */
+function boxRowSeparator(
+  colCount: number,
+  colWidth: number,
+  hasSplitAt: (c: number) => boolean,
+): string {
+  let sep = "";
+  for (let c = 0; c < colCount; c++) {
+    const hasSplit = hasSplitAt(c);
+    if (c === 0) {
+      sep += hasSplit ? BOX.teeRight : BOX.vertical;
+    } else {
+      const prevSplit = hasSplitAt(c - 1);
+      if (prevSplit && hasSplit) sep += BOX.cross;
+      else if (prevSplit) sep += BOX.teeLeft;
+      else if (hasSplit) sep += BOX.teeRight;
+      else sep += BOX.vertical;
+    }
+    sep += hasSplit ? BOX.horizontal.repeat(colWidth) : " ".repeat(colWidth);
+  }
+  // Right edge
+  const lastSplit = hasSplitAt(colCount - 1);
+  sep += lastSplit ? BOX.teeLeft : BOX.vertical;
+  return sep;
+}
+
+// ---------------------------------------------------------------------------
 // ANSI cursor control helpers
 // ---------------------------------------------------------------------------
 
@@ -277,6 +326,24 @@ export function applyGridAction(
 // ---------------------------------------------------------------------------
 
 /**
+ * Build a string[][] grid with focus highlighting for the grid builder.
+ * Focused cell shows cyan "*", other cells show dim "·".
+ */
+function buildFocusGrid(
+  columns: number[],
+  focusCol: number,
+  focusRow: number,
+): string[][] {
+  return columns.map((paneCount, c) => {
+    const col: string[] = [];
+    for (let p = 0; p < paneCount; p++) {
+      col.push(c === focusCol && p === focusRow ? cyan("*") : dim("\u00b7"));
+    }
+    return col;
+  });
+}
+
+/**
  * Render layout preview for the grid builder with focus highlighting.
  * Focused cell shows cyan "*", other cells show dim "·".
  * @internal — exported for testing only
@@ -286,14 +353,7 @@ export function renderGridBuilderPreview(
   focusCol: number,
   focusRow: number,
 ): string {
-  const grid: string[][] = columns.map((paneCount, c) => {
-    const col: string[] = [];
-    for (let p = 0; p < paneCount; p++) {
-      col.push(c === focusCol && p === focusRow ? cyan("*") : dim("\u00b7"));
-    }
-    return col;
-  });
-  return renderLayoutPreview(grid);
+  return renderLayoutPreview(buildFocusGrid(columns, focusCol, focusRow));
 }
 
 /**
@@ -334,14 +394,7 @@ export async function runGridBuilder(): Promise<number[] | null> {
   const renderer = new PreviewRenderer();
 
   const render = (): void => {
-    const grid: string[][] = state.columns.map((paneCount, c) => {
-      const col: string[] = [];
-      for (let p = 0; p < paneCount; p++) {
-        col.push(c === state.focusCol && p === state.focusRow ? cyan("*") : dim("\u00b7"));
-      }
-      return col;
-    });
-    renderer.draw(grid);
+    renderer.draw(buildFocusGrid(state.columns, state.focusCol, state.focusRow));
     renderer.log(renderGridBuilderHints(state));
   };
 
@@ -1311,29 +1364,21 @@ export function renderLayoutPreview(
 ): string {
   const COL_WIDTH = 14;       // chars per column (fits ~12-char command + 2 padding)
   const PANE_HEIGHT = 3;      // lines per pane cell (1 content line + 2 border/spacing)
+  const colCount = grid.length;
 
   // Find max row count across all columns
   const maxRows = Math.max(...grid.map((col) => col.length));
 
   const lines: string[] = [];
 
-  // --- Top border ---
-  const topParts: string[] = [];
-  for (let c = 0; c < grid.length; c++) {
-    topParts.push(BOX.horizontal.repeat(COL_WIDTH));
-  }
-  lines.push(
-    BOX.topLeft +
-      topParts.join(BOX.teeDown) +
-      BOX.topRight,
-  );
+  lines.push(boxTopBorder(colCount, COL_WIDTH));
 
   // --- Content rows ---
   for (let row = 0; row < maxRows; row++) {
     // Draw the pane content lines
     for (let lineInPane = 0; lineInPane < PANE_HEIGHT; lineInPane++) {
       let rowStr = "";
-      for (let c = 0; c < grid.length; c++) {
+      for (let c = 0; c < colCount; c++) {
         const col = grid[c]!;
         const cmd = col[row] ?? "";
         rowStr += BOX.vertical;
@@ -1349,52 +1394,11 @@ export function renderLayoutPreview(
 
     // --- Row separator (between pane rows, not after last) ---
     if (row < maxRows - 1) {
-      const sepParts: string[] = [];
-      for (let c = 0; c < grid.length; c++) {
-        const col = grid[c]!;
-        // Only draw horizontal line if this column has a pane in the next row
-        if (row + 1 < col.length) {
-          sepParts.push(BOX.horizontal.repeat(COL_WIDTH));
-        } else {
-          sepParts.push(" ".repeat(COL_WIDTH));
-        }
-      }
-      // Build separator with correct junction characters
-      let sep = "";
-      for (let c = 0; c < grid.length; c++) {
-        const col = grid[c]!;
-        const hasSplitHere = row + 1 < col.length;
-        if (c === 0) {
-          sep += hasSplitHere ? BOX.teeRight : BOX.vertical;
-        } else {
-          // Junction between columns
-          const prevCol = grid[c - 1]!;
-          const prevHasSplit = row + 1 < prevCol.length;
-          if (prevHasSplit && hasSplitHere) sep += BOX.cross;
-          else if (prevHasSplit) sep += BOX.teeLeft;
-          else if (hasSplitHere) sep += BOX.teeRight;
-          else sep += BOX.vertical;
-        }
-        sep += sepParts[c]!;
-      }
-      // Right edge
-      const lastCol = grid[grid.length - 1]!;
-      const lastHasSplit = row + 1 < lastCol.length;
-      sep += lastHasSplit ? BOX.teeLeft : BOX.vertical;
-      lines.push(sep);
+      lines.push(boxRowSeparator(colCount, COL_WIDTH, (c) => row + 1 < grid[c]!.length));
     }
   }
 
-  // --- Bottom border ---
-  const bottomParts: string[] = [];
-  for (let c = 0; c < grid.length; c++) {
-    bottomParts.push(BOX.horizontal.repeat(COL_WIDTH));
-  }
-  lines.push(
-    BOX.bottomLeft +
-      bottomParts.join(BOX.teeUp) +
-      BOX.bottomRight,
-  );
+  lines.push(boxBottomBorder(colCount, COL_WIDTH));
 
   return lines.join("\n");
 }
@@ -1406,22 +1410,17 @@ export function renderLayoutPreview(
  */
 export function renderMiniPreview(columns: number[]): string[] {
   const COL_W = 5;
+  const colCount = columns.length;
 
   const maxRows = Math.max(...columns);
   const lines: string[] = [];
 
-  // Top border
-  const topParts = columns.map(() => BOX.horizontal.repeat(COL_W));
-  lines.push(
-    BOX.topLeft +
-      topParts.join(BOX.teeDown) +
-      BOX.topRight,
-  );
+  lines.push(boxTopBorder(colCount, COL_W));
 
   // Content rows
   for (let row = 0; row < maxRows; row++) {
     let rowStr = "";
-    for (let c = 0; c < columns.length; c++) {
+    for (let c = 0; c < colCount; c++) {
       rowStr += BOX.vertical;
       rowStr += " ".repeat(COL_W);
     }
@@ -1430,37 +1429,11 @@ export function renderMiniPreview(columns: number[]): string[] {
 
     // Row separator (between pane rows, not after last)
     if (row < maxRows - 1) {
-      let sep = "";
-      for (let c = 0; c < columns.length; c++) {
-        const paneCount = columns[c]!;
-        const hasSplit = row + 1 < paneCount;
-        if (c === 0) {
-          sep += hasSplit ? BOX.teeRight : BOX.vertical;
-        } else {
-          const prevCount = columns[c - 1]!;
-          const prevSplit = row + 1 < prevCount;
-          if (prevSplit && hasSplit) sep += BOX.cross;
-          else if (prevSplit) sep += BOX.teeLeft;
-          else if (hasSplit) sep += BOX.teeRight;
-          else sep += BOX.vertical;
-        }
-        sep += hasSplit ? BOX.horizontal.repeat(COL_W) : " ".repeat(COL_W);
-      }
-      // Right edge
-      const lastCount = columns[columns.length - 1]!;
-      const lastSplit = row + 1 < lastCount;
-      sep += lastSplit ? BOX.teeLeft : BOX.vertical;
-      lines.push(sep);
+      lines.push(boxRowSeparator(colCount, COL_W, (c) => row + 1 < columns[c]!));
     }
   }
 
-  // Bottom border
-  const bottomParts = columns.map(() => BOX.horizontal.repeat(COL_W));
-  lines.push(
-    BOX.bottomLeft +
-      bottomParts.join(BOX.teeUp) +
-      BOX.bottomRight,
-  );
+  lines.push(boxBottomBorder(colCount, COL_W));
 
   return lines;
 }

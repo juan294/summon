@@ -3112,6 +3112,22 @@ describe("renderLayoutPreview — junction rendering", () => {
     const preview = renderLayoutPreview([["a"], ["b"]]);
     expect(preview).not.toContain("\u253c"); // no cross
   });
+
+  it("renders vertical junction between two columns that both lack a split at a row boundary", () => {
+    // Col 0 has 3 panes (forces row boundaries at rows 0→1 and 1→2).
+    // Col 1 and Col 2 each have 1 pane — neither has a split at row 0→1.
+    // At the junction between Col 1 and Col 2 on the row 0→1 separator,
+    // neither prevHasSplit nor hasSplitHere is true → BOX.vertical (│).
+    const preview = renderLayoutPreview([["a", "b", "c"], ["d"], ["e"]]);
+    const lines = preview.split("\n");
+    // Find the first row separator line (contains ├ for col 0's split)
+    const sepLine = lines.find((l: string) => l.includes("\u251c")); // ├ (teeRight)
+    expect(sepLine).toBeDefined();
+    // Between col 1 and col 2, the junction should be │ (vertical), not ┼/├/┤
+    // The separator line has structure: ├──────────────┤              │              │
+    // The junction between col 1 (no split) and col 2 (no split) is │
+    expect(sepLine).toContain("\u2502" + " ".repeat(14) + "\u2502"); // │ + spaces + │ for no-split cols
+  });
 });
 
 describe("renderTemplateGallery — edge cases", () => {

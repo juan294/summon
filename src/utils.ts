@@ -111,7 +111,7 @@ export function checkAccessibility(): boolean {
     execFileSync(
       "osascript",
       ["-e", 'tell application "System Events" to get name of first process'],
-      { encoding: "utf-8", timeout: 5000 },
+      { encoding: "utf-8", timeout: 2000 },
     );
     return true;
   } catch {
