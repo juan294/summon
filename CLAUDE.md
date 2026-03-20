@@ -165,6 +165,23 @@ All commits must pass `pnpm typecheck && pnpm lint && pnpm build && pnpm test`.
 - npm publish is manual: `pnpm build && npm publish` (see docs/publishing.md)
 - Releases are tagged from `main`: `git tag v<version> && git push origin v<version>`
 
+## Conditional Blocks for Context-Specific Rules
+
+As this file grows, wrap domain-specific sections in `<important if="condition">` tags.
+The agent activates these only when the condition matches the current task, reducing noise.
+Keep universal content (stack, structure, git workflow) unwrapped.
+
+```markdown
+<important if="you are writing or modifying tests">
+- Use `createTestApp()` helper for integration tests
+- Mock database with `dbMock` from `packages/db/test`
+- Test fixtures live in `__fixtures__/` directories
+</important>
+```
+
+- **Be specific.** `"you are writing tests"` is good. `"you are writing code"` matches everything and defeats the purpose.
+- **Group by domain.** One block per domain (testing, deployment, database) — don't wrap individual lines.
+
 ## Agent Operational Rules
 
 ### Shell & Tools
