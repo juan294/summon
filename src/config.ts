@@ -44,6 +44,7 @@ export function readKVFile(path: string): Map<string, string> {
   }
   if (!content) return map;
   for (const line of content.split("\n")) {
+    if (line.trimStart().startsWith("#")) continue;
     const idx = line.indexOf("=");
     if (idx === -1) continue;
     map.set(line.slice(0, idx), line.slice(idx + 1));

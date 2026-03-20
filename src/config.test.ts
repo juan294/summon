@@ -187,6 +187,24 @@ describe("readKVFile", () => {
     expect(map.get("panes")).toBe("3");
     expect(map.size).toBe(2);
   });
+
+  it("skips # comment lines (#197)", async () => {
+    const store = await getStore();
+    store.set("/tmp/.summon", "# This is a comment\neditor=vim\n# editor=nano\npanes=3\n");
+    const map = readKVFile("/tmp/.summon");
+    expect(map.get("editor")).toBe("vim");
+    expect(map.get("panes")).toBe("3");
+    expect(map.size).toBe(2);
+  });
+
+  it("skips # comments with leading whitespace trimmed (#197)", async () => {
+    const store = await getStore();
+    store.set("/tmp/.summon", "editor=vim\n  # indented comment with=equals\npanes=2\n");
+    const map = readKVFile("/tmp/.summon");
+    expect(map.get("editor")).toBe("vim");
+    expect(map.get("panes")).toBe("2");
+    expect(map.size).toBe(2);
+  });
 });
 
 describe("ensureConfig caching (#25)", () => {
