@@ -1566,7 +1566,7 @@ describe("CLI integration", () => {
     it("help output includes version number in header", () => {
       const result = run("--help");
       expect(result.status).toBe(0);
-      // Should show something like "summon v0.7.0"
+      // Should show something like "summon v1.2.1"
       expect(result.stdout).toMatch(/summon v\d+\.\d+\.\d+/);
     });
   });
