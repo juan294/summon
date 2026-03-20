@@ -1461,6 +1461,158 @@ describe("CLI integration", () => {
     });
   });
 
+  // #200 W4: Consistent Error: prefix on all error messages
+  describe("consistent Error: prefix (#200)", () => {
+    it("unknown config key has Error: prefix", () => {
+      const result = run("set", "foobar", "somevalue");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toMatch(/^Error:/m);
+    });
+
+    it("project not found has Error: prefix", () => {
+      const result = run("remove", "nonexistent");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toMatch(/^Error:/m);
+    });
+
+    it("unknown project has Error: prefix", () => {
+      const result = run("nonexistent-project-200");
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toMatch(/^Error:/m);
+    });
+
+    it("unsupported shell has Error: prefix", () => {
+      const result = run("completions", "fish");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toMatch(/^Error:/m);
+    });
+
+    it("layout already exists has Error: prefix", () => {
+      run("set", "editor", "vim");
+      run("freeze", "exist200");
+      const result = run("freeze", "exist200");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toMatch(/^Error:/m);
+      run("layout", "delete", "exist200");
+    });
+
+    it("no projects registered (open) has Error: prefix", () => {
+      const freshHome = mkdtempSync(join(tmpdir(), "summon-200-open-"));
+      const result = spawnSync("node", ["dist/index.js", "open"], {
+        encoding: "utf-8",
+        cwd: PROJECT_ROOT,
+        env: { ...process.env, HOME: freshHome },
+        timeout: 30_000,
+      });
+      rmSync(freshHome, { recursive: true, force: true });
+      expect(result.status).toBe(1);
+      expect(result.stderr).toMatch(/^Error:/m);
+    });
+  });
+
+  // #200 W5: Usage hints on input validation errors
+  describe("usage hints on input errors (#200)", () => {
+    it("add missing args shows usage hint", () => {
+      const result = run("add");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("summon --help");
+    });
+
+    it("remove missing name shows usage hint", () => {
+      const result = run("remove");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("summon --help");
+    });
+
+    it("set missing key shows usage hint", () => {
+      const result = run("set");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("summon --help");
+    });
+
+    it("unknown config key shows usage hint", () => {
+      const result = run("set", "foobar", "value");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("summon --help");
+    });
+
+    it("unsupported shell shows usage hint", () => {
+      const result = run("completions", "fish");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("summon --help");
+    });
+
+    it("completions missing shell shows usage hint", () => {
+      const result = run("completions");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("summon --help");
+    });
+
+    it("layout no action shows usage hint", () => {
+      const result = run("layout");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("summon --help");
+    });
+
+    it("unknown layout action shows usage hint", () => {
+      const result = run("layout", "bogusaction");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("summon --help");
+    });
+  });
+
+  // #200 R-U1: Version in help header
+  describe("version in help header (#200)", () => {
+    it("help output includes version number in header", () => {
+      const result = run("--help");
+      expect(result.status).toBe(0);
+      // Should show something like "summon v0.7.0"
+      expect(result.stdout).toMatch(/summon v\d+\.\d+\.\d+/);
+    });
+  });
+
+  // #200 R-U4: auto-resize default consistency
+  describe("auto-resize default consistency (#200)", () => {
+    it("config keys section says (default: on) for auto-resize", () => {
+      const result = run("--help");
+      expect(result.status).toBe(0);
+      // Find the Config keys section and check auto-resize default
+      const configKeysIdx = result.stdout.indexOf("Config keys:");
+      const configSection = result.stdout.slice(configKeysIdx);
+      const autoResizeLine = configSection.split("\n").find((l: string) => l.includes("auto-resize"));
+      expect(autoResizeLine).toContain("(default: on)");
+    });
+  });
+
+  // #200 R-U5: Double space fix
+  describe("double space fix (#200)", () => {
+    it("set empty string error message has no double space", () => {
+      const result = run("set", "editor", "");
+      expect(result.status).toBe(1);
+      // Should NOT have double space before "(without a value)"
+      expect(result.stderr).not.toContain("editor  (without");
+      expect(result.stderr).toContain("editor (without");
+    });
+  });
+
+  // #200 W8: Doctor exit code 2 formatting
+  describe("doctor exit code 2 formatting (#200)", () => {
+    it("exit code 2 message has no leading whitespace", () => {
+      const freshHome = mkdtempSync(join(tmpdir(), "summon-200-doctor-"));
+      const result = spawnSync("node", ["dist/index.js", "doctor"], {
+        encoding: "utf-8",
+        cwd: PROJECT_ROOT,
+        env: { ...process.env, HOME: freshHome },
+        timeout: 30_000,
+      });
+      rmSync(freshHome, { recursive: true, force: true });
+      expect(result.status).toBe(2);
+      // Should NOT have leading \n  before "Exit code 2"
+      expect(result.stderr).not.toMatch(/\n\s+Exit code 2/);
+      expect(result.stderr).toContain("Exit code 2:");
+    });
+  });
+
   // #191 R25: doctor ! prefix consistency
   describe("doctor prefix consistency (#191)", () => {
     it("uses - prefix instead of ! for missing Ghostty config", () => {

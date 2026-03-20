@@ -96,7 +96,7 @@ function layoutNotFoundOrExit(name: string): never {
 }
 
 const HELP = `
-summon -- Launch multi-pane Ghostty workspaces
+summon v${__VERSION__} -- Launch multi-pane Ghostty workspaces
 
 Usage:
   summon <target>             Launch workspace (project name, path, or '.')
@@ -144,7 +144,7 @@ Config keys:
   editor-size     Width % for editor grid (default: 75)
   shell           Shell pane: true, false, or command (default: true)
   layout          Default layout preset or custom layout name
-  auto-resize     Resize sidebar to match editor-size (default: true)
+  auto-resize     Resize sidebar to match editor-size (default: on)
   starship-preset Starship prompt theme preset (per-workspace)
   new-window      Open workspace in a new window (default: false)
   fullscreen      Start workspace in fullscreen (default: false)
@@ -411,8 +411,7 @@ switch (subcommand) {
   case "add": {
     const [name, path] = args;
     if (!name || !path) {
-      console.error("Usage: summon add <name> <path>");
-      process.exit(1);
+      exitWithUsageHint("Usage: summon add <name> <path>");
     }
     const resolved = expandHome(path);
     if (!existsSync(resolved)) {
@@ -426,14 +425,13 @@ switch (subcommand) {
   case "remove": {
     const [name] = args;
     if (!name) {
-      console.error("Usage: summon remove <name>");
-      process.exit(1);
+      exitWithUsageHint("Usage: summon remove <name>");
     }
     const existed = removeProject(name);
     if (existed) {
       console.log(`Removed: ${name}`);
     } else {
-      console.error(`Project not found: ${name}`);
+      console.error(`Error: Project not found: ${name}`);
       console.error("Run 'summon list' to see registered projects.");
       process.exit(1);
     }
@@ -456,12 +454,10 @@ switch (subcommand) {
   case "set": {
     const [key, value] = args;
     if (!key) {
-      console.error("Usage: summon set <key> [value]");
-      process.exit(1);
+      exitWithUsageHint("Usage: summon set <key> [value]");
     }
     if (!VALID_KEYS.includes(key) && !key.startsWith("env.")) {
-      console.error(`Unknown config key "${key}". Valid keys: ${VALID_KEYS.join(", ")}, env.<KEY>`);
-      process.exit(1);
+      exitWithUsageHint(`Error: Unknown config key "${key}". Valid keys: ${VALID_KEYS.join(", ")}, env.<KEY>`);
     }
     if (key.startsWith("env.")) {
       const envName = key.slice(4);
@@ -498,7 +494,7 @@ switch (subcommand) {
     if (value !== undefined) {
       if (value === "" && (key === "editor" || key === "sidebar" || key === "shell" || key === "on-start")) {
         console.error(`Error: ${key} cannot be set to an empty string.`);
-        console.error(`To reset to default, run: summon set ${key}  (without a value)`);
+        console.error(`To reset to default, run: summon set ${key} (without a value)`);
         process.exit(1);
       }
       setConfig(key, value);
@@ -553,17 +549,13 @@ switch (subcommand) {
   case "completions": {
     const [shell] = args;
     if (!shell) {
-      console.error("Usage: summon completions <shell>");
-      console.error("Supported shells: zsh, bash");
-      process.exit(1);
+      exitWithUsageHint("Usage: summon completions <shell>\nSupported shells: zsh, bash");
     }
     if (shell === "zsh" || shell === "bash") {
       const { generateZshCompletion, generateBashCompletion } = await import("./completions.js");
       console.log(shell === "zsh" ? generateZshCompletion() : generateBashCompletion());
     } else {
-      console.error(`Unsupported shell: ${shell}`);
-      console.error("Supported shells: zsh, bash");
-      process.exit(1);
+      exitWithUsageHint(`Error: Unsupported shell: ${shell}\nSupported shells: zsh, bash`);
     }
     break;
   }
@@ -692,7 +684,7 @@ switch (subcommand) {
     const configFixed = fixFlag && missingSettings.length > 0;
     const issuesRemain = configFixed ? !accessOk : !allGood;
     if (issuesRemain) {
-      console.error("\n  Exit code 2: issues were found. See above for details.");
+      console.error("Exit code 2: issues were found. See above for details.");
       process.exit(2);
     }
 
@@ -735,7 +727,7 @@ switch (subcommand) {
     }
     validateLayoutNameOrExit(freezeName);
     if (isCustomLayout(freezeName)) {
-      console.error(`Layout "${freezeName}" already exists. Delete it first: summon layout delete ${freezeName}`);
+      console.error(`Error: Layout "${freezeName}" already exists. Delete it first: summon layout delete ${freezeName}`);
       process.exit(1);
     }
 
@@ -750,7 +742,7 @@ switch (subcommand) {
   case "open": {
     const projects = listProjects();
     if (projects.size === 0) {
-      console.error("No projects registered. Use: summon add <name> <path>");
+      console.error("Error: No projects registered. Use: summon add <name> <path>");
       process.exit(1);
     }
 
@@ -828,15 +820,13 @@ switch (subcommand) {
   case "layout": {
     const [action, layoutName] = args;
     if (!action) {
-      console.error("Usage: summon layout <create|save|list|show|delete|edit> [name]");
-      process.exit(1);
+      exitWithUsageHint("Usage: summon layout <create|save|list|show|delete|edit> [name]");
     }
 
     switch (action) {
       case "create": {
         if (!layoutName) {
-          console.error("Usage: summon layout create <name>");
-          process.exit(1);
+          exitWithUsageHint("Usage: summon layout create <name>");
         }
         validateLayoutNameOrExit(layoutName);
         const { runLayoutBuilder } = await import("./setup.js");
@@ -846,8 +836,7 @@ switch (subcommand) {
 
       case "save": {
         if (!layoutName) {
-          console.error("Usage: summon layout save <name>");
-          process.exit(1);
+          exitWithUsageHint("Usage: summon layout save <name>");
         }
         validateLayoutNameOrExit(layoutName);
         const config = listConfig();
@@ -914,8 +903,7 @@ switch (subcommand) {
 
       case "show": {
         if (!layoutName) {
-          console.error("Usage: summon layout show <name>");
-          process.exit(1);
+          exitWithUsageHint("Usage: summon layout show <name>");
         }
         if (isPresetName(layoutName)) {
           console.error(`Error: "${layoutName}" is a built-in preset, not a custom layout. Run 'summon --help' to see preset descriptions.`);
@@ -939,8 +927,7 @@ switch (subcommand) {
 
       case "delete": {
         if (!layoutName) {
-          console.error("Usage: summon layout delete <name>");
-          process.exit(1);
+          exitWithUsageHint("Usage: summon layout delete <name>");
         }
         validateLayoutNameOrExit(layoutName);
         const deleted = deleteCustomLayout(layoutName);
@@ -954,8 +941,7 @@ switch (subcommand) {
 
       case "edit": {
         if (!layoutName) {
-          console.error("Usage: summon layout edit <name>");
-          process.exit(1);
+          exitWithUsageHint("Usage: summon layout edit <name>");
         }
         validateLayoutNameOrExit(layoutName);
         if (!isCustomLayout(layoutName)) {
@@ -981,9 +967,7 @@ switch (subcommand) {
       }
 
       default: {
-        console.error(`Unknown layout action: ${action}`);
-        console.error("Usage: summon layout <create|save|list|show|delete|edit> [name]");
-        process.exit(1);
+        exitWithUsageHint(`Error: Unknown layout action: ${action}\nUsage: summon layout <create|save|list|show|delete|edit> [name]`);
       }
     }
     break;
@@ -1007,7 +991,7 @@ switch (subcommand) {
     } else {
       const path = getProject(target);
       if (!path) {
-        console.error(`Unknown project: ${target}`);
+        console.error(`Error: Unknown project: ${target}`);
         console.error(
           `Register it with: summon add ${target} /path/to/project`,
         );
