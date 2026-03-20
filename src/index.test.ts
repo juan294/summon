@@ -342,7 +342,9 @@ describe("CLI integration", () => {
       expect(result.stderr).toContain("bogus");
     });
 
-    // Retry: this test is flaky under v8 coverage due to subprocess overhead (#166)
+    // Retry: flaky under v8 coverage (#166). Root cause: coverage instrumentation
+    // adds overhead to subprocess spawning, occasionally causing spawnSync to return
+    // a non-zero exit or timeout. Not fixable in test code; retry is the correct mitigation.
     it("accepts valid layout preset", { retry: 2 }, () => {
       const result = run(".", "--layout", "minimal", "--dry-run");
       expect(result.status).toBe(0);
@@ -478,7 +480,9 @@ describe("CLI integration", () => {
         expect(result.stderr).toContain("Valid presets:");
       });
 
-      // Retry: this test is flaky under v8 coverage due to subprocess overhead (#166)
+      // Retry: flaky under v8 coverage (#166). Root cause: coverage instrumentation
+      // adds overhead to subprocess spawning, occasionally causing spawnSync to return
+      // a non-zero exit or timeout. Not fixable in test code; retry is the correct mitigation.
       it("accepts valid layout preset", { retry: 2 }, () => {
         const result = run("set", "layout", "minimal");
         expect(result.status).toBe(0);
@@ -814,7 +818,7 @@ describe("CLI integration", () => {
       expect(result.stdout).toContain("Checking permissions");
       // The result depends on OS permissions, so check that one of the two messages appears
       const hasGranted = result.stdout.includes("Accessibility permission is granted");
-      const hasNotGranted = result.stdout.includes("Accessibility permission not granted");
+      const hasNotGranted = result.stdout.includes("Accessibility permission is required");
       expect(hasGranted || hasNotGranted).toBe(true);
     });
 
@@ -1325,6 +1329,306 @@ describe("CLI integration", () => {
       expect(result.stdout).toContain("editor=vim");
       expect(result.stdout).toContain("env.NODE_ENV=production");
       expect(result.stdout).toContain("env.DEBUG=true");
+    });
+  });
+
+  // #191 W7: doctor checks editor and sidebar commands
+  describe("doctor checks configured commands (#191)", () => {
+    it("doctor reports when configured editor command is not found", () => {
+      // Set an editor that definitely doesn't exist
+      run("set", "editor", "nonexistent-editor-xyz-191");
+      const result = run("doctor");
+      expect(result.status === 0 || result.status === 2).toBe(true);
+      expect(result.stdout).toContain("nonexistent-editor-xyz-191");
+      expect(result.stdout).toContain("not found");
+    });
+
+    it("doctor reports when configured sidebar command is not found", () => {
+      run("set", "sidebar", "nonexistent-sidebar-xyz-191");
+      const result = run("doctor");
+      expect(result.status === 0 || result.status === 2).toBe(true);
+      expect(result.stdout).toContain("nonexistent-sidebar-xyz-191");
+      expect(result.stdout).toContain("not found");
+    });
+
+    it("doctor reports configured commands that are found", () => {
+      // 'sh' should exist on any macOS system
+      run("set", "editor", "sh");
+      const result = run("doctor");
+      expect(result.status === 0 || result.status === 2).toBe(true);
+      expect(result.stdout).toContain("sh");
+      expect(result.stdout).toContain("found");
+    });
+  });
+
+  // #191 W10: summon open cancel hint
+  describe("summon open cancel hint (#191)", () => {
+    it("shows Ctrl+C hint in project selection prompt", () => {
+      run("add", "hint-proj", "/tmp/hint-proj");
+      // Pipe EOF immediately so the process exits
+      const result = spawnSync("sh", ["-c", `echo "" | node dist/index.js open`], {
+        encoding: "utf-8",
+        cwd: PROJECT_ROOT,
+        env: { ...process.env, HOME: TEMP_HOME },
+        timeout: 30_000,
+      });
+      // The stdout should contain the Ctrl+C hint
+      expect(result.stdout).toContain("Ctrl+C");
+    });
+  });
+
+  // #191 R13: consolidated tree.js import in keybindings (verified by existing keybindings tests)
+
+  // #191 R17: help text examples for newer features
+  describe("help text examples for newer features (#191)", () => {
+    it("shows example for doctor in Examples section", () => {
+      const result = run("--help");
+      expect(result.status).toBe(0);
+      // The Examples section should contain a doctor example
+      const examplesIdx = result.stdout.indexOf("Examples:");
+      expect(examplesIdx).toBeGreaterThan(-1);
+      const examplesSection = result.stdout.slice(examplesIdx);
+      expect(examplesSection).toContain("summon doctor");
+    });
+
+    it("shows example for freeze in Examples section", () => {
+      const result = run("--help");
+      expect(result.status).toBe(0);
+      const examplesIdx = result.stdout.indexOf("Examples:");
+      expect(examplesIdx).toBeGreaterThan(-1);
+      const examplesSection = result.stdout.slice(examplesIdx);
+      expect(examplesSection).toMatch(/summon freeze\b/);
+    });
+  });
+
+  // #191 R18: tree DSL mention in help text
+  describe("help text tree DSL mention (#191)", () => {
+    it("mentions tree DSL or custom layouts in help text", () => {
+      const result = run("--help");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("tree");
+    });
+  });
+
+  // #191 R20: doctor exit code 2 note
+  describe("doctor exit code 2 note (#191)", () => {
+    it("doctor output mentions exit code 2 for issues", () => {
+      // Use a fresh HOME so no Ghostty config exists → recommendations missing → exit 2
+      const freshHome = mkdtempSync(join(tmpdir(), "summon-exitcode-"));
+      const result = spawnSync("node", ["dist/index.js", "doctor"], {
+        encoding: "utf-8",
+        cwd: PROJECT_ROOT,
+        env: { ...process.env, HOME: freshHome },
+        timeout: 30_000,
+      });
+      rmSync(freshHome, { recursive: true, force: true });
+      expect(result.status).toBe(2);
+      expect(result.stderr).toContain("Exit code 2");
+    });
+  });
+
+  // #191 R21: empty layout save warning
+  describe("layout save empty config warning (#191)", () => {
+    it("warns when saving a layout with empty config", () => {
+      // Use a fresh home with no config
+      const freshHome = mkdtempSync(join(tmpdir(), "summon-empty-save-"));
+      const result = spawnSync("node", ["dist/index.js", "layout", "save", "emptytest"], {
+        encoding: "utf-8",
+        cwd: PROJECT_ROOT,
+        env: { ...process.env, HOME: freshHome },
+        timeout: 30_000,
+      });
+      rmSync(freshHome, { recursive: true, force: true });
+      expect(result.status).toBe(0);
+      expect(result.stderr).toContain("Warning");
+      expect(result.stderr).toContain("empty");
+    });
+  });
+
+  // #191 R22: summon add path warning
+  describe("summon add path warning (#191)", () => {
+    it("warns when adding a project with nonexistent path", () => {
+      const result = run("add", "ghost-proj", "/tmp/nonexistent-path-xyz-191");
+      expect(result.status).toBe(0);
+      expect(result.stderr).toContain("Warning");
+      expect(result.stderr).toContain("does not exist");
+    });
+
+    it("does not warn when adding a project with existing path", () => {
+      const result = run("add", "real-proj", "/tmp");
+      expect(result.status).toBe(0);
+      expect(result.stderr).toBe("");
+    });
+  });
+
+  // #200 W4: Consistent Error: prefix on all error messages
+  describe("consistent Error: prefix (#200)", () => {
+    it("unknown config key has Error: prefix", () => {
+      const result = run("set", "foobar", "somevalue");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toMatch(/^Error:/m);
+    });
+
+    it("project not found has Error: prefix", () => {
+      const result = run("remove", "nonexistent");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toMatch(/^Error:/m);
+    });
+
+    it("unknown project has Error: prefix", () => {
+      const result = run("nonexistent-project-200");
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toMatch(/^Error:/m);
+    });
+
+    it("unsupported shell has Error: prefix", () => {
+      const result = run("completions", "fish");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toMatch(/^Error:/m);
+    });
+
+    it("layout already exists has Error: prefix", () => {
+      run("set", "editor", "vim");
+      run("freeze", "exist200");
+      const result = run("freeze", "exist200");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toMatch(/^Error:/m);
+      run("layout", "delete", "exist200");
+    });
+
+    it("no projects registered (open) has Error: prefix", () => {
+      const freshHome = mkdtempSync(join(tmpdir(), "summon-200-open-"));
+      const result = spawnSync("node", ["dist/index.js", "open"], {
+        encoding: "utf-8",
+        cwd: PROJECT_ROOT,
+        env: { ...process.env, HOME: freshHome },
+        timeout: 30_000,
+      });
+      rmSync(freshHome, { recursive: true, force: true });
+      expect(result.status).toBe(1);
+      expect(result.stderr).toMatch(/^Error:/m);
+    });
+  });
+
+  // #200 W5: Usage hints on input validation errors
+  describe("usage hints on input errors (#200)", () => {
+    it("add missing args shows usage hint", () => {
+      const result = run("add");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("summon --help");
+    });
+
+    it("remove missing name shows usage hint", () => {
+      const result = run("remove");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("summon --help");
+    });
+
+    it("set missing key shows usage hint", () => {
+      const result = run("set");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("summon --help");
+    });
+
+    it("unknown config key shows usage hint", () => {
+      const result = run("set", "foobar", "value");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("summon --help");
+    });
+
+    it("unsupported shell shows usage hint", () => {
+      const result = run("completions", "fish");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("summon --help");
+    });
+
+    it("completions missing shell shows usage hint", () => {
+      const result = run("completions");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("summon --help");
+    });
+
+    it("layout no action shows usage hint", () => {
+      const result = run("layout");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("summon --help");
+    });
+
+    it("unknown layout action shows usage hint", () => {
+      const result = run("layout", "bogusaction");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("summon --help");
+    });
+  });
+
+  // #200 R-U1: Version in help header
+  describe("version in help header (#200)", () => {
+    it("help output includes version number in header", () => {
+      const result = run("--help");
+      expect(result.status).toBe(0);
+      // Should show something like "summon v1.2.1"
+      expect(result.stdout).toMatch(/summon v\d+\.\d+\.\d+/);
+    });
+  });
+
+  // #200 R-U4: auto-resize default consistency
+  describe("auto-resize default consistency (#200)", () => {
+    it("config keys section says (default: on) for auto-resize", () => {
+      const result = run("--help");
+      expect(result.status).toBe(0);
+      // Find the Config keys section and check auto-resize default
+      const configKeysIdx = result.stdout.indexOf("Config keys:");
+      const configSection = result.stdout.slice(configKeysIdx);
+      const autoResizeLine = configSection.split("\n").find((l: string) => l.includes("auto-resize"));
+      expect(autoResizeLine).toContain("(default: on)");
+    });
+  });
+
+  // #200 R-U5: Double space fix
+  describe("double space fix (#200)", () => {
+    it("set empty string error message has no double space", () => {
+      const result = run("set", "editor", "");
+      expect(result.status).toBe(1);
+      // Should NOT have double space before "(without a value)"
+      expect(result.stderr).not.toContain("editor  (without");
+      expect(result.stderr).toContain("editor (without");
+    });
+  });
+
+  // #200 W8: Doctor exit code 2 formatting
+  describe("doctor exit code 2 formatting (#200)", () => {
+    it("exit code 2 message has no leading whitespace", () => {
+      const freshHome = mkdtempSync(join(tmpdir(), "summon-200-doctor-"));
+      const result = spawnSync("node", ["dist/index.js", "doctor"], {
+        encoding: "utf-8",
+        cwd: PROJECT_ROOT,
+        env: { ...process.env, HOME: freshHome },
+        timeout: 30_000,
+      });
+      rmSync(freshHome, { recursive: true, force: true });
+      expect(result.status).toBe(2);
+      // Should NOT have leading \n  before "Exit code 2"
+      expect(result.stderr).not.toMatch(/\n\s+Exit code 2/);
+      expect(result.stderr).toContain("Exit code 2:");
+    });
+  });
+
+  // #191 R25: doctor ! prefix consistency
+  describe("doctor prefix consistency (#191)", () => {
+    it("uses - prefix instead of ! for missing Ghostty config", () => {
+      // With temp HOME, no Ghostty config exists
+      const freshHome = mkdtempSync(join(tmpdir(), "summon-prefix-"));
+      const result = spawnSync("node", ["dist/index.js", "doctor"], {
+        encoding: "utf-8",
+        cwd: PROJECT_ROOT,
+        env: { ...process.env, HOME: freshHome },
+        timeout: 30_000,
+      });
+      rmSync(freshHome, { recursive: true, force: true });
+      // Should NOT use ! prefix
+      expect(result.stdout).not.toMatch(/^\s+!/m);
+      // Should use - prefix for the missing config message
+      expect(result.stdout).toContain("- No Ghostty config");
     });
   });
 

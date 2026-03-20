@@ -31,7 +31,7 @@
 #     <array>
 #       <string>/bin/bash</string>
 #       <string>-c</string>
-#       <string>exec /bin/bash /Users/juan/Documents/code/summon/scripts/agents/cc-rpi-update.sh</string>
+#       <string>exec /bin/bash /Users/juan/code/summon/scripts/agents/cc-rpi-update.sh</string>
 #     </array>
 #     <key>StartCalendarInterval</key>
 #     <dict>
@@ -60,9 +60,9 @@
 #       <string>/opt/homebrew/bin:/usr/local/bin:/Users/juan/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
 #     </dict>
 #     <key>StandardOutPath</key>
-#     <string>/Users/juan/Documents/code/summon/logs/cc-rpi-update.log</string>
+#     <string>/Users/juan/code/summon/logs/cc-rpi-update.log</string>
 #     <key>StandardErrorPath</key>
-#     <string>/Users/juan/Documents/code/summon/logs/cc-rpi-update.error.log</string>
+#     <string>/Users/juan/code/summon/logs/cc-rpi-update.error.log</string>
 #   </dict>
 #   </plist>
 #
@@ -76,14 +76,14 @@
 # ── Linux cron ──
 #
 #   # Run nightly at 3:00 AM:
-#   0 3 * * * /Users/juan/Documents/code/summon/scripts/agents/cc-rpi-update.sh \
-#     >> /Users/juan/Documents/code/summon/logs/cc-rpi-update.log 2>&1
+#   0 3 * * * /Users/juan/code/summon/scripts/agents/cc-rpi-update.sh \
+#     >> /Users/juan/code/summon/logs/cc-rpi-update.log 2>&1
 #
 
 set -euo pipefail
 
 # ── Configuration ──
-CC_RPI_PATH="/Users/juan/Documents/code/cc-rpi"
+CC_RPI_PATH="/Users/juan/code/cc-rpi"
 CLAUDE_BIN="${CLAUDE_BIN:-$HOME/.local/bin/claude}"
 
 # ── Environment setup (required for launchd) ──

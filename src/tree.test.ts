@@ -167,10 +167,21 @@ describe("parseTreeDSL", () => {
   });
 
   it("throws when advance() hits end-of-input on truncated expression", () => {
-    // Pipe with nothing after — advance() called for right operand hits pos beyond tokens
+    // Pipe with nothing after — parseAtom() sees no token and throws end-of-input
     expect(() => parseTreeDSL("a |")).toThrow(/Unexpected end of input/);
-    // Slash with nothing after — same advance() end-of-input path
+    // Slash with nothing after — same parseAtom() end-of-input path
     expect(() => parseTreeDSL("a /")).toThrow(/Unexpected end of input/);
+  });
+
+  it("throws end-of-input for chained and nested truncated expressions", () => {
+    // Chained operators with trailing truncation
+    expect(() => parseTreeDSL("a | b /")).toThrow(/Unexpected end of input/);
+    expect(() => parseTreeDSL("(a | b) /")).toThrow(/Unexpected end of input/);
+    expect(() => parseTreeDSL("a / b |")).toThrow(/Unexpected end of input/);
+    // Note: the advance() guard at tree.ts:123 is a defensive unreachable path.
+    // Every call site checks peek() before advance(), so the parseAtom() guard
+    // at tree.ts:154 catches exhausted tokens first. These tests cover the
+    // reachable end-of-input path exercised through parseBinaryOp → parseAtom.
   });
 
   it("throws on adjacent names without operator (leftover non-rparen token)", () => {

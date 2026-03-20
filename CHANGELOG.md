@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-03-20
+
+### Added
+
+- `summon layout list` now renders ASCII box-drawing diagrams showing each command in its actual pane position, replacing the dense key=value dump
+- Pre-flight macOS Accessibility permission check before workspace launch — clear error with actionable guidance instead of cryptic osascript failures
+- Path traversal guard on Starship preset config paths (defense in depth)
+- Trust advisory when `.summon` project files are detected in a directory
+- Automated npm publish workflow via GitHub Releases
+- Version number shown in `--help` output header
+
+### Changed
+
+- Pane commands now use Ghostty's `initial input` surface config instead of shell-wrapping `set command of cfg` — panes survive command exit (TUI quit drops to a shell prompt), error output is visible, and behavior is consistent across bash, zsh, fish, and ksh
+- Accessibility permission check timeout reduced from 5 s to 2 s for faster launch feedback
+- Auto-install prompt for missing commands now defaults to No (`[y/N]`) instead of Yes
+- All CLI error messages now use consistent `Error:` prefix and usage hints
+- Nested workspace abort now exits with code 1 (was 0)
+
+### Fixed
+
+- Shell metacharacter confirmation now covers tree-layout pane commands (previously only checked grid-layout commands)
+- Config parser (`readKVFile`) now skips comment lines instead of treating them as malformed keys
+- Bash shell completions use a portability fallback for shells without `compopt`, and `freeze`/`export` subcommands now appear in completion results
+- Resolved `flatted` prototype pollution vulnerability in dev dependencies
+- On-start hook failure message now includes the underlying error; status message writes to stderr
+- `summon doctor` exit code 2 message formatting cleaned up
+- `--auto-resize` default description consistent between options and config keys sections
+- Double space in `summon set editor` reset hint removed
+
 ## [1.2.1] - 2026-03-17
 
 ### Removed
@@ -403,7 +433,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CodeQL security scanning
 - Dependabot for npm and GitHub Actions
 
-[Unreleased]: https://github.com/juan294/summon/compare/v1.2.1...develop
+[Unreleased]: https://github.com/juan294/summon/compare/v1.3.0...develop
+[1.3.0]: https://github.com/juan294/summon/compare/v1.2.1...v1.3.0
 [1.2.1]: https://github.com/juan294/summon/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/juan294/summon/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/juan294/summon/compare/v1.0.0...v1.1.0

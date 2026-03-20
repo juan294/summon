@@ -1,95 +1,88 @@
 # Pre-Launch Audit Report
-> Generated on 2026-03-17 | Branch: `develop` | 6 parallel specialists | Pre-v1.2.1
+
+> Generated on 2026-03-20 | Branch: `develop` | Commit: `269a016` | 6 parallel specialists
 
 ## Verdict: CONDITIONAL
 
-One expected warning (unpushed commit awaiting release). No blockers. All systems green.
+No blockers found. 9 warnings across 4 domains. Ready to ship with awareness of the warnings.
 
 ## Blockers (must fix before release)
+
 None.
 
 ## Warnings
+
 | # | Issue | Severity | Found by | Risk |
 |---|-------|----------|----------|------|
-| W1 | 1 unpushed commit on `develop` (theme removal hotfix) | medium | devops | Must push before release PR |
-| W2 | Duplicated env-var-name regex in index.ts:422 vs launcher.ts ENV_KEY_RE | low | architect, performance-eng | Logic divergence risk |
-| W3 | Weak `.toBeTruthy()` assertions in setup.test.ts (8 uses) | low | qa-lead | Won't catch type regressions |
-| W4 | launcher.ts branch coverage 91.91% — tree layout + project CWD merge path untested | low | qa-lead | Uncovered runtime path |
-| W5 | `on-start` uses `execSync` (shell mode) — by-design but worth noting | low | security-reviewer | Same trust model as Makefile |
-| W6 | Branch protection `enforce_admins: false` on main | low | devops | Admins can bypass checks |
-| W7 | `--fix` and `--vim` missing from CLI_FLAGS array | low | ux-reviewer | Bash completion gap (zsh OK) |
-| W8 | Unicode arrow `→` in index.ts output without fallback | low | ux-reviewer | Cosmetic; Ghostty renders fine |
-
-## Recommendations
-| # | Suggestion | Found by |
-|---|-----------|----------|
-| R1 | Extract ENV_KEY_RE to shared constant in utils.ts or validation.ts | architect, performance-eng |
-| R2 | Strengthen `.toBeTruthy()` to `.toBeTypeOf('string')` in setup.test.ts | qa-lead |
-| R3 | Add test for tree layout + project CWD merge path (launcher.ts:441-443) | qa-lead |
-| R4 | Consider `--yes`/`--no-confirm` flag for CI automation use cases | security-reviewer |
-| R5 | Split EDITOR validation on first space to allow `code --wait` | security-reviewer |
-| R6 | Document .summon trust model in dedicated README security section | security-reviewer |
-| R7 | Mark all test-only exports with consistent `@internal` JSDoc tag | architect |
-| R8 | Cache `listStarshipPresets()` result for repeated calls | performance-eng |
-| R9 | Enable `enforce_admins` and `dismiss_stale_reviews` on main branch protection | devops |
-| R10 | Add `--fix`/`--vim` to CLI_FLAGS for bash completion consistency | ux-reviewer |
-| R11 | Show effective defaults in `summon config` when no machine config set | ux-reviewer |
+| W1 | `on-start` runs arbitrary shell commands via `execSync` | WARNING | security | Mitigated by metacharacter warning + non-TTY refusal. CLI input inherently trusted. |
+| W2 | `quoteCommand()` splits on spaces — mangles quoted-space args | WARNING | security | Not an injection vector (fragments are shell-quoted), but correctness issue for edge cases like `grep "hello world"`. |
+| W3 | CHANGELOG `[Unreleased]` empty with 42 pending commits | WARNING | devops | Must populate before next version bump. |
+| W4 | Inconsistent `Error:` prefix on error messages | WARNING | ux | Some errors prefixed, some not. Affects CLI polish. |
+| W5 | Inconsistent usage hint after errors | WARNING | ux | Some error paths include `Run 'summon --help'...`, some don't. |
+| W6 | `--font-size -5` shows confusing parseArgs ambiguity error | WARNING | ux | `--font-size=-5` works correctly; the space-separated form hits a parseArgs limitation. |
+| W7 | `warnIfNested` exits 0 on user abort vs `Aborted.` exits 1 | WARNING | ux | Inconsistent exit code for user-declined operations. |
+| W8 | `summon doctor` exit code 2 message has leading whitespace | WARNING | ux | Minor formatting inconsistency. |
+| W9 | `test:coverage` script doesn't rebuild first — stale build flake | WARNING | qa | CI unaffected (builds first), but local `pnpm test:coverage` can fail after code changes. |
 
 ## Detailed Findings
 
-### 1. Quality Assurance (qa-lead) — GREEN
-- **945 tests**, all passing, 0 skipped
-- **Typecheck:** clean, **Lint:** clean
-- **Coverage:** 98.98% statements, 94.12% branches, 98.60% functions, 99.22% lines
-- Critical files all at 98-100% coverage
-- Uncovered: setup.ts SIGINT handler (interactive-only), tree.ts defensive throw, launcher.ts tree+CWD merge branch
-- 8 weak `.toBeTruthy()` assertions in setup.test.ts
+### 1. Quality Assurance (qa-lead) -- GREEN
 
-### 2. Security (security-reviewer) — GREEN
-- `pnpm audit`: no known vulnerabilities, zero runtime deps
-- No hardcoded secrets found
-- osascript execution uses stdin (`execFileSync` with `input`), not shell args — safe
-- AppleScript escaping (`escapeAppleScript`, `shellQuote`) correctly implemented
-- `confirmDangerousCommands` catches shell metacharacters in `.summon` files
-- `SAFE_COMMAND_RE`, `SAFE_SHELL_RE`, `ENV_KEY_RE` properly guard all injection vectors
-- `layoutPath()` prevents path traversal with resolve+prefix check
-- File permissions: config dir 0o700, files 0o600 — correct
-- All dependency licenses permissive (MIT, Apache-2.0, ISC)
+- **993 tests, 100% pass rate**
+- Typecheck: clean. Lint: clean.
+- Coverage: 99.45% statements, 95.12% branches, 98.64% functions, 99.54% lines
+- All 12 source files have co-located tests, all above 95% coverage
+- Critical paths (script.ts, launcher.ts, tree.ts, config.ts) thoroughly covered
+- Comprehensive error handling with graceful degradation throughout
+- One warning: `test:coverage` should depend on `build` to avoid stale-chunk flakes
 
-### 3. Infrastructure (devops) — YELLOW
-- Build succeeds (14ms, 75KB total output)
-- CI: all recent runs green on develop
-- CI config: Node [18, 20, 22] matrix, CodeQL, dependency review — solid
-- Package metadata: correct (name, version, bin, files, engines, os, license)
-- Env vars: full parity between documented (5) and used (5)
-- **1 unpushed commit** (theme removal) — expected, will push with release
-- Branch protection on main: required checks + 1 review, but `enforce_admins: false`
+### 2. Security (security-reviewer) -- GREEN
 
-### 4. Architecture (architect) — GREEN
-- Typecheck: clean
-- Dependencies: all up to date
-- No circular dependencies — clean DAG
-- No dead code (test-only exports properly annotated with `@internal`)
-- Module boundaries clean: layout planning → script generation → execution
-- Dynamic imports for heavy modules (setup, completions, keybindings)
-- 1 duplicated regex (ENV_KEY_RE) — minor DRY violation
+- `pnpm audit`: zero vulnerabilities
+- No hardcoded secrets
+- Command injection defenses: `escapeAppleScript`, `shellQuote`, `SAFE_COMMAND_RE`, `SHELL_META_RE` all sound
+- Path traversal protection: `layoutPath()` uses `resolve().startsWith()` guard
+- Env var keys validated at all 3 input layers (machine, project, CLI)
+- Config files created with 0o600/0o700 permissions
+- All dependencies are devDependencies with permissive licenses (MIT, Apache-2.0, BSD, ISC)
+- Two warnings: `on-start` execSync (mitigated), `quoteCommand` space splitting (correctness, not injection)
+- Two recommendations: add traversal guard to starship preset path, add first-run `.summon` trust warning
 
-### 5. Performance (performance-eng) — GREEN
-- Build: 14ms, 75KB total (12 chunks, code-split)
-- Entry chunk: 35KB, setup lazy-loaded (22KB), completions lazy-loaded (6KB)
-- All regexes compiled at module level (constants)
-- String building uses array push + join — optimal
-- Sync file I/O appropriate for one-shot CLI
-- `resolveCommand` results cached in launcher
-- Starship path cached, config dir ensured once
-- No anti-patterns found
+### 3. Infrastructure (devops) -- GREEN
 
-### 6. UX/Accessibility (ux-reviewer) — GREEN
-- Help text: all 13 subcommands documented, consistent formatting, practical examples
-- Error messages: consistent `Error: <description>` + actionable guidance pattern
-- Exit codes: 0 (success), 1 (error), 2 (doctor issues), 130 (Ctrl+C) — all correct
-- Setup wizard: handles no-Ghostty, Ctrl+C, invalid input, non-TTY, decline-and-retry
-- NO_COLOR support via `useColor` flag, all ANSI output goes through `wrap()`
-- True color detection with graceful fallback
-- Screen reader compatible (no emoji-only messages)
-- Tab completion: zsh fully working, bash minor gap for subcommand-specific flags
+- Build succeeds, CI green (5/5 recent runs)
+- All env vars documented in README match actual `process.env` usage
+- Git state clean, package.json complete (bin, engines, os, files all correct)
+- .gitignore covers dist/, node_modules/, .env, credentials
+- CI tests Node 18/20/22 on macOS with full verification suite
+- CHANGELOG exists and well-structured
+- One warning: `[Unreleased]` section empty despite 42 commits since v1.2.1
+- Two recommendations: add automated publish workflow, add `credentials*.json` to .gitignore
+
+### 4. Architecture (architect) -- GREEN
+
+- Typecheck: zero errors
+- Dependencies: all current, zero runtime deps, no conflicts
+- Import graph: clean DAG, no circular dependencies
+- Dead code: no dead production exports (test-only exports properly annotated with `@internal`)
+- Three recommendations: consolidate accessibility messaging assembly, reduce `process.exit(1)` density in index.ts, unify layout name validation error messages
+
+### 5. Performance (performance-eng) -- GREEN
+
+- Bundle: ~45KB total across 12 chunks, no file over 50KB
+- Startup: lazy loading well-implemented for setup, completions, keybindings
+- String building: array + join pattern (optimal)
+- Caching: command resolution cache, starship cache both effective
+- AppleScript generation: efficient, no anti-patterns
+- Two warnings: static import of launcher.ts for all subcommands (loads child_process even for --help), `detectTools` wraps sync calls in faux-async Promise.all
+- Two recommendations: lazy-import launcher.ts for non-launch commands, collect tree titles during traversal
+
+### 6. UX/Accessibility (ux-reviewer) -- YELLOW
+
+- Help text: comprehensive, well-organized with examples and security note
+- Setup wizard: solid non-TTY handling, tool detection, visual previews
+- Doctor subcommand: checks Ghostty config, accessibility, configured commands
+- Shell completions: thorough (zsh + bash), context-sensitive
+- Color support: follows NO_COLOR standard
+- Five warnings: inconsistent Error: prefix (W4), inconsistent usage hints (W5), --font-size ambiguity (W6), exit code inconsistency (W7), doctor formatting (W8)
+- Notable recommendations: add version to help output, add --quiet flag, expand doctor checks (Ghostty version, config dir permissions), fix "on"/"true" default inconsistency in help text

@@ -1,4 +1,5 @@
 import { parseArgs } from "node:util";
+import { existsSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { homedir } from "node:os";
 import {
@@ -24,7 +25,45 @@ import { launch, resolveConfig, optsToConfigMap } from "./launcher.js";
 import type { CLIOverrides } from "./launcher.js";
 import { PANES_MIN, PANES_DEFAULT, EDITOR_SIZE_MIN, EDITOR_SIZE_MAX, EDITOR_SIZE_DEFAULT, isPresetName, getPresetNames } from "./layout.js";
 import { validateIntFlag, validateFloatFlag, ENV_KEY_RE } from "./validation.js";
-import { SAFE_COMMAND_RE, getErrorMessage, exitWithUsageHint, checkAccessibility, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT } from "./utils.js";
+import { SAFE_COMMAND_RE, getErrorMessage, exitWithUsageHint, resolveCommand, checkAccessibility, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT, ACCESSIBILITY_REQUIRED_MSG } from "./utils.js";
+import { parseTreeDSL } from "./tree.js";
+import type { LayoutNode } from "./tree.js";
+import { renderLayoutPreview } from "./setup.js";
+
+/**
+ * Convert a LayoutNode tree into a string[][] grid for renderLayoutPreview.
+ * "right" splits → columns, "down" splits → rows within a column.
+ * Each cell contains the pane command resolved from the pane map.
+ */
+function treeToGrid(node: LayoutNode, panes: Map<string, string>): string[][] {
+  // Collect columns: flatten "right" splits at the top level into columns,
+  // then flatten "down" splits within each column into rows.
+  function collectColumns(n: LayoutNode): LayoutNode[] {
+    if (n.type === "split" && n.direction === "right") {
+      return [...collectColumns(n.first), ...collectColumns(n.second)];
+    }
+    return [n];
+  }
+
+  function collectRows(n: LayoutNode): string[] {
+    if (n.type === "split" && n.direction === "down") {
+      return [...collectRows(n.first), ...collectRows(n.second)];
+    }
+    if (n.type === "pane") {
+      return [panes.get(n.name) ?? n.name];
+    }
+    // Nested right-split inside a column — flatten to a single label
+    const leaves: string[] = [];
+    function gather(nd: LayoutNode): void {
+      if (nd.type === "pane") leaves.push(panes.get(nd.name) ?? nd.name);
+      else { gather(nd.first); gather(nd.second); }
+    }
+    gather(n);
+    return [leaves.join(" | ")];
+  }
+
+  return collectColumns(node).map((col) => collectRows(col));
+}
 
 function validateLayoutNameOrExit(name: string): void {
   if (isPresetName(name)) {
@@ -57,7 +96,7 @@ function layoutNotFoundOrExit(name: string): never {
 }
 
 const HELP = `
-summon -- Launch multi-pane Ghostty workspaces
+summon v${__VERSION__} -- Launch multi-pane Ghostty workspaces
 
 Usage:
   summon <target>             Launch workspace (project name, path, or '.')
@@ -99,13 +138,13 @@ Options:
   -n, --dry-run               Print generated AppleScript without executing
 
 Config keys:
-  editor        Command for coding panes (set during setup)
-  sidebar       Command for sidebar pane (default: lazygit)
-  panes         Number of editor panes (default: 2)
-  editor-size   Width % for editor grid (default: 75)
-  shell         Shell pane: true, false, or command (default: true)
-  layout        Default layout preset
-  auto-resize     Resize sidebar to match editor-size (default: true)
+  editor          Command for coding panes (set during setup)
+  sidebar         Command for sidebar pane (default: lazygit)
+  panes           Number of editor panes (default: 2)
+  editor-size     Width % for editor grid (default: 75)
+  shell           Shell pane: true, false, or command (default: true)
+  layout          Default layout preset or custom layout name
+  auto-resize     Resize sidebar to match editor-size (default: on)
   starship-preset Starship prompt theme preset (per-workspace)
   new-window      Open workspace in a new window (default: false)
   fullscreen      Start workspace in fullscreen (default: false)
@@ -125,6 +164,7 @@ Layout presets:
 Per-project config:
   Place a .summon file in your project root with key=value pairs.
   Project config overrides machine config; CLI flags override both.
+  Custom layouts support tree DSL syntax for advanced pane arrangements.
   Note: .summon files can specify commands that will be executed.
   Review .summon files before running summon in untrusted directories.
 
@@ -137,6 +177,8 @@ Examples:
   summon set editor vim           Set the editor command
   summon . --layout minimal       Launch with minimal preset
   summon . --shell "npm run dev"  Launch with custom shell command
+  summon doctor                   Check config and fix issues
+  summon freeze mysetup           Save current config as reusable layout
 `.trim();
 
 const DISPLAY_COMMAND_KEYS = ["editor", "sidebar"];
@@ -186,6 +228,7 @@ All workspace flags (--layout, --editor, etc.) are supported.`,
   doctor: `Usage: summon doctor [--fix]
 
 Check your Ghostty configuration for recommended settings.
+Exits with code 2 if issues are found.
 
 Options:
   --fix  Auto-add missing recommended settings (backs up config first)`,
@@ -368,10 +411,12 @@ switch (subcommand) {
   case "add": {
     const [name, path] = args;
     if (!name || !path) {
-      console.error("Usage: summon add <name> <path>");
-      process.exit(1);
+      exitWithUsageHint("Usage: summon add <name> <path>");
     }
     const resolved = expandHome(path);
+    if (!existsSync(resolved)) {
+      console.warn(`Warning: path does not exist: ${resolved}`);
+    }
     addProject(name, resolved);
     console.log(`Registered: ${name} → ${resolved}`);
     break;
@@ -380,14 +425,13 @@ switch (subcommand) {
   case "remove": {
     const [name] = args;
     if (!name) {
-      console.error("Usage: summon remove <name>");
-      process.exit(1);
+      exitWithUsageHint("Usage: summon remove <name>");
     }
     const existed = removeProject(name);
     if (existed) {
       console.log(`Removed: ${name}`);
     } else {
-      console.error(`Project not found: ${name}`);
+      console.error(`Error: Project not found: ${name}`);
       console.error("Run 'summon list' to see registered projects.");
       process.exit(1);
     }
@@ -410,12 +454,10 @@ switch (subcommand) {
   case "set": {
     const [key, value] = args;
     if (!key) {
-      console.error("Usage: summon set <key> [value]");
-      process.exit(1);
+      exitWithUsageHint("Usage: summon set <key> [value]");
     }
     if (!VALID_KEYS.includes(key) && !key.startsWith("env.")) {
-      console.error(`Unknown config key "${key}". Valid keys: ${VALID_KEYS.join(", ")}, env.<KEY>`);
-      process.exit(1);
+      exitWithUsageHint(`Error: Unknown config key "${key}". Valid keys: ${VALID_KEYS.join(", ")}, env.<KEY>`);
     }
     if (key.startsWith("env.")) {
       const envName = key.slice(4);
@@ -452,7 +494,7 @@ switch (subcommand) {
     if (value !== undefined) {
       if (value === "" && (key === "editor" || key === "sidebar" || key === "shell" || key === "on-start")) {
         console.error(`Error: ${key} cannot be set to an empty string.`);
-        console.error(`To reset to default, run: summon set ${key}  (without a value)`);
+        console.error(`To reset to default, run: summon set ${key} (without a value)`);
         process.exit(1);
       }
       setConfig(key, value);
@@ -507,17 +549,13 @@ switch (subcommand) {
   case "completions": {
     const [shell] = args;
     if (!shell) {
-      console.error("Usage: summon completions <shell>");
-      console.error("Supported shells: zsh, bash");
-      process.exit(1);
+      exitWithUsageHint("Usage: summon completions <shell>\nSupported shells: zsh, bash");
     }
     if (shell === "zsh" || shell === "bash") {
       const { generateZshCompletion, generateBashCompletion } = await import("./completions.js");
       console.log(shell === "zsh" ? generateZshCompletion() : generateBashCompletion());
     } else {
-      console.error(`Unsupported shell: ${shell}`);
-      console.error("Supported shells: zsh, bash");
-      process.exit(1);
+      exitWithUsageHint(`Error: Unsupported shell: ${shell}\nSupported shells: zsh, bash`);
     }
     break;
   }
@@ -532,7 +570,7 @@ switch (subcommand) {
     const ghosttyConfigPath = join(homedir(), ".config", "ghostty", "config");
 
     if (!ghosttyExists(ghosttyConfigPath)) {
-      console.log("  ! No Ghostty config file found at ~/.config/ghostty/config");
+      console.log("  - No Ghostty config file found at ~/.config/ghostty/config");
       console.log("    Create one to customize your terminal experience.");
       console.log();
     }
@@ -604,11 +642,37 @@ switch (subcommand) {
       console.log("  + Accessibility permission is granted");
     } else {
       allGood = false;
-      console.log("  - Accessibility permission not granted");
-      console.log("    Your terminal app needs Accessibility access for summon to resize panes.");
+      console.log("  - Accessibility permission is required");
+      console.log(`    ${ACCESSIBILITY_REQUIRED_MSG}`);
       console.log(`    ${ACCESSIBILITY_SETTINGS_PATH}`);
       console.log(`    ${ACCESSIBILITY_ENABLE_HINT}`);
       console.log();
+    }
+
+    // Check configured editor and sidebar commands
+    const userConfig = listConfig();
+    const commandChecks: Array<{ key: string; cmd: string }> = [];
+    const editorCmd = userConfig.get("editor");
+    const sidebarCmd = userConfig.get("sidebar");
+    if (editorCmd) commandChecks.push({ key: "editor", cmd: editorCmd });
+    if (sidebarCmd) commandChecks.push({ key: "sidebar", cmd: sidebarCmd });
+
+    if (commandChecks.length > 0) {
+      console.log();
+      console.log("Checking configured commands...\n");
+
+      for (const { key, cmd } of commandChecks) {
+        const binary = cmd.split(" ")[0]!;
+        const found = resolveCommand(binary);
+        if (found) {
+          console.log(`  + ${key} command "${binary}" found at ${found}`);
+        } else {
+          allGood = false;
+          console.log(`  - ${key} command "${binary}" not found in PATH`);
+          console.log(`    Install "${binary}" or change with: summon set ${key} <command>`);
+          console.log();
+        }
+      }
     }
 
     if (allGood && missingSettings.length === 0) {
@@ -620,6 +684,7 @@ switch (subcommand) {
     const configFixed = fixFlag && missingSettings.length > 0;
     const issuesRemain = configFixed ? !accessOk : !allGood;
     if (issuesRemain) {
+      console.error("Exit code 2: issues were found. See above for details.");
       process.exit(2);
     }
 
@@ -628,8 +693,7 @@ switch (subcommand) {
 
   case "keybindings": {
     const { generateKeyTableConfig } = await import("./keybindings.js");
-    const { collectLeaves } = await import("./tree.js");
-    const { resolveTreeCommands: resolveTreeCmdsLocal } = await import("./tree.js");
+    const { collectLeaves, resolveTreeCommands: resolveTreeCmdsLocal } = await import("./tree.js");
     const style = values.vim ? "vim" as const : "arrows" as const;
     const config = resolveConfig(process.cwd(), buildOverrides());
 
@@ -663,7 +727,7 @@ switch (subcommand) {
     }
     validateLayoutNameOrExit(freezeName);
     if (isCustomLayout(freezeName)) {
-      console.error(`Layout "${freezeName}" already exists. Delete it first: summon layout delete ${freezeName}`);
+      console.error(`Error: Layout "${freezeName}" already exists. Delete it first: summon layout delete ${freezeName}`);
       process.exit(1);
     }
 
@@ -678,12 +742,12 @@ switch (subcommand) {
   case "open": {
     const projects = listProjects();
     if (projects.size === 0) {
-      console.error("No projects registered. Use: summon add <name> <path>");
+      console.error("Error: No projects registered. Use: summon add <name> <path>");
       process.exit(1);
     }
 
     const entries = [...projects.entries()];
-    console.log("Select a project to launch:\n");
+    console.log("Select a project to launch (Ctrl+C to cancel):\n");
     for (const [i, [name, path]] of entries.entries()) {
       console.log(`  ${i + 1}) ${name} → ${path}`);
     }
@@ -756,15 +820,13 @@ switch (subcommand) {
   case "layout": {
     const [action, layoutName] = args;
     if (!action) {
-      console.error("Usage: summon layout <create|save|list|show|delete|edit> [name]");
-      process.exit(1);
+      exitWithUsageHint("Usage: summon layout <create|save|list|show|delete|edit> [name]");
     }
 
     switch (action) {
       case "create": {
         if (!layoutName) {
-          console.error("Usage: summon layout create <name>");
-          process.exit(1);
+          exitWithUsageHint("Usage: summon layout create <name>");
         }
         validateLayoutNameOrExit(layoutName);
         const { runLayoutBuilder } = await import("./setup.js");
@@ -774,11 +836,13 @@ switch (subcommand) {
 
       case "save": {
         if (!layoutName) {
-          console.error("Usage: summon layout save <name>");
-          process.exit(1);
+          exitWithUsageHint("Usage: summon layout save <name>");
         }
         validateLayoutNameOrExit(layoutName);
         const config = listConfig();
+        if (config.size === 0) {
+          console.warn("Warning: saving layout with empty config. Set values first with: summon set <key> <value>");
+        }
         saveCustomLayout(layoutName, config);
         console.log(`Saved custom layout: ${layoutName}`);
         break;
@@ -789,11 +853,49 @@ switch (subcommand) {
         if (layouts.length === 0) {
           console.log("No custom layouts saved. Use: summon layout save <name>");
         } else {
-          console.log("Custom layouts:");
-          for (const name of layouts) {
+          console.log(`Custom layouts (${layouts.length}):\n`);
+          for (let i = 0; i < layouts.length; i++) {
+            const name = layouts[i]!;
             const data = readCustomLayout(name);
-            const summary = data ? [...data.entries()].map(([k, v]) => `${k}=${v}`).join(", ") : "";
-            console.log(`  ${name}${summary ? ` (${summary})` : ""}`);
+            if (!data) {
+              console.log(`  \x1b[1m${name}\x1b[0m`);
+            } else {
+              const paneMap = new Map<string, string>();
+              let tree = "";
+              const other: string[] = [];
+              for (const [k, v] of data) {
+                if (k === "tree") {
+                  tree = v;
+                } else if (k.startsWith("pane.") && !k.endsWith(".cwd")) {
+                  paneMap.set(k.slice(5), v);
+                } else {
+                  other.push(`${k}=${v}`);
+                }
+              }
+              console.log(`  \x1b[1m${name}\x1b[0m`);
+              if (tree && paneMap.size > 0) {
+                try {
+                  const node = parseTreeDSL(tree);
+                  const grid = treeToGrid(node, paneMap);
+                  const preview = renderLayoutPreview(grid);
+                  for (const line of preview.split("\n")) {
+                    console.log(`    ${line}`);
+                  }
+                } catch {
+                  // Fallback: show panes + tree as text
+                  const paneList = [...paneMap.entries()].map(([k, v]) => `${k}=\x1b[36m${v}\x1b[0m`);
+                  console.log(`    Panes:  ${paneList.join("  ")}`);
+                  console.log(`    Tree:   ${tree}`);
+                }
+              } else if (paneMap.size > 0) {
+                const paneList = [...paneMap.entries()].map(([k, v]) => `${k}=\x1b[36m${v}\x1b[0m`);
+                console.log(`    Panes:  ${paneList.join("  ")}`);
+              }
+              if (other.length > 0) {
+                console.log(`    Config: ${other.join(", ")}`);
+              }
+            }
+            if (i < layouts.length - 1) console.log();
           }
         }
         break;
@@ -801,8 +903,7 @@ switch (subcommand) {
 
       case "show": {
         if (!layoutName) {
-          console.error("Usage: summon layout show <name>");
-          process.exit(1);
+          exitWithUsageHint("Usage: summon layout show <name>");
         }
         if (isPresetName(layoutName)) {
           console.error(`Error: "${layoutName}" is a built-in preset, not a custom layout. Run 'summon --help' to see preset descriptions.`);
@@ -826,8 +927,7 @@ switch (subcommand) {
 
       case "delete": {
         if (!layoutName) {
-          console.error("Usage: summon layout delete <name>");
-          process.exit(1);
+          exitWithUsageHint("Usage: summon layout delete <name>");
         }
         validateLayoutNameOrExit(layoutName);
         const deleted = deleteCustomLayout(layoutName);
@@ -841,8 +941,7 @@ switch (subcommand) {
 
       case "edit": {
         if (!layoutName) {
-          console.error("Usage: summon layout edit <name>");
-          process.exit(1);
+          exitWithUsageHint("Usage: summon layout edit <name>");
         }
         validateLayoutNameOrExit(layoutName);
         if (!isCustomLayout(layoutName)) {
@@ -868,9 +967,7 @@ switch (subcommand) {
       }
 
       default: {
-        console.error(`Unknown layout action: ${action}`);
-        console.error("Usage: summon layout <create|save|list|show|delete|edit> [name]");
-        process.exit(1);
+        exitWithUsageHint(`Error: Unknown layout action: ${action}\nUsage: summon layout <create|save|list|show|delete|edit> [name]`);
       }
     }
     break;
@@ -894,7 +991,7 @@ switch (subcommand) {
     } else {
       const path = getProject(target);
       if (!path) {
-        console.error(`Unknown project: ${target}`);
+        console.error(`Error: Unknown project: ${target}`);
         console.error(
           `Register it with: summon add ${target} /path/to/project`,
         );

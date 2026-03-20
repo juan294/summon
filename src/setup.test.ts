@@ -77,6 +77,7 @@ const {
   selectShell,
   selectStarshipPreset,
   validateSetup,
+  checkAndRecoverAccessibility,
   runSetup,
   hexToRgb,
   colorSwatch,
@@ -133,25 +134,25 @@ describe("resolveCommandPath", () => {
 });
 
 describe("detectTools", () => {
-  it("marks available tools with available: true", async () => {
+  it("marks available tools with available: true", () => {
     mockExecFileSync.mockReturnValue("/usr/bin/vim\n");
-    const result = await detectTools([{ cmd: "vim", name: "Vim", desc: "Editor" }]);
+    const result = detectTools([{ cmd: "vim", name: "Vim", desc: "Editor" }]);
     expect(result[0]!.available).toBe(true);
   });
 
-  it("marks missing tools with available: false", async () => {
+  it("marks missing tools with available: false", () => {
     mockExecFileSync.mockImplementation(() => {
       throw new Error("not found");
     });
-    const result = await detectTools([{ cmd: "vim", name: "Vim", desc: "Editor" }]);
+    const result = detectTools([{ cmd: "vim", name: "Vim", desc: "Editor" }]);
     expect(result[0]!.available).toBe(false);
   });
 
-  it("handles empty catalog", async () => {
-    expect(await detectTools([])).toEqual([]);
+  it("handles empty catalog", () => {
+    expect(detectTools([])).toEqual([]);
   });
 
-  it("handles all-missing catalog", async () => {
+  it("handles all-missing catalog", () => {
     mockExecFileSync.mockImplementation(() => {
       throw new Error("not found");
     });
@@ -159,17 +160,17 @@ describe("detectTools", () => {
       { cmd: "a", name: "A", desc: "a" },
       { cmd: "b", name: "B", desc: "b" },
     ];
-    const result = await detectTools(catalog);
+    const result = detectTools(catalog);
     expect(result.every((t) => !t.available)).toBe(true);
   });
 
-  it("handles all-available catalog", async () => {
+  it("handles all-available catalog", () => {
     mockExecFileSync.mockReturnValue("/usr/bin/stub\n");
     const catalog = [
       { cmd: "a", name: "A", desc: "a" },
       { cmd: "b", name: "B", desc: "b" },
     ];
-    const result = await detectTools(catalog);
+    const result = detectTools(catalog);
     expect(result.every((t) => t.available)).toBe(true);
   });
 });
@@ -899,32 +900,6 @@ describe("validateSetup", () => {
     expect(result.ghosttyFound).toBe(false);
   });
 
-  it("reports accessibilityGranted=true when check passes", () => {
-    mockExecFileSync.mockReturnValue("/usr/bin/stub\n");
-    mockExistsSync.mockReturnValue(true);
-    const result = validateSetup({
-      layout: "pair",
-      editor: "vim",
-      sidebar: "lazygit",
-      shell: "true",
-    });
-    expect(result.accessibilityGranted).toBe(true);
-  });
-
-  it("reports accessibilityGranted=false when accessibility check fails", () => {
-    mockExecFileSync.mockImplementation((bin: string) => {
-      if (bin === "osascript") throw new Error("assistive access (-1719)");
-      return "/usr/bin/stub\n";
-    });
-    mockExistsSync.mockReturnValue(true);
-    const result = validateSetup({
-      layout: "pair",
-      editor: "vim",
-      sidebar: "lazygit",
-      shell: "true",
-    });
-    expect(result.accessibilityGranted).toBe(false);
-  });
 });
 
 describe("printValidation", () => {
@@ -1032,57 +1007,39 @@ describe("printValidation", () => {
     logSpy.mockRestore();
   });
 
-  it("prints accessibility permission granted when granted", async () => {
+});
+
+describe("checkAndRecoverAccessibility", () => {
+  it("returns true when accessibility is already granted", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-    mockExecFileSync.mockReturnValue("/usr/bin/stub\n"); // all tools + accessibility pass
-    mockExistsSync.mockReturnValue(true);
+    mockExecFileSync.mockReturnValue("/usr/bin/stub\n");
 
-    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
-      if (_q.includes("[Y/n]")) cb("y");
-      else cb("1");
-    });
+    const result = await checkAndRecoverAccessibility();
 
-    const origIsTTY = process.stdin.isTTY;
-    Object.defineProperty(process.stdin, "isTTY", {
-      value: true,
-      writable: true,
-    });
-
-    await runSetup();
-
+    expect(result).toBe(true);
     const allOutput = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
     expect(
       allOutput.some((s) => s.includes("Accessibility permission granted")),
     ).toBe(true);
 
-    Object.defineProperty(process.stdin, "isTTY", {
-      value: origIsTTY,
-      writable: true,
-    });
     logSpy.mockRestore();
   });
 
-  it("prints accessibility warning when not granted", async () => {
+  it("returns false when not granted and user declines to open settings", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     mockExecFileSync.mockImplementation((bin: string) => {
       if (bin === "osascript") throw new Error("assistive access (-1719)");
       return "/usr/bin/stub\n";
     });
-    mockExistsSync.mockReturnValue(true);
 
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
-      if (_q.includes("[Y/n]")) cb("y");
-      else cb("1");
+      if (_q.includes("[Y/n]")) cb("n");
+      else cb("");
     });
 
-    const origIsTTY = process.stdin.isTTY;
-    Object.defineProperty(process.stdin, "isTTY", {
-      value: true,
-      writable: true,
-    });
+    const result = await checkAndRecoverAccessibility();
 
-    await runSetup();
-
+    expect(result).toBe(false);
     const allOutput = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
     expect(
       allOutput.some((s) => s.includes("Accessibility permission not granted")),
@@ -1091,10 +1048,59 @@ describe("printValidation", () => {
       allOutput.some((s) => s.includes("System Events")),
     ).toBe(true);
 
-    Object.defineProperty(process.stdin, "isTTY", {
-      value: origIsTTY,
-      writable: true,
+    logSpy.mockRestore();
+  });
+
+  it("returns true when user opens settings and re-check passes", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    let osascriptCallCount = 0;
+    mockExecFileSync.mockImplementation((bin: string) => {
+      if (bin === "osascript") {
+        osascriptCallCount++;
+        if (osascriptCallCount <= 1) throw new Error("assistive access (-1719)");
+        return "Finder\n"; // re-check passes
+      }
+      if (bin === "open") return ""; // openAccessibilitySettings
+      return "/usr/bin/stub\n";
     });
+
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      if (_q.includes("[Y/n]")) cb("y");
+      else cb(""); // Press Enter
+    });
+
+    const result = await checkAndRecoverAccessibility();
+
+    expect(result).toBe(true);
+    const allOutput = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(
+      allOutput.some((s) => s.includes("Accessibility permission granted!")),
+    ).toBe(true);
+
+    logSpy.mockRestore();
+  });
+
+  it("returns false when user opens settings but re-check still fails", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockExecFileSync.mockImplementation((bin: string) => {
+      if (bin === "osascript") throw new Error("assistive access (-1719)");
+      if (bin === "open") return "";
+      return "/usr/bin/stub\n";
+    });
+
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      if (_q.includes("[Y/n]")) cb("y");
+      else cb(""); // Press Enter
+    });
+
+    const result = await checkAndRecoverAccessibility();
+
+    expect(result).toBe(false);
+    const allOutput = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(
+      allOutput.some((s) => s.includes("Still not detected")),
+    ).toBe(true);
+
     logSpy.mockRestore();
   });
 });
@@ -2804,35 +2810,36 @@ describe("selectLayout — custom layout name prompt", () => {
 });
 
 // ---------------------------------------------------------------------------
-// #160 — detectTools is async (parallelized)
+// #204 — detectTools is synchronous (no faux-async)
 // ---------------------------------------------------------------------------
 
-describe("detectTools — async", () => {
-  it("returns a promise", () => {
+describe("detectTools — synchronous", () => {
+  it("returns an array (not a promise)", () => {
     mockExecFileSync.mockReturnValue("/usr/bin/stub\n");
     const result = detectTools([{ cmd: "vim", name: "Vim", desc: "Editor" }]);
-    expect(result).toBeInstanceOf(Promise);
+    expect(Array.isArray(result)).toBe(true);
+    expect(result).not.toBeInstanceOf(Promise);
   });
 
-  it("marks available tools with available: true", async () => {
+  it("marks available tools with available: true", () => {
     mockExecFileSync.mockReturnValue("/usr/bin/vim\n");
-    const result = await detectTools([{ cmd: "vim", name: "Vim", desc: "Editor" }]);
+    const result = detectTools([{ cmd: "vim", name: "Vim", desc: "Editor" }]);
     expect(result[0]!.available).toBe(true);
   });
 
-  it("marks missing tools with available: false", async () => {
+  it("marks missing tools with available: false", () => {
     mockExecFileSync.mockImplementation(() => {
       throw new Error("not found");
     });
-    const result = await detectTools([{ cmd: "vim", name: "Vim", desc: "Editor" }]);
+    const result = detectTools([{ cmd: "vim", name: "Vim", desc: "Editor" }]);
     expect(result[0]!.available).toBe(false);
   });
 
-  it("handles empty catalog", async () => {
-    expect(await detectTools([])).toEqual([]);
+  it("handles empty catalog", () => {
+    expect(detectTools([])).toEqual([]);
   });
 
-  it("handles all-missing catalog", async () => {
+  it("handles all-missing catalog", () => {
     mockExecFileSync.mockImplementation(() => {
       throw new Error("not found");
     });
@@ -2840,17 +2847,17 @@ describe("detectTools — async", () => {
       { cmd: "a", name: "A", desc: "a" },
       { cmd: "b", name: "B", desc: "b" },
     ];
-    const result = await detectTools(catalog);
+    const result = detectTools(catalog);
     expect(result.every((t) => !t.available)).toBe(true);
   });
 
-  it("handles all-available catalog", async () => {
+  it("handles all-available catalog", () => {
     mockExecFileSync.mockReturnValue("/usr/bin/stub\n");
     const catalog = [
       { cmd: "a", name: "A", desc: "a" },
       { cmd: "b", name: "B", desc: "b" },
     ];
-    const result = await detectTools(catalog);
+    const result = detectTools(catalog);
     expect(result.every((t) => t.available)).toBe(true);
   });
 });
@@ -3105,6 +3112,22 @@ describe("renderLayoutPreview — junction rendering", () => {
     // Both single pane — no splits — no cross
     const preview = renderLayoutPreview([["a"], ["b"]]);
     expect(preview).not.toContain("\u253c"); // no cross
+  });
+
+  it("renders vertical junction between two columns that both lack a split at a row boundary", () => {
+    // Col 0 has 3 panes (forces row boundaries at rows 0→1 and 1→2).
+    // Col 1 and Col 2 each have 1 pane — neither has a split at row 0→1.
+    // At the junction between Col 1 and Col 2 on the row 0→1 separator,
+    // neither prevHasSplit nor hasSplitHere is true → BOX.vertical (│).
+    const preview = renderLayoutPreview([["a", "b", "c"], ["d"], ["e"]]);
+    const lines = preview.split("\n");
+    // Find the first row separator line (contains ├ for col 0's split)
+    const sepLine = lines.find((l: string) => l.includes("\u251c")); // ├ (teeRight)
+    expect(sepLine).toBeDefined();
+    // Between col 1 and col 2, the junction should be │ (vertical), not ┼/├/┤
+    // The separator line has structure: ├──────────────┤              │              │
+    // The junction between col 1 (no split) and col 2 (no split) is │
+    expect(sepLine).toContain("\u2502" + " ".repeat(14) + "\u2502"); // │ + spaces + │ for no-split cols
   });
 });
 

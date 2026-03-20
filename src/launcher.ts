@@ -17,32 +17,15 @@ import { listConfig, readKVFile, readCustomLayout, isCustomLayout, LAYOUT_NAME_R
 import { generateAppleScript, generateTreeAppleScript } from "./script.js";
 import { parseTreeDSL, extractPaneDefinitions, extractPaneCwds, resolveTreeCommands as resolveTreeCmds, buildTreePlan, findPaneByName } from "./tree.js";
 import type { LayoutNode } from "./tree.js";
-import { resolveCommand as resolveCommandPath, promptUser, getErrorMessage, SUMMON_WORKSPACE_ENV, isAccessibilityError, isGhosttyInstalled, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT } from "./utils.js";
+import { resolveCommand as resolveCommandPath, promptUser, getErrorMessage, SUMMON_WORKSPACE_ENV, isAccessibilityError, checkAccessibility, isGhosttyInstalled, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT, ACCESSIBILITY_REQUIRED_MSG } from "./utils.js";
 import { parseIntInRange, parsePositiveFloat, ENV_KEY_RE } from "./validation.js";
 import { isStarshipInstalled, ensurePresetConfig, getPresetConfigPath } from "./starship.js";
-
-const SAFE_SHELL_RE = /^\/[a-zA-Z0-9_/.-]+$/;
 
 /** Shell metacharacters that indicate potentially dangerous commands. */
 const SHELL_META_RE = /[;|&`]|\$[({]|[><]/;
 
 /** Keys in .summon files that hold command values (as opposed to config like layout/panes). */
 const COMMAND_KEYS = new Set(["editor", "sidebar", "shell", "on-start"]);
-
-/**
- * Read and validate process.env.SHELL.
- * Falls back to /bin/bash with a warning if undefined or unsafe.
- */
-function getLoginShell(): string {
-  const shell = process.env.SHELL;
-  if (shell === undefined || !SAFE_SHELL_RE.test(shell)) {
-    if (shell !== undefined) {
-      console.warn(`Unsafe SHELL value: "${shell}". Falling back to /bin/bash.`);
-    }
-    return "/bin/bash";
-  }
-  return shell;
-}
 
 /** Convert resolved layout options to a key-value config map suitable for saving as a custom layout. */
 export function optsToConfigMap(opts: Partial<LayoutOptions>): Map<string, string> {
@@ -89,6 +72,23 @@ function ensureGhostty(): void {
   }
 }
 
+function printAccessibilityHint(): void {
+  console.error(ACCESSIBILITY_REQUIRED_MSG);
+  console.error(`Grant access in: ${ACCESSIBILITY_SETTINGS_PATH}`);
+  console.error(ACCESSIBILITY_ENABLE_HINT);
+  console.error();
+  console.error("Tip: Run 'summon doctor' to check all permissions.");
+}
+
+function ensureAccessibility(): void {
+  if (!checkAccessibility()) {
+    console.error("Accessibility permission is required to launch workspaces.");
+    console.error();
+    printAccessibilityHint();
+    process.exit(1);
+  }
+}
+
 function executeScript(script: string): void {
   console.warn("Summoning workspace...");
   try {
@@ -99,11 +99,7 @@ function executeScript(script: string): void {
 
     if (isAccessibilityError(message)) {
       console.error();
-      console.error("Your terminal app needs Accessibility permission to use System Events.");
-      console.error(`Grant access in: ${ACCESSIBILITY_SETTINGS_PATH}`);
-      console.error(ACCESSIBILITY_ENABLE_HINT);
-      console.error();
-      console.error("Tip: Run 'summon doctor' to check all permissions.");
+      printAccessibilityHint();
     } else {
       console.error();
       console.error("Is Ghostty running? Also check:");
@@ -123,11 +119,16 @@ async function prompt(question: string): Promise<string> {
 
 /**
  * Check if any command values contain shell metacharacters.
- * Checks both .summon project file command keys and the resolved on-start value
- * (which may come from CLI, machine config, or project config).
+ * Checks .summon project file command keys, the resolved on-start value
+ * (which may come from CLI, machine config, or project config), and
+ * tree pane.* commands from custom tree layouts.
  * If dangerous values are found, warn the user and prompt for confirmation (or refuse on non-TTY).
  */
-async function confirmDangerousCommands(projectOverrides: Map<string, string>, onStart?: string): Promise<void> {
+async function confirmDangerousCommands(
+  projectOverrides: Map<string, string>,
+  onStart?: string,
+  treePaneCommands?: Map<string, string>,
+): Promise<void> {
   const dangerous: Array<[string, string]> = [];
   for (const [key, value] of projectOverrides) {
     if (COMMAND_KEYS.has(key) && SHELL_META_RE.test(value)) {
@@ -139,6 +140,14 @@ async function confirmDangerousCommands(projectOverrides: Map<string, string>, o
   // machine config sources bypass the projectOverrides map, so we check separately.
   if (onStart && SHELL_META_RE.test(onStart) && !dangerous.some(([key]) => key === "on-start")) {
     dangerous.push(["on-start", onStart]);
+  }
+  // Check tree pane.* commands for metacharacters
+  if (treePaneCommands) {
+    for (const [paneName, cmd] of treePaneCommands) {
+      if (SHELL_META_RE.test(cmd)) {
+        dangerous.push([`pane.${paneName}`, cmd]);
+      }
+    }
   }
   if (dangerous.length === 0) return;
 
@@ -191,9 +200,9 @@ async function ensureCommand(cmd: string, configKey: string): Promise<string> {
   const installDisplay = [installBin, ...installArgs].join(" ");
 
   console.log(`\`${cmd}\` is not installed on this machine.`);
-  const answer = await prompt(`Install it now with \`${installDisplay}\`? [Y/n] `);
+  const answer = await prompt(`Install it now with \`${installDisplay}\`? [y/N] `);
 
-  if (answer && answer !== "y" && answer !== "yes") {
+  if (answer !== "y" && answer !== "yes") {
     console.log(`Exiting — \`${cmd}\` is needed for this workspace layout. Change it with: summon set ${configKey} <command>`);
     process.exit(1);
   }
@@ -419,6 +428,9 @@ export function resolveConfig(targetDir: string, cliOverrides: CLIOverrides): Re
   const project = readKVFile(projectConfigPath);
   if (project.size > 0) {
     console.warn(`Using project config: ${projectConfigPath}`);
+    if (process.stdin.isTTY) {
+      console.warn("Tip: Review .summon files before use in untrusted directories.");
+    }
   }
   const machineConfig = listConfig();
 
@@ -462,13 +474,28 @@ async function warnIfNested(
   return answer !== "y";
 }
 
-/** Execute the on-start hook command before workspace creation. */
+/**
+ * Execute the on-start hook command before workspace creation.
+ *
+ * Security note: This is the only production use of `execSync` (shell mode).
+ * All other command execution uses `execFileSync` to avoid shell injection.
+ * `execSync` is required here because on-start values are user-authored shell
+ * commands that intentionally rely on shell features (pipes, redirects, etc.).
+ *
+ * The mitigation chain:
+ * 1. `confirmDangerousCommands()` warns interactively when shell metacharacters
+ *    are detected, giving the user a chance to abort.
+ * 2. In non-TTY mode, commands containing metacharacters are refused outright.
+ * 3. CLI-sourced `--on-start` values are explicitly user-provided and thus
+ *    inherently trusted (same trust model as any shell command the user types).
+ * 4. The feature is documented in `--help` so users understand the behavior.
+ */
 function executeOnStart(onStart: string, targetDir: string): void {
-  console.log(`Running on-start: ${onStart}`);
+  console.warn(`Running on-start: ${onStart}`);
   try {
     execSync(onStart, { cwd: targetDir, encoding: "utf-8", stdio: "inherit" });
-  } catch {
-    console.error(`on-start command failed: ${onStart}`);
+  } catch (err) {
+    console.error(`on-start command failed: ${onStart} — ${getErrorMessage(err)}`);
     process.exit(1);
   }
 }
@@ -489,7 +516,6 @@ async function launchTreeLayout(
   opts: Partial<LayoutOptions>,
   cliOverrides: CLIOverrides,
   targetDir: string,
-  loginShell: string,
   starshipPreset: string | undefined,
   envVars: Record<string, string>,
   ensureAndResolve: (cmd: string, key: string) => Promise<string>,
@@ -510,7 +536,7 @@ async function launchTreeLayout(
 
   if (cliOverrides.dryRun) {
     const dryRunStarshipPath = starshipPreset ? getPresetConfigPath(starshipPreset) : null;
-    const script = generateTreeAppleScript(treePlan, targetDir, loginShell, dryRunStarshipPath, hasEnvVars ? envVars : undefined);
+    const script = generateTreeAppleScript(treePlan, targetDir, dryRunStarshipPath, hasEnvVars ? envVars : undefined);
     const paneCount = treePlan.leaves.length;
     const headerLines = [
       "-- summon dry-run",
@@ -523,6 +549,7 @@ async function launchTreeLayout(
   }
 
   ensureGhostty();
+  ensureAccessibility();
 
   for (const leafName of treePlan.leaves) {
     const pane = findPaneByName(resolvedTree, leafName);
@@ -532,7 +559,7 @@ async function launchTreeLayout(
   }
 
   const starshipConfigPath = resolveStarship();
-  const script = generateTreeAppleScript(treePlan, targetDir, loginShell, starshipConfigPath, hasEnvVars ? envVars : undefined);
+  const script = generateTreeAppleScript(treePlan, targetDir, starshipConfigPath, hasEnvVars ? envVars : undefined);
   executeScript(script);
 }
 
@@ -540,7 +567,6 @@ async function launchTraditionalLayout(
   opts: Partial<LayoutOptions>,
   cliOverrides: CLIOverrides,
   targetDir: string,
-  loginShell: string,
   starshipPreset: string | undefined,
   envVars: Record<string, string>,
   ensureAndResolve: (cmd: string, key: string) => Promise<string>,
@@ -551,7 +577,7 @@ async function launchTraditionalLayout(
 
   if (cliOverrides.dryRun) {
     const dryRunStarshipPath = starshipPreset ? getPresetConfigPath(starshipPreset) : null;
-    const script = generateAppleScript(plan, targetDir, loginShell, dryRunStarshipPath, hasEnvVars ? envVars : undefined);
+    const script = generateAppleScript(plan, targetDir, dryRunStarshipPath, hasEnvVars ? envVars : undefined);
     const totalPanes = plan.leftColumnCount + plan.rightColumnEditorCount;
     const headerLines = [
       "-- summon dry-run",
@@ -564,6 +590,7 @@ async function launchTraditionalLayout(
   }
 
   ensureGhostty();
+  ensureAccessibility();
 
   if (plan.editor) plan.editor = await ensureAndResolve(plan.editor, "editor");
   if (plan.sidebarCommand) plan.sidebarCommand = await ensureAndResolve(plan.sidebarCommand, "sidebar");
@@ -571,7 +598,7 @@ async function launchTraditionalLayout(
   if (plan.shellCommand) plan.shellCommand = await ensureAndResolve(plan.shellCommand, "shell");
 
   const starshipConfigPath = resolveStarship();
-  const script = generateAppleScript(plan, targetDir, loginShell, starshipConfigPath, hasEnvVars ? envVars : undefined);
+  const script = generateAppleScript(plan, targetDir, starshipConfigPath, hasEnvVars ? envVars : undefined);
   executeScript(script);
 }
 
@@ -601,18 +628,16 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
   const { opts, projectOverrides, starshipPreset, onStart, envVars, treeLayout } = config;
 
   if (await warnIfNested(opts, cliOverrides?.dryRun)) {
-    process.exit(0);
+    process.exit(1);
   }
 
   if (!cliOverrides?.dryRun) {
-    await confirmDangerousCommands(projectOverrides, onStart);
+    await confirmDangerousCommands(projectOverrides, onStart, treeLayout?.panes);
   }
 
   if (onStart && !cliOverrides?.dryRun) {
     executeOnStart(onStart, targetDir);
   }
-
-  const loginShell = getLoginShell();
 
   // Cache resolved command paths so the same binary is only looked up once
   const resolvedCache = new Map<string, string>();
@@ -649,8 +674,8 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
   };
 
   if (treeLayout) {
-    await launchTreeLayout(treeLayout, opts, cliOverrides ?? {}, targetDir, loginShell, starshipPreset, envVars, ensureAndResolve, resolveStarship);
+    await launchTreeLayout(treeLayout, opts, cliOverrides ?? {}, targetDir, starshipPreset, envVars, ensureAndResolve, resolveStarship);
   } else {
-    await launchTraditionalLayout(opts, cliOverrides ?? {}, targetDir, loginShell, starshipPreset, envVars, ensureAndResolve, resolveStarship);
+    await launchTraditionalLayout(opts, cliOverrides ?? {}, targetDir, starshipPreset, envVars, ensureAndResolve, resolveStarship);
   }
 }

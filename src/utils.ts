@@ -89,6 +89,9 @@ export const ACCESSIBILITY_SETTINGS_PATH = "System Settings > Privacy & Security
 /** Hint telling users which app to enable for accessibility. */
 export const ACCESSIBILITY_ENABLE_HINT = "Enable your terminal app (e.g. Ghostty, Terminal, iTerm2) in the list.";
 
+/** Explanation of why accessibility is needed. */
+export const ACCESSIBILITY_REQUIRED_MSG = "Your terminal app needs Accessibility permission to use System Events.";
+
 /**
  * Check whether an osascript error is an Accessibility permission denial.
  * macOS error -1719 (errAEAccessNotAllowed) surfaces as "assistive access" in the message.
@@ -108,7 +111,7 @@ export function checkAccessibility(): boolean {
     execFileSync(
       "osascript",
       ["-e", 'tell application "System Events" to get name of first process'],
-      { encoding: "utf-8", timeout: 5000 },
+      { encoding: "utf-8", timeout: 2000 },
     );
     return true;
   } catch {

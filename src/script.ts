@@ -33,20 +33,39 @@ function shellQuote(s: string): string {
 
 // --- Shared helpers ---
 
+/**
+ * Quote command arguments for shell safety (name unquoted, args shell-quoted).
+ *
+ * Splits on spaces, so multi-word arguments are treated as separate args.
+ * For example, `grep "hello world"` becomes `grep 'hello' 'world'` — the
+ * quoted phrase is split into two individually-quoted tokens.
+ *
+ * This is NOT an injection vector: every fragment is POSIX single-quoted via
+ * {@link shellQuote}, preventing shell expansion or metacharacter interpretation.
+ *
+ * The config format (`key=value` plain text) has no syntax for preserving
+ * quoted arguments, so this space-splitting behavior is by design.
+ */
+function quoteCommand(cmd: string): string {
+  const parts = cmd.split(" ");
+  return parts.length > 1
+    ? `${parts[0]} ${parts.slice(1).map((a) => shellQuote(a)).join(" ")}`
+    : cmd;
+}
+
 /** Closures for building AppleScript lines. */
 interface ScriptBuilder {
   add: (indent: number, line: string) => void;
   blank: () => void;
   sendCommand: (pane: string, cmd: string) => void;
-  setConfigCommand: (cmd: string, paneCwd?: string) => void;
-  clearConfigCommand: () => void;
+  setInitialInput: (cmd: string) => void;
+  clearInitialInput: () => void;
+  setCwd: (cwd: string) => void;
 }
 
 /** Build the common closures used by both generators. */
 function buildScriptBuilder(
   lines: string[],
-  targetDir: string,
-  loginShell: string,
 ): ScriptBuilder {
   const add = (indent: number, line: string) => {
     lines.push("    ".repeat(indent) + line);
@@ -58,27 +77,24 @@ function buildScriptBuilder(
     add(1, `send key "enter" to ${pane}`);
   };
 
-  // Config-launched panes run in a restricted shell without PATH (--noprofile --norc).
-  // Wrap in the user's login shell so commands like npm can find their interpreters.
-  // Input-text commands (root pane) run in an already-initialized shell — no wrapping needed.
-  const quotedTargetDir = shellQuote(targetDir);
-  // Env vars are now set on surface config, so no need to embed exports in the -lc argument.
-  const wrapForConfig = (cmd: string, paneCwd?: string): string => {
-    const dir = paneCwd
-      ? shellQuote(resolve(targetDir, paneCwd))
-      : quotedTargetDir;
-    return `${loginShell} -lc ${shellQuote(`cd ${dir} && ${cmd}`)}`;
+  // initial input writes bytes to the PTY before the shell reads — the shell
+  // starts normally (interactive login, all rc files sourced) and receives
+  // the command as if the user typed it.  Shell-agnostic: works for bash,
+  // zsh, fish, ksh without any wrapper or flag differences.
+  const setInitialInput = (cmd: string) => {
+    const safe = quoteCommand(cmd);
+    add(1, `set initial input of cfg to "${escapeAppleScript(safe)}\\n"`);
   };
 
-  const setConfigCommand = (cmd: string, paneCwd?: string) => {
-    add(1, `set command of cfg to "${escapeAppleScript(wrapForConfig(cmd, paneCwd))}"`);
+  const clearInitialInput = () => {
+    add(1, `set initial input of cfg to ""`);
   };
 
-  const clearConfigCommand = () => {
-    add(1, `set command of cfg to ""`);
+  const setCwd = (cwd: string) => {
+    add(1, `set initial working directory of cfg to "${escapeAppleScript(cwd)}"`);
   };
 
-  return { add, blank, sendCommand, setConfigCommand, clearConfigCommand };
+  return { add, blank, sendCommand, setInitialInput, clearInitialInput, setCwd };
 }
 
 /** Build combined env vars list (workspace marker + Starship + user-defined). */
@@ -145,13 +161,7 @@ function emitRootPaneCommand(
   // Clear setup noise (exports, cd) so the pane starts clean
   sendCommand(rootPaneVar, "clear");
   if (command) {
-    // Shell-quote arguments to prevent metacharacter expansion ($, `, etc.)
-    // The command name is left unquoted so the shell can resolve it.
-    const parts = command.split(" ");
-    const safeCmd = parts.length > 1
-      ? `${parts[0]} ${parts.slice(1).map((a) => shellQuote(a)).join(" ")}`
-      : command;
-    sendCommand(rootPaneVar, safeCmd);
+    sendCommand(rootPaneVar, quoteCommand(command));
   }
 }
 
@@ -253,7 +263,7 @@ function emitRightColumnSplits(
   plan: LayoutPlan,
   interactiveShellPanes: string[],
 ): void {
-  const { add, blank, setConfigCommand, clearConfigCommand } = sb;
+  const { add, blank, setInitialInput, clearInitialInput } = sb;
   const secondaryCmd = plan.secondaryEditor ?? plan.editor;
   const needsRightColumn = plan.rightColumnEditorCount > 0 || plan.hasShell;
 
@@ -263,18 +273,18 @@ function emitRightColumnSplits(
   // First right column pane: editor or shell
   if (plan.rightColumnEditorCount > 0) {
     if (secondaryCmd) {
-      setConfigCommand(secondaryCmd);
+      setInitialInput(secondaryCmd);
     } else {
-      clearConfigCommand();
+      clearInitialInput();
     }
     add(1, "set paneRightCol to split paneRoot direction right with configuration cfg");
     titles.push(["paneRightCol", formatTitle("editor", secondaryCmd || null)]);
   } else {
     // Right column exists only for shell
     if (plan.shellCommand) {
-      setConfigCommand(plan.shellCommand);
+      setInitialInput(plan.shellCommand);
     } else {
-      clearConfigCommand();
+      clearInitialInput();
       interactiveShellPanes.push("paneRightCol");
     }
     add(1, "set paneRightCol to split paneRoot direction right with configuration cfg");
@@ -287,7 +297,7 @@ function emitRightColumnSplits(
     let nextRight = 2;
 
     if (plan.rightColumnEditorCount > 1 && secondaryCmd) {
-      setConfigCommand(secondaryCmd);
+      setInitialInput(secondaryCmd);
     }
     for (let i = 2; i <= plan.rightColumnEditorCount; i++) {
       const name = `paneRight${nextRight}`;
@@ -302,9 +312,9 @@ function emitRightColumnSplits(
       const name = `paneRight${nextRight}`;
       blank();
       if (plan.shellCommand) {
-        setConfigCommand(plan.shellCommand);
+        setInitialInput(plan.shellCommand);
       } else {
-        clearConfigCommand();
+        clearInitialInput();
         interactiveShellPanes.push(name);
       }
       add(1, `set ${name} to split ${lastRightPane} direction down with configuration cfg`);
@@ -319,11 +329,11 @@ function emitEditorColumnSplits(
   titles: Array<[string, string]>,
   plan: LayoutPlan,
 ): void {
-  const { add, blank, setConfigCommand } = sb;
+  const { add, blank, setInitialInput } = sb;
   const editorCmd = plan.editor;
   let lastLeftPane = "paneRoot";
   if (plan.leftColumnCount > 1 && editorCmd) {
-    setConfigCommand(editorCmd);
+    setInitialInput(editorCmd);
   }
   for (let i = 2; i <= plan.leftColumnCount; i++) {
     const name = `paneLeft${i}`;
@@ -343,6 +353,7 @@ function emitTreeTraversal(
   tree: LayoutNode,
   rootPaneVar: string,
   plan: TreeLayoutPlan,
+  targetDir: string,
 ): void {
   let firstRightSplitDone = false;
 
@@ -353,10 +364,14 @@ function emitTreeTraversal(
     const secondLeafVar = paneVar(secondLeaf.name);
 
     if (secondLeaf.command) {
-      sb.setConfigCommand(secondLeaf.command, secondLeaf.cwd);
+      sb.setInitialInput(secondLeaf.command);
     } else {
-      sb.clearConfigCommand();
+      sb.clearInitialInput();
     }
+
+    // Update working directory for this pane (custom cwd or default)
+    const paneDir = secondLeaf.cwd ? resolve(targetDir, secondLeaf.cwd) : targetDir;
+    sb.setCwd(paneDir);
 
     sb.add(1, `set ${secondLeafVar} to split ${currentPaneVar} direction ${node.direction} with configuration cfg`);
 
@@ -379,11 +394,11 @@ function collectLeavesWithCommands(node: LayoutNode): Array<[string, string]> {
 
 // --- Public API ---
 
-export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginShell = "/bin/bash", starshipConfigPath?: string | null, envVars?: Record<string, string>): string {
+export function generateAppleScript(plan: LayoutPlan, targetDir: string, starshipConfigPath?: string | null, envVars?: Record<string, string>): string {
   const lines: string[] = [];
   const titles: Array<[string, string]> = [];
   const interactiveShellPanes: string[] = [];
-  const sb = buildScriptBuilder(lines, targetDir, loginShell);
+  const sb = buildScriptBuilder(lines);
 
   const allEnvVars = buildEnvVarsList(starshipConfigPath, envVars);
 
@@ -396,7 +411,7 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginSh
 
   // Sidebar split
   if (plan.sidebarCommand) {
-    sb.setConfigCommand(plan.sidebarCommand);
+    sb.setInitialInput(plan.sidebarCommand);
   }
   sb.add(1, "set paneSidebar to split paneRoot direction right with configuration cfg");
   titles.push(["paneSidebar", formatTitle("sidebar", plan.sidebarCommand || null)]);
@@ -432,13 +447,12 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, loginSh
 export function generateTreeAppleScript(
   plan: TreeLayoutPlan,
   targetDir: string,
-  loginShell = "/bin/bash",
   starshipConfigPath?: string | null,
   envVars?: Record<string, string>,
 ): string {
   const lines: string[] = [];
   const titles: Array<[string, string]> = [];
-  const sb = buildScriptBuilder(lines, targetDir, loginShell);
+  const sb = buildScriptBuilder(lines);
 
   const allEnvVars = buildEnvVarsList(starshipConfigPath, envVars);
   const rootLeaf = firstLeaf(plan.tree);
@@ -449,7 +463,7 @@ export function generateTreeAppleScript(
   sb.add(1, `set ${rootPaneVar} to terminal 1 of selected tab of win`);
   sb.blank();
 
-  emitTreeTraversal(sb, plan.tree, rootPaneVar, plan);
+  emitTreeTraversal(sb, plan.tree, rootPaneVar, plan, targetDir);
   sb.blank();
 
   const rootCwd = rootLeaf.cwd ? resolve(targetDir, rootLeaf.cwd) : targetDir;

@@ -6,7 +6,7 @@ Technical reference for contributors.
 
 | Module | Role | Side Effects | Dependencies |
 |--------|------|:------------:|--------------|
-| `index.ts` | CLI entry point — parseArgs, subcommand dispatch, first-run detection | yes | config, launcher, validation, utils, setup (dynamic), completions (dynamic), keybindings (dynamic), tree (dynamic), layout (dynamic) |
+| `index.ts` | CLI entry point — parseArgs, subcommand dispatch, first-run detection | yes | config, launcher, validation, utils, setup (static + dynamic), completions (dynamic), keybindings (dynamic), tree (static + dynamic), layout (static + dynamic) |
 | `launcher.ts` | Orchestrator — config resolution, command checks, script execution via osascript | yes | config, layout, script, tree, utils, validation, starship, setup (dynamic) |
 | `config.ts` | Config file read/write (`~/.config/summon/` and `.summon`), first-run detection | yes | Node stdlib only |
 | `setup.ts` | Interactive setup wizard — TUI primitives, tool catalogs, numbered-selection flow | yes | config, utils, starship |
@@ -29,11 +29,11 @@ graph TD
     index --> launcher[launcher.ts]
     index --> validation[validation.ts]
     index --> utils[utils.ts]
-    index -.->|dynamic| setup[setup.ts]
+    index --> setup[setup.ts]
     index -.->|dynamic| completions[completions.ts]
     index -.->|dynamic| keybindings[keybindings.ts]
-    index -.->|dynamic| tree[tree.ts]
-    index -.->|dynamic| layout[layout.ts]
+    index --> tree[tree.ts]
+    index --> layout[layout.ts]
     launcher --> config
     launcher --> layout
     launcher --> script[script.ts]
@@ -51,6 +51,7 @@ graph TD
     setup --> starship
     starship --> config
     starship --> utils
+    validation --> utils
     completions --> config
     completions --> layout
 
@@ -118,7 +119,7 @@ graph TD
     style val_fns fill:none,stroke-dasharray:5
 ```
 
-`layout.ts`, `script.ts`, `tree.ts`, `completions.ts`, and `validation.ts` are pure modules with no side effects. `config.ts` and `utils.ts` only use Node stdlib. `starship.ts` handles Starship binary detection (cached), preset listing, and TOML config file generation — it depends on `config.ts` (for `CONFIG_DIR`) and `utils.ts` (for `resolveCommand`, `SAFE_COMMAND_RE`). `setup.ts` and `completions.ts` are loaded via dynamic `import()` from `index.ts` — they're only parsed when needed (`summon setup` or `summon completions`), keeping normal launch times unaffected. `launcher.ts` also dynamically imports `setup.ts` when no editor is configured, redirecting to the wizard on first launch.
+`layout.ts`, `script.ts`, `tree.ts`, `completions.ts`, and `validation.ts` are pure modules with no side effects. `config.ts` and `utils.ts` only use Node stdlib. `starship.ts` handles Starship binary detection (cached), preset listing, and TOML config file generation — it depends on `config.ts` (for `CONFIG_DIR`) and `utils.ts` (for `resolveCommand`, `SAFE_COMMAND_RE`). `index.ts` statically imports `renderLayoutPreview` from `setup.ts`, `parseTreeDSL` from `tree.ts`, and exports from `layout.ts` for use in the `layout list` command and direct CLI handling. The full setup wizard, `completions.ts`, and `keybindings.ts` are still loaded via dynamic `import()` — they're only parsed when needed, keeping normal launch times unaffected. `launcher.ts` also dynamically imports `setup.ts` when no editor is configured, redirecting to the wizard on first launch.
 
 All interactive prompts in `setup.ts` (`numberedSelect`, `confirm`, `selectToolFromCatalog`, `textInput`) use the shared `promptUser()` helper from `utils.ts`, which wraps readline creation, question, close, and trim in a single async call.
 
@@ -231,8 +232,7 @@ flowchart TD
     layoutfork -->|yes| treepath["resolveTreeCommands()
     → buildTreePlan()"]
     treepath --> treegen["generateTreeAppleScript(plan,
-    targetDir, loginShell,
-    starshipConfig, envVars)"]
+    targetDir, starshipConfig, envVars)"]
     treegen --> exec
 
     layoutfork -->|no| plan["planLayout(resolvedOpts)
@@ -242,7 +242,7 @@ flowchart TD
     ensure --> envvars["collectEnvVars()
     machine < project < CLI"]
     envvars --> gen["generateAppleScript(plan, targetDir,
-    loginShell, starshipConfig, envVars)
+    starshipConfig, envVars)
     build script string"]
     gen --> exec["execute via
     execFileSync('osascript', { input: script })"]
@@ -250,7 +250,7 @@ flowchart TD
 
 ## Setup Wizard
 
-`setup.ts` implements the interactive first-run onboarding wizard. It is loaded via dynamic `import()` from `index.ts` to avoid adding to the startup cost of normal launches.
+`setup.ts` implements the interactive first-run onboarding wizard. The full wizard is loaded via dynamic `import()` from `index.ts` to avoid adding to the startup cost of normal launches. However, `renderLayoutPreview` is statically imported by `index.ts` for the `layout list` command.
 
 ### First-Run Detection
 
@@ -299,11 +299,11 @@ All color functions (`bold`, `dim`, `green`, `yellow`, `cyan`) pass through when
 
 ### Code Splitting
 
-tsup automatically code-splits `setup.ts` and `completions.ts` into separate chunks. These chunks are only loaded when needed (`summon setup` or `summon completions`), keeping the main entry point lean for normal workspace launches.
+tsup automatically code-splits `setup.ts` and `completions.ts` into separate chunks. These chunks are only loaded when needed (`summon setup` or `summon completions`), keeping the main entry point lean for normal workspace launches. Note: `renderLayoutPreview` is now statically imported from `setup.ts` by `index.ts` for the `layout list` command, while the full setup wizard remains dynamically loaded.
 
 ## AppleScript Generation
 
-`script.ts` exports two pure functions: `generateAppleScript(plan, targetDir, loginShell, starshipConfigPath, envVars)` for traditional grid layouts, and `generateTreeAppleScript(plan, targetDir, loginShell, starshipConfigPath, envVars)` for tree-based custom layouts. Both return a string. Environment variables (including `STARSHIP_CONFIG` when a preset is configured) are set via Ghostty's `surface configuration` mechanism, which propagates them to all panes automatically (including new windows). Font size is also set via surface configuration when `--font-size` is provided. The traditional generator produces this script:
+`script.ts` exports two pure functions: `generateAppleScript(plan, targetDir, starshipConfigPath, envVars)` for traditional grid layouts, and `generateTreeAppleScript(plan, targetDir, starshipConfigPath, envVars)` for tree-based custom layouts. Both return a string. Environment variables (including `STARSHIP_CONFIG` when a preset is configured) are set via Ghostty's `surface configuration` mechanism, which propagates them to all panes automatically (including new windows). Font size is also set via surface configuration when `--font-size` is provided. The traditional generator produces this script:
 
 1. Creates a `surface configuration` with the target working directory, font size, and environment variables
 2. Creates a new Ghostty window with that configuration (or reuses the front window unless `--new-window` is set)
@@ -312,7 +312,7 @@ tsup automatically code-splits `setup.ts` and `completions.ts` into separate chu
 5. Splits for right column editors (direction `right` from root)
 6. Splits left column vertically for additional editor panes (direction `down`)
 7. Splits right column vertically for additional editors + shell pane (direction `down`)
-8. Sends commands to each pane via `input text` + `send key "enter"`
+8. Sends commands to each pane: the root pane uses `input text` + `send key "enter"`, while non-root panes use `set initial input of cfg to "command\n"` in their surface configuration. This means non-root panes start as normal interactive login shells (all rc files sourced) and receive the command via PTY buffer injection.
 9. Focuses the root editor pane
 
 ### AppleScript Object Model
@@ -369,10 +369,6 @@ If any are found:
 - **Dry-run**: skips the check entirely (no commands are executed)
 
 `.summon` project files are checked for all command keys. The resolved `on-start` value is additionally checked from any source since it runs via `execSync` (shell execution).
-
-### SHELL Validation
-
-`launcher.ts` validates `process.env.SHELL` against `/^\/[a-zA-Z0-9_/.-]+$/`. If the value is missing or unsafe, it falls back to `/bin/bash` with a warning.
 
 ### osascript Execution
 
