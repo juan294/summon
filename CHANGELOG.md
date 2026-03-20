@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `summon layout list` now renders ASCII box-drawing diagrams showing each command in its actual pane position, replacing the dense key=value dump
+- Pre-flight macOS Accessibility permission check before workspace launch — clear error with actionable guidance instead of cryptic osascript failures
+
+### Changed
+
+- Pane commands now use Ghostty's `initial input` surface config instead of shell-wrapping `set command of cfg` — panes survive command exit (TUI quit drops to a shell prompt), error output is visible, and behavior is consistent across bash, zsh, fish, and ksh
+- Accessibility permission check timeout reduced from 5 s to 2 s for faster launch feedback
+- Auto-install prompt for missing commands now defaults to No (`[y/N]`) instead of Yes
+
+### Fixed
+
+- Shell metacharacter confirmation now covers tree-layout pane commands (previously only checked grid-layout commands)
+- Config parser (`readKVFile`) now skips comment lines instead of treating them as malformed keys
+- Bash shell completions use a portability fallback for shells without `compopt`, and `freeze`/`export` subcommands now appear in completion results
+- Resolved `flatted` prototype pollution vulnerability in dev dependencies
+- On-start hook failure message now includes the underlying error; status message writes to stderr
+
 ## [1.2.1] - 2026-03-17
 
 ### Removed
