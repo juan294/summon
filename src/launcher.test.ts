@@ -2372,7 +2372,7 @@ describe("custom tree layout integration (Phase 4)", () => {
       mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("n"));
 
       await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
-      expect(mockExit).toHaveBeenCalledWith(0);
+      expect(mockExit).toHaveBeenCalledWith(1);
       warnSpy.mockRestore();
       mockExit.mockRestore();
     });
@@ -2658,6 +2658,64 @@ describe("project config log (#146)", () => {
     const configMsg = warnMessages.find((m) => m.includes(".summon"));
     expect(configMsg).toBeUndefined();
     warnSpy.mockRestore();
+  });
+
+  it("shows trust advisory when .summon file is loaded in TTY mode", () => {
+    const originalIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", { value: true, writable: true });
+    mockReadKVFile.mockImplementation((path: string) => {
+      if (path === "/tmp/workspace/.summon") {
+        return new Map([["editor", "vim"]]);
+      }
+      return new Map();
+    });
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    resolveConfig("/tmp/workspace", {});
+
+    const warnMessages = warnSpy.mock.calls.map((c) => c[0] as string);
+    const trustMsg = warnMessages.find((m) => m.includes("Review .summon"));
+    expect(trustMsg).toBeDefined();
+    warnSpy.mockRestore();
+    Object.defineProperty(process.stdin, "isTTY", { value: originalIsTTY, writable: true });
+  });
+
+  it("does NOT show trust advisory in non-TTY mode", () => {
+    const originalIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", { value: false, writable: true });
+    mockReadKVFile.mockImplementation((path: string) => {
+      if (path === "/tmp/workspace/.summon") {
+        return new Map([["editor", "vim"]]);
+      }
+      return new Map();
+    });
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    resolveConfig("/tmp/workspace", {});
+
+    const warnMessages = warnSpy.mock.calls.map((c) => c[0] as string);
+    const trustMsg = warnMessages.find((m) => m.includes("Review .summon"));
+    expect(trustMsg).toBeUndefined();
+    warnSpy.mockRestore();
+    Object.defineProperty(process.stdin, "isTTY", { value: originalIsTTY, writable: true });
+  });
+
+  it("does NOT show trust advisory when no .summon file exists", () => {
+    const originalIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", { value: true, writable: true });
+    mockReadKVFile.mockReturnValue(new Map());
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    resolveConfig("/tmp/workspace", {});
+
+    const warnMessages = warnSpy.mock.calls.map((c) => c[0] as string);
+    const trustMsg = warnMessages.find((m) => m.includes("Review .summon"));
+    expect(trustMsg).toBeUndefined();
+    warnSpy.mockRestore();
+    Object.defineProperty(process.stdin, "isTTY", { value: originalIsTTY, writable: true });
   });
 });
 
