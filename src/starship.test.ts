@@ -208,6 +208,12 @@ describe("getPresetConfigPath", () => {
     const result = getPresetConfigPath("gruvbox-rainbow");
     expect(result).toContain(".config/summon/starship/");
   });
+
+  it("throws on path traversal attempt", () => {
+    expect(() => getPresetConfigPath("../../etc/passwd")).toThrow(
+      /Invalid preset path/,
+    );
+  });
 });
 
 describe("listStarshipPresets caching", () => {
