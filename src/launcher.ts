@@ -17,7 +17,7 @@ import { listConfig, readKVFile, readCustomLayout, isCustomLayout, LAYOUT_NAME_R
 import { generateAppleScript, generateTreeAppleScript } from "./script.js";
 import { parseTreeDSL, extractPaneDefinitions, extractPaneCwds, resolveTreeCommands as resolveTreeCmds, buildTreePlan, findPaneByName } from "./tree.js";
 import type { LayoutNode } from "./tree.js";
-import { resolveCommand as resolveCommandPath, promptUser, getErrorMessage, SUMMON_WORKSPACE_ENV, isAccessibilityError, isGhosttyInstalled, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT } from "./utils.js";
+import { resolveCommand as resolveCommandPath, promptUser, getErrorMessage, SUMMON_WORKSPACE_ENV, isAccessibilityError, checkAccessibility, isGhosttyInstalled, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT, ACCESSIBILITY_REQUIRED_MSG } from "./utils.js";
 import { parseIntInRange, parsePositiveFloat, ENV_KEY_RE } from "./validation.js";
 import { isStarshipInstalled, ensurePresetConfig, getPresetConfigPath } from "./starship.js";
 
@@ -89,6 +89,23 @@ function ensureGhostty(): void {
   }
 }
 
+function printAccessibilityHint(): void {
+  console.error(ACCESSIBILITY_REQUIRED_MSG);
+  console.error(`Grant access in: ${ACCESSIBILITY_SETTINGS_PATH}`);
+  console.error(ACCESSIBILITY_ENABLE_HINT);
+  console.error();
+  console.error("Tip: Run 'summon doctor' to check all permissions.");
+}
+
+function ensureAccessibility(): void {
+  if (!checkAccessibility()) {
+    console.error("Accessibility permission is required to launch workspaces.");
+    console.error();
+    printAccessibilityHint();
+    process.exit(1);
+  }
+}
+
 function executeScript(script: string): void {
   console.warn("Summoning workspace...");
   try {
@@ -99,11 +116,7 @@ function executeScript(script: string): void {
 
     if (isAccessibilityError(message)) {
       console.error();
-      console.error("Your terminal app needs Accessibility permission to use System Events.");
-      console.error(`Grant access in: ${ACCESSIBILITY_SETTINGS_PATH}`);
-      console.error(ACCESSIBILITY_ENABLE_HINT);
-      console.error();
-      console.error("Tip: Run 'summon doctor' to check all permissions.");
+      printAccessibilityHint();
     } else {
       console.error();
       console.error("Is Ghostty running? Also check:");
@@ -523,6 +536,7 @@ async function launchTreeLayout(
   }
 
   ensureGhostty();
+  ensureAccessibility();
 
   for (const leafName of treePlan.leaves) {
     const pane = findPaneByName(resolvedTree, leafName);
@@ -564,6 +578,7 @@ async function launchTraditionalLayout(
   }
 
   ensureGhostty();
+  ensureAccessibility();
 
   if (plan.editor) plan.editor = await ensureAndResolve(plan.editor, "editor");
   if (plan.sidebarCommand) plan.sidebarCommand = await ensureAndResolve(plan.sidebarCommand, "sidebar");

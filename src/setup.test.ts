@@ -77,6 +77,7 @@ const {
   selectShell,
   selectStarshipPreset,
   validateSetup,
+  checkAndRecoverAccessibility,
   runSetup,
   hexToRgb,
   colorSwatch,
@@ -899,32 +900,6 @@ describe("validateSetup", () => {
     expect(result.ghosttyFound).toBe(false);
   });
 
-  it("reports accessibilityGranted=true when check passes", () => {
-    mockExecFileSync.mockReturnValue("/usr/bin/stub\n");
-    mockExistsSync.mockReturnValue(true);
-    const result = validateSetup({
-      layout: "pair",
-      editor: "vim",
-      sidebar: "lazygit",
-      shell: "true",
-    });
-    expect(result.accessibilityGranted).toBe(true);
-  });
-
-  it("reports accessibilityGranted=false when accessibility check fails", () => {
-    mockExecFileSync.mockImplementation((bin: string) => {
-      if (bin === "osascript") throw new Error("assistive access (-1719)");
-      return "/usr/bin/stub\n";
-    });
-    mockExistsSync.mockReturnValue(true);
-    const result = validateSetup({
-      layout: "pair",
-      editor: "vim",
-      sidebar: "lazygit",
-      shell: "true",
-    });
-    expect(result.accessibilityGranted).toBe(false);
-  });
 });
 
 describe("printValidation", () => {
@@ -1032,57 +1007,39 @@ describe("printValidation", () => {
     logSpy.mockRestore();
   });
 
-  it("prints accessibility permission granted when granted", async () => {
+});
+
+describe("checkAndRecoverAccessibility", () => {
+  it("returns true when accessibility is already granted", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-    mockExecFileSync.mockReturnValue("/usr/bin/stub\n"); // all tools + accessibility pass
-    mockExistsSync.mockReturnValue(true);
+    mockExecFileSync.mockReturnValue("/usr/bin/stub\n");
 
-    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
-      if (_q.includes("[Y/n]")) cb("y");
-      else cb("1");
-    });
+    const result = await checkAndRecoverAccessibility();
 
-    const origIsTTY = process.stdin.isTTY;
-    Object.defineProperty(process.stdin, "isTTY", {
-      value: true,
-      writable: true,
-    });
-
-    await runSetup();
-
+    expect(result).toBe(true);
     const allOutput = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
     expect(
       allOutput.some((s) => s.includes("Accessibility permission granted")),
     ).toBe(true);
 
-    Object.defineProperty(process.stdin, "isTTY", {
-      value: origIsTTY,
-      writable: true,
-    });
     logSpy.mockRestore();
   });
 
-  it("prints accessibility warning when not granted", async () => {
+  it("returns false when not granted and user declines to open settings", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     mockExecFileSync.mockImplementation((bin: string) => {
       if (bin === "osascript") throw new Error("assistive access (-1719)");
       return "/usr/bin/stub\n";
     });
-    mockExistsSync.mockReturnValue(true);
 
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
-      if (_q.includes("[Y/n]")) cb("y");
-      else cb("1");
+      if (_q.includes("[Y/n]")) cb("n");
+      else cb("");
     });
 
-    const origIsTTY = process.stdin.isTTY;
-    Object.defineProperty(process.stdin, "isTTY", {
-      value: true,
-      writable: true,
-    });
+    const result = await checkAndRecoverAccessibility();
 
-    await runSetup();
-
+    expect(result).toBe(false);
     const allOutput = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
     expect(
       allOutput.some((s) => s.includes("Accessibility permission not granted")),
@@ -1091,10 +1048,59 @@ describe("printValidation", () => {
       allOutput.some((s) => s.includes("System Events")),
     ).toBe(true);
 
-    Object.defineProperty(process.stdin, "isTTY", {
-      value: origIsTTY,
-      writable: true,
+    logSpy.mockRestore();
+  });
+
+  it("returns true when user opens settings and re-check passes", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    let osascriptCallCount = 0;
+    mockExecFileSync.mockImplementation((bin: string) => {
+      if (bin === "osascript") {
+        osascriptCallCount++;
+        if (osascriptCallCount <= 1) throw new Error("assistive access (-1719)");
+        return "Finder\n"; // re-check passes
+      }
+      if (bin === "open") return ""; // openAccessibilitySettings
+      return "/usr/bin/stub\n";
     });
+
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      if (_q.includes("[Y/n]")) cb("y");
+      else cb(""); // Press Enter
+    });
+
+    const result = await checkAndRecoverAccessibility();
+
+    expect(result).toBe(true);
+    const allOutput = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(
+      allOutput.some((s) => s.includes("Accessibility permission granted!")),
+    ).toBe(true);
+
+    logSpy.mockRestore();
+  });
+
+  it("returns false when user opens settings but re-check still fails", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockExecFileSync.mockImplementation((bin: string) => {
+      if (bin === "osascript") throw new Error("assistive access (-1719)");
+      if (bin === "open") return "";
+      return "/usr/bin/stub\n";
+    });
+
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      if (_q.includes("[Y/n]")) cb("y");
+      else cb(""); // Press Enter
+    });
+
+    const result = await checkAndRecoverAccessibility();
+
+    expect(result).toBe(false);
+    const allOutput = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(
+      allOutput.some((s) => s.includes("Still not detected")),
+    ).toBe(true);
+
     logSpy.mockRestore();
   });
 });

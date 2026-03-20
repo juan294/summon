@@ -24,7 +24,7 @@ import { launch, resolveConfig, optsToConfigMap } from "./launcher.js";
 import type { CLIOverrides } from "./launcher.js";
 import { PANES_MIN, PANES_DEFAULT, EDITOR_SIZE_MIN, EDITOR_SIZE_MAX, EDITOR_SIZE_DEFAULT, isPresetName, getPresetNames } from "./layout.js";
 import { validateIntFlag, validateFloatFlag, ENV_KEY_RE } from "./validation.js";
-import { SAFE_COMMAND_RE, getErrorMessage, exitWithUsageHint, checkAccessibility, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT } from "./utils.js";
+import { SAFE_COMMAND_RE, getErrorMessage, exitWithUsageHint, checkAccessibility, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT, ACCESSIBILITY_REQUIRED_MSG } from "./utils.js";
 
 function validateLayoutNameOrExit(name: string): void {
   if (isPresetName(name)) {
@@ -604,8 +604,8 @@ switch (subcommand) {
       console.log("  + Accessibility permission is granted");
     } else {
       allGood = false;
-      console.log("  - Accessibility permission not granted");
-      console.log("    Your terminal app needs Accessibility access for summon to resize panes.");
+      console.log("  - Accessibility permission is required");
+      console.log(`    ${ACCESSIBILITY_REQUIRED_MSG}`);
       console.log(`    ${ACCESSIBILITY_SETTINGS_PATH}`);
       console.log(`    ${ACCESSIBILITY_ENABLE_HINT}`);
       console.log();

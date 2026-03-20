@@ -814,7 +814,7 @@ describe("CLI integration", () => {
       expect(result.stdout).toContain("Checking permissions");
       // The result depends on OS permissions, so check that one of the two messages appears
       const hasGranted = result.stdout.includes("Accessibility permission is granted");
-      const hasNotGranted = result.stdout.includes("Accessibility permission not granted");
+      const hasNotGranted = result.stdout.includes("Accessibility permission is required");
       expect(hasGranted || hasNotGranted).toBe(true);
     });
 

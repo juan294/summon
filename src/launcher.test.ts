@@ -70,8 +70,13 @@ const { launch, resolveConfig, optsToConfigMap } = await import("./launcher.js")
 const { getConfig, listConfig } = await import("./config.js");
 const { existsSync } = await import("node:fs");
 
+let savedSummonWorkspace: string | undefined;
+
 beforeEach(() => {
   vi.clearAllMocks();
+  // Prevent warnIfNested from activating when tests run inside a summon workspace
+  savedSummonWorkspace = process.env.SUMMON_WORKSPACE;
+  delete process.env.SUMMON_WORKSPACE;
   // Default: execSync no-ops (osascript, etc.)
   mockExecSync.mockImplementation(() => "");
   // Default: all commands are installed (resolveCommand uses execFileSync)
@@ -87,6 +92,14 @@ beforeEach(() => {
   vi.mocked(listConfig).mockReturnValue(new Map<string, string>([["editor", "vim"]]));
   mockGenerateAppleScript.mockReturnValue('tell application "Ghostty"\nend tell');
   mockGenerateTreeAppleScript.mockReturnValue('tell application "Ghostty"\n-- tree layout\nend tell');
+});
+
+afterEach(() => {
+  if (savedSummonWorkspace !== undefined) {
+    process.env.SUMMON_WORKSPACE = savedSummonWorkspace;
+  } else {
+    delete process.env.SUMMON_WORKSPACE;
+  }
 });
 
 describe("Ghostty detection", () => {
@@ -538,6 +551,8 @@ describe("secondaryEditor binary check", () => {
 describe("ensureCommand error paths", () => {
   it("exits when install command throws an error", async () => {
     mockExecFileSync.mockImplementation((bin: string, args?: string[]) => {
+      // Accessibility pre-flight check — allow through
+      if (bin === "osascript") return "";
       if (bin === "/bin/sh" && Array.isArray(args) && args[3] === "claude") throw new Error("not found");
       if (bin === "/bin/sh" && Array.isArray(args) && args[0] === "-c" && typeof args[1] === "string" && args[1].startsWith("command -v"))
         return "/usr/bin/stub\n";
@@ -889,6 +904,83 @@ describe("osascript error handling", () => {
     expect(errorSpy).toHaveBeenCalledWith(
       expect.stringContaining("string error"),
     );
+    mockExit.mockRestore();
+    errorSpy.mockRestore();
+  });
+});
+
+describe("pre-flight accessibility check", () => {
+  /** Mock execFileSync so all osascript calls throw an accessibility error. */
+  const mockAccessibilityDenied = () => {
+    mockExecFileSync.mockImplementation((bin: string, args?: string[]) => {
+      if (bin === "osascript") {
+        throw new Error("assistive access (-1719)");
+      }
+      if (bin === "/bin/sh" && Array.isArray(args) && args[0] === "-c" && typeof args[1] === "string" && args[1].startsWith("command -v"))
+        return "/usr/bin/stub\n";
+      return "";
+    });
+  };
+
+  it("exits with error when accessibility is not granted", async () => {
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+    mockAccessibilityDenied();
+
+    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("process.exit");
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
+    expect(mockExit).toHaveBeenCalledWith(1);
+    const allErrors = errorSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    expect(allErrors).toContain("Accessibility permission is required");
+    expect(allErrors).toContain("System Events");
+    expect(allErrors).toContain("summon doctor");
+    mockExit.mockRestore();
+    errorSpy.mockRestore();
+  });
+
+  it("skips accessibility check for --dry-run", async () => {
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+    mockAccessibilityDenied();
+
+    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("process.exit");
+    });
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await launch("/tmp/workspace", { dryRun: true });
+
+    // Should NOT have exited
+    expect(mockExit).not.toHaveBeenCalled();
+    // Should have printed dry-run output
+    const allOutput = logSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    expect(allOutput).toContain("dry-run");
+    mockExit.mockRestore();
+    logSpy.mockRestore();
+  });
+
+  it("pre-flight check runs for tree layouts too", async () => {
+    const treeData = new Map([
+      ["tree", "editor | shell"],
+      ["pane.editor", "vim"],
+      ["pane.shell", "shell"],
+    ]);
+    mockReadCustomLayout.mockReturnValue(treeData);
+    mockIsCustomLayout.mockReturnValue(true);
+    vi.mocked(listConfig).mockReturnValue(new Map([["layout", "mytree"]]));
+    mockAccessibilityDenied();
+
+    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("process.exit");
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(launch("/tmp/workspace", { layout: "mytree" })).rejects.toThrow("process.exit");
+    expect(mockExit).toHaveBeenCalledWith(1);
+    const allErrors = errorSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    expect(allErrors).toContain("Accessibility permission is required");
     mockExit.mockRestore();
     errorSpy.mockRestore();
   });

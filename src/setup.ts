@@ -612,7 +612,6 @@ interface ValidationWarning {
 interface ValidationResult {
   warnings: ValidationWarning[];
   ghosttyFound: boolean;
-  accessibilityGranted: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -1005,9 +1004,8 @@ export function validateSetup(result: SetupResult): ValidationResult {
 
   // Check Ghostty
   const ghosttyFound = isGhosttyInstalled();
-  const accessibilityGranted = checkAccessibility();
 
-  return { warnings, ghosttyFound, accessibilityGranted };
+  return { warnings, ghosttyFound };
 }
 
 function printValidation(validation: ValidationResult): void {
@@ -1035,16 +1033,50 @@ function printValidation(validation: ValidationResult): void {
     );
   }
 
-  if (validation.accessibilityGranted) {
-    console.log(`  ${green("✓")} Accessibility permission granted`);
-  } else {
-    console.log(`  ${yellow("!")} Accessibility permission not granted`);
-    console.log();
-    console.log(dim("  Summon uses System Events to resize panes."));
-    console.log(dim("  Your terminal app needs Accessibility permission in:"));
-    console.log(dim(`  ${ACCESSIBILITY_SETTINGS_PATH}`));
-  }
   console.log();
+}
+
+export async function checkAndRecoverAccessibility(): Promise<boolean> {
+  printSection("Accessibility");
+  const granted = checkAccessibility();
+
+  if (granted) {
+    console.log(`  ${green("✓")} Accessibility permission granted`);
+    console.log();
+    return true;
+  }
+
+  // Not granted — show warning and offer recovery
+  console.log(`  ${yellow("!")} Accessibility permission not granted`);
+  console.log();
+  console.log(dim("  Summon uses System Events to control Ghostty panes."));
+  console.log(dim("  Your terminal app needs Accessibility permission in:"));
+  console.log(dim(`  ${ACCESSIBILITY_SETTINGS_PATH}`));
+  console.log();
+
+  const shouldOpen = await confirm("  Open Accessibility settings now?");
+  if (shouldOpen) {
+    openAccessibilitySettings();
+    console.log();
+    console.log(dim(`  ${ACCESSIBILITY_ENABLE_HINT}`));
+    console.log(dim("  You may need to click the lock icon first."));
+    console.log();
+    await promptUser("  Press Enter after granting access...");
+    const rechecked = checkAccessibility();
+    if (rechecked) {
+      console.log(`  ${green("✓")} Accessibility permission granted!`);
+      console.log();
+      return true;
+    }
+    console.log(`  ${yellow("!")} Still not detected — you can grant it later.`);
+    console.log(dim("  Summon will work once your terminal has Accessibility access."));
+    console.log();
+    return false;
+  }
+
+  console.log(dim("  You can grant it later. Summon needs Accessibility to work."));
+  console.log();
+  return false;
 }
 
 export async function runSetup(): Promise<void> {
@@ -1055,6 +1087,8 @@ export async function runSetup(): Promise<void> {
   }
 
   printWelcome();
+
+  await checkAndRecoverAccessibility();
 
   while (true) {
     const layout = await selectLayout();
@@ -1111,26 +1145,6 @@ export async function runSetup(): Promise<void> {
       if (!isCustom) {
         const validation = validateSetup(result);
         printValidation(validation);
-
-        if (!validation.accessibilityGranted) {
-          const shouldOpen = await confirm("  Open Accessibility settings now?");
-          if (shouldOpen) {
-            openAccessibilitySettings();
-            console.log();
-            console.log(dim(`  ${ACCESSIBILITY_ENABLE_HINT}`));
-            console.log(dim("  You may need to click the lock icon first."));
-            console.log();
-            await promptUser("  Press Enter after granting access...");
-            const rechecked = checkAccessibility();
-            if (rechecked) {
-              console.log(`  ${green("✓")} Accessibility permission granted!`);
-            } else {
-              console.log(`  ${yellow("!")} Still not detected — you can grant it later.`);
-              console.log(dim("  Summon will work once your terminal has Accessibility access."));
-            }
-            console.log();
-          }
-        }
       }
 
       console.log(green("  Settings saved to ~/.config/summon/config"));
