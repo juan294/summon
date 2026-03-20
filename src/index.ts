@@ -26,6 +26,44 @@ import type { CLIOverrides } from "./launcher.js";
 import { PANES_MIN, PANES_DEFAULT, EDITOR_SIZE_MIN, EDITOR_SIZE_MAX, EDITOR_SIZE_DEFAULT, isPresetName, getPresetNames } from "./layout.js";
 import { validateIntFlag, validateFloatFlag, ENV_KEY_RE } from "./validation.js";
 import { SAFE_COMMAND_RE, getErrorMessage, exitWithUsageHint, resolveCommand, checkAccessibility, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT, ACCESSIBILITY_REQUIRED_MSG } from "./utils.js";
+import { parseTreeDSL } from "./tree.js";
+import type { LayoutNode } from "./tree.js";
+import { renderLayoutPreview } from "./setup.js";
+
+/**
+ * Convert a LayoutNode tree into a string[][] grid for renderLayoutPreview.
+ * "right" splits → columns, "down" splits → rows within a column.
+ * Each cell contains the pane command resolved from the pane map.
+ */
+function treeToGrid(node: LayoutNode, panes: Map<string, string>): string[][] {
+  // Collect columns: flatten "right" splits at the top level into columns,
+  // then flatten "down" splits within each column into rows.
+  function collectColumns(n: LayoutNode): LayoutNode[] {
+    if (n.type === "split" && n.direction === "right") {
+      return [...collectColumns(n.first), ...collectColumns(n.second)];
+    }
+    return [n];
+  }
+
+  function collectRows(n: LayoutNode): string[] {
+    if (n.type === "split" && n.direction === "down") {
+      return [...collectRows(n.first), ...collectRows(n.second)];
+    }
+    if (n.type === "pane") {
+      return [panes.get(n.name) ?? n.name];
+    }
+    // Nested right-split inside a column — flatten to a single label
+    const leaves: string[] = [];
+    function gather(nd: LayoutNode): void {
+      if (nd.type === "pane") leaves.push(panes.get(nd.name) ?? nd.name);
+      else { gather(nd.first); gather(nd.second); }
+    }
+    gather(n);
+    return [leaves.join(" | ")];
+  }
+
+  return collectColumns(node).map((col) => collectRows(col));
+}
 
 function validateLayoutNameOrExit(name: string): void {
   if (isPresetName(name)) {
@@ -826,11 +864,49 @@ switch (subcommand) {
         if (layouts.length === 0) {
           console.log("No custom layouts saved. Use: summon layout save <name>");
         } else {
-          console.log("Custom layouts:");
-          for (const name of layouts) {
+          console.log(`Custom layouts (${layouts.length}):\n`);
+          for (let i = 0; i < layouts.length; i++) {
+            const name = layouts[i]!;
             const data = readCustomLayout(name);
-            const summary = data ? [...data.entries()].map(([k, v]) => `${k}=${v}`).join(", ") : "";
-            console.log(`  ${name}${summary ? ` (${summary})` : ""}`);
+            if (!data) {
+              console.log(`  \x1b[1m${name}\x1b[0m`);
+            } else {
+              const paneMap = new Map<string, string>();
+              let tree = "";
+              const other: string[] = [];
+              for (const [k, v] of data) {
+                if (k === "tree") {
+                  tree = v;
+                } else if (k.startsWith("pane.") && !k.endsWith(".cwd")) {
+                  paneMap.set(k.slice(5), v);
+                } else {
+                  other.push(`${k}=${v}`);
+                }
+              }
+              console.log(`  \x1b[1m${name}\x1b[0m`);
+              if (tree && paneMap.size > 0) {
+                try {
+                  const node = parseTreeDSL(tree);
+                  const grid = treeToGrid(node, paneMap);
+                  const preview = renderLayoutPreview(grid);
+                  for (const line of preview.split("\n")) {
+                    console.log(`    ${line}`);
+                  }
+                } catch {
+                  // Fallback: show panes + tree as text
+                  const paneList = [...paneMap.entries()].map(([k, v]) => `${k}=\x1b[36m${v}\x1b[0m`);
+                  console.log(`    Panes:  ${paneList.join("  ")}`);
+                  console.log(`    Tree:   ${tree}`);
+                }
+              } else if (paneMap.size > 0) {
+                const paneList = [...paneMap.entries()].map(([k, v]) => `${k}=\x1b[36m${v}\x1b[0m`);
+                console.log(`    Panes:  ${paneList.join("  ")}`);
+              }
+              if (other.length > 0) {
+                console.log(`    Config: ${other.join(", ")}`);
+              }
+            }
+            if (i < layouts.length - 1) console.log();
           }
         }
         break;
