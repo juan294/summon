@@ -428,6 +428,9 @@ export function resolveConfig(targetDir: string, cliOverrides: CLIOverrides): Re
   const project = readKVFile(projectConfigPath);
   if (project.size > 0) {
     console.warn(`Using project config: ${projectConfigPath}`);
+    if (process.stdin.isTTY) {
+      console.warn("Tip: Review .summon files before use in untrusted directories.");
+    }
   }
   const machineConfig = listConfig();
 
@@ -471,7 +474,22 @@ async function warnIfNested(
   return answer !== "y";
 }
 
-/** Execute the on-start hook command before workspace creation. */
+/**
+ * Execute the on-start hook command before workspace creation.
+ *
+ * Security note: This is the only production use of `execSync` (shell mode).
+ * All other command execution uses `execFileSync` to avoid shell injection.
+ * `execSync` is required here because on-start values are user-authored shell
+ * commands that intentionally rely on shell features (pipes, redirects, etc.).
+ *
+ * The mitigation chain:
+ * 1. `confirmDangerousCommands()` warns interactively when shell metacharacters
+ *    are detected, giving the user a chance to abort.
+ * 2. In non-TTY mode, commands containing metacharacters are refused outright.
+ * 3. CLI-sourced `--on-start` values are explicitly user-provided and thus
+ *    inherently trusted (same trust model as any shell command the user types).
+ * 4. The feature is documented in `--help` so users understand the behavior.
+ */
 function executeOnStart(onStart: string, targetDir: string): void {
   console.warn(`Running on-start: ${onStart}`);
   try {
@@ -610,7 +628,7 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
   const { opts, projectOverrides, starshipPreset, onStart, envVars, treeLayout } = config;
 
   if (await warnIfNested(opts, cliOverrides?.dryRun)) {
-    process.exit(0);
+    process.exit(1);
   }
 
   if (!cliOverrides?.dryRun) {
