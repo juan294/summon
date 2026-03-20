@@ -45,3 +45,4 @@ MANUAL_TESTBED.md
 .npmrc
 *.pem
 *.key
+credentials*.json
