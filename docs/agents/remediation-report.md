@@ -1,49 +1,71 @@
 # Remediation Report
-> Generated on 2026-03-17 | Branch: `develop` | 4 issues resolved
+
+> Generated on 2026-03-20 | Branch: `develop` | 10 issues resolved
 >
 > Pre-launch report: `docs/agents/pre-launch-report.md`
 
 ## Summary
-- Findings processed: 19 (8 warnings + 11 recommendations)
-- Issues created: 4
-- Issues resolved: 4
-- Tests added: 13 (6 ENV_KEY_RE + 4 tree+CWD merge + 3 starship caching)
-- Files modified: 12
-- CI status: IN PROGRESS (pending)
+
+- Findings processed: 31 (11 warnings + 20 recommendations)
+- Issues created: 10
+- Issues resolved: 10
+- Tests added: ~39
+- Files modified: 16
+- CI status: IN PROGRESS
 
 ## Issues Resolved
+
 | # | Issue | Domain | Severity | Tests Added | Status |
 |---|-------|--------|----------|-------------|--------|
-| #184 | Extract ENV_KEY_RE + show config defaults | architecture, ux | low | 6 | Closed |
-| #185 | Strengthen test assertions + cover tree+CWD merge | qa | low | 4 | Closed |
-| #186 | @internal JSDoc tags + cache listStarshipPresets | architecture, performance | low | 3 | Closed |
-| #187 | Harden branch protection on main | devops | low | 0 (config) | Closed |
+| #190 | Extend metacharacter check to tree pane.* commands & launcher UX | security, ux | WARNING | 17 | Resolved |
+| #191 | Expand summon doctor & improve CLI help text | ux | WARNING | 12 | Resolved |
+| #192 | Bash completion portability & freeze/export completions | ux | WARNING | 5 | Resolved |
+| #193 | Fix flatted prototype pollution in dev dependency | security | WARNING | 0 | Resolved |
+| #194 | Add STARSHIP_CONFIG to README env var table | docs | WARNING | 0 | Resolved |
+| #195 | Add main branch to CodeQL PR trigger | infra | WARNING | 0 | Resolved |
+| #196 | Reduce accessibility check timeout from 5s to 2s | perf | WARNING | 1 | Resolved |
+| #197 | Skip comment lines in readKVFile parser | arch | RECOMMENDATION | 2 | Resolved |
+| #198 | Setup.ts cleanup: dead code removal & preview dedup | arch | RECOMMENDATION | 1 | Resolved |
+| #199 | Tree parser coverage for unexpected end-of-input guard | qa | RECOMMENDATION | 1 | Resolved |
 
-## Findings Disposition
-| Finding | Action | Details |
-|---------|--------|---------|
-| W1 | Resolved | Pushed with release |
-| W2/R1 | Fixed (#184) | ENV_KEY_RE extracted to validation.ts |
-| W3/R2 | Fixed (#185) | 8x .toBeTruthy() → .toBeTypeOf('string') |
-| W4/R3 | Fixed (#185) | 4 tests for tree+CWD merge path |
-| W5 | Skipped | By design (on-start uses shell intentionally) |
-| W6/R9 | Fixed (#187) | enforce_admins + dismiss_stale_reviews enabled |
-| W7/R10 | Skipped | False positive (adding to CLI_FLAGS breaks completions; subcommand-specific handling is correct) |
-| W8 | Skipped | Cosmetic (Ghostty renders Unicode fine) |
-| R4 | Skipped | Feature request (--yes flag for CI) — future release |
-| R5 | Skipped | Security design decision (strict EDITOR validation) |
-| R6 | Skipped | Already implemented (README Trust Model section exists) |
-| R7 | Fixed (#186) | @internal tags added to GHOSTTY_PATHS, layoutPath |
-| R8 | Fixed (#186) | listStarshipPresets() now cached |
-| R11 | Fixed (#184) | `summon config` shows effective defaults |
+## Changes by File
+
+| File | Changes |
+|------|---------|
+| `src/launcher.ts` | W1: pane.* metachar check, W9: install prompt default, R19: on-start error, R24: on-start stderr |
+| `src/launcher.test.ts` | 17 new tests, SUMMON_WORKSPACE env leak fix in metachar describe |
+| `src/index.ts` | W7: doctor editor/sidebar checks, W10: cancel hint, R13-R25: help/formatting |
+| `src/index.test.ts` | 12 new tests |
+| `src/completions.ts` | W8: _init_completion fallback, R23: freeze/export completions |
+| `src/completions.test.ts` | 5 new tests |
+| `src/utils.ts` | W11: timeout 5000 → 2000 |
+| `src/utils.test.ts` | 1 test updated |
+| `src/config.ts` | R11: skip # comment lines |
+| `src/config.test.ts` | 2 new tests |
+| `src/setup.ts` | R8: use buildFocusGrid in runGridBuilder, R9: extract box-drawing helpers |
+| `src/setup.test.ts` | 1 new test (grid edge case) |
+| `src/tree.test.ts` | 1 new test (end-of-input paths) |
+| `package.json` | W2: pnpm.overrides for flatted >=3.4.2 |
+| `README.md` | W5: STARSHIP_CONFIG env var |
+| `.github/workflows/codeql.yml` | W6: main in PR trigger |
 
 ## Final Verification
-- [x] All tests passing (958)
+
+- [x] All tests passing (1000/1000)
 - [x] Typecheck clean
 - [x] Lint clean
-- [x] Build succeeds (75KB, 14ms)
-- [ ] CI green (pending)
-- [x] /simplify final pass complete
+- [x] Build succeeds
+- [ ] CI green (in progress)
+- [x] Worktrees cleaned up
+- [x] All remediation branches deleted
+- [x] All 10 issues closed
 
-## Remaining Items
-None — all actionable findings resolved. Skipped items are by-design, false positives, or future feature requests.
+## Deferred Items
+
+| Item | Reason |
+|------|--------|
+| R10: Split setup.ts into tui.ts + setup.ts | Major structural refactor; warrants its own feature branch |
+| R12: Extract doctor to src/doctor.ts | Major structural refactor; warrants its own feature branch |
+| W3: on-start execSync | Accepted risk; mitigated by prompt + non-TTY refusal |
+| R2: SIGINT handler coverage | Inherently untestable in-process |
+| R6: pane cwd traversal | Accepted; equivalent to user typing `cd` in terminal |
