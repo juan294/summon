@@ -33,7 +33,19 @@ function shellQuote(s: string): string {
 
 // --- Shared helpers ---
 
-/** Quote command arguments for shell safety (name unquoted, args shell-quoted). */
+/**
+ * Quote command arguments for shell safety (name unquoted, args shell-quoted).
+ *
+ * Splits on spaces, so multi-word arguments are treated as separate args.
+ * For example, `grep "hello world"` becomes `grep 'hello' 'world'` — the
+ * quoted phrase is split into two individually-quoted tokens.
+ *
+ * This is NOT an injection vector: every fragment is POSIX single-quoted via
+ * {@link shellQuote}, preventing shell expansion or metacharacter interpretation.
+ *
+ * The config format (`key=value` plain text) has no syntax for preserving
+ * quoted arguments, so this space-splitting behavior is by design.
+ */
 function quoteCommand(cmd: string): string {
   const parts = cmd.split(" ");
   return parts.length > 1

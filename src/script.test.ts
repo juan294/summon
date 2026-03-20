@@ -326,6 +326,21 @@ describe("generateAppleScript", () => {
     expect(script).toContain('input text "claude" to paneRoot');
   });
 
+  it("splits space-containing arguments into individually quoted tokens (by design)", () => {
+    // quoteCommand splits on spaces, so a command like `grep "hello world"`
+    // becomes `grep 'hello' 'world'` — NOT `grep 'hello world'`.
+    // This is a known limitation of the key=value config format, which has
+    // no syntax for preserving quoted multi-word arguments.
+    // Each fragment is still POSIX single-quoted, so this is NOT an injection vector.
+    const plan = planLayout({ editor: 'grep "hello world" file.txt' });
+    const script = generateAppleScript(plan, "/tmp");
+
+    // Each space-delimited token after the command name is individually quoted
+    expect(script).toContain(
+      "input text \"grep '\\\"hello' 'world\\\"' 'file.txt'\" to paneRoot",
+    );
+  });
+
   it("escapes shell metacharacters in targetDir cd command", () => {
     const plan = planLayout();
 
