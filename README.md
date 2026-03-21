@@ -10,6 +10,8 @@
 
 Summon your Ghostty workspace with one command. Native splits, no tmux.
 
+**[Browse the Layout Gallery](https://juan294.github.io/summon/)**
+
 ---
 
 ## Install
