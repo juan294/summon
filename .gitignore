@@ -22,6 +22,9 @@ logs/
 node_modules.nosync/
 node_modules 2
 
+# Scheduled agent scripts (machine-local, not for distribution)
+scripts/agents/
+
 # Internal docs (agent reports, plans, research, decisions, PRs)
 docs/agents/
 docs/plans/
