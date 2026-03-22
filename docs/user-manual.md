@@ -95,7 +95,7 @@ summon .
 Launch a workspace. The target can be:
 
 - `.` -- current directory
-- An absolute path (`/Users/juan/project`) or home-relative path (`~/project`)
+- An absolute path (`/home/you/project`) or home-relative path (`~/project`)
 - A registered project name (see `summon add`)
 
 ```bash
@@ -128,8 +128,8 @@ List all registered projects.
 ```bash
 $ summon list
 Registered projects:
-  myapp → /Users/juan/code/myapp
-  api → /Users/juan/code/backend/api
+  myapp → ~/code/myapp
+  api → ~/code/backend/api
 ```
 
 ### `summon setup`
