@@ -10,6 +10,8 @@
 
 Summon your Ghostty workspace with one command. Native splits, no tmux.
 
+**[Browse the Layout Gallery](https://juan294.github.io/summon/)**
+
 ---
 
 ## Install
@@ -33,7 +35,7 @@ summon setup                      # reconfigure workspace defaults
 ```
 
 <p align="center">
-  <img src="assets/setup-wizard.png" alt="summon setup wizard" width="600">
+  <img src="assets/setup-wizard.gif" alt="summon setup wizard" width="600">
 </p>
 
 Register projects for quick access:

@@ -19,10 +19,12 @@ afterAll(() => {
   rmSync(TEMP_HOME, { recursive: true, force: true });
 });
 
+const CLI_PATH = resolve(PROJECT_ROOT, "dist/index.js");
+
 function run(...args: string[]) {
-  return spawnSync("node", ["dist/index.js", ...args], {
+  return spawnSync("node", [CLI_PATH, ...args], {
     encoding: "utf-8",
-    cwd: PROJECT_ROOT,
+    cwd: TEMP_HOME,
     env: { ...process.env, HOME: TEMP_HOME },
     timeout: 30_000,
   });
