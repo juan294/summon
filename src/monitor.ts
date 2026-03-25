@@ -139,6 +139,29 @@ export function renderScreen(rows: ProjectRow[], selectedIndex: number, width: n
   return lines.join("\n");
 }
 
+// --- Git Branch Cache ---
+
+const gitBranchCache = new Map<string, { value: string; timestamp: number }>();
+const GIT_CACHE_TTL_MS = 10_000; // 10 seconds
+
+function getCachedGitBranch(directory: string): string | null {
+  const cached = gitBranchCache.get(directory);
+  if (cached && Date.now() - cached.timestamp < GIT_CACHE_TTL_MS) {
+    return cached.value;
+  }
+  const branch = getGitBranch(directory);
+  if (branch) {
+    gitBranchCache.set(directory, { value: branch, timestamp: Date.now() });
+  } else {
+    gitBranchCache.delete(directory);
+  }
+  return branch;
+}
+
+export function resetGitBranchCache(): void {
+  gitBranchCache.clear();
+}
+
 // --- Data Loading ---
 
 function classifyState(status: ResolvedStatus): ProjectState {
@@ -154,7 +177,7 @@ function statusToRow(name: string, directory: string, status: ResolvedStatus): P
     directory,
     state,
     uptime: status.uptime !== null ? formatUptime(status.uptime) : "\u2014",
-    gitBranch: status.state === "active" ? (getGitBranch(directory) ?? "\u2014") : "\u2014",
+    gitBranch: status.state === "active" ? (getCachedGitBranch(directory) ?? "\u2014") : "\u2014",
   };
 }
 

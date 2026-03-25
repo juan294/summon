@@ -15,7 +15,7 @@ vi.mock("./status.js", async (importOriginal) => {
 
 const {
   formatUptime, stateColor, stateDot, renderRow, renderHeader, renderFooter,
-  renderScreen, loadProjectRows, printStatusOnce, runMonitor,
+  renderScreen, loadProjectRows, printStatusOnce, runMonitor, resetGitBranchCache,
 } = await import("./monitor.js");
 import type { ProjectRow } from "./monitor.js";
 
@@ -376,6 +376,104 @@ describe("loadProjectRows", () => {
 
     const rows = loadProjectRows();
     expect(rows[0]!.uptime).toBe("\u2014");
+  });
+});
+
+describe("git branch cache", () => {
+  beforeEach(() => {
+    resetGitBranchCache();
+    listProjects.mockReset();
+    readAllStatuses.mockReset();
+    getGitBranch.mockReset();
+    listProjects.mockReturnValue([["myapp", "/tmp/myapp"]]);
+    readAllStatuses.mockReturnValue([
+      makeResolvedStatus({ project: "myapp", state: "active", uptime: 1000 }),
+    ]);
+    getGitBranch.mockReturnValue("main");
+  });
+
+  afterEach(() => {
+    resetGitBranchCache();
+  });
+
+  it("caches git branch results across consecutive loadProjectRows calls", () => {
+    loadProjectRows();
+    loadProjectRows();
+
+    // getGitBranch should only be called once (second call uses cache)
+    expect(getGitBranch).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns cached branch value on second call", () => {
+    const rows1 = loadProjectRows();
+    getGitBranch.mockReturnValue("different-branch");
+    const rows2 = loadProjectRows();
+
+    expect(rows1[0]!.gitBranch).toBe("main");
+    expect(rows2[0]!.gitBranch).toBe("main"); // cached value, not "different-branch"
+  });
+
+  it("refreshes cache after TTL expires", () => {
+    vi.useFakeTimers();
+    try {
+      loadProjectRows();
+      expect(getGitBranch).toHaveBeenCalledTimes(1);
+
+      // Advance past the 10-second TTL
+      vi.advanceTimersByTime(11_000);
+
+      loadProjectRows();
+      expect(getGitBranch).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("caches per-directory independently", () => {
+    listProjects.mockReturnValue([
+      ["myapp", "/tmp/myapp"],
+      ["api", "/tmp/api"],
+    ]);
+    readAllStatuses.mockReturnValue([
+      makeResolvedStatus({ project: "myapp", directory: "/tmp/myapp", state: "active", uptime: 1000 }),
+      makeResolvedStatus({ project: "api", directory: "/tmp/api", state: "active", uptime: 2000 }),
+    ]);
+    getGitBranch
+      .mockReturnValueOnce("main")
+      .mockReturnValueOnce("develop");
+
+    loadProjectRows();
+    // Both directories should trigger a getGitBranch call
+    expect(getGitBranch).toHaveBeenCalledTimes(2);
+    expect(getGitBranch).toHaveBeenCalledWith("/tmp/myapp");
+    expect(getGitBranch).toHaveBeenCalledWith("/tmp/api");
+
+    // Second call should use cache for both
+    getGitBranch.mockClear();
+    loadProjectRows();
+    expect(getGitBranch).toHaveBeenCalledTimes(0);
+  });
+
+  it("does not cache null results", () => {
+    getGitBranch.mockReturnValue(null);
+    loadProjectRows();
+
+    getGitBranch.mockReturnValue("main");
+    const rows = loadProjectRows();
+
+    // Should have been called twice since null is not cached
+    expect(getGitBranch).toHaveBeenCalledTimes(2);
+    expect(rows[0]!.gitBranch).toBe("main");
+  });
+
+  it("resetGitBranchCache clears all cached entries", () => {
+    loadProjectRows();
+    expect(getGitBranch).toHaveBeenCalledTimes(1);
+
+    resetGitBranchCache();
+
+    loadProjectRows();
+    expect(getGitBranch).toHaveBeenCalledTimes(2);
   });
 });
 
