@@ -1365,7 +1365,7 @@ describe("CLI integration", () => {
 
   // #191 W10: summon open cancel hint
   describe("summon open cancel hint (#191)", () => {
-    it("shows Ctrl+C hint in project selection prompt", () => {
+    it("shows project selection prompt with status indicators", () => {
       run("add", "hint-proj", "/tmp/hint-proj");
       // Pipe EOF immediately so the process exits
       const result = spawnSync("sh", ["-c", `echo "" | node dist/index.js open`], {
@@ -1374,8 +1374,8 @@ describe("CLI integration", () => {
         env: { ...process.env, HOME: TEMP_HOME },
         timeout: 30_000,
       });
-      // The stdout should contain the Ctrl+C hint
-      expect(result.stdout).toContain("Ctrl+C");
+      // The enhanced open shows project selection UI with status
+      expect(result.stdout).toContain("select a project");
     });
   });
 

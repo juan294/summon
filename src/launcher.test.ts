@@ -15,11 +15,18 @@ const mockIsCustomLayout = vi.fn((_name: string) => false);
 vi.mock("./config.js", () => ({
   getConfig: vi.fn(),
   listConfig: vi.fn(() => new Map<string, string>()),
+  listProjects: vi.fn(() => new Map<string, string>()),
   readKVFile: (path: string) => mockReadKVFile(path),
   readCustomLayout: (name: string) => mockReadCustomLayout(name),
   isCustomLayout: (name: string) => mockIsCustomLayout(name),
   CONFIG_DIR: "/mock/.config/summon",
+  STATUS_DIR: "/mock/.config/summon/status",
   LAYOUT_NAME_RE: /^[a-zA-Z][a-zA-Z0-9_-]*$/,
+}));
+
+// Mock status module (write is a no-op in tests)
+vi.mock("./status.js", () => ({
+  writeStatus: vi.fn(),
 }));
 
 // Mock starship
@@ -198,6 +205,8 @@ describe("script execution", () => {
       }),
       "/tmp/workspace",
       null,
+      undefined,
+      "workspace",
       undefined,
     );
   });
@@ -994,6 +1003,8 @@ describe("falsy sidebarCommand guard", () => {
       "/tmp/workspace",
       null,
       undefined,
+      "workspace",
+      undefined,
     );
   });
 
@@ -1010,6 +1021,8 @@ describe("falsy sidebarCommand guard", () => {
       }),
       "/tmp/workspace",
       null,
+      undefined,
+      "workspace",
       undefined,
     );
   });
@@ -1145,6 +1158,8 @@ describe("command resolution cache for shared binaries (#61)", () => {
       "/tmp/workspace",
       null,
       undefined,
+      "workspace",
+      undefined,
     );
   });
 });
@@ -1241,6 +1256,8 @@ describe("path resolution", () => {
       "/tmp/workspace",
       null,
       undefined,
+      "workspace",
+      undefined,
     );
   });
 
@@ -1261,6 +1278,8 @@ describe("path resolution", () => {
       }),
       "/tmp/workspace",
       null,
+      undefined,
+      "workspace",
       undefined,
     );
   });
@@ -1673,6 +1692,8 @@ describe("shell metacharacter confirmation (#90)", () => {
         "/tmp/workspace",
         "/mock/.config/summon/starship/tokyo-night.toml",
         undefined,
+        "workspace",
+        undefined,
       );
     });
 
@@ -1685,6 +1706,8 @@ describe("shell metacharacter confirmation (#90)", () => {
         expect.anything(),
         "/tmp/workspace",
         null,
+        undefined,
+        "workspace",
         undefined,
       );
     });
@@ -1702,6 +1725,8 @@ describe("shell metacharacter confirmation (#90)", () => {
         expect.anything(),
         "/tmp/workspace",
         null,
+        undefined,
+        "workspace",
         undefined,
       );
       warnSpy.mockRestore();
@@ -1723,6 +1748,8 @@ describe("shell metacharacter confirmation (#90)", () => {
         expect.anything(),
         "/tmp/workspace",
         null,
+        undefined,
+        "workspace",
         undefined,
       );
       warnSpy.mockRestore();
@@ -1783,6 +1810,8 @@ describe("shell metacharacter confirmation (#90)", () => {
         expect.anything(),
         "/tmp/workspace",
         "/mock/.config/summon/starship/tokyo-night.toml",
+        undefined,
+        "workspace",
         undefined,
       );
       logSpy.mockRestore();
@@ -2297,6 +2326,8 @@ describe("custom tree layout integration (Phase 4)", () => {
         "/tmp/workspace",
         "/mock/.config/summon/starship/gruvbox-rainbow.toml",
         undefined,
+        "workspace",
+        undefined,
       );
       logSpy.mockRestore();
     });
@@ -2499,6 +2530,8 @@ describe("env vars passed to script generator (#168)", () => {
       "/tmp/workspace",
       null,
       { NODE_ENV: "production" },
+      "workspace",
+      undefined,
     );
   });
 
@@ -2513,6 +2546,8 @@ describe("env vars passed to script generator (#168)", () => {
       "/tmp/workspace",
       null,
       { NODE_ENV: "production" },
+      "workspace",
+      undefined,
     );
     logSpy.mockRestore();
   });
@@ -2536,6 +2571,8 @@ describe("env vars passed to script generator (#168)", () => {
       "/tmp/workspace",
       null,
       { NODE_ENV: "test" },
+      "workspace",
+      undefined,
     );
   });
 
@@ -2559,6 +2596,8 @@ describe("env vars passed to script generator (#168)", () => {
       "/tmp/workspace",
       null,
       { MY_VAR: "hello" },
+      "workspace",
+      undefined,
     );
     logSpy.mockRestore();
   });
@@ -2621,6 +2660,8 @@ describe("tree dry-run without starship preset (#168)", () => {
       expect.anything(),
       "/tmp/workspace",
       null,
+      undefined,
+      "workspace",
       undefined,
     );
     logSpy.mockRestore();

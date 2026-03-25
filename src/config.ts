@@ -5,6 +5,8 @@ import { isPresetName } from "./layout.js";
 
 export const CONFIG_DIR = join(homedir(), ".config", "summon");
 export const LAYOUTS_DIR = join(CONFIG_DIR, "layouts");
+export const STATUS_DIR = join(CONFIG_DIR, "status");
+export const SNAPSHOTS_DIR = join(CONFIG_DIR, "snapshots");
 const PROJECTS_FILE = join(CONFIG_DIR, "projects");
 const CONFIG_FILE = join(CONFIG_DIR, "config");
 
@@ -116,7 +118,7 @@ export function listConfig(): Map<string, string> {
   return readKV(CONFIG_FILE);
 }
 
-export const VALID_KEYS = ["editor", "sidebar", "panes", "editor-size", "shell", "layout", "auto-resize", "starship-preset", "new-window", "fullscreen", "maximize", "float", "font-size", "on-start"];
+export const VALID_KEYS = ["editor", "sidebar", "panes", "editor-size", "shell", "layout", "auto-resize", "starship-preset", "new-window", "fullscreen", "maximize", "float", "font-size", "on-start", "on-stop"];
 
 /** Config keys that accept only "true" or "false" values. */
 export const BOOLEAN_KEYS = new Set(["auto-resize", "new-window", "fullscreen", "maximize", "float"]);
@@ -125,7 +127,7 @@ export const CLI_FLAGS = [
   "--help", "--version", "--layout", "--editor", "--panes",
   "--editor-size", "--sidebar", "--shell", "--auto-resize",
   "--no-auto-resize", "--starship-preset", "--dry-run",
-  "--env", "--new-window", "--fullscreen", "--maximize", "--float", "--font-size", "--on-start",
+  "--env", "--new-window", "--fullscreen", "--maximize", "--float", "--font-size", "--on-start", "--once",
   "-h", "-v", "-l", "-e", "-p", "-s", "-n",
 ];
 

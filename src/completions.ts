@@ -21,6 +21,11 @@ _summon() {
     'completions:Generate shell completions'
     'doctor:Check Ghostty config'
     'open:Select and launch a project'
+    'status:Show workspace status across all projects'
+    'switch:Switch to an active project'
+    'snapshot:Manage context snapshots'
+    'briefing:Morning briefing across all projects'
+    'ports:Show port assignments across projects'
     'export:Export config as .summon file'
     'freeze:Save current config as a reusable layout'
     'keybindings:Generate Ghostty key table for navigation'
@@ -104,6 +109,16 @@ _summon() {
             compadd -- --fix
           fi
           ;;
+        status)
+          if (( CURRENT == 2 )); then
+            compadd -- --once
+          fi
+          ;;
+        snapshot)
+          if (( CURRENT == 2 )); then
+            compadd save show clear
+          fi
+          ;;
         keybindings)
           if (( CURRENT == 2 )); then
             compadd -- --vim
@@ -153,7 +168,7 @@ export function generateBashCompletion(): string {
     local prev="\${COMP_WORDS[COMP_CWORD-1]}"
   fi
 
-  local subcommands="add remove list set config setup completions doctor open export freeze keybindings layout"
+  local subcommands="add remove list set config setup completions doctor open status switch snapshot briefing ports export freeze keybindings layout"
   local config_keys="${configKeys}"
   local layout_presets="${presetNames}"
   local projects_file="\${HOME}/.config/summon/projects"
@@ -215,6 +230,12 @@ export function generateBashCompletion(): string {
       if (( cword == 3 )); then
         COMPREPLY=($(compgen -d -- "$cur"))
       fi
+      ;;
+    status)
+      COMPREPLY=($(compgen -W "--once" -- "$cur"))
+      ;;
+    snapshot)
+      COMPREPLY=($(compgen -W "save show clear" -- "$cur"))
       ;;
     doctor)
       COMPREPLY=($(compgen -W "--fix" -- "$cur"))

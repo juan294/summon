@@ -21,7 +21,7 @@ import {
   isValidLayoutName,
   isCustomLayout,
 } from "./config.js";
-import { launch, resolveConfig, optsToConfigMap } from "./launcher.js";
+import { launch, resolveConfig, optsToConfigMap, traditionalPaneNames } from "./launcher.js";
 import type { CLIOverrides } from "./launcher.js";
 import { PANES_MIN, PANES_DEFAULT, EDITOR_SIZE_MIN, EDITOR_SIZE_MAX, EDITOR_SIZE_DEFAULT, isPresetName, getPresetNames } from "./layout.js";
 import { validateIntFlag, validateFloatFlag, ENV_KEY_RE } from "./validation.js";
@@ -112,6 +112,12 @@ Usage:
   summon keybindings          Generate Ghostty key table for workspace navigation
   summon keybindings --vim    Use vim-style keys (hjkl) instead of arrows
   summon open                 Select and launch a registered project
+  summon switch               Switch to an active workspace (alias for open)
+  summon status               Interactive workspace status dashboard
+  summon status --once        Print status table once and exit
+  summon snapshot <action>    Manage context snapshots (save, show, clear)
+  summon briefing             Morning briefing across all projects
+  summon ports                Show port assignments and detect conflicts
   summon layout <action>      Manage custom layouts (create, save, list, show, delete, edit)
   summon export [path]        Export config as a .summon project file
   summon completions <shell>  Generate shell completion script (zsh, bash)
@@ -152,6 +158,7 @@ Config keys:
   float           Float workspace window on top (default: false)
   font-size       Font size in points for workspace panes
   on-start        Command to run before workspace launches
+  on-stop         Command to run when workspace exits
   env.<KEY>       Environment variable passed to all panes
 
 Layout presets:
@@ -220,10 +227,47 @@ Setup (add to your shell config):
   zsh:   eval "$(summon completions zsh)"
   bash:  eval "$(summon completions bash)"`,
 
+  status: `Usage: summon status [--once]
+
+Show workspace status across all registered projects.
+Launches an interactive TUI dashboard with live refresh.
+
+Options:
+  --once  Print status table once and exit (non-interactive)
+
+In TUI mode: ↑↓/jk navigate, Enter opens project, r refreshes, q quits.
+Automatically uses --once when stdout is not a TTY (e.g., piped output).`,
+
   open: `Usage: summon open
 
-Interactively select a registered project to launch.
-All workspace flags (--layout, --editor, etc.) are supported.`,
+Interactively select a registered project to launch with status indicators.
+Active projects are focused (switched to); stopped projects launch a new workspace.`,
+
+  switch: `Usage: summon switch
+
+Alias for 'summon open'. Switch to an active workspace or launch a stopped one.`,
+
+  snapshot: `Usage: summon snapshot <save|show|clear> [project]
+
+Manage workspace context snapshots.
+
+Actions:
+  save [--dir <path>] [--project <name>] [--layout <name>]
+        Save a snapshot of the current project state
+  show <project>    Display a saved snapshot
+  clear <project>   Remove a saved snapshot`,
+
+  ports: `Usage: summon ports
+
+Show port assignments across all registered projects.
+Detects ports from .summon env vars, package.json scripts, and framework defaults.
+Highlights port conflicts when multiple projects use the same port.`,
+
+  briefing: `Usage: summon briefing
+
+Generate a structured morning report across all registered projects.
+Shows overnight commits, dirty files, workspace status, and a prioritized
+recommendation for where to start.`,
 
   doctor: `Usage: summon doctor [--fix]
 
@@ -305,6 +349,7 @@ const parseOpts = {
     "float": { type: "boolean" },
     "fix": { type: "boolean" },
     "vim": { type: "boolean" },
+    "once": { type: "boolean" },
     "dry-run": { type: "boolean", short: "n" },
   },
 } as const;
@@ -492,7 +537,7 @@ switch (subcommand) {
       }
     }
     if (value !== undefined) {
-      if (value === "" && (key === "editor" || key === "sidebar" || key === "shell" || key === "on-start")) {
+      if (value === "" && (key === "editor" || key === "sidebar" || key === "shell" || key === "on-start" || key === "on-stop")) {
         console.error(`Error: ${key} cannot be set to an empty string.`);
         console.error(`To reset to default, run: summon set ${key} (without a value)`);
         process.exit(1);
@@ -675,6 +720,21 @@ switch (subcommand) {
       }
     }
 
+    // Port conflict check
+    console.log();
+    console.log("Checking port conflicts...\n");
+    const { detectAllPorts: detectPorts } = await import("./ports.js");
+    const { conflicts: portConflicts } = detectPorts();
+    if (portConflicts.size === 0) {
+      const projectCount = listProjects().size;
+      console.log(`  + No port conflicts (${projectCount} projects checked)`);
+    } else {
+      allGood = false;
+      for (const [port, projs] of portConflicts) {
+        console.log(`  - Port conflict: port ${port} used by ${projs.join(", ")}`);
+      }
+    }
+
     if (allGood && missingSettings.length === 0) {
       console.log("\n  All recommended settings are configured!");
     }
@@ -707,11 +767,7 @@ switch (subcommand) {
     } else {
       const { planLayout } = await import("./layout.js");
       const plan = planLayout(config.opts);
-      paneNames = ["editor"];
-      if (plan.sidebarCommand) paneNames.push("sidebar");
-      for (let i = 1; i < plan.leftColumnCount; i++) paneNames.push(`editor-${i + 1}`);
-      for (let i = 0; i < plan.rightColumnEditorCount; i++) paneNames.push(`right-${i + 1}`);
-      if (plan.hasShell) paneNames.push("shell");
+      paneNames = traditionalPaneNames(plan);
       layoutName = "default";
     }
 
@@ -739,34 +795,129 @@ switch (subcommand) {
     break;
   }
 
+  case "status": {
+    const { runMonitor, printStatusOnce } = await import("./monitor.js");
+    if (values.once || !process.stdout.isTTY) {
+      printStatusOnce();
+    } else {
+      await runMonitor();
+    }
+    break;
+  }
+
+  case "snapshot": {
+    const [snapshotAction, ...snapshotArgs] = args;
+    const { saveSnapshot, readSnapshot: readSnap, clearSnapshot, formatRestorationBanner: formatBanner } = await import("./snapshot.js");
+    switch (snapshotAction) {
+      case "save": {
+        let dir = process.cwd();
+        let project = "";
+        let layout = "unknown";
+        for (let i = 0; i < snapshotArgs.length; i++) {
+          if (snapshotArgs[i] === "--dir" && snapshotArgs[i + 1]) { dir = snapshotArgs[++i]!; }
+          else if (snapshotArgs[i] === "--project" && snapshotArgs[i + 1]) { project = snapshotArgs[++i]!; }
+          else if (snapshotArgs[i] === "--layout" && snapshotArgs[i + 1]) { layout = snapshotArgs[++i]!; }
+          else if (!project) { project = snapshotArgs[i]!; }
+        }
+        if (!project) project = resolve(dir).split("/").pop() || "unknown";
+        const result = saveSnapshot(project, dir, layout);
+        if (result) console.log(`Snapshot saved for ${project}`);
+        else console.log(`No git repo found in ${dir}`);
+        break;
+      }
+      case "show": {
+        const [proj] = snapshotArgs;
+        if (!proj) { exitWithUsageHint("Usage: summon snapshot show <project>"); }
+        const snap = readSnap(proj);
+        if (snap) console.log(formatBanner(snap));
+        else console.log(`No snapshot found for ${proj}`);
+        break;
+      }
+      case "clear": {
+        const [proj] = snapshotArgs;
+        if (!proj) { exitWithUsageHint("Usage: summon snapshot clear <project>"); }
+        if (clearSnapshot(proj)) console.log(`Snapshot cleared for ${proj}`);
+        else console.log(`No snapshot found for ${proj}`);
+        break;
+      }
+      default:
+        exitWithUsageHint("Usage: summon snapshot <save|show|clear> [project]");
+    }
+    break;
+  }
+
+  case "briefing": {
+    const { runBriefing } = await import("./briefing.js");
+    runBriefing();
+    break;
+  }
+
+  case "ports": {
+    const { detectAllPorts } = await import("./ports.js");
+    const { green: greenPort, dim: dimPort, yellow: yellowPort } = await import("./setup.js");
+    const { assignments, conflicts } = detectAllPorts();
+    if (assignments.length === 0) {
+      console.log("No port assignments detected across registered projects.");
+    } else {
+      console.log("  PORT   PROJECT          SOURCE             STATE");
+      console.log("  " + dimPort("\u2500".repeat(60)));
+      for (const a of assignments) {
+        const portStr = String(a.port).padEnd(6);
+        const projStr = a.project.padEnd(16);
+        const srcStr = a.source.padEnd(18);
+        const dot = a.state === "active" ? greenPort("\u25CF") : dimPort("\u25CB");
+        const stateStr = a.state === "active" ? greenPort("active") : dimPort(a.state);
+        const conflict = conflicts.has(a.port) ? yellowPort(" \u2190 conflict") : "";
+        console.log(`  ${portStr} ${projStr} ${srcStr} ${dot} ${stateStr}${conflict}`);
+      }
+      if (conflicts.size > 0) {
+        console.log();
+        for (const [port, projs] of conflicts) {
+          console.log(yellowPort(`  \u26A0 Port ${port} used by: ${projs.join(", ")}`));
+        }
+      }
+    }
+    break;
+  }
+
+  case "switch":
   case "open": {
-    const projects = listProjects();
-    if (projects.size === 0) {
+    const { loadProjectRows } = await import("./monitor.js");
+    const { renderRow } = await import("./monitor.js");
+    const { focusWorkspace: focusWs } = await import("./launcher.js");
+
+    const rows = loadProjectRows();
+    if (rows.length === 0) {
       console.error("Error: No projects registered. Use: summon add <name> <path>");
       process.exit(1);
     }
 
-    const entries = [...projects.entries()];
-    console.log("Select a project to launch (Ctrl+C to cancel):\n");
-    for (const [i, [name, path]] of entries.entries()) {
-      console.log(`  ${i + 1}) ${name} → ${path}`);
+    const activeCount = rows.filter(r => r.state === "active" || r.state === "active-long").length;
+    console.log(`  summon \u2014 select a project${" ".repeat(20)}${activeCount} active / ${rows.length} total\n`);
+    const width = process.stdout.columns || 80;
+    for (const [i, row] of rows.entries()) {
+      console.log(`  ${i + 1}  ${renderRow(row, width - 5, false).trimStart()}`);
     }
     console.log();
 
     const { promptUser } = await import("./utils.js");
-    let selectedPath: string | undefined;
-    while (selectedPath === undefined) {
-      const answer = await promptUser("Project number: ");
+    let selectedRow: (typeof rows)[number] | undefined;
+    while (selectedRow === undefined) {
+      const answer = await promptUser(`Select [1-${rows.length}]: `);
       const idx = parseInt(answer, 10) - 1;
-
-      if (isNaN(idx) || idx < 0 || idx >= entries.length) {
-        console.error(`Invalid selection. Enter a number between 1 and ${entries.length}.`);
+      if (isNaN(idx) || idx < 0 || idx >= rows.length) {
+        console.error(`Invalid selection. Enter a number between 1 and ${rows.length}.`);
         continue;
       }
-
-      selectedPath = entries[idx]![1];
+      selectedRow = rows[idx];
     }
-    await launch(selectedPath, buildOverrides());
+
+    if (selectedRow.state === "active" || selectedRow.state === "active-long") {
+      focusWs(selectedRow.name);
+      console.log(`Switched to [${selectedRow.name}]`);
+    } else {
+      await launch(selectedRow.directory, buildOverrides());
+    }
     break;
   }
 

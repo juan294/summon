@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { generateAppleScript, generateTreeAppleScript } from "./script.js";
+import { generateAppleScript, generateTreeAppleScript, generateFocusScript } from "./script.js";
 import { planLayout, getPreset } from "./layout.js";
 import { collectLeaves } from "./tree.js";
 import type { TreeLayoutPlan, LayoutNode } from "./tree.js";
@@ -1408,5 +1408,115 @@ describe("generateTreeAppleScript", () => {
     expect(cwdIdx).toBeGreaterThan(-1);
     expect(splitIdx).toBeGreaterThan(-1);
     expect(cwdIdx).toBeLessThan(splitIdx);
+  });
+});
+
+describe("tab title", () => {
+  it("generateAppleScript includes project name in tab title when provided", () => {
+    const plan = planLayout();
+    const script = generateAppleScript(plan, "/tmp/test", null, undefined, "myapp");
+    expect(script).toContain("set_tab_title:[myapp]");
+  });
+
+  it("generateAppleScript falls back to directory basename when no projectName", () => {
+    const plan = planLayout();
+    const script = generateAppleScript(plan, "/tmp/test");
+    expect(script).toContain("set_tab_title:test");
+  });
+
+  it("generateTreeAppleScript includes project name in tab title", () => {
+    const tree: LayoutNode = {
+      type: "split",
+      direction: "right",
+      first: { type: "pane", name: "a", command: "vim" },
+      second: { type: "pane", name: "b", command: "bash" },
+    };
+    const leaves = collectLeaves(tree);
+    const plan: TreeLayoutPlan = {
+      tree,
+      leaves,
+      focusPane: "a",
+      autoResize: false,
+      editorSize: 75,
+      fontSize: null,
+      newWindow: false,
+      fullscreen: false,
+      maximize: false,
+      float: false,
+    };
+    const script = generateTreeAppleScript(plan, "/tmp/test", null, undefined, "myproject");
+    expect(script).toContain("set_tab_title:[myproject]");
+  });
+
+  it("sets SUMMON_TAB_TITLE env var when projectName provided", () => {
+    const plan = planLayout();
+    const script = generateAppleScript(plan, "/tmp/test", null, undefined, "myapp");
+    expect(script).toContain("SUMMON_TAB_TITLE=myapp");
+  });
+
+  it("does not set SUMMON_TAB_TITLE when no projectName", () => {
+    const plan = planLayout();
+    const script = generateAppleScript(plan, "/tmp/test");
+    expect(script).not.toContain("SUMMON_TAB_TITLE");
+  });
+});
+
+describe("status trap", () => {
+  it("generateAppleScript injects trap when projectName provided", () => {
+    const plan = planLayout();
+    const script = generateAppleScript(plan, "/tmp/test", null, undefined, "myapp");
+    expect(script).toContain("trap");
+    expect(script).toContain("myapp.active");
+    expect(script).toContain("EXIT HUP");
+  });
+
+  it("generateAppleScript omits trap when no projectName", () => {
+    const plan = planLayout();
+    const script = generateAppleScript(plan, "/tmp/test");
+    expect(script).not.toContain("myapp.active");
+  });
+
+  it("generateTreeAppleScript injects trap when projectName provided", () => {
+    const tree: LayoutNode = {
+      type: "split",
+      direction: "right",
+      first: { type: "pane", name: "a", command: "vim" },
+      second: { type: "pane", name: "b", command: "bash" },
+    };
+    const leaves = collectLeaves(tree);
+    const plan: TreeLayoutPlan = {
+      tree,
+      leaves,
+      focusPane: "a",
+      autoResize: false,
+      editorSize: 75,
+      fontSize: null,
+      newWindow: false,
+      fullscreen: false,
+      maximize: false,
+      float: false,
+    };
+    const script = generateTreeAppleScript(plan, "/tmp/test", null, undefined, "myproject");
+    expect(script).toContain("trap");
+    expect(script).toContain("myproject.active");
+  });
+});
+
+describe("generateFocusScript", () => {
+  it("generates valid AppleScript", () => {
+    const script = generateFocusScript("[myapp]");
+    expect(script).toContain('tell application "Ghostty"');
+    expect(script).toContain("activate");
+    expect(script).toContain("end tell");
+  });
+
+  it("includes tab title reference", () => {
+    const script = generateFocusScript("[myapp]");
+    expect(script).toContain("myapp");
+  });
+
+  it("escapes special characters in tab title", () => {
+    const script = generateFocusScript('[my "app]');
+    expect(script).toContain("my \\\"app");
   });
 });

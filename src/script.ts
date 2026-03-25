@@ -97,12 +97,16 @@ function buildScriptBuilder(
   return { add, blank, sendCommand, setInitialInput, clearInitialInput, setCwd };
 }
 
-/** Build combined env vars list (workspace marker + Starship + user-defined). */
+/** Build combined env vars list (workspace marker + Starship + tab title + user-defined). */
 function buildEnvVarsList(
   starshipConfigPath: string | null | undefined,
   envVars: Record<string, string> | undefined,
+  projectName?: string,
 ): string[] {
   const allEnvVars: string[] = [`${SUMMON_WORKSPACE_ENV}=1`];
+  if (projectName) {
+    allEnvVars.push(`SUMMON_TAB_TITLE=${projectName}`);
+  }
   if (starshipConfigPath) {
     allEnvVars.push(`STARSHIP_CONFIG=${starshipConfigPath}`);
   }
@@ -112,6 +116,30 @@ function buildEnvVarsList(
     }
   }
   return allEnvVars;
+}
+
+/** Emit unified cleanup trap: on-stop → snapshot → marker removal. */
+function emitCleanupTrap(
+  { sendCommand }: ScriptBuilder,
+  rootPaneVar: string,
+  projectName: string,
+  options?: { onStop?: string; targetDir?: string; layout?: string },
+): void {
+  const parts: string[] = [];
+
+  if (options?.onStop) {
+    parts.push(`eval "${options.onStop}" 2>/dev/null`);
+  }
+
+  if (options?.targetDir) {
+    parts.push(`summon snapshot save --dir "${options.targetDir}" --project "${projectName}" --layout "${options.layout ?? "unknown"}" 2>/dev/null`);
+  }
+
+  const markerPath = `$HOME/.config/summon/status/${projectName}.active`;
+  parts.push(`rm -f ${markerPath} 2>/dev/null`);
+
+  const body = parts.join("; ");
+  sendCommand(rootPaneVar, `__summon_cleanup() { ${body}; }; trap '__summon_cleanup' EXIT HUP`);
 }
 
 /** Emit surface configuration block: working directory, font size, env vars. */
@@ -171,10 +199,11 @@ function emitTitles(
   rootPaneVar: string,
   targetDir: string,
   titles: Array<[string, string]>,
+  projectName?: string,
 ): void {
   add(1, "-- Set pane and tab titles");
-  const projectName = basename(targetDir);
-  add(1, `perform action "set_tab_title:${escapeAppleScript(projectName)}" on ${rootPaneVar}`);
+  const tabTitle = projectName ? `[${projectName}]` : basename(targetDir);
+  add(1, `perform action "set_tab_title:${escapeAppleScript(tabTitle)}" on ${rootPaneVar}`);
   for (const [pane, title] of titles) {
     add(1, `perform action "set_surface_title:${escapeAppleScript(title)}" on ${pane}`);
   }
@@ -394,13 +423,22 @@ function collectLeavesWithCommands(node: LayoutNode): Array<[string, string]> {
 
 // --- Public API ---
 
-export function generateAppleScript(plan: LayoutPlan, targetDir: string, starshipConfigPath?: string | null, envVars?: Record<string, string>): string {
+export function generateFocusScript(tabTitle: string): string {
+  const lines: string[] = [];
+  lines.push(`-- Focus workspace: ${escapeAppleScript(tabTitle)}`);
+  lines.push(`tell application "${GHOSTTY_APP_NAME}"`);
+  lines.push("    activate");
+  lines.push("end tell");
+  return lines.join("\n");
+}
+
+export function generateAppleScript(plan: LayoutPlan, targetDir: string, starshipConfigPath?: string | null, envVars?: Record<string, string>, projectName?: string, onStop?: string): string {
   const lines: string[] = [];
   const titles: Array<[string, string]> = [];
   const interactiveShellPanes: string[] = [];
   const sb = buildScriptBuilder(lines);
 
-  const allEnvVars = buildEnvVarsList(starshipConfigPath, envVars);
+  const allEnvVars = buildEnvVarsList(starshipConfigPath, envVars, projectName);
 
   emitSurfaceConfig(sb, targetDir, plan.fontSize, allEnvVars);
   emitNewWindow(sb, plan.newWindow);
@@ -429,6 +467,11 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, starshi
   // Root pane env var exports
   emitRootPaneEnvExports(sb, "paneRoot", allEnvVars);
 
+  // Cleanup trap: on-stop → snapshot → marker removal
+  if (projectName) {
+    emitCleanupTrap(sb, "paneRoot", projectName, { onStop, targetDir });
+  }
+
   for (const pane of interactiveShellPanes) {
     sb.sendCommand(pane, "clear");
   }
@@ -436,7 +479,7 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, starshi
   emitRootPaneCommand(sb, "paneRoot", targetDir, plan.editor);
   sb.blank();
 
-  emitTitles(sb, "paneRoot", targetDir, titles);
+  emitTitles(sb, "paneRoot", targetDir, titles, projectName);
   sb.add(1, "focus paneRoot");
   emitWindowState(sb, "paneRoot", plan);
 
@@ -449,12 +492,14 @@ export function generateTreeAppleScript(
   targetDir: string,
   starshipConfigPath?: string | null,
   envVars?: Record<string, string>,
+  projectName?: string,
+  onStop?: string,
 ): string {
   const lines: string[] = [];
   const titles: Array<[string, string]> = [];
   const sb = buildScriptBuilder(lines);
 
-  const allEnvVars = buildEnvVarsList(starshipConfigPath, envVars);
+  const allEnvVars = buildEnvVarsList(starshipConfigPath, envVars, projectName);
   const rootLeaf = firstLeaf(plan.tree);
   const rootPaneVar = paneVar(rootLeaf.name);
 
@@ -468,13 +513,19 @@ export function generateTreeAppleScript(
 
   const rootCwd = rootLeaf.cwd ? resolve(targetDir, rootLeaf.cwd) : targetDir;
   emitRootPaneEnvExports(sb, rootPaneVar, allEnvVars);
+
+  // Cleanup trap: on-stop → snapshot → marker removal
+  if (projectName) {
+    emitCleanupTrap(sb, rootPaneVar, projectName, { onStop, targetDir });
+  }
+
   emitRootPaneCommand(sb, rootPaneVar, rootCwd, rootLeaf.command);
   sb.blank();
 
   for (const [leafName, cmd] of collectLeavesWithCommands(plan.tree)) {
     titles.push([paneVar(leafName), formatTitle(leafName, cmd)]);
   }
-  emitTitles(sb, rootPaneVar, targetDir, titles);
+  emitTitles(sb, rootPaneVar, targetDir, titles, projectName);
 
   sb.add(1, `focus ${rootPaneVar}`);
   emitWindowState(sb, rootPaneVar, plan);
