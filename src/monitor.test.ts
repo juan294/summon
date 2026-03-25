@@ -428,14 +428,25 @@ describe("printStatusOnce", () => {
 });
 
 describe("runMonitor", () => {
+  let writeSpy: ReturnType<typeof vi.spyOn>;
+  let resumeSpy: ReturnType<typeof vi.spyOn>;
+
   beforeEach(() => {
     listProjects.mockReturnValue([]);
     readAllStatuses.mockReturnValue([]);
     getGitBranch.mockReturnValue(null);
     vi.useFakeTimers();
+    writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    // Prevent stdin.resume() from keeping event loop alive in CI
+    resumeSpy = vi.spyOn(process.stdin, "resume").mockImplementation(() => process.stdin);
   });
 
   afterEach(() => {
+    writeSpy.mockRestore();
+    resumeSpy.mockRestore();
+    // Remove any lingering listeners added by runMonitor
+    process.stdin.removeAllListeners("data");
+    process.removeAllListeners("SIGWINCH");
     vi.useRealTimers();
   });
 
@@ -446,21 +457,12 @@ describe("runMonitor", () => {
     ]);
     getGitBranch.mockReturnValue("main");
 
-    const writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
-
     const monitorPromise = runMonitor();
-
-    // Simulate 'q' keypress to quit
     process.stdin.emit("data", Buffer.from("q"));
-
     await monitorPromise;
 
-    // Verify screen was written (alt screen + hide cursor + rendered content)
-    expect(writeSpy).toHaveBeenCalled();
-    const output = writeSpy.mock.calls.map(c => String(c[0])).join("");
-    expect(output).toContain("summon status"); // header rendered
-
-    writeSpy.mockRestore();
+    const output = writeSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("");
+    expect(output).toContain("summon status");
   });
 
   it("handles arrow key navigation", async () => {
@@ -474,38 +476,24 @@ describe("runMonitor", () => {
     ]);
     getGitBranch.mockReturnValue("main");
 
-    const writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
-
     const monitorPromise = runMonitor();
 
-    // Arrow down
-    process.stdin.emit("data", Buffer.from("\x1b[B"));
-    // Arrow up
-    process.stdin.emit("data", Buffer.from("\x1b[A"));
-    // j (vim down)
-    process.stdin.emit("data", Buffer.from("j"));
-    // k (vim up)
-    process.stdin.emit("data", Buffer.from("k"));
-    // r (refresh)
-    process.stdin.emit("data", Buffer.from("r"));
-    // Quit
-    process.stdin.emit("data", Buffer.from("q"));
+    process.stdin.emit("data", Buffer.from("\x1b[B")); // arrow down
+    process.stdin.emit("data", Buffer.from("\x1b[A")); // arrow up
+    process.stdin.emit("data", Buffer.from("j"));       // vim down
+    process.stdin.emit("data", Buffer.from("k"));       // vim up
+    process.stdin.emit("data", Buffer.from("r"));       // refresh
+    process.stdin.emit("data", Buffer.from("q"));       // quit
 
     await monitorPromise;
-
     expect(writeSpy).toHaveBeenCalled();
-    writeSpy.mockRestore();
   });
 
   it("quits on Ctrl+C", async () => {
-    const writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
-
     const monitorPromise = runMonitor();
-    process.stdin.emit("data", Buffer.from("\x03")); // Ctrl+C
-
+    process.stdin.emit("data", Buffer.from("\x03"));
     await monitorPromise;
     expect(writeSpy).toHaveBeenCalled();
-    writeSpy.mockRestore();
   });
 
   it("auto-refreshes on timer", async () => {
@@ -515,21 +503,15 @@ describe("runMonitor", () => {
     ]);
     getGitBranch.mockReturnValue("main");
 
-    const writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
-
     const monitorPromise = runMonitor();
 
-    // Advance past refresh interval (3000ms)
     vi.advanceTimersByTime(3100);
 
-    // Quit
     process.stdin.emit("data", Buffer.from("q"));
     await monitorPromise;
 
-    // Should have rendered multiple times (initial + refresh)
+    // Multiple renders: initial + timer refresh
     const callCount = writeSpy.mock.calls.length;
     expect(callCount).toBeGreaterThan(2);
-
-    writeSpy.mockRestore();
   });
 });
