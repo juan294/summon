@@ -20,6 +20,7 @@ vi.mock("node:child_process", async (importOriginal) => {
 const {
   isAgentCommit,
   collectGitData,
+  resetGitDataCache,
   collectBriefingData,
   formatProjectBriefing,
   formatBriefingHeader,
@@ -190,6 +191,7 @@ describe("generateRecommendation", () => {
 
 describe("collectGitData", () => {
   beforeEach(() => {
+    resetGitDataCache();
     getGitBranch.mockReturnValue(null);
     execFileSync.mockReturnValue("");
   });
@@ -255,12 +257,63 @@ describe("collectGitData", () => {
     const result = collectGitData("/tmp/myapp");
     expect(result.dirty).toEqual([]);
   });
+
+  it("returns cached data on second call for same directory", () => {
+    getGitBranch.mockReturnValue("develop");
+    execFileSync
+      .mockReturnValueOnce("abc123|feat: add auth|Juan")
+      .mockReturnValueOnce(" M src/index.ts");
+
+    const first = collectGitData("/tmp/cached-project");
+    const callsAfterFirst = getGitBranch.mock.calls.length;
+
+    const second = collectGitData("/tmp/cached-project");
+    const callsAfterSecond = getGitBranch.mock.calls.length;
+
+    // Second call should not invoke any git commands
+    expect(callsAfterSecond).toBe(callsAfterFirst);
+    // Should return identical data
+    expect(second).toEqual(first);
+    expect(second.branch).toBe("develop");
+    expect(second.commits).toHaveLength(1);
+  });
+
+  it("does not use cache for different directories", () => {
+    getGitBranch.mockReturnValue("main");
+    execFileSync.mockReturnValue("");
+
+    collectGitData("/tmp/project-a");
+    const callsAfterFirst = getGitBranch.mock.calls.length;
+
+    collectGitData("/tmp/project-b");
+    const callsAfterSecond = getGitBranch.mock.calls.length;
+
+    // Second call with different directory should invoke git commands
+    expect(callsAfterSecond).toBeGreaterThan(callsAfterFirst);
+  });
+
+  it("resetGitDataCache clears the cache", () => {
+    getGitBranch.mockReturnValue("main");
+    execFileSync.mockReturnValue("");
+
+    collectGitData("/tmp/reset-test");
+    const callsAfterFirst = getGitBranch.mock.calls.length;
+
+    resetGitDataCache();
+
+    collectGitData("/tmp/reset-test");
+    const callsAfterSecond = getGitBranch.mock.calls.length;
+
+    // After reset, same directory should invoke git commands again
+    expect(callsAfterSecond).toBeGreaterThan(callsAfterFirst);
+  });
 });
 
 // --- collectBriefingData ---
 
 describe("collectBriefingData", () => {
   beforeEach(() => {
+    resetGitDataCache();
     listProjects.mockReturnValue([]);
     readAllStatuses.mockReturnValue([]);
     getGitBranch.mockReturnValue(null);

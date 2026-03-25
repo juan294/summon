@@ -42,7 +42,18 @@ export function isAgentCommit(author: string, message: string): boolean {
 
 // --- Git data collection ---
 
-export function collectGitData(directory: string): { branch: string | null; commits: CommitSummary[]; dirty: string[] } {
+type GitData = { branch: string | null; commits: CommitSummary[]; dirty: string[] };
+
+const gitDataCache = new Map<string, GitData>();
+
+export function resetGitDataCache(): void {
+  gitDataCache.clear();
+}
+
+export function collectGitData(directory: string): GitData {
+  const cached = gitDataCache.get(directory);
+  if (cached) return cached;
+
   const branch = getGitBranch(directory);
 
   let commits: CommitSummary[] = [];
@@ -74,7 +85,9 @@ export function collectGitData(directory: string): { branch: string | null; comm
     /* ignore */
   }
 
-  return { branch, commits, dirty };
+  const result: GitData = { branch, commits, dirty };
+  gitDataCache.set(directory, result);
+  return result;
 }
 
 // --- Prioritization ---
