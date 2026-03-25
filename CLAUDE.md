@@ -170,6 +170,18 @@ All commits must pass `pnpm typecheck && pnpm lint && pnpm build && pnpm test`.
 - npm publish is manual: `pnpm build && npm publish` (see docs/publishing.md)
 - Releases are tagged from `main`: `git tag v<version> && git push origin v<version>`
 
+<important if="you are merging PRs, merging branches to main, deploying, or handling dependency updates">
+### Deployment Safety
+
+- **Merging to `main` IS deploying to production.** Every merge triggers a production deployment. No exceptions.
+- **Dependabot PRs target `main` by default.** Never merge them directly. Cherry-pick to `develop`, close the PR, release normally.
+- **Every CI run and deployment costs money.** Before starting: estimate how many runs/deploys this will trigger. If more than 2-3, batch the work.
+- **Framework upgrades (Next.js, React, etc.) require preview deployment verification.** CI passing is NOT sufficient. Deploy to a preview URL and verify before merging to production.
+- **When production is down:** Roll back immediately. Investigate on non-production. Fix forward on `develop`. Never deploy to diagnose. Never promote broken deployments "briefly."
+- **Batch dependency updates** into a single branch and PR. Never merge N PRs one-by-one (causes O(n^2) CI waste from rebase cascades).
+- **Justify every external action** -- before any CI run, deployment, or API call: Is this needed? Is this justified? Is this verifiable? If any answer is "no," stop.
+</important>
+
 ## Conditional Blocks for Context-Specific Rules
 
 As this file grows, wrap domain-specific sections in `<important if="condition">` tags.
