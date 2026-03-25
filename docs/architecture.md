@@ -16,6 +16,11 @@ Technical reference for contributors.
 | `completions.ts` | Shell completion script generator (zsh, bash) | **pure** | config, layout |
 | `starship.ts` | Starship detection, preset listing, TOML config caching | yes | config, utils |
 | `tree.ts` | Tree data model, DSL parser, plan builder (pure — no side effects) | **pure** | layout |
+| `status.ts` | Workspace status tracking — read/write status JSON + active marker files, git branch lookup | yes | config (STATUS_DIR) |
+| `briefing.ts` | Morning project briefing — overnight commits, dirty files, recommendations | yes | config, status, setup (colors) |
+| `monitor.ts` | Interactive TUI dashboard — real-time workspace status with keyboard navigation | yes | status, config, setup (colors) |
+| `ports.ts` | Port detection — scans `.summon` env vars, `package.json`, framework configs for port assignments | yes | config |
+| `snapshot.ts` | Context snapshot save/restore — git branch, dirty files, recent commits, layout | yes | config (SNAPSHOTS_DIR) |
 | `keybindings.ts` | Ghostty key table config generator (pure function) | **pure** | none |
 | `validation.ts` | Input validation helpers (`ENV_KEY_RE`, `parseIntInRange`, `parsePositiveFloat`, `validateIntFlag`, `validateFloatFlag`) | **pure** | utils |
 | `globals.d.ts` | Build-time constant declarations (`__VERSION__`) | — | — |
@@ -32,6 +37,9 @@ graph TD
     index --> setup[setup.ts]
     index -.->|dynamic| completions[completions.ts]
     index -.->|dynamic| keybindings[keybindings.ts]
+    index -.->|dynamic| monitor[monitor.ts]
+    index -.->|dynamic| ports[ports.ts]
+    index -.->|dynamic| snapshot[snapshot.ts]
     index --> tree[tree.ts]
     index --> layout[layout.ts]
     launcher --> config
@@ -41,6 +49,7 @@ graph TD
     launcher --> utils
     launcher --> validation
     launcher --> starship[starship.ts]
+    launcher --> status[status.ts]
     launcher -.->|dynamic import| setup
     script --> tree
     script --> utils
@@ -54,6 +63,15 @@ graph TD
     validation --> utils
     completions --> config
     completions --> layout
+    status --> config
+    briefing[briefing.ts] --> config
+    briefing --> status
+    briefing --> setup
+    monitor --> status
+    monitor --> config
+    monitor --> setup
+    ports --> config
+    snapshot --> config
 
     config -.- cfg_fns["addProject, removeProject,
     getProject, listProjects,
@@ -64,12 +82,14 @@ graph TD
     isValidLayoutName, isCustomLayout,
     layoutPath,
     VALID_KEYS, BOOLEAN_KEYS, CLI_FLAGS,
-    LAYOUT_NAME_RE, CONFIG_DIR"]
+    LAYOUT_NAME_RE, CONFIG_DIR,
+    STATUS_DIR, SNAPSHOTS_DIR"]
     layout -.- lay_fns["planLayout, isPresetName,
     getPreset, getPresetNames,
     LayoutOptions, LayoutPlan"]
     script -.- scr_fns["generateAppleScript,
-    generateTreeAppleScript"]
+    generateTreeAppleScript,
+    generateFocusScript"]
     tree -.- tree_fns["parseTreeDSL, buildTreePlan,
     walkLeaves, collectLeaves,
     firstLeaf, findPaneByName,
@@ -107,6 +127,16 @@ graph TD
     parsePositiveFloat,
     validateIntFlag,
     validateFloatFlag"]
+    status -.- status_fns["writeStatus, readAllStatuses,
+    getGitBranch, resetGitBranchCache,
+    WorkspaceStatus, ResolvedStatus"]
+    briefing -.- briefing_fns["collectBriefing,
+    resetGitDataCache,
+    ProjectBriefing"]
+    monitor -.- monitor_fns["runMonitor, printStatusOnce"]
+    ports -.- ports_fns["detectAllPorts"]
+    snapshot -.- snapshot_fns["saveSnapshot, readSnapshot,
+    clearSnapshot, formatRestorationBanner"]
 
     style cfg_fns fill:none,stroke-dasharray:5
     style lay_fns fill:none,stroke-dasharray:5
@@ -117,9 +147,14 @@ graph TD
     style star_fns fill:none,stroke-dasharray:5
     style comp_fns fill:none,stroke-dasharray:5
     style val_fns fill:none,stroke-dasharray:5
+    style status_fns fill:none,stroke-dasharray:5
+    style briefing_fns fill:none,stroke-dasharray:5
+    style monitor_fns fill:none,stroke-dasharray:5
+    style ports_fns fill:none,stroke-dasharray:5
+    style snapshot_fns fill:none,stroke-dasharray:5
 ```
 
-`layout.ts`, `script.ts`, `tree.ts`, `completions.ts`, and `validation.ts` are pure modules with no side effects. `config.ts` and `utils.ts` only use Node stdlib. `starship.ts` handles Starship binary detection (cached), preset listing, and TOML config file generation — it depends on `config.ts` (for `CONFIG_DIR`) and `utils.ts` (for `resolveCommand`, `SAFE_COMMAND_RE`). `index.ts` statically imports `renderLayoutPreview` from `setup.ts`, `parseTreeDSL` from `tree.ts`, and exports from `layout.ts` for use in the `layout list` command and direct CLI handling. The full setup wizard, `completions.ts`, and `keybindings.ts` are still loaded via dynamic `import()` — they're only parsed when needed, keeping normal launch times unaffected. `launcher.ts` also dynamically imports `setup.ts` when no editor is configured, redirecting to the wizard on first launch.
+`layout.ts`, `script.ts`, `tree.ts`, `completions.ts`, and `validation.ts` are pure modules with no side effects. `config.ts` and `utils.ts` only use Node stdlib. `starship.ts` handles Starship binary detection (cached), preset listing, and TOML config file generation — it depends on `config.ts` (for `CONFIG_DIR`) and `utils.ts` (for `resolveCommand`, `SAFE_COMMAND_RE`). `index.ts` statically imports `renderLayoutPreview` from `setup.ts`, `parseTreeDSL` from `tree.ts`, and exports from `layout.ts` for use in the `layout list` command and direct CLI handling. The full setup wizard, `completions.ts`, `keybindings.ts`, `monitor.ts`, `ports.ts`, and `snapshot.ts` are loaded via dynamic `import()` — they're only parsed when needed, keeping normal launch times unaffected. `launcher.ts` also dynamically imports `setup.ts` when no editor is configured, redirecting to the wizard on first launch. `launcher.ts` imports `writeStatus` from `status.ts` to record workspace state at launch time. `briefing.ts` and `monitor.ts` import color helpers (`bold`, `dim`, `green`, etc.) from `setup.ts` for TUI rendering, and both read workspace status via `status.ts`.
 
 All interactive prompts in `setup.ts` (`numberedSelect`, `confirm`, `selectToolFromCatalog`, `textInput`) use the shared `promptUser()` helper from `utils.ts`, which wraps readline creation, question, close, and trim in a single async call.
 
@@ -182,6 +217,16 @@ flowchart TD
     as custom layout"]
     dispatch -->|"layout"| layoutcmd["layout subcommand
     create / save / list / show / delete / edit"]
+    dispatch -->|"status"| statusdash["monitor.ts: runMonitor()
+    or printStatusOnce() (--once)"]
+    dispatch -->|"switch"| switchcmd["interactive project picker
+    with status indicators → focus/launch"]
+    dispatch -->|"briefing"| briefingcmd["briefing.ts: collectBriefing()
+    overnight commits, dirty files, recommendations"]
+    dispatch -->|"ports"| portscmd["ports.ts: detectAllPorts()
+    scan env, package.json, framework configs"]
+    dispatch -->|"snapshot"| snapshotcmd["snapshot.ts:
+    save / show / clear context snapshots"]
     dispatch -->|"default (launch target)"| resolve["resolve target directory
     (., absolute path, or project name)"]
 
@@ -259,7 +304,7 @@ flowchart TD
 The auto-trigger in `index.ts` fires when:
 1. `isFirstRun()` returns `true` (no config file)
 2. `process.stdin.isTTY` is truthy (interactive terminal)
-3. The subcommand is not a config management command (add, remove, list, set, config, setup, doctor, open, export, layout, completions)
+3. The subcommand is not a config management command (add, remove, list, set, config, setup, doctor, open, export, layout, completions, status, switch, briefing, ports, snapshot)
 
 ### Wizard Flow
 
@@ -303,7 +348,7 @@ tsup automatically code-splits `setup.ts` and `completions.ts` into separate chu
 
 ## AppleScript Generation
 
-`script.ts` exports two pure functions: `generateAppleScript(plan, targetDir, starshipConfigPath, envVars)` for traditional grid layouts, and `generateTreeAppleScript(plan, targetDir, starshipConfigPath, envVars)` for tree-based custom layouts. Both return a string. Environment variables (including `STARSHIP_CONFIG` when a preset is configured) are set via Ghostty's `surface configuration` mechanism, which propagates them to all panes automatically (including new windows). Font size is also set via surface configuration when `--font-size` is provided. The traditional generator produces this script:
+`script.ts` exports three pure functions: `generateAppleScript(plan, targetDir, starshipConfigPath, envVars)` for traditional grid layouts, `generateTreeAppleScript(plan, targetDir, starshipConfigPath, envVars)` for tree-based custom layouts, and `generateFocusScript(tabTitle)` for switching to an active workspace by tab title. Both return a string. Environment variables (including `STARSHIP_CONFIG` when a preset is configured) are set via Ghostty's `surface configuration` mechanism, which propagates them to all panes automatically (including new windows). Font size is also set via surface configuration when `--font-size` is provided. The traditional generator produces this script:
 
 1. Creates a `surface configuration` with the target working directory, font size, and environment variables
 2. Creates a new Ghostty window with that configuration (or reuses the front window unless `--new-window` is set)
@@ -388,8 +433,8 @@ flowchart LR
 
 1. Read project `.summon` file via `readKVFile(join(targetDir, ".summon"))`
 2. Resolve the `layout` key (CLI > project > global) and expand the matching preset or custom layout as a base. Custom layouts with a `tree=` key produce a `treeLayout` instead of preset-like config.
-3. For each config key (`editor`, `sidebar`, `panes`, `editor-size`, `shell`, `auto-resize`, `starship-preset`, `font-size`, `on-start`, `new-window`, `fullscreen`, `maximize`, `float`), pick the highest-priority value
-4. Return `ResolvedConfig` — includes `opts` (partial `LayoutOptions`), `starshipPreset`, `onStart`, `envVars`, and optionally `treeLayout` (tree DSL + pane definitions). `planLayout()` fills remaining defaults for traditional layouts; tree layouts go through `buildTreePlan()` instead.
+3. For each config key (`editor`, `sidebar`, `panes`, `editor-size`, `shell`, `auto-resize`, `starship-preset`, `font-size`, `on-start`, `on-stop`, `new-window`, `fullscreen`, `maximize`, `float`), pick the highest-priority value
+4. Return `ResolvedConfig` — includes `opts` (partial `LayoutOptions`), `starshipPreset`, `onStart`, `onStop`, `envVars`, and optionally `treeLayout` (tree DSL + pane definitions). `planLayout()` fills remaining defaults for traditional layouts; tree layouts go through `buildTreePlan()` instead.
 
 ## Layout Presets
 
@@ -516,10 +561,12 @@ Config files live at `~/.config/summon/`:
 
 | File | Purpose |
 |---|---|
-| `config` | Machine-level settings (editor, sidebar, panes, editor-size, shell, layout, auto-resize, starship-preset, font-size, on-start, new-window, fullscreen, maximize, float, env.*) |
+| `config` | Machine-level settings (editor, sidebar, panes, editor-size, shell, layout, auto-resize, starship-preset, font-size, on-start, on-stop, new-window, fullscreen, maximize, float, env.*) |
 | `projects` | Project name-to-path mappings |
 | `layouts/` | Custom layout files (key=value, may include `tree=` DSL) |
 | `starship/` | Cached Starship preset TOML files (auto-generated by `ensurePresetConfig()`) |
+| `status/` | Workspace status JSON files + `.active` marker files (managed by `status.ts`) |
+| `snapshots/` | Context snapshot JSON files per project (managed by `snapshot.ts`) |
 
 Both use `key=value` format, one entry per line.
 

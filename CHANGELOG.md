@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Workspace management subcommands:**
+  - `summon briefing` — morning project overview showing overnight commits, dirty files, workspace uptime, and prioritized recommendations across all registered projects
+  - `summon status` — interactive TUI dashboard for real-time workspace status with keyboard navigation (↑↓/jk, Enter to open, r refresh, q quit); `--once` flag for non-interactive output
+  - `summon switch` — select and launch/focus a registered project with status indicators (alias for interactive open)
+  - `summon ports` — detect and display port assignments across projects from `.summon` env vars, `package.json` scripts, and framework config files (Next.js, Vite, Nuxt, Remix, Astro, SvelteKit); highlights port conflicts
+  - `summon snapshot <save|show|clear>` — save and restore workspace context snapshots (git branch, dirty files, recent commits, layout name) per project
+- `on-stop` config key for post-workspace hook commands
+- `generateFocusScript()` in script.ts for workspace switching via AppleScript
+- Workspace status tracking: each launch writes JSON status + active marker file; monitor checks markers for liveness
+- Shell completions for all 5 new subcommands
+
+### Fixed
+
+- Cache git branch queries in monitor refresh with TTL-based cache (10s) to avoid repeated subprocess spawns (#222)
+- Cache git queries in briefing data collection with session-level Map cache (#223)
+- Skip `runMonitor` TUI tests on Node 18 where stdin event loop interaction causes CI hangs
+- Prevent `runMonitor` tests from hanging in CI by mocking `process.stdin.resume()` and cleaning up listeners
+- Isolate CLI tests from project-level `.summon` config by running from temp directory
+- npm publish CI fixes: remove `--provenance` flag, restore `NODE_AUTH_TOKEN`, remove `registry-url` for OIDC, add `--access public`
+
+### Changed
+
+- Removed internal agent reports and scripts from git tracking, scrubbed personal paths from docs
+- Replaced setup wizard static screenshot with animated GIF in README
+- Bumped vitest 4.1.0 → 4.1.1, @vitest/coverage-v8 4.1.0 → 4.1.1, typescript-eslint 8.57.1 → 8.57.2, eslint 10.0.3 → 10.1.0
+
+### Tests
+
+- 5 new test files: briefing (595 lines), monitor (617 lines), ports (288 lines), snapshot (240 lines), status (228 lines)
+- ~1,818 new test assertions with mocked git spawns and TUI functions
+- Additional tests for launcher workspace tracking, focus script generation, CLI dispatch, and shell completions
+
 ## [1.3.0] - 2026-03-20
 
 ### Added

@@ -31,6 +31,11 @@ src/
   tree.ts          Tree DSL parser, layout node model, plan builder (pure function)
   script.ts        AppleScript generator (pure function — builds script string)
   launcher.ts      Orchestrator: resolve config, generate script, execute via osascript
+  status.ts        Workspace status tracking (active/stopped, PID, uptime, marker files)
+  briefing.ts      Morning project briefing (overnight commits, dirty files, recommendations)
+  monitor.ts       Interactive TUI dashboard for workspace status (refresh loop, keyboard nav)
+  ports.ts         Port detection across projects (env vars, package.json, framework configs)
+  snapshot.ts      Context snapshot save/restore (git state, layout, branch)
   setup.ts         Interactive setup wizard, visual layout builder (template gallery, grid builder, live preview)
   starship.ts      Starship detection, preset listing, TOML config caching
   keybindings.ts   Ghostty key table config generator (pure function)

@@ -123,6 +123,11 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 | `summon freeze <name>` | Save current resolved config as a reusable custom layout |
 | `summon keybindings [--vim]` | Generate Ghostty key table config for pane navigation |
 | `summon layout <action>` | Manage custom layouts (create, save, list, show, delete, edit) |
+| `summon status [--once]` | Interactive workspace status dashboard across all projects |
+| `summon switch` | Select and launch/focus a registered project with status indicators |
+| `summon briefing` | Morning briefing — overnight commits, dirty files, recommendations |
+| `summon ports` | Detect port assignments across projects, highlight conflicts |
+| `summon snapshot <action>` | Manage context snapshots (save, show, clear) |
 | `summon completions <shell>` | Generate shell completion script (`zsh`, `bash`) |
 
 ## CLI Flags
@@ -163,6 +168,7 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 | `starship-preset` | | Starship prompt theme preset (per-workspace) |
 | `font-size` | | Font size for workspace panes (points) |
 | `on-start` | | Command to run before workspace creation |
+| `on-stop` | | Command to run after workspace closes |
 | `new-window` | `false` | Open workspace in a new Ghostty window |
 | `fullscreen` | `false` | Start workspace in fullscreen mode |
 | `maximize` | `false` | Start workspace maximized |

@@ -266,6 +266,61 @@ summon layout edit my-layout       # open layout file in $EDITOR
 
 Layout names must start with a letter and contain only letters, digits, hyphens, and underscores. Built-in preset names (`minimal`, `full`, `pair`, `cli`, `btop`) cannot be used as custom layout names.
 
+### `summon status [--once]`
+
+Interactive workspace status dashboard showing all registered projects with real-time updates. Displays project name, state (active/stopped), uptime, and current git branch.
+
+```bash
+summon status                     # interactive TUI with auto-refresh
+summon status --once              # print status table once and exit
+```
+
+The TUI refreshes every 3 seconds and supports keyboard navigation:
+- `↑`/`↓` or `j`/`k` — navigate projects
+- `Enter` — focus an active workspace or launch a stopped one
+- `r` — force refresh
+- `q` — quit
+
+When stdout is not a TTY (e.g., piped), `--once` mode is used automatically.
+
+### `summon switch`
+
+Interactively select a registered project to launch or focus. Active projects are switched to (focused); stopped projects launch a new workspace. This is an alias for interactive open with status indicators.
+
+```bash
+summon switch
+```
+
+### `summon briefing`
+
+Morning briefing across all registered projects. Shows overnight commits, dirty files, workspace status, and prioritized recommendations.
+
+```bash
+summon briefing
+```
+
+The briefing detects agent commits (Claude, Copilot, etc.) via regex heuristics and highlights them separately.
+
+### `summon ports`
+
+Detect and display port assignments across all registered projects. Scans `.summon` env vars, `package.json` scripts, and framework config files (Next.js, Vite, Nuxt, Remix, Astro, SvelteKit defaults). Highlights port conflicts when multiple projects use the same port.
+
+```bash
+summon ports
+```
+
+### `summon snapshot <action>`
+
+Manage workspace context snapshots. Save the current project state (git branch, dirty files, recent commits, layout name) and restore it later.
+
+```bash
+summon snapshot save [project]    # save a snapshot of current state
+summon snapshot show <project>    # display a saved snapshot
+summon snapshot clear <project>   # remove a saved snapshot
+```
+
+Snapshots are stored as JSON files in `~/.config/summon/snapshots/`.
+
 ### CLI Flags
 
 Flags override both machine and per-project config for a single launch.
@@ -739,6 +794,7 @@ When summon launches, config values are resolved in this order (first wins):
 | `starship-preset` | string | | Starship prompt theme preset. When set, each workspace launches with `STARSHIP_CONFIG` pointing to a cached preset TOML file at `~/.config/summon/starship/<preset>.toml`. Requires [Starship](https://starship.rs) installed. |
 | `font-size` | number | | Font size for workspace panes (in points). |
 | `on-start` | string | | Command to run in the target directory before workspace creation. |
+| `on-stop` | string | | Command to run after workspace closes. |
 | `new-window` | boolean | `false` | Open workspace in a new Ghostty window instead of reusing the front window. |
 | `fullscreen` | boolean | `false` | Start workspace in fullscreen mode. |
 | `maximize` | boolean | `false` | Start workspace maximized. |
@@ -848,6 +904,8 @@ All config files are at `~/.config/summon/`:
   projects    project name -> path mappings
   layouts/    custom layout files (one file per layout)
   starship/   cached Starship preset TOML files (auto-generated)
+  status/     workspace status JSON + active marker files
+  snapshots/  context snapshot JSON files per project
 ```
 
 Per-project config lives in your project root as `.summon`.
