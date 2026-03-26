@@ -199,58 +199,56 @@ Keep universal content (stack, structure, git workflow) unwrapped.
 - **Be specific.** `"you are writing tests"` is good. `"you are writing code"` matches everything and defeats the purpose.
 - **Group by domain.** One block per domain (testing, deployment, database) — don't wrap individual lines.
 
-## Agent Operational Rules
+## Working Patterns
 
-### Shell & Tools
-- Chain verification commands sequentially, never as parallel Bash calls
-- In worktrees: prefix every command with `cd /absolute/path && `
-- Never use `~` in file tool paths -- use full absolute paths starting with `/`
-- Always pass `{ encoding: 'utf-8' }` to `execSync`/`spawnSync`
+<examples>
+<example name="push-sequence">
+Commit before pulling -- hook blocks dirty pulls.
 
-### Git Recipes (use these exact sequences -- hooks enforce critical steps)
 ```bash
-# Push sequence -- ALWAYS commit before pulling (Error #33, hook enforced)
-git add <files> && git commit -m "msg" && git pull --rebase && git push
-
-# First push -- set upstream tracking
-git add <files> && git commit -m "msg" && git push -u origin <branch>
-
-# Push with tag -- NEVER use --tags (Error #44, hook enforced)
-git push origin main && git push origin v1.0.0
-# Or: git push origin main --follow-tags
-
-# Worktree cleanup
-git worktree remove --force <path>; git branch -D <branch>
+git add src/feature.ts && git commit -m "feat: add feature"
+git pull --rebase && git push
 ```
 
-### Git Operations
-- Run typecheck/lint BEFORE committing (pre-commit hooks run the same checks)
-- Remove worktrees BEFORE merging PRs with `--delete-branch`
-- Never fabricate filesystem paths -- use the working directory or discover with `ls`
+</example>
 
-### GitHub CLI
-- Don't guess `gh --json` field names -- query available fields first
-- Check CI per-PR with `--json`, not chained human-readable output
-- `review: fail` means "needs approval", NOT a CI failure
+<example name="verification">
+Run checks sequentially, never as parallel tool calls.
 
-### Sub-agents & Agent Teams
-- Verify tool permissions before spawning sub-agents for write operations
-- If a sub-agent fails due to permissions, take over manually immediately
-- Monitor context size when running many parallel agents
-- Agent Teams are enabled via `.claude/settings.json` -- use them for complex parallel work
-- When creating a team: break work so each teammate owns different files (avoid conflicts)
-- Teammates don't inherit conversation history -- include full context in spawn prompts
-- Use subagents for focused tasks (result is all that matters); use teams for collaborative work requiring discussion
-- **Only the main agent handles git commit/push.** Sub-agents and teammates write changes to their working directories. The main agent reviews the changes, runs tests, and commits centrally. This prevents wrong-branch pushes and merge conflicts from parallel agents.
+```bash
+pnpm run typecheck 2>&1; pnpm run lint 2>&1; pnpm run test 2>&1
+```
 
-## Push Accountability
+</example>
 
-Every push to the development branch requires CI verification. After pushing:
-1. Spawn a background agent to monitor CI: `gh run list --branch develop --limit 1`
-2. If CI passes -- log and move on
-3. If CI fails -- background agent investigates with `gh run view <id> --log-failed`, fixes, and re-pushes
-4. Main terminal continues working -- push verification is non-blocking
-5. Never push to production from a background fix
+<example name="worktree-cleanup">
+Remove worktrees before merging PRs. Use -D (uppercase) for branches.
+
+```bash
+git worktree remove --force ../feature-branch; git branch -D feature-branch
+```
+
+</example>
+
+<example name="file-paths">
+Use absolute paths in all file tools and worktree commands. Never use ~.
+
+```bash
+cd /Users/dev/project && pnpm run test
+```
+
+</example>
+</examples>
+
+Domain-specific rules (git, CI, deployment, macOS, GitHub CLI, multi-agent) are in `.claude/skills/` -- loaded automatically when relevant.
+
+<important if="you are pushing code to a remote">
+### Push Accountability
+
+After pushing to the development branch, spawn a background agent to monitor CI.
+If CI fails, the background agent investigates, fixes, and re-pushes.
+Main terminal continues working -- push verification is non-blocking.
+</important>
 
 ## TDD Protocol
 
@@ -263,26 +261,11 @@ No exceptions. Bug fixes need a regression test. Refactors need existing coverag
 
 ## Agent Autonomy
 
-Before asking the user to do anything manually:
-1. Exhaust CLI tools (`gh`, `git`, project CLIs)
-2. Exhaust shell commands (curl, build scripts)
-3. Exhaust file tools (Read/Edit/Write for config changes)
-4. Only then ask for human help -- with a clear explanation of what you tried
-
-Autonomy applies to development work. Production-affecting actions always need explicit human authorization.
+Exhaust CLI tools, shell commands, and file tools before asking the user. Only escalate when genuinely impossible. Production-affecting actions need explicit human authorization.
 
 ## Memory Management
 
-When you discover an operational lesson during any session -- CI failure pattern, permission issue, workaround, tooling quirk, environment-specific behavior -- save it to auto memory immediately. Don't wait to be asked.
-
-What to save proactively:
-- CI/CD pipeline behaviors and failure patterns specific to this project
-- Environment quirks (build flags, platform issues, dependency conflicts)
-- Project-specific conventions confirmed by the user
-- Workarounds for tools, APIs, or libraries used in this project
-- Permission configurations that required adjustment
-
-After completing `/bootstrap`, `/adopt`, or any significant configuration change, save the key decisions and project context to auto memory so future sessions start with full awareness.
+Save operational lessons to auto memory immediately -- CI failure patterns, environment quirks, project conventions, permission issues. Don't wait to be asked.
 
 ## Project File Locations
 
@@ -290,9 +273,9 @@ Go directly to these paths — never search the codebase for them.
 
 | Topic | Path | Notes |
 |-------|------|-------|
-| Agent reports | `docs/agents/*-report.md` | Flag YELLOW/RED items. Cross-agent context in `shared-context.md` |
-| Agent logs | `logs/<name>.log`, `<name>.error.log` | Read alongside reports to diagnose failures |
-| Agent scripts | `scripts/agents/` | Standalone bash files invoking Claude CLI headless |
+| Agent reports | `docs/agents/*-report.md` | Gitignored. Local-only operational history. Never committed (Rule #70) |
+| Agent logs | `logs/<name>.log`, `<name>.error.log` | Gitignored. Read alongside reports to diagnose failures |
+| Agent scripts | `scripts/agents/` | Gitignored. Standalone bash files invoking Claude CLI headless |
 | ADRs | `docs/decisions/` | Architecture decision records |
 | PR descriptions | `docs/prs/{number}_description.md` | |
 | Research docs | `docs/research/YYYY-MM-DD-description.md` | |

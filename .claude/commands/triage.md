@@ -1,37 +1,40 @@
 # Triage Agent Reports
 
-Process all overnight agent reports. Discovers reports via filesystem timestamps (reports are gitignored — local-only), checks for agent failures, synthesizes findings, proposes an action plan, implements all code fixes, and commits only the fixes.
+Process all overnight agent reports. Discovers every report using timestamp-based discovery, checks for agent failures, synthesizes findings, proposes an action plan, and implements all fixes. Reports are never committed -- they stay on disk as local operational history (Rule #70).
 
 ## Input
 
-If `$ARGUMENTS` is provided, process only the specified report path(s). Otherwise, auto-discover all reports modified since the last triage. If no new reports found and no agent failures detected, report "all clear" and **STOP.**
+If `$ARGUMENTS` is provided, process only the specified report path(s). Otherwise, auto-discover all new/modified reports in `docs/agents/`. If no reports found and no agent failures detected, report "all clear" and **STOP.**
 
 ## Step 1: Discovery
 
-Find EVERY report and agent failure. No assumptions about which agents ran or how many reports exist.
-
-> **Note:** Agent reports are gitignored and local-only. Discovery uses filesystem timestamps, not git status.
+Find EVERY report and agent failure. No assumptions about which agents ran or how many reports exist. Discovery uses file timestamps, not git status (Rule #71).
 
 1. **Timestamp-based scan:**
 
-   a. Find reports modified since last triage using the `.last-triage` marker:
+   a. Check for the `.last-triage` marker:
 
       ```bash
-      # If marker exists, find reports newer than it; otherwise treat all as new
-      if [ -f docs/agents/.last-triage ]; then
-        find docs/agents/ -name "*-report.md" -newer docs/agents/.last-triage
-      else
-        find docs/agents/ -name "*-report.md"
-      fi
+      ls -la docs/agents/.last-triage 2>/dev/null
       ```
 
-   b. Glob scan -- complete inventory of all report files (to detect missing reports from expected agents):
+   b. If marker exists -- find reports modified since last triage:
+
+      ```bash
+      find docs/agents/ -name "*-report.md" -newer docs/agents/.last-triage
+      ```
+
+   c. If NO marker exists (first run) -- process ALL reports:
 
       ```
       Glob docs/agents/*-report.md
       ```
 
-   c. Cross-reference: every expected agent should have a report file. If a report is missing entirely, the agent may have never run or failed before writing output.
+   d. Full inventory (for cross-reference and completeness):
+
+      ```
+      Glob docs/agents/*.md
+      ```
 
 2. **Check for agent failures:**
 
@@ -48,10 +51,9 @@ Find EVERY report and agent failure. No assumptions about which agents ran or ho
      flag it: "agent-name FAILED to produce a report -- check `logs/agent-name.error.log`"
 
 3. **Classify files:**
-   - Reports newer than `.last-triage` marker: primary triage targets.
+   - New/modified reports (newer than `.last-triage`): primary triage targets.
    - `shared-context.md`: read for cross-agent intelligence, not a report itself.
-   - Reports older than marker (or same age): skip -- already processed.
-   - If no `.last-triage` marker exists: treat ALL reports as new (first triage run).
+   - Unchanged reports (older than `.last-triage`): skip -- already processed.
 
 4. **Present discovery results:**
 
@@ -132,9 +134,9 @@ After user approval, implement all action items.
 
 4. **Run verification again** (in case `/simplify` introduced changes).
 
-## Step 4: Commit & Update Marker
+## Step 4: Commit & Push
 
-> **Note:** Agent reports are gitignored and never committed. Only code fixes get committed.
+Reports are NEVER committed (Rule #70). Only code fixes enter version control.
 
 1. **Append triage entry to shared-context.md:**
 
@@ -149,14 +151,16 @@ After user approval, implement all action items.
    <!-- ENTRY:END -->
    ```
 
-2. **Commit code fixes** (if any fixes were made):
+2. **Commit code fixes only** (if any fixes were made):
 
    ```bash
    git add <changed-files>
    git commit -m "fix: resolve agent report findings [triage]"
    ```
 
-3. **Push to remote. Monitor CI** (only if code was committed):
+   Do NOT `git add` anything in `docs/agents/` or `logs/`. These directories are gitignored.
+
+3. **Push to remote. Monitor CI:**
 
    ```bash
    git push
@@ -166,7 +170,7 @@ After user approval, implement all action items.
 
 4. **If CI fails:** diagnose and fix (same logic as `/fix-ci`, max 3 iterations).
 
-5. **Touch the triage marker** so next run knows where to start:
+5. **Touch the triage marker** (marks all current reports as processed):
 
    ```bash
    touch docs/agents/.last-triage
@@ -199,7 +203,7 @@ Generate a triage report at `docs/agents/triage-report.md`:
 - [ ] All tests passing
 - [ ] Typecheck clean
 - [ ] Lint clean
-- [ ] CI green (if code was committed)
+- [ ] CI green
 
 ## Carried Items (if any)
 [Items that persist across multiple triage cycles -- track for escalation]
@@ -209,13 +213,13 @@ Present the report summary to the user.
 
 ## Rules
 
-- **Exhaustive discovery.** Use timestamp scan + Glob + agent failure check. Never assume how many reports exist. Present the full count before processing.
-- **Reports are local-only.** Agent reports are gitignored. Never attempt to `git add` or commit them. Only code fixes get committed.
+- **Exhaustive discovery.** Use timestamp-based scan (Rule #71). Never assume how many reports exist. Present the full count before processing.
+- **Never commit reports (Rule #70).** Reports stay on disk as local operational history. Only code fixes are committed. `docs/agents/`, `logs/`, and `scripts/agents/` are gitignored.
+- **Touch `.last-triage` after completion.** This marks all current reports as processed for the next triage run.
 - **Check for agent failures.** Scan `logs/` BEFORE analyzing reports. A missing report might mean a failed agent, not "nothing to report."
 - **Fix everything (Rule #58).** Categorize findings by severity, but implement 100% of action items. No deferring. No "nothing urgent."
 - **Read every report completely.** No skimming, no summaries-of-summaries. Extract ALL action items from every report.
 - **shared-context.md integration.** Read before analysis, append triage entry after completion.
-- **Touch `.last-triage` marker** after every triage run so next discovery knows what's new.
 - **CI accountability.** Push is not done until CI is green. Max 3 fix iterations.
 - **Branch verification before every commit.** Run `git branch --show-current` first (Error #33).
 - Run verification commands sequentially, never as parallel Bash calls.
