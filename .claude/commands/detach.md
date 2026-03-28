@@ -39,13 +39,12 @@ For `guard-bash.sh`, check if content exists below the `# Project-specific guard
 Read the project's CLAUDE.md (or AGENTS.md for copilot-rpi projects) and identify these blueprint-managed sections by their `##` or `###` headers:
 
 - `## RPI Workflow` (including all `###` subsections under it)
-- `## Agent Operational Rules` (including all `###` subsections under it)
-- `## Push Accountability`
+- `## Working Patterns` (including `<examples>` blocks under it)
 - `## TDD Protocol`
 - `## Agent Autonomy`
 - `## Memory Management`
 - `## Project File Locations`
-- `### CRITICAL: Run verification commands sequentially` (subsection under Key Commands)
+- `<important if>` blocks: Push Accountability, Deployment Safety, Supabase sections
 
 Note which sections exist. Do NOT touch any other sections -- they are project-specific.
 

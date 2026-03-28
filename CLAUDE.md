@@ -70,56 +70,15 @@ Summon generates AppleScript that drives Ghostty's native split system. The scri
 
 ## RPI Workflow
 
-This project follows the Research-Plan-Implement (RPI) pattern.
-All significant changes go through four phases:
+This project follows Research-Plan-Implement (RPI).
+
 1. /research -- Understand the codebase as-is
 2. /plan -- Create a phased implementation spec
 3. /implement -- Execute one phase at a time with review gates
 4. /validate -- Verify implementation against the plan
 
-### Context Management
-
-- Each RPI phase should be its own conversation. Don't run research + plan + implement in one session.
-- Use `/clear` between unrelated tasks. Use `/compact` when context is heavy but the task continues.
-- Subagents are context control mechanisms -- they search/read in their window and return only distilled results.
-- Research and planning happen on `develop`. Implementation happens in worktrees or feature branches.
-- If research comes back wrong, throw it out and restart with more specific steering.
-
-### Rules for All Phases
-
-- Read all mentioned files COMPLETELY before doing anything else.
-- Never suggest improvements during research -- only document what exists.
-- Every code reference must include file:line.
-- Spawn parallel subagents for independent research tasks.
-- Wait for ALL subagents before synthesizing.
-- Never write documents with placeholder values.
-
-### Rules for Implementation
-
-- Follow the atomic loop: implement → review (plan compliance) → fix → approve → `/simplify` (code quality) → verify.
-- Run `/simplify` after reviewer approval -- it handles code reuse, quality, and efficiency in one native pass.
-- Check for `[batch-eligible]` phases in the plan -- use `/batch` to execute independent phases in parallel.
-- Run ALL automated verification after each phase.
-- STOP after each phase and wait for human confirmation.
-- Never auto-proceed to the next phase.
-- If the plan doesn't match reality, STOP and explain the mismatch.
-
-### Pre-Release Workflow
-
-```
-/pre-launch -> /remediate -> /update-docs -> /release
-```
-
-- `/remediate` -- resolve all pre-launch findings with parallel TDD agents, CI verification
-- `/update-docs` -- refreshes all documentation, diagrams, version references, and inline code docs
-- `/release` -- version bump, CHANGELOG, tag, GitHub release, registry publish advisory
-
-### Testing Philosophy
-
-- Prefer automated verification over manual testing.
-- Manual testing is ONLY for: AppleScript execution against real Ghostty, visual layout verification, sudo, hardware, new installs.
-- If you can verify it with a command or tool, do so automatically.
-- Don't use Claude for linting/formatting -- use automated tools and hooks instead.
+Each phase is its own conversation. STOP after each phase.
+Use /clear between tasks, /compact when context is heavy.
 
 ## Key Commands
 
@@ -130,10 +89,6 @@ pnpm run test           # Run all tests
 pnpm run build          # Production build
 pnpm run dev            # Watch mode
 ```
-
-### CRITICAL: Run verification commands sequentially, NEVER in parallel
-Never run typecheck, lint, or test as parallel sibling Bash tool calls.
-Chain with `&&` or `;`: `pnpm run typecheck 2>&1; pnpm run lint 2>&1`
 
 ## Git Workflow
 
@@ -146,6 +101,8 @@ Chain with `&&` or `;`: `pnpm run typecheck 2>&1; pnpm run lint 2>&1`
 5. Always commit before pulling -- `git pull --rebase` requires a clean tree (hook enforced)
 6. **Before any commit, verify the current branch** -- run `git branch --show-current` and confirm it matches your intent. If the user hasn't specified a branch, ask. (hook blocks push to main/master)
 7. After config, dependency, or infrastructure changes, **immediately run the full test suite** before proceeding to the next task
+
+Run verification sequentially with `;` or `&&`, never as parallel Bash calls.
 
 ### Commit Messages
 
@@ -169,35 +126,6 @@ All commits must pass `pnpm typecheck && pnpm lint && pnpm build && pnpm test`.
 - `main` is production: merging a PR to `main` is a release signal
 - npm publish is manual: `pnpm build && npm publish` (see docs/publishing.md)
 - Releases are tagged from `main`: `git tag v<version> && git push origin v<version>`
-
-<important if="you are merging PRs, merging branches to main, deploying, or handling dependency updates">
-### Deployment Safety
-
-- **Merging to `main` IS deploying to production.** Every merge triggers a production deployment. No exceptions.
-- **Dependabot PRs target `main` by default.** Never merge them directly. Cherry-pick to `develop`, close the PR, release normally.
-- **Every CI run and deployment costs money.** Before starting: estimate how many runs/deploys this will trigger. If more than 2-3, batch the work.
-- **Framework upgrades (Next.js, React, etc.) require preview deployment verification.** CI passing is NOT sufficient. Deploy to a preview URL and verify before merging to production.
-- **When production is down:** Roll back immediately. Investigate on non-production. Fix forward on `develop`. Never deploy to diagnose. Never promote broken deployments "briefly."
-- **Batch dependency updates** into a single branch and PR. Never merge N PRs one-by-one (causes O(n^2) CI waste from rebase cascades).
-- **Justify every external action** -- before any CI run, deployment, or API call: Is this needed? Is this justified? Is this verifiable? If any answer is "no," stop.
-</important>
-
-## Conditional Blocks for Context-Specific Rules
-
-As this file grows, wrap domain-specific sections in `<important if="condition">` tags.
-The agent activates these only when the condition matches the current task, reducing noise.
-Keep universal content (stack, structure, git workflow) unwrapped.
-
-```markdown
-<important if="you are writing or modifying tests">
-- Use `createTestApp()` helper for integration tests
-- Mock database with `dbMock` from `packages/db/test`
-- Test fixtures live in `__fixtures__/` directories
-</important>
-```
-
-- **Be specific.** `"you are writing tests"` is good. `"you are writing code"` matches everything and defeats the purpose.
-- **Group by domain.** One block per domain (testing, deployment, database) — don't wrap individual lines.
 
 ## Working Patterns
 
@@ -240,15 +168,7 @@ cd /Users/dev/project && pnpm run test
 </example>
 </examples>
 
-Domain-specific rules (git, CI, deployment, macOS, GitHub CLI, multi-agent) are in `.claude/skills/` -- loaded automatically when relevant.
-
-<important if="you are pushing code to a remote">
-### Push Accountability
-
-After pushing to the development branch, spawn a background agent to monitor CI.
-If CI fails, the background agent investigates, fixes, and re-pushes.
-Main terminal continues working -- push verification is non-blocking.
-</important>
+Domain-specific rules load from `.claude/rules/` and `.claude/skills/` automatically.
 
 ## TDD Protocol
 
@@ -259,13 +179,10 @@ All code changes follow Red-Green-Refactor:
 
 No exceptions. Bug fixes need a regression test. Refactors need existing coverage. No "tests later."
 
-## Agent Autonomy
+## Agent Behavior
 
-Exhaust CLI tools, shell commands, and file tools before asking the user. Only escalate when genuinely impossible. Production-affecting actions need explicit human authorization.
-
-## Memory Management
-
-Save operational lessons to auto memory immediately -- CI failure patterns, environment quirks, project conventions, permission issues. Don't wait to be asked.
+Exhaust tools before asking the user. Production actions need human authorization.
+Save operational lessons to auto memory immediately. Don't wait to be asked.
 
 ## Project File Locations
 
