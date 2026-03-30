@@ -67,6 +67,10 @@ describe("writeStatus", () => {
     writeStatus(makeStatus({ project: "myapp" }));
     expect(existsSync(join(TEST_STATUS_DIR, "myapp.active"))).toBe(true);
   });
+
+  it("rejects path traversal in project name", () => {
+    expect(() => writeStatus(makeStatus({ project: "../../etc/evil" }))).toThrow("Invalid status path");
+  });
 });
 
 describe("clearStatus", () => {
@@ -82,6 +86,10 @@ describe("clearStatus", () => {
   it("does not throw if files missing", () => {
     expect(() => clearStatus("nonexistent")).not.toThrow();
   });
+
+  it("rejects path traversal in project name", () => {
+    expect(() => clearStatus("../../etc/evil")).toThrow("Invalid status path");
+  });
 });
 
 describe("isWorkspaceActive", () => {
@@ -92,6 +100,10 @@ describe("isWorkspaceActive", () => {
 
   it("returns false when marker missing", () => {
     expect(isWorkspaceActive("nonexistent")).toBe(false);
+  });
+
+  it("rejects path traversal in project name", () => {
+    expect(() => isWorkspaceActive("../../etc/evil")).toThrow("Invalid status path");
   });
 });
 
@@ -104,6 +116,10 @@ describe("readStatus", () => {
     mkdirSync(TEST_STATUS_DIR, { recursive: true });
     writeFileSync(join(TEST_STATUS_DIR, "bad.json"), "not json{{{");
     expect(readStatus("bad")).toBeNull();
+  });
+
+  it("rejects path traversal in project name", () => {
+    expect(() => readStatus("../../etc/evil")).toThrow("Invalid status path");
   });
 
   it("returns state='active' when marker exists", () => {

@@ -87,6 +87,14 @@ describe("saveSnapshot", () => {
     expect(result).toBeNull();
   });
 
+  it("rejects path traversal in project name", () => {
+    expect(() => saveSnapshot("../../etc/evil", process.cwd(), "full")).toThrow("Invalid snapshot path");
+  });
+
+  it("rejects path traversal with leading dot-dot", () => {
+    expect(() => saveSnapshot("../outside", process.cwd(), "full")).toThrow("Invalid snapshot path");
+  });
+
   it("includes ISO timestamp", () => {
     const result = saveSnapshot("myapp", process.cwd(), "full");
     if (!result) return;
@@ -110,6 +118,10 @@ describe("readSnapshot", () => {
     mkdirSync(TEST_SNAPSHOTS_DIR, { recursive: true });
     writeFileSync(join(TEST_SNAPSHOTS_DIR, "bad.json"), JSON.stringify({ version: 99 }));
     expect(readSnapshot("bad")).toBeNull();
+  });
+
+  it("rejects path traversal in project name", () => {
+    expect(() => readSnapshot("../../etc/evil")).toThrow("Invalid snapshot path");
   });
 
   it("reads a previously saved snapshot", () => {
@@ -136,6 +148,10 @@ describe("clearSnapshot", () => {
 
   it("returns false when snapshot does not exist", () => {
     expect(clearSnapshot("nonexistent")).toBe(false);
+  });
+
+  it("rejects path traversal in project name", () => {
+    expect(() => clearSnapshot("../../etc/evil")).toThrow("Invalid snapshot path");
   });
 });
 

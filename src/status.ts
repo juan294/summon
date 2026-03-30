@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import { STATUS_DIR } from "./config.js";
 
@@ -36,11 +36,19 @@ export interface ResolvedStatus extends WorkspaceStatus {
 // --- Paths ---
 
 function statusFilePath(projectName: string): string {
-  return join(STATUS_DIR, `${projectName}.json`);
+  const filePath = join(STATUS_DIR, `${projectName}.json`);
+  if (!resolve(filePath).startsWith(resolve(STATUS_DIR))) {
+    throw new Error(`Invalid status path: "${projectName}"`);
+  }
+  return filePath;
 }
 
 function markerFilePath(projectName: string): string {
-  return join(STATUS_DIR, `${projectName}.active`);
+  const filePath = join(STATUS_DIR, `${projectName}.active`);
+  if (!resolve(filePath).startsWith(resolve(STATUS_DIR))) {
+    throw new Error(`Invalid status path: "${projectName}"`);
+  }
+  return filePath;
 }
 
 // --- Write ---
@@ -53,8 +61,10 @@ export function writeStatus(status: WorkspaceStatus): void {
 }
 
 export function clearStatus(projectName: string): void {
-  try { unlinkSync(statusFilePath(projectName)); } catch { /* ignore */ }
-  try { unlinkSync(markerFilePath(projectName)); } catch { /* ignore */ }
+  const statusPath = statusFilePath(projectName);
+  const markerPath = markerFilePath(projectName);
+  try { unlinkSync(statusPath); } catch { /* ignore */ }
+  try { unlinkSync(markerPath); } catch { /* ignore */ }
 }
 
 // --- Read ---

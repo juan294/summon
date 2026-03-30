@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import { SNAPSHOTS_DIR } from "./config.js";
 
@@ -21,7 +21,11 @@ export interface ContextSnapshot {
 // --- Helpers ---
 
 function snapshotPath(project: string): string {
-  return join(SNAPSHOTS_DIR, `${project}.json`);
+  const filePath = join(SNAPSHOTS_DIR, `${project}.json`);
+  if (!resolve(filePath).startsWith(resolve(SNAPSHOTS_DIR))) {
+    throw new Error(`Invalid snapshot path: "${project}"`);
+  }
+  return filePath;
 }
 
 function gitCommand(dir: string, args: string[]): string | null {
