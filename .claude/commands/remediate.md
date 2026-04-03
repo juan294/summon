@@ -1,5 +1,7 @@
 # Remediate Pre-Launch Findings
 
+Model tier: **sonnet** — Sonnet session. All subagents: `model: "sonnet"`.
+
 Resolve all findings from the pre-launch audit. Creates GitHub issues, orchestrates parallel TDD agents in worktrees, merges sequentially, verifies CI, and reports.
 
 ## Input
@@ -48,7 +50,7 @@ After user approval:
 
    Check that labels exist before using them. If they don't, create them or omit.
 
-2. **Spawn a worktree agent for each work unit** (parallel, via Agent tool with `isolation: "worktree"`).
+2. **Spawn a worktree agent for each work unit** (parallel, via Agent tool with `isolation: "worktree"`, `model: "sonnet"`).
 
    Each agent receives these instructions:
 

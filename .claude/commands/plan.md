@@ -1,8 +1,10 @@
 Create an implementation plan for: $ARGUMENTS
 
+Model tier: **opus** — Opus session. All subagents: `model: "opus"`.
+
 Process:
 1. Read ALL mentioned files completely.
-2. Spawn research subagents (Explore) to find relevant code, patterns, and docs.
+2. Spawn research subagents (Explore, model: `"opus"`) to find relevant code, patterns, and docs.
 3. Read everything the subagents identify.
 4. Present your understanding with focused questions — only ask what code can't answer.
 5. After clarifications, spawn deeper research if needed.

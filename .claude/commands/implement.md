@@ -1,8 +1,10 @@
 Implement the plan at: $ARGUMENTS
 
+Model tier: **sonnet** — Sonnet session. All subagents: `model: "sonnet"`.
+
 Process:
 1. Read the plan completely. Check for existing checkmarks.
-2. Spawn Explore agents to gather relevant context.
+2. Spawn Explore agents (model: `"sonnet"`) to gather relevant context.
 3. Create tasks (TaskCreate) to track progress.
 4. Enter a worktree for implementation (EnterWorktree tool).
    Research and planning happen on main -- implementation must be isolated
@@ -12,8 +14,8 @@ Process:
    - If user agrees, hand off to `/batch` with the plan reference. Done.
    - If user declines or phases have dependencies, continue sequentially below.
 6. For the CURRENT phase only:
-   a. Delegate implementation to subagents (up to 3).
-   b. When done, submit to a reviewer subagent focused on PLAN COMPLIANCE:
+   a. Delegate implementation to subagents (up to 3, model: `"sonnet"`).
+   b. When done, submit to a reviewer subagent (model: `"sonnet"`) focused on PLAN COMPLIANCE:
       does the code match what the plan specified? Are all items addressed?
    c. If reviewer requests fixes, send back to implementer.
    d. Repeat until reviewer approves.
