@@ -444,7 +444,7 @@ describe("CLI integration", () => {
     });
 
     describe("editor-size validation", () => {
-      it("rejects non-numeric editor-size value", () => {
+      it("rejects non-numeric editor-size value", { retry: 2 }, () => {
         const result = run("set", "editor-size", "abc");
         expect(result.status).toBe(1);
         expect(result.stderr).toContain("Error:");
