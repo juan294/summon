@@ -1,6 +1,6 @@
 Self-healing CI: diagnose and fix all failing tests autonomously.
 
-Model tier: **sonnet** — Sonnet session. All subagents: `model: "sonnet"`.
+Model tier: **sonnet** — Sonnet 4.6 (1M context) session. All subagents: `model: "sonnet"`.
 
 Process:
 

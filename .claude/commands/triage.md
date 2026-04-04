@@ -1,6 +1,6 @@
 # Triage Agent Reports
 
-Model tier: **sonnet** — Sonnet session.
+Model tier: **sonnet** — Sonnet 4.6 (1M context) session.
 
 Process all overnight agent reports. Discovers every report using timestamp-based discovery, checks for agent failures, synthesizes findings, proposes an action plan, and implements all fixes. Reports are never committed -- they stay on disk as local operational history (Rule #70).
 

@@ -1,6 +1,6 @@
 Implement the plan at: $ARGUMENTS
 
-Model tier: **sonnet** — Sonnet session. All subagents: `model: "sonnet"`.
+Model tier: **sonnet** — Sonnet 4.6 (1M context) session. All subagents: `model: "sonnet"`.
 
 Process:
 1. Read the plan completely. Check for existing checkmarks.

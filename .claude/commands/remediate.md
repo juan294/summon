@@ -1,6 +1,6 @@
 # Remediate Pre-Launch Findings
 
-Model tier: **sonnet** — Sonnet session. All subagents: `model: "sonnet"`.
+Model tier: **sonnet** — Sonnet 4.6 (1M context) session. All subagents: `model: "sonnet"`.
 
 Resolve all findings from the pre-launch audit. Creates GitHub issues, orchestrates parallel TDD agents in worktrees, merges sequentially, verifies CI, and reports.
 
