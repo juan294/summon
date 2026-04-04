@@ -1,0 +1,150 @@
+<mxGraphModel adaptiveColors="auto">
+  <root>
+    <mxCell id="0"/>
+    <mxCell id="1" parent="0"/>
+    <mxCell id="title" value="summon-ws Architecture" style="text;html=1;fontSize=20;fontStyle=1;align=center;verticalAlign=middle;whiteSpace=wrap;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+      <mxGeometry x="180" y="20" width="440" height="40" as="geometry"/>
+    </mxCell>
+    <mxCell id="subtitle" value="CLI tool for configurable multi-pane Ghostty workspaces on macOS" style="text;html=1;fontSize=11;align=center;verticalAlign=middle;whiteSpace=wrap;fillColor=none;strokeColor=none;fontColor=#888888;" vertex="1" parent="1">
+      <mxGeometry x="180" y="55" width="440" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="lane_cli" value="CLI Interface" style="swimlane;startSize=28;fillColor=#fff2cc;strokeColor=#d6b656;rounded=1;arcSize=8;fontStyle=1;fontSize=12;swimlaneLine=1;" vertex="1" parent="1">
+      <mxGeometry x="40" y="100" width="200" height="280" as="geometry"/>
+    </mxCell>
+    <mxCell id="cli_dispatch" value="Command Dispatcher" style="rounded=1;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="lane_cli">
+      <mxGeometry x="30" y="45" width="140" height="45" as="geometry"/>
+    </mxCell>
+    <mxCell id="cli_args" value="Argument Parsing" style="rounded=1;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="lane_cli">
+      <mxGeometry x="30" y="110" width="140" height="45" as="geometry"/>
+    </mxCell>
+    <mxCell id="cli_wizard" value="Interactive Wizards&lt;br&gt;&lt;i style=&quot;font-size:10px&quot;&gt;setup, layout builder&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="lane_cli">
+      <mxGeometry x="30" y="175" width="140" height="50" as="geometry"/>
+    </mxCell>
+    <mxCell id="cli_file" value="&lt;b&gt;index.ts&lt;/b&gt;" style="text;html=1;fontSize=10;align=center;fillColor=none;strokeColor=none;fontColor=#999999;" vertex="1" parent="lane_cli">
+      <mxGeometry x="50" y="243" width="100" height="20" as="geometry"/>
+    </mxCell>
+    <mxCell id="lane_config" value="Config / Planning" style="swimlane;startSize=28;fillColor=#dae8fc;strokeColor=#6c8ebf;rounded=1;arcSize=8;fontStyle=1;fontSize=12;swimlaneLine=1;" vertex="1" parent="1">
+      <mxGeometry x="280" y="100" width="220" height="280" as="geometry"/>
+    </mxCell>
+    <mxCell id="config_registry" value="Project Registry" style="rounded=1;whiteSpace=wrap;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="lane_config">
+      <mxGeometry x="20" y="45" width="85" height="45" as="geometry"/>
+    </mxCell>
+    <mxCell id="config_user" value="User Config" style="rounded=1;whiteSpace=wrap;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="lane_config">
+      <mxGeometry x="115" y="45" width="85" height="45" as="geometry"/>
+    </mxCell>
+    <mxCell id="config_layouts" value="Custom Layouts&lt;br&gt;&lt;i style=&quot;font-size:10px&quot;&gt;~/.config/summon/&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="lane_config">
+      <mxGeometry x="20" y="110" width="180" height="45" as="geometry"/>
+    </mxCell>
+    <mxCell id="config_layout_plan" value="Layout Planning&lt;br&gt;&lt;i style=&quot;font-size:10px&quot;&gt;DSL / preset / split tree&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="lane_config">
+      <mxGeometry x="20" y="175" width="180" height="50" as="geometry"/>
+    </mxCell>
+    <mxCell id="config_files" value="&lt;b&gt;config.ts&lt;/b&gt; &amp;middot; &lt;b&gt;layout.ts&lt;/b&gt; &amp;middot; &lt;b&gt;tree.ts&lt;/b&gt;" style="text;html=1;fontSize=10;align=center;fillColor=none;strokeColor=none;fontColor=#999999;" vertex="1" parent="lane_config">
+      <mxGeometry x="10" y="243" width="200" height="20" as="geometry"/>
+    </mxCell>
+    <mxCell id="lane_script" value="Script Generation" style="swimlane;startSize=28;fillColor=#d5e8d4;strokeColor=#82b366;rounded=1;arcSize=8;fontStyle=1;fontSize=12;swimlaneLine=1;" vertex="1" parent="1">
+      <mxGeometry x="540" y="100" width="200" height="160" as="geometry"/>
+    </mxCell>
+    <mxCell id="script_gen" value="AppleScript Generator&lt;br&gt;&lt;i style=&quot;font-size:10px&quot;&gt;pure function&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="lane_script">
+      <mxGeometry x="25" y="45" width="150" height="50" as="geometry"/>
+    </mxCell>
+    <mxCell id="script_file" value="&lt;b&gt;script.ts&lt;/b&gt;" style="text;html=1;fontSize=10;align=center;fillColor=none;strokeColor=none;fontColor=#999999;" vertex="1" parent="lane_script">
+      <mxGeometry x="50" y="115" width="100" height="20" as="geometry"/>
+    </mxCell>
+    <mxCell id="lane_exec" value="Execution" style="swimlane;startSize=28;fillColor=#ffe6cc;strokeColor=#d79b00;rounded=1;arcSize=8;fontStyle=1;fontSize=12;swimlaneLine=1;" vertex="1" parent="1">
+      <mxGeometry x="540" y="300" width="200" height="220" as="geometry"/>
+    </mxCell>
+    <mxCell id="exec_launcher" value="Launcher&lt;br&gt;&lt;i style=&quot;font-size:10px&quot;&gt;orchestrator&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="lane_exec">
+      <mxGeometry x="25" y="40" width="150" height="45" as="geometry"/>
+    </mxCell>
+    <mxCell id="exec_status" value="Workspace Tracking&lt;br&gt;&lt;i style=&quot;font-size:10px&quot;&gt;PID / marker files&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="lane_exec">
+      <mxGeometry x="25" y="105" width="150" height="45" as="geometry"/>
+    </mxCell>
+    <mxCell id="exec_monitor" value="Dashboard TUI&lt;br&gt;&lt;i style=&quot;font-size:10px&quot;&gt;interactive monitor&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="lane_exec">
+      <mxGeometry x="25" y="165" width="150" height="45" as="geometry"/>
+    </mxCell>
+    <mxCell id="exec_files" value="&lt;b&gt;launcher.ts&lt;/b&gt; &amp;middot; &lt;b&gt;status.ts&lt;/b&gt; &amp;middot; &lt;b&gt;monitor.ts&lt;/b&gt;" style="text;html=1;fontSize=9;align=center;fillColor=none;strokeColor=none;fontColor=#999999;" vertex="1" parent="lane_exec">
+      <mxGeometry x="5" y="195" width="190" height="20" as="geometry"/>
+    </mxCell>
+    <mxCell id="lane_ext" value="External" style="swimlane;startSize=28;fillColor=#f8cecc;strokeColor=#b85450;rounded=1;arcSize=8;fontStyle=1;fontSize=12;swimlaneLine=1;" vertex="1" parent="1">
+      <mxGeometry x="540" y="560" width="200" height="140" as="geometry"/>
+    </mxCell>
+    <mxCell id="ext_ghostty" value="Ghostty Terminal&lt;br&gt;&lt;i style=&quot;font-size:10px&quot;&gt;via AppleScript&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="lane_ext">
+      <mxGeometry x="25" y="40" width="150" height="45" as="geometry"/>
+    </mxCell>
+    <mxCell id="ext_starship" value="Starship Prompt&lt;br&gt;&lt;i style=&quot;font-size:10px&quot;&gt;optional&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;fillColor=#f8cecc;strokeColor=#b85450;dashed=1;" vertex="1" parent="lane_ext">
+      <mxGeometry x="25" y="95" width="150" height="35" as="geometry"/>
+    </mxCell>
+    <mxCell id="opt_layer" value="Option Layering" style="swimlane;startSize=24;fillColor=#e1d5e7;strokeColor=#9673a6;rounded=1;arcSize=8;fontStyle=1;fontSize=11;swimlaneLine=1;" vertex="1" parent="1">
+      <mxGeometry x="40" y="420" width="460" height="120" as="geometry"/>
+    </mxCell>
+    <mxCell id="layer_cli_opt" value="CLI args" style="rounded=1;whiteSpace=wrap;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" vertex="1" parent="opt_layer">
+      <mxGeometry x="15" y="40" width="70" height="35" as="geometry"/>
+    </mxCell>
+    <mxCell id="layer_summon" value=".summon" style="rounded=1;whiteSpace=wrap;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" vertex="1" parent="opt_layer">
+      <mxGeometry x="100" y="40" width="70" height="35" as="geometry"/>
+    </mxCell>
+    <mxCell id="layer_global" value="Global config" style="rounded=1;whiteSpace=wrap;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" vertex="1" parent="opt_layer">
+      <mxGeometry x="185" y="40" width="80" height="35" as="geometry"/>
+    </mxCell>
+    <mxCell id="layer_presets" value="Presets" style="rounded=1;whiteSpace=wrap;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" vertex="1" parent="opt_layer">
+      <mxGeometry x="280" y="40" width="70" height="35" as="geometry"/>
+    </mxCell>
+    <mxCell id="layer_defaults" value="Defaults" style="rounded=1;whiteSpace=wrap;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" vertex="1" parent="opt_layer">
+      <mxGeometry x="365" y="40" width="70" height="35" as="geometry"/>
+    </mxCell>
+    <mxCell id="layer_arrow1" value="" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#9673a6;fontSize=10;" edge="1" source="layer_cli_opt" target="layer_summon" parent="opt_layer">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="layer_arrow2" value="" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#9673a6;fontSize=10;" edge="1" source="layer_summon" target="layer_global" parent="opt_layer">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="layer_arrow3" value="" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#9673a6;fontSize=10;" edge="1" source="layer_global" target="layer_presets" parent="opt_layer">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="layer_arrow4" value="" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#9673a6;fontSize=10;" edge="1" source="layer_presets" target="layer_defaults" parent="opt_layer">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="layer_label" value="&lt;i&gt;highest priority &amp;rarr; lowest priority&lt;/i&gt;" style="text;html=1;fontSize=10;align=center;fillColor=none;strokeColor=none;fontColor=#999999;" vertex="1" parent="opt_layer">
+      <mxGeometry x="100" y="85" width="250" height="20" as="geometry"/>
+    </mxCell>
+    <mxCell id="osascript_box" value="osascript" style="rounded=1;whiteSpace=wrap;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333;fontSize=11;fontStyle=2;" vertex="1" parent="1">
+      <mxGeometry x="590" y="545" width="100" height="30" as="geometry"/>
+    </mxCell>
+    <mxCell id="edge_cli_config" value="" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#6c8ebf;strokeWidth=2;" edge="1" source="cli_dispatch" target="config_registry" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="edge_cli_wizard_config" value="" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#6c8ebf;strokeWidth=1;dashed=1;" edge="1" source="cli_wizard" target="config_layouts" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="edge_config_layout" value="" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#6c8ebf;strokeWidth=2;" edge="1" source="config_layouts" target="config_layout_plan" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="edge_layout_script" value="" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#82b366;strokeWidth=2;" edge="1" source="config_layout_plan" target="script_gen" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="edge_script_launcher" value="" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#d79b00;strokeWidth=2;" edge="1" source="script_gen" target="exec_launcher" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="edge_launcher_osascript" value="" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#d79b00;strokeWidth=2;" edge="1" source="exec_launcher" target="osascript_box" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="edge_osascript_ghostty" value="" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#b85450;strokeWidth=2;" edge="1" source="osascript_box" target="ext_ghostty" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="edge_launcher_status" value="" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#d79b00;strokeWidth=1;dashed=1;" edge="1" source="exec_launcher" target="exec_status" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="edge_status_monitor" value="" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#d79b00;strokeWidth=1;dashed=1;" edge="1" source="exec_status" target="exec_monitor" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="edge_ghostty_starship" value="" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#b85450;strokeWidth=1;dashed=1;" edge="1" source="ext_ghostty" target="ext_starship" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="edge_optlayer_layout" value="resolves options" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#9673a6;strokeWidth=1;dashed=1;fontSize=10;" edge="1" source="opt_layer" target="config_layout_plan" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="tech_label" value="&lt;i&gt;Node.js &amp;ge; 18 &amp;middot; TypeScript 5.7 &amp;middot; tsup &amp;middot; Vitest &amp;middot; zero runtime deps&lt;/i&gt;" style="text;html=1;fontSize=10;align=center;fillColor=none;strokeColor=none;fontColor=#aaaaaa;" vertex="1" parent="1">
+      <mxGeometry x="140" y="560" width="360" height="20" as="geometry"/>
+    </mxCell>
+  </root>
+</mxGraphModel>
