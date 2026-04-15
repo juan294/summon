@@ -18,6 +18,7 @@ Scan this project for all cc-rpi artifacts. Categorize each into one of four tie
 
 Check for these files and note which exist:
 
+- `AGENTS.md`
 - `.claude/commands/research.md`
 - `.claude/commands/plan.md`
 - `.claude/commands/implement.md`
@@ -31,6 +32,8 @@ Check for these files and note which exist:
 - `scripts/agents/cc-rpi-update.sh` (nightly sync agent, if exists)
 
 For each command file that exists, diff it against `<cc-rpi-path>/templates/commands/<name>` to detect customization. Mark as "unmodified" or "customized."
+
+For `AGENTS.md`, diff it against `<cc-rpi-path>/templates/AGENTS.md.template` to detect customization. Mark as "unmodified" or "customized."
 
 For `guard-bash.sh`, check if content exists below the `# Project-specific guards below this line` marker. If so, mark as "customized."
 
@@ -158,6 +161,7 @@ To re-adopt later: run /adopt
 - **Preserve project identity.** Only remove blueprint-managed content. Everything project-specific stays.
 - **Keep user work products by default.** Research docs, plans, and decisions are the user's work. Only remove if explicitly asked.
 - **Flag customizations.** If a command or hook has been modified from the template, warn the user before deleting it.
+- **Flag Codex compatibility customizations.** If `AGENTS.md` diverges from the template, warn before deleting it.
 - **One atomic commit.** All removals go in a single commit. Don't scatter across multiple commits.
 - **Idempotent.** Running on a project without cc-rpi artifacts reports "nothing to detach" and stops. Running twice produces no changes the second time.
 - **Don't touch Claude Code itself.** `.claude/` directory, `settings.json` (with remaining entries), and `settings.local.json` are Claude Code's own -- they exist independently of cc-rpi.
