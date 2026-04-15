@@ -12,14 +12,12 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: pnpm/action-setup@v6
-        with:
-          version: 10.29.2
       - uses: actions/setup-node@v6
         with:
           node-version: 22
-          cache: pnpm
           registry-url: https://registry.npmjs.org
+      - run: corepack enable
+      - run: corepack prepare pnpm@10.29.2 --activate
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm lint

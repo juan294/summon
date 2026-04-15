@@ -17,13 +17,11 @@ jobs:
         node-version: [18, 20, 22]
     steps:
       - uses: actions/checkout@v6
-      - uses: pnpm/action-setup@v6
-        with:
-          version: 10.29.2
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ matrix.node-version }}
-          cache: pnpm
+      - run: corepack enable
+      - run: corepack prepare pnpm@10.29.2 --activate
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm lint
