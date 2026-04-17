@@ -1,7 +1,7 @@
 {
-  "lastSyncCommit": "5e1fae2d26af416b208e0e78dfd78c4217e13694",
-  "lastSyncDate": "2026-04-15",
-  "blueprintVersion": "v1.16.0",
+  "lastSyncCommit": "b70345cfd1808ef79f0414582eb14b55d887d2d4",
+  "lastSyncDate": "2026-04-17",
+  "blueprintVersion": "v1.17.0",
   "rulesSynced": [
     "deployment-safety.md",
     "push-accountability.md",
