@@ -68,6 +68,11 @@ describe("writeStatus", () => {
     expect(existsSync(join(TEST_STATUS_DIR, "myapp.active"))).toBe(true);
   });
 
+  it("does not create a pid sidecar at write time", () => {
+    writeStatus(makeStatus({ project: "myapp" }));
+    expect(existsSync(join(TEST_STATUS_DIR, "myapp.pid"))).toBe(false);
+  });
+
   it("rejects path traversal in project name", () => {
     expect(() => writeStatus(makeStatus({ project: "../../etc/evil" }))).toThrow("Invalid status path");
   });
@@ -78,9 +83,11 @@ describe("clearStatus", () => {
     writeStatus(makeStatus({ project: "myapp" }));
     expect(existsSync(join(TEST_STATUS_DIR, "myapp.json"))).toBe(true);
     expect(existsSync(join(TEST_STATUS_DIR, "myapp.active"))).toBe(true);
+    writeFileSync(join(TEST_STATUS_DIR, "myapp.pid"), String(process.pid));
     clearStatus("myapp");
     expect(existsSync(join(TEST_STATUS_DIR, "myapp.json"))).toBe(false);
     expect(existsSync(join(TEST_STATUS_DIR, "myapp.active"))).toBe(false);
+    expect(existsSync(join(TEST_STATUS_DIR, "myapp.pid"))).toBe(false);
   });
 
   it("does not throw if files missing", () => {
@@ -93,8 +100,9 @@ describe("clearStatus", () => {
 });
 
 describe("isWorkspaceActive", () => {
-  it("returns true when marker exists", () => {
+  it("returns true when marker and live pid exist", () => {
     writeStatus(makeStatus({ project: "myapp" }));
+    writeFileSync(join(TEST_STATUS_DIR, "myapp.pid"), String(process.pid));
     expect(isWorkspaceActive("myapp")).toBe(true);
   });
 
@@ -124,6 +132,7 @@ describe("readStatus", () => {
 
   it("returns state='active' when marker exists", () => {
     writeStatus(makeStatus({ project: "myapp" }));
+    writeFileSync(join(TEST_STATUS_DIR, "myapp.pid"), String(process.pid));
     const result = readStatus("myapp");
     expect(result).not.toBeNull();
     expect(result!.state).toBe("active");
@@ -131,6 +140,7 @@ describe("readStatus", () => {
 
   it("returns state='stopped' when marker missing", () => {
     writeStatus(makeStatus({ project: "myapp" }));
+    writeFileSync(join(TEST_STATUS_DIR, "myapp.pid"), String(process.pid));
     // Remove the marker file manually
     unlinkSync(join(TEST_STATUS_DIR, "myapp.active"));
     const result = readStatus("myapp");
@@ -138,9 +148,28 @@ describe("readStatus", () => {
     expect(result!.state).toBe("stopped");
   });
 
+  it("treats marker without pid as stopped and cleans stale marker", () => {
+    writeStatus(makeStatus({ project: "myapp" }));
+    const result = readStatus("myapp");
+    expect(result).not.toBeNull();
+    expect(result!.state).toBe("stopped");
+    expect(existsSync(join(TEST_STATUS_DIR, "myapp.active"))).toBe(false);
+  });
+
+  it("treats marker with dead pid as stopped and cleans stale artifacts", () => {
+    writeStatus(makeStatus({ project: "myapp" }));
+    writeFileSync(join(TEST_STATUS_DIR, "myapp.pid"), "999999");
+    const result = readStatus("myapp");
+    expect(result).not.toBeNull();
+    expect(result!.state).toBe("stopped");
+    expect(existsSync(join(TEST_STATUS_DIR, "myapp.active"))).toBe(false);
+    expect(existsSync(join(TEST_STATUS_DIR, "myapp.pid"))).toBe(false);
+  });
+
   it("calculates uptime for active workspaces", () => {
     const pastTime = new Date(Date.now() - 60_000).toISOString();
     writeStatus(makeStatus({ project: "myapp", startedAt: pastTime }));
+    writeFileSync(join(TEST_STATUS_DIR, "myapp.pid"), String(process.pid));
     const result = readStatus("myapp");
     expect(result!.uptime).not.toBeNull();
     expect(result!.uptime!).toBeGreaterThanOrEqual(59_000);
@@ -175,6 +204,7 @@ describe("readAllStatuses", () => {
     // Write two statuses, one active and one stopped
     writeStatus(makeStatus({ project: "stopped-app", startedAt: new Date(Date.now() - 120_000).toISOString() }));
     writeStatus(makeStatus({ project: "active-app", startedAt: new Date().toISOString() }));
+    writeFileSync(join(TEST_STATUS_DIR, "active-app.pid"), String(process.pid));
     // Remove marker for "stopped-app"
     unlinkSync(join(TEST_STATUS_DIR, "stopped-app.active"));
 
@@ -188,6 +218,7 @@ describe("readAllStatuses", () => {
 
   it("skips invalid files without throwing", () => {
     writeStatus(makeStatus({ project: "good" }));
+    writeFileSync(join(TEST_STATUS_DIR, "good.pid"), String(process.pid));
     mkdirSync(TEST_STATUS_DIR, { recursive: true });
     writeFileSync(join(TEST_STATUS_DIR, "bad.json"), "not json");
     const results = readAllStatuses();
@@ -199,7 +230,7 @@ describe("readAllStatuses", () => {
 describe("cleanStaleStatuses", () => {
   it("removes stopped status files", () => {
     writeStatus(makeStatus({ project: "stale" }));
-    unlinkSync(join(TEST_STATUS_DIR, "stale.active"));
+    writeFileSync(join(TEST_STATUS_DIR, "stale.pid"), "999999");
     const removed = cleanStaleStatuses();
     expect(removed).toBe(1);
     expect(existsSync(join(TEST_STATUS_DIR, "stale.json"))).toBe(false);
@@ -207,6 +238,7 @@ describe("cleanStaleStatuses", () => {
 
   it("preserves active status files", () => {
     writeStatus(makeStatus({ project: "alive" }));
+    writeFileSync(join(TEST_STATUS_DIR, "alive.pid"), String(process.pid));
     const removed = cleanStaleStatuses();
     expect(removed).toBe(0);
     expect(existsSync(join(TEST_STATUS_DIR, "alive.json"))).toBe(true);
@@ -216,8 +248,9 @@ describe("cleanStaleStatuses", () => {
     writeStatus(makeStatus({ project: "stale1" }));
     writeStatus(makeStatus({ project: "stale2" }));
     writeStatus(makeStatus({ project: "alive" }));
-    unlinkSync(join(TEST_STATUS_DIR, "stale1.active"));
-    unlinkSync(join(TEST_STATUS_DIR, "stale2.active"));
+    writeFileSync(join(TEST_STATUS_DIR, "stale1.pid"), "999999");
+    writeFileSync(join(TEST_STATUS_DIR, "stale2.pid"), "999999");
+    writeFileSync(join(TEST_STATUS_DIR, "alive.pid"), String(process.pid));
     const removed = cleanStaleStatuses();
     expect(removed).toBe(2);
   });

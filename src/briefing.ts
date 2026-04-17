@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { listProjects } from "./config.js";
 import { readAllStatuses, getGitBranch } from "./status.js";
 import type { ResolvedStatus } from "./status.js";
-import { bold, dim, green, yellow, cyan } from "./setup.js";
+import { bold, dim, green, yellow, cyan } from "./ui/ansi.js";
 
 // --- Types ---
 

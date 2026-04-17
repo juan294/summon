@@ -1588,36 +1588,53 @@ describe("shell metacharacter confirmation (#90)", () => {
     warnSpy.mockRestore();
   });
 
-  it("does not prompt for metacharacters from CLI flags (non-on-start)", async () => {
-    // CLI flags are trusted — only .summon file values trigger the check
+  it("prompts for metacharacters from CLI flags when raw shell commands are preserved", async () => {
     mockReadKVFile.mockReturnValue(new Map()); // empty .summon file
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+    const origIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      cb("y");
+    });
 
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-    await launch("/tmp/workspace", { shell: "npm run dev; echo done" });
+    try {
+      await launch("/tmp/workspace", { shell: "npm run dev; echo done" });
 
-    // No metacharacter warning should appear
-    const warnMessages = warnSpy.mock.calls.map((c) => c[0] as string);
-    expect(warnMessages.every((m) => !m.includes("shell metacharacters"))).toBe(true);
-
-    warnSpy.mockRestore();
+      const warnMessages = warnSpy.mock.calls.map((c) => c[0] as string);
+      const metaWarning = warnMessages.find((m) => m.includes("shell metacharacters"));
+      expect(metaWarning).toBeDefined();
+      expect(metaWarning).toContain("shell");
+    } finally {
+      Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, configurable: true });
+      warnSpy.mockRestore();
+    }
   });
 
-  it("does not prompt for metacharacters from machine config (non-on-start)", async () => {
+  it("prompts for metacharacters from machine config when raw shell commands are preserved", async () => {
     mockReadKVFile.mockReturnValue(new Map()); // empty .summon file
     vi.mocked(listConfig).mockReturnValue(
       new Map([["shell", "npm run dev; echo done"]]),
     );
+    const origIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      cb("y");
+    });
 
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-    await launch("/tmp/workspace");
-
-    const warnMessages = warnSpy.mock.calls.map((c) => c[0] as string);
-    expect(warnMessages.every((m) => !m.includes("shell metacharacters"))).toBe(true);
-
-    warnSpy.mockRestore();
+    try {
+      await launch("/tmp/workspace");
+      const warnMessages = warnSpy.mock.calls.map((c) => c[0] as string);
+      const metaWarning = warnMessages.find((m) => m.includes("shell metacharacters"));
+      expect(metaWarning).toBeDefined();
+      expect(metaWarning).toContain("shell");
+    } finally {
+      Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, configurable: true });
+      warnSpy.mockRestore();
+    }
   });
 
   it("lists all dangerous commands in the warning message", async () => {
@@ -1828,7 +1845,7 @@ describe("shell metacharacter confirmation (#90)", () => {
     });
   });
 
-  describe("on-start hook (#107)", () => {
+describe("on-start hook (#107)", () => {
     it("executes on-start command before workspace creation", async () => {
       vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
       const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
@@ -1926,6 +1943,32 @@ describe("shell metacharacter confirmation (#90)", () => {
 
       warnSpy.mockRestore();
       logSpy.mockRestore();
+    });
+
+    it("preserves quoted arguments while resolving the executable path", async () => {
+      vi.mocked(listConfig).mockReturnValue(new Map([["editor", 'rg "hello world" src']]));
+      mockExecFileSync.mockImplementation((bin: string, args?: string[]) => {
+        if (bin === "/bin/sh" && Array.isArray(args) && args[3] === "rg") {
+          return "/usr/bin/rg\n";
+        }
+        if (bin === "/bin/sh" && Array.isArray(args) && args[3] === "lazygit") {
+          return "/usr/bin/lazygit\n";
+        }
+        return "";
+      });
+
+      await launch("/tmp/workspace");
+
+      expect(mockGenerateAppleScript).toHaveBeenCalledWith(
+        expect.objectContaining({
+          editor: '/usr/bin/rg "hello world" src',
+        }),
+        "/tmp/workspace",
+        null,
+        undefined,
+        "workspace",
+        undefined,
+      );
     });
 
     it("exits when user declines dangerous on-start from CLI (#169)", async () => {

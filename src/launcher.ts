@@ -22,12 +22,7 @@ import type { LayoutNode } from "./tree.js";
 import { resolveCommand as resolveCommandPath, promptUser, getErrorMessage, SUMMON_WORKSPACE_ENV, isAccessibilityError, checkAccessibility, isGhosttyInstalled, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT, ACCESSIBILITY_REQUIRED_MSG } from "./utils.js";
 import { parseIntInRange, parsePositiveFloat, ENV_KEY_RE } from "./validation.js";
 import { isStarshipInstalled, ensurePresetConfig, getPresetConfigPath } from "./starship.js";
-
-/** Shell metacharacters that indicate potentially dangerous commands. */
-const SHELL_META_RE = /[;|&`]|\$[({]|[><]/;
-
-/** Keys in .summon files that hold command values (as opposed to config like layout/panes). */
-const COMMAND_KEYS = new Set(["editor", "sidebar", "shell", "on-start", "on-stop"]);
+import { commandExecutable, commandHasShellMeta, replaceCommandExecutable } from "./command-spec.js";
 
 /** Convert resolved layout options to a key-value config map suitable for saving as a custom layout. */
 export function optsToConfigMap(opts: Partial<LayoutOptions>): Map<string, string> {
@@ -148,28 +143,12 @@ async function prompt(question: string): Promise<string> {
  * If dangerous values are found, warn the user and prompt for confirmation (or refuse on non-TTY).
  */
 async function confirmDangerousCommands(
-  projectOverrides: Map<string, string>,
-  onStart?: string,
-  treePaneCommands?: Map<string, string>,
+  commands: Array<[string, string]>,
 ): Promise<void> {
   const dangerous: Array<[string, string]> = [];
-  for (const [key, value] of projectOverrides) {
-    if (COMMAND_KEYS.has(key) && SHELL_META_RE.test(value)) {
+  for (const [key, value] of commands) {
+    if (commandHasShellMeta(value)) {
       dangerous.push([key, value]);
-    }
-  }
-  // Check the resolved on-start value from all config sources (CLI, machine, project).
-  // Project-sourced on-start is already checked above via COMMAND_KEYS, but CLI and
-  // machine config sources bypass the projectOverrides map, so we check separately.
-  if (onStart && SHELL_META_RE.test(onStart) && !dangerous.some(([key]) => key === "on-start")) {
-    dangerous.push(["on-start", onStart]);
-  }
-  // Check tree pane.* commands for metacharacters
-  if (treePaneCommands) {
-    for (const [paneName, cmd] of treePaneCommands) {
-      if (SHELL_META_RE.test(cmd)) {
-        dangerous.push([`pane.${paneName}`, cmd]);
-      }
     }
   }
   if (dangerous.length === 0) return;
@@ -667,7 +646,7 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
     }
   }
 
-  const { opts, projectOverrides, starshipPreset, onStart, onStop, envVars, treeLayout } = config;
+  const { opts, starshipPreset, onStart, onStop, envVars, treeLayout } = config;
   const projectName = resolveProjectName(targetDir);
 
   if (await warnIfNested(opts, cliOverrides?.dryRun)) {
@@ -675,7 +654,24 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
   }
 
   if (!cliOverrides?.dryRun) {
-    await confirmDangerousCommands(projectOverrides, onStart, treeLayout?.panes);
+    const resolvedCommands: Array<[string, string]> = [];
+    const maybePush = (key: string, value: string | null | undefined) => {
+      if (!value || value === "true" || value === "false") return;
+      resolvedCommands.push([key, value]);
+    };
+
+    maybePush("editor", opts.editor);
+    maybePush("sidebar", opts.sidebarCommand);
+    maybePush("shell", opts.shell);
+    maybePush("on-start", onStart);
+    maybePush("on-stop", onStop);
+    if (treeLayout) {
+      for (const [paneName, cmd] of treeLayout.panes) {
+        maybePush(`pane.${paneName}`, cmd);
+      }
+    }
+
+    await confirmDangerousCommands(resolvedCommands);
   }
 
   if (onStart && !cliOverrides?.dryRun) {
@@ -685,16 +681,19 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
   // Cache resolved command paths so the same binary is only looked up once
   const resolvedCache = new Map<string, string>();
   const ensureAndResolve = async (cmdString: string, configKey: string): Promise<string> => {
-    const parts = cmdString.split(" ");
-    const binary = parts[0]!;
+    const binary = commandExecutable(cmdString);
+    if (!binary) {
+      return cmdString;
+    }
+
     const cached = resolvedCache.get(binary);
     if (cached) {
-      parts[0] = cached;
-    } else {
-      parts[0] = await ensureCommand(binary, configKey);
-      resolvedCache.set(binary, parts[0]);
+      return replaceCommandExecutable(cmdString, cached);
     }
-    return parts.join(" ");
+
+    const resolvedBinary = await ensureCommand(binary, configKey);
+    resolvedCache.set(binary, resolvedBinary);
+    return replaceCommandExecutable(cmdString, resolvedBinary);
   };
 
   const resolveStarship = (): string | null => {

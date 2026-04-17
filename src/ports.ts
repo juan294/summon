@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { readKVFile, listProjects } from "./config.js";
+import { readAllStatuses } from "./status.js";
 
 export interface PortAssignment {
   port: number;
@@ -86,10 +87,13 @@ export function detectAllPorts(): {
   conflicts: Map<number, string[]>;
 } {
   const projects = listProjects();
+  const statusMap = new Map(
+    readAllStatuses().map((status) => [status.project, status.state]),
+  );
 
   const allAssignments: PortAssignment[] = [];
   for (const [name, dir] of projects) {
-    allAssignments.push(...detectProjectPorts(name, dir, "unknown"));
+    allAssignments.push(...detectProjectPorts(name, dir, statusMap.get(name) ?? "unknown"));
   }
 
   // Sort by port number

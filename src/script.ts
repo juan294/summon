@@ -31,27 +31,14 @@ function shellQuote(s: string): string {
   return `'${s.replace(/'/g, "'\\''")}'`;
 }
 
-// --- Shared helpers ---
-
-/**
- * Quote command arguments for shell safety (name unquoted, args shell-quoted).
- *
- * Splits on spaces, so multi-word arguments are treated as separate args.
- * For example, `grep "hello world"` becomes `grep 'hello' 'world'` — the
- * quoted phrase is split into two individually-quoted tokens.
- *
- * This is NOT an injection vector: every fragment is POSIX single-quoted via
- * {@link shellQuote}, preventing shell expansion or metacharacter interpretation.
- *
- * The config format (`key=value` plain text) has no syntax for preserving
- * quoted arguments, so this space-splitting behavior is by design.
- */
-function quoteCommand(cmd: string): string {
-  const parts = cmd.split(" ");
-  return parts.length > 1
-    ? `${parts[0]} ${parts.slice(1).map((a) => shellQuote(a)).join(" ")}`
-    : cmd;
+function shellDoubleQuote(s: string): string {
+  return s.replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/\$/g, "\\$")
+    .replace(/`/g, "\\`");
 }
+
+// --- Shared helpers ---
 
 /** Closures for building AppleScript lines. */
 interface ScriptBuilder {
@@ -79,11 +66,10 @@ function buildScriptBuilder(
 
   // initial input writes bytes to the PTY before the shell reads — the shell
   // starts normally (interactive login, all rc files sourced) and receives
-  // the command as if the user typed it.  Shell-agnostic: works for bash,
+  // the raw command as if the user typed it. Shell-agnostic: works for bash,
   // zsh, fish, ksh without any wrapper or flag differences.
   const setInitialInput = (cmd: string) => {
-    const safe = quoteCommand(cmd);
-    add(1, `set initial input of cfg to "${escapeAppleScript(safe)}\\n"`);
+    add(1, `set initial input of cfg to "${escapeAppleScript(cmd)}\\n"`);
   };
 
   const clearInitialInput = () => {
@@ -135,11 +121,22 @@ function emitCleanupTrap(
     parts.push(`summon snapshot save --dir "${options.targetDir}" --project "${projectName}" --layout "${options.layout ?? "unknown"}" 2>/dev/null`);
   }
 
-  const markerPath = `$HOME/.config/summon/status/${projectName}.active`;
-  parts.push(`rm -f ${markerPath} 2>/dev/null`);
+  const markerPath = `"$HOME/.config/summon/status/${shellDoubleQuote(projectName)}.active"`;
+  const pidPath = `"$HOME/.config/summon/status/${shellDoubleQuote(projectName)}.pid"`;
+  parts.push(`rm -f ${markerPath} ${pidPath} 2>/dev/null`);
 
   const body = parts.join("; ");
   sendCommand(rootPaneVar, `__summon_cleanup() { ${body}; }; trap '__summon_cleanup' EXIT HUP`);
+}
+
+function emitRootPanePidBootstrap(
+  { sendCommand }: ScriptBuilder,
+  rootPaneVar: string,
+  projectName: string,
+): void {
+  const statusDir = '"$HOME/.config/summon/status"';
+  const pidPath = `"$HOME/.config/summon/status/${shellDoubleQuote(projectName)}.pid"`;
+  sendCommand(rootPaneVar, `mkdir -p ${statusDir} && printf '%s\\n' "$$" > ${pidPath}`);
 }
 
 /** Emit surface configuration block: working directory, font size, env vars. */
@@ -189,7 +186,7 @@ function emitRootPaneCommand(
   // Clear setup noise (exports, cd) so the pane starts clean
   sendCommand(rootPaneVar, "clear");
   if (command) {
-    sendCommand(rootPaneVar, quoteCommand(command));
+    sendCommand(rootPaneVar, command);
   }
 }
 
@@ -467,7 +464,11 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, starshi
   // Root pane env var exports
   emitRootPaneEnvExports(sb, "paneRoot", allEnvVars);
 
-  // Cleanup trap: on-stop → snapshot → marker removal
+  if (projectName) {
+    emitRootPanePidBootstrap(sb, "paneRoot", projectName);
+  }
+
+  // Cleanup trap: on-stop → snapshot → marker/pid removal
   if (projectName) {
     emitCleanupTrap(sb, "paneRoot", projectName, { onStop, targetDir });
   }
@@ -514,7 +515,11 @@ export function generateTreeAppleScript(
   const rootCwd = rootLeaf.cwd ? resolve(targetDir, rootLeaf.cwd) : targetDir;
   emitRootPaneEnvExports(sb, rootPaneVar, allEnvVars);
 
-  // Cleanup trap: on-stop → snapshot → marker removal
+  if (projectName) {
+    emitRootPanePidBootstrap(sb, rootPaneVar, projectName);
+  }
+
+  // Cleanup trap: on-stop → snapshot → marker/pid removal
   if (projectName) {
     emitCleanupTrap(sb, rootPaneVar, projectName, { onStop, targetDir });
   }

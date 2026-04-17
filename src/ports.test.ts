@@ -12,10 +12,17 @@ vi.mock("./config.js", async (importOriginal) => {
   };
 });
 
+vi.mock("./status.js", () => ({
+  readAllStatuses: vi.fn(() => []),
+}));
+
 const { detectProjectPorts, detectAllPorts } = await import("./ports.js");
 
 const { listProjects } = await import("./config.js") as unknown as {
   listProjects: ReturnType<typeof vi.fn>;
+};
+const { readAllStatuses } = await import("./status.js") as unknown as {
+  readAllStatuses: ReturnType<typeof vi.fn>;
 };
 
 const TEST_DIR = join(tmpdir(), `summon-ports-test-${process.pid}`);
@@ -29,6 +36,7 @@ function projectDir(name: string): string {
 beforeEach(() => {
   mkdirSync(TEST_DIR, { recursive: true });
   listProjects.mockReturnValue([]);
+  readAllStatuses.mockReturnValue([]);
 });
 
 afterEach(() => {
@@ -225,6 +233,30 @@ describe("detectAllPorts", () => {
     expect(conflicts.size).toBe(0);
   });
 
+  it("marks projects active when status data says active", () => {
+    const dir = projectDir("proj-a");
+    writeFileSync(join(dir, ".summon"), "env.PORT=3000\n");
+    listProjects.mockReturnValue([["proj-a", dir]]);
+    readAllStatuses.mockReturnValue([
+      { project: "proj-a", state: "active" },
+    ]);
+
+    const { assignments } = detectAllPorts();
+    expect(assignments[0]!.state).toBe("active");
+  });
+
+  it("marks projects stopped when status data says stopped", () => {
+    const dir = projectDir("proj-a");
+    writeFileSync(join(dir, ".summon"), "env.PORT=3000\n");
+    listProjects.mockReturnValue([["proj-a", dir]]);
+    readAllStatuses.mockReturnValue([
+      { project: "proj-a", state: "stopped" },
+    ]);
+
+    const { assignments } = detectAllPorts();
+    expect(assignments[0]!.state).toBe("stopped");
+  });
+
   it("sorts assignments by port number", () => {
     const dirA = projectDir("proj-a");
     const dirB = projectDir("proj-b");
@@ -253,6 +285,25 @@ describe("detectAllPorts", () => {
     const { assignments, conflicts } = detectAllPorts();
     expect(assignments).toHaveLength(2);
     expect(conflicts.size).toBe(1);
+    expect(conflicts.get(3000)).toEqual(["proj-a", "proj-b"]);
+  });
+
+  it("preserves derived state when conflicts are reported", () => {
+    const dirA = projectDir("proj-a");
+    const dirB = projectDir("proj-b");
+    writeFileSync(join(dirA, ".summon"), "env.PORT=3000\n");
+    writeFileSync(join(dirB, ".summon"), "env.PORT=3000\n");
+    listProjects.mockReturnValue([
+      ["proj-a", dirA],
+      ["proj-b", dirB],
+    ]);
+    readAllStatuses.mockReturnValue([
+      { project: "proj-a", state: "active" },
+      { project: "proj-b", state: "stopped" },
+    ]);
+
+    const { assignments, conflicts } = detectAllPorts();
+    expect(assignments.map((assignment) => assignment.state)).toEqual(["active", "stopped"]);
     expect(conflicts.get(3000)).toEqual(["proj-a", "proj-b"]);
   });
 

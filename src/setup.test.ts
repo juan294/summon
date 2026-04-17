@@ -49,6 +49,24 @@ vi.mock("node:fs", () => ({
 
 // Import test-only utils directly from utils.js (not re-exported through setup.js)
 const { resolveCommand: resolveCommandPath, SAFE_COMMAND_RE } = await import("./utils.js");
+const {
+  bold,
+  dim,
+  green,
+  yellow,
+  cyan,
+  magenta,
+  brightCyan,
+  hexToRgb,
+  colorSwatch,
+} = await import("./ui/ansi.js");
+const {
+  renderLayoutPreview,
+  renderMiniPreview,
+  renderTemplateGallery,
+  centerLabel,
+  visibleLength,
+} = await import("./ui/layout-preview.js");
 
 // Import after mocks
 const {
@@ -56,14 +74,7 @@ const {
   numberedSelect,
   textInput,
   confirm,
-  bold,
-  dim,
-  green,
-  yellow,
-  cyan,
   printSection,
-  magenta,
-  brightCyan,
   WIZARD_MASCOT,
   SUMMON_LOGO,
   TIPS,
@@ -79,17 +90,12 @@ const {
   validateSetup,
   checkAndRecoverAccessibility,
   runSetup,
-  hexToRgb,
-  colorSwatch,
   // Phase 5 additions:
   gridToTree,
-  renderLayoutPreview,
   runLayoutBuilder,
   findClosestCommand,
   // Visual layout builder additions:
   GRID_TEMPLATES,
-  renderMiniPreview,
-  renderTemplateGallery,
   selectGridTemplate,
   buildPartialGrid,
   // Phase 2 — in-place preview:
@@ -104,9 +110,6 @@ const {
   renderGridBuilderPreview,
   renderGridBuilderHints,
   runGridBuilder,
-  // #154 — truncation indicator:
-  centerLabel,
-  visibleLength,
 } = await import("./setup.js");
 
 beforeEach(() => {
@@ -851,6 +854,24 @@ describe("validateSetup", () => {
     expect(result.warnings).toHaveLength(1);
     expect(result.warnings[0]!.key).toBe("shell");
     expect(result.warnings[0]!.cmd).toBe("npm");
+  });
+
+  it("checks the executable from multiword editor and sidebar commands", () => {
+    mockExecFileSync.mockImplementation((_bin: string, args?: string[]) => {
+      if (Array.isArray(args) && args[3] === "npm") throw new Error("not found");
+      return "/usr/bin/stub\n";
+    });
+    mockExistsSync.mockReturnValue(true);
+
+    const result = validateSetup({
+      layout: "pair",
+      editor: 'npm run "check all"',
+      sidebar: "npm run status",
+      shell: "true",
+    });
+
+    expect(result.warnings).toHaveLength(2);
+    expect(result.warnings.map((warning) => warning.cmd)).toEqual(["npm", "npm"]);
   });
 
   it("skips validation for shell='true' and shell='false'", () => {

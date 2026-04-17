@@ -10,7 +10,7 @@ export interface WorkspaceStatus {
   project: string;
   /** Absolute path to project directory */
   directory: string;
-  /** PID recorded at launch (informational, not used for liveness) */
+  /** PID recorded at launch (informational; root-shell PID sidecar drives liveness) */
   pid: number;
   /** ISO 8601 timestamp of workspace launch */
   startedAt: string;
@@ -51,6 +51,14 @@ function markerFilePath(projectName: string): string {
   return filePath;
 }
 
+function pidFilePath(projectName: string): string {
+  const filePath = join(STATUS_DIR, `${projectName}.pid`);
+  if (!resolve(filePath).startsWith(resolve(STATUS_DIR))) {
+    throw new Error(`Invalid status path: "${projectName}"`);
+  }
+  return filePath;
+}
+
 // --- Write ---
 
 export function writeStatus(status: WorkspaceStatus): void {
@@ -63,14 +71,43 @@ export function writeStatus(status: WorkspaceStatus): void {
 export function clearStatus(projectName: string): void {
   const statusPath = statusFilePath(projectName);
   const markerPath = markerFilePath(projectName);
+  const pidPath = pidFilePath(projectName);
   try { unlinkSync(statusPath); } catch { /* ignore */ }
   try { unlinkSync(markerPath); } catch { /* ignore */ }
+  try { unlinkSync(pidPath); } catch { /* ignore */ }
 }
 
 // --- Read ---
 
 export function isWorkspaceActive(projectName: string): boolean {
-  return existsSync(markerFilePath(projectName));
+  return readStatus(projectName)?.state === "active";
+}
+
+function readShellPid(projectName: string): number | null {
+  try {
+    const raw = readFileSync(pidFilePath(projectName), "utf-8").trim();
+    const pid = Number.parseInt(raw, 10);
+    return Number.isInteger(pid) && pid > 0 ? pid : null;
+  } catch {
+    return null;
+  }
+}
+
+function isPidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "EPERM") {
+      return true;
+    }
+    return false;
+  }
+}
+
+function clearStatusArtifacts(projectName: string): void {
+  try { unlinkSync(markerFilePath(projectName)); } catch { /* ignore */ }
+  try { unlinkSync(pidFilePath(projectName)); } catch { /* ignore */ }
 }
 
 export function readStatus(projectName: string): ResolvedStatus | null {
@@ -98,7 +135,14 @@ export function readStatus(projectName: string): ResolvedStatus | null {
   }
 
   const status = data as WorkspaceStatus;
-  const active = isWorkspaceActive(projectName);
+  const markerExists = existsSync(markerFilePath(projectName));
+  const shellPid = readShellPid(projectName);
+  const active = markerExists && shellPid !== null && isPidAlive(shellPid);
+
+  if (markerExists && !active) {
+    clearStatusArtifacts(projectName);
+  }
+
   const now = Date.now();
   const started = Date.parse(status.startedAt);
 
@@ -145,10 +189,17 @@ export function getGitBranch(directory: string): string | null {
 }
 
 export function cleanStaleStatuses(): number {
-  const statuses = readAllStatuses();
+  if (!existsSync(STATUS_DIR)) return 0;
+
+  const projects = readdirSync(STATUS_DIR)
+    .filter((file) => file.endsWith(".json"))
+    .map((file) => file.replace(/\.json$/, ""));
+
   let removed = 0;
 
-  for (const status of statuses) {
+  for (const project of projects) {
+    const status = readStatus(project);
+    if (!status) continue;
     if (status.state === "stopped") {
       clearStatus(status.project);
       removed++;

@@ -1,0 +1,173 @@
+import { resolve } from "node:path";
+import { writeFileSync } from "node:fs";
+import {
+  BOOLEAN_KEYS,
+  VALID_KEYS,
+  listConfig,
+  removeConfig,
+  saveCustomLayout,
+  setConfig,
+  isCustomLayout,
+} from "../config.js";
+import {
+  PANES_DEFAULT,
+  PANES_MIN,
+  EDITOR_SIZE_DEFAULT,
+  EDITOR_SIZE_MIN,
+  EDITOR_SIZE_MAX,
+} from "../layout.js";
+import { resolveConfig, optsToConfigMap } from "../launcher.js";
+import { ENV_KEY_RE, validateFloatFlag, validateIntFlag } from "../validation.js";
+import { SAFE_COMMAND_RE, exitWithUsageHint } from "../utils.js";
+import type { CommandContext } from "./types.js";
+import { validateLayoutNameOrExit, validateLayoutOrExit } from "./layout-support.js";
+
+const DISPLAY_COMMAND_KEYS = ["editor", "sidebar"];
+
+export async function handleSetCommand({ args }: CommandContext): Promise<void> {
+  const [key, value] = args;
+  if (!key) {
+    exitWithUsageHint("Usage: summon set <key> [value]");
+  }
+  if (!VALID_KEYS.includes(key) && !key.startsWith("env.")) {
+    exitWithUsageHint(`Error: Unknown config key "${key}". Valid keys: ${VALID_KEYS.join(", ")}, env.<KEY>`);
+  }
+  if (key.startsWith("env.")) {
+    const envName = key.slice(4);
+    if (!ENV_KEY_RE.test(envName)) {
+      console.error(`Error: invalid environment variable name "${envName}".`);
+      console.error("Environment variable names must start with a letter or underscore and contain only letters, digits, and underscores.");
+      process.exit(1);
+    }
+  }
+  if (key === "panes" && value !== undefined) {
+    validateIntFlag("panes", value, PANES_MIN);
+  }
+  if (key === "editor-size" && value !== undefined) {
+    validateIntFlag("editor-size", value, EDITOR_SIZE_MIN, EDITOR_SIZE_MAX);
+  }
+  if (key === "layout" && value !== undefined) {
+    validateLayoutOrExit(value, "layout");
+  }
+  if (BOOLEAN_KEYS.has(key) && value !== undefined && value !== "true" && value !== "false") {
+    console.error(`Error: ${key} must be "true" or "false", got "${value}".`);
+    process.exit(1);
+  }
+  if (key === "font-size" && value !== undefined) {
+    validateFloatFlag("font-size", value);
+  }
+  if (key === "starship-preset" && value !== undefined && !SAFE_COMMAND_RE.test(value)) {
+    console.error(`Error: invalid starship preset name "${value}".`);
+    process.exit(1);
+  }
+
+  if (value !== undefined) {
+    if (value === "" && (key === "editor" || key === "sidebar" || key === "shell" || key === "on-start" || key === "on-stop")) {
+      console.error(`Error: ${key} cannot be set to an empty string.`);
+      console.error(`To reset to default, run: summon set ${key} (without a value)`);
+      process.exit(1);
+    }
+    setConfig(key, value);
+    console.log(`Set ${key} → ${value}`);
+    return;
+  }
+
+  removeConfig(key);
+  console.log(`Removed ${key} (will use default)`);
+}
+
+export async function handleConfigCommand(): Promise<void> {
+  const config = listConfig();
+  if (config.size === 0) {
+    console.log("No machine config set. Effective defaults:");
+    console.log(`  panes → ${PANES_DEFAULT}`);
+    console.log(`  editor-size → ${EDITOR_SIZE_DEFAULT}`);
+    console.log("  sidebar → lazygit");
+    console.log("  shell → true");
+    console.log("  auto-resize → true");
+    console.log("  new-window → false");
+    console.log("  fullscreen → false");
+    console.log("  maximize → false");
+    console.log("  float → false");
+    console.log("\nCustomize with: summon set <key> <value>");
+    return;
+  }
+
+  console.log("Machine config:");
+  for (const [key, value] of config) {
+    const isUnknown = !VALID_KEYS.includes(key) && !key.startsWith("env.");
+    const unknownSuffix = isUnknown ? "  (unknown key — will be ignored)" : "";
+    if (value !== "") {
+      console.log(`  ${key} → ${value}${unknownSuffix}`);
+    } else if (DISPLAY_COMMAND_KEYS.includes(key)) {
+      console.log(`  ${key} → (plain shell)${unknownSuffix}`);
+    } else {
+      console.log(`  ${key} → (empty)${unknownSuffix}`);
+    }
+    if (isUnknown) {
+      console.log(`    Remove with: summon set ${key}`);
+    }
+  }
+}
+
+export async function handleFreezeCommand({ args }: CommandContext): Promise<void> {
+  const [freezeName] = args;
+  if (!freezeName) {
+    console.error("Usage: summon freeze <name>");
+    exitWithUsageHint();
+  }
+  validateLayoutNameOrExit(freezeName);
+  if (isCustomLayout(freezeName)) {
+    console.error(`Error: Layout "${freezeName}" already exists. Delete it first: summon layout delete ${freezeName}`);
+    process.exit(1);
+  }
+
+  const { opts } = resolveConfig(process.cwd(), {});
+  const entries = optsToConfigMap(opts);
+  saveCustomLayout(freezeName, entries);
+  console.log(`Frozen current config as layout "${freezeName}". Launch with: summon . --layout ${freezeName}`);
+}
+
+export async function handleExportCommand({ args }: CommandContext): Promise<void> {
+  const config = listConfig();
+  const lines: string[] = [];
+
+  lines.push("# Summon workspace configuration");
+  lines.push("# Generated by: summon export");
+  lines.push(`# Generated on: ${new Date().toISOString()}`);
+  lines.push("");
+
+  if (config.size === 0) {
+    lines.push("# No machine config set. All values use defaults.");
+    lines.push("# Uncomment and modify as needed:");
+    lines.push("");
+    lines.push("# editor=vim");
+    lines.push("# sidebar=lazygit");
+    lines.push("# panes=2");
+    lines.push("# editor-size=75");
+    lines.push("# shell=true");
+    lines.push("# layout=pair");
+  } else {
+    for (const key of VALID_KEYS) {
+      const value = config.get(key);
+      if (value !== undefined) {
+        lines.push(`${key}=${value}`);
+      }
+    }
+    for (const [key, value] of config) {
+      if (key.startsWith("env.")) {
+        lines.push(`${key}=${value}`);
+      }
+    }
+  }
+
+  const output = lines.join("\n") + "\n";
+  const [outputPath] = args;
+  if (outputPath) {
+    writeFileSync(resolve(outputPath), output, { mode: 0o644 });
+    console.log(`Exported to: ${resolve(outputPath)}`);
+    return;
+  }
+
+  process.stdout.write(output);
+}

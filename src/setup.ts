@@ -1,6 +1,9 @@
 import { setConfig, isValidLayoutName, isCustomLayout, saveCustomLayout } from "./config.js";
 import { SAFE_COMMAND_RE, resolveCommand as resolveCommandPath, promptUser, checkAccessibility, openAccessibilitySettings, isGhosttyInstalled, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT } from "./utils.js";
 import { isStarshipInstalled, listStarshipPresets } from "./starship.js";
+import { bold, dim, green, yellow, cyan, magenta, brightCyan, colorSwatch } from "./ui/ansi.js";
+import { renderLayoutPreview, renderTemplateGallery } from "./ui/layout-preview.js";
+import { commandExecutable, replaceCommandExecutable } from "./command-spec.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -21,142 +24,6 @@ export interface SelectOption {
   value: string; // returned on selection
   detail?: string; // secondary text (dimmed)
   marker?: string; // prefix marker (e.g., "* " or "  ")
-}
-
-// ---------------------------------------------------------------------------
-// Color support — check once at module load
-// ---------------------------------------------------------------------------
-
-const useColor: boolean = !!(
-  process.stdout.isTTY && !process.env.NO_COLOR
-);
-
-const useTrueColor: boolean = useColor && (
-  process.env.COLORTERM === "truecolor" || process.env.COLORTERM === "24bit"
-);
-
-// ---------------------------------------------------------------------------
-// ANSI output helpers
-// ---------------------------------------------------------------------------
-
-const wrap = (code: string, s: string): string =>
-  useColor ? `\x1b[${code}m${s}\x1b[0m` : s;
-
-export function bold(s: string): string {
-  return wrap("1", s);
-}
-
-export function dim(s: string): string {
-  return wrap("2", s);
-}
-
-export function green(s: string): string {
-  return wrap("32", s);
-}
-
-export function yellow(s: string): string {
-  return wrap("33", s);
-}
-
-export function cyan(s: string): string {
-  return wrap("36", s);
-}
-
-export function magenta(s: string): string {
-  return wrap("35", s);
-}
-
-export function brightCyan(s: string): string {
-  return wrap("96", s);
-}
-
-/** @internal — exported for testing only */
-export function hexToRgb(hex: string): [number, number, number] {
-  const h = hex.startsWith("#") ? hex.slice(1) : hex;
-  return [
-    parseInt(h.slice(0, 2), 16),
-    parseInt(h.slice(2, 4), 16),
-    parseInt(h.slice(4, 6), 16),
-  ];
-}
-
-function trueColorFg(hex: string): string {
-  const [r, g, b] = hexToRgb(hex);
-  return `\x1b[38;2;${r};${g};${b}m`;
-}
-
-/** @internal — exported for testing only */
-export function colorSwatch(colors: string[]): string {
-  if (!useTrueColor) return "";
-  return colors.map((hex) => `${trueColorFg(hex)}██\x1b[0m`).join("");
-}
-
-// ---------------------------------------------------------------------------
-// Box-drawing characters
-// ---------------------------------------------------------------------------
-
-/** Box-drawing characters for layout preview rendering. */
-const BOX = {
-  topLeft:     "\u250c",  // ┌
-  topRight:    "\u2510",  // ┐
-  bottomLeft:  "\u2514",  // └
-  bottomRight: "\u2518",  // ┘
-  horizontal:  "\u2500",  // ─
-  vertical:    "\u2502",  // │
-  teeDown:     "\u252c",  // ┬
-  teeUp:       "\u2534",  // ┴
-  teeRight:    "\u251c",  // ├
-  teeLeft:     "\u2524",  // ┤
-  cross:       "\u253c",  // ┼
-} as const;
-
-// ---------------------------------------------------------------------------
-// Box-drawing helpers — shared by renderLayoutPreview and renderMiniPreview
-// ---------------------------------------------------------------------------
-
-/** Build a top border line: ┌──┬──┐ */
-function boxTopBorder(colCount: number, colWidth: number): string {
-  const segment = BOX.horizontal.repeat(colWidth);
-  const parts: string[] = [];
-  for (let c = 0; c < colCount; c++) parts.push(segment);
-  return BOX.topLeft + parts.join(BOX.teeDown) + BOX.topRight;
-}
-
-/** Build a bottom border line: └──┴──┘ */
-function boxBottomBorder(colCount: number, colWidth: number): string {
-  const segment = BOX.horizontal.repeat(colWidth);
-  const parts: string[] = [];
-  for (let c = 0; c < colCount; c++) parts.push(segment);
-  return BOX.bottomLeft + parts.join(BOX.teeUp) + BOX.bottomRight;
-}
-
-/**
- * Build a row separator line with correct junction characters.
- * `hasSplitAt(c)` returns true if column `c` has a pane boundary at this row.
- */
-function boxRowSeparator(
-  colCount: number,
-  colWidth: number,
-  hasSplitAt: (c: number) => boolean,
-): string {
-  let sep = "";
-  for (let c = 0; c < colCount; c++) {
-    const hasSplit = hasSplitAt(c);
-    if (c === 0) {
-      sep += hasSplit ? BOX.teeRight : BOX.vertical;
-    } else {
-      const prevSplit = hasSplitAt(c - 1);
-      if (prevSplit && hasSplit) sep += BOX.cross;
-      else if (prevSplit) sep += BOX.teeLeft;
-      else if (hasSplit) sep += BOX.teeRight;
-      else sep += BOX.vertical;
-    }
-    sep += hasSplit ? BOX.horizontal.repeat(colWidth) : " ".repeat(colWidth);
-  }
-  // Right edge
-  const lastSplit = hasSplitAt(colCount - 1);
-  sep += lastSplit ? BOX.teeLeft : BOX.vertical;
-  return sep;
 }
 
 // ---------------------------------------------------------------------------
@@ -1023,31 +890,33 @@ export function validateSetup(result: SetupResult): ValidationResult {
   const warnings: ValidationWarning[] = [];
 
   // Check editor
-  if (resolveCommandPath(result.editor) === null) {
+  const editorExecutable = commandExecutable(result.editor);
+  if (editorExecutable && resolveCommandPath(editorExecutable) === null) {
     warnings.push({
       key: "editor",
-      cmd: result.editor,
-      installHint: INSTALL_HINTS[result.editor],
+      cmd: editorExecutable,
+      installHint: INSTALL_HINTS[editorExecutable],
     });
   }
 
   // Check sidebar
-  if (resolveCommandPath(result.sidebar) === null) {
+  const sidebarExecutable = commandExecutable(result.sidebar);
+  if (sidebarExecutable && resolveCommandPath(sidebarExecutable) === null) {
     warnings.push({
       key: "sidebar",
-      cmd: result.sidebar,
-      installHint: INSTALL_HINTS[result.sidebar],
+      cmd: sidebarExecutable,
+      installHint: INSTALL_HINTS[sidebarExecutable],
     });
   }
 
   // Check shell (only if it's a custom command, not "true"/"false")
   if (result.shell !== "true" && result.shell !== "false") {
-    const shellBin = result.shell.split(" ")[0]!;
-    if (resolveCommandPath(shellBin) === null) {
+    const shellExecutable = commandExecutable(result.shell);
+    if (shellExecutable && resolveCommandPath(shellExecutable) === null) {
       warnings.push({
         key: "shell",
-        cmd: shellBin,
-        installHint: INSTALL_HINTS[shellBin],
+        cmd: shellExecutable,
+        installHint: INSTALL_HINTS[shellExecutable],
       });
     }
   }
@@ -1258,7 +1127,7 @@ function editDistance(a: string, b: string): number {
  */
 async function validateBuilderCommand(cmd: string, knownCmds: string[]): Promise<string> {
   if (cmd === "shell") return cmd; // special value — plain shell
-  const cmdName = cmd.split(/\s+/)[0] ?? cmd;
+  const cmdName = commandExecutable(cmd) ?? cmd;
   if (resolveCommandPath(cmdName)) return cmd; // found in PATH
 
   const suggestion = findClosestCommand(cmdName, knownCmds);
@@ -1266,7 +1135,7 @@ async function validateBuilderCommand(cmd: string, knownCmds: string[]): Promise
     console.log(yellow(`  '${cmdName}' not found. Did you mean '${suggestion}'?`));
     const useSuggestion = await confirm(`  Use '${suggestion}' instead?`);
     if (useSuggestion) {
-      return cmd.replace(cmdName, suggestion);
+      return replaceCommandExecutable(cmd, suggestion);
     }
   } else {
     console.log(yellow(`  '${cmdName}' not found on this system.`));
@@ -1281,7 +1150,9 @@ async function validateBuilderCommand(cmd: string, knownCmds: string[]): Promise
  * Used names are tracked to append _2, _3, etc.
  */
 function derivePaneName(command: string, usedNames: Set<string>): string {
-  const base = command.split(/\s+/)[0] ?? "pane";
+  const base = (commandExecutable(command) ?? "pane")
+    .replace(/[^a-zA-Z0-9_-]+/g, "_")
+    .replace(/^_+/, "") || "pane";
   let name = base;
   let suffix = 2;
   while (usedNames.has(name)) {
@@ -1323,185 +1194,6 @@ export function gridToTree(
   return { tree: columnExprs.join(" | "), panes };
 }
 
-/** Measure visible width of a string, ignoring ANSI escape codes. */
-// eslint-disable-next-line no-control-regex
-const ANSI_RE = /\x1b\[[0-9;]*m/g;
-/** @internal — exported for testing only */
-export function visibleLength(s: string): number {
-  let stripped = 0;
-  ANSI_RE.lastIndex = 0;
-  let match;
-  while ((match = ANSI_RE.exec(s)) !== null) {
-    stripped += match[0].length;
-  }
-  return s.length - stripped;
-}
-
-/** Center text within a fixed width, dimming "?" placeholders. */
-/** @internal — exported for testing only */
-export function centerLabel(text: string, width: number): string {
-  const maxLen = width - 2;
-  const vis = visibleLength(text);
-  // Truncate by visible length, adding ellipsis indicator when truncated
-  const truncated = vis > maxLen;
-  const label = truncated ? text.slice(0, maxLen - 1) + "\u2026" : text;
-  const labelVis = truncated ? maxLen : vis;
-  const leftPad = Math.floor((width - labelVis) / 2);
-  const rightPad = width - labelVis - leftPad;
-  const display = text === "?" ? dim(label) : label;
-  return " ".repeat(leftPad) + display + " ".repeat(rightPad);
-}
-
-/**
- * Generate an ASCII box diagram preview of the layout.
- * Uses box-drawing characters matching the existing preset diagrams.
- */
-export function renderLayoutPreview(
-  grid: string[][],
-): string {
-  const COL_WIDTH = 14;       // chars per column (fits ~12-char command + 2 padding)
-  const PANE_HEIGHT = 3;      // lines per pane cell (1 content line + 2 border/spacing)
-  const colCount = grid.length;
-
-  // Find max row count across all columns
-  const maxRows = Math.max(...grid.map((col) => col.length));
-
-  const lines: string[] = [];
-
-  lines.push(boxTopBorder(colCount, COL_WIDTH));
-
-  // --- Content rows ---
-  for (let row = 0; row < maxRows; row++) {
-    // Draw the pane content lines
-    for (let lineInPane = 0; lineInPane < PANE_HEIGHT; lineInPane++) {
-      let rowStr = "";
-      for (let c = 0; c < colCount; c++) {
-        const col = grid[c]!;
-        const cmd = col[row] ?? "";
-        rowStr += BOX.vertical;
-        if (lineInPane === Math.floor(PANE_HEIGHT / 2) && cmd) {
-          rowStr += centerLabel(cmd, COL_WIDTH);
-        } else {
-          rowStr += " ".repeat(COL_WIDTH);
-        }
-      }
-      rowStr += BOX.vertical;
-      lines.push(rowStr);
-    }
-
-    // --- Row separator (between pane rows, not after last) ---
-    if (row < maxRows - 1) {
-      lines.push(boxRowSeparator(colCount, COL_WIDTH, (c) => row + 1 < grid[c]!.length));
-    }
-  }
-
-  lines.push(boxBottomBorder(colCount, COL_WIDTH));
-
-  return lines.join("\n");
-}
-
-/**
- * Render a compact box diagram showing grid shape (no command names).
- * Returns array of lines (not joined) for side-by-side composition.
- * @internal — exported for testing only
- */
-export function renderMiniPreview(columns: number[]): string[] {
-  const COL_W = 5;
-  const colCount = columns.length;
-
-  const maxRows = Math.max(...columns);
-  const lines: string[] = [];
-
-  lines.push(boxTopBorder(colCount, COL_W));
-
-  // Content rows
-  for (let row = 0; row < maxRows; row++) {
-    let rowStr = "";
-    for (let c = 0; c < colCount; c++) {
-      rowStr += BOX.vertical;
-      rowStr += " ".repeat(COL_W);
-    }
-    rowStr += BOX.vertical;
-    lines.push(rowStr);
-
-    // Row separator (between pane rows, not after last)
-    if (row < maxRows - 1) {
-      lines.push(boxRowSeparator(colCount, COL_W, (c) => row + 1 < columns[c]!));
-    }
-  }
-
-  lines.push(boxBottomBorder(colCount, COL_W));
-
-  return lines;
-}
-
-/**
- * Render template gallery showing grid shapes side by side.
- * Adapts items per row based on terminal width.
- * @internal — exported for testing only
- */
-export function renderTemplateGallery(
-  templates: readonly GridTemplate[],
-  termWidth: number,
-): string {
-  if (templates.length === 0) return "";
-
-  // Render each template's mini preview
-  const previews = templates.map((t) => renderMiniPreview(t.columns));
-
-  // Calculate item width: mini preview width + number prefix ("1) ") + gap
-  const previewWidth = previews[0]!.length > 0 ? previews[0]![0]!.length : 10;
-  const prefixWidth = 4; // "1)  " or "c)  "
-  const gapWidth = 5;
-  const itemWidth = prefixWidth + previewWidth + gapWidth;
-  const perRow = Math.max(1, Math.min(3, Math.floor(termWidth / itemWidth)));
-
-  const outputLines: string[] = [];
-
-  // Process templates in row groups
-  for (let rowStart = 0; rowStart < templates.length; rowStart += perRow) {
-    const rowEnd = Math.min(rowStart + perRow, templates.length);
-    const rowTemplates = templates.slice(rowStart, rowEnd);
-    const rowPreviews = previews.slice(rowStart, rowEnd);
-
-    // Find max height in this row
-    const maxHeight = Math.max(...rowPreviews.map((p) => p.length));
-
-    // Render numbered previews side by side
-    for (let line = 0; line < maxHeight; line++) {
-      let rowStr = "";
-      for (let i = 0; i < rowTemplates.length; i++) {
-        const idx = rowStart + i;
-        const preview = rowPreviews[i]!;
-        const prefix = line === 0 ? `${idx + 1})  ` : "    ";
-        const content = line < preview.length ? preview[line]! : " ".repeat(previewWidth);
-        rowStr += prefix + content;
-        if (i < rowTemplates.length - 1) {
-          rowStr += " ".repeat(gapWidth);
-        }
-      }
-      outputLines.push(rowStr);
-    }
-
-    // Labels below previews
-    let labelStr = "";
-    for (let i = 0; i < rowTemplates.length; i++) {
-      const t = rowTemplates[i]!;
-      const label = t.label.padEnd(previewWidth);
-      labelStr += "    " + label;
-      if (i < rowTemplates.length - 1) {
-        labelStr += " ".repeat(gapWidth);
-      }
-    }
-    outputLines.push(labelStr);
-    outputLines.push("");
-  }
-
-  // Add "Build from scratch" option (numbered sequentially after templates)
-  outputLines.push(`${templates.length + 1})  Build from scratch`);
-
-  return outputLines.join("\n");
-}
 
 /**
  * Display template gallery and prompt for selection.

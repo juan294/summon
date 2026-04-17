@@ -1,7 +1,7 @@
 import { readAllStatuses, getGitBranch } from "./status.js";
 import type { ResolvedStatus } from "./status.js";
 import { listProjects } from "./config.js";
-import { bold, dim, green, yellow } from "./setup.js";
+import { bold, dim, green, yellow } from "./ui/ansi.js";
 
 // --- Types ---
 
