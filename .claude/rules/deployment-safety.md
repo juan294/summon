@@ -1,5 +1,5 @@
 ---
-description: Production deployment safety -- main is production, Dependabot handling, cost awareness, rollback-first
+description: Production deployment safety -- protected production branch, Dependabot handling, cost awareness, rollback-first
 paths:
   - .github/**
   - deploy/**
@@ -14,11 +14,13 @@ paths:
 
 # Deployment Safety
 
-- **Merging to `main` IS deploying to production.**
-  Every merge triggers a production deployment.
-- **Dependabot PRs target `main` by default.**
-  Never merge directly. Cherry-pick to `develop`,
-  close the PR, release normally.
+- **Merging to the protected production branch IS deploying to
+  production.**
+  In many repos that branch is `main`, but check the documented
+  topology first.
+- **Dependabot PRs often target the production branch by default.**
+  Never merge directly. Move updates onto the non-production integration
+  path, close the original PR, and release through the normal flow.
 - **Every CI run and deployment costs money.**
   Estimate runs/deploys before starting.
   If more than 2-3, batch the work.

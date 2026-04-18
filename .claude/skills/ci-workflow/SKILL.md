@@ -7,19 +7,24 @@ description: "Push accountability, CI monitoring after push, background agent CI
 
 ## Push Accountability
 
+Use the branch that is currently under CI verification. In a
+`develop/main` topology this is often `develop`. In a `main-only` repo
+it is usually the temporary branch or PR branch being validated before
+merge.
+
 Wrong -- push and move on:
 
 ```bash
-git push origin develop
+git push origin <branch-under-test>
 # Start next task immediately, never check CI
 ```
 
 Right -- spawn background agent to monitor CI:
 
 ```bash
-git push origin develop
+git push origin <branch-under-test>
 # Background agent:
-gh run list --branch develop --limit 1
+gh run list --branch <branch-under-test> --limit 1
 # If CI fails: investigate with gh run view <id> --log-failed
 # Fix and re-push. The push isn't done until CI is green.
 ```

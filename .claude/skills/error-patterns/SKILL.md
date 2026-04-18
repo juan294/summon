@@ -81,7 +81,7 @@ Always `supabase db reset` locally before `db push`.
 
 ## Full Catalog
 
-The complete 62-error catalog with detailed symptoms,
+The complete 63-error catalog with detailed symptoms,
 root causes, and solutions is at `patterns/agent-errors.md`
 in the cc-rpi blueprint repository.
 Read it when this reference doesn't resolve your issue.

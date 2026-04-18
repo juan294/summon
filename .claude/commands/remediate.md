@@ -60,7 +60,7 @@ Gather context before making any changes.
    spec.
 
 4. **Detect the integration branch:**
-   - Check CLAUDE.md or git config for the documented default branch.
+   - Check CLAUDE.md or git config for the documented integration branch.
    - Fall back to `git symbolic-ref refs/remotes/origin/HEAD`.
 
 5. **Present the work plan** to the user, grouped by wave:

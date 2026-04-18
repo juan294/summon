@@ -7,8 +7,9 @@ Process:
 2. Spawn Explore agents (model: `"sonnet"`) to gather relevant context.
 3. Create tasks (TaskCreate) to track progress.
 4. Enter a worktree for implementation (EnterWorktree tool).
-   Research and planning happen on main -- implementation must be isolated
-   to avoid conflicts with other agents or uncommitted work on the default branch.
+   Research and planning happen against the integration branch --
+   implementation must be isolated to avoid conflicts with other agents
+   or uncommitted work on the shared branch.
 5. Check if remaining phases are marked `[batch-eligible]` in the plan.
    - If ALL remaining phases are batch-eligible, suggest using `/batch` to execute them in parallel (one worktree per phase, each opens a PR).
    - If user agrees, hand off to `/batch` with the plan reference. Done.

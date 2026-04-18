@@ -110,3 +110,6 @@ describe what exists; do not suggest improvements unless asked.
   can be parallelized
 - Preserve the project's git workflow exactly as described in
   `CLAUDE.md`
+- Preserve the project's branch topology exactly as documented in
+  `CLAUDE.md`, and keep implementation work in isolated worktrees or
+  temporary branches

@@ -12,8 +12,8 @@ description: RPI workflow details -- phase rules, pre-release sequence, implemen
   Use `/compact` when context is heavy but the task continues.
 - Subagents are context control mechanisms --
   they search/read in their window and return only distilled results.
-- Research and planning happen on the default branch.
-  Implementation happens in worktrees or feature branches.
+- Research and planning happen against the integration branch.
+  Implementation happens in worktrees or temporary branches.
 
 ## Rules for All Phases
 
