@@ -138,6 +138,22 @@ describe("readStatus", () => {
     expect(result!.state).toBe("active");
   });
 
+  it("treats EPERM pid checks as active", () => {
+    const killSpy = vi.spyOn(process, "kill").mockImplementation(() => {
+      const error = new Error("eperm") as NodeJS.ErrnoException;
+      error.code = "EPERM";
+      throw error;
+    });
+    writeStatus(makeStatus({ project: "myapp" }));
+    writeFileSync(join(TEST_STATUS_DIR, "myapp.pid"), "12345");
+
+    const result = readStatus("myapp");
+
+    expect(result).not.toBeNull();
+    expect(result!.state).toBe("active");
+    killSpy.mockRestore();
+  });
+
   it("returns state='stopped' when marker missing", () => {
     writeStatus(makeStatus({ project: "myapp" }));
     writeFileSync(join(TEST_STATUS_DIR, "myapp.pid"), String(process.pid));
@@ -224,6 +240,17 @@ describe("readAllStatuses", () => {
     const results = readAllStatuses();
     expect(results).toHaveLength(1);
     expect(results[0]!.project).toBe("good");
+  });
+
+  it("sorts statuses with the same state by newest first", () => {
+    writeStatus(makeStatus({ project: "older", startedAt: new Date(Date.now() - 120_000).toISOString() }));
+    writeStatus(makeStatus({ project: "newer", startedAt: new Date().toISOString() }));
+    unlinkSync(join(TEST_STATUS_DIR, "older.active"));
+    unlinkSync(join(TEST_STATUS_DIR, "newer.active"));
+
+    const results = readAllStatuses();
+
+    expect(results.map((status) => status.project)).toEqual(["newer", "older"]);
   });
 });
 

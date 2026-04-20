@@ -134,6 +134,7 @@ describe("readSnapshot", () => {
     expect(read!.version).toBe(1);
     expect(read!.git.branch).toBe(saved.git.branch);
   });
+
 });
 
 describe("clearSnapshot", () => {
@@ -153,6 +154,7 @@ describe("clearSnapshot", () => {
   it("rejects path traversal in project name", () => {
     expect(() => clearSnapshot("../../etc/evil")).toThrow("Invalid snapshot path");
   });
+
 });
 
 describe("formatTimeSince", () => {
