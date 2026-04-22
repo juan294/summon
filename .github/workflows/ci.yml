@@ -14,7 +14,8 @@ jobs:
     runs-on: macos-latest
     strategy:
       matrix:
-        node-version: [18, 20, 22]
+        # Vite 8 supports Node 20.19+ and 22.12+.
+        node-version: [20, 22]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
