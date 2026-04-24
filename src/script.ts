@@ -3,6 +3,7 @@ import type { LayoutPlan } from "./layout.js";
 import type { TreeLayoutPlan, LayoutNode } from "./tree.js";
 import { firstLeaf, walkLeaves } from "./tree.js";
 import { GHOSTTY_APP_NAME, SUMMON_WORKSPACE_ENV } from "./utils.js";
+import { escapeAppleScript, shellQuote, shellDoubleQuote } from "./shell-escape.js";
 
 // --- AppleScript timing constants (empirically tuned for Ghostty responsiveness) ---
 
@@ -17,26 +18,6 @@ const NEW_WINDOW_DELAY = 0.5;
 
 /** Editor size at which auto-resize is a no-op (50% = equal split already). */
 const AUTO_RESIZE_THRESHOLD = 50;
-
-function escapeAppleScript(s: string): string {
-  return s
-    .replace(/\\/g, "\\\\")
-    .replace(/"/g, '\\"')
-    .replace(/\n/g, "\\n")
-    .replace(/\r/g, "\\r");
-}
-
-/** POSIX single-quote escaping: wrap in single quotes, escape embedded single quotes. */
-function shellQuote(s: string): string {
-  return `'${s.replace(/'/g, "'\\''")}'`;
-}
-
-function shellDoubleQuote(s: string): string {
-  return s.replace(/\\/g, "\\\\")
-    .replace(/"/g, '\\"')
-    .replace(/\$/g, "\\$")
-    .replace(/`/g, "\\`");
-}
 
 // --- Shared helpers ---
 
@@ -114,11 +95,17 @@ function emitCleanupTrap(
   const parts: string[] = [];
 
   if (options?.onStop) {
-    parts.push(`eval "${options.onStop}" 2>/dev/null`);
+    parts.push(`eval "${shellDoubleQuote(options.onStop)}" 2>/dev/null`);
   }
 
   if (options?.targetDir) {
-    parts.push(`summon snapshot save --dir "${options.targetDir}" --project "${projectName}" --layout "${options.layout ?? "unknown"}" 2>/dev/null`);
+    parts.push(
+      `summon snapshot save`
+      + ` --dir "${shellDoubleQuote(options.targetDir)}"`
+      + ` --project "${shellDoubleQuote(projectName)}"`
+      + ` --layout "${shellDoubleQuote(options.layout ?? "unknown")}"`
+      + ` 2>/dev/null`,
+    );
   }
 
   const markerPath = `"$HOME/.config/summon/status/${shellDoubleQuote(projectName)}.active"`;
@@ -135,8 +122,9 @@ function emitRootPanePidBootstrap(
   projectName: string,
 ): void {
   const statusDir = '"$HOME/.config/summon/status"';
-  const pidPath = `"$HOME/.config/summon/status/${shellDoubleQuote(projectName)}.pid"`;
-  sendCommand(rootPaneVar, `mkdir -p ${statusDir} && printf '%s\\n' "$$" > ${pidPath}`);
+  const pidPath    = `"$HOME/.config/summon/status/${shellDoubleQuote(projectName)}.pid"`;
+  const markerPath = `"$HOME/.config/summon/status/${shellDoubleQuote(projectName)}.active"`;
+  sendCommand(rootPaneVar, `mkdir -p ${statusDir} && printf '%s\\n' "$$" > ${pidPath} && : > ${markerPath}`);
 }
 
 /** Emit surface configuration block: working directory, font size, env vars. */

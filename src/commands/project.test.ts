@@ -78,6 +78,40 @@ describe("handleAddCommand", () => {
     );
   });
 
+  it("rejects name containing '/'", async () => {
+    await expect(handleAddCommand(makeContext({ args: ["team/api", "/tmp/x"] }))).rejects.toThrow(/usage:/);
+    expect(mockAddProject).not.toHaveBeenCalled();
+  });
+
+  it("rejects '..' as name", async () => {
+    await expect(handleAddCommand(makeContext({ args: ["..", "/tmp/x"] }))).rejects.toThrow(/usage:/);
+    expect(mockAddProject).not.toHaveBeenCalled();
+  });
+
+  it("rejects leading '-'", async () => {
+    await expect(handleAddCommand(makeContext({ args: ["-abc", "/tmp/x"] }))).rejects.toThrow(/usage:/);
+    expect(mockAddProject).not.toHaveBeenCalled();
+  });
+
+  it("rejects 65-char name", async () => {
+    await expect(handleAddCommand(makeContext({ args: ["a".repeat(65), "/tmp/x"] }))).rejects.toThrow(/usage:/);
+    expect(mockAddProject).not.toHaveBeenCalled();
+  });
+
+  it("accepts 'my-project_2'", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    await handleAddCommand(makeContext({ args: ["my-project_2", "/tmp/x"] }));
+    expect(mockAddProject).toHaveBeenCalledWith("my-project_2", "/tmp/x");
+    logSpy.mockRestore();
+  });
+
+  it("accepts 'acme.web'", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    await handleAddCommand(makeContext({ args: ["acme.web", "/tmp/x"] }));
+    expect(mockAddProject).toHaveBeenCalledWith("acme.web", "/tmp/x");
+    logSpy.mockRestore();
+  });
+
   it("warns when the path does not exist and registers the expanded path", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});

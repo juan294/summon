@@ -1498,6 +1498,48 @@ describe("status trap", () => {
     const script = generateAppleScript(plan, "/tmp/test", null, undefined, "myapp");
     expect(script).toContain(`printf '%s\\\\n' \\"$$\\" > \\"$HOME/.config/summon/status/myapp.pid\\"`);
   });
+
+  it("writes marker file after pid sidecar (pid-then-marker ordering)", () => {
+    const plan = planLayout();
+    const script = generateAppleScript(plan, "/tmp/test", null, undefined, "myapp");
+    expect(script).toContain(`: > \\"$HOME/.config/summon/status/myapp.active\\"`);
+    // pid must appear before marker in the script
+    const pidIdx = script.indexOf("myapp.pid");
+    const markerIdx = script.indexOf("myapp.active");
+    expect(pidIdx).toBeLessThan(markerIdx);
+  });
+
+  it("routes project name through shellDoubleQuote in pid-then-marker bootstrap", () => {
+    const plan = planLayout();
+    const script = generateAppleScript(plan, "/tmp/test", null, undefined, 'my"proj');
+    // shellDoubleQuote('my"proj') → my\"proj; escapeAppleScript → my\\\"proj (3 backslashes + quote)
+    expect(script).toContain('my\\\\\\"proj.pid');
+    expect(script).toContain('my\\\\\\"proj.active');
+  });
+});
+
+describe("emitCleanupTrap — meta-char payloads", () => {
+  const cases: Array<{ field: string; raw: string; expectedSub: string }> = [
+    { field: "projectName", raw: 'my"app',   expectedSub: 'my\\"app' },
+    // shellDoubleQuote adds one backslash; escapeAppleScript doubles it → 2 backslashes in script
+    { field: "projectName", raw: "my`app`",  expectedSub: "my\\\\`app\\\\`" },
+    { field: "projectName", raw: "my$app",   expectedSub: "my\\\\$app" },
+    { field: "projectName", raw: "my\\app",  expectedSub: "my\\\\\\\\app" },
+    { field: "targetDir",   raw: '/tmp/a"b', expectedSub: 'a\\"b' },
+    // eval "..." context: " → \" (shellDoubleQuote) → \\\" (escapeAppleScript)
+    { field: "onStop",      raw: 'echo "x"', expectedSub: 'echo \\\\\\"x\\\\\\"' },
+  ];
+
+  for (const c of cases) {
+    it(`escapes ${c.field} containing ${JSON.stringify(c.raw)}`, () => {
+      const plan = planLayout();
+      const targetDir = c.field === "targetDir" ? c.raw : "/tmp/p";
+      const projectName = c.field === "projectName" ? c.raw : "proj";
+      const onStop = c.field === "onStop" ? c.raw : undefined;
+      const script = generateAppleScript(plan, targetDir, null, undefined, projectName, onStop);
+      expect(script).toContain(c.expectedSub);
+    });
+  }
 });
 
 describe("generateFocusScript", () => {

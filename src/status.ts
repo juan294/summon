@@ -61,11 +61,16 @@ function pidFilePath(projectName: string): string {
 
 // --- Write ---
 
+/**
+ * Write workspace status JSON. Liveness artifacts (.active marker, .pid sidecar)
+ * are created by the root shell bootstrap after the pid is durable — see
+ * emitRootPanePidBootstrap in src/script.ts. Node never writes the marker; this
+ * eliminates a launch-window race where a concurrent reader would observe
+ * marker-without-pid and GC both artifacts. (2026-04-19 audit #2.)
+ */
 export function writeStatus(status: WorkspaceStatus): void {
   mkdirSync(STATUS_DIR, { recursive: true, mode: 0o700 });
   writeFileSync(statusFilePath(status.project), JSON.stringify(status, null, 2) + "\n", { mode: 0o644 });
-  // Create .active marker file — removed by shell trap on exit
-  writeFileSync(markerFilePath(status.project), "", { mode: 0o644 });
 }
 
 export function clearStatus(projectName: string): void {
@@ -177,10 +182,15 @@ export function readAllStatuses(): ResolvedStatus[] {
 
 export function getGitBranch(directory: string): string | null {
   try {
+    // Unset GIT_DIR/GIT_WORK_TREE so git uses the -C path, not an inherited
+    // hook or worktree environment that would make every directory appear as
+    // the current repo.
+    const { GIT_DIR: _gd, GIT_WORK_TREE: _gwt, GIT_INDEX_FILE: _gif, ...cleanEnv } = process.env;
     const result = execFileSync("git", ["-C", directory, "rev-parse", "--abbrev-ref", "HEAD"], {
       encoding: "utf-8",
       timeout: 5000,
       stdio: ["ignore", "pipe", "ignore"],
+      env: cleanEnv,
     });
     return result.trim() || null;
   } catch {

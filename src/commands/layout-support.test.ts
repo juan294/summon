@@ -129,6 +129,14 @@ describe("validateLayoutOrExit", () => {
     expect(errorSpy).toHaveBeenCalledWith("Valid presets: minimal, pair");
     expect(errorSpy).toHaveBeenCalledWith("Custom layouts: team-layout");
   });
+
+  it("exits via exitWithUsageHint on path-traversal input, does not throw", () => {
+    mockIsCustomLayout.mockImplementationOnce(() => {
+      throw new Error('Invalid layout path: "../../../etc/passwd"');
+    });
+    expect(() => validateLayoutOrExit("../../../etc/passwd", "--layout")).toThrow("usage:");
+    expect(mockExitWithUsageHint).toHaveBeenCalledWith("Error: --layout is not a valid layout name.");
+  });
 });
 
 describe("layoutNotFoundOrExit", () => {

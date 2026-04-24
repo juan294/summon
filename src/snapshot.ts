@@ -30,10 +30,12 @@ function snapshotPath(project: string): string {
 
 function gitCommand(dir: string, args: string[]): string | null {
   try {
+    const { GIT_DIR: _gd, GIT_WORK_TREE: _gwt, GIT_INDEX_FILE: _gif, ...cleanEnv } = process.env;
     return execFileSync("git", ["-C", dir, ...args], {
       encoding: "utf-8",
       timeout: 5000,
       stdio: ["ignore", "pipe", "ignore"],
+      env: cleanEnv,
     }).trim();
   } catch {
     return null;
