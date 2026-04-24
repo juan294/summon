@@ -8,8 +8,8 @@ export default defineConfig({
   format: "esm",
   target: "node18",
   clean: true,
-  sourcemap: false,
+  sourcemap: "inline",
   banner: { js: "#!/usr/bin/env node" },
-  minify: true,
+  minify: false,
   define: { __VERSION__: JSON.stringify(version) },
 });

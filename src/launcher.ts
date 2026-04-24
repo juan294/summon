@@ -20,7 +20,7 @@ import { generateAppleScript, generateTreeAppleScript, generateFocusScript } fro
 import { parseTreeDSL, extractPaneDefinitions, extractPaneCwds, resolveTreeCommands as resolveTreeCmds, buildTreePlan, findPaneByName } from "./tree.js";
 import type { LayoutNode } from "./tree.js";
 import { resolveCommand as resolveCommandPath, promptUser, getErrorMessage, SUMMON_WORKSPACE_ENV, isAccessibilityError, checkAccessibility, isGhosttyInstalled, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT, ACCESSIBILITY_REQUIRED_MSG } from "./utils.js";
-import { parseIntInRange, parsePositiveFloat, ENV_KEY_RE } from "./validation.js";
+import { parseIntInRange, parsePositiveFloat, ENV_KEY_RE, PROJECT_NAME_RE, sanitizeProjectName } from "./validation.js";
 import { isStarshipInstalled, ensurePresetConfig, getPresetConfigPath } from "./starship.js";
 import { commandExecutable, commandHasShellMeta, replaceCommandExecutable } from "./command-spec.js";
 
@@ -61,13 +61,19 @@ export interface CLIOverrides {
 }
 
 /** Resolve a human-readable project name from a target directory. */
-function resolveProjectName(targetDir: string): string {
+export function resolveProjectName(targetDir: string): string {
   const resolved = resolve(targetDir);
   const projects = listProjects();
   for (const [name, projPath] of projects) {
     if (resolve(projPath) === resolved) return name;
   }
-  return basename(resolved);
+  const derived = basename(resolved);
+  if (PROJECT_NAME_RE.test(derived)) return derived;
+  const sanitized = sanitizeProjectName(derived);
+  console.warn(
+    `Project name "${derived}" contains unsupported characters; using "${sanitized}" for tab title and status tracking.`,
+  );
+  return sanitized;
 }
 
 /** Attempt to focus an existing Ghostty workspace by activating Ghostty. */

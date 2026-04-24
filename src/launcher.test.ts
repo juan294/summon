@@ -74,7 +74,7 @@ vi.mock("./script.js", () => ({
 }));
 
 // Import after mocks are set up
-const { launch, resolveConfig, optsToConfigMap, focusWorkspace } = await import("./launcher.js");
+const { launch, resolveConfig, optsToConfigMap, focusWorkspace, resolveProjectName } = await import("./launcher.js");
 const { getConfig, listConfig, listProjects } = await import("./config.js");
 const { existsSync } = await import("node:fs");
 
@@ -3329,5 +3329,39 @@ describe("R5: maximize/float config layering coverage (#190)", () => {
 
     const { opts } = resolveConfig("/tmp/workspace", {});
     expect(opts.float).toBe(true);
+  });
+});
+
+describe("resolveProjectName — basename sanitization", () => {
+  beforeEach(() => {
+    vi.mocked(listProjects).mockReturnValue(new Map<string, string>());
+  });
+
+  it("returns registered name when path matches registry", () => {
+    vi.mocked(listProjects).mockReturnValue(new Map([["api", "/tmp/workspace"]]));
+    expect(resolveProjectName("/tmp/workspace")).toBe("api");
+  });
+
+  it("returns plain basename when it matches PROJECT_NAME_RE", () => {
+    expect(resolveProjectName("/tmp/my-project")).toBe("my-project");
+  });
+
+  it("sanitizes and warns when basename contains spaces", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(resolveProjectName("/tmp/my app")).toBe("my-app");
+    expect(warn).toHaveBeenCalledOnce();
+    warn.mockRestore();
+  });
+
+  it("sanitizes 'my app (v2)' to 'my-app-v2'", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(resolveProjectName("/tmp/my app (v2)")).toBe("my-app-v2");
+    warn.mockRestore();
+  });
+
+  it("falls back to 'project' when basename is all meta-chars", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(resolveProjectName("/tmp/@@@")).toBe("project");
+    warn.mockRestore();
   });
 });

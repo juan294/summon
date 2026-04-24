@@ -9,6 +9,7 @@ import {
 } from "../config.js";
 import { focusWorkspace, launch } from "../launcher.js";
 import { promptUser, exitWithUsageHint } from "../utils.js";
+import { validateProjectNameOrExit } from "../validation.js";
 import type { CommandContext } from "./types.js";
 
 function expandHome(path: string): string {
@@ -20,6 +21,7 @@ export async function handleAddCommand({ args }: CommandContext): Promise<void> 
   if (!name || !path) {
     exitWithUsageHint("Usage: summon add <name> <path>");
   }
+  validateProjectNameOrExit(name);
   const resolved = expandHome(path);
   if (!existsSync(resolved)) {
     console.warn(`Warning: path does not exist: ${resolved}`);
