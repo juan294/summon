@@ -133,3 +133,13 @@ export function openAccessibilitySettings(): void {
     // Silently fail — the manual instructions are always shown alongside
   }
 }
+
+/**
+ * Returns process.env with git context variables removed.
+ * Prevents an inherited GIT_DIR/GIT_WORK_TREE (e.g. from a pre-commit hook)
+ * from overriding the -C flag and making every directory appear as the current repo.
+ */
+export function gitSafeEnv(): NodeJS.ProcessEnv {
+  const { GIT_DIR: _gd, GIT_WORK_TREE: _gwt, GIT_INDEX_FILE: _gif, ...clean } = process.env;
+  return clean;
+}

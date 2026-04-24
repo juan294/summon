@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from "
 import { join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import { SNAPSHOTS_DIR } from "./config.js";
+import { gitSafeEnv } from "./utils.js";
 
 // --- Types ---
 
@@ -30,12 +31,11 @@ function snapshotPath(project: string): string {
 
 function gitCommand(dir: string, args: string[]): string | null {
   try {
-    const { GIT_DIR: _gd, GIT_WORK_TREE: _gwt, GIT_INDEX_FILE: _gif, ...cleanEnv } = process.env;
     return execFileSync("git", ["-C", dir, ...args], {
       encoding: "utf-8",
       timeout: 5000,
       stdio: ["ignore", "pipe", "ignore"],
-      env: cleanEnv,
+      env: gitSafeEnv(),
     }).trim();
   } catch {
     return null;

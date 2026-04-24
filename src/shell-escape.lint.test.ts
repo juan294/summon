@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join, relative } from "node:path";
 import { describe, it, expect } from "vitest";
 
@@ -6,12 +6,11 @@ const SRC_DIR = new URL(".", import.meta.url).pathname;
 
 function walkTs(dir: string): string[] {
   const results: string[] = [];
-  for (const entry of readdirSync(dir)) {
-    const full = join(dir, entry);
-    if (statSync(full).isDirectory()) {
-      results.push(...walkTs(full));
-    } else if (entry.endsWith(".ts")) {
-      results.push(full);
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isDirectory()) {
+      results.push(...walkTs(join(dir, entry.name)));
+    } else if (entry.name.endsWith(".ts")) {
+      results.push(join(dir, entry.name));
     }
   }
   return results;

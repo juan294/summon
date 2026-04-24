@@ -24,12 +24,12 @@ export function validateProjectNameOrExit(name: string, label = "project name"):
 }
 
 export function sanitizeProjectName(raw: string): string {
-  let s = raw.replace(/[^a-zA-Z0-9_.-]/g, "-");
-  s = s.replace(/-+/g, "-");
-  s = s.replace(/^[-.]+|[-.]+$/g, "");
+  const s = raw
+    .replace(/[^a-zA-Z0-9_.-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^[-.]+|[-.]+$/g, "");
   if (s.length === 0) return "project";
-  if (s.length > 64) s = s.slice(0, 64);
-  return s;
+  return s.length > 64 ? s.slice(0, 64) : s;
 }
 
 type ParseResult = {

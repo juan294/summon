@@ -58,12 +58,11 @@ export function validateLayoutNameOrExit(name: string): void {
 }
 
 export function validateLayoutOrExit(value: string, label: string): void {
-  let customMatch: boolean;
+  let customMatch = false;
   try {
     customMatch = isCustomLayout(value);
   } catch {
     exitWithUsageHint(`Error: ${label} is not a valid layout name.`);
-    return;
   }
   if (!isPresetName(value) && !customMatch) {
     console.error(`Error: ${label} must be a valid preset or custom layout name, got "${value}".`);

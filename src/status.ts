@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, readdir
 import { join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import { STATUS_DIR } from "./config.js";
+import { gitSafeEnv } from "./utils.js";
 
 // --- Types ---
 
@@ -182,15 +183,11 @@ export function readAllStatuses(): ResolvedStatus[] {
 
 export function getGitBranch(directory: string): string | null {
   try {
-    // Unset GIT_DIR/GIT_WORK_TREE so git uses the -C path, not an inherited
-    // hook or worktree environment that would make every directory appear as
-    // the current repo.
-    const { GIT_DIR: _gd, GIT_WORK_TREE: _gwt, GIT_INDEX_FILE: _gif, ...cleanEnv } = process.env;
     const result = execFileSync("git", ["-C", directory, "rev-parse", "--abbrev-ref", "HEAD"], {
       encoding: "utf-8",
       timeout: 5000,
       stdio: ["ignore", "pipe", "ignore"],
-      env: cleanEnv,
+      env: gitSafeEnv(),
     });
     return result.trim() || null;
   } catch {
