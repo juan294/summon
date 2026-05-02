@@ -1550,6 +1550,16 @@ describe("selectStarshipPreset", () => {
     expect(output).toContain("tokyo-night           ");
     logSpy.mockRestore();
   });
+
+  it("handles presets without known palette metadata", async () => {
+    mockIsStarshipInstalled.mockReturnValue(true);
+    mockListStarshipPresets.mockReturnValue(["custom-theme"]);
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("3"));
+
+    const result = await selectStarshipPreset();
+
+    expect(result).toBe("custom-theme");
+  });
 });
 
 describe("hexToRgb", () => {
@@ -1938,7 +1948,7 @@ describe("runLayoutBuilder", () => {
     await runLayoutBuilder("shelltest");
 
     expect(mockSaveCustomLayout).toHaveBeenCalledTimes(1);
-    const [, savedEntries] = mockSaveCustomLayout.mock.calls[0] as [string, Map<string, string>];
+    const [, savedEntries] = mockSaveCustomLayout.mock.calls.at(-1) as [string, Map<string, string>];
     expect(savedEntries.get("pane.shell")).toBe("shell");
   });
 
@@ -2525,6 +2535,13 @@ describe("applyGridAction", () => {
     expect(next!.focusRow).toBe(0);
   });
 
+  it("removePane keeps focus row when it remains valid", () => {
+    const state = { columns: [3], focusCol: 0, focusRow: 1 };
+    const next = applyGridAction(state, "removePane");
+    expect(next!.columns).toEqual([2]);
+    expect(next!.focusRow).toBe(1);
+  });
+
   it("removePane returns null with 1 pane", () => {
     expect(applyGridAction(createGridState(), "removePane")).toBeNull();
   });
@@ -2552,6 +2569,13 @@ describe("applyGridAction", () => {
 
   it("prevFocus moves backwards through cells", () => {
     const state = { columns: [2, 1], focusCol: 1, focusRow: 0 };
+    const next = applyGridAction(state, "prevFocus");
+    expect(next!.focusCol).toBe(0);
+    expect(next!.focusRow).toBe(1);
+  });
+
+  it("prevFocus moves to the previous row in the same column", () => {
+    const state = { columns: [3], focusCol: 0, focusRow: 2 };
     const next = applyGridAction(state, "prevFocus");
     expect(next!.focusCol).toBe(0);
     expect(next!.focusRow).toBe(1);
@@ -2725,6 +2749,37 @@ describe("runGridBuilder", () => {
     const result = await promise;
     // Grid is [1, 1] — shift+tab moved focus from col 1 back to col 0
     expect(result).toEqual([1, 1]);
+  });
+
+  it("ignores grid actions that cannot change the initial grid", async () => {
+    const promise = runGridBuilder();
+    await waitForHandler();
+    simulateKey("left");
+    simulateKey("up");
+    simulateKey("return");
+    const result = await promise;
+    expect(result).toEqual([1]);
+  });
+
+  it("handles SIGINT with the same cleanup path as Ctrl+C", async () => {
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => undefined as never);
+    let sigintHandler: (() => void) | undefined;
+    const onceSpy = vi.spyOn(process, "once").mockImplementation((event: string | symbol, handler: (...args: unknown[]) => void) => {
+      if (event === "SIGINT") {
+        sigintHandler = handler as () => void;
+      }
+      return process;
+    });
+
+    const promise = runGridBuilder();
+    await waitForHandler();
+    sigintHandler?.();
+
+    expect(mockSetRawMode).toHaveBeenCalledWith(false);
+    expect(exitSpy).toHaveBeenCalledWith(0);
+    onceSpy.mockRestore();
+    exitSpy.mockRestore();
+    promise.catch(() => {});
   });
 });
 
@@ -3157,6 +3212,15 @@ describe("renderTemplateGallery — edge cases", () => {
     const result = renderTemplateGallery([], 120);
     expect(result).toBe("");
   });
+
+  it("uses the fallback preview width when a template has no columns", () => {
+    const result = renderTemplateGallery([
+      { label: "Empty", columns: [] },
+    ], 120);
+
+    expect(result).toContain("1)");
+    expect(result).toContain("Empty");
+  });
 });
 
 describe("selectGridTemplate — Escape in grid builder", () => {
@@ -3259,6 +3323,35 @@ describe("runLayoutBuilder — validateBuilderCommand branches", () => {
 
     const allOutput = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
     expect(allOutput.some((s: string) => s.includes("not found") && s.includes("Did you mean"))).toBe(true);
+  });
+
+  it("keeps an unknown command when a close suggestion is declined but keep is confirmed", async () => {
+    mockExecFileSync.mockImplementation((_bin: string, args?: string[]) => {
+      if (Array.isArray(args) && args[3] === "lzgit")
+        throw new Error("not found");
+      return "/usr/bin/stub\n";
+    });
+
+    let confirmCallCount = 0;
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      const q = _q;
+      if (q.includes("[Y/n]")) {
+        confirmCallCount++;
+        if (confirmCallCount === 1) cb("n"); // decline suggestion
+        else cb("y"); // keep anyway, then save
+      } else if (q.includes("[1-8]") || q.includes(`[1-${GRID_TEMPLATES.length}`)) {
+        cb("1");
+      } else if (q.includes("Pane 1")) {
+        cb("lzgit");
+      } else {
+        cb("1");
+      }
+    });
+
+    await runLayoutBuilder("declinetest");
+
+    const [, savedEntries] = mockSaveCustomLayout.mock.calls.at(-1) as [string, Map<string, string>];
+    expect(savedEntries.get("pane.lzgit")).toBe("lzgit");
   });
 
   it("warns about unknown command with no close match and keeps if confirmed", async () => {

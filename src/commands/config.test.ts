@@ -124,6 +124,15 @@ describe("handleSetCommand", () => {
     expect(errorSpy).toHaveBeenCalledWith('Error: invalid environment variable name "BAD-NAME".');
   });
 
+  it("accepts valid environment variable config keys", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await handleSetCommand(makeContext({ args: ["env.PORT", "3000"] }));
+
+    expect(mockSetConfig).toHaveBeenCalledWith("env.PORT", "3000");
+    expect(logSpy).toHaveBeenCalledWith("Set env.PORT → 3000");
+  });
+
   it("validates numeric, layout, boolean, float, and preset values", async () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
@@ -155,6 +164,18 @@ describe("handleSetCommand", () => {
     expect(errorSpy).toHaveBeenCalledWith("Error: editor cannot be set to an empty string.");
     expect(errorSpy).toHaveBeenCalledWith("To reset to default, run: summon set editor (without a value)");
   });
+
+  it.each(["sidebar", "shell", "on-start", "on-stop"])(
+    "rejects empty command values for %s",
+    async (key) => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+        throw new Error(`exit:${code}`);
+      }) as never);
+
+      await expect(handleSetCommand(makeContext({ args: [key, ""] }))).rejects.toThrow("exit:1");
+    },
+  );
 
   it("sets config values when a value is provided", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});

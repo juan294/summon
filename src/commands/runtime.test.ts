@@ -130,6 +130,26 @@ describe("handleSnapshotCommand", () => {
     expect(logSpy).toHaveBeenCalledWith("Snapshot saved for api");
   });
 
+  it("ignores extra positional snapshot save arguments after the project is set", async () => {
+    mockSaveSnapshot.mockReturnValue({ project: "api" });
+
+    await handleSnapshotCommand(makeContext({
+      args: ["save", "api", "ignored"],
+    }));
+
+    expect(mockSaveSnapshot).toHaveBeenCalledWith("api", process.cwd(), "unknown");
+  });
+
+  it("falls back to unknown when deriving a project name from the filesystem root", async () => {
+    mockSaveSnapshot.mockReturnValue({ project: "unknown" });
+
+    await handleSnapshotCommand(makeContext({
+      args: ["save", "--dir", "/"],
+    }));
+
+    expect(mockSaveSnapshot).toHaveBeenCalledWith("unknown", "/", "unknown");
+  });
+
   it("shows formatted snapshots", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     mockReadSnapshot.mockReturnValue({ project: "api" });

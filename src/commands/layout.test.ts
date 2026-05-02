@@ -113,6 +113,12 @@ describe("handleLayoutCommand", () => {
     expect(logSpy).toHaveBeenCalledWith("Saved custom layout: team");
   });
 
+  it("requires a layout name when saving", async () => {
+    await expect(handleLayoutCommand(makeContext({ args: ["save"] }))).rejects.toThrow(
+      "usage:Usage: summon layout save <name>",
+    );
+  });
+
   it("lists no layouts when none are saved", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
@@ -148,6 +154,29 @@ describe("handleLayoutCommand", () => {
     expect(logSpy).toHaveBeenCalledWith("    Config: layout=pair");
     expect(logSpy).toHaveBeenCalledWith("    Panes:  main=\x1b[36mnvim\x1b[0m");
     expect(logSpy).toHaveBeenCalledWith("    Tree:   bad-tree");
+  });
+
+  it("lists layout names when layout data cannot be read", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockListCustomLayouts.mockReturnValue(["orphan"]);
+    mockReadCustomLayout.mockReturnValue(null);
+
+    await handleLayoutCommand(makeContext({ args: ["list"] }));
+
+    expect(logSpy).toHaveBeenCalledWith("  \x1b[1morphan\x1b[0m");
+  });
+
+  it("lists pane definitions when a layout has panes but no tree", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockListCustomLayouts.mockReturnValue(["plain"]);
+    mockReadCustomLayout.mockReturnValue(new Map([
+      ["pane.main", "nvim"],
+      ["pane.shell", "zsh"],
+    ]));
+
+    await handleLayoutCommand(makeContext({ args: ["list"] }));
+
+    expect(logSpy).toHaveBeenCalledWith("    Panes:  main=\x1b[36mnvim\x1b[0m  shell=\x1b[36mzsh\x1b[0m");
   });
 
   it("shows custom layout contents", async () => {
@@ -197,6 +226,12 @@ describe("handleLayoutCommand", () => {
     await expect(handleLayoutCommand(makeContext({ args: ["delete", "missing"] }))).rejects.toThrow("missing:missing");
   });
 
+  it("reports missing layouts in edit mode", async () => {
+    mockReadCustomLayout.mockReturnValue(null);
+
+    await expect(handleLayoutCommand(makeContext({ args: ["edit", "missing"] }))).rejects.toThrow("missing:missing");
+  });
+
   it("deletes existing custom layouts", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     mockDeleteCustomLayout.mockReturnValue(true);
@@ -213,6 +248,14 @@ describe("handleLayoutCommand", () => {
     await handleLayoutCommand(makeContext({ args: ["edit", "team"] }));
 
     expect(mockExecFileSync).toHaveBeenCalledWith("nvim", ["/mock/layouts/team"], { stdio: "inherit" });
+  });
+
+  it("uses vi when EDITOR is not set", async () => {
+    mockReadCustomLayout.mockReturnValue(new Map([["panes", "4"]]));
+
+    await handleLayoutCommand(makeContext({ args: ["edit", "team"] }));
+
+    expect(mockExecFileSync).toHaveBeenCalledWith("vi", ["/mock/layouts/team"], { stdio: "inherit" });
   });
 
   it("rejects unsafe EDITOR values", async () => {

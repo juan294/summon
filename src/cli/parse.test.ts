@@ -100,6 +100,16 @@ describe("parseCli", () => {
     );
   });
 
+  it("parses a positional-only launch target without optional validations", () => {
+    const parsed = parseCli(["."]);
+
+    expect(parsed.subcommand).toBe(".");
+    expect(parsed.args).toEqual([]);
+    expect(mockValidateIntFlag).not.toHaveBeenCalled();
+    expect(mockValidateFloatFlag).not.toHaveBeenCalled();
+    expect(mockValidateLayoutOrExit).not.toHaveBeenCalled();
+  });
+
   it("adds an ambiguous-value tip when parseArgs throws", () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
@@ -157,6 +167,10 @@ describe("buildOverrides", () => {
     })).toEqual({
       "auto-resize": "false",
     });
+  });
+
+  it("returns an empty override map when no CLI override values are set", () => {
+    expect(buildOverrides({})).toEqual({});
   });
 });
 

@@ -222,6 +222,24 @@ describe("handleOpenCommand", () => {
     expect(mockFocusWorkspace).not.toHaveBeenCalled();
     expect(logSpy).toHaveBeenCalled();
   });
+
+  it("uses the default render width when stdout columns are unavailable", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    Object.defineProperty(process.stdout, "columns", { value: undefined, configurable: true });
+    mockLoadProjectRows.mockReturnValue([
+      { name: "web", directory: "/tmp/web", state: "stopped", uptime: null, gitBranch: "develop" },
+    ]);
+    mockPromptUser.mockResolvedValueOnce("1");
+
+    await handleOpenCommand(makeContext());
+
+    expect(mockRenderRow).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "web" }),
+      75,
+      false,
+    );
+    expect(logSpy).toHaveBeenCalled();
+  });
 });
 
 describe("resolveTargetDirectory", () => {

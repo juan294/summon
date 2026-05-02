@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdirSync, existsSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { chmodSync, mkdirSync, existsSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -46,6 +47,23 @@ afterEach(() => {
 });
 
 describe("saveSnapshot", () => {
+  it("captures dirty file paths from git status", () => {
+    const repoDir = join(TEST_SNAPSHOTS_DIR, "dirty-repo");
+    mkdirSync(repoDir, { recursive: true });
+    execFileSync("git", ["init"], { cwd: repoDir, stdio: "ignore" });
+    execFileSync("git", ["config", "user.email", "summon@example.test"], { cwd: repoDir });
+    execFileSync("git", ["config", "user.name", "Summon Test"], { cwd: repoDir });
+    writeFileSync(join(repoDir, "tracked.txt"), "clean\n");
+    execFileSync("git", ["add", "tracked.txt"], { cwd: repoDir });
+    execFileSync("git", ["commit", "-m", "initial"], { cwd: repoDir, stdio: "ignore" });
+    writeFileSync(join(repoDir, "untracked.txt"), "dirty\n");
+
+    const result = saveSnapshot("dirty", repoDir, "full");
+
+    expect(result).not.toBeNull();
+    expect(result!.git.dirty).toEqual(["untracked.txt"]);
+  });
+
   it("creates snapshots directory if missing", () => {
     expect(existsSync(TEST_SNAPSHOTS_DIR)).toBe(false);
     // saveSnapshot needs a real git repo - use the project's own repo
@@ -114,6 +132,18 @@ describe("readSnapshot", () => {
     expect(readSnapshot("bad")).toBeNull();
   });
 
+  it("returns null when a snapshot file cannot be read", () => {
+    mkdirSync(TEST_SNAPSHOTS_DIR, { recursive: true });
+    const filePath = join(TEST_SNAPSHOTS_DIR, "unreadable.json");
+    writeFileSync(filePath, "{}");
+    chmodSync(filePath, 0o000);
+    try {
+      expect(readSnapshot("unreadable")).toBeNull();
+    } finally {
+      chmodSync(filePath, 0o600);
+    }
+  });
+
   it("rejects files with wrong version", () => {
     mkdirSync(TEST_SNAPSHOTS_DIR, { recursive: true });
     writeFileSync(join(TEST_SNAPSHOTS_DIR, "bad.json"), JSON.stringify({ version: 99 }));
@@ -149,6 +179,19 @@ describe("clearSnapshot", () => {
 
   it("returns false when snapshot does not exist", () => {
     expect(clearSnapshot("nonexistent")).toBe(false);
+  });
+
+  it("returns false when the snapshot file cannot be removed", () => {
+    mkdirSync(TEST_SNAPSHOTS_DIR, { recursive: true });
+    const filePath = join(TEST_SNAPSHOTS_DIR, "locked.json");
+    writeFileSync(filePath, "{}");
+    chmodSync(TEST_SNAPSHOTS_DIR, 0o500);
+    try {
+      expect(clearSnapshot("locked")).toBe(false);
+    } finally {
+      chmodSync(TEST_SNAPSHOTS_DIR, 0o700);
+      rmSync(filePath, { force: true });
+    }
   });
 
   it("rejects path traversal in project name", () => {
@@ -242,6 +285,34 @@ describe("formatRestorationBanner", () => {
     const banner = formatRestorationBanner(snap);
     expect(banner).toContain("abc1234 first");
     expect(banner).toContain("def5678 second");
+  });
+
+  it("includes a single recent commit without an arrow", () => {
+    const snap = makeSnapshot({
+      git: { branch: "main", dirty: [], recentCommits: ["abc1234 first"] },
+    });
+    const banner = formatRestorationBanner(snap);
+    expect(banner).toContain("abc1234 first");
+    expect(banner).not.toContain(" -> ");
+  });
+
+  it("uses ANSI colors when stdout is a TTY and NO_COLOR is unset", () => {
+    const originalIsTTY = process.stdout.isTTY;
+    const originalNoColor = process.env.NO_COLOR;
+    Object.defineProperty(process.stdout, "isTTY", { value: true, configurable: true });
+    delete process.env.NO_COLOR;
+    try {
+      const banner = formatRestorationBanner(makeSnapshot({ git: { branch: "main", dirty: [], recentCommits: [] } }));
+      expect(banner).toContain("\x1b[32m");
+      expect(banner).toContain("\x1b[2m");
+    } finally {
+      Object.defineProperty(process.stdout, "isTTY", { value: originalIsTTY, configurable: true });
+      if (originalNoColor === undefined) {
+        delete process.env.NO_COLOR;
+      } else {
+        process.env.NO_COLOR = originalNoColor;
+      }
+    }
   });
 
   it("shows 'Welcome back to' label", () => {

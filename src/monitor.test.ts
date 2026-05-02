@@ -264,6 +264,16 @@ describe("renderScreen", () => {
     expect(screen).toContain("project-15");
     expect(screen).toContain("\x1b[7m");
   });
+
+  it("handles a selected index before the visible window", () => {
+    const rows = Array.from({ length: 30 }, (_, i) =>
+      makeRow({ name: `project-${i}` }),
+    );
+
+    const screen = renderScreen(rows, -1, 80, 10);
+
+    expect(screen).toContain("summon status");
+  });
 });
 
 // --- Data-loading function tests (use mocked config.js / status.js) ---
@@ -626,6 +636,46 @@ describe.skipIf(nodeMajor < 20)("runMonitor", () => {
     expect(callCount).toBeGreaterThan(2);
   });
 
+  it("clamps selection when a refresh returns fewer rows", async () => {
+    listProjects
+      .mockReturnValueOnce([
+        ["alpha", "/tmp/alpha"],
+        ["beta", "/tmp/beta"],
+      ])
+      .mockReturnValue([["alpha", "/tmp/alpha"]]);
+    readAllStatuses.mockReturnValue([
+      makeResolvedStatus({ project: "alpha", state: "active", uptime: 1000 }),
+    ]);
+    getGitBranch.mockReturnValue("main");
+
+    const monitorPromise = runMonitor();
+    process.stdin.emit("data", Buffer.from("\x1b[B"));
+    process.stdin.emit("data", Buffer.from("r"));
+    process.stdin.emit("data", Buffer.from("q"));
+    await monitorPromise;
+
+    expect(writeSpy).toHaveBeenCalled();
+  });
+
+  it("re-renders on terminal resize", async () => {
+    const monitorPromise = runMonitor();
+    const before = writeSpy.mock.calls.length;
+    process.emit("SIGWINCH");
+    process.stdin.emit("data", Buffer.from("q"));
+    await monitorPromise;
+
+    expect(writeSpy.mock.calls.length).toBeGreaterThan(before);
+  });
+
+  it("ignores Enter when there are no rows", async () => {
+    const monitorPromise = runMonitor();
+    process.stdin.emit("data", Buffer.from("\r"));
+    process.stdin.emit("data", Buffer.from("q"));
+    await monitorPromise;
+
+    expect(mockLaunch).not.toHaveBeenCalled();
+  });
+
   it("enables and disables raw mode in interactive TTY mode", async () => {
     const setRawModeSpy = process.stdin.setRawMode as ReturnType<typeof vi.fn>;
 
@@ -653,5 +703,23 @@ describe.skipIf(nodeMajor < 20)("runMonitor", () => {
 
     expect(logSpy).toHaveBeenCalledWith("Opening myapp...");
     expect(mockLaunch).toHaveBeenCalledWith("/tmp/myapp");
+  });
+
+  it("exits when launching the selected project fails", async () => {
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => undefined as never);
+    listProjects.mockReturnValue([["myapp", "/tmp/myapp"]]);
+    readAllStatuses.mockReturnValue([
+      makeResolvedStatus({ project: "myapp", state: "active", uptime: 60_000 }),
+    ]);
+    getGitBranch.mockReturnValue("main");
+    mockLaunch.mockRejectedValueOnce(new Error("launch failed"));
+
+    const monitorPromise = runMonitor();
+    process.stdin.emit("data", Buffer.from("\r"));
+    await monitorPromise;
+    await vi.dynamicImportSettled();
+
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    exitSpy.mockRestore();
   });
 });

@@ -118,10 +118,7 @@ function parse(tokens: Token[]): LayoutNode {
   }
 
   function advance(): Token {
-    const tok = tokens[pos];
-    if (!tok) {
-      throw new Error("Unexpected end of input");
-    }
+    const tok = tokens[pos]!;
     pos++;
     return tok;
   }
@@ -336,7 +333,7 @@ export function buildTreePlan(
   opts?: TreePlanOptions,
 ): TreeLayoutPlan {
   const leaves = collectLeaves(tree);
-  const focusPane = leaves[0] ?? "";
+  const focusPane = leaves[0]!;
   return {
     tree,
     leaves,

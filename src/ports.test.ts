@@ -146,6 +146,15 @@ describe("detectProjectPorts", () => {
     expect(ports).toEqual([]);
   });
 
+  it("ignores package.json files without scripts", () => {
+    const dir = projectDir("proj-no-scripts");
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "proj-no-scripts" }));
+
+    const ports = detectProjectPorts("proj-no-scripts", dir, "unknown");
+
+    expect(ports).toEqual([]);
+  });
+
   it("explicit config takes priority over framework default (no duplicate)", () => {
     const dir = projectDir("proj-dup");
     // .summon sets PORT=3000, and next.config.js exists (default 3000)

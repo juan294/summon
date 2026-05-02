@@ -125,6 +125,16 @@ describe("handleDoctorCommand", () => {
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("Added 2 setting(s) to /Users/tester/.config/ghostty/config"));
   });
 
+  it("does not create a backup in --fix mode when the Ghostty config file is missing", async () => {
+    mockExistsSync.mockReturnValue(false);
+
+    await handleDoctorCommand(makeContext({ values: { fix: true } }));
+
+    expect(mockMkdirSync).toHaveBeenCalledWith("/Users/tester/.config/ghostty", { recursive: true });
+    expect(mockCopyFileSync).not.toHaveBeenCalled();
+    expect(mockAppendFileSync).toHaveBeenCalled();
+  });
+
   it("reports missing configured commands", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
@@ -140,5 +150,23 @@ describe("handleDoctorCommand", () => {
     await expect(handleDoctorCommand(makeContext())).rejects.toThrow("exit:2");
     expect(logSpy).toHaveBeenCalledWith('  - editor command "missing-editor" not found in PATH');
     expect(logSpy).toHaveBeenCalledWith('    Install "missing-editor" or change with: summon set editor <command>');
+  });
+
+  it("uses the full configured command when no executable can be parsed", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue(
+      "notify-on-command-finish = unfocused\nshell-integration = detect\n",
+    );
+    mockListConfig.mockReturnValue(new Map([["editor", "   "]]));
+    mockCommandExecutable.mockReturnValue(null);
+
+    await expect(handleDoctorCommand(makeContext())).rejects.toThrow("exit:2");
+
+    expect(logSpy).toHaveBeenCalledWith('  - editor command "   " not found in PATH');
+    expect(logSpy).toHaveBeenCalledWith('    Install "   " or change with: summon set editor <command>');
   });
 });

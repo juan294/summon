@@ -241,6 +241,28 @@ describe("readAllStatuses", () => {
     expect(results[1]!.state).toBe("stopped");
   });
 
+  it("sorts active statuses before stopped statuses regardless of input order", () => {
+    writeStatus(makeStatus({ project: "active-app", startedAt: new Date(Date.now() - 120_000).toISOString() }));
+    writeStatus(makeStatus({ project: "stopped-app", startedAt: new Date().toISOString() }));
+    writeFileSync(join(TEST_STATUS_DIR, "active-app.pid"), String(process.pid));
+    writeFileSync(join(TEST_STATUS_DIR, "active-app.active"), "");
+
+    const results = readAllStatuses();
+
+    expect(results.map((status) => status.project)).toEqual(["active-app", "stopped-app"]);
+  });
+
+  it("sorts an active status ahead of a stopped status when compared in that order", () => {
+    writeStatus(makeStatus({ project: "aaa-stopped", startedAt: new Date().toISOString() }));
+    writeStatus(makeStatus({ project: "zzz-active", startedAt: new Date(Date.now() - 120_000).toISOString() }));
+    writeFileSync(join(TEST_STATUS_DIR, "zzz-active.pid"), String(process.pid));
+    writeFileSync(join(TEST_STATUS_DIR, "zzz-active.active"), "");
+
+    const results = readAllStatuses();
+
+    expect(results[0]!.project).toBe("zzz-active");
+  });
+
   it("skips invalid files without throwing", () => {
     writeStatus(makeStatus({ project: "good" }));
     writeFileSync(join(TEST_STATUS_DIR, "good.pid"), String(process.pid));
@@ -263,6 +285,10 @@ describe("readAllStatuses", () => {
 });
 
 describe("cleanStaleStatuses", () => {
+  it("returns zero when the status directory does not exist", () => {
+    expect(cleanStaleStatuses()).toBe(0);
+  });
+
   it("removes stopped status files", () => {
     writeStatus(makeStatus({ project: "stale" }));
     writeFileSync(join(TEST_STATUS_DIR, "stale.pid"), "999999");
@@ -290,6 +316,14 @@ describe("cleanStaleStatuses", () => {
     writeFileSync(join(TEST_STATUS_DIR, "alive.active"), "");
     const removed = cleanStaleStatuses();
     expect(removed).toBe(2);
+  });
+
+  it("skips unreadable or invalid status files", () => {
+    mkdirSync(TEST_STATUS_DIR, { recursive: true });
+    writeFileSync(join(TEST_STATUS_DIR, "bad.json"), "not json");
+
+    expect(cleanStaleStatuses()).toBe(0);
+    expect(existsSync(join(TEST_STATUS_DIR, "bad.json"))).toBe(true);
   });
 });
 

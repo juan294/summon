@@ -36,28 +36,24 @@ export interface ResolvedStatus extends WorkspaceStatus {
 
 // --- Paths ---
 
-function statusFilePath(projectName: string): string {
-  const filePath = join(STATUS_DIR, `${projectName}.json`);
+function statusArtifactPath(projectName: string, extension: "json" | "active" | "pid"): string {
+  const filePath = join(STATUS_DIR, `${projectName}.${extension}`);
   if (!resolve(filePath).startsWith(resolve(STATUS_DIR))) {
     throw new Error(`Invalid status path: "${projectName}"`);
   }
   return filePath;
+}
+
+function statusFilePath(projectName: string): string {
+  return statusArtifactPath(projectName, "json");
 }
 
 function markerFilePath(projectName: string): string {
-  const filePath = join(STATUS_DIR, `${projectName}.active`);
-  if (!resolve(filePath).startsWith(resolve(STATUS_DIR))) {
-    throw new Error(`Invalid status path: "${projectName}"`);
-  }
-  return filePath;
+  return statusArtifactPath(projectName, "active");
 }
 
 function pidFilePath(projectName: string): string {
-  const filePath = join(STATUS_DIR, `${projectName}.pid`);
-  if (!resolve(filePath).startsWith(resolve(STATUS_DIR))) {
-    throw new Error(`Invalid status path: "${projectName}"`);
-  }
-  return filePath;
+  return statusArtifactPath(projectName, "pid");
 }
 
 // --- Write ---

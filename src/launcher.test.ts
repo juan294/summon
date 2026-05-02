@@ -1064,6 +1064,23 @@ describe("falsy sidebarCommand guard", () => {
       undefined,
     );
   });
+
+  it("keeps whitespace-only commands unchanged because no executable can be parsed", async () => {
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+
+    await launch("/tmp/workspace", { editor: "   ", layout: "minimal" });
+
+    expect(mockGenerateAppleScript).toHaveBeenCalledWith(
+      expect.objectContaining({
+        editor: "   ",
+      }),
+      "/tmp/workspace",
+      null,
+      undefined,
+      "workspace",
+      undefined,
+    );
+  });
 });
 
 describe("config read caching (#31)", () => {
@@ -2257,7 +2274,11 @@ describe("custom tree layout integration (Phase 4)", () => {
           ["pane.editor", "claude"],
           ["pane.sidebar", "lazygit"],
           ["font-size", "16"],
+          ["auto-resize", "false"],
+          ["new-window", "true"],
           ["fullscreen", "true"],
+          ["maximize", "true"],
+          ["float", "true"],
           ["editor-size", "80"],
         ]),
       );
@@ -2267,7 +2288,11 @@ describe("custom tree layout integration (Phase 4)", () => {
       const result = resolveConfig("/tmp/workspace", {});
       expect(result.treeLayout).toBeDefined();
       expect(result.opts.fontSize).toBe(16);
+      expect(result.opts.autoResize).toBe(false);
+      expect(result.opts.newWindow).toBe(true);
       expect(result.opts.fullscreen).toBe(true);
+      expect(result.opts.maximize).toBe(true);
+      expect(result.opts.float).toBe(true);
       expect(result.opts.editorSize).toBe(80);
     });
 

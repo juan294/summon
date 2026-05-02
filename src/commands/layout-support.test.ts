@@ -64,6 +64,12 @@ describe("treeToGrid", () => {
     ]);
   });
 
+  it("falls back to pane names when no command label is defined", () => {
+    const tree = { type: "pane", name: "editor" };
+
+    expect(treeToGrid(tree as never, new Map())).toEqual([["editor"]]);
+  });
+
   it("flattens nested non-down splits into a single row", () => {
     const tree = {
       type: "split",
@@ -82,6 +88,10 @@ describe("treeToGrid", () => {
 });
 
 describe("validateLayoutNameOrExit", () => {
+  it("accepts valid non-preset layout names", () => {
+    expect(() => validateLayoutNameOrExit("team-layout")).not.toThrow();
+  });
+
   it("rejects reserved preset names", () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     mockIsPresetName.mockReturnValue(true);
@@ -128,6 +138,14 @@ describe("validateLayoutOrExit", () => {
     );
     expect(errorSpy).toHaveBeenCalledWith("Valid presets: minimal, pair");
     expect(errorSpy).toHaveBeenCalledWith("Custom layouts: team-layout");
+  });
+
+  it("omits custom layout guidance when there are no custom layouts", () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    expect(() => validateLayoutOrExit("wat", "--layout")).toThrow("usage:");
+
+    expect(errorSpy).not.toHaveBeenCalledWith(expect.stringContaining("Custom layouts:"));
   });
 
   it("exits via exitWithUsageHint on path-traversal input, does not throw", () => {

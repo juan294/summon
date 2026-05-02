@@ -29,7 +29,19 @@ vi.mock("node:fs", () => {
   return {
     existsSync: (path: string) => store.has(path) || dirs.has(path),
     mkdirSync: vi.fn((_path: string, _opts?: unknown) => { dirs.add(_path); }),
-    readFileSync: (path: string) => store.get(path) ?? "",
+    readFileSync: (path: string) => {
+      if (store.get(path) === "__THROW_ENOENT__") {
+        const error = new Error("ENOENT") as NodeJS.ErrnoException;
+        error.code = "ENOENT";
+        throw error;
+      }
+      if (store.get(path) === "__THROW_EISDIR__") {
+        const error = new Error("EISDIR") as NodeJS.ErrnoException;
+        error.code = "EISDIR";
+        throw error;
+      }
+      return store.get(path) ?? "";
+    },
     writeFileSync: vi.fn((path: string, data: string) => store.set(path, data)),
     readdirSync: vi.fn((path: string) => {
       const prefix = path.endsWith("/") ? path : path + "/";
@@ -146,6 +158,24 @@ describe("machine config", () => {
   it("returns false when removing non-existent config key", () => {
     const result = removeConfig("nonexistent");
     expect(result).toBe(false);
+  });
+});
+
+describe("readKVFile", () => {
+  it("returns an empty map for missing files", async () => {
+    const mod = await import("node:fs");
+    const store = (mod as unknown as { __store: Map<string, string> }).__store;
+    store.set("/tmp/missing", "__THROW_ENOENT__");
+
+    expect(readKVFile("/tmp/missing")).toEqual(new Map());
+  });
+
+  it("rethrows non-ENOENT filesystem errors", async () => {
+    const mod = await import("node:fs");
+    const store = (mod as unknown as { __store: Map<string, string> }).__store;
+    store.set("/tmp/unreadable", "__THROW_EISDIR__");
+
+    expect(() => readKVFile("/tmp/unreadable")).toThrow();
   });
 });
 
