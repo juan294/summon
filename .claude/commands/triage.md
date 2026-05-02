@@ -2,7 +2,7 @@
 
 Model tier: **sonnet** — Sonnet 4.6 (1M context) session.
 
-Process all overnight agent reports. Discovers every report using timestamp-based discovery, checks for agent failures, synthesizes findings, proposes an action plan, and implements all fixes. Reports are never committed -- they stay on disk as local operational history (Rule #70).
+Process all overnight agent reports and the Dependabot PR queue. Discovers every report using timestamp-based discovery, checks for agent failures, scans open Dependabot PRs (Rule #72), synthesizes findings, proposes an action plan, implements all fixes, and merges the Dependabot PRs that are safe to auto-merge. Report commit policy depends on repo visibility: public repos keep reports local, private repos commit them as historical artifacts (Rule #70).
 
 ## Input
 
@@ -52,12 +52,28 @@ Find EVERY report and agent failure. No assumptions about which agents ran or ho
    - If an agent failed but has no corresponding report in `docs/agents/`,
      flag it: "agent-name FAILED to produce a report -- check `logs/agent-name.error.log`"
 
-3. **Classify files:**
+3. **Check for open Dependabot PRs (Rule #72):**
+
+   ```bash
+   gh pr list --author "app/dependabot" \
+     --json number,title,headRefName,mergeable,mergeStateStatus,statusCheckRollup,labels
+   ```
+
+   For each PR, classify the update type from the title (e.g., `Bump foo from 1.2.3 to 1.2.4` -> patch; `1.2.x -> 1.3.0` -> minor; `1.x -> 2.0.0` -> major) and the CI status:
+
+   - **patch + CI green** -> ready-to-merge (auto)
+   - **minor + CI green** -> ready-to-merge (auto)
+   - **major** -> defer, human review required (regardless of CI)
+   - **CI red, fix looks obvious** (e.g., snapshot/lockfile drift) -> attempt-fix
+   - **CI red, not obvious** -> defer, note in report
+   - **Mergeable conflict** -> attempt rebase via `gh pr update-branch`; if still conflicting, defer
+
+4. **Classify files:**
    - New/modified reports (newer than `.last-triage`): primary triage targets.
    - `shared-context.md`: read for cross-agent intelligence, not a report itself.
    - Unchanged reports (older than `.last-triage`): skip -- already processed.
 
-4. **Present discovery results:**
+5. **Present discovery results:**
 
    Agent Failures (if any):
 
@@ -69,9 +85,14 @@ Find EVERY report and agent failure. No assumptions about which agents ran or ho
    | # | Report File | Modified | Size |
    |---|-------------|----------|------|
 
-   Total: N reports to process, M agent failures detected.
+   Dependabot PRs (if any):
 
-   Do NOT stop here -- proceed directly to analysis unless there are ZERO reports and ZERO failures (in which case report "all clear" and **STOP**).
+   | # | PR | Update Type | CI | Disposition |
+   |---|----|----|----|----|
+
+   Total: N reports to process, M agent failures detected, K Dependabot PRs (auto-merge: A, attempt-fix: F, defer: D).
+
+   Do NOT stop here -- proceed directly to analysis unless there are ZERO reports, ZERO failures, AND ZERO Dependabot PRs (in which case report "all clear" and **STOP**).
 
 ## Step 2: Analyze
 
@@ -107,7 +128,12 @@ Read-only. Do not modify any files.
    ### From [report-name] (STATUS)
    3. [Action item...]
 
-   Total: N action items across M reports. All will be implemented.
+   ### Dependabot PRs (Step 5)
+   - Auto-merge: PR #X (patch), PR #Y (minor)
+   - Attempt-fix: PR #Z (snapshot drift)
+   - Defer: PR #W (major bump)
+
+   Total: N action items across M reports. K Dependabot PRs to process.
    ```
 
 6. **Present the briefing and action plan to the user.**
@@ -138,7 +164,14 @@ After user approval, implement all action items.
 
 ## Step 4: Commit & Push
 
-Reports are NEVER committed (Rule #70). Only code fixes enter version control.
+Commit policy depends on repo visibility (Rule #70). Determine visibility before staging:
+
+```bash
+gh repo view --json visibility --jq '.visibility' 2>/dev/null
+# PUBLIC -> commit code fixes only (reports gitignored)
+# PRIVATE / INTERNAL -> commit code fixes AND reports
+# (no remote / gh unavailable) -> treat as PUBLIC (fail-safe)
+```
 
 1. **Append triage entry to shared-context.md:**
 
@@ -153,14 +186,23 @@ Reports are NEVER committed (Rule #70). Only code fixes enter version control.
    <!-- ENTRY:END -->
    ```
 
-2. **Commit code fixes only** (if any fixes were made):
+2. **Commit changes:**
+
+   On a **public repo** (or no remote), commit code fixes only:
 
    ```bash
    git add <changed-files>
    git commit -m "fix: resolve agent report findings [triage]"
    ```
 
-   Do NOT `git add` anything in `docs/agents/` or `logs/`. These directories are gitignored.
+   `docs/agents/`, `logs/`, and `scripts/agents/` are gitignored — do NOT `git add` anything in them.
+
+   On a **private repo**, commit code fixes and reports together:
+
+   ```bash
+   git add <changed-files> docs/agents/ logs/ scripts/agents/
+   git commit -m "fix: resolve agent report findings [triage]"
+   ```
 
 3. **Push to remote. Monitor CI:**
 
@@ -178,13 +220,51 @@ Reports are NEVER committed (Rule #70). Only code fixes enter version control.
    touch docs/agents/.last-triage
    ```
 
-## Step 5: Report
+## Step 5: Process Dependabot PRs
+
+After the triage commit is pushed and green, process the Dependabot PRs identified in Step 1.3 (Rule #72). These are independent commits from the triage code fixes -- handle them last so a flaky dependency PR can't block triage.
+
+For each PR by disposition:
+
+1. **auto-merge (patch + CI green, minor + CI green):**
+
+   ```bash
+   gh pr merge <num> --squash --auto --delete-branch
+   ```
+
+   `--auto` waits for required checks; `--delete-branch` keeps the remote tidy.
+
+2. **attempt-fix (CI red, fix obvious — e.g., snapshot/lockfile drift, generated file out of date):**
+
+   - Check out the PR locally: `gh pr checkout <num>`
+   - Regenerate the affected file (run the project's update script, regenerate snapshots, etc.)
+   - Push the fix to the PR branch
+   - If CI goes green, queue the auto-merge as in step 1
+   - One attempt only -- if it doesn't go green, defer
+
+3. **defer (major, non-obvious CI failures, conflicts after rebase):**
+
+   - Add a comment summarizing why it's deferred (e.g., "Major version bump -- requires human review of breaking changes")
+   - Leave the PR open
+   - Note in the triage report's deferred-PRs section
+
+4. **Mergeable conflicts (before classifying as defer):**
+
+   ```bash
+   gh pr update-branch <num>
+   ```
+
+   If the rebase resolves the conflict and CI is green, proceed with auto-merge. Otherwise, defer.
+
+Switch back to the triage branch (`main` or wherever the session started) before continuing to the report step.
+
+## Step 6: Report
 
 Generate a triage report at `docs/agents/triage-report.md`:
 
 ```markdown
 # Triage Report
-> Generated on [date] | [N] reports processed | [M] action items
+> Generated on [date] | [N] reports processed | [M] action items | [K] Dependabot PRs
 
 ## Agent Failures
 | Agent | Error | Log File |
@@ -201,6 +281,11 @@ Generate a triage report at `docs/agents/triage-report.md`:
 | # | Item | Source Report | Tests Added | Status |
 |---|------|--------------|-------------|--------|
 
+## Dependabot PRs
+| # | PR | Update Type | Disposition | Notes |
+|---|----|----|----|----|
+(or "None -- no open Dependabot PRs")
+
 ## Verification
 - [ ] All tests passing
 - [ ] Typecheck clean
@@ -216,7 +301,8 @@ Present the report summary to the user.
 ## Rules
 
 - **Exhaustive discovery.** Use timestamp-based scan (Rule #71). Never assume how many reports exist. Present the full count before processing.
-- **Never commit reports (Rule #70).** Reports stay on disk as local operational history. Only code fixes are committed. `docs/agents/`, `logs/`, and `scripts/agents/` are gitignored.
+- **Report commit policy is visibility-conditional (Rule #70).** Public repos: reports stay local, only code fixes are committed (`docs/agents/`, `logs/`, `scripts/agents/` gitignored). Private repos: reports are committed alongside code fixes as historical artifacts.
+- **Process Dependabot PRs (Rule #72).** Triage scans for open Dependabot PRs and merges what it can: patch + minor with green CI auto-merge, majors defer for human review, obvious CI failures get one fix attempt. Dependabot processing happens last so it can't block triage code fixes.
 - **Touch `.last-triage` after completion.** This marks all current reports as processed for the next triage run.
 - **Check for agent failures.** Scan `logs/` BEFORE analyzing reports. A missing report might mean a failed agent, not "nothing to report."
 - **Fix everything (Rule #58).** Categorize findings by severity, but implement 100% of action items. No deferring. No "nothing urgent."
