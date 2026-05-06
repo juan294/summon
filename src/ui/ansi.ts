@@ -6,7 +6,7 @@ const useTrueColor: boolean = useColor && (
   process.env.COLORTERM === "truecolor" || process.env.COLORTERM === "24bit"
 );
 
-export function wrap(code: string, s: string): string {
+function wrap(code: string, s: string): string {
   return useColor ? `\x1b[${code}m${s}\x1b[0m` : s;
 }
 

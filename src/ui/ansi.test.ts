@@ -33,7 +33,6 @@ describe("ansi helpers", () => {
   it("returns raw strings when color is disabled", async () => {
     const ansi = await loadAnsiModule();
 
-    expect(ansi.wrap("32", "ok")).toBe("ok");
     expect(ansi.bold("text")).toBe("text");
     expect(ansi.green("text")).toBe("text");
     expect(ansi.yellow("text")).toBe("text");

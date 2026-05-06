@@ -143,7 +143,7 @@ export function renderMiniPreview(columns: number[]): string[] {
   return lines;
 }
 
-export interface TemplatePreview {
+interface TemplatePreview {
   label: string;
   columns: number[];
 }
