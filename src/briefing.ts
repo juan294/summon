@@ -3,6 +3,7 @@ import { listProjects } from "./config.js";
 import { readAllStatuses, getGitBranch } from "./status.js";
 import type { ResolvedStatus } from "./status.js";
 import { bold, dim, green, yellow, cyan } from "./ui/ansi.js";
+import { gitSafeEnv } from "./utils.js";
 
 // --- Types ---
 
@@ -62,6 +63,7 @@ export function collectGitData(directory: string): GitData {
       encoding: "utf-8",
       timeout: 5000,
       stdio: ["ignore", "pipe", "ignore"],
+      env: gitSafeEnv(),
     }).trim();
     if (raw) {
       commits = raw.split("\n").map(line => {
@@ -79,6 +81,7 @@ export function collectGitData(directory: string): GitData {
       encoding: "utf-8",
       timeout: 5000,
       stdio: ["ignore", "pipe", "ignore"],
+      env: gitSafeEnv(),
     }).trim();
     if (raw) dirty = raw.split("\n").map(l => l.slice(3).trim());
   } catch {
