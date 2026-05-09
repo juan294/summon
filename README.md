@@ -3,8 +3,8 @@
 [![CI](https://github.com/juan294/summon/actions/workflows/ci.yml/badge.svg)](https://github.com/juan294/summon/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/juan294/summon/actions/workflows/codeql.yml/badge.svg)](https://github.com/juan294/summon/actions/workflows/codeql.yml)
 [![npm version](https://img.shields.io/npm/v/summon-ws)](https://www.npmjs.com/package/summon-ws)
-[![Node.js](https://img.shields.io/badge/node-%3E%3D18-brightgreen)](https://nodejs.org)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue)](https://www.typescriptlang.org)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D20.19-brightgreen)](https://nodejs.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-6-blue)](https://www.typescriptlang.org)
 [![license](https://img.shields.io/npm/l/summon-ws)](./LICENSE)
 
 Summon your Ghostty workspace with one command. Native splits, no tmux.
@@ -19,7 +19,7 @@ Summon your Ghostty workspace with one command. Native splits, no tmux.
 npm i -g summon-ws
 ```
 
-Requires Node >= 18, macOS, and [Ghostty](https://ghostty.org) 1.3.1+.
+Requires Node >= 20.19, macOS, and [Ghostty](https://ghostty.org) 1.3.1+.
 
 ## Quick Start
 
@@ -132,7 +132,8 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 | `summon briefing` | Morning briefing — overnight commits, dirty files, recommendations |
 | `summon ports` | Detect port assignments across projects, highlight conflicts |
 | `summon snapshot <action>` | Manage context snapshots (save, show, clear) |
-| `summon completions <shell>` | Generate shell completion script (`zsh`, `bash`) |
+| `summon trust <dir>` | Trust a project's `.summon` file (required before first launch in untrusted directories) |
+| `summon completions <shell>` | Generate shell completion script (`zsh`, `bash`, `fish`) |
 
 > **`switch` vs `open`:** Use `summon switch <name>` to focus an existing workspace window for a running project. Use `summon open <name>` (or `summon <name>`) to launch a new workspace. When in doubt: `switch` returns you to work already in progress; `open` starts fresh.
 
@@ -249,13 +250,23 @@ This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.
 | `COLORTERM` | When set to `truecolor` or `24bit`, the setup wizard shows colored palette swatches for Starship presets. |
 | `STARSHIP_CONFIG` | Set automatically when `starship-preset` is configured. Points each workspace to a cached preset TOML file. Do not set manually. |
 | `SUMMON_WORKSPACE` | Set to `1` inside summon workspaces. Used to detect and warn about nested launches. |
+| `SUMMON_DEBUG` | Set to `1` to enable debug output. Each message is written to stderr with an ISO timestamp and also logged to `~/.config/summon/logs/`. |
 | `EDITOR` | Editor used by `summon layout edit`. Falls back to `vi` if unset. |
 
 ## Trust Model
 
 `.summon` files configure commands that summon executes in each pane (`editor`, `sidebar`, `shell`, `on-start`). Running `summon .` in a directory will execute whatever commands its `.summon` file specifies -- this is the same trust model as `Makefile`, direnv `.envrc`, or VS Code `.vscode/tasks.json`.
 
-When a `.summon` file contains command values with shell metacharacters (`;`, `|`, `&`, `` ` ``, `$(`, `${`, `<`, `>`), summon displays the commands and prompts for confirmation before executing (`confirmDangerousCommands`). In non-interactive environments (piped input, CI), execution is refused outright. This check is skipped for `--dry-run` since no commands are executed.
+Summon uses a direnv-style trust gate: before a project's `.summon` file is acted upon, its SHA-256 hash must be recorded as trusted. The first time you run summon in a directory with a `.summon` file, it prompts you to trust it. You can also grant trust explicitly:
+
+```bash
+summon trust .                    # trust the .summon file in the current directory
+summon trust ~/code/myapp         # trust a specific project's .summon file
+```
+
+Trust is revoked automatically if the file content changes. Run `summon trust <dir>` again after any edit.
+
+When a `.summon` file contains command values with shell metacharacters (`;`, `|`, `&`, `` ` ``, `$(`, `${`, `<`, `>`), summon displays the commands and prompts for confirmation before executing. The prompt offers three choices: `y` (run all), `n` (abort), or `s` (skip that pane). In non-interactive environments (piped input, CI), execution is refused outright. This check is skipped for `--dry-run` since no commands are executed.
 
 **`on-start` note:** The `on-start` hook executes its value via a shell (`execSync`) rather than `execFileSync`. This is intentional -- `on-start` supports complex shell commands like `docker compose up -d && npm install` that require shell interpretation. The `editor`, `sidebar`, and `shell` commands are validated against `SAFE_COMMAND_RE` before execution, but `on-start` is not, since it is designed to run arbitrary shell snippets. The `confirmDangerousCommands` safety net still applies: if `on-start` is set in a `.summon` file and contains shell metacharacters, the user is prompted before execution.
 

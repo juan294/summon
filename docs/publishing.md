@@ -7,7 +7,7 @@ Publishing checklist and workflow. First published as v0.7.0 on 2026-03-14.
 - [x] Package name `summon-ws` chosen (npm)
 - [x] `bin` entry for `summon`
 - [x] `files: ["dist"]` limits published contents
-- [x] `engines: { "node": ">=18" }`
+- [x] `engines: { "node": ">=20.19" }`
 - [x] `os: ["darwin"]` enforces macOS-only
 - [x] `prepublishOnly` runs `pnpm run build`
 - [x] `license: "MIT"` + LICENSE file

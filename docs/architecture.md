@@ -6,23 +6,40 @@ Technical reference for contributors.
 
 | Module | Role | Side Effects | Dependencies |
 |--------|------|:------------:|--------------|
-| `index.ts` | CLI entry point — parseArgs, subcommand dispatch, first-run detection | yes | config, launcher, validation, utils, setup (static + dynamic), completions (dynamic), keybindings (dynamic), tree (static + dynamic), layout (static + dynamic) |
-| `launcher.ts` | Orchestrator — config resolution, command checks, script execution via osascript | yes | config, layout, script, tree, utils, validation, starship, setup (dynamic) |
-| `config.ts` | Config file read/write (`~/.config/summon/` and `.summon`), first-run detection | yes | Node stdlib only |
-| `setup.ts` | Interactive setup wizard — TUI primitives, tool catalogs, numbered-selection flow | yes | config, utils, starship |
-| `utils.ts` | Shared utilities — `SAFE_COMMAND_RE`, `GHOSTTY_PATHS`, `GHOSTTY_APP_NAME`, `SUMMON_WORKSPACE_ENV`, `resolveCommand`, `getErrorMessage`, `promptUser` | yes | Node stdlib only |
+| `index.ts` | CLI entry point — thin dispatch registry (~134 lines) | yes | config, launcher, commands/*, cli/parse, utils |
+| `cli/parse.ts` | CLI argument parsing — `parseCli`, `buildOverrides`, `showHelp`, `showSubcommandHelp` | yes | layout, validation, utils, config, commands/layout-support |
+| `commands/config.ts` | `handleConfigCommand`, `handleExportCommand`, `handleFreezeCommand`, `handleSetCommand` | yes | config, utils, validation |
+| `commands/doctor.ts` | `handleDoctorCommand` | yes | config, utils |
+| `commands/layout.ts` | `handleLayoutCommand` — create/save/list/show/delete/edit | yes | config, layout, utils, ui/layout-preview |
+| `commands/layout-support.ts` | Shared layout validation helpers — `validateLayoutOrExit`, `validateLayoutNameOrExit`, `layoutNotFoundOrExit` | yes | config, layout, utils |
+| `commands/project.ts` | `handleAddCommand`, `handleListCommand`, `handleOpenCommand`, `handleRemoveCommand` | yes | config, launcher, utils, validation, status |
+| `commands/runtime.ts` | `handleStatusCommand`, `handleSnapshotCommand`, `handleBriefingCommand`, `handlePortsCommand` | yes | monitor, snapshot, briefing, ports, utils |
+| `commands/setup.ts` | `handleCompletionsCommand`, `handleKeybindingsCommand`, `handleSetupCommand` | yes | completions, keybindings, setup |
+| `commands/types.ts` | `CommandHandler` and `CommandContext` interfaces | **pure** | none |
+| `launcher.ts` | Orchestrator — config resolution, script execution via osascript, rollback on failure | yes | config, layout, script, tree, utils, validation, starship, status, launch-guards, trust, paths |
+| `launch-guards.ts` | Pre-launch safety checks — `ensureGhostty`, `ensureAccessibility`, `confirmDangerousCommands` (extracted from launcher.ts) | yes | utils, command-spec |
+| `config.ts` | Config file read/write (`~/.config/summon/` and `.summon`), first-run detection, mtime-memoized reads | yes | paths |
+| `paths.ts` | Canonical path constants — `CONFIG_DIR`, `STATUS_DIR`, `SNAPSHOTS_DIR`, `LAYOUTS_DIR`, `LOGS_DIR`, `TRUST_FILE` | **pure** | Node stdlib only |
+| `trust.ts` | `.summon` file trust management — SHA-256 allowlist (`assertTrusted`, `trustProject`, `isTrusted`, `hashSummonFile`) | yes | paths, utils |
+| `command-spec.ts` | Command string analysis — `analyzeCommand`, `commandHasShellMeta`, `commandExecutable`, `replaceCommandExecutable` | **pure** | none |
+| `shell-escape.ts` | AppleScript/shell escape primitives — `escapeAppleScript`, `shellQuote`, `shellDoubleQuote` | **pure** | none |
+| `setup.ts` | Interactive setup wizard — back-navigation, numbered-select, accessibility prompt | yes | config, utils, starship, setup-gallery, ui/ansi |
+| `setup-gallery.ts` | Template gallery data — `LAYOUT_INFO`, `GRID_TEMPLATES`, `GridTemplate` (extracted from setup.ts) | **pure** | none |
+| `ui/ansi.ts` | ANSI color/style helpers — `bold`, `dim`, `green`, `yellow`, `cyan`, `magenta`, `brightCyan`, `colorSwatch` (extracted from setup.ts) | **pure** | none |
+| `ui/layout-preview.ts` | Layout preview renderer for the setup wizard and layout list command | **pure** | layout |
+| `utils.ts` | Shared utilities — `SAFE_COMMAND_RE`, `GHOSTTY_PATHS`, `resolveCommand`, `promptUser`, `getErrorMessage`, `isDebug`, `debugLog`, `gitSafeEnv`, `confirm`, `supportsColor`, `PromptCancelled` | yes | Node stdlib only |
 | `layout.ts` | Layout calculation and presets | **pure** | none |
-| `script.ts` | AppleScript generator — builds script string from LayoutPlan or TreeLayoutPlan | **pure** | tree, utils |
-| `completions.ts` | Shell completion script generator (zsh, bash) | **pure** | config, layout |
+| `script.ts` | AppleScript generator — builds script string from LayoutPlan or TreeLayoutPlan; options-object API | **pure** | tree, shell-escape |
+| `completions.ts` | Shell completion script generator (zsh, bash, fish) | **pure** | config, layout |
 | `starship.ts` | Starship detection, preset listing, TOML config caching | yes | config, utils |
 | `tree.ts` | Tree data model, DSL parser, plan builder (pure — no side effects) | **pure** | layout |
-| `status.ts` | Workspace status tracking — read/write status JSON + active marker files, git branch lookup | yes | config (STATUS_DIR) |
-| `briefing.ts` | Morning project briefing — overnight commits, dirty files, recommendations | yes | config, status, setup (colors) |
-| `monitor.ts` | Interactive TUI dashboard — real-time workspace status with keyboard navigation | yes | status, config, setup (colors) |
+| `status.ts` | Workspace status tracking — read/write status JSON + active marker files, git branch lookup | yes | paths |
+| `briefing.ts` | Morning project briefing — overnight commits, dirty files, recommendations | yes | config, status, ui/ansi |
+| `monitor.ts` | Interactive TUI dashboard — real-time workspace status with keyboard navigation | yes | status, config, ui/ansi |
 | `ports.ts` | Port detection — scans `.summon` env vars, `package.json`, framework configs for port assignments | yes | config |
-| `snapshot.ts` | Context snapshot save/restore — git branch, dirty files, recent commits, layout | yes | config (SNAPSHOTS_DIR) |
+| `snapshot.ts` | Context snapshot save/restore — git branch, dirty files, recent commits, layout | yes | paths |
 | `keybindings.ts` | Ghostty key table config generator (pure function) | **pure** | none |
-| `validation.ts` | Input validation helpers (`ENV_KEY_RE`, `parseIntInRange`, `parsePositiveFloat`, `validateIntFlag`, `validateFloatFlag`) | **pure** | utils |
+| `validation.ts` | Input validation helpers (`ENV_KEY_RE`, `parseIntInRange`, `parsePositiveFloat`, `validateProjectNameOrExit`) | **pure** | utils |
 | `globals.d.ts` | Build-time constant declarations (`__VERSION__`) | — | — |
 | `*.test.ts` | Co-located unit tests (Vitest) | — | — |
 
@@ -30,48 +47,78 @@ Technical reference for contributors.
 
 ```mermaid
 graph TD
-    index[index.ts] --> config[config.ts]
+    index[index.ts] --> cliparse[cli/parse.ts]
+    index --> cmds[commands/*]
+    index --> config[config.ts]
     index --> launcher[launcher.ts]
-    index --> validation[validation.ts]
     index --> utils[utils.ts]
-    index --> setup[setup.ts]
-    index -.->|dynamic| completions[completions.ts]
-    index -.->|dynamic| keybindings[keybindings.ts]
-    index -.->|dynamic| monitor[monitor.ts]
-    index -.->|dynamic| ports[ports.ts]
-    index -.->|dynamic| snapshot[snapshot.ts]
-    index --> tree[tree.ts]
-    index --> layout[layout.ts]
+
+    cliparse --> layout[layout.ts]
+    cliparse --> validation[validation.ts]
+    cliparse --> utils
+    cliparse --> config
+    cliparse --> layoutsupport[commands/layout-support.ts]
+
+    cmds --> config
+    cmds --> launcher
+    cmds --> utils
+    cmds --> validation
+    cmds --> status[status.ts]
+    cmds --> monitor[monitor.ts]
+    cmds --> snapshot[snapshot.ts]
+    cmds --> briefing[briefing.ts]
+    cmds --> ports[ports.ts]
+    cmds -.->|dynamic| completions[completions.ts]
+    cmds -.->|dynamic| keybindings[keybindings.ts]
+    cmds -.->|dynamic| setup[setup.ts]
+
     launcher --> config
     launcher --> layout
     launcher --> script[script.ts]
-    launcher --> tree
+    launcher --> tree[tree.ts]
     launcher --> utils
     launcher --> validation
     launcher --> starship[starship.ts]
-    launcher --> status[status.ts]
-    launcher -.->|dynamic import| setup
+    launcher --> status
+    launcher --> launchguards[launch-guards.ts]
+    launcher --> trust[trust.ts]
+    launcher --> paths[paths.ts]
+    launcher -.->|dynamic| setup
+
+    launchguards --> utils
+    launchguards --> commandspec[command-spec.ts]
+
     script --> tree
-    script --> utils
-    tree --> layout
-    config --> layout
+    script --> shellescape[shell-escape.ts]
+
+    trust --> paths
+    trust --> utils
+
+    config --> paths
+
     setup --> config
     setup --> utils
     setup --> starship
+    setup --> setupgallery[setup-gallery.ts]
+    setup --> uiansi[ui/ansi.ts]
+
+    briefing --> config
+    briefing --> status
+    briefing --> uiansi
+
+    monitor --> status
+    monitor --> config
+    monitor --> uiansi
+
+    tree --> layout
     starship --> config
     starship --> utils
     validation --> utils
     completions --> config
     completions --> layout
-    status --> config
-    briefing[briefing.ts] --> config
-    briefing --> status
-    briefing --> setup
-    monitor --> status
-    monitor --> config
-    monitor --> setup
+    status --> paths
+    snapshot --> paths
     ports --> config
-    snapshot --> config
 
     config -.- cfg_fns["addProject, removeProject,
     getProject, listProjects,
@@ -82,29 +129,42 @@ graph TD
     isValidLayoutName, isCustomLayout,
     layoutPath,
     VALID_KEYS, BOOLEAN_KEYS, CLI_FLAGS,
-    LAYOUT_NAME_RE, CONFIG_DIR,
-    STATUS_DIR, SNAPSHOTS_DIR"]
+    LAYOUT_NAME_RE"]
+    paths -.- paths_fns["CONFIG_DIR, STATUS_DIR,
+    SNAPSHOTS_DIR, LAYOUTS_DIR,
+    LOGS_DIR, TRUST_FILE"]
     layout -.- lay_fns["planLayout, isPresetName,
     getPreset, getPresetNames,
     LayoutOptions, LayoutPlan"]
     script -.- scr_fns["generateAppleScript,
     generateTreeAppleScript,
-    generateFocusScript"]
+    generateFocusScript,
+    GenerateAppleScriptOptions"]
+    shellescape -.- esc_fns["escapeAppleScript,
+    shellQuote, shellDoubleQuote"]
+    commandspec -.- cs_fns["analyzeCommand,
+    commandHasShellMeta,
+    commandExecutable,
+    replaceCommandExecutable"]
     tree -.- tree_fns["parseTreeDSL, buildTreePlan,
     walkLeaves, collectLeaves,
     firstLeaf, findPaneByName,
     extractPaneDefinitions,
-    extractPaneCwds,
     resolveTreeCommands"]
     utils -.- util_fns["SAFE_COMMAND_RE,
     GHOSTTY_PATHS,
-    GHOSTTY_APP_NAME,
-    SUMMON_WORKSPACE_ENV,
     resolveCommand,
-    isGhosttyInstalled,
-    checkAccessibility,
     getErrorMessage,
-    promptUser"]
+    promptUser, PromptCancelled,
+    isDebug, debugLog,
+    gitSafeEnv, confirm, supportsColor"]
+    launchguards -.- lg_fns["ensureGhostty,
+    ensureAccessibility,
+    confirmDangerousCommands,
+    printAccessibilityHint"]
+    trust -.- trust_fns["isTrusted, trustProject,
+    assertTrusted, hashSummonFile,
+    SummonError"]
     starship -.- star_fns["isStarshipInstalled,
     listStarshipPresets,
     isValidPreset,
@@ -112,21 +172,23 @@ graph TD
     getPresetConfigPath,
     resetStarshipCache"]
     setup -.- setup_fns["runSetup, runLayoutBuilder,
+    selectLayout, WIZARD_BACK,
     selectGridTemplate, runGridBuilder,
-    PreviewRenderer, GRID_TEMPLATES,
     detectTools, validateSetup,
-    gridToTree, renderLayoutPreview,
-    renderMiniPreview, renderTemplateGallery,
-    findClosestCommand, centerLabel,
-    visibleLength, buildPartialGrid,
+    gridToTree, findClosestCommand,
     EDITOR_CATALOG, SIDEBAR_CATALOG"]
+    setupgallery -.- sg_fns["LAYOUT_INFO,
+    GRID_TEMPLATES, GridTemplate"]
+    uiansi -.- ansi_fns["bold, dim, green, yellow,
+    cyan, magenta, brightCyan,
+    colorSwatch, hexToRgb"]
     completions -.- comp_fns["generateZshCompletion,
-    generateBashCompletion"]
+    generateBashCompletion,
+    generateFishCompletion"]
     validation -.- val_fns["ENV_KEY_RE,
     parseIntInRange,
     parsePositiveFloat,
-    validateIntFlag,
-    validateFloatFlag"]
+    validateProjectNameOrExit"]
     status -.- status_fns["writeStatus, readAllStatuses,
     getGitBranch, resetGitBranchCache,
     WorkspaceStatus, ResolvedStatus"]
@@ -139,11 +201,18 @@ graph TD
     clearSnapshot, formatRestorationBanner"]
 
     style cfg_fns fill:none,stroke-dasharray:5
+    style paths_fns fill:none,stroke-dasharray:5
     style lay_fns fill:none,stroke-dasharray:5
     style scr_fns fill:none,stroke-dasharray:5
+    style esc_fns fill:none,stroke-dasharray:5
+    style cs_fns fill:none,stroke-dasharray:5
     style tree_fns fill:none,stroke-dasharray:5
     style util_fns fill:none,stroke-dasharray:5
+    style lg_fns fill:none,stroke-dasharray:5
+    style trust_fns fill:none,stroke-dasharray:5
     style setup_fns fill:none,stroke-dasharray:5
+    style sg_fns fill:none,stroke-dasharray:5
+    style ansi_fns fill:none,stroke-dasharray:5
     style star_fns fill:none,stroke-dasharray:5
     style comp_fns fill:none,stroke-dasharray:5
     style val_fns fill:none,stroke-dasharray:5
@@ -154,22 +223,23 @@ graph TD
     style snapshot_fns fill:none,stroke-dasharray:5
 ```
 
-`layout.ts`, `script.ts`, `tree.ts`, `completions.ts`, and `validation.ts` are pure modules with no side effects. `config.ts` and `utils.ts` only use Node stdlib. `starship.ts` handles Starship binary detection (cached), preset listing, and TOML config file generation — it depends on `config.ts` (for `CONFIG_DIR`) and `utils.ts` (for `resolveCommand`, `SAFE_COMMAND_RE`). `index.ts` statically imports `renderLayoutPreview` from `setup.ts`, `parseTreeDSL` from `tree.ts`, and exports from `layout.ts` for use in the `layout list` command and direct CLI handling. The full setup wizard, `completions.ts`, `keybindings.ts`, `monitor.ts`, `ports.ts`, and `snapshot.ts` are loaded via dynamic `import()` — they're only parsed when needed, keeping normal launch times unaffected. `launcher.ts` also dynamically imports `setup.ts` when no editor is configured, redirecting to the wizard on first launch. `launcher.ts` imports `writeStatus` from `status.ts` to record workspace state at launch time. `briefing.ts` and `monitor.ts` import color helpers (`bold`, `dim`, `green`, etc.) from `setup.ts` for TUI rendering, and both read workspace status via `status.ts`.
+`layout.ts`, `script.ts`, `tree.ts`, `shell-escape.ts`, `command-spec.ts`, `setup-gallery.ts`, `ui/ansi.ts`, `completions.ts`, and `validation.ts` are pure modules with no side effects. `utils.ts` and `paths.ts` only use Node stdlib. `config.ts` depends on `paths.ts` for directory constants and uses mtime-based memoization to avoid redundant disk reads within a single invocation. `starship.ts` handles Starship binary detection (cached), preset listing, and TOML config file generation — it depends on `config.ts` and `utils.ts`.
 
-All interactive prompts in `setup.ts` (`numberedSelect`, `confirm`, `selectToolFromCatalog`, `textInput`) use the shared `promptUser()` helper from `utils.ts`, which wraps readline creation, question, close, and trim in a single async call.
+`index.ts` is a thin dispatch registry (~134 lines) that delegates to `commands/*` handlers and `cli/parse.ts`. Command handlers are statically imported; the full setup wizard, `completions.ts`, `keybindings.ts`, `monitor.ts`, `ports.ts`, and `snapshot.ts` are loaded via dynamic `import()` where needed. `launcher.ts` also dynamically imports `setup.ts` when no editor is configured. `launcher.ts` imports `assertTrusted` from `trust.ts` and pre-launch checks from `launch-guards.ts`. `briefing.ts` and `monitor.ts` import color helpers from `ui/ansi.ts` (not `setup.ts`) for TUI rendering.
 
-Note: `index.ts` defines `DISPLAY_COMMAND_KEYS` (array of `["editor", "sidebar"]`) for config display formatting, while `launcher.ts` defines a separate `COMMAND_KEYS` Set (includes `"shell"`) for security validation of `.summon` file commands. These are intentionally separate with different names to avoid confusion.
+All interactive prompts use `promptUser()` from `utils.ts`. On Ctrl+C or EOF, `promptUser` throws `PromptCancelled` instead of calling `process.exit`, allowing callers to clean up before exiting.
 
 ## Data Flow
 
 ```mermaid
 flowchart TD
-    cli["CLI invocation"] --> parse["parseArgs
+    cli["CLI invocation"] --> parse["cli/parse.ts: parseCli()
     flags: --help, --version, --layout,
     --editor, --panes, --editor-size,
     --sidebar, --shell, --starship-preset,
     --auto-resize, --no-auto-resize, --dry-run,
     --env, --font-size, --on-start,
+    --clean, --no-clean,
     --new-window, --fullscreen, --maximize, --float"]
     parse --> helpcheck{"--help flag?"}
 
@@ -203,8 +273,10 @@ flowchart TD
     read/write"]
     dispatch -->|"setup"| wizardexplicit["setup.ts: runSetup()
     (explicit invocation)"]
+    dispatch -->|"trust"| trustcmd["trust.ts: trustProject()
+    SHA-256 hash stored in trust file"]
     dispatch -->|"completions"| compgen["completions.ts:
-    generateZsh/BashCompletion()"]
+    generateZsh/Bash/FishCompletion()"]
     dispatch -->|"doctor"| doctor["check Ghostty config
     for recommended settings"]
     dispatch -->|"open"| open["interactive project picker
@@ -234,6 +306,13 @@ flowchart TD
     from parsed flags"]
     overrides --> launch["launcher.launch(targetDir, cliOverrides)"]
 
+    launch --> trustcheck["trust.ts: assertTrusted(targetDir)
+    verify .summon SHA-256 hash"]
+    trustcheck -->|untrusted| trustprompt["prompt to trust .summon
+    (or abort)"]
+    trustcheck -->|trusted| resolvecfg
+    trustprompt -->|accepted| resolvecfg
+    trustprompt -->|denied| abort1["exit 1"]
     launch --> resolvecfg["resolveConfig(targetDir, cliOverrides)"]
     resolvecfg --> editorcheck{"editor configured?
     (from any config layer)"}
@@ -348,7 +427,7 @@ tsup automatically code-splits `setup.ts` and `completions.ts` into separate chu
 
 ## AppleScript Generation
 
-`script.ts` exports three pure functions: `generateAppleScript(plan, targetDir, starshipConfigPath, envVars)` for traditional grid layouts, `generateTreeAppleScript(plan, targetDir, starshipConfigPath, envVars)` for tree-based custom layouts, and `generateFocusScript(tabTitle)` for switching to an active workspace by tab title. Both return a string. Environment variables (including `STARSHIP_CONFIG` when a preset is configured) are set via Ghostty's `surface configuration` mechanism, which propagates them to all panes automatically (including new windows). Font size is also set via surface configuration when `--font-size` is provided. The traditional generator produces this script:
+`script.ts` exports three pure functions: `generateAppleScript(opts: GenerateAppleScriptOptions)` for traditional grid layouts (also accepts positional args via overload for backward compat), `generateTreeAppleScript(plan, targetDir, starshipConfigPath, envVars)` for tree-based custom layouts, and `generateFocusScript(tabTitle)` for switching to an active workspace by tab title. Both return a string. Environment variables (including `STARSHIP_CONFIG` when a preset is configured) are set via Ghostty's `surface configuration` mechanism, which propagates them to all panes automatically (including new windows). Font size is also set via surface configuration when `--font-size` is provided. The traditional generator produces this script:
 
 1. Creates a `surface configuration` with the target working directory, font size, and environment variables
 2. Creates a new Ghostty window with that configuration (or reuses the front window unless `--new-window` is set)
@@ -384,7 +463,7 @@ Unlike termplex, summon does not create persistent sessions. Each `summon` invoc
 
 ## Shell Completions
 
-`completions.ts` generates shell completion scripts for zsh and bash. It is loaded via dynamic `import()` from `index.ts` when the user runs `summon completions <shell>`.
+`completions.ts` generates shell completion scripts for zsh, bash, and fish. It is loaded via dynamic `import()` when the user runs `summon completions <shell>`.
 
 The generated scripts:
 - Complete subcommands, registered project names, and directories for the first positional argument
@@ -392,7 +471,7 @@ The generated scripts:
 - Complete layout preset names and custom layout names after `--layout` or `summon set layout`
 - Complete layout actions (`create`, `save`, `list`, `show`, `delete`, `edit`) after `summon layout`
 - Complete config keys after `summon set`
-- Complete shell names (`zsh`, `bash`) after `summon completions`
+- Complete shell names (`zsh`, `bash`, `fish`) after `summon completions`
 
 Project names are read dynamically from `~/.config/summon/projects` at completion time — no Node.js process is spawned per tab press, so completions are instant.
 
@@ -400,24 +479,29 @@ The module imports `VALID_KEYS`, `CLI_FLAGS`, and `listCustomLayouts()` from `co
 
 ## Security
 
+### `.summon` File Trust Gate
+
+`trust.ts` implements a direnv-style trust model. Before `launcher.ts` acts on any `.summon` file, `assertTrusted(targetDir)` checks the file's SHA-256 hash against `~/.config/summon/trust`. If the hash is absent or stale, the user is prompted to trust it via `summon trust <dir>`. Trust is revoked on content change.
+
 ### Command Name Validation
 
-`SAFE_COMMAND_RE` in `utils.ts` (`/^[a-zA-Z0-9_][a-zA-Z0-9_.+-]*$/`) validates command binary names before they're passed to `command -v` or executed. This prevents injection via crafted command names.
+`SAFE_COMMAND_RE` in `utils.ts` (`/^[a-zA-Z0-9_][a-zA-Z0-9_.+-]*$/`) validates command binary names before they're passed to `/usr/bin/which` or executed. This prevents injection via crafted command names.
 
 ### Shell Metacharacter Detection
 
-When `launcher.ts` loads a `.summon` project file, it scans command values (`editor`, `sidebar`, `shell`, `on-start`) for shell metacharacters: `;`, `|`, `&`, `` ` ``, `$(`, `${`, `<`, `>`. The `on-start` value is also checked regardless of source (CLI flags, machine config, or project file).
+`commandHasShellMeta()` in `command-spec.ts` scans command values for shell metacharacters: `;`, `|`, `&`, `` ` ``, `$(`, `${`, `<`, `>`. The detector is quote-aware and handles nested constructs. When `launch-guards.ts: confirmDangerousCommands()` finds suspicious values in a `.summon` file, it prompts the user:
 
-If any are found:
-- **TTY**: displays the suspicious commands and prompts for Y/n confirmation (default: no)
+- **TTY**: displays the suspicious commands and prompts for `y/N/s(kip pane)` — `s` skips that pane and continues
 - **Non-TTY**: refuses to execute and exits with an error
 - **Dry-run**: skips the check entirely (no commands are executed)
 
-`.summon` project files are checked for all command keys. The resolved `on-start` value is additionally checked from any source since it runs via `execSync` (shell execution).
+### AppleScript Injection Prevention
+
+`shell-escape.ts` exports `escapeAppleScript`, `shellQuote`, and `shellDoubleQuote`. All user values interpolated into AppleScript or shell contexts must pass through one of these functions. A load-bearing static analysis test (`shell-escape.lint.test.ts`) scans every source file at CI time and fails if any raw template literal interpolates a non-escaped user value into an AppleScript or shell context. **Do not remove this test.**
 
 ### osascript Execution
 
-`executeScript` uses `execFileSync` (not `execSync`) to pass the generated AppleScript to `osascript` via stdin, avoiding shell interpretation of the script content.
+`executeScript` uses `execFileSync` (not `execSync`) to pass the generated AppleScript to `osascript` via stdin, avoiding shell interpretation of the script content. On failure, `closeWorkspaceWindow()` is called to roll back any partially-opened window.
 
 ## Config Resolution
 
