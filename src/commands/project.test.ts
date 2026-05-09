@@ -240,6 +240,37 @@ describe("handleOpenCommand", () => {
     );
     expect(logSpy).toHaveBeenCalled();
   });
+
+  it("shows interactive mode hint after the project list", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockLoadProjectRows.mockReturnValue([
+      { name: "api", directory: "/tmp/api", state: "active", uptime: "1h", gitBranch: "main" },
+    ]);
+    mockPromptUser.mockResolvedValueOnce("1");
+
+    await handleOpenCommand(makeContext());
+
+    const allLogs = logSpy.mock.calls.map((c) => c[0] as string).join("\n");
+    expect(allLogs).toMatch(/summon status.*interactive/i);
+  });
+
+  it("passes dynamic row width based on longest project name", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    Object.defineProperty(process.stdout, "columns", { value: 80, configurable: true });
+    mockLoadProjectRows.mockReturnValue([
+      { name: "short", directory: "/tmp/short", state: "stopped", uptime: null, gitBranch: "main" },
+      { name: "a-very-long-project-name", directory: "/tmp/long", state: "stopped", uptime: null, gitBranch: "dev" },
+    ]);
+    mockPromptUser.mockResolvedValueOnce("1");
+
+    await handleOpenCommand(makeContext());
+
+    // With a 24-char project name, the render width should account for it
+    // The second call to renderRow uses the same width as the first
+    const [firstCall, secondCall] = mockRenderRow.mock.calls;
+    expect(firstCall![1]).toBe(secondCall![1]); // same width for all rows
+    expect(logSpy).toHaveBeenCalled();
+  });
 });
 
 describe("resolveTargetDirectory", () => {

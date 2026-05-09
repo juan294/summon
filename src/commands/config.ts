@@ -78,6 +78,8 @@ export async function handleSetCommand({ args }: CommandContext): Promise<void> 
 
 export async function handleConfigCommand(): Promise<void> {
   const config = listConfig();
+  const EDIT_HINT = "\nEdit: $EDITOR ~/.config/summon/config  or  summon config set <key> <value>";
+
   if (config.size === 0) {
     console.log("No machine config set. Effective defaults:");
     console.log(`  panes → ${PANES_DEFAULT}`);
@@ -91,6 +93,7 @@ export async function handleConfigCommand(): Promise<void> {
     console.log("  maximize → false");
     console.log("  float → false");
     console.log("\nCustomize with: summon set <key> <value>");
+    console.log(EDIT_HINT);
     return;
   }
 
@@ -109,6 +112,7 @@ export async function handleConfigCommand(): Promise<void> {
       console.log(`    Remove with: summon set ${key}`);
     }
   }
+  console.log(EDIT_HINT);
 }
 
 export async function handleFreezeCommand({ args }: CommandContext): Promise<void> {

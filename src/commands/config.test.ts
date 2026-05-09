@@ -207,6 +207,17 @@ describe("handleConfigCommand", () => {
     expect(logSpy).toHaveBeenCalledWith("\nCustomize with: summon set <key> <value>");
   });
 
+  it("prints an editing hint after defaults", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await handleConfigCommand();
+
+    const calls = logSpy.mock.calls.map((c) => c[0] as string);
+    const hintIndex = calls.findIndex((c) => c.includes("Edit:") && c.includes("~/.config/summon/config"));
+    expect(hintIndex).toBeGreaterThan(-1);
+    expect(calls[hintIndex]).toMatch(/summon config set <key> <value>/);
+  });
+
   it("prints stored config entries including unknown and empty values", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     mockListConfig.mockReturnValue(new Map([
@@ -224,6 +235,18 @@ describe("handleConfigCommand", () => {
     expect(logSpy).toHaveBeenCalledWith("  panes → 4");
     expect(logSpy).toHaveBeenCalledWith("  unknown → mystery  (unknown key — will be ignored)");
     expect(logSpy).toHaveBeenCalledWith("    Remove with: summon set unknown");
+  });
+
+  it("prints an editing hint after stored config entries", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockListConfig.mockReturnValue(new Map([["panes", "4"]]));
+
+    await handleConfigCommand();
+
+    const calls = logSpy.mock.calls.map((c) => c[0] as string);
+    const hintIndex = calls.findIndex((c) => c.includes("Edit:") && c.includes("~/.config/summon/config"));
+    expect(hintIndex).toBeGreaterThan(-1);
+    expect(calls[hintIndex]).toMatch(/summon config set <key> <value>/);
   });
 });
 
