@@ -44,8 +44,11 @@ export function isAgentCommit(author: string, message: string): boolean {
 // --- Git data collection ---
 
 type GitData = { branch: string | null; commits: CommitSummary[]; dirty: string[] };
+type GitCacheEntry = { data: GitData; timestamp: number };
 
-const gitDataCache = new Map<string, GitData>();
+const MAX_CACHE_AGE_MS = 10 * 60 * 1000; // 10 minutes
+
+const gitDataCache = new Map<string, GitCacheEntry>();
 
 export function resetGitDataCache(): void {
   gitDataCache.clear();
@@ -53,7 +56,7 @@ export function resetGitDataCache(): void {
 
 export function collectGitData(directory: string): GitData {
   const cached = gitDataCache.get(directory);
-  if (cached) return cached;
+  if (cached && Date.now() - cached.timestamp <= MAX_CACHE_AGE_MS) return cached.data;
 
   const branch = getGitBranch(directory);
 
@@ -89,7 +92,7 @@ export function collectGitData(directory: string): GitData {
   }
 
   const result: GitData = { branch, commits, dirty };
-  gitDataCache.set(directory, result);
+  gitDataCache.set(directory, { data: result, timestamp: Date.now() });
   return result;
 }
 
@@ -116,27 +119,30 @@ export function generateRecommendation(projects: ProjectBriefing[]): string | nu
 
 // --- Collect all briefing data ---
 
-export function collectBriefingData(): { projects: ProjectBriefing[]; summary: BriefingSummary } {
+export async function collectBriefingData(): Promise<{ projects: ProjectBriefing[]; summary: BriefingSummary }> {
   const registeredProjects = listProjects();
   const statuses = readAllStatuses();
   const statusMap = new Map<string, ResolvedStatus>();
   for (const s of statuses) statusMap.set(s.project, s);
 
-  const projects: ProjectBriefing[] = [];
-  for (const [name, directory] of registeredProjects) {
-    const status = statusMap.get(name);
-    const gitData = collectGitData(directory);
-    projects.push({
-      name,
-      directory,
-      state: status?.state ?? "unknown",
-      uptime: status?.uptime ?? null,
-      gitBranch: gitData.branch,
-      overnightCommits: gitData.commits,
-      dirtyFiles: gitData.dirty,
-      lastSession: null, // Phase 5 integration point
-    });
-  }
+  const projects = await Promise.all(
+    [...registeredProjects]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(async ([name, directory]) => {
+        const status = statusMap.get(name);
+        const gitData = collectGitData(directory);
+        return {
+          name,
+          directory,
+          state: status?.state ?? "unknown",
+          uptime: status?.uptime ?? null,
+          gitBranch: gitData.branch,
+          overnightCommits: gitData.commits,
+          dirtyFiles: gitData.dirty,
+          lastSession: null, // Phase 5 integration point
+        } satisfies ProjectBriefing;
+      }),
+  );
 
   const activeCount = projects.filter(p => p.state === "active").length;
   const totalOvernightCommits = projects.reduce((sum, p) => sum + p.overnightCommits.length, 0);
@@ -236,8 +242,8 @@ export function formatFullBriefing(projects: ProjectBriefing[], summary: Briefin
 
 // --- Entry point ---
 
-export function runBriefing(): void {
-  const { projects, summary } = collectBriefingData();
+export async function runBriefing(): Promise<void> {
+  const { projects, summary } = await collectBriefingData();
   if (projects.length === 0) {
     console.log("No projects registered. Use 'summon add <name> <path>' to register projects.");
     return;

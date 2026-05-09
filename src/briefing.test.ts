@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("./config.js", async (importOriginal) => {
   const original = await importOriginal<typeof import("./config.js")>();
@@ -196,25 +196,25 @@ describe("collectGitData", () => {
     execFileSync.mockReturnValue("");
   });
 
-  it("returns branch from getGitBranch", () => {
+  it("returns branch from getGitBranch", async () => {
     getGitBranch.mockReturnValue("develop");
-    const result = collectGitData("/tmp/myapp");
+    const result = await collectGitData("/tmp/myapp");
     expect(result.branch).toBe("develop");
   });
 
-  it("returns null branch when getGitBranch returns null", () => {
+  it("returns null branch when getGitBranch returns null", async () => {
     getGitBranch.mockReturnValue(null);
-    const result = collectGitData("/tmp/myapp");
+    const result = await collectGitData("/tmp/myapp");
     expect(result.branch).toBeNull();
   });
 
-  it("parses overnight commits from git log output", () => {
+  it("parses overnight commits from git log output", async () => {
     getGitBranch.mockReturnValue("main");
     execFileSync
       .mockReturnValueOnce("abc123|feat: add auth|Juan\ndef456|fix: typo|Claude")
       .mockReturnValueOnce(""); // git status --porcelain
 
-    const result = collectGitData("/tmp/myapp");
+    const result = await collectGitData("/tmp/myapp");
     expect(result.commits).toHaveLength(2);
     expect(result.commits[0]!.hash).toBe("abc123");
     expect(result.commits[0]!.subject).toBe("feat: add auth");
@@ -223,51 +223,51 @@ describe("collectGitData", () => {
     expect(result.commits[1]!.isAgent).toBe(true); // "Claude" matches agent pattern
   });
 
-  it("returns empty commits when git log returns empty", () => {
+  it("returns empty commits when git log returns empty", async () => {
     getGitBranch.mockReturnValue("main");
     execFileSync.mockReturnValue("");
 
-    const result = collectGitData("/tmp/myapp");
+    const result = await collectGitData("/tmp/myapp");
     expect(result.commits).toEqual([]);
   });
 
-  it("returns empty commits on git log error", () => {
+  it("returns empty commits on git log error", async () => {
     getGitBranch.mockReturnValue("main");
     execFileSync.mockImplementation(() => { throw new Error("not a git repo"); });
 
-    const result = collectGitData("/tmp/myapp");
+    const result = await collectGitData("/tmp/myapp");
     expect(result.commits).toEqual([]);
     expect(result.dirty).toEqual([]);
   });
 
-  it("parses dirty files from git status --porcelain", () => {
+  it("parses dirty files from git status --porcelain", async () => {
     getGitBranch.mockReturnValue("main");
     execFileSync
       .mockReturnValueOnce("") // git log
       .mockReturnValueOnce("M  src/index.ts\n?? new-file.ts");
 
-    const result = collectGitData("/tmp/myapp");
+    const result = await collectGitData("/tmp/myapp");
     expect(result.dirty).toEqual(["src/index.ts", "new-file.ts"]);
   });
 
-  it("returns empty dirty when status is clean", () => {
+  it("returns empty dirty when status is clean", async () => {
     getGitBranch.mockReturnValue("main");
     execFileSync.mockReturnValue("");
 
-    const result = collectGitData("/tmp/myapp");
+    const result = await collectGitData("/tmp/myapp");
     expect(result.dirty).toEqual([]);
   });
 
-  it("returns cached data on second call for same directory", () => {
+  it("returns cached data on second call for same directory", async () => {
     getGitBranch.mockReturnValue("develop");
     execFileSync
       .mockReturnValueOnce("abc123|feat: add auth|Juan")
       .mockReturnValueOnce(" M src/index.ts");
 
-    const first = collectGitData("/tmp/cached-project");
+    const first = await collectGitData("/tmp/cached-project");
     const callsAfterFirst = getGitBranch.mock.calls.length;
 
-    const second = collectGitData("/tmp/cached-project");
+    const second = await collectGitData("/tmp/cached-project");
     const callsAfterSecond = getGitBranch.mock.calls.length;
 
     // Second call should not invoke any git commands
@@ -278,30 +278,30 @@ describe("collectGitData", () => {
     expect(second.commits).toHaveLength(1);
   });
 
-  it("does not use cache for different directories", () => {
+  it("does not use cache for different directories", async () => {
     getGitBranch.mockReturnValue("main");
     execFileSync.mockReturnValue("");
 
-    collectGitData("/tmp/project-a");
+    await collectGitData("/tmp/project-a");
     const callsAfterFirst = getGitBranch.mock.calls.length;
 
-    collectGitData("/tmp/project-b");
+    await collectGitData("/tmp/project-b");
     const callsAfterSecond = getGitBranch.mock.calls.length;
 
     // Second call with different directory should invoke git commands
     expect(callsAfterSecond).toBeGreaterThan(callsAfterFirst);
   });
 
-  it("resetGitDataCache clears the cache", () => {
+  it("resetGitDataCache clears the cache", async () => {
     getGitBranch.mockReturnValue("main");
     execFileSync.mockReturnValue("");
 
-    collectGitData("/tmp/reset-test");
+    await collectGitData("/tmp/reset-test");
     const callsAfterFirst = getGitBranch.mock.calls.length;
 
     resetGitDataCache();
 
-    collectGitData("/tmp/reset-test");
+    await collectGitData("/tmp/reset-test");
     const callsAfterSecond = getGitBranch.mock.calls.length;
 
     // After reset, same directory should invoke git commands again
@@ -320,15 +320,15 @@ describe("collectBriefingData", () => {
     execFileSync.mockReturnValue("");
   });
 
-  it("returns empty projects when none registered", () => {
-    const { projects, summary } = collectBriefingData();
+  it("returns empty projects when none registered", async () => {
+    const { projects, summary } = await collectBriefingData();
     expect(projects).toEqual([]);
     expect(summary.totalProjects).toBe(0);
     expect(summary.activeCount).toBe(0);
     expect(summary.totalOvernightCommits).toBe(0);
   });
 
-  it("builds briefing from registered projects and statuses", () => {
+  it("builds briefing from registered projects and statuses", async () => {
     listProjects.mockReturnValue([["myapp", "/tmp/myapp"]]);
     readAllStatuses.mockReturnValue([
       { project: "myapp", state: "active", uptime: 3_600_000 },
@@ -336,7 +336,7 @@ describe("collectBriefingData", () => {
     getGitBranch.mockReturnValue("develop");
     execFileSync.mockReturnValue("");
 
-    const { projects, summary } = collectBriefingData();
+    const { projects, summary } = await collectBriefingData();
     expect(projects).toHaveLength(1);
     expect(projects[0]!.name).toBe("myapp");
     expect(projects[0]!.state).toBe("active");
@@ -345,18 +345,18 @@ describe("collectBriefingData", () => {
     expect(summary.activeCount).toBe(1);
   });
 
-  it("handles unknown state when no status found", () => {
+  it("handles unknown state when no status found", async () => {
     listProjects.mockReturnValue([["myapp", "/tmp/myapp"]]);
     readAllStatuses.mockReturnValue([]);
     getGitBranch.mockReturnValue("main");
     execFileSync.mockReturnValue("");
 
-    const { projects } = collectBriefingData();
+    const { projects } = await collectBriefingData();
     expect(projects[0]!.state).toBe("unknown");
     expect(projects[0]!.uptime).toBeNull();
   });
 
-  it("counts overnight commits in summary", () => {
+  it("counts overnight commits in summary", async () => {
     listProjects.mockReturnValue([["myapp", "/tmp/myapp"]]);
     readAllStatuses.mockReturnValue([]);
     getGitBranch.mockReturnValue("main");
@@ -364,11 +364,11 @@ describe("collectBriefingData", () => {
       .mockReturnValueOnce("abc|feat: something|Juan\ndef|fix: other|Juan")
       .mockReturnValueOnce("");
 
-    const { summary } = collectBriefingData();
+    const { summary } = await collectBriefingData();
     expect(summary.totalOvernightCommits).toBe(2);
   });
 
-  it("generates recommendation when appropriate", () => {
+  it("generates recommendation when appropriate", async () => {
     listProjects.mockReturnValue([["dirtyapp", "/tmp/dirtyapp"]]);
     readAllStatuses.mockReturnValue([]);
     getGitBranch.mockReturnValue("main");
@@ -376,7 +376,7 @@ describe("collectBriefingData", () => {
       .mockReturnValueOnce("")
       .mockReturnValueOnce(" M dirty-file.ts");
 
-    const { summary } = collectBriefingData();
+    const { summary } = await collectBriefingData();
     expect(summary.recommendation).toBe("dirtyapp (uncommitted changes)");
   });
 });
@@ -573,22 +573,86 @@ describe("collectGitData gitSafeEnv", () => {
   it("passes gitSafeEnv as env option to execFileSync calls", () => {
     getGitBranch.mockReturnValue("main");
     execFileSync.mockReturnValue("");
-
-    // Simulate a polluted GIT_DIR env var that gitSafeEnv should strip
     vi.stubEnv("GIT_DIR", "/some/bad/git/dir");
-
     collectGitData("/tmp/env-test");
-
-    // All execFileSync calls should have an env property
     expect(execFileSync.mock.calls.length).toBeGreaterThan(0);
     for (const call of execFileSync.mock.calls) {
       const opts = call[2] as Record<string, unknown>;
       expect(opts).toBeDefined();
       expect(opts).toHaveProperty("env");
-      // gitSafeEnv strips GIT_DIR — verify it is not present in the env passed
       const env = opts["env"] as Record<string, string | undefined>;
       expect(env["GIT_DIR"]).toBeUndefined();
     }
+  });
+});
+
+// --- BE-M15: parallel project processing ---
+
+describe("collectBriefingData parallel processing", () => {
+  beforeEach(() => {
+    resetGitDataCache();
+    listProjects.mockReturnValue([]);
+    readAllStatuses.mockReturnValue([]);
+    getGitBranch.mockReturnValue(null);
+    execFileSync.mockReturnValue("");
+  });
+
+  it("processes multiple projects and returns all in result", async () => {
+    listProjects.mockReturnValue([
+      ["alpha", "/tmp/alpha"],
+      ["beta", "/tmp/beta"],
+      ["gamma", "/tmp/gamma"],
+    ]);
+    readAllStatuses.mockReturnValue([]);
+    getGitBranch.mockReturnValue("main");
+    execFileSync.mockReturnValue("");
+    const { projects } = await collectBriefingData();
+    expect(projects).toHaveLength(3);
+    const names = projects.map(p => p.name);
+    expect(names).toContain("alpha");
+    expect(names).toContain("beta");
+    expect(names).toContain("gamma");
+  });
+
+  it("preserves deterministic order (sorted by name) for multiple projects", async () => {
+    listProjects.mockReturnValue([
+      ["zebra", "/tmp/zebra"],
+      ["alpha", "/tmp/alpha"],
+      ["mango", "/tmp/mango"],
+    ]);
+    readAllStatuses.mockReturnValue([]);
+    getGitBranch.mockReturnValue("main");
+    execFileSync.mockReturnValue("");
+    const { projects } = await collectBriefingData();
+    expect(projects.map(p => p.name)).toEqual(["alpha", "mango", "zebra"]);
+  });
+});
+
+// --- BE-M18: cache max age ---
+
+describe("cache max age (BE-M18)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    resetGitDataCache();
+    getGitBranch.mockReturnValue(null);
+    execFileSync.mockReturnValue("");
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("bypasses cache after MAX_CACHE_AGE_MS has elapsed", async () => {
+    const dir = "/tmp/cache-age-test";
+    getGitBranch.mockReturnValue("main");
+    execFileSync.mockReturnValue("");
+    await collectGitData(dir);
+    const callsAfterFirst = getGitBranch.mock.calls.length;
+    await collectGitData(dir);
+    expect(getGitBranch.mock.calls.length).toBe(callsAfterFirst);
+    vi.advanceTimersByTime(10 * 60 * 1000 + 1);
+    await collectGitData(dir);
+    expect(getGitBranch.mock.calls.length).toBeGreaterThan(callsAfterFirst);
   });
 });
 
@@ -603,14 +667,14 @@ describe("runBriefing", () => {
     vi.spyOn(console, "log").mockImplementation(() => {});
   });
 
-  it("prints empty message when no projects registered", () => {
-    runBriefing();
+  it("prints empty message when no projects registered", async () => {
+    await runBriefing();
     expect(console.log).toHaveBeenCalledWith(
       "No projects registered. Use 'summon add <name> <path>' to register projects.",
     );
   });
 
-  it("prints full briefing when projects exist", () => {
+  it("prints full briefing when projects exist", async () => {
     listProjects.mockReturnValue([["myapp", "/tmp/myapp"]]);
     readAllStatuses.mockReturnValue([
       { project: "myapp", state: "active", uptime: 60_000 },
@@ -618,7 +682,7 @@ describe("runBriefing", () => {
     getGitBranch.mockReturnValue("main");
     execFileSync.mockReturnValue("");
 
-    runBriefing();
+    await runBriefing();
     const output = vi.mocked(console.log).mock.calls.flat().join("\n");
     expect(output).toContain("summon briefing");
     expect(output).toContain("myapp");

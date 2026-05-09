@@ -77,7 +77,7 @@ export async function handleSnapshotCommand({ args }: CommandContext): Promise<v
 
 export async function handleBriefingCommand(): Promise<void> {
   const { runBriefing } = await import("../briefing.js");
-  runBriefing();
+  await runBriefing();
 }
 
 export async function handlePortsCommand(): Promise<void> {
