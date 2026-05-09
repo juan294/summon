@@ -1,12 +1,11 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, unlinkSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync, readdirSync, unlinkSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
-import { homedir } from "node:os";
 import { isPresetName } from "./layout.js";
+import { CONFIG_DIR, LAYOUTS_DIR } from "./paths.js";
 
-export const CONFIG_DIR = join(homedir(), ".config", "summon");
-export const LAYOUTS_DIR = join(CONFIG_DIR, "layouts");
-export const STATUS_DIR = join(CONFIG_DIR, "status");
-export const SNAPSHOTS_DIR = join(CONFIG_DIR, "snapshots");
+// Re-export path constants for backward compatibility
+export { CONFIG_DIR, LAYOUTS_DIR, STATUS_DIR, SNAPSHOTS_DIR } from "./paths.js";
+
 const PROJECTS_FILE = join(CONFIG_DIR, "projects");
 const CONFIG_FILE = join(CONFIG_DIR, "config");
 
@@ -23,6 +22,7 @@ function ensureConfig(): void {
 /** @internal — exported for testing only */
 export function resetConfigCache(): void {
   configEnsured = false;
+  fileCache.clear();
 }
 
 /**
@@ -32,6 +32,15 @@ export function resetConfigCache(): void {
 export function isFirstRun(): boolean {
   return !existsSync(CONFIG_FILE);
 }
+
+// --- Memoization cache keyed by file path ---
+
+interface CacheEntry {
+  mtime: number;
+  data: Map<string, string>;
+}
+
+const fileCache = new Map<string, CacheEntry>();
 
 // --- Per-project config ---
 
@@ -54,9 +63,29 @@ export function readKVFile(path: string): Map<string, string> {
   return map;
 }
 
+function readKVCached(file: string): Map<string, string> {
+  let mtime: number;
+  try {
+    mtime = statSync(file).mtimeMs;
+  } catch {
+    // File doesn't exist — bypass cache, let readKVFile handle it
+    fileCache.delete(file);
+    return readKVFile(file);
+  }
+
+  const cached = fileCache.get(file);
+  if (cached !== undefined && cached.mtime === mtime) {
+    return cached.data;
+  }
+
+  const data = readKVFile(file);
+  fileCache.set(file, { mtime, data });
+  return data;
+}
+
 function readKV(file: string): Map<string, string> {
   ensureConfig();
-  return readKVFile(file);
+  return readKVCached(file);
 }
 
 function formatKVLines(map: Map<string, string>): string {
@@ -69,6 +98,8 @@ function formatKVLines(map: Map<string, string>): string {
 
 function writeKV(file: string, map: Map<string, string>): void {
   writeFileSync(file, formatKVLines(map), { mode: 0o600 });
+  // Invalidate cache after write so subsequent reads see fresh data
+  fileCache.delete(file);
 }
 
 // --- Projects ---

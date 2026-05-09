@@ -26,10 +26,12 @@ import {
 vi.mock("node:fs", () => {
   const store = new Map<string, string>();
   const dirs = new Set<string>();
+  // mtime counter — increment to simulate file changes
+  const mtimes = new Map<string, number>();
   return {
     existsSync: (path: string) => store.has(path) || dirs.has(path),
     mkdirSync: vi.fn((_path: string, _opts?: unknown) => { dirs.add(_path); }),
-    readFileSync: (path: string) => {
+    readFileSync: vi.fn((path: string) => {
       if (store.get(path) === "__THROW_ENOENT__") {
         const error = new Error("ENOENT") as NodeJS.ErrnoException;
         error.code = "ENOENT";
@@ -41,8 +43,20 @@ vi.mock("node:fs", () => {
         throw error;
       }
       return store.get(path) ?? "";
-    },
-    writeFileSync: vi.fn((path: string, data: string) => store.set(path, data)),
+    }),
+    statSync: vi.fn((path: string) => {
+      if (!store.has(path)) {
+        const error = new Error("ENOENT") as NodeJS.ErrnoException;
+        error.code = "ENOENT";
+        throw error;
+      }
+      return { mtimeMs: mtimes.get(path) ?? 1000 };
+    }),
+    writeFileSync: vi.fn((path: string, data: string) => {
+      store.set(path, data);
+      // Bump mtime on write so cache is invalidated
+      mtimes.set(path, (mtimes.get(path) ?? 1000) + 1);
+    }),
     readdirSync: vi.fn((path: string) => {
       const prefix = path.endsWith("/") ? path : path + "/";
       const names: string[] = [];
@@ -59,6 +73,7 @@ vi.mock("node:fs", () => {
     }),
     __store: store,
     __dirs: dirs,
+    __mtimes: mtimes,
   };
 });
 
@@ -73,11 +88,18 @@ async function getDirs(): Promise<Set<string>> {
   return (mod as unknown as { __dirs: Set<string> }).__dirs;
 }
 
+async function getMtimes(): Promise<Map<string, number>> {
+  const mod = await import("node:fs");
+  return (mod as unknown as { __mtimes: Map<string, number> }).__mtimes;
+}
+
 beforeEach(async () => {
   const store = await getStore();
   store.clear();
   const dirs = await getDirs();
   dirs.clear();
+  const mtimes = await getMtimes();
+  mtimes.clear();
   resetConfigCache();
 });
 
@@ -263,6 +285,52 @@ describe("ensureConfig caching (#25)", () => {
     resetConfigCache();
     getConfig("editor");
     expect(mkdirSpy).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("mtime-based memoization (#291)", () => {
+  it("calls readFileSync only once when mtime is unchanged (listProjects)", async () => {
+    const fs = await import("node:fs");
+    const readFileSpy = fs.readFileSync as ReturnType<typeof vi.fn>;
+    const mtimes = await getMtimes();
+
+    // Warm the cache: first call reads the file and populates cache
+    listProjects();
+
+    // Freeze mtime for all files at current values so subsequent calls hit cache
+    const store = await getStore();
+    for (const key of store.keys()) {
+      if (!mtimes.has(key)) mtimes.set(key, 1000);
+    }
+
+    readFileSpy.mockClear();
+
+    // Second and third calls — mtime unchanged, should hit cache
+    listProjects();
+    listProjects();
+
+    // readFileSync should NOT have been called (cache hit)
+    expect(readFileSpy).not.toHaveBeenCalled();
+  });
+
+  it("re-reads file after mtime changes", async () => {
+    const fs = await import("node:fs");
+    const readFileSpy = fs.readFileSync as ReturnType<typeof vi.fn>;
+    const store = await getStore();
+    const mtimes = await getMtimes();
+
+    listProjects(); // warm cache
+    readFileSpy.mockClear();
+
+    // Simulate external file change by bumping mtime on the projects file
+    for (const key of store.keys()) {
+      if (key.endsWith("/projects")) {
+        mtimes.set(key, (mtimes.get(key) ?? 1000) + 999);
+      }
+    }
+
+    listProjects(); // should re-read due to changed mtime
+    expect(readFileSpy).toHaveBeenCalled();
   });
 });
 
