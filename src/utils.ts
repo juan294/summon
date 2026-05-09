@@ -177,6 +177,24 @@ export function debugLog(...args: unknown[]): void {
 }
 
 /**
+ * Lazily check whether the current environment supports ANSI color output.
+ * Evaluated at call time so that FORCE_COLOR / NO_COLOR changes after module
+ * load are respected (e.g. piped output, testing).
+ *
+ * Priority:
+ *   - NO_COLOR (any value) → false  (https://no-color.org/)
+ *   - FORCE_COLOR=1        → true
+ *   - FORCE_COLOR=0        → false
+ *   - Otherwise: process.stdout.isTTY
+ */
+export function supportsColor(): boolean {
+  if (process.env["NO_COLOR"] !== undefined) return false;
+  if (process.env["FORCE_COLOR"] === "1") return true;
+  if (process.env["FORCE_COLOR"] === "0") return false;
+  return !!process.stdout.isTTY;
+}
+
+/**
  * Returns the path to the summon debug log directory (~/.config/summon/logs/).
  * Creates the directory if it does not already exist.
  */
@@ -184,4 +202,69 @@ export function getLogDir(): string {
   const dir = join(homedir(), ".config", "summon", "logs");
   mkdirSync(dir, { recursive: true });
   return dir;
+}
+
+/**
+ * Single-keypress yes/no confirmation.
+ *
+ * Accepts:
+ *   y / Y        → true
+ *   n / N        → false
+ *   Enter (\r or \n) → false (default no)
+ *   Escape (\x1b)    → throws PromptCancelled
+ *   Ctrl+C (\x03)    → throws PromptCancelled
+ *
+ * Other keys are ignored — waits for the next keypress.
+ */
+export async function confirm(question: string): Promise<boolean> {
+  process.stdout.write(`${question} [y/N] `);
+
+  return new Promise<boolean>((resolve, reject) => {
+    const stdin = process.stdin;
+
+    // If raw mode is available (TTY), use single-keypress mode.
+    // In non-TTY / test environments where setRawMode is not present, fall
+    // back to a readline-style approach via the once("data") path.
+    const hasRawMode = typeof (stdin as NodeJS.ReadStream).setRawMode === "function";
+
+    if (hasRawMode) {
+      (stdin as NodeJS.ReadStream).setRawMode(true);
+    }
+    stdin.resume();
+    stdin.setEncoding("utf-8");
+
+    const onKey = (key: string) => {
+      if (hasRawMode) {
+        (stdin as NodeJS.ReadStream).setRawMode(false);
+      }
+      stdin.pause();
+      process.stdout.write("\n");
+
+      if (key === "\x03" || key === "\x1b") {
+        reject(new PromptCancelled());
+        return;
+      }
+      if (key === "\r" || key === "\n") {
+        resolve(false);
+        return;
+      }
+      if (key === "y" || key === "Y") {
+        resolve(true);
+        return;
+      }
+      if (key === "n" || key === "N") {
+        resolve(false);
+        return;
+      }
+
+      // Unrecognised key — keep listening
+      if (hasRawMode) {
+        (stdin as NodeJS.ReadStream).setRawMode(true);
+      }
+      stdin.resume();
+      stdin.once("data", onKey);
+    };
+
+    stdin.once("data", onKey);
+  });
 }
