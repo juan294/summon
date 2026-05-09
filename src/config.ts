@@ -115,10 +115,19 @@ export function getConfig(key: string): string | undefined {
 }
 
 export function listConfig(): Map<string, string> {
-  return readKV(CONFIG_FILE);
+  const config = readKV(CONFIG_FILE);
+  for (const key of config.keys()) {
+    if (!KNOWN_CONFIG_KEYS.has(key)) {
+      console.warn(`summon: unknown config key: ${key}`);
+    }
+  }
+  return config;
 }
 
 export const VALID_KEYS = ["editor", "sidebar", "panes", "editor-size", "shell", "layout", "auto-resize", "starship-preset", "new-window", "fullscreen", "maximize", "float", "font-size", "on-start", "on-stop", "clean"];
+
+/** Set of all known config keys — used to warn on unknown/misspelled keys. */
+export const KNOWN_CONFIG_KEYS = new Set(VALID_KEYS);
 
 /** Config keys that accept only "true" or "false" values. */
 export const BOOLEAN_KEYS = new Set(["auto-resize", "new-window", "fullscreen", "maximize", "float", "clean"]);
