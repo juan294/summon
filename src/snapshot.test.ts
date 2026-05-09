@@ -50,12 +50,15 @@ describe("saveSnapshot", () => {
   it("captures dirty file paths from git status", () => {
     const repoDir = join(TEST_SNAPSHOTS_DIR, "dirty-repo");
     mkdirSync(repoDir, { recursive: true });
-    execFileSync("git", ["init"], { cwd: repoDir, stdio: "ignore" });
-    execFileSync("git", ["config", "user.email", "summon@example.test"], { cwd: repoDir });
-    execFileSync("git", ["config", "user.name", "Summon Test"], { cwd: repoDir });
+    // Unset git env vars that the pre-commit hook injects — they'd redirect
+    // these temp-repo git commands to the parent repo and break the commit.
+    const gitEnv = { ...process.env, GIT_DIR: undefined, GIT_WORK_TREE: undefined, GIT_INDEX_FILE: undefined };
+    execFileSync("git", ["init"], { cwd: repoDir, stdio: "ignore", env: gitEnv });
+    execFileSync("git", ["config", "user.email", "summon@example.test"], { cwd: repoDir, env: gitEnv });
+    execFileSync("git", ["config", "user.name", "Summon Test"], { cwd: repoDir, env: gitEnv });
     writeFileSync(join(repoDir, "tracked.txt"), "clean\n");
-    execFileSync("git", ["add", "tracked.txt"], { cwd: repoDir });
-    execFileSync("git", ["commit", "-m", "initial"], { cwd: repoDir, stdio: "ignore" });
+    execFileSync("git", ["add", "tracked.txt"], { cwd: repoDir, env: gitEnv });
+    execFileSync("git", ["commit", "-m", "initial"], { cwd: repoDir, stdio: "ignore", env: gitEnv });
     writeFileSync(join(repoDir, "untracked.txt"), "dirty\n");
 
     const result = saveSnapshot("dirty", repoDir, "full");

@@ -58,6 +58,7 @@ export interface CLIOverrides {
   maximize?: string;
   float?: string;
   dryRun?: boolean;
+  clean?: string;
 }
 
 /** Resolve a human-readable project name from a target directory. */
@@ -238,6 +239,7 @@ async function ensureCommand(cmd: string, configKey: string): Promise<string> {
 interface ResolvedConfig {
   opts: Partial<LayoutOptions>;
   projectOverrides: Map<string, string>;
+  machineConfig: Map<string, string>;
   starshipPreset?: string;
   onStart?: string;
   onStop?: string;
@@ -463,7 +465,7 @@ export function resolveConfig(targetDir: string, cliOverrides: CLIOverrides): Re
     }
   }
 
-  return { opts, projectOverrides: project, starshipPreset, onStart, onStop, envVars, treeLayout: mergedTreeLayout };
+  return { opts, projectOverrides: project, machineConfig, starshipPreset, onStart, onStop, envVars, treeLayout: mergedTreeLayout };
 }
 
 /**
@@ -482,6 +484,58 @@ async function warnIfNested(
   console.warn("Tip: Use --new-window to open in a separate window instead.\n");
   const answer = await prompt("Continue anyway? [y/N] ");
   return answer !== "y";
+}
+
+/**
+ * Probe Ghostty for the number of terminals in the front window's selected tab.
+ * Returns null when Ghostty is not running, the script errors, or output is non-numeric.
+ */
+export function probePaneCount(): number | null {
+  try {
+    const out = execFileSync(
+      "osascript",
+      ["-e", 'tell application "Ghostty" to count of terminals of selected tab of front window'],
+      { encoding: "utf-8", timeout: 2000, stdio: ["ignore", "pipe", "ignore"] },
+    ).trim();
+    const n = parseInt(out, 10);
+    return Number.isFinite(n) && n >= 0 ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Decide whether to auto-clean restored panes from the front window's selected tab.
+ * When all trigger conditions are met, sets opts.cleanRestoredPanes=true and prints a notice.
+ */
+export function decideCleanRestoredPanes(
+  opts: Partial<LayoutOptions>,
+  cliOverrides: CLIOverrides,
+  project: Map<string, string>,
+  machineConfig: Map<string, string>,
+  dryRun: boolean | undefined,
+): void {
+  if (process.env[SUMMON_WORKSPACE_ENV]) return;
+  if (opts.newWindow) return;
+
+  const cleanRaw = pickConfigValue(cliOverrides.clean, "clean", project, machineConfig);
+  const cleanEnabled = cleanRaw === undefined ? true : cleanRaw === "true";
+  if (!cleanEnabled) return;
+
+  // In dry-run mode, skip the probe but honor an explicit --clean flag so the
+  // generated AppleScript (printed to stdout) includes the close prelude.
+  if (dryRun) {
+    if (cliOverrides.clean === "true") opts.cleanRestoredPanes = true;
+    return;
+  }
+
+  const count = probePaneCount();
+  if (count === null || count <= 1) return;
+
+  const stale = count - 1;
+  const noun = stale === 1 ? "pane" : "panes";
+  console.warn(`Clearing ${stale} stale ${noun} from previous session...`);
+  opts.cleanRestoredPanes = true;
 }
 
 /**
@@ -542,6 +596,7 @@ async function launchTreeLayout(
     fullscreen: opts.fullscreen,
     maximize: opts.maximize,
     float: opts.float,
+    cleanRestoredPanes: opts.cleanRestoredPanes,
   };
   const treePlan = buildTreePlan(resolvedTree, treePlanOpts);
   const hasEnvVars = Object.keys(envVars).length > 0;
@@ -652,12 +707,13 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
     }
   }
 
-  const { opts, starshipPreset, onStart, onStop, envVars, treeLayout } = config;
+  const { opts, machineConfig, starshipPreset, onStart, onStop, envVars, treeLayout } = config;
   const projectName = resolveProjectName(targetDir);
 
   if (await warnIfNested(opts, cliOverrides?.dryRun)) {
     process.exit(1);
   }
+  decideCleanRestoredPanes(opts, cliOverrides ?? {}, config.projectOverrides, machineConfig, cliOverrides?.dryRun);
 
   if (!cliOverrides?.dryRun) {
     const resolvedCommands: Array<[string, string]> = [];

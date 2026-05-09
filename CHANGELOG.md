@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Auto-detect and clear restored Ghostty panes on launch. When a tab contains
+  multiple panes from a previous session (no `SUMMON_WORKSPACE` env var), summon
+  closes the extras before building the new layout. Skipped when `SUMMON_WORKSPACE`
+  is set, `--new-window` is passed, dry-run mode is active, or the tab has only
+  one pane. A one-line notice `Clearing N stale panes from previous session...` is
+  printed to stderr.
+- `--clean` / `--no-clean` CLI flags and `clean` config key (default `true`) for
+  opting in or out of the auto-clean behavior.
+
 - **Workspace management subcommands:**
   - `summon briefing` — morning project overview showing overnight commits, dirty files, workspace uptime, and prioritized recommendations across all registered projects
   - `summon status` — interactive TUI dashboard for real-time workspace status with keyboard navigation (↑↓/jk, Enter to open, r refresh, q quit); `--once` flag for non-interactive output

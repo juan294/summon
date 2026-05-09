@@ -250,6 +250,19 @@ function paneVar(name: string): string {
   return `pane_${name.replace(/-/g, "_")}`;
 }
 
+/** Close all panes in the selected tab except the first, clearing restored session panes. */
+function emitClosePrelude(sb: ScriptBuilder, cleanRestoredPanes: boolean): void {
+  if (!cleanRestoredPanes) return;
+  const { add, blank } = sb;
+  add(1, "-- Clear restored panes from previous Ghostty session");
+  add(1, "set targetTab to selected tab of front window");
+  add(1, "repeat while (count of terminals of targetTab) > 1");
+  add(2, "close last terminal of targetTab");
+  add(1, "end repeat");
+  add(1, "delay 0.1");
+  blank();
+}
+
 /**
  * Emit AppleScript to create or reference the front window.
  * Uses System Events keystroke (Cmd+N) for new windows in all modes.
@@ -426,6 +439,7 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, starshi
   const allEnvVars = buildEnvVarsList(starshipConfigPath, envVars, projectName);
 
   emitSurfaceConfig(sb, targetDir, plan.fontSize, allEnvVars);
+  emitClosePrelude(sb, plan.cleanRestoredPanes);
   emitNewWindow(sb, plan.newWindow);
   sb.add(1, "set paneRoot to terminal 1 of selected tab of win");
   sb.blank();
@@ -493,6 +507,7 @@ export function generateTreeAppleScript(
   const rootPaneVar = paneVar(rootLeaf.name);
 
   emitSurfaceConfig(sb, targetDir, plan.fontSize, allEnvVars);
+  emitClosePrelude(sb, plan.cleanRestoredPanes);
   emitNewWindow(sb, plan.newWindow);
   sb.add(1, `set ${rootPaneVar} to terminal 1 of selected tab of win`);
   sb.blank();

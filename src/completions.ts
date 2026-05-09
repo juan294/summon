@@ -53,6 +53,8 @@ _summon() {
     '--shell[Shell pane]:value:(true false)' \\
     '--auto-resize[Enable auto-resize]' \\
     '--no-auto-resize[Disable auto-resize]' \\
+    '--clean[Auto-close stale panes from prior session]' \\
+    '--no-clean[Skip auto-close of restored panes]' \\
     '--starship-preset[Starship preset]:preset:->starship_preset' \\
     '*--env[Set environment variable]:var:' \\
     '--font-size[Font size in points]:size:' \\

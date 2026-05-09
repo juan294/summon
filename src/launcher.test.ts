@@ -74,7 +74,7 @@ vi.mock("./script.js", () => ({
 }));
 
 // Import after mocks are set up
-const { launch, resolveConfig, optsToConfigMap, focusWorkspace, resolveProjectName } = await import("./launcher.js");
+const { launch, resolveConfig, optsToConfigMap, focusWorkspace, resolveProjectName, probePaneCount, decideCleanRestoredPanes } = await import("./launcher.js");
 const { getConfig, listConfig, listProjects } = await import("./config.js");
 const { existsSync } = await import("node:fs");
 
@@ -3388,5 +3388,159 @@ describe("resolveProjectName — basename sanitization", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     expect(resolveProjectName("/tmp/@@@")).toBe("project");
     warn.mockRestore();
+  });
+});
+
+describe("probePaneCount", () => {
+  it("returns parsed integer when osascript succeeds", () => {
+    mockExecFileSync.mockImplementation((bin: string) => {
+      if (bin === "osascript") return "5\n";
+      return "";
+    });
+    expect(probePaneCount()).toBe(5);
+  });
+
+  it("returns null when osascript throws", () => {
+    mockExecFileSync.mockImplementation((bin: string) => {
+      if (bin === "osascript") throw new Error("Ghostty not running");
+      return "";
+    });
+    expect(probePaneCount()).toBeNull();
+  });
+
+  it("returns null when output is non-numeric", () => {
+    mockExecFileSync.mockImplementation((bin: string) => {
+      if (bin === "osascript") return "garbage\n";
+      return "";
+    });
+    expect(probePaneCount()).toBeNull();
+  });
+
+  it("returns null on negative output", () => {
+    mockExecFileSync.mockImplementation((bin: string) => {
+      if (bin === "osascript") return "-1\n";
+      return "";
+    });
+    expect(probePaneCount()).toBeNull();
+  });
+});
+
+describe("decideCleanRestoredPanes", () => {
+  let warnSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    delete process.env.SUMMON_WORKSPACE;
+  });
+
+  afterEach(() => {
+    warnSpy.mockRestore();
+  });
+
+  function mockProbe(n: number | null): void {
+    mockExecFileSync.mockImplementation((bin: string) => {
+      if (bin === "osascript") {
+        if (n === null) throw new Error("probe error");
+        return `${n}\n`;
+      }
+      return "";
+    });
+  }
+
+  it("sets cleanRestoredPanes=true and notifies when probe > 1 and SUMMON_WORKSPACE unset", () => {
+    mockProbe(5);
+    const opts: Record<string, unknown> = { newWindow: false };
+    decideCleanRestoredPanes(opts, {}, new Map(), new Map(), false);
+    expect(opts["cleanRestoredPanes"]).toBe(true);
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("Clearing 4 stale panes"));
+  });
+
+  it("uses singular 'pane' when stale count is 1", () => {
+    mockProbe(2);
+    const opts: Record<string, unknown> = { newWindow: false };
+    decideCleanRestoredPanes(opts, {}, new Map(), new Map(), false);
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("Clearing 1 stale pane "));
+  });
+
+  it("no-op when SUMMON_WORKSPACE is set", () => {
+    process.env.SUMMON_WORKSPACE = "1";
+    mockProbe(5);
+    const opts: Record<string, unknown> = {};
+    decideCleanRestoredPanes(opts, {}, new Map(), new Map(), false);
+    expect(opts["cleanRestoredPanes"]).toBeUndefined();
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it("no-op when newWindow=true", () => {
+    mockProbe(5);
+    const opts: Record<string, unknown> = { newWindow: true };
+    decideCleanRestoredPanes(opts, {}, new Map(), new Map(), false);
+    expect(opts["cleanRestoredPanes"]).toBeUndefined();
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it("no-op in dry-run mode without explicit --clean (probe not called)", () => {
+    const opts: Record<string, unknown> = {};
+    decideCleanRestoredPanes(opts, {}, new Map(), new Map(), true);
+    expect(opts["cleanRestoredPanes"]).toBeUndefined();
+    expect(warnSpy).not.toHaveBeenCalled();
+    // execFileSync should not have been called for osascript
+    const osascriptCalls = mockExecFileSync.mock.calls.filter(
+      (call) => call[0] === "osascript",
+    );
+    expect(osascriptCalls).toHaveLength(0);
+  });
+
+  it("sets cleanRestoredPanes=true in dry-run when --clean explicitly passed", () => {
+    const opts: Record<string, unknown> = {};
+    decideCleanRestoredPanes(opts, { clean: "true" }, new Map(), new Map(), true);
+    expect(opts["cleanRestoredPanes"]).toBe(true);
+    // No probe called in dry-run
+    const osascriptCalls = mockExecFileSync.mock.calls.filter(
+      (call) => call[0] === "osascript",
+    );
+    expect(osascriptCalls).toHaveLength(0);
+  });
+
+  it("no-op when count <= 1", () => {
+    mockProbe(1);
+    const opts: Record<string, unknown> = {};
+    decideCleanRestoredPanes(opts, {}, new Map(), new Map(), false);
+    expect(opts["cleanRestoredPanes"]).toBeUndefined();
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it("no-op when probe returns null (osascript errors)", () => {
+    mockProbe(null);
+    const opts: Record<string, unknown> = {};
+    decideCleanRestoredPanes(opts, {}, new Map(), new Map(), false);
+    expect(opts["cleanRestoredPanes"]).toBeUndefined();
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it("no-op when CLI override clean=false", () => {
+    mockProbe(5);
+    const opts: Record<string, unknown> = {};
+    decideCleanRestoredPanes(opts, { clean: "false" }, new Map(), new Map(), false);
+    expect(opts["cleanRestoredPanes"]).toBeUndefined();
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it("respects project config clean=false when no CLI override", () => {
+    mockProbe(5);
+    const project = new Map([["clean", "false"]]);
+    const opts: Record<string, unknown> = {};
+    decideCleanRestoredPanes(opts, {}, project, new Map(), false);
+    expect(opts["cleanRestoredPanes"]).toBeUndefined();
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it("CLI clean=true overrides project clean=false", () => {
+    mockProbe(5);
+    const project = new Map([["clean", "false"]]);
+    const opts: Record<string, unknown> = {};
+    decideCleanRestoredPanes(opts, { clean: "true" }, project, new Map(), false);
+    expect(opts["cleanRestoredPanes"]).toBe(true);
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("Clearing"));
   });
 });

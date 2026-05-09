@@ -357,6 +357,18 @@ describe("VALID_KEYS", () => {
     const { VALID_KEYS } = await import("./config.js");
     expect(VALID_KEYS).toContain("starship-preset");
   });
+
+  it("includes clean", async () => {
+    const { VALID_KEYS } = await import("./config.js");
+    expect(VALID_KEYS).toContain("clean");
+  });
+});
+
+describe("BOOLEAN_KEYS includes clean", () => {
+  it("accepts clean=true and clean=false", () => {
+    expect(() => setConfig("clean", "true")).not.toThrow();
+    expect(() => setConfig("clean", "false")).not.toThrow();
+  });
 });
 
 describe("ensureConfig initial content", () => {

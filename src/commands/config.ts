@@ -85,6 +85,7 @@ export async function handleConfigCommand(): Promise<void> {
     console.log("  sidebar → lazygit");
     console.log("  shell → true");
     console.log("  auto-resize → true");
+    console.log("  clean → true");
     console.log("  new-window → false");
     console.log("  fullscreen → false");
     console.log("  maximize → false");

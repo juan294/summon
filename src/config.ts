@@ -118,16 +118,17 @@ export function listConfig(): Map<string, string> {
   return readKV(CONFIG_FILE);
 }
 
-export const VALID_KEYS = ["editor", "sidebar", "panes", "editor-size", "shell", "layout", "auto-resize", "starship-preset", "new-window", "fullscreen", "maximize", "float", "font-size", "on-start", "on-stop"];
+export const VALID_KEYS = ["editor", "sidebar", "panes", "editor-size", "shell", "layout", "auto-resize", "starship-preset", "new-window", "fullscreen", "maximize", "float", "font-size", "on-start", "on-stop", "clean"];
 
 /** Config keys that accept only "true" or "false" values. */
-export const BOOLEAN_KEYS = new Set(["auto-resize", "new-window", "fullscreen", "maximize", "float"]);
+export const BOOLEAN_KEYS = new Set(["auto-resize", "new-window", "fullscreen", "maximize", "float", "clean"]);
 
 export const CLI_FLAGS = [
   "--help", "--version", "--layout", "--editor", "--panes",
   "--editor-size", "--sidebar", "--shell", "--auto-resize",
   "--no-auto-resize", "--starship-preset", "--dry-run",
   "--env", "--new-window", "--fullscreen", "--maximize", "--float", "--font-size", "--on-start", "--once",
+  "--clean", "--no-clean",
   "-h", "-v", "-l", "-e", "-p", "-s", "-n",
 ];
 

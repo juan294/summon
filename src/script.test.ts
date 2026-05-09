@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { generateAppleScript, generateTreeAppleScript, generateFocusScript } from "./script.js";
 import { planLayout, getPreset } from "./layout.js";
-import { collectLeaves } from "./tree.js";
+import { collectLeaves, buildTreePlan } from "./tree.js";
 import type { TreeLayoutPlan, LayoutNode } from "./tree.js";
 
 describe("generateAppleScript", () => {
@@ -893,6 +893,41 @@ describe("generateAppleScript", () => {
     });
   });
 
+  describe("cleanRestoredPanes", () => {
+    it("emits close-prelude when cleanRestoredPanes=true", () => {
+      const plan = planLayout({ cleanRestoredPanes: true });
+      const script = generateAppleScript(plan, "/tmp");
+      expect(script).toContain("-- Clear restored panes from previous Ghostty session");
+      expect(script).toContain("set targetTab to selected tab of front window");
+      expect(script).toContain("repeat while (count of terminals of targetTab) > 1");
+      expect(script).toContain("close last terminal of targetTab");
+      expect(script).toContain("end repeat");
+    });
+
+    it("omits close-prelude when cleanRestoredPanes=false (default)", () => {
+      const plan = planLayout({ cleanRestoredPanes: false });
+      const script = generateAppleScript(plan, "/tmp");
+      expect(script).not.toContain("Clear restored panes");
+      expect(script).not.toContain("close last terminal");
+    });
+
+    it("omits close-prelude by default (no flag)", () => {
+      const plan = planLayout();
+      const script = generateAppleScript(plan, "/tmp");
+      expect(script).not.toContain("close last terminal");
+    });
+
+    it("emits close-prelude BEFORE new-window keystroke", () => {
+      const plan = planLayout({ cleanRestoredPanes: true, newWindow: true });
+      const script = generateAppleScript(plan, "/tmp");
+      const closeIdx = script.indexOf("close last terminal");
+      const cmdNIdx = script.indexOf('keystroke "n" using command down');
+      expect(closeIdx).toBeGreaterThan(-1);
+      expect(cmdNIdx).toBeGreaterThan(-1);
+      expect(closeIdx).toBeLessThan(cmdNIdx);
+    });
+  });
+
 });
 
 describe("generateTreeAppleScript", () => {
@@ -912,6 +947,7 @@ describe("generateTreeAppleScript", () => {
       fullscreen: false,
       maximize: false,
       float: false,
+      cleanRestoredPanes: false,
       ...overrides,
     };
   }
@@ -1399,6 +1435,33 @@ describe("generateTreeAppleScript", () => {
     expect(splitIdx).toBeGreaterThan(-1);
     expect(cwdIdx).toBeLessThan(splitIdx);
   });
+
+  describe("cleanRestoredPanes", () => {
+    const singlePane: LayoutNode = { type: "pane", name: "editor", command: "vim" };
+
+    it("emits close-prelude in tree generator when cleanRestoredPanes=true", () => {
+      const plan = makePlan(singlePane, { cleanRestoredPanes: true });
+      const script = generateTreeAppleScript(plan, "/tmp/project");
+      expect(script).toContain("close last terminal of targetTab");
+      expect(script).toContain("repeat while (count of terminals of targetTab) > 1");
+    });
+
+    it("omits close-prelude in tree generator when cleanRestoredPanes=false", () => {
+      const plan = makePlan(singlePane, { cleanRestoredPanes: false });
+      const script = generateTreeAppleScript(plan, "/tmp/project");
+      expect(script).not.toContain("close last terminal");
+    });
+
+    it("buildTreePlan defaults cleanRestoredPanes to false", () => {
+      const plan = buildTreePlan(singlePane, {});
+      expect(plan.cleanRestoredPanes).toBe(false);
+    });
+
+    it("buildTreePlan propagates cleanRestoredPanes=true", () => {
+      const plan = buildTreePlan(singlePane, { cleanRestoredPanes: true });
+      expect(plan.cleanRestoredPanes).toBe(true);
+    });
+  });
 });
 
 describe("tab title", () => {
@@ -1433,6 +1496,7 @@ describe("tab title", () => {
       fullscreen: false,
       maximize: false,
       float: false,
+      cleanRestoredPanes: false,
     };
     const script = generateTreeAppleScript(plan, "/tmp/test", null, undefined, "myproject");
     expect(script).toContain("set_tab_title:[myproject]");
@@ -1486,6 +1550,7 @@ describe("status trap", () => {
       fullscreen: false,
       maximize: false,
       float: false,
+      cleanRestoredPanes: false,
     };
     const script = generateTreeAppleScript(plan, "/tmp/test", null, undefined, "myproject");
     expect(script).toContain("trap");

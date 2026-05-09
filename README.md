@@ -147,6 +147,8 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 | `--env KEY=VALUE` | Set environment variable (repeatable) |
 | `--on-start <cmd>` | Run a command before workspace creation |
 | `--new-window` | Open workspace in a new Ghostty window |
+| `--clean` | Auto-close stale panes from prior Ghostty session (default: on) |
+| `--no-clean` | Skip auto-close of restored panes |
 | `--fullscreen` | Start workspace in fullscreen mode |
 | `--maximize` | Start workspace maximized |
 | `--float` | Float workspace window on top |
@@ -165,6 +167,7 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 | `shell` | `true` | Shell pane: `true` (shell), `false` (none), or a command |
 | `layout` | | Default layout preset |
 | `auto-resize` | `true` | Auto-resize sidebar to match editor-size |
+| `clean` | `true` | Auto-close stale panes from a prior restored Ghostty session |
 | `starship-preset` | | Starship prompt theme preset (per-workspace) |
 | `font-size` | | Font size for workspace panes (points) |
 | `on-start` | | Command to run before workspace creation |
@@ -184,8 +187,36 @@ summon set starship-preset tokyo-night  # per-workspace Starship prompt theme
 summon set font-size 14                # font size for workspace panes
 summon set on-start "npm install"      # run before workspace creation
 summon set new-window true             # always open in a new window
+summon set clean false                 # disable auto-clean of restored panes
 summon set env.API_KEY sk-123          # per-workspace environment variable
 ```
+
+### Auto-clearing restored panes (`--clean` / `--no-clean`)
+
+When Ghostty restores panes from a previous session, running `summon` from one
+of those panes would otherwise nest the new layout inside whichever pane happens
+to be first. By default, summon detects this case and closes the extra panes
+before laying out the workspace:
+
+```
+Clearing 4 stale panes from previous session...
+```
+
+To skip this behavior for a single run or permanently:
+
+```bash
+summon <project> --no-clean         # one-off opt-out
+summon set clean false              # global opt-out
+summon <project> --clean            # force clean (overrides config)
+```
+
+Auto-clean is skipped when:
+- `SUMMON_WORKSPACE` is set (you're already inside a live summon workspace — the existing nesting warning handles that case).
+- `--new-window` is passed (a fresh window has nothing to clean).
+- The current tab has only one pane.
+- Dry-run mode (`--dry-run`).
+
+> **Note:** Any TUI process in a closed pane (LazyGit, vim, etc.) receives SIGHUP. Save your work before running `summon` from a restored multi-pane tab, or use `--no-clean` to preserve the panes.
 
 ## Docs
 

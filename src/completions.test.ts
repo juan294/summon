@@ -249,6 +249,23 @@ describe("custom layout completions", () => {
     spy.mockRestore();
   });
 
+  test("includes --clean and --no-clean in zsh completions", () => {
+    const result = generateZshCompletion();
+    expect(result).toContain("--clean[");
+    expect(result).toContain("--no-clean[");
+  });
+
+  test("includes clean key in bash config key completions", () => {
+    const result = generateBashCompletion();
+    expect(result).toContain("clean");
+  });
+
+  test("includes --clean and --no-clean in bash flag completions", () => {
+    const result = generateBashCompletion();
+    expect(result).toContain("--clean");
+    expect(result).toContain("--no-clean");
+  });
+
   test("completions work with empty custom layouts list", async () => {
     const config = await import("./config.js");
     const spy = vi.spyOn(config, "listCustomLayouts").mockReturnValue([]);

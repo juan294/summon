@@ -17,6 +17,8 @@ export type ParsedValues = {
   shell?: string;
   "auto-resize"?: boolean;
   "no-auto-resize"?: boolean;
+  "clean"?: boolean;
+  "no-clean"?: boolean;
   "starship-preset"?: string;
   env?: string[];
   "font-size"?: string;
@@ -76,6 +78,8 @@ Options:
   --shell <value>             Shell pane: true, false, or a command
   --auto-resize               Resize sidebar to match editor-size (default: on)
   --no-auto-resize            Disable auto-resize
+  --clean                     Auto-close stale panes from prior Ghostty session (default: on)
+  --no-clean                  Skip auto-close of restored panes
   --starship-preset <preset>  Starship prompt preset name (per-workspace)
   --env <KEY=VALUE>           Set environment variable (repeatable)
   --font-size <n>             Override font size for workspace panes
@@ -94,6 +98,7 @@ Config keys:
   shell           Shell pane: true, false, or command (default: true)
   layout          Default layout preset or custom layout name
   auto-resize     Resize sidebar to match editor-size (default: on)
+  clean           Auto-close restored panes on launch (default: on)
   starship-preset Starship prompt theme preset (per-workspace)
   new-window      Open workspace in a new window (default: false)
   fullscreen      Start workspace in fullscreen (default: false)
@@ -272,6 +277,8 @@ const parseOpts = {
     shell: { type: "string" },
     "auto-resize": { type: "boolean" },
     "no-auto-resize": { type: "boolean" },
+    "clean": { type: "boolean" },
+    "no-clean": { type: "boolean" },
     "starship-preset": { type: "string" },
     env: { type: "string", multiple: true },
     "font-size": { type: "string" },
@@ -334,6 +341,9 @@ export function parseCli(argv: string[]): ParsedCli {
   if (values["auto-resize"] && values["no-auto-resize"]) {
     console.warn("Warning: both --auto-resize and --no-auto-resize specified; using --no-auto-resize.");
   }
+  if (values["clean"] && values["no-clean"]) {
+    console.warn("Warning: both --clean and --no-clean specified; using --no-clean.");
+  }
 
   const [subcommand, ...args] = positionals;
   return { values, positionals, subcommand, args };
@@ -349,6 +359,8 @@ export function buildOverrides(values: ParsedValues): CLIOverrides {
   if (values.shell) overrides.shell = values.shell;
   if (values["auto-resize"]) overrides["auto-resize"] = "true";
   if (values["no-auto-resize"]) overrides["auto-resize"] = "false";
+  if (values["clean"]) overrides.clean = "true";
+  if (values["no-clean"]) overrides.clean = "false";
   if (values["starship-preset"]) overrides["starship-preset"] = values["starship-preset"];
   if (values.env) overrides.env = values.env;
   if (values["font-size"]) overrides["font-size"] = values["font-size"];

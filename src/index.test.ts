@@ -658,6 +658,32 @@ describe("CLI integration", () => {
       expect(bad.stderr).toContain("true");
       expect(bad.stderr).toContain("false");
     });
+
+    it("--clean flag accepted in dry-run", () => {
+      const result = run(".", "--clean", "--dry-run");
+      expect(result.status).toBe(0);
+    });
+
+    it("--no-clean flag accepted in dry-run", () => {
+      const result = run(".", "--no-clean", "--dry-run");
+      expect(result.status).toBe(0);
+    });
+
+    it("--clean and --no-clean appear in --help", () => {
+      const result = run("--help");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("--clean");
+      expect(result.stdout).toContain("--no-clean");
+    });
+
+    it("summon set clean validates boolean", () => {
+      const good = run("set", "clean", "true");
+      expect(good.status).toBe(0);
+      const bad = run("set", "clean", "yes");
+      expect(bad.status).toBe(1);
+      expect(bad.stderr).toContain("true");
+      expect(bad.stderr).toContain("false");
+    });
   });
 
   describe("--font-size flag (#110)", () => {

@@ -94,6 +94,15 @@ describe("parseCli", () => {
     );
   });
 
+  it("warns when both --clean and --no-clean are passed", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    parseCli([".", "--clean", "--no-clean"]);
+    expect(warnSpy).toHaveBeenCalledWith(
+      "Warning: both --clean and --no-clean specified; using --no-clean.",
+    );
+    warnSpy.mockRestore();
+  });
+
   it("rejects env entries without KEY=VALUE", () => {
     expect(() => parseCli(["ports", "--env", "INVALID"])).toThrow(
       'usage:Error: --env must be in KEY=VALUE format, got "INVALID".',
@@ -167,6 +176,22 @@ describe("buildOverrides", () => {
     })).toEqual({
       "auto-resize": "false",
     });
+  });
+
+  it("--clean sets overrides.clean='true'", () => {
+    expect(buildOverrides({ clean: true })).toEqual({ clean: "true" });
+  });
+
+  it("--no-clean sets overrides.clean='false'", () => {
+    expect(buildOverrides({ "no-clean": true })).toEqual({ clean: "false" });
+  });
+
+  it("--no-clean wins over --clean when both passed", () => {
+    expect(buildOverrides({ clean: true, "no-clean": true })).toEqual({ clean: "false" });
+  });
+
+  it("neither --clean nor --no-clean → no clean override emitted", () => {
+    expect(buildOverrides({})).not.toHaveProperty("clean");
   });
 
   it("returns an empty override map when no CLI override values are set", () => {
