@@ -1,51 +1,17 @@
 # Security Policy
 
-## Supported Versions
-
-| Version | Supported |
-|---------|-----------|
-| 1.x     | Yes       |
-| < 1.0   | No        |
-
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability in summon, please report it responsibly. **Do not open a public issue.**
+Please **do not** open a public GitHub issue for security vulnerabilities.
 
-### How to Report
+Report security issues privately via [GitHub Security Advisories](https://github.com/juan294/summon/security/advisories/new).
 
-1. **Email**: Send details to `support@chapa.thecreativetoken.com`
-2. **GitHub**: Use [GitHub's private vulnerability reporting](https://github.com/juan294/summon/security/advisories/new)
+We will respond within 48 hours and coordinate a fix before any public disclosure.
 
-Please include:
+## Supported Versions
 
-- Description of the vulnerability
-- Steps to reproduce
-- Potential impact
-- Suggested fix (if any)
+Only the latest published version on npm receives security fixes.
 
-### What to Expect
+## Security Model
 
-- Acknowledgment within 48 hours
-- Status update within 7 days
-- We aim to release a fix within 14 days of confirmed vulnerabilities
-
-## Security Considerations for Users
-
-- **AppleScript execution**: Summon generates and executes AppleScript to control Ghostty. The generated script only contains the commands and paths you configure — no network access, no credential handling.
-- **Config files**: Stored at `~/.config/summon/`. These are plain text key=value files with no sensitive data.
-- **macOS Automation permissions**: On first use, macOS will prompt you to grant your terminal permission to control Ghostty. This is required for AppleScript to work.
-
-## Security Considerations for Contributors
-
-- Never commit tokens, credentials, or secrets
-- Do not add dependencies — this project maintains zero runtime dependencies
-- Be cautious with user input handling in CLI argument parsing and path resolution
-- Ensure any shell commands executed via `execSync` are properly sanitized
-
-## Disclosure Policy
-
-We follow coordinated disclosure. After a fix is released, we will:
-
-1. Publish a GitHub Security Advisory
-2. Release a patched version to npm
-3. Credit the reporter (unless they prefer anonymity)
+Summon executes commands configured in `.summon` project files. As of v0.8.0+, project `.summon` files require explicit trust (`summon trust .`) before their commands are executed. See the README for details on the trust model.

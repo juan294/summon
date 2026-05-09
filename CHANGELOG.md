@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+<!-- These features will be released as v0.8.0 -->
+
 ### Added
 
 - Auto-detect and clear restored Ghostty panes on launch. When a tab contains
