@@ -30,6 +30,9 @@ export interface SelectOption {
 // ANSI cursor control helpers
 // ---------------------------------------------------------------------------
 
+const SHOW_CURSOR = "\x1b[?25h";
+const EXIT_ALT_SCREEN = "\x1b[?1049l";
+
 /** @internal — exported for testing only */
 export function ansiUp(n: number): string {
   return n > 0 ? `\x1b[${n}A` : "";
@@ -269,6 +272,17 @@ export async function runGridBuilder(): Promise<number[] | null> {
   console.log();
   render();
 
+  // FE-M4 (#261): Register emergency cleanup handlers BEFORE entering raw mode
+  const emergencyCleanup = (): void => {
+    process.stdout.write(SHOW_CURSOR + EXIT_ALT_SCREEN);
+  };
+  const uncaughtHandler = (err: Error): never => {
+    emergencyCleanup();
+    throw err;
+  };
+  process.once("exit", emergencyCleanup);
+  process.once("uncaughtException", uncaughtHandler);
+
   process.stdin.setRawMode(true);
   emitKeypressEvents(process.stdin);
   process.stdin.resume();
@@ -279,6 +293,9 @@ export async function runGridBuilder(): Promise<number[] | null> {
       process.stdin.pause();
       process.stdin.removeListener("keypress", onKey);
       process.removeListener("SIGINT", onSigInt);
+      // Remove emergency handlers registered before raw mode
+      process.removeListener("exit", emergencyCleanup);
+      process.removeListener("uncaughtException", uncaughtHandler);
     };
 
     const onSigInt = (): void => {
@@ -1007,10 +1024,17 @@ export async function runSetup(): Promise<void> {
 
   printWelcome();
 
-  await checkAndRecoverAccessibility();
+  // UX-H3 (#282): accessibility check runs AFTER the first selectLayout prompt
+  // so users can read the welcome before being presented with a system-permission dialog.
+  let accessibilityChecked = false;
 
   while (true) {
     const layout = await selectLayout();
+
+    if (!accessibilityChecked) {
+      accessibilityChecked = true;
+      await checkAndRecoverAccessibility();
+    }
     const isCustom = isCustomLayout(layout);
 
     // Custom layouts define their own pane commands — skip editor/sidebar/shell

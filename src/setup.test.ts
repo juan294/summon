@@ -3466,3 +3466,55 @@ describe("gridToTree — triple deduplication", () => {
     expect(result.panes.size).toBe(3);
   });
 });
+
+// FE-M4 (#261): runGridBuilder registers cleanup on uncaught exception
+describe("runGridBuilder — emergency cleanup on uncaught exception (#261)", () => {
+  it("registers 'exit' and 'uncaughtException' handlers before entering raw mode", async () => {
+    const onceListeners: Record<string, unknown[]> = {};
+    const origOnce = process.once.bind(process);
+    const onceSpy = vi.spyOn(process, "once").mockImplementation((event: string | symbol, listener: (...args: unknown[]) => void) => {
+      const key = String(event);
+      if (!onceListeners[key]) onceListeners[key] = [];
+      onceListeners[key]!.push(listener);
+      return process;
+    });
+
+    const origSetRawMode = process.stdin.setRawMode;
+    Object.defineProperty(process.stdin, "setRawMode", {
+      value: vi.fn(),
+      writable: true,
+      configurable: true,
+    });
+    const origResume = process.stdin.resume;
+    process.stdin.resume = vi.fn() as typeof process.stdin.resume;
+    const origPause = process.stdin.pause;
+    process.stdin.pause = vi.fn() as typeof process.stdin.pause;
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    const stdinOnSpy = vi.spyOn(process.stdin, "on").mockImplementation(((event: string, handler: (...args: unknown[]) => void) => {
+      if (event === "keypress") {
+        setTimeout(() => {
+          handler(undefined, { name: "return", ctrl: false });
+        }, 0);
+      }
+      return process.stdin;
+    }) as typeof process.stdin.on);
+
+    await runGridBuilder();
+
+    // Verify that 'exit' and 'uncaughtException' listeners were registered
+    expect(onceListeners["exit"]).toBeDefined();
+    expect(onceListeners["uncaughtException"]).toBeDefined();
+
+    onceSpy.mockRestore();
+    logSpy.mockRestore();
+    stdoutSpy.mockRestore();
+    stdinOnSpy.mockRestore();
+    Object.defineProperty(process.stdin, "setRawMode", { value: origSetRawMode, writable: true, configurable: true });
+    process.stdin.resume = origResume;
+    process.stdin.pause = origPause;
+    void origOnce; // keep reference to avoid unused variable warning
+  });
+});
