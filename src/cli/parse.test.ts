@@ -66,8 +66,6 @@ beforeEach(() => {
 
 describe("parseCli", () => {
   it("parses subcommands, args, and validations", () => {
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-
     const parsed = parseCli([
       "layout",
       "create",
@@ -78,8 +76,6 @@ describe("parseCli", () => {
       "--layout", "pair",
       "--env", "PORT=3000",
       "--env", "NODE_ENV=test",
-      "--auto-resize",
-      "--no-auto-resize",
     ]);
 
     expect(parsed.subcommand).toBe("layout");
@@ -89,18 +85,18 @@ describe("parseCli", () => {
     expect(mockValidateIntFlag).toHaveBeenNthCalledWith(2, "editor-size", "70", 10, 90);
     expect(mockValidateFloatFlag).toHaveBeenCalledWith("font-size", "13.5");
     expect(mockValidateLayoutOrExit).toHaveBeenCalledWith("pair", "--layout");
-    expect(warnSpy).toHaveBeenCalledWith(
-      "Warning: both --auto-resize and --no-auto-resize specified; using --no-auto-resize.",
+  });
+
+  it("errors when both --auto-resize and --no-auto-resize are passed", () => {
+    expect(() => parseCli([".", "--auto-resize", "--no-auto-resize"])).toThrow(
+      "usage:Error: --auto-resize and --no-auto-resize are mutually exclusive",
     );
   });
 
-  it("warns when both --clean and --no-clean are passed", () => {
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    parseCli([".", "--clean", "--no-clean"]);
-    expect(warnSpy).toHaveBeenCalledWith(
-      "Warning: both --clean and --no-clean specified; using --no-clean.",
+  it("errors when both --clean and --no-clean are passed", () => {
+    expect(() => parseCli([".", "--clean", "--no-clean"])).toThrow(
+      "usage:Error: --clean and --no-clean are mutually exclusive",
     );
-    warnSpy.mockRestore();
   });
 
   it("rejects env entries without KEY=VALUE", () => {
@@ -197,6 +193,23 @@ describe("buildOverrides", () => {
   it("returns an empty override map when no CLI override values are set", () => {
     expect(buildOverrides({})).toEqual({});
   });
+
+  it("preserves explicit empty string for --editor", () => {
+    expect(buildOverrides({ editor: "" })).toEqual({ editor: "" });
+  });
+
+  it("preserves explicit empty string for --sidebar", () => {
+    expect(buildOverrides({ sidebar: "" })).toEqual({ sidebar: "" });
+  });
+
+  it("preserves explicit zero-value for --panes", () => {
+    expect(buildOverrides({ panes: "0" })).toEqual({ panes: "0" });
+  });
+
+  it("preserves explicit false-value boolean flags via undefined check", () => {
+    // false is a valid boolean value — should not be dropped
+    expect(buildOverrides({ "auto-resize": false })).toEqual({ "auto-resize": "true" });
+  });
 });
 
 describe("help output", () => {
@@ -205,8 +218,39 @@ describe("help output", () => {
 
     showHelp();
 
-    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("Usage:"));
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("Layout presets:"));
+  });
+
+  it("contains hierarchical section headers (UX-H2)", () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    showHelp();
+
+    const output = logSpy.mock.calls.map(c => c[0]).join("\n");
+    expect(output).toContain("LAUNCH");
+    expect(output).toContain("PROJECTS");
+    expect(output).toContain("CONFIG");
+    expect(output).toContain("Run 'summon <command> --help'");
+  });
+
+  it("contains config-only keys section (UX-H1)", () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    showHelp();
+
+    const output = logSpy.mock.calls.map(c => c[0]).join("\n");
+    expect(output).toContain("Config-only keys (no CLI flag)");
+    expect(output).toContain("on-stop");
+  });
+
+  it("mentions tree DSL in layout section (FE-M7)", () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    showHelp();
+
+    const output = logSpy.mock.calls.map(c => c[0]).join("\n");
+    expect(output).toContain("tree DSL");
+    expect(output).toContain("root(left right)");
   });
 
   it("reports subcommand help availability", () => {

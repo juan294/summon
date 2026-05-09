@@ -43,34 +43,47 @@ export type ParsedCli = {
 const HELP = `
 summon v${__VERSION__} -- Launch multi-pane Ghostty workspaces
 
-Usage:
+Usage: summon <command|target> [options]
+
+LAUNCH
   summon <target>             Launch workspace (project name, path, or '.')
-  summon setup                Configure workspace defaults interactively
+  summon open                 Select and launch a registered project
+  summon switch               Switch to an active workspace (focuses if running, launches if not)
+
+PROJECTS
   summon add <name> <path>    Register a project name -> path mapping
   summon remove <name>        Remove a registered project
   summon list                 List all registered projects
+
+CONFIG
   summon set <key> [value]    Set a machine-level config value
   summon config               Show current machine configuration
-  summon doctor               Check Ghostty config for recommended settings
-  summon doctor --fix         Auto-add missing recommended settings (backs up first)
+  summon setup                Configure workspace defaults interactively
   summon freeze <name>        Save current resolved config as a reusable layout
+  summon export [path]        Export config as a .summon project file
+
+LAYOUT
+  summon layout <action>      Manage custom layouts (create, save, list, show, delete, edit)
   summon keybindings          Generate Ghostty key table for workspace navigation
   summon keybindings --vim    Use vim-style keys (hjkl) instead of arrows
-  summon open                 Select and launch a registered project
-  summon switch               Switch to an active workspace (alias for open)
+
+MONITORING
   summon status               Interactive workspace status dashboard
   summon status --once        Print status table once and exit
-  summon snapshot <action>    Manage context snapshots (save, show, clear)
   summon briefing             Morning briefing across all projects
   summon ports                Show port assignments and detect conflicts
-  summon layout <action>      Manage custom layouts (create, save, list, show, delete, edit)
-  summon export [path]        Export config as a .summon project file
-  summon completions <shell>  Generate shell completion script (zsh, bash)
+  summon snapshot <action>    Manage context snapshots (save, show, clear)
+
+TOOLS
+  summon doctor               Check Ghostty config for recommended settings
+  summon doctor --fix         Auto-add missing recommended settings (backs up first)
+  summon completions <shell>  Generate shell completion script (zsh, bash, fish)
 
 Options:
   -h, --help                  Show this help message
   -v, --version               Show version number
   -l, --layout <name>         Use a layout preset or custom layout
+                              Tree layout DSL: summon <path> --layout 'root(left right)'
   -e, --editor <cmd>          Override editor command
   -p, --panes <n>             Override number of editor panes
   --editor-size <n>           Override editor width %
@@ -81,7 +94,7 @@ Options:
   --clean                     Auto-close stale panes from prior Ghostty session (default: on)
   --no-clean                  Skip auto-close of restored panes
   --starship-preset <preset>  Starship prompt preset name (per-workspace)
-  --env <KEY=VALUE>           Set environment variable (repeatable)
+  --env <KEY=VALUE>           Set environment variable (repeatable; e.g. --env PORT=3000)
   --font-size <n>             Override font size for workspace panes
   --on-start <cmd>            Run command before workspace creation
   --new-window                Open workspace in a new Ghostty window
@@ -90,7 +103,7 @@ Options:
   --float                     Float workspace window on top
   -n, --dry-run               Print generated AppleScript without executing
 
-Config keys:
+Config keys: (set via 'summon set <key> <value>' or in .summon file)
   editor          Command for coding panes (set during setup)
   sidebar         Command for sidebar pane (default: lazygit)
   panes           Number of editor panes (default: 2)
@@ -106,8 +119,10 @@ Config keys:
   float           Float workspace window on top (default: false)
   font-size       Font size in points for workspace panes
   on-start        Command to run before workspace launches
-  on-stop         Command to run when workspace exits
-  env.<KEY>       Environment variable passed to all panes
+
+Config-only keys (no CLI flag):
+  on-stop         Command to run when workspace exits (available as config key only)
+  env.<KEY>       Environment variable passed to all panes (e.g. env.PORT=3000)
 
 Layout presets:
   minimal       1 editor pane, no shell
@@ -120,6 +135,7 @@ Per-project config:
   Place a .summon file in your project root with key=value pairs.
   Project config overrides machine config; CLI flags override both.
   Custom layouts support tree DSL syntax for advanced pane arrangements.
+  Example: summon <path> --layout 'root(left right)'
   Note: .summon files can specify commands that will be executed.
   Review .summon files before running summon in untrusted directories.
 
@@ -134,6 +150,9 @@ Examples:
   summon . --shell "npm run dev"  Launch with custom shell command
   summon doctor                   Check config and fix issues
   summon freeze mysetup           Save current config as reusable layout
+
+Run 'summon <command> --help' for details on each command.
+Run 'summon help <topic>' for topic-specific help.
 `.trim();
 
 const SUBCOMMAND_HELP: Record<string, string> = {
@@ -339,10 +358,10 @@ export function parseCli(argv: string[]): ParsedCli {
   }
 
   if (values["auto-resize"] && values["no-auto-resize"]) {
-    console.warn("Warning: both --auto-resize and --no-auto-resize specified; using --no-auto-resize.");
+    exitWithUsageHint("Error: --auto-resize and --no-auto-resize are mutually exclusive");
   }
   if (values["clean"] && values["no-clean"]) {
-    console.warn("Warning: both --clean and --no-clean specified; using --no-clean.");
+    exitWithUsageHint("Error: --clean and --no-clean are mutually exclusive");
   }
 
   const [subcommand, ...args] = positionals;
@@ -351,25 +370,25 @@ export function parseCli(argv: string[]): ParsedCli {
 
 export function buildOverrides(values: ParsedValues): CLIOverrides {
   const overrides: CLIOverrides = {};
-  if (values.layout) overrides.layout = values.layout;
-  if (values.editor) overrides.editor = values.editor;
-  if (values.panes) overrides.panes = values.panes;
-  if (values["editor-size"]) overrides["editor-size"] = values["editor-size"];
-  if (values.sidebar) overrides.sidebar = values.sidebar;
-  if (values.shell) overrides.shell = values.shell;
-  if (values["auto-resize"]) overrides["auto-resize"] = "true";
-  if (values["no-auto-resize"]) overrides["auto-resize"] = "false";
-  if (values["clean"]) overrides.clean = "true";
-  if (values["no-clean"]) overrides.clean = "false";
-  if (values["starship-preset"]) overrides["starship-preset"] = values["starship-preset"];
-  if (values.env) overrides.env = values.env;
-  if (values["font-size"]) overrides["font-size"] = values["font-size"];
-  if (values["on-start"]) overrides["on-start"] = values["on-start"];
-  if (values["new-window"]) overrides["new-window"] = "true";
-  if (values.fullscreen) overrides.fullscreen = "true";
-  if (values.maximize) overrides.maximize = "true";
-  if (values.float) overrides.float = "true";
-  if (values["dry-run"]) overrides.dryRun = true;
+  if (values.layout !== undefined) overrides.layout = values.layout;
+  if (values.editor !== undefined) overrides.editor = values.editor;
+  if (values.panes !== undefined) overrides.panes = values.panes;
+  if (values["editor-size"] !== undefined) overrides["editor-size"] = values["editor-size"];
+  if (values.sidebar !== undefined) overrides.sidebar = values.sidebar;
+  if (values.shell !== undefined) overrides.shell = values.shell;
+  if (values["auto-resize"] !== undefined) overrides["auto-resize"] = "true";
+  if (values["no-auto-resize"] !== undefined) overrides["auto-resize"] = "false";
+  if (values["clean"] !== undefined) overrides.clean = "true";
+  if (values["no-clean"] !== undefined) overrides.clean = "false";
+  if (values["starship-preset"] !== undefined) overrides["starship-preset"] = values["starship-preset"];
+  if (values.env !== undefined) overrides.env = values.env;
+  if (values["font-size"] !== undefined) overrides["font-size"] = values["font-size"];
+  if (values["on-start"] !== undefined) overrides["on-start"] = values["on-start"];
+  if (values["new-window"] !== undefined) overrides["new-window"] = "true";
+  if (values.fullscreen !== undefined) overrides.fullscreen = "true";
+  if (values.maximize !== undefined) overrides.maximize = "true";
+  if (values.float !== undefined) overrides.float = "true";
+  if (values["dry-run"] !== undefined) overrides.dryRun = true;
   return overrides;
 }
 

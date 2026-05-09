@@ -989,20 +989,19 @@ describe("CLI integration", () => {
     });
   });
 
-  // #63: warn when both --auto-resize and --no-auto-resize are passed
-  describe("auto-resize conflict warning (#63)", () => {
-    it("warns on stderr when both --auto-resize and --no-auto-resize are given", () => {
+  // #63/#256: error (not warn) when both --auto-resize and --no-auto-resize are passed
+  describe("auto-resize conflict error (#63/#256)", () => {
+    it("errors on stderr when both --auto-resize and --no-auto-resize are given", () => {
       const result = run(".", "--auto-resize", "--no-auto-resize", "--dry-run");
-      expect(result.status).toBe(0);
-      expect(result.stderr).toContain("Warning:");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("Error:");
       expect(result.stderr).toContain("--auto-resize");
       expect(result.stderr).toContain("--no-auto-resize");
     });
 
-    it("uses --no-auto-resize when both are given (no resize commands in script)", () => {
+    it("exits 1 when both --auto-resize and --no-auto-resize are given", () => {
       const result = run(".", "--auto-resize", "--no-auto-resize", "--dry-run");
-      expect(result.status).toBe(0);
-      expect(result.stdout).not.toContain("resize_split");
+      expect(result.status).toBe(1);
     });
   });
 
