@@ -420,6 +420,39 @@ describe("isFirstRun", () => {
   });
 });
 
+describe("unknown config key warning (BE-S27 #323)", () => {
+  it("emits console.warn for unknown keys when listConfig is called", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const store = await getStore();
+    // Manually set a config file with an unknown key
+    const { CONFIG_DIR } = await import("./config.js");
+    const configPath = `${CONFIG_DIR}/config`;
+    store.set(configPath, "unknowntypokey=val\n");
+    resetConfigCache();
+
+    listConfig();
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("unknowntypokey"),
+    );
+    warnSpy.mockRestore();
+  });
+
+  it("does not warn for known keys", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const store = await getStore();
+    const { CONFIG_DIR } = await import("./config.js");
+    const configPath = `${CONFIG_DIR}/config`;
+    store.set(configPath, "editor=vim\npanes=3\n");
+    resetConfigCache();
+
+    listConfig();
+
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+});
+
 describe("VALID_KEYS", () => {
   it("includes starship-preset", async () => {
     const { VALID_KEYS } = await import("./config.js");
