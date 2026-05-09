@@ -135,6 +135,16 @@ export function openAccessibilitySettings(): void {
 }
 
 /**
+ * Write a debug message to stderr when SUMMON_DEBUG=1 is set.
+ * No-op in production; safe to leave in shipped code.
+ */
+export function debugLog(msg: string): void {
+  if (process.env["SUMMON_DEBUG"] === "1") {
+    process.stderr.write(`[summon:debug] ${msg}\n`);
+  }
+}
+
+/**
  * Returns process.env with git context variables removed.
  * Prevents an inherited GIT_DIR/GIT_WORK_TREE (e.g. from a pre-commit hook)
  * from overriding the -C flag and making every directory appear as the current repo.
