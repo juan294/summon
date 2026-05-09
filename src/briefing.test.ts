@@ -561,6 +561,37 @@ describe("formatFullBriefing", () => {
   });
 });
 
+// --- BE-M16: gitSafeEnv passed to execFileSync ---
+
+describe("collectGitData gitSafeEnv", () => {
+  beforeEach(() => {
+    resetGitDataCache();
+    getGitBranch.mockReturnValue(null);
+    execFileSync.mockReturnValue("");
+  });
+
+  it("passes gitSafeEnv as env option to execFileSync calls", () => {
+    getGitBranch.mockReturnValue("main");
+    execFileSync.mockReturnValue("");
+
+    // Simulate a polluted GIT_DIR env var that gitSafeEnv should strip
+    vi.stubEnv("GIT_DIR", "/some/bad/git/dir");
+
+    collectGitData("/tmp/env-test");
+
+    // All execFileSync calls should have an env property
+    expect(execFileSync.mock.calls.length).toBeGreaterThan(0);
+    for (const call of execFileSync.mock.calls) {
+      const opts = call[2] as Record<string, unknown>;
+      expect(opts).toBeDefined();
+      expect(opts).toHaveProperty("env");
+      // gitSafeEnv strips GIT_DIR — verify it is not present in the env passed
+      const env = opts["env"] as Record<string, string | undefined>;
+      expect(env["GIT_DIR"]).toBeUndefined();
+    }
+  });
+});
+
 // --- runBriefing ---
 
 describe("runBriefing", () => {

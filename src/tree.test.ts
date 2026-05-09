@@ -201,6 +201,29 @@ describe("parseTreeDSL", () => {
   it("throws on empty quoted string", () => {
     expect(() => parseTreeDSL('""')).toThrow(/Empty quoted string/);
   });
+
+  // BE-M21: depth limit
+  it("throws when nesting depth exceeds MAX_TREE_DEPTH (32)", () => {
+    // Build a DSL string that creates 33 levels of nesting: (((... a ...)))
+    const deep = "(".repeat(33) + "a" + ")".repeat(33);
+    expect(() => parseTreeDSL(deep)).toThrow(/maximum nesting depth \(32\) exceeded/i);
+  });
+
+  // BE-M21: document quoting behavior (no escape support)
+  it("treats backslash inside quoted string as a literal character (no escape support)", () => {
+    // The parser does NOT support \" escape sequences inside quoted strings.
+    // A backslash is treated as a literal character, and the next `"` closes the string.
+    // So the DSL `"foo\"` (the 5-char sequence: quote, f, o, o, backslash, quote) is
+    // tokenized as the quoted string `foo\` (backslash is literal), with no remaining tokens.
+    // This test documents the limitation: escape sequences are not supported.
+    // The string '"foo\\"' in JS is the 7-char DSL: "foo\" (quote, f, o, o, backslash, quote)
+    // which tokenizes as quoted string `foo\` — valid, no error.
+    const node = parseTreeDSL('"foo\\"') as PaneNode;
+    expect(node.type).toBe("pane");
+    // The command is the raw content between the first and second quote: "foo\"
+    // which is the 4-char string: f, o, o, backslash
+    expect(node.command).toBe("foo\\");
+  });
 });
 
 // ---------- Pane definitions ----------
@@ -358,6 +381,33 @@ describe("resolveTreeCommands", () => {
     const panes = new Map([["editor", "vim"]]);
     const resolved = resolveTreeCommands(tree, panes) as PaneNode;
     expect(resolved.cwd).toBeUndefined();
+  });
+
+  // BE-M22: cwd path guard
+  it("throws when pane cwd resolves outside targetDir via path traversal", () => {
+    const tree: LayoutNode = {
+      type: "pane",
+      name: "editor",
+      command: "",
+    };
+    const panes = new Map([["editor", "vim"]]);
+    const cwds = new Map([["editor", "../../etc"]]);
+    expect(() => resolveTreeCommands(tree, panes, cwds, "/tmp/myproject")).toThrow(
+      /resolves outside project directory/,
+    );
+  });
+
+  it("allows cwd that is a subdirectory of targetDir", () => {
+    const tree: LayoutNode = {
+      type: "pane",
+      name: "editor",
+      command: "",
+    };
+    const panes = new Map([["editor", "vim"]]);
+    const cwds = new Map([["editor", "frontend"]]);
+    const resolved = resolveTreeCommands(tree, panes, cwds, "/tmp/myproject") as PaneNode;
+    // Should succeed and attach the cwd
+    expect(resolved.cwd).toBe("frontend");
   });
 
   it("warns on unused pane defs but succeeds", () => {
