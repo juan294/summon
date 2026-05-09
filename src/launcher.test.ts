@@ -88,8 +88,8 @@ beforeEach(() => {
   // Default: execSync no-ops (osascript, etc.)
   mockExecSync.mockImplementation(() => "");
   // Default: all commands are installed (resolveCommand uses execFileSync)
-  mockExecFileSync.mockImplementation((bin: string, args?: string[]) => {
-    if (bin === "/bin/sh" && Array.isArray(args) && args[0] === "-c" && typeof args[1] === "string" && args[1].startsWith("command -v"))
+  mockExecFileSync.mockImplementation((bin: string, _args?: string[]) => {
+    if (bin === "/usr/bin/which")
       return "/usr/bin/stub\n";
     return "";
   });
@@ -368,10 +368,10 @@ describe("command dependency checks", () => {
     await launch("/tmp/workspace");
 
     expect(mockExecFileSync).toHaveBeenCalledWith(
-      "/bin/sh", ["-c", 'command -v "$1"', "--", "vim"], { encoding: "utf-8" },
+      "/usr/bin/which", ["vim"], { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] },
     );
     expect(mockExecFileSync).toHaveBeenCalledWith(
-      "/bin/sh", ["-c", 'command -v "$1"', "--", "lazygit"], { encoding: "utf-8" },
+      "/usr/bin/which", ["lazygit"], { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] },
     );
   });
 
@@ -386,12 +386,12 @@ describe("command dependency checks", () => {
   it("offers to install a known missing command (claude)", async () => {
     let claudeCallCount = 0;
     mockExecFileSync.mockImplementation((bin: string, args?: string[]) => {
-      if (bin === "/bin/sh" && Array.isArray(args) && args[3] === "claude") {
+      if (bin === "/usr/bin/which" && Array.isArray(args) && args[0] === "claude") {
         claudeCallCount++;
         if (claudeCallCount <= 1) throw new Error("not found");
         return "/usr/bin/claude\n";
       }
-      if (bin === "/bin/sh" && Array.isArray(args) && args[0] === "-c" && typeof args[1] === "string" && args[1].startsWith("command -v"))
+      if (bin === "/usr/bin/which")
         return "/usr/bin/stub\n";
       // npm install call — let it through
       return "";
@@ -417,8 +417,8 @@ describe("command dependency checks", () => {
 
   it("exits when unknown command is missing", async () => {
     mockExecFileSync.mockImplementation((bin: string, args?: string[]) => {
-      if (bin === "/bin/sh" && Array.isArray(args) && args[3] === "obscure-tool") throw new Error("not found");
-      if (bin === "/bin/sh" && Array.isArray(args) && args[0] === "-c" && typeof args[1] === "string" && args[1].startsWith("command -v"))
+      if (bin === "/usr/bin/which" && Array.isArray(args) && args[0] === "obscure-tool") throw new Error("not found");
+      if (bin === "/usr/bin/which")
         return "/usr/bin/stub\n";
       return "";
     });
@@ -435,8 +435,8 @@ describe("command dependency checks", () => {
 
   it("shows correct CLI syntax in error message for editor", async () => {
     mockExecFileSync.mockImplementation((bin: string, args?: string[]) => {
-      if (bin === "/bin/sh" && Array.isArray(args) && args[3] === "obscure-tool") throw new Error("not found");
-      if (bin === "/bin/sh" && Array.isArray(args) && args[0] === "-c" && typeof args[1] === "string" && args[1].startsWith("command -v"))
+      if (bin === "/usr/bin/which" && Array.isArray(args) && args[0] === "obscure-tool") throw new Error("not found");
+      if (bin === "/usr/bin/which")
         return "/usr/bin/stub\n";
       return "";
     });
@@ -460,8 +460,8 @@ describe("command dependency checks", () => {
 
   it("shows correct CLI syntax in error message for sidebar", async () => {
     mockExecFileSync.mockImplementation((bin: string, args?: string[]) => {
-      if (bin === "/bin/sh" && Array.isArray(args) && args[3] === "unknown-sidebar") throw new Error("not found");
-      if (bin === "/bin/sh" && Array.isArray(args) && args[0] === "-c" && typeof args[1] === "string" && args[1].startsWith("command -v"))
+      if (bin === "/usr/bin/which" && Array.isArray(args) && args[0] === "unknown-sidebar") throw new Error("not found");
+      if (bin === "/usr/bin/which")
         return "/usr/bin/stub\n";
       return "";
     });
@@ -485,8 +485,8 @@ describe("command dependency checks", () => {
 
   it("shows correct CLI syntax in error message for shell", async () => {
     mockExecFileSync.mockImplementation((bin: string, args?: string[]) => {
-      if (bin === "/bin/sh" && Array.isArray(args) && args[3] === "unknown-shell") throw new Error("not found");
-      if (bin === "/bin/sh" && Array.isArray(args) && args[0] === "-c" && typeof args[1] === "string" && args[1].startsWith("command -v"))
+      if (bin === "/usr/bin/which" && Array.isArray(args) && args[0] === "unknown-shell") throw new Error("not found");
+      if (bin === "/usr/bin/which")
         return "/usr/bin/stub\n";
       return "";
     });
@@ -538,8 +538,8 @@ describe("command dependency checks", () => {
 
   it("exits when user declines install", async () => {
     mockExecFileSync.mockImplementation((bin: string, args?: string[]) => {
-      if (bin === "/bin/sh" && Array.isArray(args) && args[3] === "claude") throw new Error("not found");
-      if (bin === "/bin/sh" && Array.isArray(args) && args[0] === "-c" && typeof args[1] === "string" && args[1].startsWith("command -v"))
+      if (bin === "/usr/bin/which" && Array.isArray(args) && args[0] === "claude") throw new Error("not found");
+      if (bin === "/usr/bin/which")
         return "/usr/bin/stub\n";
       return "";
     });
@@ -566,7 +566,7 @@ describe("secondaryEditor binary check", () => {
     await launch("/tmp/workspace", { layout: "btop" });
 
     expect(mockExecFileSync).toHaveBeenCalledWith(
-      "/bin/sh", ["-c", 'command -v "$1"', "--", "btop"], { encoding: "utf-8" },
+      "/usr/bin/which", ["btop"], { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] },
     );
   });
 });
@@ -576,8 +576,8 @@ describe("ensureCommand error paths", () => {
     mockExecFileSync.mockImplementation((bin: string, args?: string[]) => {
       // Accessibility pre-flight check — allow through
       if (bin === "osascript") return "";
-      if (bin === "/bin/sh" && Array.isArray(args) && args[3] === "claude") throw new Error("not found");
-      if (bin === "/bin/sh" && Array.isArray(args) && args[0] === "-c" && typeof args[1] === "string" && args[1].startsWith("command -v"))
+      if (bin === "/usr/bin/which" && Array.isArray(args) && args[0] === "claude") throw new Error("not found");
+      if (bin === "/usr/bin/which")
         return "/usr/bin/stub\n";
       // npm install call — simulate failure
       throw new Error("install failed");
@@ -604,8 +604,8 @@ describe("ensureCommand error paths", () => {
 
   it("exits when command still not found after successful install", async () => {
     mockExecFileSync.mockImplementation((bin: string, args?: string[]) => {
-      if (bin === "/bin/sh" && Array.isArray(args) && args[3] === "claude") throw new Error("not found");
-      if (bin === "/bin/sh" && Array.isArray(args) && args[0] === "-c" && typeof args[1] === "string" && args[1].startsWith("command -v"))
+      if (bin === "/usr/bin/which" && Array.isArray(args) && args[0] === "claude") throw new Error("not found");
+      if (bin === "/usr/bin/which")
         return "/usr/bin/stub\n";
       // npm install call — succeed but command still not found
       return Buffer.from("");
@@ -635,12 +635,12 @@ describe("lazygit install handler", () => {
   it("offers to install lazygit via brew when missing and brew is available", async () => {
     let lazygitCallCount = 0;
     mockExecFileSync.mockImplementation((bin: string, args?: string[]) => {
-      if (bin === "/bin/sh" && Array.isArray(args) && args[3] === "lazygit") {
+      if (bin === "/usr/bin/which" && Array.isArray(args) && args[0] === "lazygit") {
         lazygitCallCount++;
         if (lazygitCallCount <= 1) throw new Error("not found");
         return "/usr/bin/lazygit\n";
       }
-      if (bin === "/bin/sh" && Array.isArray(args) && args[0] === "-c" && typeof args[1] === "string" && args[1].startsWith("command -v"))
+      if (bin === "/usr/bin/which")
         return "/usr/bin/stub\n";
       // brew install call — let it through
       return "";
@@ -664,10 +664,10 @@ describe("lazygit install handler", () => {
 
   it("shows no-known-install-method error when lazygit missing and brew unavailable", async () => {
     mockExecFileSync.mockImplementation((bin: string, args?: string[]) => {
-      if (bin === "/bin/sh" && Array.isArray(args) && args[3] === "lazygit") throw new Error("not found");
+      if (bin === "/usr/bin/which" && Array.isArray(args) && args[0] === "lazygit") throw new Error("not found");
       // brew check (called with stdio: "ignore", no "--" arg)
       if (bin === "/bin/sh" && Array.isArray(args) && args[1] === "command -v brew") throw new Error("not found");
-      if (bin === "/bin/sh" && Array.isArray(args) && args[0] === "-c" && typeof args[1] === "string" && args[1].startsWith("command -v"))
+      if (bin === "/usr/bin/which")
         return "/usr/bin/stub\n";
       return "";
     });
@@ -728,7 +728,7 @@ describe("command name validation", () => {
     await launch("/tmp/workspace");
 
     expect(mockExecFileSync).toHaveBeenCalledWith(
-      "/bin/sh", ["-c", 'command -v "$1"', "--", "my-editor.v2"], { encoding: "utf-8" },
+      "/usr/bin/which", ["my-editor.v2"], { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] },
     );
   });
 });
@@ -830,7 +830,7 @@ describe("osascript error handling", () => {
       if (bin === "osascript" && opts?.input) {
         throw new Error("execution error: Ghostty got an error: connection is invalid (-609)");
       }
-      if (bin === "/bin/sh" && Array.isArray(args) && args[0] === "-c" && typeof args[1] === "string" && args[1].startsWith("command -v"))
+      if (bin === "/usr/bin/which")
         return "/usr/bin/stub\n";
       return "";
     });
@@ -860,7 +860,7 @@ describe("osascript error handling", () => {
       if (bin === "osascript" && opts?.input) {
         throw new Error("Command failed: osascript\n795:799: execution error: System Events got an error: osascript is not allowed assistive access. (-1719)");
       }
-      if (bin === "/bin/sh" && Array.isArray(args) && args[0] === "-c" && typeof args[1] === "string" && args[1].startsWith("command -v"))
+      if (bin === "/usr/bin/which")
         return "/usr/bin/stub\n";
       return "";
     });
@@ -886,7 +886,7 @@ describe("osascript error handling", () => {
       if (bin === "osascript" && opts?.input) {
         throw new Error("execution error: System Events got an error: (-1719)");
       }
-      if (bin === "/bin/sh" && Array.isArray(args) && args[0] === "-c" && typeof args[1] === "string" && args[1].startsWith("command -v"))
+      if (bin === "/usr/bin/which")
         return "/usr/bin/stub\n";
       return "";
     });
@@ -912,7 +912,7 @@ describe("osascript error handling", () => {
       if (bin === "osascript" && opts?.input) {
         throw "string error";
       }
-      if (bin === "/bin/sh" && Array.isArray(args) && args[0] === "-c" && typeof args[1] === "string" && args[1].startsWith("command -v"))
+      if (bin === "/usr/bin/which")
         return "/usr/bin/stub\n";
       return "";
     });
@@ -935,11 +935,11 @@ describe("osascript error handling", () => {
 describe("pre-flight accessibility check", () => {
   /** Mock execFileSync so all osascript calls throw an accessibility error. */
   const mockAccessibilityDenied = () => {
-    mockExecFileSync.mockImplementation((bin: string, args?: string[]) => {
+    mockExecFileSync.mockImplementation((bin: string, _args?: string[]) => {
       if (bin === "osascript") {
         throw new Error("assistive access (-1719)");
       }
-      if (bin === "/bin/sh" && Array.isArray(args) && args[0] === "-c" && typeof args[1] === "string" && args[1].startsWith("command -v"))
+      if (bin === "/usr/bin/which")
         return "/usr/bin/stub\n";
       return "";
     });
@@ -1123,9 +1123,9 @@ describe("command resolution deduplication (#32)", () => {
   it("calls resolveCommand only once per binary during launch", async () => {
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
     mockExecFileSync.mockImplementation((bin: string, args?: string[]) => {
-      if (bin === "/bin/sh" && Array.isArray(args) && args[3] === "vim") return "/usr/bin/vim\n";
-      if (bin === "/bin/sh" && Array.isArray(args) && args[3] === "lazygit") return "/usr/bin/lazygit\n";
-      if (bin === "/bin/sh" && Array.isArray(args) && args[0] === "-c" && typeof args[1] === "string" && args[1].startsWith("command -v"))
+      if (bin === "/usr/bin/which" && Array.isArray(args) && args[0] === "vim") return "/usr/bin/vim\n";
+      if (bin === "/usr/bin/which" && Array.isArray(args) && args[0] === "lazygit") return "/usr/bin/lazygit\n";
+      if (bin === "/usr/bin/which")
         return "/usr/bin/stub\n";
       return "";
     });
@@ -1134,10 +1134,10 @@ describe("command resolution deduplication (#32)", () => {
 
     // Each binary should be resolved exactly once, not twice
     const vimCalls = mockExecFileSync.mock.calls.filter(
-      (c) => c[0] === "/bin/sh" && Array.isArray(c[1]) && c[1][3] === "vim",
+      (c) => c[0] === "/usr/bin/which" && Array.isArray(c[1]) && c[1][0] === "vim",
     );
     const lazygitCalls = mockExecFileSync.mock.calls.filter(
-      (c) => c[0] === "/bin/sh" && Array.isArray(c[1]) && c[1][3] === "lazygit",
+      (c) => c[0] === "/usr/bin/which" && Array.isArray(c[1]) && c[1][0] === "lazygit",
     );
     expect(vimCalls).toHaveLength(1);
     expect(lazygitCalls).toHaveLength(1);
@@ -1146,8 +1146,8 @@ describe("command resolution deduplication (#32)", () => {
   it("uses ensureCommand return value for path resolution instead of re-resolving", async () => {
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
     mockExecFileSync.mockImplementation((bin: string, args?: string[]) => {
-      if (bin === "/bin/sh" && Array.isArray(args) && args[3] === "npm") return "/usr/local/bin/npm\n";
-      if (bin === "/bin/sh" && Array.isArray(args) && args[0] === "-c" && typeof args[1] === "string" && args[1].startsWith("command -v"))
+      if (bin === "/usr/bin/which" && Array.isArray(args) && args[0] === "npm") return "/usr/local/bin/npm\n";
+      if (bin === "/usr/bin/which")
         return "/usr/bin/stub\n";
       return "";
     });
@@ -1156,7 +1156,7 @@ describe("command resolution deduplication (#32)", () => {
 
     // "command -v npm" should be called only once
     const npmCalls = mockExecFileSync.mock.calls.filter(
-      (c) => c[0] === "/bin/sh" && Array.isArray(c[1]) && c[1][3] === "npm",
+      (c) => c[0] === "/usr/bin/which" && Array.isArray(c[1]) && c[1][0] === "npm",
     );
     expect(npmCalls).toHaveLength(1);
   });
@@ -1169,8 +1169,8 @@ describe("command resolution cache for shared binaries (#61)", () => {
       new Map([["editor", "claude"], ["sidebar", "claude"]]),
     );
     mockExecFileSync.mockImplementation((bin: string, args?: string[]) => {
-      if (bin === "/bin/sh" && Array.isArray(args) && args[3] === "claude") return "/usr/bin/claude\n";
-      if (bin === "/bin/sh" && Array.isArray(args) && args[0] === "-c" && typeof args[1] === "string" && args[1].startsWith("command -v"))
+      if (bin === "/usr/bin/which" && Array.isArray(args) && args[0] === "claude") return "/usr/bin/claude\n";
+      if (bin === "/usr/bin/which")
         return "/usr/bin/stub\n";
       return "";
     });
@@ -1180,7 +1180,7 @@ describe("command resolution cache for shared binaries (#61)", () => {
     // "command -v claude" should be called only once, even though claude
     // is used for both editor and sidebarCommand roles
     const claudeCalls = mockExecFileSync.mock.calls.filter(
-      (c) => c[0] === "/bin/sh" && Array.isArray(c[1]) && c[1][3] === "claude",
+      (c) => c[0] === "/usr/bin/which" && Array.isArray(c[1]) && c[1][0] === "claude",
     );
     expect(claudeCalls).toHaveLength(1);
   });
@@ -1190,8 +1190,8 @@ describe("command resolution cache for shared binaries (#61)", () => {
       new Map([["editor", "vim"], ["sidebar", "vim"]]),
     );
     mockExecFileSync.mockImplementation((bin: string, args?: string[]) => {
-      if (bin === "/bin/sh" && Array.isArray(args) && args[3] === "vim") return "/usr/local/bin/vim\n";
-      if (bin === "/bin/sh" && Array.isArray(args) && args[0] === "-c" && typeof args[1] === "string" && args[1].startsWith("command -v"))
+      if (bin === "/usr/bin/which" && Array.isArray(args) && args[0] === "vim") return "/usr/local/bin/vim\n";
+      if (bin === "/usr/bin/which")
         return "/usr/bin/stub\n";
       return "";
     });
@@ -1200,7 +1200,7 @@ describe("command resolution cache for shared binaries (#61)", () => {
 
     // "command -v vim" should be called only once
     const vimCalls = mockExecFileSync.mock.calls.filter(
-      (c) => c[0] === "/bin/sh" && Array.isArray(c[1]) && c[1][3] === "vim",
+      (c) => c[0] === "/usr/bin/which" && Array.isArray(c[1]) && c[1][0] === "vim",
     );
     expect(vimCalls).toHaveLength(1);
 
@@ -1293,9 +1293,9 @@ describe("dry-run summary header (#85)", () => {
 describe("path resolution", () => {
   it("passes resolved full paths to generateAppleScript", async () => {
     mockExecFileSync.mockImplementation((bin: string, args?: string[]) => {
-      if (bin === "/bin/sh" && Array.isArray(args) && args[3] === "vim") return "/usr/bin/vim\n";
-      if (bin === "/bin/sh" && Array.isArray(args) && args[3] === "lazygit") return "/opt/homebrew/bin/lazygit\n";
-      if (bin === "/bin/sh" && Array.isArray(args) && args[0] === "-c" && typeof args[1] === "string" && args[1].startsWith("command -v"))
+      if (bin === "/usr/bin/which" && Array.isArray(args) && args[0] === "vim") return "/usr/bin/vim\n";
+      if (bin === "/usr/bin/which" && Array.isArray(args) && args[0] === "lazygit") return "/opt/homebrew/bin/lazygit\n";
+      if (bin === "/usr/bin/which")
         return "/usr/bin/stub\n";
       return "";
     });
@@ -1318,8 +1318,8 @@ describe("path resolution", () => {
 
   it("resolves only the binary part of compound shell commands", async () => {
     mockExecFileSync.mockImplementation((bin: string, args?: string[]) => {
-      if (bin === "/bin/sh" && Array.isArray(args) && args[3] === "npm") return "/usr/local/bin/npm\n";
-      if (bin === "/bin/sh" && Array.isArray(args) && args[0] === "-c" && typeof args[1] === "string" && args[1].startsWith("command -v"))
+      if (bin === "/usr/bin/which" && Array.isArray(args) && args[0] === "npm") return "/usr/local/bin/npm\n";
+      if (bin === "/usr/bin/which")
         return "/usr/bin/stub\n";
       return "";
     });
@@ -2003,10 +2003,10 @@ describe("on-start hook (#107)", () => {
     it("preserves quoted arguments while resolving the executable path", async () => {
       vi.mocked(listConfig).mockReturnValue(new Map([["editor", 'rg "hello world" src']]));
       mockExecFileSync.mockImplementation((bin: string, args?: string[]) => {
-        if (bin === "/bin/sh" && Array.isArray(args) && args[3] === "rg") {
+        if (bin === "/usr/bin/which" && Array.isArray(args) && args[0] === "rg") {
           return "/usr/bin/rg\n";
         }
-        if (bin === "/bin/sh" && Array.isArray(args) && args[3] === "lazygit") {
+        if (bin === "/usr/bin/which" && Array.isArray(args) && args[0] === "lazygit") {
           return "/usr/bin/lazygit\n";
         }
         return "";
@@ -2334,9 +2334,9 @@ describe("custom tree layout integration (Phase 4)", () => {
       expect(mockGenerateTreeAppleScript).toHaveBeenCalled();
       expect(mockGenerateAppleScript).not.toHaveBeenCalled();
 
-      const output = logSpy.mock.calls[0]![0] as string;
-      expect(output).toContain("-- summon dry-run");
-      expect(output).toContain("tree layout");
+      const allOutput = logSpy.mock.calls.map((c) => c[0] as string).join("\n");
+      expect(allOutput).toContain("-- summon dry-run");
+      expect(allOutput).toContain("tree layout");
       logSpy.mockRestore();
     });
 
@@ -2356,8 +2356,8 @@ describe("custom tree layout integration (Phase 4)", () => {
 
       await launch("/tmp/workspace", { dryRun: true });
 
-      const output = logSpy.mock.calls[0]![0] as string;
-      expect(output).toContain("3 panes");
+      const allOutput = logSpy.mock.calls.map((c) => c[0] as string).join("\n");
+      expect(allOutput).toContain("3 panes");
       logSpy.mockRestore();
     });
 
@@ -2401,10 +2401,10 @@ describe("custom tree layout integration (Phase 4)", () => {
 
       // Both claude and lazygit should be checked via command -v
       expect(mockExecFileSync).toHaveBeenCalledWith(
-        "/bin/sh", ["-c", 'command -v "$1"', "--", "claude"], { encoding: "utf-8" },
+        "/usr/bin/which", ["claude"], { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] },
       );
       expect(mockExecFileSync).toHaveBeenCalledWith(
-        "/bin/sh", ["-c", 'command -v "$1"', "--", "lazygit"], { encoding: "utf-8" },
+        "/usr/bin/which", ["lazygit"], { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] },
       );
     });
 
@@ -2424,9 +2424,9 @@ describe("custom tree layout integration (Phase 4)", () => {
 
       await launch("/tmp/workspace", { dryRun: true });
 
-      const output = logSpy.mock.calls[0]![0] as string;
-      expect(output).toContain("Starship preset: gruvbox-rainbow");
-      expect(output).toContain("/mock/.config/summon/starship/gruvbox-rainbow.toml");
+      const allOutput = logSpy.mock.calls.map((c) => c[0] as string).join("\n");
+      expect(allOutput).toContain("Starship preset: gruvbox-rainbow");
+      expect(allOutput).toContain("/mock/.config/summon/starship/gruvbox-rainbow.toml");
       expect(mockGenerateTreeAppleScript).toHaveBeenCalledWith(
         expect.anything(),
         "/tmp/workspace",
@@ -2550,16 +2550,16 @@ describe("custom tree layout integration (Phase 4)", () => {
 });
 
 describe("launch feedback (#144)", () => {
-  it("prints a feedback message to stderr on successful non-dry-run launch", async () => {
+  it("prints a feedback message to stdout on successful non-dry-run launch", async () => {
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
     await launch("/tmp/workspace");
 
-    const warnMessages = warnSpy.mock.calls.map((c) => c[0] as string);
-    const feedbackMsg = warnMessages.find((m) => m.toLowerCase().includes("summon"));
+    const logMessages = logSpy.mock.calls.map((c) => c[0] as string);
+    const feedbackMsg = logMessages.find((m) => m.toLowerCase().includes("summon"));
     expect(feedbackMsg).toBeDefined();
-    warnSpy.mockRestore();
+    logSpy.mockRestore();
   });
 
   it("does NOT print launch feedback in dry-run mode", async () => {
@@ -2606,9 +2606,9 @@ describe("dry-run singular pane label (#168)", () => {
 
     await launch("/tmp/workspace", { dryRun: true });
 
-    const output = logSpy.mock.calls[0]![0] as string;
-    expect(output).toContain("1 pane");
-    expect(output).not.toContain("1 panes");
+    const allOutput = logSpy.mock.calls.map((c) => c[0] as string).join("\n");
+    expect(allOutput).toContain("1 pane");
+    expect(allOutput).not.toContain("1 panes");
     logSpy.mockRestore();
   });
 
@@ -2775,7 +2775,7 @@ describe("tree dry-run without starship preset (#168)", () => {
 });
 
 describe("project config log (#146)", () => {
-  it("logs which .summon file is being loaded to stderr", () => {
+  it("logs which .summon file is being loaded to stdout", () => {
     mockReadKVFile.mockImplementation((path: string) => {
       if (path === "/tmp/workspace/.summon") {
         return new Map([["editor", "vim"]]);
@@ -2783,31 +2783,34 @@ describe("project config log (#146)", () => {
       return new Map();
     });
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
     resolveConfig("/tmp/workspace", {});
 
-    const warnMessages = warnSpy.mock.calls.map((c) => c[0] as string);
-    const configMsg = warnMessages.find((m) => m.includes(".summon"));
+    const logMessages = logSpy.mock.calls.map((c) => c[0] as string);
+    const configMsg = logMessages.find((m) => m.includes(".summon"));
     expect(configMsg).toBeDefined();
     expect(configMsg).toContain("/tmp/workspace/.summon");
-    warnSpy.mockRestore();
+    logSpy.mockRestore();
   });
 
   it("does NOT log .summon path when no project config exists", () => {
     mockReadKVFile.mockReturnValue(new Map());
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
     resolveConfig("/tmp/workspace", {});
 
-    const warnMessages = warnSpy.mock.calls.map((c) => c[0] as string);
-    const configMsg = warnMessages.find((m) => m.includes(".summon"));
+    const logMessages = logSpy.mock.calls.map((c) => c[0] as string);
+    const configMsg = logMessages.find((m) => m.includes(".summon"));
     expect(configMsg).toBeUndefined();
-    warnSpy.mockRestore();
+    logSpy.mockRestore();
   });
 
-  it("shows trust advisory when .summon file is loaded in TTY mode", () => {
+  it("does not show trust advisory — trust gate replaces the old advisory tip", () => {
+    // The old "Review .summon files before use in untrusted directories" tip has been
+    // replaced by the trust gate mechanism (SE-H1). No advisory is shown; instead,
+    // untrusted .summon files are blocked entirely via assertTrusted().
     const originalIsTTY = process.stdin.isTTY;
     Object.defineProperty(process.stdin, "isTTY", { value: true, writable: true });
     mockReadKVFile.mockImplementation((path: string) => {
@@ -2823,7 +2826,7 @@ describe("project config log (#146)", () => {
 
     const warnMessages = warnSpy.mock.calls.map((c) => c[0] as string);
     const trustMsg = warnMessages.find((m) => m.includes("Review .summon"));
-    expect(trustMsg).toBeDefined();
+    expect(trustMsg).toBeUndefined();
     warnSpy.mockRestore();
     Object.defineProperty(process.stdin, "isTTY", { value: originalIsTTY, writable: true });
   });
@@ -3180,12 +3183,12 @@ describe("W9: ensureCommand install prompt defaults to No (#190)", () => {
   it("exits when user presses Enter (default is deny) at install prompt", async () => {
     let claudeCallCount = 0;
     mockExecFileSync.mockImplementation((bin: string, args?: string[]) => {
-      if (bin === "/bin/sh" && Array.isArray(args) && args[3] === "claude") {
+      if (bin === "/usr/bin/which" && Array.isArray(args) && args[0] === "claude") {
         claudeCallCount++;
         if (claudeCallCount <= 1) throw new Error("not found");
         return "/usr/bin/claude\n";
       }
-      if (bin === "/bin/sh" && Array.isArray(args) && args[0] === "-c" && typeof args[1] === "string" && args[1].startsWith("command -v"))
+      if (bin === "/usr/bin/which")
         return "/usr/bin/stub\n";
       return "";
     });
@@ -3210,8 +3213,8 @@ describe("W9: ensureCommand install prompt defaults to No (#190)", () => {
 
   it("shows [y/N] prompt (default No) for install", async () => {
     mockExecFileSync.mockImplementation((bin: string, args?: string[]) => {
-      if (bin === "/bin/sh" && Array.isArray(args) && args[3] === "claude") throw new Error("not found");
-      if (bin === "/bin/sh" && Array.isArray(args) && args[0] === "-c" && typeof args[1] === "string" && args[1].startsWith("command -v"))
+      if (bin === "/usr/bin/which" && Array.isArray(args) && args[0] === "claude") throw new Error("not found");
+      if (bin === "/usr/bin/which")
         return "/usr/bin/stub\n";
       return "";
     });
@@ -3270,21 +3273,21 @@ describe("R19: on-start failure includes error message (#190)", () => {
   });
 });
 
-describe("R24: on-start status message uses stderr (#190)", () => {
-  it("prints on-start status message to stderr (console.warn) not stdout", async () => {
+describe("R24: on-start status message uses stdout (#190)", () => {
+  it("prints on-start status message to stdout (console.log) not stderr", async () => {
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
     await launch("/tmp/workspace", { "on-start": "echo setup" });
 
-    // The "Running on-start: ..." message should go to stderr (console.warn)
-    const warnMessages = warnSpy.mock.calls.map((c) => c[0] as string);
-    expect(warnMessages.some((m) => m.includes("Running on-start:"))).toBe(true);
-
-    // And NOT to stdout (console.log)
+    // The "Running on-start: ..." message should go to stdout (console.log)
     const logMessages = logSpy.mock.calls.map((c) => c[0] as string);
-    expect(logMessages.every((m) => !m.includes("Running on-start:"))).toBe(true);
+    expect(logMessages.some((m) => m.includes("Running on-start:"))).toBe(true);
+
+    // And NOT to stderr (console.warn)
+    const warnMessages = warnSpy.mock.calls.map((c) => c[0] as string);
+    expect(warnMessages.every((m) => !m.includes("Running on-start:"))).toBe(true);
 
     warnSpy.mockRestore();
     logSpy.mockRestore();
@@ -3449,17 +3452,21 @@ describe("decideCleanRestoredPanes", () => {
 
   it("sets cleanRestoredPanes=true and notifies when probe > 1 and SUMMON_WORKSPACE unset", () => {
     mockProbe(5);
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     const opts: Record<string, unknown> = { newWindow: false };
     decideCleanRestoredPanes(opts, {}, new Map(), new Map(), false);
     expect(opts["cleanRestoredPanes"]).toBe(true);
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("Clearing 4 stale panes"));
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("Clearing 4 stale panes"));
+    logSpy.mockRestore();
   });
 
   it("uses singular 'pane' when stale count is 1", () => {
     mockProbe(2);
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     const opts: Record<string, unknown> = { newWindow: false };
     decideCleanRestoredPanes(opts, {}, new Map(), new Map(), false);
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("Clearing 1 stale pane "));
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("Clearing 1 stale pane "));
+    logSpy.mockRestore();
   });
 
   it("no-op when SUMMON_WORKSPACE is set", () => {
@@ -3537,10 +3544,12 @@ describe("decideCleanRestoredPanes", () => {
 
   it("CLI clean=true overrides project clean=false", () => {
     mockProbe(5);
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     const project = new Map([["clean", "false"]]);
     const opts: Record<string, unknown> = {};
     decideCleanRestoredPanes(opts, { clean: "true" }, project, new Map(), false);
     expect(opts["cleanRestoredPanes"]).toBe(true);
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("Clearing"));
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("Clearing"));
+    logSpy.mockRestore();
   });
 });

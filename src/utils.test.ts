@@ -27,7 +27,7 @@ vi.mock("node:readline", () => ({
 }));
 
 // Import after mocks
-const { SAFE_COMMAND_RE, GHOSTTY_PATHS, GHOSTTY_APP_NAME, SUMMON_WORKSPACE_ENV, resolveCommand, promptUser, getErrorMessage, exitWithUsageHint, checkAccessibility, openAccessibilitySettings, isAccessibilityError, isGhosttyInstalled, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT } = await import("./utils.js");
+const { SAFE_COMMAND_RE, GHOSTTY_PATHS, GHOSTTY_APP_NAME, SUMMON_WORKSPACE_ENV, resolveCommand, promptUser, getErrorMessage, exitWithUsageHint, checkAccessibility, openAccessibilitySettings, isAccessibilityError, isGhosttyInstalled, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT, PromptCancelled } = await import("./utils.js");
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -156,9 +156,9 @@ describe("resolveCommand", () => {
     mockExecFileSync.mockReturnValue("/usr/bin/vim\n");
     resolveCommand("vim");
     expect(mockExecFileSync).toHaveBeenCalledWith(
-      "/bin/sh",
-      ["-c", 'command -v "$1"', "--", "vim"],
-      { encoding: "utf-8" },
+      "/usr/bin/which",
+      ["vim"],
+      { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] },
     );
   });
 
@@ -257,17 +257,15 @@ describe("promptUser", () => {
     expect(mockOn).toHaveBeenCalledWith("close", expect.any(Function));
   });
 
-  it("exits cleanly on Ctrl+C (close event)", async () => {
-    const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => { throw new Error("exit"); });
+  it("throws PromptCancelled on Ctrl+C (close event)", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     // Simulate Ctrl+C: question never calls back, close handler fires instead
     mockQuestion.mockImplementation(() => {}); // no callback
     mockOn.mockImplementation((_event: string, cb: () => void) => cb());
 
-    await expect(promptUser("Q: ")).rejects.toThrow("exit");
-    expect(exitSpy).toHaveBeenCalledWith(130);
+    await expect(promptUser("Q: ")).rejects.toThrow(PromptCancelled);
+    await expect(promptUser("Q: ")).rejects.toThrow("Cancelled");
 
-    exitSpy.mockRestore();
     logSpy.mockRestore();
     mockOn.mockReset();
   });

@@ -595,7 +595,7 @@ describe("selectToolFromCatalog", () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     // Make "nano" available but "vim" not
     mockExecFileSync.mockImplementation((_bin: string, args?: string[]) => {
-      if (Array.isArray(args) && args[3] === "nano") return "/usr/bin/nano\n";
+      if (Array.isArray(args) && args[0] === "nano") return "/usr/bin/nano\n";
       throw new Error("not found");
     });
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) =>
@@ -625,7 +625,7 @@ describe("selectToolFromCatalog", () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     // Make "nano" available but "vim" not
     mockExecFileSync.mockImplementation((_bin: string, args?: string[]) => {
-      if (Array.isArray(args) && args[3] === "nano") return "/usr/bin/nano\n";
+      if (Array.isArray(args) && args[0] === "nano") return "/usr/bin/nano\n";
       throw new Error("not found");
     });
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) =>
@@ -690,7 +690,7 @@ describe("selectToolFromCatalog", () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     // Make "nano" available but "vim" not
     mockExecFileSync.mockImplementation((_bin: string, args?: string[]) => {
-      if (Array.isArray(args) && args[3] === "nano") return "/usr/bin/nano\n";
+      if (Array.isArray(args) && args[0] === "nano") return "/usr/bin/nano\n";
       throw new Error("not found");
     });
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) =>
@@ -806,7 +806,7 @@ describe("validateSetup", () => {
 
   it("returns warning for missing editor", () => {
     mockExecFileSync.mockImplementation((_bin: string, args?: string[]) => {
-      if (Array.isArray(args) && args[3] === "vim") throw new Error("not found");
+      if (Array.isArray(args) && args[0] === "vim") throw new Error("not found");
       return "/usr/bin/stub\n";
     });
     mockExistsSync.mockReturnValue(true);
@@ -823,7 +823,7 @@ describe("validateSetup", () => {
 
   it("returns warning for missing sidebar", () => {
     mockExecFileSync.mockImplementation((_bin: string, args?: string[]) => {
-      if (Array.isArray(args) && args[3] === "lazygit")
+      if (Array.isArray(args) && args[0] === "lazygit")
         throw new Error("not found");
       return "/usr/bin/stub\n";
     });
@@ -840,7 +840,7 @@ describe("validateSetup", () => {
 
   it("returns warning for missing shell command", () => {
     mockExecFileSync.mockImplementation((_bin: string, args?: string[]) => {
-      if (Array.isArray(args) && args[3] === "npm")
+      if (Array.isArray(args) && args[0] === "npm")
         throw new Error("not found");
       return "/usr/bin/stub\n";
     });
@@ -858,7 +858,7 @@ describe("validateSetup", () => {
 
   it("checks the executable from multiword editor and sidebar commands", () => {
     mockExecFileSync.mockImplementation((_bin: string, args?: string[]) => {
-      if (Array.isArray(args) && args[3] === "npm") throw new Error("not found");
+      if (Array.isArray(args) && args[0] === "npm") throw new Error("not found");
       return "/usr/bin/stub\n";
     });
     mockExistsSync.mockReturnValue(true);
@@ -895,7 +895,7 @@ describe("validateSetup", () => {
 
   it("includes install hint when available", () => {
     mockExecFileSync.mockImplementation((_bin: string, args?: string[]) => {
-      if (Array.isArray(args) && args[3] === "lazygit")
+      if (Array.isArray(args) && args[0] === "lazygit")
         throw new Error("not found");
       return "/usr/bin/stub\n";
     });
@@ -3107,7 +3107,7 @@ describe("runSetup — custom layout path", () => {
 describe("validateSetup — warning without installHint", () => {
   it("returns warning without installHint for unknown tool", () => {
     mockExecFileSync.mockImplementation((_bin: string, args?: string[]) => {
-      if (Array.isArray(args) && args[3] === "my-custom-editor")
+      if (Array.isArray(args) && args[0] === "my-custom-editor")
         throw new Error("not found");
       return "/usr/bin/stub\n";
     });
@@ -3129,7 +3129,7 @@ describe("printValidation — warning without install hint", () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     // Make a custom editor that has no install hint
     mockExecFileSync.mockImplementation((_bin: string, args?: string[]) => {
-      if (Array.isArray(args) && args[3] === "my-custom-editor")
+      if (Array.isArray(args) && args[0] === "my-custom-editor")
         throw new Error("not found");
       return "/usr/bin/stub\n";
     });
@@ -3295,7 +3295,7 @@ describe("runLayoutBuilder — validateBuilderCommand branches", () => {
   it("warns and offers suggestion for unknown command with close match", async () => {
     // Make "lzgit" not found in PATH, "lazygit" is in available catalog
     mockExecFileSync.mockImplementation((_bin: string, args?: string[]) => {
-      if (Array.isArray(args) && (args[3] === "lzgit"))
+      if (Array.isArray(args) && (args[0] === "lzgit"))
         throw new Error("not found");
       return "/usr/bin/stub\n";
     });
@@ -3327,7 +3327,7 @@ describe("runLayoutBuilder — validateBuilderCommand branches", () => {
 
   it("keeps an unknown command when a close suggestion is declined but keep is confirmed", async () => {
     mockExecFileSync.mockImplementation((_bin: string, args?: string[]) => {
-      if (Array.isArray(args) && args[3] === "lzgit")
+      if (Array.isArray(args) && args[0] === "lzgit")
         throw new Error("not found");
       return "/usr/bin/stub\n";
     });
@@ -3357,7 +3357,7 @@ describe("runLayoutBuilder — validateBuilderCommand branches", () => {
   it("warns about unknown command with no close match and keeps if confirmed", async () => {
     // Make "zzzcmd" not found, no close match in catalog
     mockExecFileSync.mockImplementation((_bin: string, args?: string[]) => {
-      if (Array.isArray(args) && args[3] === "zzzcmd")
+      if (Array.isArray(args) && args[0] === "zzzcmd")
         throw new Error("not found");
       return "/usr/bin/stub\n";
     });
@@ -3388,7 +3388,7 @@ describe("runLayoutBuilder — validateBuilderCommand branches", () => {
   it("re-prompts when user declines to keep unknown command", async () => {
     // Make "zzzcmd" not found, no close match
     mockExecFileSync.mockImplementation((_bin: string, args?: string[]) => {
-      if (Array.isArray(args) && args[3] === "zzzcmd")
+      if (Array.isArray(args) && args[0] === "zzzcmd")
         throw new Error("not found");
       return "/usr/bin/stub\n";
     });

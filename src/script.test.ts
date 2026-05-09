@@ -1591,8 +1591,8 @@ describe("emitCleanupTrap — meta-char payloads", () => {
     { field: "projectName", raw: "my$app",   expectedSub: "my\\\\$app" },
     { field: "projectName", raw: "my\\app",  expectedSub: "my\\\\\\\\app" },
     { field: "targetDir",   raw: '/tmp/a"b', expectedSub: 'a\\"b' },
-    // eval "..." context: " → \" (shellDoubleQuote) → \\\" (escapeAppleScript)
-    { field: "onStop",      raw: 'echo "x"', expectedSub: 'echo \\\\\\"x\\\\\\"' },
+    // onStop is inlined directly: " → \" (escapeAppleScript only, no eval wrapper)
+    { field: "onStop",      raw: 'echo "x"', expectedSub: 'echo \\"x\\"' },
   ];
 
   for (const c of cases) {

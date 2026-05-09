@@ -8,7 +8,7 @@ import {
   listProjects,
 } from "../config.js";
 import { focusWorkspace, launch } from "../launcher.js";
-import { promptUser, exitWithUsageHint } from "../utils.js";
+import { promptUser, exitWithUsageHint, PromptCancelled } from "../utils.js";
 import { validateProjectNameOrExit } from "../validation.js";
 import type { CommandContext } from "./types.js";
 
@@ -94,7 +94,15 @@ export async function handleOpenCommand({ overrides }: CommandContext): Promise<
 
   let selectedRow: (typeof rows)[number] | undefined;
   while (selectedRow === undefined) {
-    const answer = await promptUser(`Select [1-${rows.length}]: `);
+    let answer: string;
+    try {
+      answer = await promptUser(`Select [1-${rows.length}]: `);
+    } catch (err) {
+      if (err instanceof PromptCancelled) {
+        process.exit(130);
+      }
+      throw err;
+    }
     const index = parseInt(answer, 10) - 1;
     if (Number.isNaN(index) || index < 0 || index >= rows.length) {
       console.error(`Invalid selection. Enter a number between 1 and ${rows.length}.`);

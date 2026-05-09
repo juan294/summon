@@ -94,8 +94,15 @@ function emitCleanupTrap(
 ): void {
   const parts: string[] = [];
 
+  // Ensure log directory exists for cleanup error logging
+  const logDir = `"$HOME/.config/summon/logs"`;
+  parts.push(`mkdir -p ${logDir}`);
+
   if (options?.onStop) {
-    parts.push(`eval "${shellDoubleQuote(options.onStop)}" 2>/dev/null`);
+    // Inline the on-stop command directly (no eval wrapper).
+    // Redirect errors to a log file instead of suppressing them.
+    const logFile = `"$HOME/.config/summon/logs/cleanup-${shellDoubleQuote(projectName)}.log"`;
+    parts.push(`${options.onStop} >> ${logFile} 2>&1`);
   }
 
   if (options?.targetDir) {
