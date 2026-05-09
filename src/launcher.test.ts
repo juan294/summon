@@ -3398,10 +3398,9 @@ describe("BE-M12: osascript 30-second timeout (#302)", () => {
   it("throws a human-readable message when osascript times out (ETIMEDOUT)", async () => {
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
     const timeoutError = Object.assign(new Error("spawnSync osascript ETIMEDOUT"), { code: "ETIMEDOUT" });
-    mockExecFileSync.mockImplementation((bin: string, args?: string[], opts?: Record<string, unknown>) => {
+    mockExecFileSync.mockImplementation((bin: string, _args?: string[], opts?: Record<string, unknown>) => {
       if (bin === "osascript" && opts?.input) throw timeoutError;
-      if (bin === "/bin/sh" && Array.isArray(args) && args[0] === "-c" && typeof args[1] === "string" && args[1].startsWith("command -v"))
-        return "/usr/bin/stub\n";
+      if (bin === "/usr/bin/which") return "/usr/bin/stub\n";
       return "";
     });
 
