@@ -327,9 +327,9 @@ describe("writeKV newline sanitization (#26)", () => {
     expect(getConfig("key")).toBe("valuewith-cr");
   });
 
-  it("strips newlines from project names and paths", () => {
-    addProject("my\napp", "/home/\nuser/app");
-    expect(getProject("myapp")).toBe("/home/user/app");
+  it("rejects project names with newlines (BE-B4 validation)", () => {
+    // addProject now validates names — newlines are whitespace and rejected
+    expect(() => addProject("my\napp", "/home/user/app")).toThrow("Invalid project name");
   });
 });
 
@@ -501,5 +501,75 @@ describe("custom layouts", () => {
       const result = layoutPath("mywork");
       expect(result).toBe(`${LAYOUTS_DIR}/mywork`);
     });
+
+    it("layoutPath rejects a name that starts with LAYOUTS_DIR prefix but is outside (SE-L1)", () => {
+      // e.g. LAYOUTS_DIR = /home/user/.config/summon/layouts
+      // evil path: /home/user/.config/summon/layouts-evil/x
+      // Without trailing sep guard, startsWith would pass for a sibling dir
+      // named layouts-evil if resolved path started with layouts string
+      // We test a name that would resolve to a sibling directory
+      const evilName = `../layouts-evil/x`;
+      expect(() => layoutPath(evilName)).toThrow("Invalid layout path");
+    });
+  });
+});
+
+describe("readKVFile CRLF normalization (BE-B3)", () => {
+  it("parses CRLF line endings correctly", async () => {
+    const store = await getStore();
+    store.set("/tmp/.summon-crlf", "editor=vim\r\npanes=2\r\n");
+    const map = readKVFile("/tmp/.summon-crlf");
+    expect(map.get("editor")).toBe("vim");
+    expect(map.get("panes")).toBe("2");
+  });
+
+  it("parses CR-only line endings correctly", async () => {
+    const store = await getStore();
+    store.set("/tmp/.summon-cr", "editor=vim\rpanes=2\r");
+    const map = readKVFile("/tmp/.summon-cr");
+    expect(map.get("editor")).toBe("vim");
+    expect(map.get("panes")).toBe("2");
+  });
+
+  it("trims whitespace from values after split", async () => {
+    const store = await getStore();
+    store.set("/tmp/.summon-spaces", "editor= vim \npanes= 2 \n");
+    const map = readKVFile("/tmp/.summon-spaces");
+    expect(map.get("editor")).toBe("vim");
+    expect(map.get("panes")).toBe("2");
+  });
+
+  it("trims whitespace from keys", async () => {
+    const store = await getStore();
+    store.set("/tmp/.summon-keyspaces", " editor =vim\n");
+    const map = readKVFile("/tmp/.summon-keyspaces");
+    expect(map.get("editor")).toBe("vim");
+  });
+});
+
+describe("addProject validation (BE-B4)", () => {
+  it("rejects project names containing '='", () => {
+    expect(() => addProject("my=app", "/home/user/myapp")).toThrow();
+  });
+
+  it("rejects project names containing spaces", () => {
+    expect(() => addProject("my app", "/home/user/myapp")).toThrow();
+  });
+
+  it("rejects project names containing '/'", () => {
+    expect(() => addProject("my/app", "/home/user/myapp")).toThrow();
+  });
+
+  it("accepts valid project names", () => {
+    expect(() => addProject("myapp", "/home/user/myapp")).not.toThrow();
+    expect(getProject("myapp")).toBe("/home/user/myapp");
+  });
+
+  it("resolves relative paths to absolute", () => {
+    addProject("reltest", "relative/path");
+    const stored = getProject("reltest");
+    expect(stored).not.toBeUndefined();
+    // Should be an absolute path
+    expect(stored!.startsWith("/")).toBe(true);
   });
 });

@@ -116,6 +116,13 @@ describe("saveSnapshot", () => {
     expect(() => saveSnapshot("../outside", process.cwd(), "full")).toThrow("Invalid snapshot path");
   });
 
+  it("rejects sibling directory names that share the SNAPSHOTS_DIR prefix (SE-L1)", () => {
+    // e.g. SNAPSHOTS_DIR = /tmp/summon-snapshots-test-<pid>
+    // evil name resolves to /tmp/summon-snapshots-test-<pid>-evil/x
+    // Without trailing sep guard, startsWith check could allow this
+    expect(() => saveSnapshot("../snapshots-test-evil/x", process.cwd(), "full")).toThrow("Invalid snapshot path");
+  });
+
   it("includes ISO timestamp", () => {
     const result = saveSnapshot("myapp", process.cwd(), "full");
     if (!result) return;

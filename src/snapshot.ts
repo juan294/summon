@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { execFileSync } from "node:child_process";
 import { SNAPSHOTS_DIR } from "./config.js";
 import { gitSafeEnv } from "./utils.js";
@@ -23,7 +23,7 @@ export interface ContextSnapshot {
 
 function snapshotPath(project: string): string {
   const filePath = join(SNAPSHOTS_DIR, `${project}.json`);
-  if (!resolve(filePath).startsWith(resolve(SNAPSHOTS_DIR))) {
+  if (!resolve(filePath).startsWith(resolve(SNAPSHOTS_DIR) + sep)) {
     throw new Error(`Invalid snapshot path: "${project}"`);
   }
   return filePath;

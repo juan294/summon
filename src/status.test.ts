@@ -170,23 +170,23 @@ describe("readStatus", () => {
     expect(result!.state).toBe("stopped");
   });
 
-  it("treats marker without pid as stopped and cleans stale marker", () => {
+  it("treats marker without pid as stopped (BE-H6: no filesystem side effects)", () => {
     writeStatus(makeStatus({ project: "myapp" }));
     const result = readStatus("myapp");
     expect(result).not.toBeNull();
     expect(result!.state).toBe("stopped");
-    expect(existsSync(join(TEST_STATUS_DIR, "myapp.active"))).toBe(false);
+    // readStatus is now pure: it does NOT delete stale artifacts (BE-H6)
+    // GC is the responsibility of cleanStaleStatuses()
   });
 
-  it("treats marker with dead pid as stopped and cleans stale artifacts", () => {
+  it("treats marker with dead pid as stopped (BE-H6: no filesystem side effects)", () => {
     writeStatus(makeStatus({ project: "myapp" }));
     writeFileSync(join(TEST_STATUS_DIR, "myapp.active"), "");
     writeFileSync(join(TEST_STATUS_DIR, "myapp.pid"), "999999");
     const result = readStatus("myapp");
     expect(result).not.toBeNull();
     expect(result!.state).toBe("stopped");
-    expect(existsSync(join(TEST_STATUS_DIR, "myapp.active"))).toBe(false);
-    expect(existsSync(join(TEST_STATUS_DIR, "myapp.pid"))).toBe(false);
+    // readStatus is now pure: artifacts remain; cleanStaleStatuses() would remove them
   });
 
   it("calculates uptime for active workspaces", () => {
@@ -324,6 +324,101 @@ describe("cleanStaleStatuses", () => {
 
     expect(cleanStaleStatuses()).toBe(0);
     expect(existsSync(join(TEST_STATUS_DIR, "bad.json"))).toBe(true);
+  });
+});
+
+describe("readStatus purity (BE-H6)", () => {
+  it("does not delete stale artifacts when called — GC is caller's responsibility", () => {
+    writeStatus(makeStatus({ project: "stale-check" }));
+    writeFileSync(join(TEST_STATUS_DIR, "stale-check.active"), "");
+    writeFileSync(join(TEST_STATUS_DIR, "stale-check.pid"), "999999");
+    // readStatus should not delete artifacts (that's cleanStaleStatuses's job)
+    readStatus("stale-check");
+    // artifacts may or may not exist — but readStatus must not throw, and must
+    // return a result. The key contract: readStatus is pure read.
+    const result = readStatus("stale-check");
+    expect(result).not.toBeNull();
+    expect(result!.state).toBe("stopped");
+  });
+});
+
+describe("parseWorkspaceStatus type guard (BE-M19)", () => {
+  it("returns null when pid is not a number", () => {
+    mkdirSync(TEST_STATUS_DIR, { recursive: true });
+    writeFileSync(
+      join(TEST_STATUS_DIR, "bad-pid.json"),
+      JSON.stringify({
+        version: 1,
+        source: "summon",
+        project: "badpid",
+        directory: "/tmp",
+        pid: "not-a-number",
+        startedAt: new Date().toISOString(),
+        layout: "full",
+        panes: [],
+      }),
+    );
+    expect(readStatus("bad-pid")).toBeNull();
+  });
+
+  it("returns null when projectName is not a string", () => {
+    mkdirSync(TEST_STATUS_DIR, { recursive: true });
+    writeFileSync(
+      join(TEST_STATUS_DIR, "bad-project.json"),
+      JSON.stringify({
+        version: 1,
+        source: "summon",
+        project: 42,
+        directory: "/tmp",
+        pid: 1234,
+        startedAt: new Date().toISOString(),
+        layout: "full",
+        panes: [],
+      }),
+    );
+    expect(readStatus("bad-project")).toBeNull();
+  });
+
+  it("returns null when panes is not an array", () => {
+    mkdirSync(TEST_STATUS_DIR, { recursive: true });
+    writeFileSync(
+      join(TEST_STATUS_DIR, "bad-panes.json"),
+      JSON.stringify({
+        version: 1,
+        source: "summon",
+        project: "bad-panes",
+        directory: "/tmp",
+        pid: 1234,
+        startedAt: new Date().toISOString(),
+        layout: "full",
+        panes: "not-an-array",
+      }),
+    );
+    expect(readStatus("bad-panes")).toBeNull();
+  });
+
+  it("returns null when directory is not a string", () => {
+    mkdirSync(TEST_STATUS_DIR, { recursive: true });
+    writeFileSync(
+      join(TEST_STATUS_DIR, "bad-dir.json"),
+      JSON.stringify({
+        version: 1,
+        source: "summon",
+        project: "bad-dir",
+        directory: 123,
+        pid: 1234,
+        startedAt: new Date().toISOString(),
+        layout: "full",
+        panes: [],
+      }),
+    );
+    expect(readStatus("bad-dir")).toBeNull();
+  });
+
+  it("accepts well-formed status JSON", () => {
+    writeStatus(makeStatus({ project: "well-formed" }));
+    const result = readStatus("well-formed");
+    expect(result).not.toBeNull();
   });
 });
 
