@@ -1,5 +1,5 @@
 import { describe, test, expect, vi } from "vitest";
-import { generateZshCompletion, generateBashCompletion } from "./completions.js";
+import { generateZshCompletion, generateBashCompletion, generateFishCompletion } from "./completions.js";
 import { VALID_KEYS, CLI_FLAGS } from "./config.js";
 import { getPresetNames } from "./layout.js";
 
@@ -211,6 +211,65 @@ describe("export subcommand completions", () => {
   test("zsh export completes with file paths", () => {
     const result = generateZshCompletion();
     expect(result).toMatch(/export\)[\s\S]*?_files/);
+  });
+});
+
+describe("generateFishCompletion", () => {
+  test("returns a string containing 'complete -c summon'", () => {
+    const result = generateFishCompletion();
+    expect(result).toContain("complete -c summon");
+  });
+
+  test("contains all subcommands with descriptions", () => {
+    const result = generateFishCompletion();
+    for (const cmd of ["add", "remove", "list", "set", "config", "setup", "completions"]) {
+      expect(result).toContain(`-a '${cmd}'`);
+    }
+  });
+
+  test("uses __fish_use_subcommand for subcommand completion", () => {
+    const result = generateFishCompletion();
+    expect(result).toContain("__fish_use_subcommand");
+  });
+
+  test("contains --help and --version flags", () => {
+    const result = generateFishCompletion();
+    expect(result).toContain("-l help");
+    expect(result).toContain("-l version");
+  });
+
+  test("contains layout flag with presets", () => {
+    const result = generateFishCompletion();
+    expect(result).toContain("-l layout");
+    for (const preset of ["minimal", "full", "pair", "cli", "btop"]) {
+      expect(result).toContain(preset);
+    }
+  });
+
+  test("contains common flags", () => {
+    const result = generateFishCompletion();
+    expect(result).toContain("-l auto-resize");
+    expect(result).toContain("-l no-auto-resize");
+    expect(result).toContain("-l clean");
+    expect(result).toContain("-l no-clean");
+    expect(result).toContain("-l dry-run");
+    expect(result).toContain("-l env");
+  });
+
+  test("starts with fish comment header", () => {
+    const result = generateFishCompletion();
+    expect(result).toMatch(/^# summon fish completion/);
+  });
+
+  test("includes custom layout names in layout preset list", async () => {
+    const config = await import("./config.js");
+    const spy = vi.spyOn(config, "listCustomLayouts").mockReturnValue(["mywork", "devops"]);
+
+    const result = generateFishCompletion();
+    expect(result).toContain("mywork");
+    expect(result).toContain("devops");
+
+    spy.mockRestore();
   });
 });
 
