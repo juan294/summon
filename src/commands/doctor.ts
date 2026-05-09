@@ -140,7 +140,7 @@ export async function handleDoctorCommand({ values }: CommandContext): Promise<v
   console.log();
   console.log("Checking port conflicts...\n");
   const { detectAllPorts } = await import("../ports.js");
-  const { conflicts } = detectAllPorts();
+  const { conflicts } = await detectAllPorts();
   if (conflicts.size === 0) {
     console.log(`  + No port conflicts (${listProjects().size} projects checked)`);
   } else {

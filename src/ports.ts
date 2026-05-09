@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, promises as fsPromises } from "node:fs";
 import { join } from "node:path";
 import { readKVFile, listProjects } from "./config.js";
 import { readAllStatuses } from "./status.js";
@@ -21,11 +21,11 @@ const FRAMEWORK_DEFAULTS: ReadonlyArray<{ pattern: string; port: number; name: s
   { pattern: "svelte.config", port: 5173, name: "SvelteKit" },
 ];
 
-export function detectProjectPorts(
+export async function detectProjectPorts(
   projectName: string,
   projectDir: string,
   state: "active" | "stopped" | "unknown",
-): PortAssignment[] {
+): Promise<PortAssignment[]> {
   const assignments: PortAssignment[] = [];
   const seenPorts = new Set<number>();
 
@@ -71,30 +71,42 @@ export function detectProjectPorts(
 
   // 3. Framework defaults (only if no explicit ports found for that default)
   const extensions = [".js", ".mjs", ".ts", ".cjs"];
-  for (const fw of FRAMEWORK_DEFAULTS) {
-    const found = extensions.some((ext) => existsSync(join(projectDir, fw.pattern + ext)));
-    if (found && !seenPorts.has(fw.port)) {
-      seenPorts.add(fw.port);
-      assignments.push({ port: fw.port, project: projectName, source: "framework-default", state });
+  const frameworkCandidates = FRAMEWORK_DEFAULTS.flatMap((fw) =>
+    extensions.map((ext) => ({ fw, path: join(projectDir, fw.pattern + ext) })),
+  );
+  const accessResults = await Promise.all(
+    frameworkCandidates.map(({ path }) =>
+      fsPromises.access(path).then(() => true).catch(() => false),
+    ),
+  );
+  for (let i = 0; i < frameworkCandidates.length; i++) {
+    if (accessResults[i]) {
+      const { fw } = frameworkCandidates[i]!;
+      if (!seenPorts.has(fw.port)) {
+        seenPorts.add(fw.port);
+        assignments.push({ port: fw.port, project: projectName, source: "framework-default", state });
+      }
     }
   }
 
   return assignments;
 }
 
-export function detectAllPorts(): {
+export async function detectAllPorts(): Promise<{
   assignments: PortAssignment[];
   conflicts: Map<number, string[]>;
-} {
+}> {
   const projects = listProjects();
   const statusMap = new Map(
     readAllStatuses().map((status) => [status.project, status.state]),
   );
 
-  const allAssignments: PortAssignment[] = [];
-  for (const [name, dir] of projects) {
-    allAssignments.push(...detectProjectPorts(name, dir, statusMap.get(name) ?? "unknown"));
-  }
+  const perProject = await Promise.all(
+    [...projects].map(([name, dir]) =>
+      detectProjectPorts(name, dir, statusMap.get(name) ?? "unknown"),
+    ),
+  );
+  const allAssignments: PortAssignment[] = perProject.flat();
 
   // Sort by port number
   allAssignments.sort((a, b) => a.port - b.port);

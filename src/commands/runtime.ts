@@ -73,7 +73,7 @@ export async function handleBriefingCommand(): Promise<void> {
 export async function handlePortsCommand(): Promise<void> {
   const { detectAllPorts } = await import("../ports.js");
   const { green, dim, yellow } = await import("../ui/ansi.js");
-  const { assignments, conflicts } = detectAllPorts();
+  const { assignments, conflicts } = await detectAllPorts();
 
   if (assignments.length === 0) {
     console.log("No port assignments detected across registered projects.");
