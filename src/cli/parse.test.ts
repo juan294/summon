@@ -266,3 +266,23 @@ describe("help output", () => {
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("Usage: summon snapshot"));
   });
 });
+
+// --- AR-L3: bounds-checked subcommand help ---
+
+describe("showSubcommandHelp — bounds check (AR-L3)", () => {
+  it("does not throw when called with an unknown subcommand (graceful no-op)", () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    // Previously SUBCOMMAND_HELP[subcommand] would be undefined; bounds check now guards this
+    expect(() => showSubcommandHelp("not-a-real-subcommand")).not.toThrow();
+    logSpy.mockRestore();
+  });
+
+  it("parseCli returns subcommand=undefined when no positionals given", () => {
+    // Previously: const [subcommand, ...args] = positionals;
+    // With noUncheckedIndexedAccess, this could be typed as string|undefined.
+    // After fix, subcommand is explicitly undefined when positionals is empty.
+    const result = parseCli([]);
+    expect(result.subcommand).toBeUndefined();
+    expect(result.args).toEqual([]);
+  });
+});

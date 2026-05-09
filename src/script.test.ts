@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { generateAppleScript, generateTreeAppleScript, generateFocusScript } from "./script.js";
 import { planLayout, getPreset } from "./layout.js";
 import { collectLeaves, buildTreePlan } from "./tree.js";
@@ -1623,5 +1623,167 @@ describe("generateFocusScript", () => {
   it("escapes special characters in tab title", () => {
     const script = generateFocusScript('[my "app]');
     expect(script).toContain("my \\\"app");
+  });
+});
+
+// --- AR-L5: options object API ---
+
+describe("generateAppleScript — options object form (AR-L5)", () => {
+  it("accepts a single options object and produces the same output as positional form", () => {
+    const plan = planLayout({ editor: "vim" });
+    const scriptFromOptions = generateAppleScript({
+      plan,
+      targetDir: "/tmp/project",
+      starshipConfigPath: null,
+      envVars: { NODE_ENV: "test" },
+      projectName: "myapp",
+      onStop: "echo done",
+    });
+
+    expect(scriptFromOptions).toContain('tell application "Ghostty"');
+    expect(scriptFromOptions).toContain("new surface configuration");
+    expect(scriptFromOptions).toContain("myapp");
+    expect(scriptFromOptions).toContain("NODE_ENV=test");
+    expect(scriptFromOptions).toContain("echo done");
+    expect(scriptFromOptions).toContain("end tell");
+  });
+
+  it("options object with only required fields works (optional fields omitted)", () => {
+    const plan = planLayout();
+    const script = generateAppleScript({ plan, targetDir: "/tmp/bare" });
+    expect(script).toContain('tell application "Ghostty"');
+    expect(script).toContain("/tmp/bare");
+    expect(script).toContain("end tell");
+  });
+
+  it("options object result matches positional-arg result exactly", () => {
+    const plan = planLayout({ editor: "nvim" });
+    const starshipPath = "/usr/local/starship.toml";
+    const envVars = { DEBUG: "1" };
+    const projectName = "testproj";
+    const onStop = "cleanup.sh";
+
+    const fromOptions = generateAppleScript({
+      plan,
+      targetDir: "/tmp/mydir",
+      starshipConfigPath: starshipPath,
+      envVars,
+      projectName,
+      onStop,
+    });
+    const fromPositional = generateAppleScript(plan, "/tmp/mydir", starshipPath, envVars, projectName, onStop);
+
+    expect(fromOptions).toBe(fromPositional);
+  });
+});
+
+// --- PE-L4: tab-title escapeAppleScript memoization ---
+
+describe("escapeAppleScript memoization (PE-L4)", () => {
+  beforeEach(() => {
+    vi.resetModules();
+  });
+
+  it("escapeAppleScript is called only once across two generateAppleScript calls with the same tab title", async () => {
+    // Dynamically import so the spy can intercept the module's live binding
+    const escapeModule = await import("./shell-escape.js");
+    const spy = vi.spyOn(escapeModule, "escapeAppleScript");
+
+    const { generateAppleScript: gas } = await import("./script.js");
+    const { planLayout: pl } = await import("./layout.js");
+
+    const plan = pl(getPreset("full"));
+    const title = "[stable-title]";
+
+    // Call twice with the identical tab title — memoization should deduplicate
+    gas({ plan, targetDir: "/tmp/proj", projectName: "stable-title" });
+    gas({ plan, targetDir: "/tmp/proj", projectName: "stable-title" });
+
+    // With a single-slot cache, escapeAppleScript(title) should be called only once
+    const tabTitleCalls = spy.mock.calls.filter(([arg]) => arg === title);
+    expect(tabTitleCalls.length).toBe(1);
+
+    spy.mockRestore();
+  });
+});
+
+// --- SE-S1: fuzz test for escapeAppleScript ---
+
+describe("escapeAppleScript — fuzz / property tests (SE-S1)", () => {
+  // Helper: check that the output of escapeAppleScript never contains an
+  // unescaped double-quote (i.e. a " not preceded by \)
+  function hasUnescapedDoubleQuote(s: string): boolean {
+    // Walk the string; a " is unescaped if the number of immediately preceding
+    // backslashes is even (0, 2, 4, …)
+    for (let i = 0; i < s.length; i++) {
+      if (s[i] === '"') {
+        let backslashes = 0;
+        let j = i - 1;
+        while (j >= 0 && s[j] === "\\") { backslashes++; j--; }
+        if (backslashes % 2 === 0) return true;
+      }
+    }
+    return false;
+  }
+
+  const edgeCases: Array<[string, string]> = [
+    ["empty string", ""],
+    ["plain ascii", "hello world"],
+    ["double quote", '"'],
+    ["backslash", "\\"],
+    ["backslash then quote", '\\"'],
+    ["newline", "\n"],
+    ["carriage return", "\r"],
+    ["null byte", "\x00"],
+    ["DEL char (0x7F)", "\x7F"],
+    ["all control chars 0-31", Array.from({ length: 32 }, (_, i) => String.fromCharCode(i)).join("")],
+    ["emoji", "😀🎉🔥"],
+    ["RTL text", "‮ right-to-left override"],
+    ["combining chars", "é (é with combining accent)"],
+    ["unicode high plane", "😀"],
+    ["tab character", "\t"],
+    ["mixed special", '"hello"\n\\world\r\x00'],
+    ["many backslashes", "\\\\\\\\"],
+    ["many quotes", '""""""""'],
+    ["interleaved backslashes and quotes", '\\"\\"\\"'],
+  ];
+
+  for (const [label, input] of edgeCases) {
+    it(`output never contains unescaped double-quote: ${label}`, async () => {
+      const { escapeAppleScript } = await import("./shell-escape.js");
+      const result = escapeAppleScript(input);
+      expect(hasUnescapedDoubleQuote(result)).toBe(false);
+    });
+  }
+
+  it("fuzz: 1000 random strings with printable ASCII and control chars", async () => {
+    const { escapeAppleScript } = await import("./shell-escape.js");
+
+    // Deterministic pseudo-random generator (LCG) — no external deps
+    let seed = 0xDEADBEEF;
+    function nextInt(max: number): number {
+      seed = (seed * 1664525 + 1013904223) & 0xFFFFFFFF;
+      return Math.abs(seed) % max;
+    }
+
+    const charset = [
+      ...Array.from({ length: 95 }, (_, i) => String.fromCharCode(i + 32)), // printable ASCII
+      ...Array.from({ length: 32 }, (_, i) => String.fromCharCode(i)),       // control chars 0-31
+      "\x7F",                                                                  // DEL
+      "😀", "🔥", "‮", "é", "😀",                             // unicode
+    ];
+
+    for (let t = 0; t < 1000; t++) {
+      const len = nextInt(80);
+      const chars: string[] = [];
+      for (let i = 0; i < len; i++) {
+        chars.push(charset[nextInt(charset.length)] ?? "");
+      }
+      const input = chars.join("");
+      const result = escapeAppleScript(input);
+      if (hasUnescapedDoubleQuote(result)) {
+        throw new Error(`escapeAppleScript produced unescaped double-quote for input: ${JSON.stringify(input)}`);
+      }
+    }
   });
 });
