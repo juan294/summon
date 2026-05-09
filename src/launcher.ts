@@ -19,10 +19,11 @@ import type { WorkspaceStatus } from "./status.js";
 import { generateAppleScript, generateTreeAppleScript, generateFocusScript } from "./script.js";
 import { parseTreeDSL, extractPaneDefinitions, extractPaneCwds, resolveTreeCommands as resolveTreeCmds, buildTreePlan, findPaneByName } from "./tree.js";
 import type { LayoutNode } from "./tree.js";
-import { resolveCommand as resolveCommandPath, promptUser, getErrorMessage, SUMMON_WORKSPACE_ENV, isAccessibilityError, checkAccessibility, isGhosttyInstalled, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT, ACCESSIBILITY_REQUIRED_MSG } from "./utils.js";
+import { resolveCommand as resolveCommandPath, getErrorMessage, SUMMON_WORKSPACE_ENV, promptUser, ACCESSIBILITY_SETTINGS_PATH } from "./utils.js";
+import { ensureGhostty, ensureAccessibility, printAccessibilityHint, confirmDangerousCommands, isAccessibilityError } from "./launch-guards.js";
 import { parseIntInRange, parsePositiveFloat, ENV_KEY_RE, PROJECT_NAME_RE, sanitizeProjectName } from "./validation.js";
 import { isStarshipInstalled, ensurePresetConfig, getPresetConfigPath } from "./starship.js";
-import { commandExecutable, commandHasShellMeta, replaceCommandExecutable } from "./command-spec.js";
+import { commandExecutable, replaceCommandExecutable } from "./command-spec.js";
 
 /** Convert resolved layout options to a key-value config map suitable for saving as a custom layout. */
 export function optsToConfigMap(opts: Partial<LayoutOptions>): Map<string, string> {
@@ -88,29 +89,27 @@ export function focusWorkspace(projectName: string): boolean {
   }
 }
 
-function ensureGhostty(): void {
-  if (!isGhosttyInstalled()) {
-    console.error(
-      "Ghostty.app not found. Please install Ghostty 1.3.1+ from https://ghostty.org",
-    );
-    process.exit(1);
-  }
+
+async function prompt(question: string): Promise<string> {
+  const answer = await promptUser(question);
+  return answer.toLowerCase();
 }
 
-function printAccessibilityHint(): void {
-  console.error(ACCESSIBILITY_REQUIRED_MSG);
-  console.error(`Grant access in: ${ACCESSIBILITY_SETTINGS_PATH}`);
-  console.error(ACCESSIBILITY_ENABLE_HINT);
-  console.error();
-  console.error("Tip: Run 'summon doctor' to check all permissions.");
-}
-
-function ensureAccessibility(): void {
-  if (!checkAccessibility()) {
-    console.error("Accessibility permission is required to launch workspaces.");
-    console.error();
-    printAccessibilityHint();
-    process.exit(1);
+/**
+ * Best-effort rollback: close the Ghostty front window that was opened by a
+ * failed script execution (BE-S26 #322).
+ * Silently ignored if Ghostty is not running or the window is already gone.
+ */
+export function closeWorkspaceWindow(): void {
+  const closeScript = `tell application "Ghostty"
+  if (count of windows) > 0 then
+    close front window
+  end if
+end tell`;
+  try {
+    execFileSync("osascript", [], { input: closeScript, encoding: "utf-8" });
+  } catch {
+    // Silently ignore — rollback is best-effort
   }
 }
 
@@ -121,6 +120,10 @@ function executeScript(script: string): void {
   } catch (err) {
     const message = getErrorMessage(err);
     console.error(`Failed to execute workspace script: ${message}`);
+
+    // Best-effort rollback: the AppleScript may have opened a window before failing.
+    // Attempt to close it so the user is not left with a stale empty window (BE-S26 #322).
+    closeWorkspaceWindow();
 
     if (isAccessibilityError(message)) {
       console.error();
@@ -137,44 +140,6 @@ function executeScript(script: string): void {
   }
 }
 
-async function prompt(question: string): Promise<string> {
-  const answer = await promptUser(question);
-  return answer.toLowerCase();
-}
-
-/**
- * Check if any command values contain shell metacharacters.
- * Checks .summon project file command keys, the resolved on-start value
- * (which may come from CLI, machine config, or project config), and
- * tree pane.* commands from custom tree layouts.
- * If dangerous values are found, warn the user and prompt for confirmation (or refuse on non-TTY).
- */
-async function confirmDangerousCommands(
-  commands: Array<[string, string]>,
-): Promise<void> {
-  const dangerous: Array<[string, string]> = [];
-  for (const [key, value] of commands) {
-    if (commandHasShellMeta(value)) {
-      dangerous.push([key, value]);
-    }
-  }
-  if (dangerous.length === 0) return;
-
-  const lines = dangerous.map(([key, value]) => `  ${key} = ${value}`).join("\n");
-  const message = `Warning: config contains commands with shell metacharacters:\n${lines}`;
-  console.warn(message);
-
-  if (!process.stdin.isTTY) {
-    console.warn("Non-interactive shell detected. Refusing to execute.");
-    process.exit(1);
-  }
-
-  const answer = await prompt("Continue? [y/N] ");
-  if (answer !== "y" && answer !== "yes") {
-    console.error("Aborted.");
-    process.exit(1);
-  }
-}
 
 const KNOWN_INSTALL_COMMANDS: Record<string, () => [string, string[]] | null> = {
   claude: () => ["npm", ["install", "-g", "@anthropic-ai/claude-code"]],
@@ -715,6 +680,8 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
   }
   decideCleanRestoredPanes(opts, cliOverrides ?? {}, config.projectOverrides, machineConfig, cliOverrides?.dryRun);
 
+  let effectiveOnStart = onStart;
+
   if (!cliOverrides?.dryRun) {
     const resolvedCommands: Array<[string, string]> = [];
     const maybePush = (key: string, value: string | null | undefined) => {
@@ -733,11 +700,27 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
       }
     }
 
-    await confirmDangerousCommands(resolvedCommands);
+    const decision = await confirmDangerousCommands(resolvedCommands);
+    const { skipped } = decision;
+
+    // Apply skip decisions: remove skipped panes from layout (UX-S2 #340)
+    if (skipped.size > 0) {
+      if (skipped.has("editor")) opts.editor = undefined;
+      if (skipped.has("sidebar")) opts.sidebarCommand = undefined;
+      if (skipped.has("shell")) opts.shell = undefined;
+      if (skipped.has("on-start")) effectiveOnStart = undefined;
+      if (treeLayout) {
+        for (const key of skipped) {
+          if (key.startsWith("pane.")) {
+            treeLayout.panes.delete(key.slice(5));
+          }
+        }
+      }
+    }
   }
 
-  if (onStart && !cliOverrides?.dryRun) {
-    executeOnStart(onStart, targetDir);
+  if (effectiveOnStart && !cliOverrides?.dryRun) {
+    executeOnStart(effectiveOnStart, targetDir);
   }
 
   // Cache resolved command paths so the same binary is only looked up once
