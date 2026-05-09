@@ -6,7 +6,7 @@ CLI tool that launches configurable multi-pane Ghostty workspaces using AppleScr
 
 ## Stack
 
-TypeScript 5.7 · Node >= 18 · pnpm · tsup · Vitest · ESLint · zero runtime deps · macOS only
+TypeScript 5.7 · Node >= 20.19 · pnpm · tsup · Vitest · ESLint · zero runtime deps · macOS only
 
 ## Build & Run
 

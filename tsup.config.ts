@@ -6,9 +6,9 @@ const { version } = JSON.parse(readFileSync("./package.json", "utf-8"));
 export default defineConfig({
   entry: ["src/index.ts"],
   format: "esm",
-  target: "node18",
+  target: "node20",
   clean: true,
-  sourcemap: "inline",
+  sourcemap: true,
   banner: { js: "#!/usr/bin/env node" },
   minify: false,
   define: { __VERSION__: JSON.stringify(version) },
