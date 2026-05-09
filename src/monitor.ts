@@ -30,6 +30,7 @@ const EXIT_ALT_SCREEN = "\x1b[?1049l";
 const HIDE_CURSOR = "\x1b[?25l";
 const SHOW_CURSOR = "\x1b[?25h";
 const CLEAR_SCREEN = "\x1b[H\x1b[2J";
+const CURSOR_HOME = "\x1b[H";
 const INVERT = "\x1b[7m";
 const RESET = "\x1b[0m";
 
@@ -104,7 +105,7 @@ export function renderFooter(width: number): string {
   return dim(padded);
 }
 
-export function renderScreen(rows: ProjectRow[], selectedIndex: number, width: number, height: number): string {
+export function renderScreen(rows: ProjectRow[], selectedIndex: number, width: number, height: number, scrollStart = 0): string {
   const activeCount = rows.filter(r => r.state === "active" || r.state === "active-long").length;
   const header = renderHeader(activeCount, rows.length, width);
   const separator = dim("\u2500".repeat(width));
@@ -112,18 +113,6 @@ export function renderScreen(rows: ProjectRow[], selectedIndex: number, width: n
 
   // Available rows: height minus header, 2 separators, footer
   const availableRows = Math.max(1, height - 4);
-
-  // Compute scroll window
-  let scrollStart = 0;
-  if (rows.length > availableRows) {
-    // Keep selected row visible with some context
-    if (selectedIndex >= scrollStart + availableRows) {
-      scrollStart = selectedIndex - availableRows + 1;
-    }
-    if (selectedIndex < scrollStart) {
-      scrollStart = selectedIndex;
-    }
-  }
 
   const visibleRows = rows.slice(scrollStart, scrollStart + availableRows);
   let renderedRows: string[];
@@ -243,14 +232,26 @@ export function printStatusOnce(): void {
 export async function runMonitor(): Promise<void> {
   let rows = loadProjectRows();
   let selectedIndex = 0;
+  let scrollStart = 0;
   let refreshTimer: ReturnType<typeof setInterval> | null = null;
 
   const getWidth = () => process.stdout.columns || 80;
   const getHeight = () => process.stdout.rows || 24;
 
-  function render(): void {
-    const screen = renderScreen(rows, selectedIndex, getWidth(), getHeight());
-    process.stdout.write(CLEAR_SCREEN + screen);
+  function updateScroll(): void {
+    const availableRows = Math.max(1, getHeight() - 4);
+    if (selectedIndex >= scrollStart + availableRows) {
+      scrollStart = selectedIndex - availableRows + 1;
+    } else if (selectedIndex < scrollStart) {
+      scrollStart = selectedIndex;
+    }
+  }
+
+  function render(fullClear = false): void {
+    updateScroll();
+    const screen = renderScreen(rows, selectedIndex, getWidth(), getHeight(), scrollStart);
+    const prefix = fullClear ? CLEAR_SCREEN : CURSOR_HOME;
+    process.stdout.write(prefix + screen);
   }
 
   function refresh(): void {
@@ -259,10 +260,10 @@ export async function runMonitor(): Promise<void> {
     if (selectedIndex >= rows.length) {
       selectedIndex = Math.max(0, rows.length - 1);
     }
-    render();
+    render(false);
   }
 
-  const onResize = () => render();
+  const onResize = () => render(true);
   // Declared here so cleanup() can reference it; assigned inside the promise
   let onKeypress: (data: Buffer) => void;
 
@@ -295,7 +296,7 @@ export async function runMonitor(): Promise<void> {
   }
   process.stdin.resume();
 
-  render();
+  render(true);
 
   refreshTimer = setInterval(refresh, REFRESH_INTERVAL_MS);
   process.on("SIGWINCH", onResize);

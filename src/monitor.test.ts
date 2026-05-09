@@ -262,22 +262,24 @@ describe("renderScreen", () => {
     expect(screen).toContain("second");
   });
 
-  it("scrolls to show selected row at end of list", () => {
+  it("scrolls to show selected row at end of list (scrollStart passed explicitly)", () => {
     const rows = Array.from({ length: 30 }, (_, i) =>
       makeRow({ name: `project-${i}` }),
     );
     // Height 10 = 4 chrome + 6 visible rows, selected at index 25
-    const screen = renderScreen(rows, 25, 80, 10);
+    // scrollStart=20 means rows 20-25 are visible
+    const screen = renderScreen(rows, 25, 80, 10, 20);
     expect(screen).toContain("project-25");
     expect(screen).not.toContain("project-0");
     expect(screen).toContain("\x1b[7m"); // selected row inverted
   });
 
-  it("scrolls to show selected row in middle of list", () => {
+  it("scrolls to show selected row in middle of list (scrollStart passed explicitly)", () => {
     const rows = Array.from({ length: 30 }, (_, i) =>
       makeRow({ name: `project-${i}` }),
     );
-    const screen = renderScreen(rows, 15, 80, 10);
+    // Height 10 = 4 chrome + 6 visible rows; scrollStart=12 puts project-15 in view
+    const screen = renderScreen(rows, 15, 80, 10, 12);
     expect(screen).toContain("project-15");
     expect(screen).toContain("\x1b[7m");
   });
@@ -682,6 +684,98 @@ describe.skipIf(nodeMajor < 20)("runMonitor", () => {
     await monitorPromise;
 
     expect(writeSpy.mock.calls.length).toBeGreaterThan(before);
+  });
+
+  it("uses cursor-home (not full clear) on second and subsequent renders", async () => {
+    listProjects.mockReturnValue([["myapp", "/tmp/myapp"]]);
+    readAllStatuses.mockReturnValue([
+      makeResolvedStatus({ project: "myapp", state: "active", uptime: 1000 }),
+    ]);
+    getGitBranch.mockReturnValue("main");
+
+    const CLEAR_SCREEN = "\x1b[H\x1b[2J";
+    const CURSOR_HOME = "\x1b[H";
+
+    const monitorPromise = runMonitor();
+    // Trigger a second render via timer
+    vi.advanceTimersByTime(3100);
+    process.stdin.emit("data", Buffer.from("q"));
+    await monitorPromise;
+
+    const allWrites: string[] = writeSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    // Find writes that start with cursor-home or clear-screen (screen renders)
+    const screenWrites: string[] = allWrites.filter(
+      (w: string) => w.startsWith(CLEAR_SCREEN) || w.startsWith(CURSOR_HOME),
+    );
+    // There should be at least 2 screen renders
+    expect(screenWrites.length).toBeGreaterThanOrEqual(2);
+    // The first render may use clear-screen (initial clear), but the second must NOT
+    const secondAndLater = screenWrites.slice(1);
+    for (const write of secondAndLater) {
+      expect(write).not.toContain(CLEAR_SCREEN);
+      expect(write.startsWith(CURSOR_HOME)).toBe(true);
+    }
+  });
+
+  it("uses full clear on resize events", async () => {
+    listProjects.mockReturnValue([["myapp", "/tmp/myapp"]]);
+    readAllStatuses.mockReturnValue([
+      makeResolvedStatus({ project: "myapp", state: "active", uptime: 1000 }),
+    ]);
+    getGitBranch.mockReturnValue("main");
+
+    const CLEAR_SCREEN = "\x1b[H\x1b[2J";
+
+    const monitorPromise = runMonitor();
+    // Reset the spy so we only see writes after the initial render
+    writeSpy.mockClear();
+    // Trigger a resize
+    process.emit("SIGWINCH");
+    process.stdin.emit("data", Buffer.from("q"));
+    await monitorPromise;
+
+    const allWrites: string[] = writeSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    const hasFullClearOnResize = allWrites.some((w: string) => w.startsWith(CLEAR_SCREEN));
+    expect(hasFullClearOnResize).toBe(true);
+  });
+
+  it("scrollStart persists and scrolls down when selectedIndex moves beyond viewport", async () => {
+    // 8 rows, height 8 = 4 chrome + 4 visible
+    const names = ["a", "b", "c", "d", "e", "f", "g", "h"];
+    listProjects.mockReturnValue(names.map((n) => [n, `/tmp/${n}`]));
+    readAllStatuses.mockReturnValue(
+      names.map((n) => makeResolvedStatus({ project: n, directory: `/tmp/${n}`, state: "active", uptime: 1000 })),
+    );
+    getGitBranch.mockReturnValue("main");
+
+    Object.defineProperty(process.stdout, "rows", { value: 8, configurable: true });
+    Object.defineProperty(process.stdout, "columns", { value: 80, configurable: true });
+
+    const monitorPromise = runMonitor();
+
+    // Navigate down past the visible viewport (4 visible rows, indices 0-3)
+    // pressing down 4 times moves selectedIndex to 4, which is beyond viewport
+    process.stdin.emit("data", Buffer.from("\x1b[B")); // index 1
+    process.stdin.emit("data", Buffer.from("\x1b[B")); // index 2
+    process.stdin.emit("data", Buffer.from("\x1b[B")); // index 3
+    process.stdin.emit("data", Buffer.from("\x1b[B")); // index 4 -- beyond viewport
+    process.stdin.emit("data", Buffer.from("q"));
+    await monitorPromise;
+
+    // The last screen write should contain "e" (project at index 4) as selected (inverted)
+    const allWrites = writeSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    const lastScreenWrite = [...allWrites].reverse().find(
+      (w) => w.startsWith("\x1b[H"),
+    );
+    expect(lastScreenWrite).toBeDefined();
+    // "e" should be visible and selected (inverted)
+    expect(lastScreenWrite).toContain("\x1b[7m");
+    // "a" should no longer be visible (scrolled past)
+    // We check that the selected row marker appears near "e" not "a"
+    // by checking the screen contains the selected project name
+    const invertStart = lastScreenWrite!.indexOf("\x1b[7m");
+    const afterInvert = lastScreenWrite!.slice(invertStart, invertStart + 60);
+    expect(afterInvert).toContain("e");
   });
 
   it("ignores Enter when there are no rows", async () => {
