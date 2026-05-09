@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, unlinkSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import { isPresetName } from "./layout.js";
 
@@ -45,11 +45,11 @@ export function readKVFile(path: string): Map<string, string> {
     throw err;
   }
   if (!content) return map;
-  for (const line of content.split("\n")) {
+  for (const line of content.replace(/\r\n?/g, "\n").split("\n")) {
     if (line.trimStart().startsWith("#")) continue;
     const idx = line.indexOf("=");
     if (idx === -1) continue;
-    map.set(line.slice(0, idx), line.slice(idx + 1));
+    map.set(line.slice(0, idx).trim(), line.slice(idx + 1).trim());
   }
   return map;
 }
@@ -73,9 +73,16 @@ function writeKV(file: string, map: Map<string, string>): void {
 
 // --- Projects ---
 
+/** Regex that project names must NOT match — rejects '=', whitespace, and path separators. */
+export const PROJECT_NAME_RE = /[=\s/\\]/;
+
 export function addProject(name: string, path: string): void {
+  if (PROJECT_NAME_RE.test(name)) {
+    throw new Error(`Invalid project name: "${name}". Names must not contain '=', spaces, or path separators.`);
+  }
+  const resolvedPath = resolve(path);
   const projects = readKV(PROJECTS_FILE);
-  projects.set(name, path);
+  projects.set(name, resolvedPath);
   writeKV(PROJECTS_FILE, projects);
 }
 
@@ -143,7 +150,7 @@ export function isValidLayoutName(name: string): boolean {
 /** @internal — exported for testing only */
 export function layoutPath(name: string): string {
   const filePath = join(LAYOUTS_DIR, name);
-  if (!resolve(filePath).startsWith(resolve(LAYOUTS_DIR))) {
+  if (!resolve(filePath).startsWith(resolve(LAYOUTS_DIR) + sep)) {
     throw new Error(`Invalid layout path: "${name}"`);
   }
   return filePath;

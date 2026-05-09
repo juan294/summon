@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, readdirSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { execFileSync } from "node:child_process";
 import { STATUS_DIR } from "./config.js";
 import { gitSafeEnv } from "./utils.js";
@@ -38,7 +38,7 @@ export interface ResolvedStatus extends WorkspaceStatus {
 
 function statusArtifactPath(projectName: string, extension: "json" | "active" | "pid"): string {
   const filePath = join(STATUS_DIR, `${projectName}.${extension}`);
-  if (!resolve(filePath).startsWith(resolve(STATUS_DIR))) {
+  if (!resolve(filePath).startsWith(resolve(STATUS_DIR) + sep)) {
     throw new Error(`Invalid status path: "${projectName}"`);
   }
   return filePath;
@@ -107,9 +107,26 @@ function isPidAlive(pid: number): boolean {
   }
 }
 
-function clearStatusArtifacts(projectName: string): void {
-  try { unlinkSync(markerFilePath(projectName)); } catch { /* ignore */ }
-  try { unlinkSync(pidFilePath(projectName)); } catch { /* ignore */ }
+
+/**
+ * Validates the raw JSON parsed from a status file. Returns a typed WorkspaceStatus
+ * if all required fields have the correct types, or null if the shape is invalid.
+ */
+export function parseWorkspaceStatus(raw: unknown): WorkspaceStatus | null {
+  if (typeof raw !== "object" || raw === null) return null;
+
+  const d = raw as Record<string, unknown>;
+
+  if (d["version"] !== 1) return null;
+  if (d["source"] !== "summon") return null;
+  if (typeof d["project"] !== "string") return null;
+  if (typeof d["directory"] !== "string") return null;
+  if (typeof d["pid"] !== "number") return null;
+  if (typeof d["startedAt"] !== "string") return null;
+  if (typeof d["layout"] !== "string") return null;
+  if (!Array.isArray(d["panes"])) return null;
+
+  return raw as WorkspaceStatus;
 }
 
 export function readStatus(projectName: string): ResolvedStatus | null {
@@ -128,22 +145,12 @@ export function readStatus(projectName: string): ResolvedStatus | null {
     return null;
   }
 
-  if (
-    typeof data !== "object" || data === null ||
-    (data as WorkspaceStatus).version !== 1 ||
-    (data as WorkspaceStatus).source !== "summon"
-  ) {
-    return null;
-  }
+  const status = parseWorkspaceStatus(data);
+  if (!status) return null;
 
-  const status = data as WorkspaceStatus;
   const markerExists = existsSync(markerFilePath(projectName));
   const shellPid = readShellPid(projectName);
   const active = markerExists && shellPid !== null && isPidAlive(shellPid);
-
-  if (markerExists && !active) {
-    clearStatusArtifacts(projectName);
-  }
 
   const now = Date.now();
   const started = Date.parse(status.startedAt);
