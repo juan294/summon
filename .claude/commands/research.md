@@ -1,9 +1,11 @@
 Research the codebase to answer: $ARGUMENTS
 
+Model tier: **opus** — Opus session. All subagents: `model: "opus"`.
+
 Process:
 1. Read any directly mentioned files FULLY before doing anything else.
 2. Break down the question into research areas.
-3. Use the Task tool to spawn parallel Explore agents:
+3. Use the Task tool to spawn parallel Explore agents (model: `"opus"`):
    - One to find WHERE relevant files live (locator role)
    - One to understand HOW the relevant code works (analyzer role)
    - One to find EXAMPLES of similar patterns (pattern finder role)

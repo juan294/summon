@@ -1,11 +1,10 @@
 # Summon your Ghostty workspace!
 
-![Chapa Badge](https://chapa.thecreativetoken.com/u/juan294/badge.svg)
 [![CI](https://github.com/juan294/summon/actions/workflows/ci.yml/badge.svg)](https://github.com/juan294/summon/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/juan294/summon/actions/workflows/codeql.yml/badge.svg)](https://github.com/juan294/summon/actions/workflows/codeql.yml)
 [![npm version](https://img.shields.io/npm/v/summon-ws)](https://www.npmjs.com/package/summon-ws)
-[![Node.js](https://img.shields.io/badge/node-%3E%3D18-brightgreen)](https://nodejs.org)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue)](https://www.typescriptlang.org)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D20.19-brightgreen)](https://nodejs.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-6-blue)](https://www.typescriptlang.org)
 [![license](https://img.shields.io/npm/l/summon-ws)](./LICENSE)
 
 Summon your Ghostty workspace with one command. Native splits, no tmux.
@@ -20,7 +19,7 @@ Summon your Ghostty workspace with one command. Native splits, no tmux.
 npm i -g summon-ws
 ```
 
-Requires Node >= 18, macOS, and [Ghostty](https://ghostty.org) 1.3.1+.
+Requires Node >= 20.19, macOS, and [Ghostty](https://ghostty.org) 1.3.1+.
 
 ## Quick Start
 
@@ -51,20 +50,25 @@ Summon generates and executes AppleScript that drives Ghostty's native split sys
 
 ## Default Layout
 
+<!-- Diagram: default 3-pane layout (editor left 60%, sidebar top-right 40%, shell bottom-right 40%) -->
 ```
 summon .    (panes=2, editor=<your editor>, sidebar=<your sidebar>, shell=true)
 
-+-------------------- 75% ---------------------+------ 25% ------+
-|                    |                          |                 |
-|                    |    editor (2)            |                 |
-|    editor (1)      |                          |    sidebar      |
-|                    +--------------------------+                 |
-|                    |                          |                 |
-|                    |    shell                 |                 |
-|                    |                          |                 |
-+--------------------+--------------------------+-----------------+
-      left col             right col                sidebar
++------------ 75% (editor grid) ------------+------ 25% ------+
+|                                            |                 |
+|                                            |                 |
+|    editor (1)          editor (2)          |    sidebar      |
+|                                            |                 |
++--------------------------------------------+                 |
+|                                            |                 |
+|                   shell                    |                 |
+|                                            |                 |
++--------------------------------------------+-----------------+
+               editor grid (75%)                sidebar (25%)
 ```
+The editor grid (left 75%) splits vertically between the two editor panes;
+the shell occupies the bottom of the editor grid; the sidebar runs the full
+height on the right (25%).
 
 ## Layout Presets
 
@@ -117,13 +121,21 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 | `summon list` | List all registered projects |
 | `summon set <key> [value]` | Set a machine-level config value |
 | `summon config` | Show current machine configuration |
-| `summon open` | Select and launch a registered project interactively |
+| `summon open` | Select and launch a registered project interactively (always opens a new workspace) |
 | `summon export [path]` | Export resolved config as a `.summon` file |
 | `summon doctor [--fix]` | Check Ghostty config for recommended settings (--fix auto-adds missing) |
 | `summon freeze <name>` | Save current resolved config as a reusable custom layout |
 | `summon keybindings [--vim]` | Generate Ghostty key table config for pane navigation |
 | `summon layout <action>` | Manage custom layouts (create, save, list, show, delete, edit) |
-| `summon completions <shell>` | Generate shell completion script (`zsh`, `bash`) |
+| `summon status [--once]` | Interactive workspace status dashboard across all projects |
+| `summon switch` | Focus an existing workspace window (use this to return to a running workspace); falls back to launching if not found |
+| `summon briefing` | Morning briefing — overnight commits, dirty files, recommendations |
+| `summon ports` | Detect port assignments across projects, highlight conflicts |
+| `summon snapshot <action>` | Manage context snapshots (save, show, clear) |
+| `summon trust <dir>` | Trust a project's `.summon` file (required before first launch in untrusted directories) |
+| `summon completions <shell>` | Generate shell completion script (`zsh`, `bash`, `fish`) |
+
+> **`switch` vs `open`:** Use `summon switch <name>` to focus an existing workspace window for a running project. Use `summon open <name>` (or `summon <name>`) to launch a new workspace. When in doubt: `switch` returns you to work already in progress; `open` starts fresh.
 
 ## CLI Flags
 
@@ -142,6 +154,8 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 | `--env KEY=VALUE` | Set environment variable (repeatable) |
 | `--on-start <cmd>` | Run a command before workspace creation |
 | `--new-window` | Open workspace in a new Ghostty window |
+| `--clean` | Auto-close stale panes from prior Ghostty session (default: on) |
+| `--no-clean` | Skip auto-close of restored panes |
 | `--fullscreen` | Start workspace in fullscreen mode |
 | `--maximize` | Start workspace maximized |
 | `--float` | Float workspace window on top |
@@ -160,9 +174,11 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 | `shell` | `true` | Shell pane: `true` (shell), `false` (none), or a command |
 | `layout` | | Default layout preset |
 | `auto-resize` | `true` | Auto-resize sidebar to match editor-size |
+| `clean` | `true` | Auto-close stale panes from a prior restored Ghostty session |
 | `starship-preset` | | Starship prompt theme preset (per-workspace) |
 | `font-size` | | Font size for workspace panes (points) |
 | `on-start` | | Command to run before workspace creation |
+| `on-stop` | | Command to run after workspace closes |
 | `new-window` | `false` | Open workspace in a new Ghostty window |
 | `fullscreen` | `false` | Start workspace in fullscreen mode |
 | `maximize` | `false` | Start workspace maximized |
@@ -178,8 +194,36 @@ summon set starship-preset tokyo-night  # per-workspace Starship prompt theme
 summon set font-size 14                # font size for workspace panes
 summon set on-start "npm install"      # run before workspace creation
 summon set new-window true             # always open in a new window
+summon set clean false                 # disable auto-clean of restored panes
 summon set env.API_KEY sk-123          # per-workspace environment variable
 ```
+
+### Auto-clearing restored panes (`--clean` / `--no-clean`)
+
+When Ghostty restores panes from a previous session, running `summon` from one
+of those panes would otherwise nest the new layout inside whichever pane happens
+to be first. By default, summon detects this case and closes the extra panes
+before laying out the workspace:
+
+```
+Clearing 4 stale panes from previous session...
+```
+
+To skip this behavior for a single run or permanently:
+
+```bash
+summon <project> --no-clean         # one-off opt-out
+summon set clean false              # global opt-out
+summon <project> --clean            # force clean (overrides config)
+```
+
+Auto-clean is skipped when:
+- `SUMMON_WORKSPACE` is set (you're already inside a live summon workspace — the existing nesting warning handles that case).
+- `--new-window` is passed (a fresh window has nothing to clean).
+- The current tab has only one pane.
+- Dry-run mode (`--dry-run`).
+
+> **Note:** Any TUI process in a closed pane (LazyGit, vim, etc.) receives SIGHUP. Save your work before running `summon` from a restored multi-pane tab, or use `--no-clean` to preserve the panes.
 
 ## Docs
 
@@ -206,13 +250,23 @@ This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.
 | `COLORTERM` | When set to `truecolor` or `24bit`, the setup wizard shows colored palette swatches for Starship presets. |
 | `STARSHIP_CONFIG` | Set automatically when `starship-preset` is configured. Points each workspace to a cached preset TOML file. Do not set manually. |
 | `SUMMON_WORKSPACE` | Set to `1` inside summon workspaces. Used to detect and warn about nested launches. |
+| `SUMMON_DEBUG` | Set to `1` to enable debug output. Each message is written to stderr with an ISO timestamp and also logged to `~/.config/summon/logs/`. |
 | `EDITOR` | Editor used by `summon layout edit`. Falls back to `vi` if unset. |
 
 ## Trust Model
 
 `.summon` files configure commands that summon executes in each pane (`editor`, `sidebar`, `shell`, `on-start`). Running `summon .` in a directory will execute whatever commands its `.summon` file specifies -- this is the same trust model as `Makefile`, direnv `.envrc`, or VS Code `.vscode/tasks.json`.
 
-When a `.summon` file contains command values with shell metacharacters (`;`, `|`, `&`, `` ` ``, `$(`, `${`, `<`, `>`), summon displays the commands and prompts for confirmation before executing (`confirmDangerousCommands`). In non-interactive environments (piped input, CI), execution is refused outright. This check is skipped for `--dry-run` since no commands are executed.
+Summon uses a direnv-style trust gate: before a project's `.summon` file is acted upon, its SHA-256 hash must be recorded as trusted. The first time you run summon in a directory with a `.summon` file, it prompts you to trust it. You can also grant trust explicitly:
+
+```bash
+summon trust .                    # trust the .summon file in the current directory
+summon trust ~/code/myapp         # trust a specific project's .summon file
+```
+
+Trust is revoked automatically if the file content changes. Run `summon trust <dir>` again after any edit.
+
+When a `.summon` file contains command values with shell metacharacters (`;`, `|`, `&`, `` ` ``, `$(`, `${`, `<`, `>`), summon displays the commands and prompts for confirmation before executing. The prompt offers three choices: `y` (run all), `n` (abort), or `s` (skip that pane). In non-interactive environments (piped input, CI), execution is refused outright. This check is skipped for `--dry-run` since no commands are executed.
 
 **`on-start` note:** The `on-start` hook executes its value via a shell (`execSync`) rather than `execFileSync`. This is intentional -- `on-start` supports complex shell commands like `docker compose up -d && npm install` that require shell interpretation. The `editor`, `sidebar`, and `shell` commands are validated against `SAFE_COMMAND_RE` before execution, but `on-start` is not, since it is designed to run arbitrary shell snippets. The `confirmDangerousCommands` safety net still applies: if `on-start` is set in a `.summon` file and contains shell metacharacters, the user is prompted before execution.
 

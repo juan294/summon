@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { execFileSync, execSync } from "node:child_process";
 import {
   planLayout,
@@ -13,19 +13,20 @@ import {
   EDITOR_SIZE_DEFAULT,
 } from "./layout.js";
 import type { LayoutOptions } from "./layout.js";
-import { listConfig, readKVFile, readCustomLayout, isCustomLayout, LAYOUT_NAME_RE } from "./config.js";
-import { generateAppleScript, generateTreeAppleScript } from "./script.js";
+import { listConfig, listProjects, readKVFile, readCustomLayout, isCustomLayout, LAYOUT_NAME_RE } from "./config.js";
+import { writeStatus } from "./status.js";
+import type { WorkspaceStatus } from "./status.js";
+import { generateAppleScript, generateTreeAppleScript, generateFocusScript } from "./script.js";
 import { parseTreeDSL, extractPaneDefinitions, extractPaneCwds, resolveTreeCommands as resolveTreeCmds, buildTreePlan, findPaneByName } from "./tree.js";
 import type { LayoutNode } from "./tree.js";
-import { resolveCommand as resolveCommandPath, promptUser, getErrorMessage, SUMMON_WORKSPACE_ENV, isAccessibilityError, checkAccessibility, isGhosttyInstalled, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT, ACCESSIBILITY_REQUIRED_MSG } from "./utils.js";
-import { parseIntInRange, parsePositiveFloat, ENV_KEY_RE } from "./validation.js";
+import { resolveCommand as resolveCommandPath, getErrorMessage, SUMMON_WORKSPACE_ENV, promptUser, ACCESSIBILITY_SETTINGS_PATH } from "./utils.js";
+import { ensureGhostty, ensureAccessibility, printAccessibilityHint, confirmDangerousCommands, isAccessibilityError } from "./launch-guards.js";
+import { assertTrusted, SummonError } from "./trust.js";
+import { parseIntInRange, parsePositiveFloat, ENV_KEY_RE, PROJECT_NAME_RE, sanitizeProjectName } from "./validation.js";
 import { isStarshipInstalled, ensurePresetConfig, getPresetConfigPath } from "./starship.js";
-
-/** Shell metacharacters that indicate potentially dangerous commands. */
-const SHELL_META_RE = /[;|&`]|\$[({]|[><]/;
-
-/** Keys in .summon files that hold command values (as opposed to config like layout/panes). */
-const COMMAND_KEYS = new Set(["editor", "sidebar", "shell", "on-start"]);
+// command-spec is a pure utility module with no imports from this file.
+// Dependency direction: launcher -> command-spec (one-way, no circular risk).
+import { commandExecutable, replaceCommandExecutable } from "./command-spec.js";
 
 /** Convert resolved layout options to a key-value config map suitable for saving as a custom layout. */
 export function optsToConfigMap(opts: Partial<LayoutOptions>): Map<string, string> {
@@ -61,41 +62,78 @@ export interface CLIOverrides {
   maximize?: string;
   float?: string;
   dryRun?: boolean;
+  clean?: string;
 }
 
-function ensureGhostty(): void {
-  if (!isGhosttyInstalled()) {
-    console.error(
-      "Ghostty.app not found. Please install Ghostty 1.3.1+ from https://ghostty.org",
-    );
-    process.exit(1);
+/** Resolve a human-readable project name from a target directory. */
+export function resolveProjectName(targetDir: string): string {
+  const resolved = resolve(targetDir);
+  const projects = listProjects();
+  for (const [name, projPath] of projects) {
+    if (resolve(projPath) === resolved) return name;
+  }
+  const derived = basename(resolved);
+  if (PROJECT_NAME_RE.test(derived)) return derived;
+  const sanitized = sanitizeProjectName(derived);
+  console.warn(
+    `Project name "${derived}" contains unsupported characters; using "${sanitized}" for tab title and status tracking.`,
+  );
+  return sanitized;
+}
+
+/** Attempt to focus an existing Ghostty workspace by activating Ghostty. */
+export function focusWorkspace(projectName: string): boolean {
+  const script = generateFocusScript(`[${projectName}]`);
+  try {
+    execFileSync("osascript", [], { input: script, encoding: "utf-8" });
+    return true;
+  } catch {
+    return false;
   }
 }
 
-function printAccessibilityHint(): void {
-  console.error(ACCESSIBILITY_REQUIRED_MSG);
-  console.error(`Grant access in: ${ACCESSIBILITY_SETTINGS_PATH}`);
-  console.error(ACCESSIBILITY_ENABLE_HINT);
-  console.error();
-  console.error("Tip: Run 'summon doctor' to check all permissions.");
+
+async function prompt(question: string): Promise<string> {
+  const answer = await promptUser(question);
+  return answer.toLowerCase();
 }
 
-function ensureAccessibility(): void {
-  if (!checkAccessibility()) {
-    console.error("Accessibility permission is required to launch workspaces.");
-    console.error();
-    printAccessibilityHint();
-    process.exit(1);
+/**
+ * Best-effort rollback: close the Ghostty front window that was opened by a
+ * failed script execution (BE-S26 #322).
+ * Silently ignored if Ghostty is not running or the window is already gone.
+ */
+export function closeWorkspaceWindow(): void {
+  const closeScript = `tell application "Ghostty"
+  if (count of windows) > 0 then
+    close front window
+  end if
+end tell`;
+  try {
+    execFileSync("osascript", [], { input: closeScript, encoding: "utf-8" });
+  } catch {
+    // Silently ignore — rollback is best-effort
   }
 }
 
 function executeScript(script: string): void {
-  console.warn("Summoning workspace...");
+  console.log("Summoning workspace...");
   try {
-    execFileSync("osascript", [], { input: script, encoding: "utf-8" });
+    execFileSync("osascript", [], { input: script, encoding: "utf-8", timeout: 30_000 });
+    console.log("✓ Workspace summoned.");
   } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ETIMEDOUT") {
+      console.error("Ghostty did not respond within 30 seconds. Is Ghostty running?");
+      throw new Error("Ghostty did not respond within 30 seconds. Is Ghostty running?", { cause: err });
+    }
+
     const message = getErrorMessage(err);
     console.error(`Failed to execute workspace script: ${message}`);
+
+    // Best-effort rollback: the AppleScript may have opened a window before failing.
+    // Attempt to close it so the user is not left with a stale empty window (BE-S26 #322).
+    closeWorkspaceWindow();
 
     if (isAccessibilityError(message)) {
       console.error();
@@ -108,64 +146,11 @@ function executeScript(script: string): void {
       console.error();
       console.error("Tip: Run 'summon doctor' to diagnose issues.");
     }
-    process.exit(1);
+    throw new Error(`Failed to execute workspace script: ${message}`, { cause: err });
   }
 }
 
-async function prompt(question: string): Promise<string> {
-  const answer = await promptUser(question);
-  return answer.toLowerCase();
-}
 
-/**
- * Check if any command values contain shell metacharacters.
- * Checks .summon project file command keys, the resolved on-start value
- * (which may come from CLI, machine config, or project config), and
- * tree pane.* commands from custom tree layouts.
- * If dangerous values are found, warn the user and prompt for confirmation (or refuse on non-TTY).
- */
-async function confirmDangerousCommands(
-  projectOverrides: Map<string, string>,
-  onStart?: string,
-  treePaneCommands?: Map<string, string>,
-): Promise<void> {
-  const dangerous: Array<[string, string]> = [];
-  for (const [key, value] of projectOverrides) {
-    if (COMMAND_KEYS.has(key) && SHELL_META_RE.test(value)) {
-      dangerous.push([key, value]);
-    }
-  }
-  // Check the resolved on-start value from all config sources (CLI, machine, project).
-  // Project-sourced on-start is already checked above via COMMAND_KEYS, but CLI and
-  // machine config sources bypass the projectOverrides map, so we check separately.
-  if (onStart && SHELL_META_RE.test(onStart) && !dangerous.some(([key]) => key === "on-start")) {
-    dangerous.push(["on-start", onStart]);
-  }
-  // Check tree pane.* commands for metacharacters
-  if (treePaneCommands) {
-    for (const [paneName, cmd] of treePaneCommands) {
-      if (SHELL_META_RE.test(cmd)) {
-        dangerous.push([`pane.${paneName}`, cmd]);
-      }
-    }
-  }
-  if (dangerous.length === 0) return;
-
-  const lines = dangerous.map(([key, value]) => `  ${key} = ${value}`).join("\n");
-  const message = `Warning: config contains commands with shell metacharacters:\n${lines}`;
-  console.warn(message);
-
-  if (!process.stdin.isTTY) {
-    console.warn("Non-interactive shell detected. Refusing to execute.");
-    process.exit(1);
-  }
-
-  const answer = await prompt("Continue? [y/N] ");
-  if (answer !== "y" && answer !== "yes") {
-    console.error("Aborted.");
-    process.exit(1);
-  }
-}
 
 const KNOWN_INSTALL_COMMANDS: Record<string, () => [string, string[]] | null> = {
   claude: () => ["npm", ["install", "-g", "@anthropic-ai/claude-code"]],
@@ -193,7 +178,7 @@ async function ensureCommand(cmd: string, configKey: string): Promise<string> {
     console.error(
       `Please install \`${cmd}\` manually or change your config with: summon set ${configKey} <command>`,
     );
-    process.exit(1);
+    throw new Error(`\`${cmd}\` is required but not installed.`);
   }
 
   const [installBin, installArgs] = installCmd;
@@ -204,7 +189,7 @@ async function ensureCommand(cmd: string, configKey: string): Promise<string> {
 
   if (answer !== "y" && answer !== "yes") {
     console.log(`Exiting — \`${cmd}\` is needed for this workspace layout. Change it with: summon set ${configKey} <command>`);
-    process.exit(1);
+    throw new Error(`\`${cmd}\` is needed for this workspace layout.`);
   }
 
   console.log(`Running: ${installDisplay}`);
@@ -214,13 +199,13 @@ async function ensureCommand(cmd: string, configKey: string): Promise<string> {
     console.error(
       `Failed to install \`${cmd}\`. Please install it manually and try again.`,
     );
-    process.exit(1);
+    throw new Error(`Failed to install \`${cmd}\`.`);
   }
 
   const postInstallPath = resolveCommandPath(cmd);
   if (!postInstallPath) {
     console.error(`\`${cmd}\` still not found after install. Please check your PATH.`);
-    process.exit(1);
+    throw new Error(`\`${cmd}\` still not found after install.`);
   }
 
   console.log(`\`${cmd}\` installed successfully!\n`);
@@ -230,14 +215,35 @@ async function ensureCommand(cmd: string, configKey: string): Promise<string> {
 interface ResolvedConfig {
   opts: Partial<LayoutOptions>;
   projectOverrides: Map<string, string>;
+  machineConfig: Map<string, string>;
   starshipPreset?: string;
   onStart?: string;
+  onStop?: string;
   envVars: Record<string, string>;
   treeLayout?: {
     tree: LayoutNode;
     panes: Map<string, string>;
     paneCwds?: Map<string, string>;
   };
+}
+
+/**
+ * Denylisted env var key prefixes and exact names that could be used for
+ * code injection via dynamic linkers, shell hooks, or interpreter startup files.
+ */
+const ENV_DENYLIST_PREFIXES = ["DYLD_", "LD_"];
+const ENV_DENYLIST_EXACT = new Set([
+  "NODE_OPTIONS",
+  "BASH_ENV",
+  "PYTHONSTARTUP",
+  "PROMPT_COMMAND",
+  "CDPATH",
+  "IFS",
+]);
+
+function isDenylisted(envKey: string): boolean {
+  if (ENV_DENYLIST_EXACT.has(envKey)) return true;
+  return ENV_DENYLIST_PREFIXES.some((prefix) => envKey.startsWith(prefix));
 }
 
 function collectEnvVars(
@@ -251,7 +257,9 @@ function collectEnvVars(
   for (const [key, value] of machineConfig) {
     if (key.startsWith("env.")) {
       const envKey = key.slice(4);
-      if (ENV_KEY_RE.test(envKey)) {
+      if (isDenylisted(envKey)) {
+        console.warn(`Warning: ignoring denylisted env var key "${envKey}" from machine config.`);
+      } else if (ENV_KEY_RE.test(envKey)) {
         envVars[envKey] = value;
       }
     }
@@ -261,7 +269,9 @@ function collectEnvVars(
   for (const [key, value] of projectConfig) {
     if (key.startsWith("env.")) {
       const envKey = key.slice(4);
-      if (ENV_KEY_RE.test(envKey)) {
+      if (isDenylisted(envKey)) {
+        console.warn(`Warning: ignoring denylisted env var key "${envKey}" from .summon file.`);
+      } else if (ENV_KEY_RE.test(envKey)) {
         envVars[envKey] = value;
       } else {
         console.warn(`Warning: ignoring invalid env var key "${envKey}" from .summon file.`);
@@ -275,7 +285,9 @@ function collectEnvVars(
       const eqIdx = entry.indexOf("=");
       if (eqIdx > 0) {
         const envKey = entry.slice(0, eqIdx);
-        if (ENV_KEY_RE.test(envKey)) {
+        if (isDenylisted(envKey)) {
+          console.warn(`Warning: ignoring denylisted env var key "${envKey}" from --env flag.`);
+        } else if (ENV_KEY_RE.test(envKey)) {
           envVars[envKey] = entry.slice(eqIdx + 1);
         } else {
           console.warn(`Warning: ignoring invalid env var key "${envKey}" from --env flag.`);
@@ -287,7 +299,15 @@ function collectEnvVars(
   return envVars;
 }
 
-/** Pick a config value with priority: CLI > project > global. Empty strings treated as unset. */
+/**
+ * Pick a config value with priority: CLI > project > global.
+ * Empty strings in project or machine config are treated as "not set" — they
+ * do not override preset or default values. This preserves the intent that an
+ * empty config key means "use the default".
+ *
+ * Note: To distinguish "explicitly set to empty" from "not present" in project
+ * config, callers that need that distinction should use `project.has(key)` directly.
+ */
 function pickConfigValue(
   cli: string | undefined,
   projKey: string,
@@ -318,12 +338,24 @@ function resolveLayoutBase(
     const base: Partial<LayoutOptions> = {};
     if (customData.has("editor-size")) {
       const es = parseIntInRange(customData.get("editor-size")!, EDITOR_SIZE_MIN, EDITOR_SIZE_MAX);
-      if (es.ok) base.editorSize = es.value;
+      if (es.ok) {
+        base.editorSize = es.value;
+      } else {
+        console.warn(
+          `Invalid editor-size value in custom layout "${layoutKey}": "${customData.get("editor-size")}". Must be ${EDITOR_SIZE_MIN}-${EDITOR_SIZE_MAX}. Using default (${EDITOR_SIZE_DEFAULT}).`,
+        );
+      }
     }
     if (customData.has("auto-resize")) base.autoResize = customData.get("auto-resize") === "true";
     if (customData.has("font-size")) {
       const fs = parsePositiveFloat(customData.get("font-size")!);
-      if (fs.ok) base.fontSize = fs.value;
+      if (fs.ok) {
+        base.fontSize = fs.value;
+      } else {
+        console.warn(
+          `Invalid font-size value in custom layout "${layoutKey}": "${customData.get("font-size")}". Must be a positive number. Ignoring.`,
+        );
+      }
     }
     if (customData.has("new-window")) base.newWindow = customData.get("new-window") === "true";
     if (customData.has("fullscreen")) base.fullscreen = customData.get("fullscreen") === "true";
@@ -343,7 +375,13 @@ function resolveLayoutBase(
     if (customData.has("sidebar")) base.sidebarCommand = customData.get("sidebar");
     if (customData.has("panes")) {
       const p = parseIntInRange(customData.get("panes")!, PANES_MIN);
-      if (p.ok) base.editorPanes = p.value;
+      if (p.ok) {
+        base.editorPanes = p.value;
+      } else {
+        console.warn(
+          `Invalid panes value in custom layout "${layoutKey}": "${customData.get("panes")}". Must be a positive integer. Ignoring.`,
+        );
+      }
     }
     if (customData.has("shell")) base.shell = customData.get("shell");
     return { base };
@@ -427,10 +465,7 @@ export function resolveConfig(targetDir: string, cliOverrides: CLIOverrides): Re
   const projectConfigPath = join(targetDir, ".summon");
   const project = readKVFile(projectConfigPath);
   if (project.size > 0) {
-    console.warn(`Using project config: ${projectConfigPath}`);
-    if (process.stdin.isTTY) {
-      console.warn("Tip: Review .summon files before use in untrusted directories.");
-    }
+    console.log(`Using project config: ${projectConfigPath}`);
   }
   const machineConfig = listConfig();
 
@@ -440,6 +475,7 @@ export function resolveConfig(targetDir: string, cliOverrides: CLIOverrides): Re
 
   const starshipPreset = pickConfigValue(cliOverrides["starship-preset"], "starship-preset", project, machineConfig);
   const onStart = pickConfigValue(cliOverrides["on-start"], "on-start", project, machineConfig);
+  const onStop = pickConfigValue(undefined, "on-stop", project, machineConfig);
   const envVars = collectEnvVars(machineConfig, project, cliOverrides.env);
 
   // Merge per-pane cwds from project config into treeLayout (project overrides layout defaults)
@@ -453,7 +489,7 @@ export function resolveConfig(targetDir: string, cliOverrides: CLIOverrides): Re
     }
   }
 
-  return { opts, projectOverrides: project, starshipPreset, onStart, envVars, treeLayout: mergedTreeLayout };
+  return { opts, projectOverrides: project, machineConfig, starshipPreset, onStart, onStop, envVars, treeLayout: mergedTreeLayout };
 }
 
 /**
@@ -475,6 +511,93 @@ async function warnIfNested(
 }
 
 /**
+ * Probe Ghostty for the number of terminals in the front window's selected tab.
+ * Returns null when Ghostty is not running, the script errors, or output is non-numeric.
+ *
+ * PE-L2: This is a separate osascript call made BEFORE the main workspace script.
+ * Two round-trips are intentional: this probe runs before the main AppleScript is
+ * generated, and its result (pane count) influences the generated script's content
+ * (the cleanRestoredPanes prelude). Inlining the count into the main script would
+ * require AppleScript to conditionally close panes and then branch — adding significant
+ * complexity to script.ts for minimal latency gain (probe takes ~2 s max, main script
+ * executes regardless). The two-call design keeps script generation pure and testable.
+ */
+export function probePaneCount(): number | null {
+  try {
+    const out = execFileSync(
+      "osascript",
+      ["-e", 'tell application "Ghostty" to count of terminals of selected tab of front window'],
+      { encoding: "utf-8", timeout: 2000, stdio: ["ignore", "pipe", "ignore"] },
+    ).trim();
+    const n = parseInt(out, 10);
+    return Number.isFinite(n) && n >= 0 ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Probe the title of the front Ghostty window's selected tab.
+ * Returns null when Ghostty is not running or the script errors.
+ */
+export function probeFrontTabTitle(): string | null {
+  try {
+    const out = execFileSync(
+      "osascript",
+      ["-e", 'tell application "Ghostty" to get title of selected tab of front window'],
+      { encoding: "utf-8", timeout: 2000, stdio: ["ignore", "pipe", "ignore"] },
+    ).trim();
+    return out || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Decide whether to auto-clean restored panes from the front window's selected tab.
+ * Only cleans panes when the front tab title contains a summon project marker `[<projectName>]`.
+ * This prevents destroying non-summon panes.
+ * When all trigger conditions are met, sets opts.cleanRestoredPanes=true and prints a notice.
+ */
+export function decideCleanRestoredPanes(
+  opts: Partial<LayoutOptions>,
+  cliOverrides: CLIOverrides,
+  project: Map<string, string>,
+  machineConfig: Map<string, string>,
+  dryRun: boolean | undefined,
+  projectName?: string,
+): void {
+  if (process.env[SUMMON_WORKSPACE_ENV]) return;
+  if (opts.newWindow) return;
+
+  const cleanRaw = pickConfigValue(cliOverrides.clean, "clean", project, machineConfig);
+  const cleanEnabled = cleanRaw === undefined ? true : cleanRaw === "true";
+  if (!cleanEnabled) return;
+
+  // In dry-run mode, skip the probe but honor an explicit --clean flag so the
+  // generated AppleScript (printed to stdout) includes the close prelude.
+  if (dryRun) {
+    if (cliOverrides.clean === "true") opts.cleanRestoredPanes = true;
+    return;
+  }
+
+  const count = probePaneCount();
+  if (count === null || count <= 1) return;
+
+  // Only auto-clean when the front tab title contains a summon project marker.
+  // This prevents closing non-summon panes that the user has open.
+  if (projectName) {
+    const tabTitle = probeFrontTabTitle();
+    if (tabTitle === null || !tabTitle.includes(`[${projectName}]`)) return;
+  }
+
+  const stale = count - 1;
+  const noun = stale === 1 ? "pane" : "panes";
+  console.log(`Clearing ${stale} stale ${noun} from previous session...`);
+  opts.cleanRestoredPanes = true;
+}
+
+/**
  * Execute the on-start hook command before workspace creation.
  *
  * Security note: This is the only production use of `execSync` (shell mode).
@@ -491,12 +614,13 @@ async function warnIfNested(
  * 4. The feature is documented in `--help` so users understand the behavior.
  */
 function executeOnStart(onStart: string, targetDir: string): void {
-  console.warn(`Running on-start: ${onStart}`);
+  console.log(`Running on-start: ${onStart}`);
   try {
     execSync(onStart, { cwd: targetDir, encoding: "utf-8", stdio: "inherit" });
   } catch (err) {
-    console.error(`on-start command failed: ${onStart} — ${getErrorMessage(err)}`);
-    process.exit(1);
+    const message = `on-start command failed: ${onStart} — ${getErrorMessage(err)}`;
+    console.error(message);
+    throw new Error(message, { cause: err });
   }
 }
 
@@ -511,6 +635,10 @@ function appendDryRunExtras(
   }
 }
 
+// TODO(AR-L1 #318): launchTreeLayout and launchTraditionalLayout are parallel pipelines that
+// both map LayoutOptions fields onto their respective plan/script generators. Any new layout
+// option must be added to both functions independently, which is fragile. Consider unifying
+// into a single options-to-plan adapter to eliminate this duplication.
 async function launchTreeLayout(
   treeLayout: NonNullable<ResolvedConfig["treeLayout"]>,
   opts: Partial<LayoutOptions>,
@@ -520,7 +648,9 @@ async function launchTreeLayout(
   envVars: Record<string, string>,
   ensureAndResolve: (cmd: string, key: string) => Promise<string>,
   resolveStarship: () => string | null,
-): Promise<void> {
+  projectName?: string,
+  onStop?: string,
+): Promise<string[]> {
   const resolvedTree = resolveTreeCmds(treeLayout.tree, treeLayout.panes, treeLayout.paneCwds);
   const treePlanOpts = {
     autoResize: opts.autoResize,
@@ -530,13 +660,14 @@ async function launchTreeLayout(
     fullscreen: opts.fullscreen,
     maximize: opts.maximize,
     float: opts.float,
+    cleanRestoredPanes: opts.cleanRestoredPanes,
   };
   const treePlan = buildTreePlan(resolvedTree, treePlanOpts);
   const hasEnvVars = Object.keys(envVars).length > 0;
 
   if (cliOverrides.dryRun) {
     const dryRunStarshipPath = starshipPreset ? getPresetConfigPath(starshipPreset) : null;
-    const script = generateTreeAppleScript(treePlan, targetDir, dryRunStarshipPath, hasEnvVars ? envVars : undefined);
+    const script = generateTreeAppleScript(treePlan, targetDir, dryRunStarshipPath, hasEnvVars ? envVars : undefined, projectName, onStop);
     const paneCount = treePlan.leaves.length;
     const headerLines = [
       "-- summon dry-run",
@@ -545,7 +676,7 @@ async function launchTreeLayout(
     ];
     appendDryRunExtras(headerLines, starshipPreset, dryRunStarshipPath);
     console.log(`${headerLines.join("\n")}\n${script}`);
-    return;
+    return treePlan.leaves;
   }
 
   ensureGhostty();
@@ -559,8 +690,19 @@ async function launchTreeLayout(
   }
 
   const starshipConfigPath = resolveStarship();
-  const script = generateTreeAppleScript(treePlan, targetDir, starshipConfigPath, hasEnvVars ? envVars : undefined);
+  const script = generateTreeAppleScript(treePlan, targetDir, starshipConfigPath, hasEnvVars ? envVars : undefined, projectName, onStop);
   executeScript(script);
+  return treePlan.leaves;
+}
+
+/** Extract pane names from a traditional LayoutPlan. */
+export function traditionalPaneNames(plan: { sidebarCommand: string; leftColumnCount: number; rightColumnEditorCount: number; hasShell: boolean }): string[] {
+  const names = ["editor"];
+  if (plan.sidebarCommand) names.push("sidebar");
+  for (let i = 1; i < plan.leftColumnCount; i++) names.push(`editor-${i + 1}`);
+  for (let i = 0; i < plan.rightColumnEditorCount; i++) names.push(`right-${i + 1}`);
+  if (plan.hasShell) names.push("shell");
+  return names;
 }
 
 async function launchTraditionalLayout(
@@ -571,13 +713,16 @@ async function launchTraditionalLayout(
   envVars: Record<string, string>,
   ensureAndResolve: (cmd: string, key: string) => Promise<string>,
   resolveStarship: () => string | null,
-): Promise<void> {
+  projectName?: string,
+  onStop?: string,
+): Promise<string[]> {
   const plan = planLayout(opts);
   const hasEnvVars = Object.keys(envVars).length > 0;
+  const paneNames = traditionalPaneNames(plan);
 
   if (cliOverrides.dryRun) {
     const dryRunStarshipPath = starshipPreset ? getPresetConfigPath(starshipPreset) : null;
-    const script = generateAppleScript(plan, targetDir, dryRunStarshipPath, hasEnvVars ? envVars : undefined);
+    const script = generateAppleScript(plan, targetDir, dryRunStarshipPath, hasEnvVars ? envVars : undefined, projectName, onStop);
     const totalPanes = plan.leftColumnCount + plan.rightColumnEditorCount;
     const headerLines = [
       "-- summon dry-run",
@@ -586,7 +731,7 @@ async function launchTraditionalLayout(
     ];
     appendDryRunExtras(headerLines, starshipPreset, dryRunStarshipPath);
     console.log(`${headerLines.join("\n")}\n${script}`);
-    return;
+    return paneNames;
   }
 
   ensureGhostty();
@@ -598,17 +743,32 @@ async function launchTraditionalLayout(
   if (plan.shellCommand) plan.shellCommand = await ensureAndResolve(plan.shellCommand, "shell");
 
   const starshipConfigPath = resolveStarship();
-  const script = generateAppleScript(plan, targetDir, starshipConfigPath, hasEnvVars ? envVars : undefined);
+  const script = generateAppleScript(plan, targetDir, starshipConfigPath, hasEnvVars ? envVars : undefined, projectName, onStop);
   executeScript(script);
+  return paneNames;
 }
 
 export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Promise<void> {
   if (!existsSync(targetDir)) {
-    console.error(`Directory not found: ${targetDir}`);
-    process.exit(1);
+    const msg = `Directory not found: ${targetDir}`;
+    console.error(msg);
+    throw new Error(msg);
   }
 
-  let config = resolveConfig(targetDir, cliOverrides ?? {});
+  // Trust gate: verify the .summon file (if present) is explicitly trusted before
+  // reading or acting on any of its values (BE-B1, BE-B2, SE-H1).
+  try {
+    assertTrusted(targetDir);
+  } catch (err) {
+    if (err instanceof SummonError) {
+      console.error(err.message);
+      process.exit(1);
+    }
+    throw err;
+  }
+
+  let config: ReturnType<typeof resolveConfig>;
+  config = resolveConfig(targetDir, cliOverrides ?? {});
 
   // If no editor is configured from any source and this isn't a tree layout
   // (which defines its own pane commands), redirect to the setup wizard.
@@ -620,38 +780,79 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
       // Re-resolve config after setup saved new values
       config = resolveConfig(targetDir, cliOverrides ?? {});
     } else {
-      console.error("No editor configured. Run `summon setup` interactively or use: summon set editor <command>");
-      process.exit(1);
+      const msg = "No editor configured. Run `summon setup` interactively or use: summon set editor <command>";
+      console.error(msg);
+      throw new Error(msg);
     }
   }
 
-  const { opts, projectOverrides, starshipPreset, onStart, envVars, treeLayout } = config;
+  const { opts, machineConfig, starshipPreset, onStart, onStop, envVars, treeLayout } = config;
+  const projectName = resolveProjectName(targetDir);
 
   if (await warnIfNested(opts, cliOverrides?.dryRun)) {
-    process.exit(1);
+    throw new Error("Launch aborted by user (nested workspace).");
   }
+  decideCleanRestoredPanes(opts, cliOverrides ?? {}, config.projectOverrides, machineConfig, cliOverrides?.dryRun, projectName);
+
+  let effectiveOnStart = onStart;
 
   if (!cliOverrides?.dryRun) {
-    await confirmDangerousCommands(projectOverrides, onStart, treeLayout?.panes);
+    const resolvedCommands: Array<[string, string]> = [];
+    const maybePush = (key: string, value: string | null | undefined) => {
+      if (!value || value === "true" || value === "false") return;
+      resolvedCommands.push([key, value]);
+    };
+
+    maybePush("editor", opts.editor);
+    maybePush("sidebar", opts.sidebarCommand);
+    maybePush("shell", opts.shell);
+    maybePush("on-start", onStart);
+    maybePush("on-stop", onStop);
+    if (treeLayout) {
+      for (const [paneName, cmd] of treeLayout.panes) {
+        maybePush(`pane.${paneName}`, cmd);
+      }
+    }
+
+    const decision = await confirmDangerousCommands(resolvedCommands);
+    const { skipped } = decision;
+
+    // Apply skip decisions: remove skipped panes from layout (UX-S2 #340)
+    if (skipped.size > 0) {
+      if (skipped.has("editor")) opts.editor = undefined;
+      if (skipped.has("sidebar")) opts.sidebarCommand = undefined;
+      if (skipped.has("shell")) opts.shell = undefined;
+      if (skipped.has("on-start")) effectiveOnStart = undefined;
+      if (treeLayout) {
+        for (const key of skipped) {
+          if (key.startsWith("pane.")) {
+            treeLayout.panes.delete(key.slice(5));
+          }
+        }
+      }
+    }
   }
 
-  if (onStart && !cliOverrides?.dryRun) {
-    executeOnStart(onStart, targetDir);
+  if (effectiveOnStart && !cliOverrides?.dryRun) {
+    executeOnStart(effectiveOnStart, targetDir);
   }
 
   // Cache resolved command paths so the same binary is only looked up once
   const resolvedCache = new Map<string, string>();
   const ensureAndResolve = async (cmdString: string, configKey: string): Promise<string> => {
-    const parts = cmdString.split(" ");
-    const binary = parts[0]!;
+    const binary = commandExecutable(cmdString);
+    if (!binary) {
+      return cmdString;
+    }
+
     const cached = resolvedCache.get(binary);
     if (cached) {
-      parts[0] = cached;
-    } else {
-      parts[0] = await ensureCommand(binary, configKey);
-      resolvedCache.set(binary, parts[0]);
+      return replaceCommandExecutable(cmdString, cached);
     }
-    return parts.join(" ");
+
+    const resolvedBinary = await ensureCommand(binary, configKey);
+    resolvedCache.set(binary, resolvedBinary);
+    return replaceCommandExecutable(cmdString, resolvedBinary);
   };
 
   const resolveStarship = (): string | null => {
@@ -673,9 +874,28 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
     return null;
   };
 
-  if (treeLayout) {
-    await launchTreeLayout(treeLayout, opts, cliOverrides ?? {}, targetDir, starshipPreset, envVars, ensureAndResolve, resolveStarship);
-  } else {
-    await launchTraditionalLayout(opts, cliOverrides ?? {}, targetDir, starshipPreset, envVars, ensureAndResolve, resolveStarship);
+  const paneNames = treeLayout
+    ? await launchTreeLayout(treeLayout, opts, cliOverrides ?? {}, targetDir, starshipPreset, envVars, ensureAndResolve, resolveStarship, projectName, onStop)
+    : await launchTraditionalLayout(opts, cliOverrides ?? {}, targetDir, starshipPreset, envVars, ensureAndResolve, resolveStarship, projectName, onStop);
+
+  // Write workspace status for monitoring features
+  if (!cliOverrides?.dryRun) {
+    const layoutLabel = treeLayout ? "custom" : (cliOverrides?.layout ?? "default");
+    const status: WorkspaceStatus = {
+      project: projectName,
+      directory: resolve(targetDir),
+      pid: process.pid,
+      startedAt: new Date().toISOString(),
+      layout: layoutLabel,
+      panes: paneNames,
+      source: "summon",
+      version: 1,
+    };
+
+    try {
+      writeStatus(status);
+    } catch {
+      // Non-fatal: monitoring is optional, don't break launch
+    }
   }
 }

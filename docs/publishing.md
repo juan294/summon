@@ -7,7 +7,7 @@ Publishing checklist and workflow. First published as v0.7.0 on 2026-03-14.
 - [x] Package name `summon-ws` chosen (npm)
 - [x] `bin` entry for `summon`
 - [x] `files: ["dist"]` limits published contents
-- [x] `engines: { "node": ">=18" }`
+- [x] `engines: { "node": ">=20.19" }`
 - [x] `os: ["darwin"]` enforces macOS-only
 - [x] `prepublishOnly` runs `pnpm run build`
 - [x] `license: "MIT"` + LICENSE file
@@ -17,7 +17,28 @@ Publishing checklist and workflow. First published as v0.7.0 on 2026-03-14.
 - [x] `repository`, `homepage`, `bugs` fields in package.json
 - [x] README.md
 
+## Version Bumping
+
+Use `pnpm version patch|minor|major` to bump the version. This automatically:
+- Updates package.json version
+- Creates a git tag
+
+After running, also update CHANGELOG.md (Step 0 above).
+
 ## Publishing a New Version
+
+### 0. Prepare CHANGELOG.md
+
+Promote the `[Unreleased]` section to the new version number and add today's date:
+
+1. Replace `## [Unreleased]` with `## [X.Y.Z] - YYYY-MM-DD`
+2. Add a new empty `## [Unreleased]` section above it
+3. Update the comparison links at the bottom of CHANGELOG.md
+
+Verify the package version matches the intended release:
+```bash
+node -p "require('./package.json').version"
+```
 
 ### 1. Pre-Publish Verification
 ```bash
@@ -78,3 +99,7 @@ summon .
 - [ ] Tag the commit: `git tag v<version>`
 - [ ] Push the tag: `git push origin v<version>`
 - [ ] Create a GitHub release from the tag
+
+## Supply Chain
+
+Consider adding SBOM generation (`cyclonedx-node`) to the release workflow for future releases.

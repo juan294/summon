@@ -18,6 +18,7 @@ Scan this project for all cc-rpi artifacts. Categorize each into one of four tie
 
 Check for these files and note which exist:
 
+- `AGENTS.md`
 - `.claude/commands/research.md`
 - `.claude/commands/plan.md`
 - `.claude/commands/implement.md`
@@ -32,6 +33,8 @@ Check for these files and note which exist:
 
 For each command file that exists, diff it against `<cc-rpi-path>/templates/commands/<name>` to detect customization. Mark as "unmodified" or "customized."
 
+For `AGENTS.md`, diff it against `<cc-rpi-path>/templates/AGENTS.md.template` to detect customization. Mark as "unmodified" or "customized."
+
 For `guard-bash.sh`, check if content exists below the `# Project-specific guards below this line` marker. If so, mark as "customized."
 
 ### Tier 2: Blueprint-managed CLAUDE.md sections
@@ -39,13 +42,12 @@ For `guard-bash.sh`, check if content exists below the `# Project-specific guard
 Read the project's CLAUDE.md (or AGENTS.md for copilot-rpi projects) and identify these blueprint-managed sections by their `##` or `###` headers:
 
 - `## RPI Workflow` (including all `###` subsections under it)
-- `## Agent Operational Rules` (including all `###` subsections under it)
-- `## Push Accountability`
+- `## Working Patterns` (including `<examples>` blocks under it)
 - `## TDD Protocol`
 - `## Agent Autonomy`
 - `## Memory Management`
 - `## Project File Locations`
-- `### CRITICAL: Run verification commands sequentially` (subsection under Key Commands)
+- `<important if>` blocks: Push Accountability, Deployment Safety, Supabase sections
 
 Note which sections exist. Do NOT touch any other sections -- they are project-specific.
 
@@ -159,6 +161,7 @@ To re-adopt later: run /adopt
 - **Preserve project identity.** Only remove blueprint-managed content. Everything project-specific stays.
 - **Keep user work products by default.** Research docs, plans, and decisions are the user's work. Only remove if explicitly asked.
 - **Flag customizations.** If a command or hook has been modified from the template, warn the user before deleting it.
+- **Flag Codex compatibility customizations.** If `AGENTS.md` diverges from the template, warn before deleting it.
 - **One atomic commit.** All removals go in a single commit. Don't scatter across multiple commits.
 - **Idempotent.** Running on a project without cc-rpi artifacts reports "nothing to detach" and stops. Running twice produces no changes the second time.
 - **Don't touch Claude Code itself.** `.claude/` directory, `settings.json` (with remaining entries), and `settings.local.json` are Claude Code's own -- they exist independently of cc-rpi.

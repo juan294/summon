@@ -1,10 +1,7 @@
-import { getPresetNames } from "./layout.js";
 import { VALID_KEYS, CLI_FLAGS, BOOLEAN_KEYS, listCustomLayouts } from "./config.js";
+import { getPresetNames } from "./layout.js";
 
 export function generateZshCompletion(): string {
-  const customLayouts = listCustomLayouts();
-  const allLayouts = [...getPresetNames(), ...customLayouts];
-  const presetNames = allLayouts.join(" ");
   const configKeys = VALID_KEYS.join(" ");
   const booleanKeyCheck = [...BOOLEAN_KEYS].map(k => `"\\$\{words[2]}" == "${k}"`).join(" || ");
 
@@ -21,6 +18,11 @@ _summon() {
     'completions:Generate shell completions'
     'doctor:Check Ghostty config'
     'open:Select and launch a project'
+    'status:Show workspace status across all projects'
+    'switch:Switch to an active project'
+    'snapshot:Manage context snapshots'
+    'briefing:Morning briefing across all projects'
+    'ports:Show port assignments across projects'
     'export:Export config as .summon file'
     'freeze:Save current config as a reusable layout'
     'keybindings:Generate Ghostty key table for navigation'
@@ -28,7 +30,7 @@ _summon() {
   )
 
   local -a config_keys=(${configKeys})
-  local -a layout_presets=(${presetNames})
+  local -a layout_presets=(\${(f)"$(summon layout list 2>/dev/null)"})
   local projects_file="\${HOME}/.config/summon/projects"
 
   # Read project names dynamically
@@ -40,7 +42,7 @@ _summon() {
   _arguments -C \\
     '(-h --help)'{-h,--help}'[Show help]' \\
     '(-v --version)'{-v,--version}'[Show version]' \\
-    '(-l --layout)'{-l,--layout}'[Layout preset]:preset:(${presetNames})' \\
+    '(-l --layout)'{-l,--layout}'[Layout preset]:preset:->layout_preset' \\
     '(-e --editor)'{-e,--editor}'[Editor command]:command:' \\
     '(-p --panes)'{-p,--panes}'[Editor panes]:count:' \\
     '--editor-size[Editor width %]:percent:' \\
@@ -48,6 +50,8 @@ _summon() {
     '--shell[Shell pane]:value:(true false)' \\
     '--auto-resize[Enable auto-resize]' \\
     '--no-auto-resize[Disable auto-resize]' \\
+    '--clean[Auto-close stale panes from prior session]' \\
+    '--no-clean[Skip auto-close of restored panes]' \\
     '--starship-preset[Starship preset]:preset:->starship_preset' \\
     '*--env[Set environment variable]:var:' \\
     '--font-size[Font size in points]:size:' \\
@@ -61,6 +65,10 @@ _summon() {
     '*::arg:->args'
 
   case "$state" in
+    layout_preset)
+      compadd -a layout_presets
+      return
+      ;;
     starship_preset)
       local -a starship_presets
       starship_presets=(\${(f)"$(starship preset --list 2>/dev/null)"})
@@ -104,6 +112,16 @@ _summon() {
             compadd -- --fix
           fi
           ;;
+        status)
+          if (( CURRENT == 2 )); then
+            compadd -- --once
+          fi
+          ;;
+        snapshot)
+          if (( CURRENT == 2 )); then
+            compadd save show clear
+          fi
+          ;;
         keybindings)
           if (( CURRENT == 2 )); then
             compadd -- --vim
@@ -137,9 +155,6 @@ compdef _summon summon
 
 export function generateBashCompletion(): string {
   const configKeys = VALID_KEYS.join(" ");
-  const customLayouts = listCustomLayouts();
-  const allLayouts = [...getPresetNames(), ...customLayouts];
-  const presetNames = allLayouts.join(" ");
   const flagsList = CLI_FLAGS.join(" ");
   const booleanKeyCheck = [...BOOLEAN_KEYS].map(k => `"\\$\{words[2]}" == "${k}"`).join(" || ");
 
@@ -153,9 +168,10 @@ export function generateBashCompletion(): string {
     local prev="\${COMP_WORDS[COMP_CWORD-1]}"
   fi
 
-  local subcommands="add remove list set config setup completions doctor open export freeze keybindings layout"
+  local subcommands="add remove list set config setup completions doctor open status switch snapshot briefing ports export freeze keybindings layout"
   local config_keys="${configKeys}"
-  local layout_presets="${presetNames}"
+  local layout_presets
+  layout_presets=$(summon layout list 2>/dev/null)
   local projects_file="\${HOME}/.config/summon/projects"
 
   local project_names=""
@@ -216,6 +232,12 @@ export function generateBashCompletion(): string {
         COMPREPLY=($(compgen -d -- "$cur"))
       fi
       ;;
+    status)
+      COMPREPLY=($(compgen -W "--once" -- "$cur"))
+      ;;
+    snapshot)
+      COMPREPLY=($(compgen -W "save show clear" -- "$cur"))
+      ;;
     doctor)
       COMPREPLY=($(compgen -W "--fix" -- "$cur"))
       ;;
@@ -243,5 +265,63 @@ export function generateBashCompletion(): string {
 }
 
 complete -F _summon summon
+`;
+}
+
+export function generateFishCompletion(): string {
+  const customLayouts = listCustomLayouts();
+  const allLayouts = [...getPresetNames(), ...customLayouts];
+
+  const subcommands: Array<[string, string]> = [
+    ["add", "Register a project"],
+    ["remove", "Remove a project"],
+    ["list", "List registered projects"],
+    ["set", "Set a config value"],
+    ["config", "Show current config"],
+    ["setup", "Interactive setup wizard"],
+    ["completions", "Generate shell completions"],
+    ["doctor", "Check Ghostty config"],
+    ["open", "Select and launch a project"],
+    ["status", "Show workspace status across all projects"],
+    ["switch", "Switch to an active project"],
+    ["snapshot", "Manage context snapshots"],
+    ["briefing", "Morning briefing across all projects"],
+    ["ports", "Show port assignments across projects"],
+    ["export", "Export config as .summon file"],
+    ["freeze", "Save current config as a reusable layout"],
+    ["keybindings", "Generate Ghostty key table for navigation"],
+    ["layout", "Manage custom layouts"],
+  ];
+
+  const subcommandLines = subcommands
+    .map(([name, desc]) => `complete -c summon -n '__fish_use_subcommand' -a '${name}' -d '${desc}'`)
+    .join("\n");
+
+  const layoutPresets = allLayouts.join(" ");
+
+  return `# summon fish completion
+complete -c summon -f
+${subcommandLines}
+complete -c summon -l help -s h -d 'Show help'
+complete -c summon -l version -s v -d 'Show version'
+complete -c summon -l layout -s l -d 'Layout preset or tree DSL' -a '${layoutPresets}'
+complete -c summon -l editor -s e -d 'Editor command'
+complete -c summon -l panes -s p -d 'Number of editor panes'
+complete -c summon -l editor-size -d 'Editor width %'
+complete -c summon -l sidebar -s s -d 'Sidebar command'
+complete -c summon -l shell -d 'Shell pane (true, false, or command)'
+complete -c summon -l auto-resize -d 'Enable auto-resize'
+complete -c summon -l no-auto-resize -d 'Disable auto-resize'
+complete -c summon -l clean -d 'Auto-close stale panes from prior session'
+complete -c summon -l no-clean -d 'Skip auto-close of restored panes'
+complete -c summon -l starship-preset -d 'Starship prompt preset name'
+complete -c summon -l env -d 'Set environment variable (KEY=VALUE)'
+complete -c summon -l font-size -d 'Font size in points'
+complete -c summon -l on-start -d 'Run command before workspace creation'
+complete -c summon -l new-window -d 'Open in new Ghostty window'
+complete -c summon -l fullscreen -d 'Start in fullscreen mode'
+complete -c summon -l maximize -d 'Start maximized'
+complete -c summon -l float -d 'Float window on top'
+complete -c summon -l dry-run -s n -d 'Print AppleScript without executing'
 `;
 }

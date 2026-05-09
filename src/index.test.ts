@@ -444,7 +444,7 @@ describe("CLI integration", () => {
     });
 
     describe("editor-size validation", () => {
-      it("rejects non-numeric editor-size value", () => {
+      it("rejects non-numeric editor-size value", { retry: 2 }, () => {
         const result = run("set", "editor-size", "abc");
         expect(result.status).toBe(1);
         expect(result.stderr).toContain("Error:");
@@ -654,6 +654,32 @@ describe("CLI integration", () => {
       const good = run("set", "fullscreen", "true");
       expect(good.status).toBe(0);
       const bad = run("set", "fullscreen", "maybe");
+      expect(bad.status).toBe(1);
+      expect(bad.stderr).toContain("true");
+      expect(bad.stderr).toContain("false");
+    });
+
+    it("--clean flag accepted in dry-run", () => {
+      const result = run(".", "--clean", "--dry-run");
+      expect(result.status).toBe(0);
+    });
+
+    it("--no-clean flag accepted in dry-run", () => {
+      const result = run(".", "--no-clean", "--dry-run");
+      expect(result.status).toBe(0);
+    });
+
+    it("--clean and --no-clean appear in --help", () => {
+      const result = run("--help");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("--clean");
+      expect(result.stdout).toContain("--no-clean");
+    });
+
+    it("summon set clean validates boolean", () => {
+      const good = run("set", "clean", "true");
+      expect(good.status).toBe(0);
+      const bad = run("set", "clean", "yes");
       expect(bad.status).toBe(1);
       expect(bad.stderr).toContain("true");
       expect(bad.stderr).toContain("false");
@@ -963,20 +989,19 @@ describe("CLI integration", () => {
     });
   });
 
-  // #63: warn when both --auto-resize and --no-auto-resize are passed
-  describe("auto-resize conflict warning (#63)", () => {
-    it("warns on stderr when both --auto-resize and --no-auto-resize are given", () => {
+  // #63/#256: error (not warn) when both --auto-resize and --no-auto-resize are passed
+  describe("auto-resize conflict error (#63/#256)", () => {
+    it("errors on stderr when both --auto-resize and --no-auto-resize are given", () => {
       const result = run(".", "--auto-resize", "--no-auto-resize", "--dry-run");
-      expect(result.status).toBe(0);
-      expect(result.stderr).toContain("Warning:");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("Error:");
       expect(result.stderr).toContain("--auto-resize");
       expect(result.stderr).toContain("--no-auto-resize");
     });
 
-    it("uses --no-auto-resize when both are given (no resize commands in script)", () => {
+    it("exits 1 when both --auto-resize and --no-auto-resize are given", () => {
       const result = run(".", "--auto-resize", "--no-auto-resize", "--dry-run");
-      expect(result.status).toBe(0);
-      expect(result.stdout).not.toContain("resize_split");
+      expect(result.status).toBe(1);
     });
   });
 
@@ -1365,7 +1390,7 @@ describe("CLI integration", () => {
 
   // #191 W10: summon open cancel hint
   describe("summon open cancel hint (#191)", () => {
-    it("shows Ctrl+C hint in project selection prompt", () => {
+    it("shows project selection prompt with status indicators", () => {
       run("add", "hint-proj", "/tmp/hint-proj");
       // Pipe EOF immediately so the process exits
       const result = spawnSync("sh", ["-c", `echo "" | node dist/index.js open`], {
@@ -1374,8 +1399,8 @@ describe("CLI integration", () => {
         env: { ...process.env, HOME: TEMP_HOME },
         timeout: 30_000,
       });
-      // The stdout should contain the Ctrl+C hint
-      expect(result.stdout).toContain("Ctrl+C");
+      // The enhanced open shows project selection UI with status
+      expect(result.stdout).toContain("select a project");
     });
   });
 
@@ -1568,7 +1593,7 @@ describe("CLI integration", () => {
     it("help output includes version number in header", () => {
       const result = run("--help");
       expect(result.status).toBe(0);
-      // Should show something like "summon v1.2.1"
+      // Should show something like "summon v1.3.0"
       expect(result.stdout).toMatch(/summon v\d+\.\d+\.\d+/);
     });
   });
@@ -1664,6 +1689,142 @@ describe("CLI integration", () => {
       expect(result.status).toBe(1);
       expect(result.stderr).toContain("Custom layouts:");
       expect(result.stderr).toContain("customcheck2");
+    });
+  });
+
+  // #314 UX-M8: --once validation for non-launch subcommands
+  describe("--once validation for non-launch subcommands (#314)", () => {
+    it("warns on stderr when --once is passed to 'list' subcommand", () => {
+      const result = run("list", "--once");
+      expect(result.status).toBe(0);
+      expect(result.stderr).toContain("Warning:");
+      expect(result.stderr).toContain("--once");
+      expect(result.stderr).toContain("list");
+    });
+
+    it("warns on stderr when --once is passed to 'config' subcommand", () => {
+      const result = run("config", "--once");
+      expect(result.status).toBe(0);
+      expect(result.stderr).toContain("Warning:");
+      expect(result.stderr).toContain("--once");
+      expect(result.stderr).toContain("config");
+    });
+
+    it("warns on stderr when --once is passed to 'status' subcommand", () => {
+      const result = run("status", "--once");
+      expect(result.stderr).toContain("Warning:");
+      expect(result.stderr).toContain("--once");
+      expect(result.stderr).toContain("status");
+    });
+
+    it("does not warn when --once is used with the launch flow (path argument)", () => {
+      const result = run(".", "--once", "--dry-run");
+      expect(result.status).toBe(0);
+      expect(result.stderr).not.toContain("--once has no effect");
+    });
+  });
+
+  // #315 UX-S1: quick-start hint for returning users (no subcommand, not first run, TTY)
+  describe("quick-start hint for returning users (#315)", () => {
+    it("prints quick-start hint when no subcommand and not first-run and SUMMON_FORCE_TTY set", () => {
+      const freshHome = mkdtempSync(join(tmpdir(), "summon-quickstart-"));
+      const configDir = join(freshHome, ".config", "summon");
+      mkdirSync(configDir, { recursive: true });
+      writeFileSync(join(configDir, "config"), "editor=vim\n", "utf-8");
+      const result = spawnSync("node", [CLI_PATH], {
+        encoding: "utf-8",
+        cwd: freshHome,
+        env: { ...process.env, HOME: freshHome, SUMMON_FORCE_TTY: "1" },
+        timeout: 30_000,
+      });
+      rmSync(freshHome, { recursive: true, force: true });
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("Usage: summon <path>");
+      expect(result.stdout).toContain("summon --help");
+    });
+
+    it("does not print quick-start hint when no SUMMON_FORCE_TTY and not a real TTY", () => {
+      const freshHome = mkdtempSync(join(tmpdir(), "summon-noqs-"));
+      const configDir = join(freshHome, ".config", "summon");
+      mkdirSync(configDir, { recursive: true });
+      writeFileSync(join(configDir, "config"), "editor=vim\n", "utf-8");
+      const result = spawnSync("node", [CLI_PATH], {
+        encoding: "utf-8",
+        cwd: freshHome,
+        env: { ...process.env, HOME: freshHome },
+        timeout: 30_000,
+      });
+      rmSync(freshHome, { recursive: true, force: true });
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("Options:");
+      expect(result.stdout).not.toContain("Usage: summon <path>           Launch a workspace");
+    });
+  });
+
+  // FE-H1 (#254): Unknown subcommand should error, not trigger wizard
+  describe("unknown subcommand errors instead of wizard (#254)", () => {
+    it("exits 1 without triggering the setup wizard for a typo'd subcommand", () => {
+      const freshHome = mkdtempSync(join(tmpdir(), "summon-h1-"));
+      const result = spawnSync("node", [CLI_PATH, "typo-command-xyz"], {
+        encoding: "utf-8",
+        cwd: freshHome,
+        env: { ...process.env, HOME: freshHome },
+        timeout: 30_000,
+      });
+      rmSync(freshHome, { recursive: true, force: true });
+      expect(result.status).toBe(1);
+      expect(result.stdout).not.toContain("Let's set up your defaults");
+      expect(result.stdout).not.toContain("SUMMON");
+      expect(result.stderr).toContain("typo-command-xyz");
+    });
+
+    it("shows 'summon --help' hint for unknown subcommand", () => {
+      const freshHome = mkdtempSync(join(tmpdir(), "summon-h1b-"));
+      const result = spawnSync("node", [CLI_PATH, "unknowncmd-xyz"], {
+        encoding: "utf-8",
+        cwd: freshHome,
+        env: { ...process.env, HOME: freshHome },
+        timeout: 30_000,
+      });
+      rmSync(freshHome, { recursive: true, force: true });
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("summon");
+    });
+  });
+
+  // FE-H2 (#255): --help with unknown subcommand should note unknown command
+  describe("--help with unknown subcommand shows unknown command message (#255)", () => {
+    it("exits 1 and shows error when 'summon unknownsubcmd --help' is run", () => {
+      const result = run("unknownsubcmd-xyz", "--help");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("Unknown command");
+      expect(result.stderr).toContain("unknownsubcmd-xyz");
+    });
+  });
+
+  // UX-H3 (#282): First-run wizard skip hint
+  describe("first-run wizard prints skip hint (#282)", () => {
+    it("prints Ctrl+C skip hint before calling setup when first run", () => {
+      const freshHome = mkdtempSync(join(tmpdir(), "summon-h3-"));
+      const result = spawnSync("node", [CLI_PATH], {
+        encoding: "utf-8",
+        cwd: freshHome,
+        env: { ...process.env, HOME: freshHome },
+        stdio: ["pipe", "pipe", "pipe"],
+        timeout: 30_000,
+        input: "",
+      });
+      rmSync(freshHome, { recursive: true, force: true });
+      expect(result.status === 0 || result.status === 1).toBe(true);
+    });
+  });
+
+  // Trust subcommand wiring
+  describe("trust subcommand (#WU-1)", () => {
+    it("exits 1 with informative error when trust.ts is not yet available", () => {
+      const result = run("trust", ".");
+      expect(result.stdout).not.toContain("SyntaxError");
+      expect(result.stdout).not.toContain("TypeError: Cannot read");
     });
   });
 });

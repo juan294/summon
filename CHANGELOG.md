@@ -7,6 +7,95 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-05-09
+
+### Added
+
+- `summon trust <dir>` — direnv-style trust gate for `.summon` files. SHA-256
+  hashes recorded in `~/.config/summon/trust`; trust revoked on content change.
+- `SUMMON_DEBUG=1` — enables timestamped debug output to stderr and
+  `~/.config/summon/logs/`.
+- Fish shell completions (`summon completions fish`).
+- Wizard back-navigation — press `b` at any setup step to return to previous.
+- Skip-pane option in dangerous command prompt — `[y/N/s(kip pane)]`; `s`
+  skips that pane and continues launching.
+- Rollback on launch failure — `closeWorkspaceWindow()` called if osascript
+  fails mid-launch.
+- `launch-guards.ts` — `ensureGhostty`, `ensureAccessibility`,
+  `confirmDangerousCommands` extracted from `launcher.ts`.
+- `paths.ts` — canonical path constants (`CONFIG_DIR`, `STATUS_DIR`,
+  `SNAPSHOTS_DIR`, `LAYOUTS_DIR`, `LOGS_DIR`, `TRUST_FILE`).
+- `shell-escape.ts` — `escapeAppleScript`, `shellQuote`, `shellDoubleQuote`
+  extracted from `script.ts`. Load-bearing lint test (`shell-escape.lint.test.ts`)
+  statically enforces no raw template literal interpolates user values into
+  AppleScript/shell contexts.
+- `command-spec.ts` — `analyzeCommand`, `commandHasShellMeta`,
+  `commandExecutable` extracted into a shared module.
+- `generateAppleScript` options-object overload (`GenerateAppleScriptOptions`);
+  positional signature preserved for backward compat.
+- `src/commands/` — command handlers extracted from `src/index.ts`;
+  `index.ts` reduced from ~1,006 to ~134 lines.
+- `src/cli/parse.ts` — CLI argument parsing extracted from `index.ts`.
+- `src/ui/ansi.ts`, `src/ui/layout-preview.ts` — ANSI color helpers and
+  layout preview renderer extracted from `setup.ts`.
+- `src/setup-gallery.ts` — template gallery data extracted from `setup.ts`.
+- `gitSafeEnv()` — strips inherited `GIT_DIR`/`GIT_WORK_TREE`/
+  `GIT_INDEX_FILE` to prevent hook-context git pollution.
+- `PromptCancelled` error class — `promptUser` now throws instead of calling
+  `process.exit(130)` on Ctrl+C/EOF.
+- `--once` flag validation warning when used with non-launch subcommands.
+- mtime-based KV file memoization in `config.ts`.
+- Unknown config key warnings in `listConfig()`.
+- `formatTimeSince` negative diffs clamped to `0s`.
+- Path traversal guard for layout file paths and tree DSL `cwd` values.
+- Tree DSL max nesting depth of 32 enforced.
+- CRLF line ending normalization in config file reads.
+- `addProject` path validation: absolute path stored, name rejects `=`,
+  spaces, and path separators.
+- E2E test scaffold (`src/e2e/applescript-syntax.test.ts`) — validates
+  generated AppleScript via `osacompile` (gated on `SUMMON_E2E=1`).
+- `AGENTS.md` — Codex/GPT compatibility manifest.
+- Auto-detect and clear restored Ghostty panes on launch (`--clean` /
+  `--no-clean` / `clean` config key, default `true`).
+- **Workspace management subcommands:** `summon briefing`, `summon status`,
+  `summon switch`, `summon ports`, `summon snapshot <save|show|clear>`.
+- `on-stop` config key for post-workspace hook commands.
+- `generateFocusScript()` in `script.ts` for workspace switching.
+- Workspace status tracking — each launch writes JSON status + active marker.
+- Shell completions for all new subcommands.
+
+### Changed
+
+- **Breaking:** Node.js engine requirement bumped from `>=18` to `>=20.19`.
+- TypeScript bumped to `6.0.2+`.
+- Vitest bumped to `4.1.5`. Vite 8 in devDependencies.
+- Build: minification enabled, external sourcemaps, `files` narrowed to
+  `dist/index.js`.
+- CI matrix: `macos-13` runner added. Dependabot groups added.
+- `resolveCommand` now uses `/usr/bin/which` directly (no shell spawn).
+- `selectLayout()` return type extended to
+  `Promise<string | typeof WIZARD_BACK>`.
+- Status files created with `0o600` permissions.
+- pnpm overrides: `picomatch >=4.0.4`, `brace-expansion >=5.0.5` (CVEs).
+- Removed internal agent reports and scripts from git tracking.
+- Replaced setup wizard static screenshot with animated GIF in README.
+- Bumped vitest 4.1.0 → 4.1.1, typescript-eslint 8.57.1 → 8.57.2,
+  eslint 10.0.3 → 10.1.0.
+
+### Fixed
+
+- Cache git branch queries in monitor refresh with TTL-based cache (10s) (#222)
+- Cache git queries in briefing data collection with session Map cache (#223)
+- Skip `runMonitor` TUI tests on Node 18 (CI hang).
+- Isolate CLI tests from project-level `.summon` config.
+- npm publish CI fixes: `NODE_AUTH_TOKEN`, `--access public`.
+
+### Tests
+
+- 5 new test files: briefing, monitor, ports, snapshot, status.
+- ~1,818 new test assertions with mocked git spawns and TUI functions.
+- Additional tests for launcher, focus script, CLI dispatch, completions.
+
 ## [1.3.0] - 2026-03-20
 
 ### Added
@@ -433,7 +522,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CodeQL security scanning
 - Dependabot for npm and GitHub Actions
 
-[Unreleased]: https://github.com/juan294/summon/compare/v1.3.0...develop
+[Unreleased]: https://github.com/juan294/summon/compare/v1.4.0...develop
+[1.4.0]: https://github.com/juan294/summon/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/juan294/summon/compare/v1.2.1...v1.3.0
 [1.2.1]: https://github.com/juan294/summon/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/juan294/summon/compare/v1.1.0...v1.2.0

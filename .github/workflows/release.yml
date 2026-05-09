@@ -6,23 +6,56 @@ on:
 
 permissions:
   contents: read
+  id-token: write # Required for OIDC trusted publishing
 
 jobs:
   publish:
+    # Create 'npm-publish' environment in GitHub Settings > Environments with required reviewer
+    environment: npm-publish
+    concurrency:
+      group: npm-publish
+      cancel-in-progress: false
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
         with:
           node-version: 22
-          cache: pnpm
           registry-url: https://registry.npmjs.org
+      - run: corepack enable
+      - run: corepack prepare pnpm@10.29.2 --activate
       - run: pnpm install --frozen-lockfile
+
+      - name: Verify version matches tag
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "ERROR: package.json version ($PKG_VERSION) does not match tag ($TAG_VERSION)"
+            exit 1
+          fi
+          if ! grep -q "## \[$PKG_VERSION\]" CHANGELOG.md; then
+            echo "ERROR: CHANGELOG.md missing entry for version $PKG_VERSION"
+            exit 1
+          fi
+
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm test
       - run: pnpm build
-      - run: npm publish --access public
+
+      - name: Pack and inspect tarball
+        run: |
+          npm pack
+          TARBALL=$(ls summon-ws-*.tgz)
+          echo "Tarball: $TARBALL"
+          tar tzf "$TARBALL" | grep -E "(index\.js|bin)" || (echo "ERROR: Missing expected files in tarball" && exit 1)
+          npm install -g "$TARBALL"
+          summon --version
+
+      # IMPORTANT: Configure trusted publisher on npmjs.com for OIDC to work
+      # Until OIDC is configured on npmjs.com, NODE_AUTH_TOKEN is used as fallback
+      - name: Publish
+        run: npm publish summon-ws-*.tgz --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

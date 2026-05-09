@@ -1,5 +1,7 @@
 Validate the implementation against the plan.
 
+Model tier: **sonnet** — Sonnet 4.6 (1M context) session.
+
 Process:
 1. Locate the plan (provided path or search recent git history).
 2. Gather evidence: git log, git diff, run test suites.

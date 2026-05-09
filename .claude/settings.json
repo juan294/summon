@@ -25,7 +25,9 @@
       "Write",
       "Edit",
       "Glob",
-      "Grep"
+      "Grep",
+      "Bash(pnpm run *)",
+      "Bash(npm run *)"
     ],
     "deny": []
   }

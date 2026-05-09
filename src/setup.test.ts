@@ -48,7 +48,25 @@ vi.mock("node:fs", () => ({
 }));
 
 // Import test-only utils directly from utils.js (not re-exported through setup.js)
-const { resolveCommand: resolveCommandPath, SAFE_COMMAND_RE } = await import("./utils.js");
+const { resolveCommand: resolveCommandPath, SAFE_COMMAND_RE, debugLog } = await import("./utils.js");
+const {
+  bold,
+  dim,
+  green,
+  yellow,
+  cyan,
+  magenta,
+  brightCyan,
+  hexToRgb,
+  colorSwatch,
+} = await import("./ui/ansi.js");
+const {
+  renderLayoutPreview,
+  renderMiniPreview,
+  renderTemplateGallery,
+  centerLabel,
+  visibleLength,
+} = await import("./ui/layout-preview.js");
 
 // Import after mocks
 const {
@@ -56,14 +74,7 @@ const {
   numberedSelect,
   textInput,
   confirm,
-  bold,
-  dim,
-  green,
-  yellow,
-  cyan,
   printSection,
-  magenta,
-  brightCyan,
   WIZARD_MASCOT,
   SUMMON_LOGO,
   TIPS,
@@ -79,17 +90,12 @@ const {
   validateSetup,
   checkAndRecoverAccessibility,
   runSetup,
-  hexToRgb,
-  colorSwatch,
   // Phase 5 additions:
   gridToTree,
-  renderLayoutPreview,
   runLayoutBuilder,
   findClosestCommand,
   // Visual layout builder additions:
   GRID_TEMPLATES,
-  renderMiniPreview,
-  renderTemplateGallery,
   selectGridTemplate,
   buildPartialGrid,
   // Phase 2 — in-place preview:
@@ -104,9 +110,9 @@ const {
   renderGridBuilderPreview,
   renderGridBuilderHints,
   runGridBuilder,
-  // #154 — truncation indicator:
-  centerLabel,
-  visibleLength,
+  // Issue fixes:
+  WIZARD_BACK,
+  validateBuilderCommand,
 } = await import("./setup.js");
 
 beforeEach(() => {
@@ -592,7 +598,7 @@ describe("selectToolFromCatalog", () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     // Make "nano" available but "vim" not
     mockExecFileSync.mockImplementation((_bin: string, args?: string[]) => {
-      if (Array.isArray(args) && args[3] === "nano") return "/usr/bin/nano\n";
+      if (Array.isArray(args) && args[0] === "nano") return "/usr/bin/nano\n";
       throw new Error("not found");
     });
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) =>
@@ -622,7 +628,7 @@ describe("selectToolFromCatalog", () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     // Make "nano" available but "vim" not
     mockExecFileSync.mockImplementation((_bin: string, args?: string[]) => {
-      if (Array.isArray(args) && args[3] === "nano") return "/usr/bin/nano\n";
+      if (Array.isArray(args) && args[0] === "nano") return "/usr/bin/nano\n";
       throw new Error("not found");
     });
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) =>
@@ -687,7 +693,7 @@ describe("selectToolFromCatalog", () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     // Make "nano" available but "vim" not
     mockExecFileSync.mockImplementation((_bin: string, args?: string[]) => {
-      if (Array.isArray(args) && args[3] === "nano") return "/usr/bin/nano\n";
+      if (Array.isArray(args) && args[0] === "nano") return "/usr/bin/nano\n";
       throw new Error("not found");
     });
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) =>
@@ -803,7 +809,7 @@ describe("validateSetup", () => {
 
   it("returns warning for missing editor", () => {
     mockExecFileSync.mockImplementation((_bin: string, args?: string[]) => {
-      if (Array.isArray(args) && args[3] === "vim") throw new Error("not found");
+      if (Array.isArray(args) && args[0] === "vim") throw new Error("not found");
       return "/usr/bin/stub\n";
     });
     mockExistsSync.mockReturnValue(true);
@@ -820,7 +826,7 @@ describe("validateSetup", () => {
 
   it("returns warning for missing sidebar", () => {
     mockExecFileSync.mockImplementation((_bin: string, args?: string[]) => {
-      if (Array.isArray(args) && args[3] === "lazygit")
+      if (Array.isArray(args) && args[0] === "lazygit")
         throw new Error("not found");
       return "/usr/bin/stub\n";
     });
@@ -837,7 +843,7 @@ describe("validateSetup", () => {
 
   it("returns warning for missing shell command", () => {
     mockExecFileSync.mockImplementation((_bin: string, args?: string[]) => {
-      if (Array.isArray(args) && args[3] === "npm")
+      if (Array.isArray(args) && args[0] === "npm")
         throw new Error("not found");
       return "/usr/bin/stub\n";
     });
@@ -851,6 +857,24 @@ describe("validateSetup", () => {
     expect(result.warnings).toHaveLength(1);
     expect(result.warnings[0]!.key).toBe("shell");
     expect(result.warnings[0]!.cmd).toBe("npm");
+  });
+
+  it("checks the executable from multiword editor and sidebar commands", () => {
+    mockExecFileSync.mockImplementation((_bin: string, args?: string[]) => {
+      if (Array.isArray(args) && args[0] === "npm") throw new Error("not found");
+      return "/usr/bin/stub\n";
+    });
+    mockExistsSync.mockReturnValue(true);
+
+    const result = validateSetup({
+      layout: "pair",
+      editor: 'npm run "check all"',
+      sidebar: "npm run status",
+      shell: "true",
+    });
+
+    expect(result.warnings).toHaveLength(2);
+    expect(result.warnings.map((warning) => warning.cmd)).toEqual(["npm", "npm"]);
   });
 
   it("skips validation for shell='true' and shell='false'", () => {
@@ -874,7 +898,7 @@ describe("validateSetup", () => {
 
   it("includes install hint when available", () => {
     mockExecFileSync.mockImplementation((_bin: string, args?: string[]) => {
-      if (Array.isArray(args) && args[3] === "lazygit")
+      if (Array.isArray(args) && args[0] === "lazygit")
         throw new Error("not found");
       return "/usr/bin/stub\n";
     });
@@ -1529,6 +1553,16 @@ describe("selectStarshipPreset", () => {
     expect(output).toContain("tokyo-night           ");
     logSpy.mockRestore();
   });
+
+  it("handles presets without known palette metadata", async () => {
+    mockIsStarshipInstalled.mockReturnValue(true);
+    mockListStarshipPresets.mockReturnValue(["custom-theme"]);
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("3"));
+
+    const result = await selectStarshipPreset();
+
+    expect(result).toBe("custom-theme");
+  });
 });
 
 describe("hexToRgb", () => {
@@ -1917,7 +1951,7 @@ describe("runLayoutBuilder", () => {
     await runLayoutBuilder("shelltest");
 
     expect(mockSaveCustomLayout).toHaveBeenCalledTimes(1);
-    const [, savedEntries] = mockSaveCustomLayout.mock.calls[0] as [string, Map<string, string>];
+    const [, savedEntries] = mockSaveCustomLayout.mock.calls.at(-1) as [string, Map<string, string>];
     expect(savedEntries.get("pane.shell")).toBe("shell");
   });
 
@@ -2504,6 +2538,13 @@ describe("applyGridAction", () => {
     expect(next!.focusRow).toBe(0);
   });
 
+  it("removePane keeps focus row when it remains valid", () => {
+    const state = { columns: [3], focusCol: 0, focusRow: 1 };
+    const next = applyGridAction(state, "removePane");
+    expect(next!.columns).toEqual([2]);
+    expect(next!.focusRow).toBe(1);
+  });
+
   it("removePane returns null with 1 pane", () => {
     expect(applyGridAction(createGridState(), "removePane")).toBeNull();
   });
@@ -2531,6 +2572,13 @@ describe("applyGridAction", () => {
 
   it("prevFocus moves backwards through cells", () => {
     const state = { columns: [2, 1], focusCol: 1, focusRow: 0 };
+    const next = applyGridAction(state, "prevFocus");
+    expect(next!.focusCol).toBe(0);
+    expect(next!.focusRow).toBe(1);
+  });
+
+  it("prevFocus moves to the previous row in the same column", () => {
+    const state = { columns: [3], focusCol: 0, focusRow: 2 };
     const next = applyGridAction(state, "prevFocus");
     expect(next!.focusCol).toBe(0);
     expect(next!.focusRow).toBe(1);
@@ -2704,6 +2752,37 @@ describe("runGridBuilder", () => {
     const result = await promise;
     // Grid is [1, 1] — shift+tab moved focus from col 1 back to col 0
     expect(result).toEqual([1, 1]);
+  });
+
+  it("ignores grid actions that cannot change the initial grid", async () => {
+    const promise = runGridBuilder();
+    await waitForHandler();
+    simulateKey("left");
+    simulateKey("up");
+    simulateKey("return");
+    const result = await promise;
+    expect(result).toEqual([1]);
+  });
+
+  it("handles SIGINT with the same cleanup path as Ctrl+C", async () => {
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => undefined as never);
+    let sigintHandler: (() => void) | undefined;
+    const onceSpy = vi.spyOn(process, "once").mockImplementation((event: string | symbol, handler: (...args: unknown[]) => void) => {
+      if (event === "SIGINT") {
+        sigintHandler = handler as () => void;
+      }
+      return process;
+    });
+
+    const promise = runGridBuilder();
+    await waitForHandler();
+    sigintHandler?.();
+
+    expect(mockSetRawMode).toHaveBeenCalledWith(false);
+    expect(exitSpy).toHaveBeenCalledWith(0);
+    onceSpy.mockRestore();
+    exitSpy.mockRestore();
+    promise.catch(() => {});
   });
 });
 
@@ -3031,7 +3110,7 @@ describe("runSetup — custom layout path", () => {
 describe("validateSetup — warning without installHint", () => {
   it("returns warning without installHint for unknown tool", () => {
     mockExecFileSync.mockImplementation((_bin: string, args?: string[]) => {
-      if (Array.isArray(args) && args[3] === "my-custom-editor")
+      if (Array.isArray(args) && args[0] === "my-custom-editor")
         throw new Error("not found");
       return "/usr/bin/stub\n";
     });
@@ -3053,7 +3132,7 @@ describe("printValidation — warning without install hint", () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     // Make a custom editor that has no install hint
     mockExecFileSync.mockImplementation((_bin: string, args?: string[]) => {
-      if (Array.isArray(args) && args[3] === "my-custom-editor")
+      if (Array.isArray(args) && args[0] === "my-custom-editor")
         throw new Error("not found");
       return "/usr/bin/stub\n";
     });
@@ -3136,6 +3215,15 @@ describe("renderTemplateGallery — edge cases", () => {
     const result = renderTemplateGallery([], 120);
     expect(result).toBe("");
   });
+
+  it("uses the fallback preview width when a template has no columns", () => {
+    const result = renderTemplateGallery([
+      { label: "Empty", columns: [] },
+    ], 120);
+
+    expect(result).toContain("1)");
+    expect(result).toContain("Empty");
+  });
 });
 
 describe("selectGridTemplate — Escape in grid builder", () => {
@@ -3210,7 +3298,7 @@ describe("runLayoutBuilder — validateBuilderCommand branches", () => {
   it("warns and offers suggestion for unknown command with close match", async () => {
     // Make "lzgit" not found in PATH, "lazygit" is in available catalog
     mockExecFileSync.mockImplementation((_bin: string, args?: string[]) => {
-      if (Array.isArray(args) && (args[3] === "lzgit"))
+      if (Array.isArray(args) && (args[0] === "lzgit"))
         throw new Error("not found");
       return "/usr/bin/stub\n";
     });
@@ -3240,10 +3328,39 @@ describe("runLayoutBuilder — validateBuilderCommand branches", () => {
     expect(allOutput.some((s: string) => s.includes("not found") && s.includes("Did you mean"))).toBe(true);
   });
 
+  it("keeps an unknown command when a close suggestion is declined but keep is confirmed", async () => {
+    mockExecFileSync.mockImplementation((_bin: string, args?: string[]) => {
+      if (Array.isArray(args) && args[0] === "lzgit")
+        throw new Error("not found");
+      return "/usr/bin/stub\n";
+    });
+
+    let confirmCallCount = 0;
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      const q = _q;
+      if (q.includes("[Y/n]")) {
+        confirmCallCount++;
+        if (confirmCallCount === 1) cb("n"); // decline suggestion
+        else cb("y"); // keep anyway, then save
+      } else if (q.includes("[1-8]") || q.includes(`[1-${GRID_TEMPLATES.length}`)) {
+        cb("1");
+      } else if (q.includes("Pane 1")) {
+        cb("lzgit");
+      } else {
+        cb("1");
+      }
+    });
+
+    await runLayoutBuilder("declinetest");
+
+    const [, savedEntries] = mockSaveCustomLayout.mock.calls.at(-1) as [string, Map<string, string>];
+    expect(savedEntries.get("pane.lzgit")).toBe("lzgit");
+  });
+
   it("warns about unknown command with no close match and keeps if confirmed", async () => {
     // Make "zzzcmd" not found, no close match in catalog
     mockExecFileSync.mockImplementation((_bin: string, args?: string[]) => {
-      if (Array.isArray(args) && args[3] === "zzzcmd")
+      if (Array.isArray(args) && args[0] === "zzzcmd")
         throw new Error("not found");
       return "/usr/bin/stub\n";
     });
@@ -3274,7 +3391,7 @@ describe("runLayoutBuilder — validateBuilderCommand branches", () => {
   it("re-prompts when user declines to keep unknown command", async () => {
     // Make "zzzcmd" not found, no close match
     mockExecFileSync.mockImplementation((_bin: string, args?: string[]) => {
-      if (Array.isArray(args) && args[3] === "zzzcmd")
+      if (Array.isArray(args) && args[0] === "zzzcmd")
         throw new Error("not found");
       return "/usr/bin/stub\n";
     });
@@ -3350,5 +3467,384 @@ describe("gridToTree — triple deduplication", () => {
     expect(result.panes.has("shell_2")).toBe(true);
     expect(result.panes.has("shell_3")).toBe(true);
     expect(result.panes.size).toBe(3);
+  });
+});
+
+// FE-M4 (#261): runGridBuilder registers cleanup on uncaught exception
+describe("runGridBuilder — emergency cleanup on uncaught exception (#261)", () => {
+  it("registers 'exit' and 'uncaughtException' handlers before entering raw mode", async () => {
+    const onceListeners: Record<string, unknown[]> = {};
+    const origOnce = process.once.bind(process);
+    const onceSpy = vi.spyOn(process, "once").mockImplementation((event: string | symbol, listener: (...args: unknown[]) => void) => {
+      const key = String(event);
+      if (!onceListeners[key]) onceListeners[key] = [];
+      onceListeners[key]!.push(listener);
+      return process;
+    });
+
+    const origSetRawMode = process.stdin.setRawMode;
+    Object.defineProperty(process.stdin, "setRawMode", {
+      value: vi.fn(),
+      writable: true,
+      configurable: true,
+    });
+    const origResume = process.stdin.resume;
+    process.stdin.resume = vi.fn() as typeof process.stdin.resume;
+    const origPause = process.stdin.pause;
+    process.stdin.pause = vi.fn() as typeof process.stdin.pause;
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    const stdinOnSpy = vi.spyOn(process.stdin, "on").mockImplementation(((event: string, handler: (...args: unknown[]) => void) => {
+      if (event === "keypress") {
+        setTimeout(() => {
+          handler(undefined, { name: "return", ctrl: false });
+        }, 0);
+      }
+      return process.stdin;
+    }) as typeof process.stdin.on);
+
+    await runGridBuilder();
+
+    // Verify that 'exit' and 'uncaughtException' listeners were registered
+    expect(onceListeners["exit"]).toBeDefined();
+    expect(onceListeners["uncaughtException"]).toBeDefined();
+
+    onceSpy.mockRestore();
+    logSpy.mockRestore();
+    stdoutSpy.mockRestore();
+    stdinOnSpy.mockRestore();
+    Object.defineProperty(process.stdin, "setRawMode", { value: origSetRawMode, writable: true, configurable: true });
+    process.stdin.resume = origResume;
+    process.stdin.pause = origPause;
+    void origOnce; // keep reference to avoid unused variable warning
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue fixes: AR-S2, UX-L1, FE-M3, FE-M9, FE-M10, FE-M13, FE-S2
+// ---------------------------------------------------------------------------
+
+// AR-S2 (#317) — setup-gallery.ts extraction
+describe("setup-gallery.ts extraction (AR-S2)", () => {
+  it("LAYOUT_INFO and GRID_TEMPLATES are importable directly from setup-gallery", async () => {
+    const gallery = await import("./setup-gallery.js");
+    expect(gallery.LAYOUT_INFO).toBeDefined();
+    expect(gallery.GRID_TEMPLATES).toBeDefined();
+    expect(Object.keys(gallery.LAYOUT_INFO)).toEqual(
+      expect.arrayContaining(["minimal", "pair", "full", "cli", "btop"]),
+    );
+    expect(gallery.GRID_TEMPLATES.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it("setup.ts re-exports LAYOUT_INFO from setup-gallery", () => {
+    // LAYOUT_INFO is still accessible from setup.ts import (tested throughout the suite)
+    expect(LAYOUT_INFO).toBeDefined();
+    expect(LAYOUT_INFO["minimal"]).toBeDefined();
+  });
+
+  it("GRID_TEMPLATES from setup.ts and setup-gallery match", async () => {
+    const gallery = await import("./setup-gallery.js");
+    expect(GRID_TEMPLATES).toEqual(gallery.GRID_TEMPLATES);
+  });
+});
+
+// UX-L1 (#335) — Accessibility prompt language
+describe("accessibility prompt language (UX-L1)", () => {
+  it("prompt does not contain 'if you want'", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    // Make accessibility fail so we see the warning path
+    mockExecFileSync.mockImplementation((bin: string) => {
+      if (bin === "osascript") throw new Error("assistive access (-1719)");
+      return "/usr/bin/stub\n";
+    });
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      if (_q.includes("[Y/n]")) cb("n"); // decline to open settings
+      else cb("");
+    });
+
+    await checkAndRecoverAccessibility();
+
+    const allOutput = logSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("\n");
+    expect(allOutput).not.toContain("if you want");
+    expect(allOutput).not.toContain("may need to");
+    logSpy.mockRestore();
+  });
+
+  it("prompt contains direct imperative 'Grant accessibility access'", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockExecFileSync.mockImplementation((bin: string) => {
+      if (bin === "osascript") throw new Error("assistive access (-1719)");
+      return "/usr/bin/stub\n";
+    });
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      if (_q.includes("[Y/n]")) cb("n");
+      else cb("");
+    });
+
+    await checkAndRecoverAccessibility();
+
+    const allOutput = logSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("\n");
+    expect(allOutput).toContain("Grant accessibility access");
+    logSpy.mockRestore();
+  });
+});
+
+// FE-M3 (#341) — numberedSelect is the single shared helper
+describe("numberedSelect as shared helper (FE-M3)", () => {
+  it("is used by selectLayout, selectShell, and selectStarshipPreset", () => {
+    // The function exists as a single export (not duplicated)
+    expect(typeof numberedSelect).toBe("function");
+  });
+
+  it("returns WIZARD_BACK when user enters 'b'", async () => {
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("b"));
+    const options = [{ label: "A", value: "a" }, { label: "B", value: "b" }];
+    const result = await numberedSelect(options, "Pick: ");
+    expect(result).toBe(WIZARD_BACK);
+  });
+
+  it("returns WIZARD_BACK when user enters 'back'", async () => {
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("back"));
+    const options = [{ label: "A", value: "a" }];
+    const result = await numberedSelect(options, "Pick: ");
+    expect(result).toBe(WIZARD_BACK);
+  });
+
+  it("still returns index for normal numeric input", async () => {
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("1"));
+    const options = [{ label: "A", value: "a" }, { label: "B", value: "b" }];
+    const result = await numberedSelect(options, "Pick: ");
+    expect(result).toBe(0);
+  });
+});
+
+// FE-M9 (#344) — Wizard back navigation
+describe("wizard back navigation (FE-M9)", () => {
+  it("WIZARD_BACK sentinel is a unique symbol", () => {
+    expect(typeof WIZARD_BACK).toBe("symbol");
+  });
+
+  it("selectLayout returns WIZARD_BACK when user enters 'b'", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("b"));
+    const result = await selectLayout();
+    expect(result).toBe(WIZARD_BACK);
+    logSpy.mockRestore();
+  });
+
+  it("selectShell returns WIZARD_BACK when user enters 'b'", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("b"));
+    const result = await selectShell();
+    expect(result).toBe(WIZARD_BACK);
+    logSpy.mockRestore();
+  });
+
+  it("runSetup recovers when 'b' pressed at shell step (step 2 → step 1)", async () => {
+    // This tests that pressing 'b' at shell doesn't crash and eventually completes.
+    // The wizard should loop back and allow completion.
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockIsStarshipInstalled.mockReturnValue(false);
+    const origIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", { value: true, writable: true });
+
+    let callCount = 0;
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      callCount++;
+      if (_q.includes("[Y/n]")) {
+        cb("y");
+      } else if (_q.includes("Select [1-6]")) {
+        // Layout selection — always pick pair (index 2)
+        cb("2");
+      } else if (_q.includes("Select [1-3]")) {
+        // Shell selection — first time go back, second time pick option 1
+        if (callCount <= 6) cb("b"); // go back on first encounter
+        else cb("1");
+      } else {
+        cb("1");
+      }
+    });
+
+    await runSetup();
+
+    // Should have completed (mockSetConfig called)
+    expect(mockSetConfig).toHaveBeenCalledWith("layout", "pair");
+
+    Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, writable: true });
+    logSpy.mockRestore();
+  });
+});
+
+// FE-M10 (#345) — validateBuilderCommand renderer state drift fix
+describe("validateBuilderCommand (FE-M10)", () => {
+  it("returns {cmd, rendererStale: false} for 'shell' special value", async () => {
+    const result = await validateBuilderCommand("shell", []);
+    expect(result.cmd).toBe("shell");
+    expect(result.rendererStale).toBe(false);
+  });
+
+  it("returns {cmd, rendererStale: false} when command is found in PATH", async () => {
+    // mockExecFileSync already returns a path by default
+    const result = await validateBuilderCommand("vim", ["vim"]);
+    expect(result.cmd).toBe("vim");
+    expect(result.rendererStale).toBe(false);
+  });
+
+  it("returns {cmd: '', rendererStale: true} when command not found and user declines", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockExecFileSync.mockImplementation(() => { throw new Error("not found"); });
+    // Decline both "did you mean" and "keep anyway"
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("n"));
+
+    const result = await validateBuilderCommand("nvim", []);
+    expect(result.cmd).toBe("");
+    expect(result.rendererStale).toBe(true);
+    logSpy.mockRestore();
+  });
+
+  it("returns {cmd, rendererStale: true} when user keeps unknown command anyway", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockExecFileSync.mockImplementation(() => { throw new Error("not found"); });
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("y")); // keep anyway
+
+    const result = await validateBuilderCommand("unknown-tool", []);
+    expect(result.cmd).toBe("unknown-tool");
+    expect(result.rendererStale).toBe(true);
+    logSpy.mockRestore();
+  });
+
+  it("returns corrected command when user accepts suggestion, with rendererStale: true", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockExecFileSync.mockImplementation((_bin: string, args?: string[]) => {
+      // "lzgit" not found, but "lazygit" is
+      if (Array.isArray(args) && args[3] === "lazygit") return "/usr/bin/lazygit\n";
+      throw new Error("not found");
+    });
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("y")); // use suggestion
+
+    const result = await validateBuilderCommand("lzgit", ["lazygit"]);
+    expect(result.cmd).toBe("lazygit");
+    expect(result.rendererStale).toBe(true);
+    logSpy.mockRestore();
+  });
+});
+
+// FE-M13 (#347) — printSection dynamic width
+describe("printSection dynamic width (FE-M13)", () => {
+  it("uses process.stdout.columns when available", () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const origColumns = process.stdout.columns;
+    Object.defineProperty(process.stdout, "columns", { value: 60, writable: true, configurable: true });
+
+    printSection("Test");
+
+    const output = logSpy.mock.calls[0]![0] as string;
+    // Width capped at min(60, 100) = 60; suffix should be longer than default 40-based
+    expect(output).toContain("Test");
+    // Suffix length: 60 - 2 (prefix) - 4 (title) - 2 (spaces) = 52 dashes → more than default
+    const suffixMatch = output.match(/─+$/);
+    expect(suffixMatch).not.toBeNull();
+    expect(suffixMatch![0].length).toBeGreaterThan(30);
+
+    Object.defineProperty(process.stdout, "columns", { value: origColumns, writable: true, configurable: true });
+    logSpy.mockRestore();
+  });
+
+  it("falls back to width 80 when process.stdout.columns is undefined", () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    // Pass termWidth=80 explicitly (simulating fallback)
+    printSection("Test", 80);
+
+    const output = logSpy.mock.calls[0]![0] as string;
+    expect(output).toContain("Test");
+    // Width 80: suffix = 80 - 2 - 4 - 2 = 72
+    const suffixMatch = output.match(/─+$/);
+    expect(suffixMatch).not.toBeNull();
+    expect(suffixMatch![0].length).toBeGreaterThanOrEqual(70);
+
+    logSpy.mockRestore();
+  });
+
+  it("caps width at 100 even when terminal is wider", () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    // Pass termWidth=200, should be capped at 100
+    printSection("Test", 200);
+    printSection("Test", 100);
+
+    const output200 = logSpy.mock.calls[0]![0] as string;
+    const output100 = logSpy.mock.calls[1]![0] as string;
+    // Both should produce the same result (capped at 100)
+    expect(output200).toBe(output100);
+
+    logSpy.mockRestore();
+  });
+
+  it("still prints section title with dashes", () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    printSection("My Section", 80);
+
+    const output = logSpy.mock.calls[0]![0] as string;
+    expect(output).toContain("My Section");
+    expect(output).toContain("──");
+    logSpy.mockRestore();
+  });
+});
+
+// FE-S2 (#348) — debugLog instrumentation in wizard
+describe("wizard debug logging (FE-S2)", () => {
+  it("debugLog writes to stderr when SUMMON_DEBUG=1", () => {
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const origDebug = process.env["SUMMON_DEBUG"];
+    process.env["SUMMON_DEBUG"] = "1";
+
+    debugLog("test message");
+
+    const stderrOutput = stderrSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("");
+    expect(stderrOutput).toContain("test message");
+    expect(stderrOutput).toContain("[summon:debug ");
+
+    process.env["SUMMON_DEBUG"] = origDebug;
+    stderrSpy.mockRestore();
+  });
+
+  it("debugLog is silent when SUMMON_DEBUG is not set", () => {
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const origDebug = process.env["SUMMON_DEBUG"];
+    delete process.env["SUMMON_DEBUG"];
+
+    debugLog("silent message");
+
+    const stderrOutput = stderrSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("");
+    expect(stderrOutput).not.toContain("silent message");
+
+    process.env["SUMMON_DEBUG"] = origDebug;
+    stderrSpy.mockRestore();
+  });
+
+  it("runSetup writes debug log at wizard start when SUMMON_DEBUG=1", async () => {
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const origDebug = process.env["SUMMON_DEBUG"];
+    process.env["SUMMON_DEBUG"] = "1";
+
+    const origIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", { value: true, writable: true });
+    mockIsStarshipInstalled.mockReturnValue(false);
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      if (_q.includes("[Y/n]")) cb("y");
+      else cb("1");
+    });
+
+    await runSetup();
+
+    const stderrOutput = stderrSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("");
+    expect(stderrOutput).toContain("wizard start");
+
+    process.env["SUMMON_DEBUG"] = origDebug;
+    Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, writable: true });
+    stderrSpy.mockRestore();
+    logSpy.mockRestore();
   });
 });

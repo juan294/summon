@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { parseIntInRange, parsePositiveFloat, validateIntFlag, validateFloatFlag, ENV_KEY_RE } from "./validation.js";
+import { parseIntInRange, parsePositiveFloat, validateIntFlag, validateFloatFlag, ENV_KEY_RE, PROJECT_NAME_RE, validateProjectNameOrExit, sanitizeProjectName } from "./validation.js";
 
 describe("parseIntInRange", () => {
   it("returns ok:true with parsed value for valid integer in range", () => {
@@ -151,6 +151,71 @@ describe("ENV_KEY_RE", () => {
     expect(ENV_KEY_RE.test("MY.VAR")).toBe(false);
     expect(ENV_KEY_RE.test("MY VAR")).toBe(false);
     expect(ENV_KEY_RE.test("MY=VAR")).toBe(false);
+  });
+});
+
+describe("PROJECT_NAME_RE", () => {
+  it.each(["a", "abc", "a_b", "a.b", "a-b", "1project", "_p", "a".repeat(64)])(
+    "accepts %s", (s) => expect(PROJECT_NAME_RE.test(s)).toBe(true),
+  );
+  it.each(["", "/", "a/b", "..", ".hidden", "-abc", "a!", "a b", "a".repeat(65)])(
+    "rejects %s", (s) => expect(PROJECT_NAME_RE.test(s)).toBe(false),
+  );
+});
+
+describe("validateProjectNameOrExit", () => {
+  it("does not throw for a valid name", () => {
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => { throw new Error("exit"); });
+    expect(() => validateProjectNameOrExit("my-project_2")).not.toThrow();
+    exitSpy.mockRestore();
+  });
+
+  it("calls exitWithUsageHint for name with '/'", () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => { throw new Error("exit:1"); }) as never);
+    expect(() => validateProjectNameOrExit("team/api")).toThrow("exit:1");
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("team/api"));
+    errorSpy.mockRestore();
+    exitSpy.mockRestore();
+  });
+
+  it("rejects leading '-'", () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => { throw new Error("exit:1"); }) as never);
+    expect(() => validateProjectNameOrExit("-abc")).toThrow("exit:1");
+    errorSpy.mockRestore();
+    exitSpy.mockRestore();
+  });
+
+  it("rejects 65-char name", () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => { throw new Error("exit:1"); }) as never);
+    expect(() => validateProjectNameOrExit("a".repeat(65))).toThrow("exit:1");
+    errorSpy.mockRestore();
+    exitSpy.mockRestore();
+  });
+
+  it("uses custom label in error message", () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => { throw new Error("exit:1"); }) as never);
+    expect(() => validateProjectNameOrExit("bad/name", "project name")).toThrow("exit:1");
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("project name"));
+    errorSpy.mockRestore();
+    exitSpy.mockRestore();
+  });
+});
+
+describe("sanitizeProjectName", () => {
+  it.each([
+    ["my app",      "my-app"],
+    ["my app (v2)", "my-app-v2"],
+    ["foo/bar",     "foo-bar"],
+    ["@@@",         "project"],
+    ["a".repeat(100), "a".repeat(64)],
+    [" - foo - ",   "foo"],
+    ["你好",         "project"],
+  ])("sanitizes %s -> %s", (input, expected) => {
+    expect(sanitizeProjectName(input)).toBe(expected);
   });
 });
 

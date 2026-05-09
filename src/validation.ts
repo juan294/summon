@@ -10,6 +10,28 @@ import { exitWithUsageHint } from "./utils.js";
 /** Valid environment variable key name: letters, digits, underscores, starting with letter or underscore. */
 export const ENV_KEY_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 
+/** Valid project name: alphanumeric or _ start, alphanumerics and _.- body, 1-64 chars total. */
+export const PROJECT_NAME_RE = /^[a-zA-Z0-9_][a-zA-Z0-9_.-]{0,63}$/;
+
+export function validateProjectNameOrExit(name: string, label = "project name"): void {
+  if (!PROJECT_NAME_RE.test(name)) {
+    exitWithUsageHint(
+      `Error: ${label} must start with a letter, digit, or underscore,`
+      + ` contain only letters, digits, and "_.-", and be 1-64 chars.`
+      + ` Got: "${name}".`,
+    );
+  }
+}
+
+export function sanitizeProjectName(raw: string): string {
+  const s = raw
+    .replace(/[^a-zA-Z0-9_.-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^[-.]+|[-.]+$/g, "");
+  if (s.length === 0) return "project";
+  return s.length > 64 ? s.slice(0, 64) : s;
+}
+
 type ParseResult = {
   ok: true;
   value: number;

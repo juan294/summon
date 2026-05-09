@@ -1,5 +1,6 @@
 // tree.ts — Tree data model, DSL parser, pane extractor, resolver, plan builder, leaf collector
 
+import { resolve, sep } from "node:path";
 import { EDITOR_SIZE_DEFAULT } from "./layout.js";
 
 // ---------- Types ----------
@@ -31,9 +32,13 @@ export interface TreeLayoutPlan {
   fullscreen: boolean;
   maximize: boolean;
   float: boolean;
+  cleanRestoredPanes: boolean;
 }
 
 // ---------- Parser internals ----------
+
+/** Maximum allowed nesting depth for parenthesised tree expressions. */
+const MAX_TREE_DEPTH = 32;
 
 const PANE_NAME_RE = /^[a-zA-Z_][a-zA-Z0-9_-]*$/;
 const PANE_CWD_RE = /^pane\.([a-zA-Z_][a-zA-Z0-9_-]*)\.cwd$/;
@@ -112,16 +117,14 @@ function tokenize(input: string): Token[] {
  */
 function parse(tokens: Token[]): LayoutNode {
   let pos = 0;
+  let depth = 0;
 
   function peek(): Token | undefined {
     return tokens[pos];
   }
 
   function advance(): Token {
-    const tok = tokens[pos];
-    if (!tok) {
-      throw new Error("Unexpected end of input");
-    }
+    const tok = tokens[pos]!;
     pos++;
     return tok;
   }
@@ -158,12 +161,22 @@ function parse(tokens: Token[]): LayoutNode {
       return { type: "pane", name: tok.value, command: "" };
     }
     if (tok.type === "quoted") {
+      // NOTE: The quoted-string parser uses a simple scan: it reads characters until
+      // the next `"`. There is NO escape support — `\"` is NOT treated as an escaped
+      // quote; the backslash is a literal character and the `"` closes the string.
+      // To include a double quote in a command, use a shell wrapper instead.
       advance();
       const cmd = tok.value;
       const firstWord = cmd.split(/\s+/)[0] ?? cmd;
       return { type: "pane", name: firstWord, command: cmd };
     }
     if (tok.type === "lparen") {
+      depth++;
+      if (depth > MAX_TREE_DEPTH) {
+        throw new Error(
+          `Tree DSL: maximum nesting depth (${MAX_TREE_DEPTH}) exceeded. Check for unclosed parentheses.`,
+        );
+      }
       advance(); // consume (
       const node = parseExpr();
       const closing = peek();
@@ -171,6 +184,7 @@ function parse(tokens: Token[]): LayoutNode {
         throw new Error("Expected closing ')'");
       }
       advance(); // consume )
+      depth--;
       return node;
     }
     throw new Error(`Unexpected token '${tok.value}' at position ${pos}`);
@@ -281,12 +295,25 @@ export function resolveTreeCommands(
   tree: LayoutNode,
   panes: Map<string, string>,
   cwds?: Map<string, string>,
+  targetDir?: string,
 ): LayoutNode {
   const usedNames = new Set<string>();
 
-  function resolve(node: LayoutNode): LayoutNode {
+  function resolveNode(node: LayoutNode): LayoutNode {
     if (node.type === "pane") {
       const cwd = cwds?.get(node.name);
+
+      // Validate cwd does not escape the project directory
+      if (cwd !== undefined && targetDir !== undefined) {
+        const resolved = resolve(targetDir, cwd);
+        const prefix = targetDir.endsWith(sep) ? targetDir : targetDir + sep;
+        if (!resolved.startsWith(prefix) && resolved !== targetDir) {
+          throw new Error(
+            `Tree DSL: pane cwd '${cwd}' resolves outside project directory '${targetDir}'. Use a path within the project.`,
+          );
+        }
+      }
+
       if (node.command !== "") {
         // Inline command — attach cwd if present
         return cwd ? { ...node, cwd } : node;
@@ -303,12 +330,12 @@ export function resolveTreeCommands(
     return {
       type: "split",
       direction: node.direction,
-      first: resolve(node.first),
-      second: resolve(node.second),
+      first: resolveNode(node.first),
+      second: resolveNode(node.second),
     };
   }
 
-  const resolved = resolve(tree);
+  const resolved = resolveNode(tree);
 
   // Warn about unused pane definitions
   for (const name of panes.keys()) {
@@ -328,6 +355,7 @@ interface TreePlanOptions {
   fullscreen?: boolean;
   maximize?: boolean;
   float?: boolean;
+  cleanRestoredPanes?: boolean;
 }
 
 /** Build a TreeLayoutPlan from a resolved tree and optional settings. */
@@ -336,7 +364,7 @@ export function buildTreePlan(
   opts?: TreePlanOptions,
 ): TreeLayoutPlan {
   const leaves = collectLeaves(tree);
-  const focusPane = leaves[0] ?? "";
+  const focusPane = leaves[0]!;
   return {
     tree,
     leaves,
@@ -348,6 +376,7 @@ export function buildTreePlan(
     fullscreen: opts?.fullscreen ?? false,
     maximize: opts?.maximize ?? false,
     float: opts?.float ?? false,
+    cleanRestoredPanes: opts?.cleanRestoredPanes ?? false,
   };
 }
 

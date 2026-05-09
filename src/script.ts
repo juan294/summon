@@ -3,6 +3,7 @@ import type { LayoutPlan } from "./layout.js";
 import type { TreeLayoutPlan, LayoutNode } from "./tree.js";
 import { firstLeaf, walkLeaves } from "./tree.js";
 import { GHOSTTY_APP_NAME, SUMMON_WORKSPACE_ENV } from "./utils.js";
+import { escapeAppleScript, shellQuote, shellDoubleQuote } from "./shell-escape.js";
 
 // --- AppleScript timing constants (empirically tuned for Ghostty responsiveness) ---
 
@@ -18,40 +19,7 @@ const NEW_WINDOW_DELAY = 0.5;
 /** Editor size at which auto-resize is a no-op (50% = equal split already). */
 const AUTO_RESIZE_THRESHOLD = 50;
 
-function escapeAppleScript(s: string): string {
-  return s
-    .replace(/\\/g, "\\\\")
-    .replace(/"/g, '\\"')
-    .replace(/\n/g, "\\n")
-    .replace(/\r/g, "\\r");
-}
-
-/** POSIX single-quote escaping: wrap in single quotes, escape embedded single quotes. */
-function shellQuote(s: string): string {
-  return `'${s.replace(/'/g, "'\\''")}'`;
-}
-
 // --- Shared helpers ---
-
-/**
- * Quote command arguments for shell safety (name unquoted, args shell-quoted).
- *
- * Splits on spaces, so multi-word arguments are treated as separate args.
- * For example, `grep "hello world"` becomes `grep 'hello' 'world'` — the
- * quoted phrase is split into two individually-quoted tokens.
- *
- * This is NOT an injection vector: every fragment is POSIX single-quoted via
- * {@link shellQuote}, preventing shell expansion or metacharacter interpretation.
- *
- * The config format (`key=value` plain text) has no syntax for preserving
- * quoted arguments, so this space-splitting behavior is by design.
- */
-function quoteCommand(cmd: string): string {
-  const parts = cmd.split(" ");
-  return parts.length > 1
-    ? `${parts[0]} ${parts.slice(1).map((a) => shellQuote(a)).join(" ")}`
-    : cmd;
-}
 
 /** Closures for building AppleScript lines. */
 interface ScriptBuilder {
@@ -79,11 +47,10 @@ function buildScriptBuilder(
 
   // initial input writes bytes to the PTY before the shell reads — the shell
   // starts normally (interactive login, all rc files sourced) and receives
-  // the command as if the user typed it.  Shell-agnostic: works for bash,
+  // the raw command as if the user typed it. Shell-agnostic: works for bash,
   // zsh, fish, ksh without any wrapper or flag differences.
   const setInitialInput = (cmd: string) => {
-    const safe = quoteCommand(cmd);
-    add(1, `set initial input of cfg to "${escapeAppleScript(safe)}\\n"`);
+    add(1, `set initial input of cfg to "${escapeAppleScript(cmd)}\\n"`);
   };
 
   const clearInitialInput = () => {
@@ -97,12 +64,16 @@ function buildScriptBuilder(
   return { add, blank, sendCommand, setInitialInput, clearInitialInput, setCwd };
 }
 
-/** Build combined env vars list (workspace marker + Starship + user-defined). */
+/** Build combined env vars list (workspace marker + Starship + tab title + user-defined). */
 function buildEnvVarsList(
   starshipConfigPath: string | null | undefined,
   envVars: Record<string, string> | undefined,
+  projectName?: string,
 ): string[] {
   const allEnvVars: string[] = [`${SUMMON_WORKSPACE_ENV}=1`];
+  if (projectName) {
+    allEnvVars.push(`SUMMON_TAB_TITLE=${projectName}`);
+  }
   if (starshipConfigPath) {
     allEnvVars.push(`STARSHIP_CONFIG=${starshipConfigPath}`);
   }
@@ -112,6 +83,55 @@ function buildEnvVarsList(
     }
   }
   return allEnvVars;
+}
+
+/** Emit unified cleanup trap: on-stop → snapshot → marker removal. */
+function emitCleanupTrap(
+  { sendCommand }: ScriptBuilder,
+  rootPaneVar: string,
+  projectName: string,
+  options?: { onStop?: string; targetDir?: string; layout?: string },
+): void {
+  const parts: string[] = [];
+
+  // Ensure log directory exists for cleanup error logging
+  const logDir = `"$HOME/.config/summon/logs"`;
+  parts.push(`mkdir -p ${logDir}`);
+
+  if (options?.onStop) {
+    // Inline the on-stop command directly (no eval wrapper).
+    // Redirect errors to a log file instead of suppressing them.
+    const logFile = `"$HOME/.config/summon/logs/cleanup-${shellDoubleQuote(projectName)}.log"`;
+    parts.push(`${options.onStop} >> ${logFile} 2>&1`);
+  }
+
+  if (options?.targetDir) {
+    parts.push(
+      `summon snapshot save`
+      + ` --dir "${shellDoubleQuote(options.targetDir)}"`
+      + ` --project "${shellDoubleQuote(projectName)}"`
+      + ` --layout "${shellDoubleQuote(options.layout ?? "unknown")}"`
+      + ` 2>/dev/null`,
+    );
+  }
+
+  const markerPath = `"$HOME/.config/summon/status/${shellDoubleQuote(projectName)}.active"`;
+  const pidPath = `"$HOME/.config/summon/status/${shellDoubleQuote(projectName)}.pid"`;
+  parts.push(`rm -f ${markerPath} ${pidPath} 2>/dev/null`);
+
+  const body = parts.join("; ");
+  sendCommand(rootPaneVar, `__summon_cleanup() { ${body}; }; trap '__summon_cleanup' EXIT HUP`);
+}
+
+function emitRootPanePidBootstrap(
+  { sendCommand }: ScriptBuilder,
+  rootPaneVar: string,
+  projectName: string,
+): void {
+  const statusDir = '"$HOME/.config/summon/status"';
+  const pidPath    = `"$HOME/.config/summon/status/${shellDoubleQuote(projectName)}.pid"`;
+  const markerPath = `"$HOME/.config/summon/status/${shellDoubleQuote(projectName)}.active"`;
+  sendCommand(rootPaneVar, `mkdir -p ${statusDir} && printf '%s\\n' "$$" > ${pidPath} && : > ${markerPath}`);
 }
 
 /** Emit surface configuration block: working directory, font size, env vars. */
@@ -161,8 +181,22 @@ function emitRootPaneCommand(
   // Clear setup noise (exports, cd) so the pane starts clean
   sendCommand(rootPaneVar, "clear");
   if (command) {
-    sendCommand(rootPaneVar, quoteCommand(command));
+    sendCommand(rootPaneVar, command);
   }
+}
+
+/** Single-slot memoization cache for tab-title escaping (PE-L4). */
+const tabTitleEscapeCache: { input: string; output: string } | null = null;
+let _tabTitleEscapeCache: { input: string; output: string } | null = tabTitleEscapeCache;
+
+/** Escape a tab title, using a single-slot cache for stability across repeated calls. */
+function escapeTabTitle(title: string): string {
+  if (_tabTitleEscapeCache !== null && _tabTitleEscapeCache.input === title) {
+    return _tabTitleEscapeCache.output;
+  }
+  const output = escapeAppleScript(title);
+  _tabTitleEscapeCache = { input: title, output };
+  return output;
 }
 
 /** Emit pane and tab titles block. */
@@ -171,10 +205,11 @@ function emitTitles(
   rootPaneVar: string,
   targetDir: string,
   titles: Array<[string, string]>,
+  projectName?: string,
 ): void {
   add(1, "-- Set pane and tab titles");
-  const projectName = basename(targetDir);
-  add(1, `perform action "set_tab_title:${escapeAppleScript(projectName)}" on ${rootPaneVar}`);
+  const tabTitle = projectName ? `[${projectName}]` : basename(targetDir);
+  add(1, `perform action "set_tab_title:${escapeTabTitle(tabTitle)}" on ${rootPaneVar}`);
   for (const [pane, title] of titles) {
     add(1, `perform action "set_surface_title:${escapeAppleScript(title)}" on ${pane}`);
   }
@@ -234,6 +269,19 @@ function formatTitle(role: string, cmd: string | null | undefined): string {
 
 function paneVar(name: string): string {
   return `pane_${name.replace(/-/g, "_")}`;
+}
+
+/** Close all panes in the selected tab except the first, clearing restored session panes. */
+function emitClosePrelude(sb: ScriptBuilder, cleanRestoredPanes: boolean): void {
+  if (!cleanRestoredPanes) return;
+  const { add, blank } = sb;
+  add(1, "-- Clear restored panes from previous Ghostty session");
+  add(1, "set targetTab to selected tab of front window");
+  add(1, "repeat while (count of terminals of targetTab) > 1");
+  add(2, "close last terminal of targetTab");
+  add(1, "end repeat");
+  add(1, "delay 0.1");
+  blank();
 }
 
 /**
@@ -394,15 +442,84 @@ function collectLeavesWithCommands(node: LayoutNode): Array<[string, string]> {
 
 // --- Public API ---
 
-export function generateAppleScript(plan: LayoutPlan, targetDir: string, starshipConfigPath?: string | null, envVars?: Record<string, string>): string {
+export function generateFocusScript(tabTitle: string): string {
+  const lines: string[] = [];
+  lines.push(`-- Focus workspace: ${escapeAppleScript(tabTitle)}`);
+  lines.push(`tell application "${GHOSTTY_APP_NAME}"`);
+  lines.push("    activate");
+  lines.push("end tell");
+  return lines.join("\n");
+}
+
+// TODO(AR-L1 #318): generateAppleScript and generateTreeAppleScript are parallel pipelines
+// that each independently receive and apply the same options (starshipConfigPath, envVars,
+// projectName, onStop). Any new option must be plumbed through both functions. Consider
+// extracting shared option handling into a common helper to reduce duplication.
+
+/** Options object form for generateAppleScript (AR-L5). */
+export interface GenerateAppleScriptOptions {
+  plan: LayoutPlan;
+  targetDir: string;
+  starshipConfigPath?: string | null;
+  envVars?: Record<string, string>;
+  projectName?: string;
+  onStop?: string;
+}
+
+/**
+ * Generate AppleScript for a traditional (LayoutPlan) workspace.
+ * Accepts either a single options object or positional arguments (backward-compatible).
+ */
+export function generateAppleScript(opts: GenerateAppleScriptOptions): string;
+export function generateAppleScript(plan: LayoutPlan, targetDir: string, starshipConfigPath?: string | null, envVars?: Record<string, string>, projectName?: string, onStop?: string): string;
+export function generateAppleScript(
+  planOrOpts: LayoutPlan | GenerateAppleScriptOptions,
+  targetDir?: string,
+  starshipConfigPath?: string | null,
+  envVars?: Record<string, string>,
+  projectName?: string,
+  onStop?: string,
+): string {
+  // Resolve arguments from options object or positional form
+  let plan: LayoutPlan;
+  let resolvedTargetDir: string;
+  let resolvedStarshipConfigPath: string | null | undefined;
+  let resolvedEnvVars: Record<string, string> | undefined;
+  let resolvedProjectName: string | undefined;
+  let resolvedOnStop: string | undefined;
+
+  if ("plan" in planOrOpts && "targetDir" in planOrOpts) {
+    // Options object form
+    const opts = planOrOpts as GenerateAppleScriptOptions;
+    plan = opts.plan;
+    resolvedTargetDir = opts.targetDir;
+    resolvedStarshipConfigPath = opts.starshipConfigPath;
+    resolvedEnvVars = opts.envVars;
+    resolvedProjectName = opts.projectName;
+    resolvedOnStop = opts.onStop;
+  } else {
+    // Positional form
+    plan = planOrOpts as LayoutPlan;
+    resolvedTargetDir = targetDir!;
+    resolvedStarshipConfigPath = starshipConfigPath;
+    resolvedEnvVars = envVars;
+    resolvedProjectName = projectName;
+    resolvedOnStop = onStop;
+  }
+
+  return generateAppleScriptImpl(plan, resolvedTargetDir, resolvedStarshipConfigPath, resolvedEnvVars, resolvedProjectName, resolvedOnStop);
+}
+
+function generateAppleScriptImpl(plan: LayoutPlan, targetDir: string, starshipConfigPath?: string | null, envVars?: Record<string, string>, projectName?: string, onStop?: string): string {
   const lines: string[] = [];
   const titles: Array<[string, string]> = [];
   const interactiveShellPanes: string[] = [];
   const sb = buildScriptBuilder(lines);
 
-  const allEnvVars = buildEnvVarsList(starshipConfigPath, envVars);
+  const allEnvVars = buildEnvVarsList(starshipConfigPath, envVars, projectName);
 
   emitSurfaceConfig(sb, targetDir, plan.fontSize, allEnvVars);
+  emitClosePrelude(sb, plan.cleanRestoredPanes);
   emitNewWindow(sb, plan.newWindow);
   sb.add(1, "set paneRoot to terminal 1 of selected tab of win");
   sb.blank();
@@ -429,6 +546,15 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, starshi
   // Root pane env var exports
   emitRootPaneEnvExports(sb, "paneRoot", allEnvVars);
 
+  if (projectName) {
+    emitRootPanePidBootstrap(sb, "paneRoot", projectName);
+  }
+
+  // Cleanup trap: on-stop → snapshot → marker/pid removal
+  if (projectName) {
+    emitCleanupTrap(sb, "paneRoot", projectName, { onStop, targetDir });
+  }
+
   for (const pane of interactiveShellPanes) {
     sb.sendCommand(pane, "clear");
   }
@@ -436,7 +562,7 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, starshi
   emitRootPaneCommand(sb, "paneRoot", targetDir, plan.editor);
   sb.blank();
 
-  emitTitles(sb, "paneRoot", targetDir, titles);
+  emitTitles(sb, "paneRoot", targetDir, titles, projectName);
   sb.add(1, "focus paneRoot");
   emitWindowState(sb, "paneRoot", plan);
 
@@ -449,16 +575,19 @@ export function generateTreeAppleScript(
   targetDir: string,
   starshipConfigPath?: string | null,
   envVars?: Record<string, string>,
+  projectName?: string,
+  onStop?: string,
 ): string {
   const lines: string[] = [];
   const titles: Array<[string, string]> = [];
   const sb = buildScriptBuilder(lines);
 
-  const allEnvVars = buildEnvVarsList(starshipConfigPath, envVars);
+  const allEnvVars = buildEnvVarsList(starshipConfigPath, envVars, projectName);
   const rootLeaf = firstLeaf(plan.tree);
   const rootPaneVar = paneVar(rootLeaf.name);
 
   emitSurfaceConfig(sb, targetDir, plan.fontSize, allEnvVars);
+  emitClosePrelude(sb, plan.cleanRestoredPanes);
   emitNewWindow(sb, plan.newWindow);
   sb.add(1, `set ${rootPaneVar} to terminal 1 of selected tab of win`);
   sb.blank();
@@ -468,13 +597,23 @@ export function generateTreeAppleScript(
 
   const rootCwd = rootLeaf.cwd ? resolve(targetDir, rootLeaf.cwd) : targetDir;
   emitRootPaneEnvExports(sb, rootPaneVar, allEnvVars);
+
+  if (projectName) {
+    emitRootPanePidBootstrap(sb, rootPaneVar, projectName);
+  }
+
+  // Cleanup trap: on-stop → snapshot → marker/pid removal
+  if (projectName) {
+    emitCleanupTrap(sb, rootPaneVar, projectName, { onStop, targetDir });
+  }
+
   emitRootPaneCommand(sb, rootPaneVar, rootCwd, rootLeaf.command);
   sb.blank();
 
   for (const [leafName, cmd] of collectLeavesWithCommands(plan.tree)) {
     titles.push([paneVar(leafName), formatTitle(leafName, cmd)]);
   }
-  emitTitles(sb, rootPaneVar, targetDir, titles);
+  emitTitles(sb, rootPaneVar, targetDir, titles, projectName);
 
   sb.add(1, `focus ${rootPaneVar}`);
   emitWindowState(sb, rootPaneVar, plan);

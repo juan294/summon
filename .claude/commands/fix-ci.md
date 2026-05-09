@@ -1,5 +1,7 @@
 Self-healing CI: diagnose and fix all failing tests autonomously.
 
+Model tier: **sonnet** — Sonnet 4.6 (1M context) session. All subagents: `model: "sonnet"`.
+
 Process:
 
 1. Get the latest CI run for the current branch:
@@ -15,7 +17,7 @@ Process:
    - Test failures (list each failing test)
    - Build failures
 
-4. For each failing test, spawn a sub-agent to:
+4. For each failing test, spawn a sub-agent (model: `"sonnet"`) to:
    a. Read the failing test file and the source file it covers
    b. Identify the root cause from the error message
    c. Fix the SOURCE code (never weaken or delete a test)
@@ -37,4 +39,7 @@ Rules:
 - Never delete a test.
 - If a failure is flaky (passes locally, fails in CI), note it but don't skip.
 - If stuck after 3 fix cycles, stop and report what remains broken.
-- Verify the current branch before committing — never push to main/master.
+- Verify the current branch before committing.
+- Normal CI repair happens on the branch under test.
+  Never push directly to a protected production branch without explicit
+  approval.

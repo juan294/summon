@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // Mock child_process before importing utils
 const mockExecFileSync = vi.fn();
@@ -8,8 +8,10 @@ vi.mock("node:child_process", () => ({
 
 // Mock node:fs for isGhosttyInstalled tests
 const mockExistsSync = vi.fn((_path: string) => false);
+const mockMkdirSync = vi.fn();
 vi.mock("node:fs", () => ({
   existsSync: (path: string) => mockExistsSync(path),
+  mkdirSync: (...args: unknown[]) => mockMkdirSync(...args),
 }));
 
 // Mock readline for promptUser tests
@@ -27,7 +29,7 @@ vi.mock("node:readline", () => ({
 }));
 
 // Import after mocks
-const { SAFE_COMMAND_RE, GHOSTTY_PATHS, GHOSTTY_APP_NAME, SUMMON_WORKSPACE_ENV, resolveCommand, promptUser, getErrorMessage, exitWithUsageHint, checkAccessibility, openAccessibilitySettings, isAccessibilityError, isGhosttyInstalled, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT } = await import("./utils.js");
+const { SAFE_COMMAND_RE, GHOSTTY_PATHS, GHOSTTY_APP_NAME, SUMMON_WORKSPACE_ENV, resolveCommand, promptUser, getErrorMessage, exitWithUsageHint, checkAccessibility, openAccessibilitySettings, isAccessibilityError, isGhosttyInstalled, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT, PromptCancelled, isDebug, debugLog, getLogDir, supportsColor, confirm } = await import("./utils.js");
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -156,9 +158,9 @@ describe("resolveCommand", () => {
     mockExecFileSync.mockReturnValue("/usr/bin/vim\n");
     resolveCommand("vim");
     expect(mockExecFileSync).toHaveBeenCalledWith(
-      "/bin/sh",
-      ["-c", 'command -v "$1"', "--", "vim"],
-      { encoding: "utf-8" },
+      "/usr/bin/which",
+      ["vim"],
+      { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] },
     );
   });
 
@@ -257,17 +259,15 @@ describe("promptUser", () => {
     expect(mockOn).toHaveBeenCalledWith("close", expect.any(Function));
   });
 
-  it("exits cleanly on Ctrl+C (close event)", async () => {
-    const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => { throw new Error("exit"); });
+  it("throws PromptCancelled on Ctrl+C (close event)", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     // Simulate Ctrl+C: question never calls back, close handler fires instead
     mockQuestion.mockImplementation(() => {}); // no callback
     mockOn.mockImplementation((_event: string, cb: () => void) => cb());
 
-    await expect(promptUser("Q: ")).rejects.toThrow("exit");
-    expect(exitSpy).toHaveBeenCalledWith(130);
+    await expect(promptUser("Q: ")).rejects.toThrow(PromptCancelled);
+    await expect(promptUser("Q: ")).rejects.toThrow("Cancelled");
 
-    exitSpy.mockRestore();
     logSpy.mockRestore();
     mockOn.mockReset();
   });
@@ -417,5 +417,229 @@ describe("isGhosttyInstalled", () => {
   it("returns false when Ghostty is not found at any known path", () => {
     mockExistsSync.mockReturnValue(false);
     expect(isGhosttyInstalled()).toBe(false);
+  });
+});
+
+describe("isDebug", () => {
+  it("returns false when SUMMON_DEBUG is not set", () => {
+    delete process.env["SUMMON_DEBUG"];
+    expect(isDebug()).toBe(false);
+  });
+
+  it("returns true when SUMMON_DEBUG is '1'", () => {
+    process.env["SUMMON_DEBUG"] = "1";
+    expect(isDebug()).toBe(true);
+    delete process.env["SUMMON_DEBUG"];
+  });
+
+  it("returns false when SUMMON_DEBUG is set to a value other than '1'", () => {
+    process.env["SUMMON_DEBUG"] = "true";
+    expect(isDebug()).toBe(false);
+    delete process.env["SUMMON_DEBUG"];
+  });
+});
+
+describe("debugLog", () => {
+  it("does not write to stderr when SUMMON_DEBUG is not set", () => {
+    delete process.env["SUMMON_DEBUG"];
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    debugLog("should not appear");
+    expect(writeSpy).not.toHaveBeenCalled();
+    writeSpy.mockRestore();
+  });
+
+  it("writes to stderr when SUMMON_DEBUG=1", () => {
+    process.env["SUMMON_DEBUG"] = "1";
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    debugLog("hello", "world");
+    expect(writeSpy).toHaveBeenCalledOnce();
+    const output = writeSpy.mock.calls[0]?.[0] as string;
+    expect(output).toMatch(/^\[summon:debug /);
+    expect(output).toContain("hello world");
+    writeSpy.mockRestore();
+    delete process.env["SUMMON_DEBUG"];
+  });
+
+  it("includes a timestamp in the debug output", () => {
+    process.env["SUMMON_DEBUG"] = "1";
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    debugLog("timestamped");
+    const output = writeSpy.mock.calls[0]?.[0] as string;
+    // ISO timestamp pattern
+    expect(output).toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+    writeSpy.mockRestore();
+    delete process.env["SUMMON_DEBUG"];
+  });
+});
+
+describe("getLogDir", () => {
+  it("returns a path ending in logs/", () => {
+    const dir = getLogDir();
+    expect(dir).toMatch(/logs[/\\]?$/);
+  });
+
+  it("returns a path inside ~/.config/summon/", () => {
+    const dir = getLogDir();
+    expect(dir).toContain(".config/summon");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FE-M6 — supportsColor() is lazy (evaluated at call time)
+// ---------------------------------------------------------------------------
+
+describe("supportsColor", () => {
+  const originalEnv = process.env;
+
+  beforeEach(() => {
+    process.env = { ...originalEnv };
+    // Remove color-related env vars for a clean baseline
+    delete process.env["FORCE_COLOR"];
+    delete process.env["NO_COLOR"];
+  });
+
+  afterEach(() => {
+    process.env = originalEnv;
+  });
+
+  it("is exported as a function", () => {
+    expect(typeof supportsColor).toBe("function");
+  });
+
+  it("returns true when FORCE_COLOR=1 is set", () => {
+    process.env["FORCE_COLOR"] = "1";
+    expect(supportsColor()).toBe(true);
+  });
+
+  it("returns false when NO_COLOR is set", () => {
+    process.env["NO_COLOR"] = "1";
+    expect(supportsColor()).toBe(false);
+  });
+
+  it("NO_COLOR takes precedence over FORCE_COLOR", () => {
+    process.env["FORCE_COLOR"] = "1";
+    process.env["NO_COLOR"] = "1";
+    expect(supportsColor()).toBe(false);
+  });
+
+  it("reflects env changes between calls (lazy evaluation)", () => {
+    delete process.env["FORCE_COLOR"];
+    delete process.env["NO_COLOR"];
+    const first = supportsColor();
+
+    process.env["FORCE_COLOR"] = "1";
+    const second = supportsColor();
+
+    // The second call should return true regardless of first
+    expect(second).toBe(true);
+    // And they should differ if first was false (non-TTY environment)
+    if (!first) {
+      expect(second).not.toBe(first);
+    }
+  });
+
+  it("returns false when FORCE_COLOR=0", () => {
+    process.env["FORCE_COLOR"] = "0";
+    expect(supportsColor()).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FE-M8 — PromptCancelled + confirm() Escape/Ctrl+C/Enter cancel
+// ---------------------------------------------------------------------------
+
+// Mock readline for confirm tests (raw mode)
+const mockStdinSetRawMode = vi.fn();
+const mockStdinResume = vi.fn();
+const mockStdinPause = vi.fn();
+const mockStdinSetEncoding = vi.fn();
+const mockStdinOnce = vi.fn();
+const mockStdinOff = vi.fn();
+const mockStdinOn = vi.fn();
+
+describe("PromptCancelled", () => {
+  it("is an Error subclass", () => {
+    expect(new PromptCancelled() instanceof Error).toBe(true);
+  });
+
+  it("has a default message", () => {
+    expect(new PromptCancelled().message).toBeTruthy();
+  });
+
+  it("can be detected with instanceof", () => {
+    const err = new PromptCancelled();
+    expect(err instanceof PromptCancelled).toBe(true);
+  });
+});
+
+describe("confirm", () => {
+  let originalStdin: typeof process.stdin;
+
+  beforeEach(() => {
+    originalStdin = process.stdin;
+    // Replace process.stdin with a mock that supports raw mode
+    const mockStdin = {
+      isTTY: true,
+      setRawMode: mockStdinSetRawMode,
+      resume: mockStdinResume,
+      pause: mockStdinPause,
+      setEncoding: mockStdinSetEncoding,
+      once: mockStdinOnce,
+      off: mockStdinOff,
+      on: mockStdinOn,
+      removeListener: mockStdinOff,
+    };
+    Object.defineProperty(process, "stdin", { value: mockStdin, writable: true, configurable: true });
+  });
+
+  afterEach(() => {
+    Object.defineProperty(process, "stdin", { value: originalStdin, writable: true, configurable: true });
+    vi.clearAllMocks();
+  });
+
+  function simulateKeypress(key: string): void {
+    mockStdinOnce.mockImplementation((_event: string, cb: (key: string) => void) => {
+      cb(key);
+    });
+  }
+
+  it("returns true for 'y' input", async () => {
+    simulateKeypress("y");
+    expect(await confirm("Continue?")).toBe(true);
+  });
+
+  it("returns true for 'Y' input", async () => {
+    simulateKeypress("Y");
+    expect(await confirm("Continue?")).toBe(true);
+  });
+
+  it("returns false for 'n' input", async () => {
+    simulateKeypress("n");
+    expect(await confirm("Continue?")).toBe(false);
+  });
+
+  it("returns false for 'N' input", async () => {
+    simulateKeypress("N");
+    expect(await confirm("Continue?")).toBe(false);
+  });
+
+  it("returns false for Enter (empty input — default no)", async () => {
+    simulateKeypress("\r");
+    expect(await confirm("Continue?")).toBe(false);
+  });
+
+  it("returns false for newline (empty input — default no)", async () => {
+    simulateKeypress("\n");
+    expect(await confirm("Continue?")).toBe(false);
+  });
+
+  it("throws PromptCancelled for Escape key", async () => {
+    simulateKeypress("\x1b");
+    await expect(confirm("Continue?")).rejects.toBeInstanceOf(PromptCancelled);
+  });
+
+  it("throws PromptCancelled for Ctrl+C", async () => {
+    simulateKeypress("\x03");
+    await expect(confirm("Continue?")).rejects.toBeInstanceOf(PromptCancelled);
   });
 });

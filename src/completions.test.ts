@@ -1,7 +1,6 @@
 import { describe, test, expect, vi } from "vitest";
-import { generateZshCompletion, generateBashCompletion } from "./completions.js";
+import { generateZshCompletion, generateBashCompletion, generateFishCompletion } from "./completions.js";
 import { VALID_KEYS, CLI_FLAGS } from "./config.js";
-import { getPresetNames } from "./layout.js";
 
 describe("generateZshCompletion", () => {
   test("returns a string starting with #compdef summon", () => {
@@ -23,11 +22,12 @@ describe("generateZshCompletion", () => {
     }
   });
 
-  test("contains all layout presets", () => {
+  test("uses dynamic command substitution for layout presets instead of hardcoded list", () => {
     const result = generateZshCompletion();
-    for (const preset of getPresetNames()) {
-      expect(result).toContain(preset);
-    }
+    expect(result).toContain("summon layout list");
+    // Should NOT contain hardcoded preset names in the layout completion section
+    expect(result).not.toMatch(/layout_presets=\([^)]*\bsplit\b/);
+    expect(result).not.toMatch(/layout_presets=\([^)]*\bgrid\b/);
   });
 
   test("reads projects file from ~/.config/summon/projects", () => {
@@ -74,11 +74,12 @@ describe("generateBashCompletion", () => {
     }
   });
 
-  test("contains all layout presets", () => {
+  test("uses dynamic command substitution for layout presets instead of hardcoded list", () => {
     const result = generateBashCompletion();
-    for (const preset of ["minimal", "full", "pair", "cli", "btop"]) {
-      expect(result).toContain(preset);
-    }
+    expect(result).toContain("summon layout list");
+    // Should NOT contain hardcoded preset names in the layout_presets definition
+    expect(result).not.toMatch(/layout_presets="[^"]*\bsplit\b/);
+    expect(result).not.toMatch(/layout_presets="[^"]*\bgrid\b/);
   });
 
   test("reads projects file from ~/.config/summon/projects", () => {
@@ -130,26 +131,16 @@ describe("layout subcommand completions", () => {
     }
   });
 
-  test("zsh layout show/delete/edit complete with custom layout names", async () => {
-    const config = await import("./config.js");
-    const spy = vi.spyOn(config, "listCustomLayouts").mockReturnValue(["mywork", "devops"]);
-
+  test("zsh layout show/delete/edit complete with dynamic layout names", () => {
     const result = generateZshCompletion();
-    // The layout case should reference layout_presets for show/delete/edit
+    // The layout case should reference layout_presets (dynamically populated) for show/delete/edit
     expect(result).toMatch(/layout\)[\s\S]*?show\b.*\bdelete\b.*\bedit\b[\s\S]*?layout_presets/s);
-
-    spy.mockRestore();
   });
 
-  test("bash layout show/delete/edit complete with custom layout names", async () => {
-    const config = await import("./config.js");
-    const spy = vi.spyOn(config, "listCustomLayouts").mockReturnValue(["mywork", "devops"]);
-
+  test("bash layout show/delete/edit complete with dynamic layout names", () => {
     const result = generateBashCompletion();
-    // The layout case should reference layout_presets for show/delete/edit
+    // The layout case should reference layout_presets (dynamically populated) for show/delete/edit
     expect(result).toMatch(/layout\)[\s\S]*?show\b.*\bdelete\b.*\bedit\b[\s\S]*?layout_presets/s);
-
-    spy.mockRestore();
   });
 });
 
@@ -214,53 +205,108 @@ describe("export subcommand completions", () => {
   });
 });
 
+describe("generateFishCompletion", () => {
+  test("returns a string containing 'complete -c summon'", () => {
+    const result = generateFishCompletion();
+    expect(result).toContain("complete -c summon");
+  });
+
+  test("contains all subcommands with descriptions", () => {
+    const result = generateFishCompletion();
+    for (const cmd of ["add", "remove", "list", "set", "config", "setup", "completions"]) {
+      expect(result).toContain(`-a '${cmd}'`);
+    }
+  });
+
+  test("uses __fish_use_subcommand for subcommand completion", () => {
+    const result = generateFishCompletion();
+    expect(result).toContain("__fish_use_subcommand");
+  });
+
+  test("contains --help and --version flags", () => {
+    const result = generateFishCompletion();
+    expect(result).toContain("-l help");
+    expect(result).toContain("-l version");
+  });
+
+  test("contains layout flag with presets", () => {
+    const result = generateFishCompletion();
+    expect(result).toContain("-l layout");
+    for (const preset of ["minimal", "full", "pair", "cli", "btop"]) {
+      expect(result).toContain(preset);
+    }
+  });
+
+  test("contains common flags", () => {
+    const result = generateFishCompletion();
+    expect(result).toContain("-l auto-resize");
+    expect(result).toContain("-l no-auto-resize");
+    expect(result).toContain("-l clean");
+    expect(result).toContain("-l no-clean");
+    expect(result).toContain("-l dry-run");
+    expect(result).toContain("-l env");
+  });
+
+  test("starts with fish comment header", () => {
+    const result = generateFishCompletion();
+    expect(result).toMatch(/^# summon fish completion/);
+  });
+
+  test("includes custom layout names in layout preset list", async () => {
+    const config = await import("./config.js");
+    const spy = vi.spyOn(config, "listCustomLayouts").mockReturnValue(["mywork", "devops"]);
+
+    const result = generateFishCompletion();
+    expect(result).toContain("mywork");
+    expect(result).toContain("devops");
+
+    spy.mockRestore();
+  });
+});
+
 describe("custom layout completions", () => {
-  test("zsh completions include custom layout names in --layout", async () => {
-    // Mock listCustomLayouts to return custom layout names
-    const config = await import("./config.js");
-    const spy = vi.spyOn(config, "listCustomLayouts").mockReturnValue(["mywork", "devops"]);
-
+  test("zsh completions use dynamic command substitution for --layout (includes custom layouts at completion time)", () => {
     const result = generateZshCompletion();
-    expect(result).toContain("mywork");
-    expect(result).toContain("devops");
-
-    spy.mockRestore();
+    // Dynamic substitution means custom layouts are resolved at completion time, not bake-time
+    expect(result).toContain("summon layout list");
+    expect(result).toContain("layout_presets");
   });
 
-  test("bash completions include custom layout names in --layout", async () => {
-    const config = await import("./config.js");
-    const spy = vi.spyOn(config, "listCustomLayouts").mockReturnValue(["mywork", "devops"]);
-
+  test("bash completions use dynamic command substitution for --layout (includes custom layouts at completion time)", () => {
     const result = generateBashCompletion();
-    expect(result).toContain("mywork");
-    expect(result).toContain("devops");
-
-    spy.mockRestore();
+    // Dynamic substitution means custom layouts are resolved at completion time, not bake-time
+    expect(result).toContain("summon layout list");
+    expect(result).toContain("layout_presets");
   });
 
-  test("zsh completions include custom layouts in set layout value completions", async () => {
-    const config = await import("./config.js");
-    const spy = vi.spyOn(config, "listCustomLayouts").mockReturnValue(["custom-one"]);
-
+  test("zsh completions reference layout_presets dynamically in set layout value completions", () => {
     const result = generateZshCompletion();
-    // The layout_presets array should include custom layouts
-    expect(result).toContain("custom-one");
-
-    spy.mockRestore();
+    // The layout_presets variable should be used in the set layout case
+    expect(result).toMatch(/layout\b[\s\S]*?compadd -a layout_presets/);
   });
 
-  test("completions work with empty custom layouts list", async () => {
-    const config = await import("./config.js");
-    const spy = vi.spyOn(config, "listCustomLayouts").mockReturnValue([]);
+  test("includes --clean and --no-clean in zsh completions", () => {
+    const result = generateZshCompletion();
+    expect(result).toContain("--clean[");
+    expect(result).toContain("--no-clean[");
+  });
 
+  test("includes clean key in bash config key completions", () => {
+    const result = generateBashCompletion();
+    expect(result).toContain("clean");
+  });
+
+  test("includes --clean and --no-clean in bash flag completions", () => {
+    const result = generateBashCompletion();
+    expect(result).toContain("--clean");
+    expect(result).toContain("--no-clean");
+  });
+
+  test("completions still use dynamic layout resolution regardless of custom layout list", () => {
     const zsh = generateZshCompletion();
     const bash = generateBashCompletion();
-    // Should still contain preset names
-    for (const preset of getPresetNames()) {
-      expect(zsh).toContain(preset);
-      expect(bash).toContain(preset);
-    }
-
-    spy.mockRestore();
+    // Both shells should use command substitution to resolve layouts at completion time
+    expect(zsh).toContain("summon layout list");
+    expect(bash).toContain("summon layout list");
   });
 });

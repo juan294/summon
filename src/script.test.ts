@@ -1,7 +1,7 @@
-import { describe, it, expect } from "vitest";
-import { generateAppleScript, generateTreeAppleScript } from "./script.js";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { generateAppleScript, generateTreeAppleScript, generateFocusScript } from "./script.js";
 import { planLayout, getPreset } from "./layout.js";
-import { collectLeaves } from "./tree.js";
+import { collectLeaves, buildTreePlan } from "./tree.js";
 import type { TreeLayoutPlan, LayoutNode } from "./tree.js";
 
 describe("generateAppleScript", () => {
@@ -121,7 +121,7 @@ describe("generateAppleScript", () => {
     const plan = planLayout({ shell: "npm run dev" });
     const script = generateAppleScript(plan, "/tmp");
 
-    expect(script).toContain("set initial input of cfg to \"npm 'run' 'dev'\\n\"");
+    expect(script).toContain('set initial input of cfg to "npm run dev\\n"');
   });
 
   it("does not use delay for pane initialization when auto-resize is off", () => {
@@ -287,37 +287,34 @@ describe("generateAppleScript", () => {
     expect(script).toContain('set initial input of cfg to ""');
   });
 
-  it("escapes single quotes in initial input commands", () => {
+  it("preserves single quotes in initial input commands", () => {
     const plan = planLayout({ sidebarCommand: "cmd 'arg'" });
     const script = generateAppleScript(plan, "/tmp");
 
-    // Single quotes in args still get POSIX-escaped, then AppleScript-escaped
-    expect(script).toContain("set initial input of cfg to \"cmd ''\\\\''arg'\\\\'''\\n\"");
+    expect(script).toContain('set initial input of cfg to "cmd \'arg\'\\n"');
   });
 
-  it("escapes shell metacharacters in root pane editor command", () => {
-    // $HOME should not expand when typed into the shell
+  it("preserves shell syntax in root pane editor command", () => {
+    // User-authored commands are preserved exactly as typed.
     const plan1 = planLayout({ editor: "vim $HOME" });
     const script1 = generateAppleScript(plan1, "/tmp");
-    // The command name stays unquoted, but the argument is shell-quoted
-    expect(script1).toContain("input text \"vim '$HOME'\" to paneRoot");
+    expect(script1).toContain('input text "vim $HOME" to paneRoot');
 
-    // Backtick command substitution should not expand
+    // Backtick command substitution is preserved too.
     const plan2 = planLayout({ editor: "vim `whoami`" });
     const script2 = generateAppleScript(plan2, "/tmp");
-    expect(script2).toContain("input text \"vim '`whoami`'\" to paneRoot");
+    expect(script2).toContain('input text "vim `whoami`" to paneRoot');
 
-    // $() command substitution should not expand (each word is individually quoted)
+    // Quoted arguments and shell syntax stay intact.
     const plan3 = planLayout({ editor: "vim $(rm -rf /)" });
     const script3 = generateAppleScript(plan3, "/tmp");
-    expect(script3).toContain("input text \"vim '$(rm' '-rf' '/)'\"" + " to paneRoot");
+    expect(script3).toContain('input text "vim $(rm -rf /)" to paneRoot');
   });
 
-  it("escapes single quotes in root pane editor command arguments", () => {
+  it("preserves single quotes in root pane editor command arguments", () => {
     const plan = planLayout({ editor: "cmd 'arg'" });
     const script = generateAppleScript(plan, "/tmp");
-    // Single quotes in the argument are POSIX-escaped, then escapeAppleScript doubles backslashes
-    expect(script).toContain("input text \"cmd ''\\\\''arg'\\\\'''\" to paneRoot");
+    expect(script).toContain('input text "cmd \'arg\'" to paneRoot');
   });
 
   it("leaves plain editor command without arguments unchanged", () => {
@@ -326,18 +323,12 @@ describe("generateAppleScript", () => {
     expect(script).toContain('input text "claude" to paneRoot');
   });
 
-  it("splits space-containing arguments into individually quoted tokens (by design)", () => {
-    // quoteCommand splits on spaces, so a command like `grep "hello world"`
-    // becomes `grep 'hello' 'world'` — NOT `grep 'hello world'`.
-    // This is a known limitation of the key=value config format, which has
-    // no syntax for preserving quoted multi-word arguments.
-    // Each fragment is still POSIX single-quoted, so this is NOT an injection vector.
+  it("preserves quoted multi-word arguments", () => {
     const plan = planLayout({ editor: 'grep "hello world" file.txt' });
     const script = generateAppleScript(plan, "/tmp");
 
-    // Each space-delimited token after the command name is individually quoted
     expect(script).toContain(
-      "input text \"grep '\\\"hello' 'world\\\"' 'file.txt'\" to paneRoot",
+      'input text "grep \\"hello world\\" file.txt" to paneRoot',
     );
   });
 
@@ -380,8 +371,8 @@ describe("generateAppleScript", () => {
     // Right column exists only for shell, and shell has a specific command
     expect(script).toContain("paneRightCol");
     // The shell command should be set via initial input before the right column split
-    expect(script).toContain("set initial input of cfg to \"npm 'run' 'dev'\\n\"");
-    const cmdIndex = script.indexOf("npm 'run' 'dev'");
+    expect(script).toContain('set initial input of cfg to "npm run dev\\n"');
+    const cmdIndex = script.indexOf("npm run dev");
     const splitIndex = script.indexOf("paneRightCol to split");
     expect(cmdIndex).toBeLessThan(splitIndex);
   });
@@ -902,6 +893,41 @@ describe("generateAppleScript", () => {
     });
   });
 
+  describe("cleanRestoredPanes", () => {
+    it("emits close-prelude when cleanRestoredPanes=true", () => {
+      const plan = planLayout({ cleanRestoredPanes: true });
+      const script = generateAppleScript(plan, "/tmp");
+      expect(script).toContain("-- Clear restored panes from previous Ghostty session");
+      expect(script).toContain("set targetTab to selected tab of front window");
+      expect(script).toContain("repeat while (count of terminals of targetTab) > 1");
+      expect(script).toContain("close last terminal of targetTab");
+      expect(script).toContain("end repeat");
+    });
+
+    it("omits close-prelude when cleanRestoredPanes=false (default)", () => {
+      const plan = planLayout({ cleanRestoredPanes: false });
+      const script = generateAppleScript(plan, "/tmp");
+      expect(script).not.toContain("Clear restored panes");
+      expect(script).not.toContain("close last terminal");
+    });
+
+    it("omits close-prelude by default (no flag)", () => {
+      const plan = planLayout();
+      const script = generateAppleScript(plan, "/tmp");
+      expect(script).not.toContain("close last terminal");
+    });
+
+    it("emits close-prelude BEFORE new-window keystroke", () => {
+      const plan = planLayout({ cleanRestoredPanes: true, newWindow: true });
+      const script = generateAppleScript(plan, "/tmp");
+      const closeIdx = script.indexOf("close last terminal");
+      const cmdNIdx = script.indexOf('keystroke "n" using command down');
+      expect(closeIdx).toBeGreaterThan(-1);
+      expect(cmdNIdx).toBeGreaterThan(-1);
+      expect(closeIdx).toBeLessThan(cmdNIdx);
+    });
+  });
+
 });
 
 describe("generateTreeAppleScript", () => {
@@ -921,6 +947,7 @@ describe("generateTreeAppleScript", () => {
       fullscreen: false,
       maximize: false,
       float: false,
+      cleanRestoredPanes: false,
       ...overrides,
     };
   }
@@ -1342,14 +1369,13 @@ describe("generateTreeAppleScript", () => {
     expect(script).toContain("set environment variables of cfg to");
   });
 
-  it("shell-quotes multi-argument root pane command", () => {
+  it("preserves multi-argument root pane command text", () => {
     const plan = makePlan(
       { type: "pane", name: "server", command: "npm run dev" },
     );
     const script = generateTreeAppleScript(plan, "/tmp/project");
 
-    // The command name stays unquoted, but arguments are shell-quoted
-    expect(script).toContain("input text \"npm 'run' 'dev'\" to pane_server");
+    expect(script).toContain('input text "npm run dev" to pane_server');
   });
 
   it("auto-resize only applies to first root-level right-split", () => {
@@ -1408,5 +1434,356 @@ describe("generateTreeAppleScript", () => {
     expect(cwdIdx).toBeGreaterThan(-1);
     expect(splitIdx).toBeGreaterThan(-1);
     expect(cwdIdx).toBeLessThan(splitIdx);
+  });
+
+  describe("cleanRestoredPanes", () => {
+    const singlePane: LayoutNode = { type: "pane", name: "editor", command: "vim" };
+
+    it("emits close-prelude in tree generator when cleanRestoredPanes=true", () => {
+      const plan = makePlan(singlePane, { cleanRestoredPanes: true });
+      const script = generateTreeAppleScript(plan, "/tmp/project");
+      expect(script).toContain("close last terminal of targetTab");
+      expect(script).toContain("repeat while (count of terminals of targetTab) > 1");
+    });
+
+    it("omits close-prelude in tree generator when cleanRestoredPanes=false", () => {
+      const plan = makePlan(singlePane, { cleanRestoredPanes: false });
+      const script = generateTreeAppleScript(plan, "/tmp/project");
+      expect(script).not.toContain("close last terminal");
+    });
+
+    it("buildTreePlan defaults cleanRestoredPanes to false", () => {
+      const plan = buildTreePlan(singlePane, {});
+      expect(plan.cleanRestoredPanes).toBe(false);
+    });
+
+    it("buildTreePlan propagates cleanRestoredPanes=true", () => {
+      const plan = buildTreePlan(singlePane, { cleanRestoredPanes: true });
+      expect(plan.cleanRestoredPanes).toBe(true);
+    });
+  });
+});
+
+describe("tab title", () => {
+  it("generateAppleScript includes project name in tab title when provided", () => {
+    const plan = planLayout();
+    const script = generateAppleScript(plan, "/tmp/test", null, undefined, "myapp");
+    expect(script).toContain("set_tab_title:[myapp]");
+  });
+
+  it("generateAppleScript falls back to directory basename when no projectName", () => {
+    const plan = planLayout();
+    const script = generateAppleScript(plan, "/tmp/test");
+    expect(script).toContain("set_tab_title:test");
+  });
+
+  it("generateTreeAppleScript includes project name in tab title", () => {
+    const tree: LayoutNode = {
+      type: "split",
+      direction: "right",
+      first: { type: "pane", name: "a", command: "vim" },
+      second: { type: "pane", name: "b", command: "bash" },
+    };
+    const leaves = collectLeaves(tree);
+    const plan: TreeLayoutPlan = {
+      tree,
+      leaves,
+      focusPane: "a",
+      autoResize: false,
+      editorSize: 75,
+      fontSize: null,
+      newWindow: false,
+      fullscreen: false,
+      maximize: false,
+      float: false,
+      cleanRestoredPanes: false,
+    };
+    const script = generateTreeAppleScript(plan, "/tmp/test", null, undefined, "myproject");
+    expect(script).toContain("set_tab_title:[myproject]");
+  });
+
+  it("sets SUMMON_TAB_TITLE env var when projectName provided", () => {
+    const plan = planLayout();
+    const script = generateAppleScript(plan, "/tmp/test", null, undefined, "myapp");
+    expect(script).toContain("SUMMON_TAB_TITLE=myapp");
+  });
+
+  it("does not set SUMMON_TAB_TITLE when no projectName", () => {
+    const plan = planLayout();
+    const script = generateAppleScript(plan, "/tmp/test");
+    expect(script).not.toContain("SUMMON_TAB_TITLE");
+  });
+});
+
+describe("status trap", () => {
+  it("generateAppleScript injects trap when projectName provided", () => {
+    const plan = planLayout();
+    const script = generateAppleScript(plan, "/tmp/test", null, undefined, "myapp");
+    expect(script).toContain("trap");
+    expect(script).toContain("myapp.active");
+    expect(script).toContain("myapp.pid");
+    expect(script).toContain("EXIT HUP");
+  });
+
+  it("generateAppleScript omits trap when no projectName", () => {
+    const plan = planLayout();
+    const script = generateAppleScript(plan, "/tmp/test");
+    expect(script).not.toContain("myapp.active");
+  });
+
+  it("generateTreeAppleScript injects trap when projectName provided", () => {
+    const tree: LayoutNode = {
+      type: "split",
+      direction: "right",
+      first: { type: "pane", name: "a", command: "vim" },
+      second: { type: "pane", name: "b", command: "bash" },
+    };
+    const leaves = collectLeaves(tree);
+    const plan: TreeLayoutPlan = {
+      tree,
+      leaves,
+      focusPane: "a",
+      autoResize: false,
+      editorSize: 75,
+      fontSize: null,
+      newWindow: false,
+      fullscreen: false,
+      maximize: false,
+      float: false,
+      cleanRestoredPanes: false,
+    };
+    const script = generateTreeAppleScript(plan, "/tmp/test", null, undefined, "myproject");
+    expect(script).toContain("trap");
+    expect(script).toContain("myproject.active");
+    expect(script).toContain("myproject.pid");
+  });
+
+  it("writes the root shell pid sidecar when projectName provided", () => {
+    const plan = planLayout();
+    const script = generateAppleScript(plan, "/tmp/test", null, undefined, "myapp");
+    expect(script).toContain(`printf '%s\\\\n' \\"$$\\" > \\"$HOME/.config/summon/status/myapp.pid\\"`);
+  });
+
+  it("writes marker file after pid sidecar (pid-then-marker ordering)", () => {
+    const plan = planLayout();
+    const script = generateAppleScript(plan, "/tmp/test", null, undefined, "myapp");
+    expect(script).toContain(`: > \\"$HOME/.config/summon/status/myapp.active\\"`);
+    // pid must appear before marker in the script
+    const pidIdx = script.indexOf("myapp.pid");
+    const markerIdx = script.indexOf("myapp.active");
+    expect(pidIdx).toBeLessThan(markerIdx);
+  });
+
+  it("routes project name through shellDoubleQuote in pid-then-marker bootstrap", () => {
+    const plan = planLayout();
+    const script = generateAppleScript(plan, "/tmp/test", null, undefined, 'my"proj');
+    // shellDoubleQuote('my"proj') → my\"proj; escapeAppleScript → my\\\"proj (3 backslashes + quote)
+    expect(script).toContain('my\\\\\\"proj.pid');
+    expect(script).toContain('my\\\\\\"proj.active');
+  });
+});
+
+describe("emitCleanupTrap — meta-char payloads", () => {
+  const cases: Array<{ field: string; raw: string; expectedSub: string }> = [
+    { field: "projectName", raw: 'my"app',   expectedSub: 'my\\"app' },
+    // shellDoubleQuote adds one backslash; escapeAppleScript doubles it → 2 backslashes in script
+    { field: "projectName", raw: "my`app`",  expectedSub: "my\\\\`app\\\\`" },
+    { field: "projectName", raw: "my$app",   expectedSub: "my\\\\$app" },
+    { field: "projectName", raw: "my\\app",  expectedSub: "my\\\\\\\\app" },
+    { field: "targetDir",   raw: '/tmp/a"b', expectedSub: 'a\\"b' },
+    // onStop is inlined directly: " → \" (escapeAppleScript only, no eval wrapper)
+    { field: "onStop",      raw: 'echo "x"', expectedSub: 'echo \\"x\\"' },
+  ];
+
+  for (const c of cases) {
+    it(`escapes ${c.field} containing ${JSON.stringify(c.raw)}`, () => {
+      const plan = planLayout();
+      const targetDir = c.field === "targetDir" ? c.raw : "/tmp/p";
+      const projectName = c.field === "projectName" ? c.raw : "proj";
+      const onStop = c.field === "onStop" ? c.raw : undefined;
+      const script = generateAppleScript(plan, targetDir, null, undefined, projectName, onStop);
+      expect(script).toContain(c.expectedSub);
+    });
+  }
+});
+
+describe("generateFocusScript", () => {
+  it("generates valid AppleScript", () => {
+    const script = generateFocusScript("[myapp]");
+    expect(script).toContain('tell application "Ghostty"');
+    expect(script).toContain("activate");
+    expect(script).toContain("end tell");
+  });
+
+  it("includes tab title reference", () => {
+    const script = generateFocusScript("[myapp]");
+    expect(script).toContain("myapp");
+  });
+
+  it("escapes special characters in tab title", () => {
+    const script = generateFocusScript('[my "app]');
+    expect(script).toContain("my \\\"app");
+  });
+});
+
+// --- AR-L5: options object API ---
+
+describe("generateAppleScript — options object form (AR-L5)", () => {
+  it("accepts a single options object and produces the same output as positional form", () => {
+    const plan = planLayout({ editor: "vim" });
+    const scriptFromOptions = generateAppleScript({
+      plan,
+      targetDir: "/tmp/project",
+      starshipConfigPath: null,
+      envVars: { NODE_ENV: "test" },
+      projectName: "myapp",
+      onStop: "echo done",
+    });
+
+    expect(scriptFromOptions).toContain('tell application "Ghostty"');
+    expect(scriptFromOptions).toContain("new surface configuration");
+    expect(scriptFromOptions).toContain("myapp");
+    expect(scriptFromOptions).toContain("NODE_ENV=test");
+    expect(scriptFromOptions).toContain("echo done");
+    expect(scriptFromOptions).toContain("end tell");
+  });
+
+  it("options object with only required fields works (optional fields omitted)", () => {
+    const plan = planLayout();
+    const script = generateAppleScript({ plan, targetDir: "/tmp/bare" });
+    expect(script).toContain('tell application "Ghostty"');
+    expect(script).toContain("/tmp/bare");
+    expect(script).toContain("end tell");
+  });
+
+  it("options object result matches positional-arg result exactly", () => {
+    const plan = planLayout({ editor: "nvim" });
+    const starshipPath = "/usr/local/starship.toml";
+    const envVars = { DEBUG: "1" };
+    const projectName = "testproj";
+    const onStop = "cleanup.sh";
+
+    const fromOptions = generateAppleScript({
+      plan,
+      targetDir: "/tmp/mydir",
+      starshipConfigPath: starshipPath,
+      envVars,
+      projectName,
+      onStop,
+    });
+    const fromPositional = generateAppleScript(plan, "/tmp/mydir", starshipPath, envVars, projectName, onStop);
+
+    expect(fromOptions).toBe(fromPositional);
+  });
+});
+
+// --- PE-L4: tab-title escapeAppleScript memoization ---
+
+describe("escapeAppleScript memoization (PE-L4)", () => {
+  beforeEach(() => {
+    vi.resetModules();
+  });
+
+  it("escapeAppleScript is called only once across two generateAppleScript calls with the same tab title", async () => {
+    // Dynamically import so the spy can intercept the module's live binding
+    const escapeModule = await import("./shell-escape.js");
+    const spy = vi.spyOn(escapeModule, "escapeAppleScript");
+
+    const { generateAppleScript: gas } = await import("./script.js");
+    const { planLayout: pl } = await import("./layout.js");
+
+    const plan = pl(getPreset("full"));
+    const title = "[stable-title]";
+
+    // Call twice with the identical tab title — memoization should deduplicate
+    gas({ plan, targetDir: "/tmp/proj", projectName: "stable-title" });
+    gas({ plan, targetDir: "/tmp/proj", projectName: "stable-title" });
+
+    // With a single-slot cache, escapeAppleScript(title) should be called only once
+    const tabTitleCalls = spy.mock.calls.filter(([arg]) => arg === title);
+    expect(tabTitleCalls.length).toBe(1);
+
+    spy.mockRestore();
+  });
+});
+
+// --- SE-S1: fuzz test for escapeAppleScript ---
+
+describe("escapeAppleScript — fuzz / property tests (SE-S1)", () => {
+  // Helper: check that the output of escapeAppleScript never contains an
+  // unescaped double-quote (i.e. a " not preceded by \)
+  function hasUnescapedDoubleQuote(s: string): boolean {
+    // Walk the string; a " is unescaped if the number of immediately preceding
+    // backslashes is even (0, 2, 4, …)
+    for (let i = 0; i < s.length; i++) {
+      if (s[i] === '"') {
+        let backslashes = 0;
+        let j = i - 1;
+        while (j >= 0 && s[j] === "\\") { backslashes++; j--; }
+        if (backslashes % 2 === 0) return true;
+      }
+    }
+    return false;
+  }
+
+  const edgeCases: Array<[string, string]> = [
+    ["empty string", ""],
+    ["plain ascii", "hello world"],
+    ["double quote", '"'],
+    ["backslash", "\\"],
+    ["backslash then quote", '\\"'],
+    ["newline", "\n"],
+    ["carriage return", "\r"],
+    ["null byte", "\x00"],
+    ["DEL char (0x7F)", "\x7F"],
+    ["all control chars 0-31", Array.from({ length: 32 }, (_, i) => String.fromCharCode(i)).join("")],
+    ["emoji", "😀🎉🔥"],
+    ["RTL text", "‮ right-to-left override"],
+    ["combining chars", "é (é with combining accent)"],
+    ["unicode high plane", "😀"],
+    ["tab character", "\t"],
+    ["mixed special", '"hello"\n\\world\r\x00'],
+    ["many backslashes", "\\\\\\\\"],
+    ["many quotes", '""""""""'],
+    ["interleaved backslashes and quotes", '\\"\\"\\"'],
+  ];
+
+  for (const [label, input] of edgeCases) {
+    it(`output never contains unescaped double-quote: ${label}`, async () => {
+      const { escapeAppleScript } = await import("./shell-escape.js");
+      const result = escapeAppleScript(input);
+      expect(hasUnescapedDoubleQuote(result)).toBe(false);
+    });
+  }
+
+  it("fuzz: 1000 random strings with printable ASCII and control chars", async () => {
+    const { escapeAppleScript } = await import("./shell-escape.js");
+
+    // Deterministic pseudo-random generator (LCG) — no external deps
+    let seed = 0xDEADBEEF;
+    function nextInt(max: number): number {
+      seed = (seed * 1664525 + 1013904223) & 0xFFFFFFFF;
+      return Math.abs(seed) % max;
+    }
+
+    const charset = [
+      ...Array.from({ length: 95 }, (_, i) => String.fromCharCode(i + 32)), // printable ASCII
+      ...Array.from({ length: 32 }, (_, i) => String.fromCharCode(i)),       // control chars 0-31
+      "\x7F",                                                                  // DEL
+      "😀", "🔥", "‮", "é", "😀",                             // unicode
+    ];
+
+    for (let t = 0; t < 1000; t++) {
+      const len = nextInt(80);
+      const chars: string[] = [];
+      for (let i = 0; i < len; i++) {
+        chars.push(charset[nextInt(charset.length)] ?? "");
+      }
+      const input = chars.join("");
+      const result = escapeAppleScript(input);
+      if (hasUnescapedDoubleQuote(result)) {
+        throw new Error(`escapeAppleScript produced unescaped double-quote for input: ${JSON.stringify(input)}`);
+      }
+    }
   });
 });

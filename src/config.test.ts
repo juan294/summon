@@ -26,11 +26,37 @@ import {
 vi.mock("node:fs", () => {
   const store = new Map<string, string>();
   const dirs = new Set<string>();
+  // mtime counter — increment to simulate file changes
+  const mtimes = new Map<string, number>();
   return {
     existsSync: (path: string) => store.has(path) || dirs.has(path),
     mkdirSync: vi.fn((_path: string, _opts?: unknown) => { dirs.add(_path); }),
-    readFileSync: (path: string) => store.get(path) ?? "",
-    writeFileSync: vi.fn((path: string, data: string) => store.set(path, data)),
+    readFileSync: vi.fn((path: string) => {
+      if (store.get(path) === "__THROW_ENOENT__") {
+        const error = new Error("ENOENT") as NodeJS.ErrnoException;
+        error.code = "ENOENT";
+        throw error;
+      }
+      if (store.get(path) === "__THROW_EISDIR__") {
+        const error = new Error("EISDIR") as NodeJS.ErrnoException;
+        error.code = "EISDIR";
+        throw error;
+      }
+      return store.get(path) ?? "";
+    }),
+    statSync: vi.fn((path: string) => {
+      if (!store.has(path)) {
+        const error = new Error("ENOENT") as NodeJS.ErrnoException;
+        error.code = "ENOENT";
+        throw error;
+      }
+      return { mtimeMs: mtimes.get(path) ?? 1000 };
+    }),
+    writeFileSync: vi.fn((path: string, data: string) => {
+      store.set(path, data);
+      // Bump mtime on write so cache is invalidated
+      mtimes.set(path, (mtimes.get(path) ?? 1000) + 1);
+    }),
     readdirSync: vi.fn((path: string) => {
       const prefix = path.endsWith("/") ? path : path + "/";
       const names: string[] = [];
@@ -47,6 +73,7 @@ vi.mock("node:fs", () => {
     }),
     __store: store,
     __dirs: dirs,
+    __mtimes: mtimes,
   };
 });
 
@@ -61,11 +88,18 @@ async function getDirs(): Promise<Set<string>> {
   return (mod as unknown as { __dirs: Set<string> }).__dirs;
 }
 
+async function getMtimes(): Promise<Map<string, number>> {
+  const mod = await import("node:fs");
+  return (mod as unknown as { __mtimes: Map<string, number> }).__mtimes;
+}
+
 beforeEach(async () => {
   const store = await getStore();
   store.clear();
   const dirs = await getDirs();
   dirs.clear();
+  const mtimes = await getMtimes();
+  mtimes.clear();
   resetConfigCache();
 });
 
@@ -146,6 +180,24 @@ describe("machine config", () => {
   it("returns false when removing non-existent config key", () => {
     const result = removeConfig("nonexistent");
     expect(result).toBe(false);
+  });
+});
+
+describe("readKVFile", () => {
+  it("returns an empty map for missing files", async () => {
+    const mod = await import("node:fs");
+    const store = (mod as unknown as { __store: Map<string, string> }).__store;
+    store.set("/tmp/missing", "__THROW_ENOENT__");
+
+    expect(readKVFile("/tmp/missing")).toEqual(new Map());
+  });
+
+  it("rethrows non-ENOENT filesystem errors", async () => {
+    const mod = await import("node:fs");
+    const store = (mod as unknown as { __store: Map<string, string> }).__store;
+    store.set("/tmp/unreadable", "__THROW_EISDIR__");
+
+    expect(() => readKVFile("/tmp/unreadable")).toThrow();
   });
 });
 
@@ -236,6 +288,52 @@ describe("ensureConfig caching (#25)", () => {
   });
 });
 
+describe("mtime-based memoization (#291)", () => {
+  it("calls readFileSync only once when mtime is unchanged (listProjects)", async () => {
+    const fs = await import("node:fs");
+    const readFileSpy = fs.readFileSync as ReturnType<typeof vi.fn>;
+    const mtimes = await getMtimes();
+
+    // Warm the cache: first call reads the file and populates cache
+    listProjects();
+
+    // Freeze mtime for all files at current values so subsequent calls hit cache
+    const store = await getStore();
+    for (const key of store.keys()) {
+      if (!mtimes.has(key)) mtimes.set(key, 1000);
+    }
+
+    readFileSpy.mockClear();
+
+    // Second and third calls — mtime unchanged, should hit cache
+    listProjects();
+    listProjects();
+
+    // readFileSync should NOT have been called (cache hit)
+    expect(readFileSpy).not.toHaveBeenCalled();
+  });
+
+  it("re-reads file after mtime changes", async () => {
+    const fs = await import("node:fs");
+    const readFileSpy = fs.readFileSync as ReturnType<typeof vi.fn>;
+    const store = await getStore();
+    const mtimes = await getMtimes();
+
+    listProjects(); // warm cache
+    readFileSpy.mockClear();
+
+    // Simulate external file change by bumping mtime on the projects file
+    for (const key of store.keys()) {
+      if (key.endsWith("/projects")) {
+        mtimes.set(key, (mtimes.get(key) ?? 1000) + 999);
+      }
+    }
+
+    listProjects(); // should re-read due to changed mtime
+    expect(readFileSpy).toHaveBeenCalled();
+  });
+});
+
 describe("file permissions (#47)", () => {
   it("creates config directory with mode 0o700", async () => {
     const fs = await import("node:fs");
@@ -297,9 +395,9 @@ describe("writeKV newline sanitization (#26)", () => {
     expect(getConfig("key")).toBe("valuewith-cr");
   });
 
-  it("strips newlines from project names and paths", () => {
-    addProject("my\napp", "/home/\nuser/app");
-    expect(getProject("myapp")).toBe("/home/user/app");
+  it("rejects project names with newlines (BE-B4 validation)", () => {
+    // addProject now validates names — newlines are whitespace and rejected
+    expect(() => addProject("my\napp", "/home/user/app")).toThrow("Invalid project name");
   });
 });
 
@@ -322,10 +420,55 @@ describe("isFirstRun", () => {
   });
 });
 
+describe("unknown config key warning (BE-S27 #323)", () => {
+  it("emits console.warn for unknown keys when listConfig is called", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const store = await getStore();
+    // Manually set a config file with an unknown key
+    const { CONFIG_DIR } = await import("./config.js");
+    const configPath = `${CONFIG_DIR}/config`;
+    store.set(configPath, "unknowntypokey=val\n");
+    resetConfigCache();
+
+    listConfig();
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("unknowntypokey"),
+    );
+    warnSpy.mockRestore();
+  });
+
+  it("does not warn for known keys", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const store = await getStore();
+    const { CONFIG_DIR } = await import("./config.js");
+    const configPath = `${CONFIG_DIR}/config`;
+    store.set(configPath, "editor=vim\npanes=3\n");
+    resetConfigCache();
+
+    listConfig();
+
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+});
+
 describe("VALID_KEYS", () => {
   it("includes starship-preset", async () => {
     const { VALID_KEYS } = await import("./config.js");
     expect(VALID_KEYS).toContain("starship-preset");
+  });
+
+  it("includes clean", async () => {
+    const { VALID_KEYS } = await import("./config.js");
+    expect(VALID_KEYS).toContain("clean");
+  });
+});
+
+describe("BOOLEAN_KEYS includes clean", () => {
+  it("accepts clean=true and clean=false", () => {
+    expect(() => setConfig("clean", "true")).not.toThrow();
+    expect(() => setConfig("clean", "false")).not.toThrow();
   });
 });
 
@@ -459,5 +602,75 @@ describe("custom layouts", () => {
       const result = layoutPath("mywork");
       expect(result).toBe(`${LAYOUTS_DIR}/mywork`);
     });
+
+    it("layoutPath rejects a name that starts with LAYOUTS_DIR prefix but is outside (SE-L1)", () => {
+      // e.g. LAYOUTS_DIR = /home/user/.config/summon/layouts
+      // evil path: /home/user/.config/summon/layouts-evil/x
+      // Without trailing sep guard, startsWith would pass for a sibling dir
+      // named layouts-evil if resolved path started with layouts string
+      // We test a name that would resolve to a sibling directory
+      const evilName = `../layouts-evil/x`;
+      expect(() => layoutPath(evilName)).toThrow("Invalid layout path");
+    });
+  });
+});
+
+describe("readKVFile CRLF normalization (BE-B3)", () => {
+  it("parses CRLF line endings correctly", async () => {
+    const store = await getStore();
+    store.set("/tmp/.summon-crlf", "editor=vim\r\npanes=2\r\n");
+    const map = readKVFile("/tmp/.summon-crlf");
+    expect(map.get("editor")).toBe("vim");
+    expect(map.get("panes")).toBe("2");
+  });
+
+  it("parses CR-only line endings correctly", async () => {
+    const store = await getStore();
+    store.set("/tmp/.summon-cr", "editor=vim\rpanes=2\r");
+    const map = readKVFile("/tmp/.summon-cr");
+    expect(map.get("editor")).toBe("vim");
+    expect(map.get("panes")).toBe("2");
+  });
+
+  it("trims whitespace from values after split", async () => {
+    const store = await getStore();
+    store.set("/tmp/.summon-spaces", "editor= vim \npanes= 2 \n");
+    const map = readKVFile("/tmp/.summon-spaces");
+    expect(map.get("editor")).toBe("vim");
+    expect(map.get("panes")).toBe("2");
+  });
+
+  it("trims whitespace from keys", async () => {
+    const store = await getStore();
+    store.set("/tmp/.summon-keyspaces", " editor =vim\n");
+    const map = readKVFile("/tmp/.summon-keyspaces");
+    expect(map.get("editor")).toBe("vim");
+  });
+});
+
+describe("addProject validation (BE-B4)", () => {
+  it("rejects project names containing '='", () => {
+    expect(() => addProject("my=app", "/home/user/myapp")).toThrow();
+  });
+
+  it("rejects project names containing spaces", () => {
+    expect(() => addProject("my app", "/home/user/myapp")).toThrow();
+  });
+
+  it("rejects project names containing '/'", () => {
+    expect(() => addProject("my/app", "/home/user/myapp")).toThrow();
+  });
+
+  it("accepts valid project names", () => {
+    expect(() => addProject("myapp", "/home/user/myapp")).not.toThrow();
+    expect(getProject("myapp")).toBe("/home/user/myapp");
+  });
+
+  it("resolves relative paths to absolute", () => {
+    addProject("reltest", "relative/path");
+    const stored = getProject("reltest");
+    expect(stored).not.toBeUndefined();
+    // Should be an absolute path
+    expect(stored!.startsWith("/")).toBe(true);
   });
 });
