@@ -45,6 +45,11 @@ function gitCommand(dir: string, args: string[]): string | null {
 // --- Public API ---
 
 export function saveSnapshot(project: string, directory: string, layout: string): ContextSnapshot | null {
+  if (!existsSync(directory)) {
+    console.warn("Snapshot: project directory no longer exists: " + directory);
+    return null;
+  }
+
   const branch = gitCommand(directory, ["rev-parse", "--abbrev-ref", "HEAD"]);
   if (branch === null) return null;
 
@@ -97,7 +102,13 @@ export function readSnapshot(project: string): ContextSnapshot | null {
     return null;
   }
 
-  return data as ContextSnapshot;
+  const snapshot = data as ContextSnapshot;
+  if (!existsSync(snapshot.directory)) {
+    console.warn("Snapshot: project directory no longer exists: " + snapshot.directory);
+    return null;
+  }
+
+  return snapshot;
 }
 
 export function clearSnapshot(project: string): boolean {
