@@ -6,7 +6,7 @@ CLI tool that launches configurable multi-pane Ghostty workspaces using AppleScr
 
 ## Stack
 
-TypeScript 5.7 · Node >= 20.19 · pnpm · tsup · Vitest · ESLint · zero runtime deps · macOS only
+TypeScript 6 · Node >= 20.19 · pnpm · tsup · Vitest · ESLint · zero runtime deps · macOS only
 
 Contributors need Node >=20.19. DevDeps use current stable majors (TS 6, Vitest 4, Vite 8) — ensure your toolchain is up to date before contributing.
 
@@ -27,25 +27,45 @@ pnpm test:coverage    # run tests with v8 coverage
 
 ```
 src/
-  index.ts         CLI entry point (parseArgs-based)
-  config.ts        Config file read/write (~/.config/summon/)
-  layout.ts        Layout calculation (pure function)
-  tree.ts          Tree DSL parser, layout node model, plan builder (pure function)
-  script.ts        AppleScript generator (pure function — builds script string)
-  launcher.ts      Orchestrator: resolve config, generate script, execute via osascript
-  status.ts        Workspace status tracking (active/stopped, PID, uptime, marker files)
-  briefing.ts      Morning project briefing (overnight commits, dirty files, recommendations)
-  monitor.ts       Interactive TUI dashboard for workspace status (refresh loop, keyboard nav)
-  ports.ts         Port detection across projects (env vars, package.json, framework configs)
-  snapshot.ts      Context snapshot save/restore (git state, layout, branch)
-  setup.ts         Interactive setup wizard, visual layout builder (template gallery, grid builder, live preview)
-  starship.ts      Starship detection, preset listing, TOML config caching
-  keybindings.ts   Ghostty key table config generator (pure function)
-  completions.ts   Shell completion script generator (bash, zsh)
-  utils.ts         Shared utilities (SAFE_COMMAND_RE, GHOSTTY_PATHS, resolveCommand, promptUser, getErrorMessage, isGhosttyInstalled, checkAccessibility)
-  validation.ts    Input validation helpers (parseIntInRange, parsePositiveFloat, validateIntFlag, validateFloatFlag)
-  globals.d.ts     Build-time constants (__VERSION__)
-  *.test.ts        Co-located unit tests
+  index.ts              CLI entry point — dispatch registry (thin, ~134 lines)
+  config.ts             Config file read/write (~/.config/summon/); re-exports path constants
+  layout.ts             Layout calculation (pure function)
+  tree.ts               Tree DSL parser, layout node model, plan builder (pure function)
+  script.ts             AppleScript generator (pure function — builds script string)
+  launcher.ts           Orchestrator: resolve config, generate script, execute via osascript
+  launch-guards.ts      Pre-launch safety checks (ensureGhostty, ensureAccessibility, confirmDangerousCommands)
+  status.ts             Workspace status tracking (active/stopped, PID, uptime, marker files)
+  briefing.ts           Morning project briefing (overnight commits, dirty files, recommendations)
+  monitor.ts            Interactive TUI dashboard for workspace status (refresh loop, keyboard nav)
+  ports.ts              Port detection across projects (env vars, package.json, framework configs)
+  snapshot.ts           Context snapshot save/restore (git state, layout, branch)
+  setup.ts              Interactive setup wizard, visual layout builder (back-nav, numbered select, accessibility prompt)
+  setup-gallery.ts      Template gallery data extracted from setup.ts (LAYOUT_INFO, GRID_TEMPLATES)
+  starship.ts           Starship detection, preset listing, TOML config caching
+  keybindings.ts        Ghostty key table config generator (pure function)
+  completions.ts        Shell completion script generator (bash, zsh, fish)
+  paths.ts              Canonical path constants (CONFIG_DIR, STATUS_DIR, SNAPSHOTS_DIR, LAYOUTS_DIR, LOGS_DIR, TRUST_FILE)
+  shell-escape.ts       AppleScript/shell escape primitives (escapeAppleScript, shellQuote, shellDoubleQuote)
+  command-spec.ts       Command string analysis (analyzeCommand, commandHasShellMeta, commandExecutable)
+  trust.ts              .summon file trust management — SHA-256 allowlist (assertTrusted, trustProject, isTrusted)
+  utils.ts              Shared utilities (SAFE_COMMAND_RE, GHOSTTY_PATHS, resolveCommand, promptUser, getErrorMessage, isDebug, debugLog, gitSafeEnv, confirm, supportsColor)
+  validation.ts         Input validation helpers (parseIntInRange, parsePositiveFloat, validateProjectNameOrExit)
+  globals.d.ts          Build-time constants (__VERSION__)
+  cli/
+    parse.ts            CLI argument parsing extracted from index.ts (parseCli, buildOverrides, showHelp)
+  commands/
+    config.ts           handleConfigCommand, handleExportCommand, handleFreezeCommand, handleSetCommand
+    doctor.ts           handleDoctorCommand
+    layout.ts           handleLayoutCommand
+    layout-support.ts   validateLayoutOrExit, validateLayoutNameOrExit, layoutNotFoundOrExit (shared helpers)
+    project.ts          handleAddCommand, handleListCommand, handleOpenCommand, handleRemoveCommand
+    runtime.ts          handleStatusCommand, handleSnapshotCommand, handleBriefingCommand, handlePortsCommand
+    setup.ts            handleCompletionsCommand, handleKeybindingsCommand, handleSetupCommand
+    types.ts            CommandHandler and CommandContext interfaces
+  ui/
+    ansi.ts             ANSI color/style helpers extracted from setup.ts (bold, dim, green, yellow, cyan, etc.)
+    layout-preview.ts   Layout preview renderer for the setup wizard
+  *.test.ts             Co-located unit tests
 ```
 
 ## Code Style
@@ -159,7 +179,7 @@ primary injection defense. See src/shell-escape.ts for the escape functions it p
 
 - **AR-L1**: Two parallel layout pipelines in `launcher.ts` and `script.ts` duplicate options mapping (`launchTreeLayout`/`launchTraditionalLayout` and `generateTreeAppleScript`/`generateAppleScript`). Any new layout option must be threaded through both pipelines independently. Tracked in #318.
 - **PE-S1**: `setup.ts` compiles to ~20KB chunk. Further code splitting (lazy imports for gallery/builder) could reduce cold-start cost. Tracked in #329.
-- **PE-S2**: Config and project list are re-parsed on every CLI invocation. A persistent cache (e.g., `~/.config/summon/cache.json` with mtime validation) would eliminate redundant disk I/O. Tracked in #330.
+- **PE-S2**: Config reads are now mtime-memoized within a single invocation (implemented in WU-E). A persistent cross-invocation cache (e.g., `~/.config/summon/cache.json` surviving between CLI runs) would further reduce cold-start disk I/O. Tracked in #330.
 
 ## Schema Migrations
 
