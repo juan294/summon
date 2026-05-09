@@ -50,20 +50,25 @@ Summon generates and executes AppleScript that drives Ghostty's native split sys
 
 ## Default Layout
 
+<!-- Diagram: default 3-pane layout (editor left 60%, sidebar top-right 40%, shell bottom-right 40%) -->
 ```
 summon .    (panes=2, editor=<your editor>, sidebar=<your sidebar>, shell=true)
 
-+-------------------- 75% ---------------------+------ 25% ------+
-|                    |                          |                 |
-|                    |    editor (2)            |                 |
-|    editor (1)      |                          |    sidebar      |
-|                    +--------------------------+                 |
-|                    |                          |                 |
-|                    |    shell                 |                 |
-|                    |                          |                 |
-+--------------------+--------------------------+-----------------+
-      left col             right col                sidebar
++------------ 75% (editor grid) ------------+------ 25% ------+
+|                                            |                 |
+|                                            |                 |
+|    editor (1)          editor (2)          |    sidebar      |
+|                                            |                 |
++--------------------------------------------+                 |
+|                                            |                 |
+|                   shell                    |                 |
+|                                            |                 |
++--------------------------------------------+-----------------+
+               editor grid (75%)                sidebar (25%)
 ```
+The editor grid (left 75%) splits vertically between the two editor panes;
+the shell occupies the bottom of the editor grid; the sidebar runs the full
+height on the right (25%).
 
 ## Layout Presets
 
@@ -116,18 +121,20 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 | `summon list` | List all registered projects |
 | `summon set <key> [value]` | Set a machine-level config value |
 | `summon config` | Show current machine configuration |
-| `summon open` | Select and launch a registered project interactively |
+| `summon open` | Select and launch a registered project interactively (always opens a new workspace) |
 | `summon export [path]` | Export resolved config as a `.summon` file |
 | `summon doctor [--fix]` | Check Ghostty config for recommended settings (--fix auto-adds missing) |
 | `summon freeze <name>` | Save current resolved config as a reusable custom layout |
 | `summon keybindings [--vim]` | Generate Ghostty key table config for pane navigation |
 | `summon layout <action>` | Manage custom layouts (create, save, list, show, delete, edit) |
 | `summon status [--once]` | Interactive workspace status dashboard across all projects |
-| `summon switch` | Select and launch/focus a registered project with status indicators |
+| `summon switch` | Focus an existing workspace window (use this to return to a running workspace); falls back to launching if not found |
 | `summon briefing` | Morning briefing — overnight commits, dirty files, recommendations |
 | `summon ports` | Detect port assignments across projects, highlight conflicts |
 | `summon snapshot <action>` | Manage context snapshots (save, show, clear) |
 | `summon completions <shell>` | Generate shell completion script (`zsh`, `bash`) |
+
+> **`switch` vs `open`:** Use `summon switch <name>` to focus an existing workspace window for a running project. Use `summon open <name>` (or `summon <name>`) to launch a new workspace. When in doubt: `switch` returns you to work already in progress; `open` starts fresh.
 
 ## CLI Flags
 

@@ -1,3 +1,7 @@
+// DO NOT REMOVE — load-bearing CI gate.
+// This file statically scans all source files for unsafe interpolation patterns.
+// Removing it removes the primary AppleScript/shell injection defense.
+// See CLAUDE.md Security Invariants section for context.
 import { readFileSync, readdirSync } from "node:fs";
 import { join, relative } from "node:path";
 import { describe, it, expect } from "vitest";
