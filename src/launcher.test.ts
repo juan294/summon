@@ -114,13 +114,8 @@ afterEach(() => {
 describe("Ghostty detection", () => {
   it("exits with error if directory does not exist", async () => {
     vi.mocked(existsSync).mockReturnValue(false);
-    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
-      throw new Error("process.exit");
-    });
 
-    await expect(launch("/nonexistent")).rejects.toThrow("process.exit");
-    expect(mockExit).toHaveBeenCalledWith(1);
-    mockExit.mockRestore();
+    await expect(launch("/nonexistent")).rejects.toThrow("Directory not found");
   });
 
   it("exits with error if Ghostty.app is not found at any known path", async () => {
@@ -129,18 +124,8 @@ describe("Ghostty detection", () => {
       if (String(path).endsWith("Ghostty.app")) return false;
       return true;
     });
-    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
-      throw new Error("process.exit");
-    });
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
-    expect(mockExit).toHaveBeenCalledWith(1);
-    expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining("Ghostty.app not found"),
-    );
-    mockExit.mockRestore();
-    errorSpy.mockRestore();
+    await expect(launch("/tmp/workspace")).rejects.toThrow("Ghostty.app not found");
   });
 
   it("finds Ghostty in ~/Applications (Homebrew)", async () => {
@@ -424,13 +409,7 @@ describe("command dependency checks", () => {
     });
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "obscure-tool"], ["sidebar", "htop"]]));
 
-    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
-      throw new Error("process.exit");
-    });
-
-    await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
-    expect(mockExit).toHaveBeenCalledWith(1);
-    mockExit.mockRestore();
+    await expect(launch("/tmp/workspace")).rejects.toThrow();
   });
 
   it("shows correct CLI syntax in error message for editor", async () => {
@@ -442,19 +421,15 @@ describe("command dependency checks", () => {
     });
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "obscure-tool"], ["sidebar", "htop"]]));
 
-    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
-      throw new Error("process.exit");
-    });
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
+    await expect(launch("/tmp/workspace")).rejects.toThrow();
 
     const errorMessages = errorSpy.mock.calls.map((c) => c[0] as string);
     const configMsg = errorMessages.find((m) => m.includes("summon"));
     expect(configMsg).toBeDefined();
     expect(configMsg).toContain("summon set editor <command>");
 
-    mockExit.mockRestore();
     errorSpy.mockRestore();
   });
 
@@ -467,19 +442,15 @@ describe("command dependency checks", () => {
     });
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"], ["sidebar", "unknown-sidebar"]]));
 
-    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
-      throw new Error("process.exit");
-    });
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
+    await expect(launch("/tmp/workspace")).rejects.toThrow();
 
     const errorMessages = errorSpy.mock.calls.map((c) => c[0] as string);
     const configMsg = errorMessages.find((m) => m.includes("summon"));
     expect(configMsg).toBeDefined();
     expect(configMsg).toContain("summon set sidebar <command>");
 
-    mockExit.mockRestore();
     errorSpy.mockRestore();
   });
 
@@ -492,19 +463,15 @@ describe("command dependency checks", () => {
     });
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"], ["shell", "unknown-shell run dev"]]));
 
-    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
-      throw new Error("process.exit");
-    });
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
+    await expect(launch("/tmp/workspace")).rejects.toThrow();
 
     const errorMessages = errorSpy.mock.calls.map((c) => c[0] as string);
     const configMsg = errorMessages.find((m) => m.includes("summon"));
     expect(configMsg).toBeDefined();
     expect(configMsg).toContain("summon set shell <command>");
 
-    mockExit.mockRestore();
     errorSpy.mockRestore();
   });
 
@@ -524,15 +491,8 @@ describe("command dependency checks", () => {
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", ""], ["sidebar", ""]]));
     const origIsTTY = process.stdin.isTTY;
     Object.defineProperty(process.stdin, "isTTY", { value: false, configurable: true });
-    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
-      throw new Error("process.exit");
-    });
-    const mockError = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
-    expect(mockError).toHaveBeenCalledWith(expect.stringContaining("No editor configured"));
-    mockExit.mockRestore();
-    mockError.mockRestore();
+    await expect(launch("/tmp/workspace")).rejects.toThrow("No editor configured");
     Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, configurable: true });
   });
 
@@ -549,13 +509,7 @@ describe("command dependency checks", () => {
       cb("n");
     });
 
-    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
-      throw new Error("process.exit");
-    });
-
-    await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
-    expect(mockExit).toHaveBeenCalledWith(1);
-    mockExit.mockRestore();
+    await expect(launch("/tmp/workspace")).rejects.toThrow();
   });
 });
 
@@ -588,17 +542,12 @@ describe("ensureCommand error paths", () => {
       cb("y");
     });
 
-    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
-      throw new Error("process.exit");
-    });
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
-    expect(mockExit).toHaveBeenCalledWith(1);
+    await expect(launch("/tmp/workspace")).rejects.toThrow();
     expect(errorSpy).toHaveBeenCalledWith(
       "Failed to install `claude`. Please install it manually and try again.",
     );
-    mockExit.mockRestore();
     errorSpy.mockRestore();
   });
 
@@ -616,17 +565,12 @@ describe("ensureCommand error paths", () => {
       cb("y");
     });
 
-    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
-      throw new Error("process.exit");
-    });
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
-    expect(mockExit).toHaveBeenCalledWith(1);
+    await expect(launch("/tmp/workspace")).rejects.toThrow();
     expect(errorSpy).toHaveBeenCalledWith(
       "`claude` still not found after install. Please check your PATH.",
     );
-    mockExit.mockRestore();
     errorSpy.mockRestore();
   });
 });
@@ -673,20 +617,15 @@ describe("lazygit install handler", () => {
     });
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
 
-    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
-      throw new Error("process.exit");
-    });
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
+    await expect(launch("/tmp/workspace")).rejects.toThrow();
 
-    expect(mockExit).toHaveBeenCalledWith(1);
     const errorMessages = errorSpy.mock.calls.map((c) => c[0] as string);
     expect(errorMessages).toContainEqual(
       expect.stringContaining("no known install method"),
     );
 
-    mockExit.mockRestore();
     errorSpy.mockRestore();
   });
 });
@@ -697,29 +636,13 @@ describe("command name validation", () => {
     // ensureCommand then exits because the invalid name is not installable.
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "foo; rm -rf /"]]));
 
-    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
-      throw new Error("process.exit");
-    });
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-
-    await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
-    expect(mockExit).toHaveBeenCalledWith(1);
-    mockExit.mockRestore();
-    errorSpy.mockRestore();
+    await expect(launch("/tmp/workspace")).rejects.toThrow();
   });
 
   it("rejects command names with backticks via resolveCommandPath (#169)", async () => {
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "`evil`"]]));
 
-    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
-      throw new Error("process.exit");
-    });
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-
-    await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
-    expect(mockExit).toHaveBeenCalledWith(1);
-    mockExit.mockRestore();
-    errorSpy.mockRestore();
+    await expect(launch("/tmp/workspace")).rejects.toThrow();
   });
 
   it("accepts valid command names with dots and hyphens", async () => {
@@ -835,13 +758,9 @@ describe("osascript error handling", () => {
       return "";
     });
 
-    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
-      throw new Error("process.exit");
-    });
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
-    expect(mockExit).toHaveBeenCalledWith(1);
+    await expect(launch("/tmp/workspace")).rejects.toThrow();
     expect(errorSpy).toHaveBeenCalledWith(
       expect.stringContaining("connection is invalid (-609)"),
     );
@@ -850,7 +769,6 @@ describe("osascript error handling", () => {
     expect(allErrors).toMatch(/Accessibility/);
     expect(allErrors).toMatch(/Automation/);
     expect(allErrors).toContain("summon doctor");
-    mockExit.mockRestore();
     errorSpy.mockRestore();
   });
 
@@ -865,18 +783,13 @@ describe("osascript error handling", () => {
       return "";
     });
 
-    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
-      throw new Error("process.exit");
-    });
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
-    expect(mockExit).toHaveBeenCalledWith(1);
+    await expect(launch("/tmp/workspace")).rejects.toThrow();
     const allErrors = errorSpy.mock.calls.map((c) => String(c[0])).join(" ");
     expect(allErrors).toContain("Accessibility permission");
     expect(allErrors).not.toContain("Is Ghostty running?");
     expect(allErrors).toContain("summon doctor");
-    mockExit.mockRestore();
     errorSpy.mockRestore();
   });
 
@@ -891,18 +804,13 @@ describe("osascript error handling", () => {
       return "";
     });
 
-    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
-      throw new Error("process.exit");
-    });
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
-    expect(mockExit).toHaveBeenCalledWith(1);
+    await expect(launch("/tmp/workspace")).rejects.toThrow();
     const allErrors = errorSpy.mock.calls.map((c) => String(c[0])).join(" ");
     expect(allErrors).toContain("Accessibility permission");
     expect(allErrors).not.toContain("Is Ghostty running?");
     expect(allErrors).toContain("summon doctor");
-    mockExit.mockRestore();
     errorSpy.mockRestore();
   });
 
@@ -917,17 +825,12 @@ describe("osascript error handling", () => {
       return "";
     });
 
-    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
-      throw new Error("process.exit");
-    });
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
-    expect(mockExit).toHaveBeenCalledWith(1);
+    await expect(launch("/tmp/workspace")).rejects.toThrow();
     expect(errorSpy).toHaveBeenCalledWith(
       expect.stringContaining("string error"),
     );
-    mockExit.mockRestore();
     errorSpy.mockRestore();
   });
 });
@@ -949,18 +852,13 @@ describe("pre-flight accessibility check", () => {
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
     mockAccessibilityDenied();
 
-    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
-      throw new Error("process.exit");
-    });
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
-    expect(mockExit).toHaveBeenCalledWith(1);
+    await expect(launch("/tmp/workspace")).rejects.toThrow("Accessibility permission");
     const allErrors = errorSpy.mock.calls.map((c) => String(c[0])).join(" ");
     expect(allErrors).toContain("Accessibility permission is required");
     expect(allErrors).toContain("System Events");
     expect(allErrors).toContain("summon doctor");
-    mockExit.mockRestore();
     errorSpy.mockRestore();
   });
 
@@ -995,16 +893,11 @@ describe("pre-flight accessibility check", () => {
     vi.mocked(listConfig).mockReturnValue(new Map([["layout", "mytree"]]));
     mockAccessibilityDenied();
 
-    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
-      throw new Error("process.exit");
-    });
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    await expect(launch("/tmp/workspace", { layout: "mytree" })).rejects.toThrow("process.exit");
-    expect(mockExit).toHaveBeenCalledWith(1);
+    await expect(launch("/tmp/workspace", { layout: "mytree" })).rejects.toThrow("Accessibility permission");
     const allErrors = errorSpy.mock.calls.map((c) => String(c[0])).join(" ");
     expect(allErrors).toContain("Accessibility permission is required");
-    mockExit.mockRestore();
     errorSpy.mockRestore();
   });
 });
@@ -1524,17 +1417,12 @@ describe("shell metacharacter confirmation (#90)", () => {
       cb("n");
     });
 
-    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
-      throw new Error("process.exit");
-    });
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
-    expect(mockExit).toHaveBeenCalledWith(1);
+    await expect(launch("/tmp/workspace")).rejects.toThrow();
     expect(errorSpy).toHaveBeenCalledWith("Aborted.");
 
-    mockExit.mockRestore();
     warnSpy.mockRestore();
     errorSpy.mockRestore();
   });
@@ -1550,15 +1438,10 @@ describe("shell metacharacter confirmation (#90)", () => {
       cb("");
     });
 
-    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
-      throw new Error("process.exit");
-    });
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-    await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
-    expect(mockExit).toHaveBeenCalledWith(1);
+    await expect(launch("/tmp/workspace")).rejects.toThrow();
 
-    mockExit.mockRestore();
     warnSpy.mockRestore();
   });
 
@@ -1609,17 +1492,12 @@ describe("shell metacharacter confirmation (#90)", () => {
     const origIsTTY = process.stdin.isTTY;
     Object.defineProperty(process.stdin, "isTTY", { value: false, configurable: true });
 
-    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
-      throw new Error("process.exit");
-    });
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     try {
-      await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
-      expect(mockExit).toHaveBeenCalledWith(1);
+      await expect(launch("/tmp/workspace")).rejects.toThrow();
     } finally {
       Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, configurable: true });
-      mockExit.mockRestore();
       warnSpy.mockRestore();
     }
   });
@@ -1929,17 +1807,12 @@ describe("on-start hook (#107)", () => {
       });
       const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
       const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-      const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
-        throw new Error("process.exit");
-      });
 
-      await expect(launch("/tmp/workspace", { "on-start": "false" })).rejects.toThrow("process.exit");
-      expect(mockExit).toHaveBeenCalledWith(1);
+      await expect(launch("/tmp/workspace", { "on-start": "false" })).rejects.toThrow("on-start command failed");
       expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("on-start command failed: false"));
 
       logSpy.mockRestore();
       errorSpy.mockRestore();
-      mockExit.mockRestore();
     });
 
     it("skips on-start in dry-run mode", async () => {
@@ -2034,17 +1907,12 @@ describe("on-start hook (#107)", () => {
         cb("n");
       });
 
-      const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
-        throw new Error("process.exit");
-      });
       const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
       const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-      await expect(launch("/tmp/workspace", { "on-start": "rm -rf /; echo done" })).rejects.toThrow("process.exit");
-      expect(mockExit).toHaveBeenCalledWith(1);
+      await expect(launch("/tmp/workspace", { "on-start": "rm -rf /; echo done" })).rejects.toThrow();
       expect(errorSpy).toHaveBeenCalledWith("Aborted.");
 
-      mockExit.mockRestore();
       warnSpy.mockRestore();
       errorSpy.mockRestore();
     });
@@ -2056,17 +1924,12 @@ describe("on-start hook (#107)", () => {
       const origIsTTY = process.stdin.isTTY;
       Object.defineProperty(process.stdin, "isTTY", { value: false, configurable: true });
 
-      const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
-        throw new Error("process.exit");
-      });
       const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
       try {
-        await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
-        expect(mockExit).toHaveBeenCalledWith(1);
+        await expect(launch("/tmp/workspace")).rejects.toThrow();
       } finally {
         Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, configurable: true });
-        mockExit.mockRestore();
         warnSpy.mockRestore();
       }
     });
@@ -2502,16 +2365,11 @@ describe("custom tree layout integration (Phase 4)", () => {
       process.env.SUMMON_WORKSPACE = "1";
       Object.defineProperty(process.stdin, "isTTY", { value: true, writable: true });
       const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-      const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
-        throw new Error("process.exit");
-      });
       // User answers "n"
       mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("n"));
 
-      await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
-      expect(mockExit).toHaveBeenCalledWith(1);
+      await expect(launch("/tmp/workspace")).rejects.toThrow();
       warnSpy.mockRestore();
-      mockExit.mockRestore();
     });
 
     it("skips warning when --new-window is set", async () => {
@@ -3082,15 +2940,10 @@ describe("W1: tree pane.* commands metacharacter check (#190)", () => {
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
     mockReadKVFile.mockReturnValue(new Map([["layout", "mywork"]]));
 
-    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
-      throw new Error("process.exit");
-    });
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-    await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
-    expect(mockExit).toHaveBeenCalledWith(1);
+    await expect(launch("/tmp/workspace")).rejects.toThrow();
 
-    mockExit.mockRestore();
     warnSpy.mockRestore();
   });
 
@@ -3196,15 +3049,10 @@ describe("W9: ensureCommand install prompt defaults to No (#190)", () => {
       cb("");
     });
 
-    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
-      throw new Error("process.exit");
-    });
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
-    expect(mockExit).toHaveBeenCalledWith(1);
+    await expect(launch("/tmp/workspace")).rejects.toThrow();
 
-    mockExit.mockRestore();
     logSpy.mockRestore();
   });
 
@@ -3221,23 +3069,19 @@ describe("W9: ensureCommand install prompt defaults to No (#190)", () => {
       cb("y");
     });
 
-    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
-      throw new Error("process.exit");
-    });
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
     // We just need to check the prompt text contains [y/N]
     try {
       await launch("/tmp/workspace");
     } catch {
-      // may exit
+      // may exit or throw
     }
 
     const promptText = mockQuestion.mock.calls[0]?.[0] as string | undefined;
     expect(promptText).toBeDefined();
     expect(promptText).toContain("[y/N]");
 
-    mockExit.mockRestore();
     logSpy.mockRestore();
   });
 });
@@ -3252,11 +3096,8 @@ describe("R19: on-start failure includes error message (#190)", () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
-      throw new Error("process.exit");
-    });
 
-    await expect(launch("/tmp/workspace", { "on-start": "broken-command" })).rejects.toThrow("process.exit");
+    await expect(launch("/tmp/workspace", { "on-start": "broken-command" })).rejects.toThrow("on-start command failed");
 
     const errorMessages = errorSpy.mock.calls.map((c) => c[0] as string);
     const failMsg = errorMessages.find((m) => m.includes("on-start command failed"));
@@ -3266,7 +3107,6 @@ describe("R19: on-start failure includes error message (#190)", () => {
     logSpy.mockRestore();
     warnSpy.mockRestore();
     errorSpy.mockRestore();
-    mockExit.mockRestore();
   });
 });
 
@@ -3542,5 +3382,102 @@ describe("decideCleanRestoredPanes", () => {
     decideCleanRestoredPanes(opts, { clean: "true" }, project, new Map(), false);
     expect(opts["cleanRestoredPanes"]).toBe(true);
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("Clearing"));
+  });
+});
+
+describe("BE-M12: osascript 30-second timeout (#302)", () => {
+  it("throws a human-readable message when osascript times out (ETIMEDOUT)", async () => {
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+    const timeoutError = Object.assign(new Error("spawnSync osascript ETIMEDOUT"), { code: "ETIMEDOUT" });
+    mockExecFileSync.mockImplementation((bin: string, args?: string[], opts?: Record<string, unknown>) => {
+      if (bin === "osascript" && opts?.input) throw timeoutError;
+      if (bin === "/bin/sh" && Array.isArray(args) && args[0] === "-c" && typeof args[1] === "string" && args[1].startsWith("command -v"))
+        return "/usr/bin/stub\n";
+      return "";
+    });
+
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(launch("/tmp/workspace")).rejects.toThrow("Ghostty did not respond within 30 seconds");
+    const allErrors = errorSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    expect(allErrors).toContain("Ghostty did not respond within 30 seconds");
+    expect(allErrors).toContain("Is Ghostty running?");
+
+    errorSpy.mockRestore();
+  });
+
+  it("passes timeout: 30_000 to execFileSync for main script execution", async () => {
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+
+    await launch("/tmp/workspace");
+
+    const osascriptCall = mockExecFileSync.mock.calls.find(
+      (c) => c[0] === "osascript" && typeof c[2] === "object" && c[2] !== null && "input" in (c[2] as Record<string, unknown>),
+    );
+    expect(osascriptCall).toBeDefined();
+    expect((osascriptCall![2] as Record<string, unknown>)["timeout"]).toBe(30_000);
+  });
+});
+
+describe("AR-M1: process.exit -> thrown errors in launcher (#306)", () => {
+  it("ensureGhostty throws an Error instead of calling process.exit when Ghostty missing", async () => {
+    vi.mocked(existsSync).mockImplementation((path) => {
+      if (String(path).endsWith("Ghostty.app")) return false;
+      return true;
+    });
+
+    // The launch call should reject with a descriptive Error (not process.exit)
+    await expect(launch("/tmp/workspace")).rejects.toThrow("Ghostty.app not found");
+  });
+
+  it("executeOnStart throws an Error instead of calling process.exit when on-start fails", async () => {
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+    mockExecSync.mockImplementation((cmd: string) => {
+      if (cmd === "bad-command") throw new Error("not found");
+      return "";
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    // Should reject with on-start error message
+    await expect(launch("/tmp/workspace", { "on-start": "bad-command" })).rejects.toThrow("on-start command failed");
+
+    errorSpy.mockRestore();
+  });
+});
+
+describe("UX-M3: success message after launch (#312)", () => {
+  it("prints a success message to stdout after a successful workspace launch", async () => {
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await launch("/tmp/workspace");
+
+    const logMessages = logSpy.mock.calls.map((c) => String(c[0]));
+    const successMsg = logMessages.find(
+      (m) => m.includes("summon") || m.includes("Workspace") || m.includes("workspace") || m.includes("ready"),
+    );
+    expect(successMsg).toBeDefined();
+
+    logSpy.mockRestore();
+    warnSpy.mockRestore();
+  });
+
+  it("does NOT print success message in dry-run mode", async () => {
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await launch("/tmp/workspace", { dryRun: true });
+
+    // Dry-run output is the script itself — no "summoned/ready" success line
+    const logMessages = logSpy.mock.calls.map((c) => String(c[0]));
+    const successMsg = logMessages.find(
+      (m) => (m.includes("summoned") || m.includes("ready")) && !m.includes("dry-run"),
+    );
+    expect(successMsg).toBeUndefined();
+
+    logSpy.mockRestore();
+    warnSpy.mockRestore();
   });
 });
