@@ -23,6 +23,8 @@ import { resolveCommand as resolveCommandPath, promptUser, getErrorMessage, SUMM
 import { assertTrusted, SummonError } from "./trust.js";
 import { parseIntInRange, parsePositiveFloat, ENV_KEY_RE, PROJECT_NAME_RE, sanitizeProjectName } from "./validation.js";
 import { isStarshipInstalled, ensurePresetConfig, getPresetConfigPath } from "./starship.js";
+// command-spec is a pure utility module with no imports from this file.
+// Dependency direction: launcher -> command-spec (one-way, no circular risk).
 import { commandExecutable, commandHasShellMeta, replaceCommandExecutable } from "./command-spec.js";
 
 /** Convert resolved layout options to a key-value config map suitable for saving as a custom layout. */
@@ -91,10 +93,9 @@ export function focusWorkspace(projectName: string): boolean {
 
 function ensureGhostty(): void {
   if (!isGhosttyInstalled()) {
-    console.error(
-      "Ghostty.app not found. Please install Ghostty 1.3.1+ from https://ghostty.org",
-    );
-    process.exit(1);
+    const msg = "Ghostty.app not found. Please install Ghostty 1.3.1+ from https://ghostty.org";
+    console.error(msg);
+    throw new Error(msg);
   }
 }
 
@@ -111,15 +112,22 @@ function ensureAccessibility(): void {
     console.error("Accessibility permission is required to launch workspaces.");
     console.error();
     printAccessibilityHint();
-    process.exit(1);
+    throw new Error("Accessibility permission is required to launch workspaces.");
   }
 }
 
 function executeScript(script: string): void {
   console.log("Summoning workspace...");
   try {
-    execFileSync("osascript", [], { input: script, encoding: "utf-8" });
+    execFileSync("osascript", [], { input: script, encoding: "utf-8", timeout: 30_000 });
+    console.log("✓ Workspace summoned.");
   } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ETIMEDOUT") {
+      console.error("Ghostty did not respond within 30 seconds. Is Ghostty running?");
+      throw new Error("Ghostty did not respond within 30 seconds. Is Ghostty running?", { cause: err });
+    }
+
     const message = getErrorMessage(err);
     console.error(`Failed to execute workspace script: ${message}`);
 
@@ -134,7 +142,7 @@ function executeScript(script: string): void {
       console.error();
       console.error("Tip: Run 'summon doctor' to diagnose issues.");
     }
-    process.exit(1);
+    throw new Error(`Failed to execute workspace script: ${message}`, { cause: err });
   }
 }
 
@@ -176,14 +184,14 @@ async function confirmDangerousCommands(
 
   if (!process.stdin.isTTY) {
     console.warn("Non-interactive shell detected. Refusing to execute.");
-    process.exit(1);
+    throw new Error("Non-interactive shell detected. Refusing to execute dangerous commands.");
   }
 
   const promptText = `${source} wants to run:\n${commandLines}\nAllow these commands? [y/N] `;
   const answer = await prompt(promptText);
   if (answer !== "y" && answer !== "yes") {
     console.error("Aborted.");
-    process.exit(1);
+    throw new Error("Aborted by user.");
   }
 }
 
@@ -213,7 +221,7 @@ async function ensureCommand(cmd: string, configKey: string): Promise<string> {
     console.error(
       `Please install \`${cmd}\` manually or change your config with: summon set ${configKey} <command>`,
     );
-    process.exit(1);
+    throw new Error(`\`${cmd}\` is required but not installed.`);
   }
 
   const [installBin, installArgs] = installCmd;
@@ -224,7 +232,7 @@ async function ensureCommand(cmd: string, configKey: string): Promise<string> {
 
   if (answer !== "y" && answer !== "yes") {
     console.log(`Exiting — \`${cmd}\` is needed for this workspace layout. Change it with: summon set ${configKey} <command>`);
-    process.exit(1);
+    throw new Error(`\`${cmd}\` is needed for this workspace layout.`);
   }
 
   console.log(`Running: ${installDisplay}`);
@@ -234,13 +242,13 @@ async function ensureCommand(cmd: string, configKey: string): Promise<string> {
     console.error(
       `Failed to install \`${cmd}\`. Please install it manually and try again.`,
     );
-    process.exit(1);
+    throw new Error(`Failed to install \`${cmd}\`.`);
   }
 
   const postInstallPath = resolveCommandPath(cmd);
   if (!postInstallPath) {
     console.error(`\`${cmd}\` still not found after install. Please check your PATH.`);
-    process.exit(1);
+    throw new Error(`\`${cmd}\` still not found after install.`);
   }
 
   console.log(`\`${cmd}\` installed successfully!\n`);
@@ -548,6 +556,14 @@ async function warnIfNested(
 /**
  * Probe Ghostty for the number of terminals in the front window's selected tab.
  * Returns null when Ghostty is not running, the script errors, or output is non-numeric.
+ *
+ * PE-L2: This is a separate osascript call made BEFORE the main workspace script.
+ * Two round-trips are intentional: this probe runs before the main AppleScript is
+ * generated, and its result (pane count) influences the generated script's content
+ * (the cleanRestoredPanes prelude). Inlining the count into the main script would
+ * require AppleScript to conditionally close panes and then branch — adding significant
+ * complexity to script.ts for minimal latency gain (probe takes ~2 s max, main script
+ * executes regardless). The two-call design keeps script generation pure and testable.
  */
 export function probePaneCount(): number | null {
   try {
@@ -645,8 +661,9 @@ function executeOnStart(onStart: string, targetDir: string): void {
   try {
     execSync(onStart, { cwd: targetDir, encoding: "utf-8", stdio: "inherit" });
   } catch (err) {
-    console.error(`on-start command failed: ${onStart} — ${getErrorMessage(err)}`);
-    process.exit(1);
+    const message = `on-start command failed: ${onStart} — ${getErrorMessage(err)}`;
+    console.error(message);
+    throw new Error(message, { cause: err });
   }
 }
 
@@ -772,8 +789,9 @@ async function launchTraditionalLayout(
 
 export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Promise<void> {
   if (!existsSync(targetDir)) {
-    console.error(`Directory not found: ${targetDir}`);
-    process.exit(1);
+    const msg = `Directory not found: ${targetDir}`;
+    console.error(msg);
+    throw new Error(msg);
   }
 
   // Trust gate: verify the .summon file (if present) is explicitly trusted before
@@ -801,8 +819,9 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
       // Re-resolve config after setup saved new values
       config = resolveConfig(targetDir, cliOverrides ?? {});
     } else {
-      console.error("No editor configured. Run `summon setup` interactively or use: summon set editor <command>");
-      process.exit(1);
+      const msg = "No editor configured. Run `summon setup` interactively or use: summon set editor <command>";
+      console.error(msg);
+      throw new Error(msg);
     }
   }
 
@@ -810,7 +829,7 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
   const projectName = resolveProjectName(targetDir);
 
   if (await warnIfNested(opts, cliOverrides?.dryRun)) {
-    process.exit(1);
+    throw new Error("Launch aborted by user (nested workspace).");
   }
   decideCleanRestoredPanes(opts, cliOverrides ?? {}, config.projectOverrides, machineConfig, cliOverrides?.dryRun, projectName);
 
