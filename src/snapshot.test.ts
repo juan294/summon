@@ -47,6 +47,19 @@ afterEach(() => {
 });
 
 describe("saveSnapshot", () => {
+  it("warns and returns null if directory does not exist", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const result = saveSnapshot("gone", "/nonexistent/path/that/does/not/exist", "full");
+      expect(result).toBeNull();
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("/nonexistent/path/that/does/not/exist")
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
   it("captures dirty file paths from git status", () => {
     const repoDir = join(TEST_SNAPSHOTS_DIR, "dirty-repo");
     mkdirSync(repoDir, { recursive: true });
@@ -166,6 +179,22 @@ describe("readSnapshot", () => {
     expect(read!.layout).toBe("pair");
     expect(read!.version).toBe(1);
     expect(read!.git.branch).toBe(saved.git.branch);
+  });
+
+  it("warns and returns null if directory in snapshot does not exist", () => {
+    mkdirSync(TEST_SNAPSHOTS_DIR, { recursive: true });
+    const snap = makeSnapshot({ directory: "/nonexistent/path/that/does/not/exist" });
+    writeFileSync(join(TEST_SNAPSHOTS_DIR, "moved.json"), JSON.stringify(snap) + "\n", { mode: 0o600 });
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const result = readSnapshot("moved");
+      expect(result).toBeNull();
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("/nonexistent/path/that/does/not/exist")
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 
 });
