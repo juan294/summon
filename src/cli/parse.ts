@@ -274,6 +274,7 @@ const parseOpts = {
     panes: { type: "string", short: "p" },
     "editor-size": { type: "string" },
     sidebar: { type: "string", short: "s" },
+    // UX-L3 (#337): --shell is tri-value: "true" = always wrap in shell, "false" = direct exec (no shell wrapper), any other string = treat as the shell pane command (auto-detect per command by default).
     shell: { type: "string" },
     "auto-resize": { type: "boolean" },
     "no-auto-resize": { type: "boolean" },

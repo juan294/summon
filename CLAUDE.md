@@ -145,3 +145,22 @@ Go directly to these paths — never search the codebase for them.
 | PR descriptions | `docs/prs/{number}_description.md` | |
 | Research docs | `docs/research/YYYY-MM-DD-description.md` | |
 | Plans | `docs/plans/YYYY-MM-DD-description.md` | Phase files in `-phases/phase-N.md` |
+
+## Known Architectural Debt
+
+- **AR-L1**: Two parallel layout pipelines in `launcher.ts` and `script.ts` duplicate options mapping (`launchTreeLayout`/`launchTraditionalLayout` and `generateTreeAppleScript`/`generateAppleScript`). Any new layout option must be threaded through both pipelines independently. Tracked in #318.
+- **PE-S1**: `setup.ts` compiles to ~20KB chunk. Further code splitting (lazy imports for gallery/builder) could reduce cold-start cost. Tracked in #329.
+- **PE-S2**: Config and project list are re-parsed on every CLI invocation. A persistent cache (e.g., `~/.config/summon/cache.json` with mtime validation) would eliminate redundant disk I/O. Tracked in #330.
+
+## Schema Migrations
+
+JSON files written by summon (`status/*.json`, `snapshot/*.json`) include a `version` field (currently `1`).
+
+**Policy:**
+- Backward compatibility is required for at least one major version after a schema bump.
+- When bumping the schema version, increment the `version` field and add a migration path in the reading code that upgrades old records to the new shape.
+- New optional fields with sensible defaults do not require a version bump.
+- Removals or semantic changes to existing fields always require a bump.
+- Document each bump in `docs/decisions/` as an ADR.
+
+See `docs/decisions/schema-migration-strategy.md` for the full policy.

@@ -430,6 +430,10 @@ export function generateFocusScript(tabTitle: string): string {
   return lines.join("\n");
 }
 
+// TODO(AR-L1 #318): generateAppleScript and generateTreeAppleScript are parallel pipelines
+// that each independently receive and apply the same options (starshipConfigPath, envVars,
+// projectName, onStop). Any new option must be plumbed through both functions. Consider
+// extracting shared option handling into a common helper to reduce duplication.
 export function generateAppleScript(plan: LayoutPlan, targetDir: string, starshipConfigPath?: string | null, envVars?: Record<string, string>, projectName?: string, onStop?: string): string {
   const lines: string[] = [];
   const titles: Array<[string, string]> = [];

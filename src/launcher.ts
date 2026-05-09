@@ -575,6 +575,10 @@ function appendDryRunExtras(
   }
 }
 
+// TODO(AR-L1 #318): launchTreeLayout and launchTraditionalLayout are parallel pipelines that
+// both map LayoutOptions fields onto their respective plan/script generators. Any new layout
+// option must be added to both functions independently, which is fragile. Consider unifying
+// into a single options-to-plan adapter to eliminate this duplication.
 async function launchTreeLayout(
   treeLayout: NonNullable<ResolvedConfig["treeLayout"]>,
   opts: Partial<LayoutOptions>,
