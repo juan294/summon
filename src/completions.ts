@@ -1,10 +1,7 @@
-import { getPresetNames } from "./layout.js";
 import { VALID_KEYS, CLI_FLAGS, BOOLEAN_KEYS, listCustomLayouts } from "./config.js";
+import { getPresetNames } from "./layout.js";
 
 export function generateZshCompletion(): string {
-  const customLayouts = listCustomLayouts();
-  const allLayouts = [...getPresetNames(), ...customLayouts];
-  const presetNames = allLayouts.join(" ");
   const configKeys = VALID_KEYS.join(" ");
   const booleanKeyCheck = [...BOOLEAN_KEYS].map(k => `"\\$\{words[2]}" == "${k}"`).join(" || ");
 
@@ -33,7 +30,7 @@ _summon() {
   )
 
   local -a config_keys=(${configKeys})
-  local -a layout_presets=(${presetNames})
+  local -a layout_presets=(\${(f)"$(summon layout list 2>/dev/null)"})
   local projects_file="\${HOME}/.config/summon/projects"
 
   # Read project names dynamically
@@ -45,7 +42,7 @@ _summon() {
   _arguments -C \\
     '(-h --help)'{-h,--help}'[Show help]' \\
     '(-v --version)'{-v,--version}'[Show version]' \\
-    '(-l --layout)'{-l,--layout}'[Layout preset]:preset:(${presetNames})' \\
+    '(-l --layout)'{-l,--layout}'[Layout preset]:preset:->layout_preset' \\
     '(-e --editor)'{-e,--editor}'[Editor command]:command:' \\
     '(-p --panes)'{-p,--panes}'[Editor panes]:count:' \\
     '--editor-size[Editor width %]:percent:' \\
@@ -68,6 +65,10 @@ _summon() {
     '*::arg:->args'
 
   case "$state" in
+    layout_preset)
+      compadd -a layout_presets
+      return
+      ;;
     starship_preset)
       local -a starship_presets
       starship_presets=(\${(f)"$(starship preset --list 2>/dev/null)"})
@@ -154,9 +155,6 @@ compdef _summon summon
 
 export function generateBashCompletion(): string {
   const configKeys = VALID_KEYS.join(" ");
-  const customLayouts = listCustomLayouts();
-  const allLayouts = [...getPresetNames(), ...customLayouts];
-  const presetNames = allLayouts.join(" ");
   const flagsList = CLI_FLAGS.join(" ");
   const booleanKeyCheck = [...BOOLEAN_KEYS].map(k => `"\\$\{words[2]}" == "${k}"`).join(" || ");
 
@@ -172,7 +170,8 @@ export function generateBashCompletion(): string {
 
   local subcommands="add remove list set config setup completions doctor open status switch snapshot briefing ports export freeze keybindings layout"
   local config_keys="${configKeys}"
-  local layout_presets="${presetNames}"
+  local layout_presets
+  layout_presets=$(summon layout list 2>/dev/null)
   local projects_file="\${HOME}/.config/summon/projects"
 
   local project_names=""
