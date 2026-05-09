@@ -26,17 +26,31 @@ export const GHOSTTY_APP_NAME = "Ghostty";
 export const SUMMON_WORKSPACE_ENV = "SUMMON_WORKSPACE";
 
 /**
+ * Thrown by `promptUser` when the user cancels via Ctrl+C or EOF.
+ * Callers that want exit-on-cancel can catch this at the top level;
+ * wizard callers can catch it to clean up resources before exiting.
+ */
+export class PromptCancelled extends Error {
+  constructor(message = "Cancelled") {
+    super(message);
+    this.name = "PromptCancelled";
+  }
+}
+
+/**
  * Prompt the user with a question via readline and return the trimmed answer.
  * Dynamically imports node:readline so callers that never prompt pay no cost.
+ * Throws `PromptCancelled` on Ctrl+C or EOF instead of calling process.exit,
+ * allowing callers to perform cleanup before exiting.
  */
 export async function promptUser(question: string): Promise<string> {
   const { createInterface } = await import("node:readline");
   const rl = createInterface({ input: process.stdin, output: process.stdout });
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const onClose = () => {
-      // Ctrl+C or EOF — exit with standard SIGINT code (128 + 2)
+      // Ctrl+C or EOF — throw so callers can clean up
       console.log();
-      process.exit(130);
+      reject(new PromptCancelled("Cancelled"));
     };
     rl.on("close", onClose);
     rl.question(question, (answer) => {
@@ -71,12 +85,14 @@ export function getErrorMessage(err: unknown): string {
 /**
  * Resolve a command name to its full path, or return null if not found.
  * Returns null without calling the shell if the command name is invalid.
+ * Uses /usr/bin/which directly to avoid shell invocation.
  */
 export function resolveCommand(cmd: string): string | null {
   if (!SAFE_COMMAND_RE.test(cmd)) return null;
   try {
-    return execFileSync("/bin/sh", ["-c", `command -v "$1"`, "--", cmd], {
+    return execFileSync("/usr/bin/which", [cmd], {
       encoding: "utf-8",
+      stdio: ["ignore", "pipe", "ignore"],
     }).trim();
   } catch {
     return null;

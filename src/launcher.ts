@@ -19,7 +19,8 @@ import type { WorkspaceStatus } from "./status.js";
 import { generateAppleScript, generateTreeAppleScript, generateFocusScript } from "./script.js";
 import { parseTreeDSL, extractPaneDefinitions, extractPaneCwds, resolveTreeCommands as resolveTreeCmds, buildTreePlan, findPaneByName } from "./tree.js";
 import type { LayoutNode } from "./tree.js";
-import { resolveCommand as resolveCommandPath, promptUser, getErrorMessage, SUMMON_WORKSPACE_ENV, isAccessibilityError, checkAccessibility, isGhosttyInstalled, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT, ACCESSIBILITY_REQUIRED_MSG } from "./utils.js";
+import { resolveCommand as resolveCommandPath, promptUser, getErrorMessage, SUMMON_WORKSPACE_ENV, isAccessibilityError, checkAccessibility, isGhosttyInstalled, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT, ACCESSIBILITY_REQUIRED_MSG, PromptCancelled } from "./utils.js";
+import { assertTrusted, SummonError } from "./trust.js";
 import { parseIntInRange, parsePositiveFloat, ENV_KEY_RE, PROJECT_NAME_RE, sanitizeProjectName } from "./validation.js";
 import { isStarshipInstalled, ensurePresetConfig, getPresetConfigPath } from "./starship.js";
 import { commandExecutable, commandHasShellMeta, replaceCommandExecutable } from "./command-spec.js";
@@ -115,7 +116,7 @@ function ensureAccessibility(): void {
 }
 
 function executeScript(script: string): void {
-  console.warn("Summoning workspace...");
+  console.log("Summoning workspace...");
   try {
     execFileSync("osascript", [], { input: script, encoding: "utf-8" });
   } catch (err) {
@@ -138,8 +139,15 @@ function executeScript(script: string): void {
 }
 
 async function prompt(question: string): Promise<string> {
-  const answer = await promptUser(question);
-  return answer.toLowerCase();
+  try {
+    const answer = await promptUser(question);
+    return answer.toLowerCase();
+  } catch (err) {
+    if (err instanceof PromptCancelled) {
+      process.exit(130);
+    }
+    throw err;
+  }
 }
 
 /**
@@ -151,6 +159,7 @@ async function prompt(question: string): Promise<string> {
  */
 async function confirmDangerousCommands(
   commands: Array<[string, string]>,
+  sourcePath?: string,
 ): Promise<void> {
   const dangerous: Array<[string, string]> = [];
   for (const [key, value] of commands) {
@@ -160,16 +169,18 @@ async function confirmDangerousCommands(
   }
   if (dangerous.length === 0) return;
 
-  const lines = dangerous.map(([key, value]) => `  ${key} = ${value}`).join("\n");
-  const message = `Warning: config contains commands with shell metacharacters:\n${lines}`;
-  console.warn(message);
+  const keyValueLines = dangerous.map(([key, value]) => `  ${key} = ${value}`).join("\n");
+  const commandLines = dangerous.map(([, value]) => `  ${value}`).join("\n");
+  const source = sourcePath ? `The .summon file in \`${sourcePath}\`` : "Config";
+  console.warn(`Warning: config contains commands with shell metacharacters:\n${keyValueLines}`);
 
   if (!process.stdin.isTTY) {
     console.warn("Non-interactive shell detected. Refusing to execute.");
     process.exit(1);
   }
 
-  const answer = await prompt("Continue? [y/N] ");
+  const promptText = `${source} wants to run:\n${commandLines}\nAllow these commands? [y/N] `;
+  const answer = await prompt(promptText);
   if (answer !== "y" && answer !== "yes") {
     console.error("Aborted.");
     process.exit(1);
@@ -251,6 +262,25 @@ interface ResolvedConfig {
   };
 }
 
+/**
+ * Denylisted env var key prefixes and exact names that could be used for
+ * code injection via dynamic linkers, shell hooks, or interpreter startup files.
+ */
+const ENV_DENYLIST_PREFIXES = ["DYLD_", "LD_"];
+const ENV_DENYLIST_EXACT = new Set([
+  "NODE_OPTIONS",
+  "BASH_ENV",
+  "PYTHONSTARTUP",
+  "PROMPT_COMMAND",
+  "CDPATH",
+  "IFS",
+]);
+
+function isDenylisted(envKey: string): boolean {
+  if (ENV_DENYLIST_EXACT.has(envKey)) return true;
+  return ENV_DENYLIST_PREFIXES.some((prefix) => envKey.startsWith(prefix));
+}
+
 function collectEnvVars(
   machineConfig: Map<string, string>,
   projectConfig: Map<string, string>,
@@ -262,7 +292,9 @@ function collectEnvVars(
   for (const [key, value] of machineConfig) {
     if (key.startsWith("env.")) {
       const envKey = key.slice(4);
-      if (ENV_KEY_RE.test(envKey)) {
+      if (isDenylisted(envKey)) {
+        console.warn(`Warning: ignoring denylisted env var key "${envKey}" from machine config.`);
+      } else if (ENV_KEY_RE.test(envKey)) {
         envVars[envKey] = value;
       }
     }
@@ -272,7 +304,9 @@ function collectEnvVars(
   for (const [key, value] of projectConfig) {
     if (key.startsWith("env.")) {
       const envKey = key.slice(4);
-      if (ENV_KEY_RE.test(envKey)) {
+      if (isDenylisted(envKey)) {
+        console.warn(`Warning: ignoring denylisted env var key "${envKey}" from .summon file.`);
+      } else if (ENV_KEY_RE.test(envKey)) {
         envVars[envKey] = value;
       } else {
         console.warn(`Warning: ignoring invalid env var key "${envKey}" from .summon file.`);
@@ -286,7 +320,9 @@ function collectEnvVars(
       const eqIdx = entry.indexOf("=");
       if (eqIdx > 0) {
         const envKey = entry.slice(0, eqIdx);
-        if (ENV_KEY_RE.test(envKey)) {
+        if (isDenylisted(envKey)) {
+          console.warn(`Warning: ignoring denylisted env var key "${envKey}" from --env flag.`);
+        } else if (ENV_KEY_RE.test(envKey)) {
           envVars[envKey] = entry.slice(eqIdx + 1);
         } else {
           console.warn(`Warning: ignoring invalid env var key "${envKey}" from --env flag.`);
@@ -298,7 +334,15 @@ function collectEnvVars(
   return envVars;
 }
 
-/** Pick a config value with priority: CLI > project > global. Empty strings treated as unset. */
+/**
+ * Pick a config value with priority: CLI > project > global.
+ * Empty strings in project or machine config are treated as "not set" — they
+ * do not override preset or default values. This preserves the intent that an
+ * empty config key means "use the default".
+ *
+ * Note: To distinguish "explicitly set to empty" from "not present" in project
+ * config, callers that need that distinction should use `project.has(key)` directly.
+ */
 function pickConfigValue(
   cli: string | undefined,
   projKey: string,
@@ -329,12 +373,24 @@ function resolveLayoutBase(
     const base: Partial<LayoutOptions> = {};
     if (customData.has("editor-size")) {
       const es = parseIntInRange(customData.get("editor-size")!, EDITOR_SIZE_MIN, EDITOR_SIZE_MAX);
-      if (es.ok) base.editorSize = es.value;
+      if (es.ok) {
+        base.editorSize = es.value;
+      } else {
+        console.warn(
+          `Invalid editor-size value in custom layout "${layoutKey}": "${customData.get("editor-size")}". Must be ${EDITOR_SIZE_MIN}-${EDITOR_SIZE_MAX}. Using default (${EDITOR_SIZE_DEFAULT}).`,
+        );
+      }
     }
     if (customData.has("auto-resize")) base.autoResize = customData.get("auto-resize") === "true";
     if (customData.has("font-size")) {
       const fs = parsePositiveFloat(customData.get("font-size")!);
-      if (fs.ok) base.fontSize = fs.value;
+      if (fs.ok) {
+        base.fontSize = fs.value;
+      } else {
+        console.warn(
+          `Invalid font-size value in custom layout "${layoutKey}": "${customData.get("font-size")}". Must be a positive number. Ignoring.`,
+        );
+      }
     }
     if (customData.has("new-window")) base.newWindow = customData.get("new-window") === "true";
     if (customData.has("fullscreen")) base.fullscreen = customData.get("fullscreen") === "true";
@@ -354,7 +410,13 @@ function resolveLayoutBase(
     if (customData.has("sidebar")) base.sidebarCommand = customData.get("sidebar");
     if (customData.has("panes")) {
       const p = parseIntInRange(customData.get("panes")!, PANES_MIN);
-      if (p.ok) base.editorPanes = p.value;
+      if (p.ok) {
+        base.editorPanes = p.value;
+      } else {
+        console.warn(
+          `Invalid panes value in custom layout "${layoutKey}": "${customData.get("panes")}". Must be a positive integer. Ignoring.`,
+        );
+      }
     }
     if (customData.has("shell")) base.shell = customData.get("shell");
     return { base };
@@ -438,10 +500,7 @@ export function resolveConfig(targetDir: string, cliOverrides: CLIOverrides): Re
   const projectConfigPath = join(targetDir, ".summon");
   const project = readKVFile(projectConfigPath);
   if (project.size > 0) {
-    console.warn(`Using project config: ${projectConfigPath}`);
-    if (process.stdin.isTTY) {
-      console.warn("Tip: Review .summon files before use in untrusted directories.");
-    }
+    console.log(`Using project config: ${projectConfigPath}`);
   }
   const machineConfig = listConfig();
 
@@ -505,7 +564,26 @@ export function probePaneCount(): number | null {
 }
 
 /**
+ * Probe the title of the front Ghostty window's selected tab.
+ * Returns null when Ghostty is not running or the script errors.
+ */
+export function probeFrontTabTitle(): string | null {
+  try {
+    const out = execFileSync(
+      "osascript",
+      ["-e", 'tell application "Ghostty" to get title of selected tab of front window'],
+      { encoding: "utf-8", timeout: 2000, stdio: ["ignore", "pipe", "ignore"] },
+    ).trim();
+    return out || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Decide whether to auto-clean restored panes from the front window's selected tab.
+ * Only cleans panes when the front tab title contains a summon project marker `[<projectName>]`.
+ * This prevents destroying non-summon panes.
  * When all trigger conditions are met, sets opts.cleanRestoredPanes=true and prints a notice.
  */
 export function decideCleanRestoredPanes(
@@ -514,6 +592,7 @@ export function decideCleanRestoredPanes(
   project: Map<string, string>,
   machineConfig: Map<string, string>,
   dryRun: boolean | undefined,
+  projectName?: string,
 ): void {
   if (process.env[SUMMON_WORKSPACE_ENV]) return;
   if (opts.newWindow) return;
@@ -532,9 +611,16 @@ export function decideCleanRestoredPanes(
   const count = probePaneCount();
   if (count === null || count <= 1) return;
 
+  // Only auto-clean when the front tab title contains a summon project marker.
+  // This prevents closing non-summon panes that the user has open.
+  if (projectName) {
+    const tabTitle = probeFrontTabTitle();
+    if (tabTitle === null || !tabTitle.includes(`[${projectName}]`)) return;
+  }
+
   const stale = count - 1;
   const noun = stale === 1 ? "pane" : "panes";
-  console.warn(`Clearing ${stale} stale ${noun} from previous session...`);
+  console.log(`Clearing ${stale} stale ${noun} from previous session...`);
   opts.cleanRestoredPanes = true;
 }
 
@@ -555,7 +641,7 @@ export function decideCleanRestoredPanes(
  * 4. The feature is documented in `--help` so users understand the behavior.
  */
 function executeOnStart(onStart: string, targetDir: string): void {
-  console.warn(`Running on-start: ${onStart}`);
+  console.log(`Running on-start: ${onStart}`);
   try {
     execSync(onStart, { cwd: targetDir, encoding: "utf-8", stdio: "inherit" });
   } catch (err) {
@@ -690,7 +776,20 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
     process.exit(1);
   }
 
-  let config = resolveConfig(targetDir, cliOverrides ?? {});
+  // Trust gate: verify the .summon file (if present) is explicitly trusted before
+  // reading or acting on any of its values (BE-B1, BE-B2, SE-H1).
+  try {
+    assertTrusted(targetDir);
+  } catch (err) {
+    if (err instanceof SummonError) {
+      console.error(err.message);
+      process.exit(1);
+    }
+    throw err;
+  }
+
+  let config: ReturnType<typeof resolveConfig>;
+  config = resolveConfig(targetDir, cliOverrides ?? {});
 
   // If no editor is configured from any source and this isn't a tree layout
   // (which defines its own pane commands), redirect to the setup wizard.
@@ -713,7 +812,7 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
   if (await warnIfNested(opts, cliOverrides?.dryRun)) {
     process.exit(1);
   }
-  decideCleanRestoredPanes(opts, cliOverrides ?? {}, config.projectOverrides, machineConfig, cliOverrides?.dryRun);
+  decideCleanRestoredPanes(opts, cliOverrides ?? {}, config.projectOverrides, machineConfig, cliOverrides?.dryRun, projectName);
 
   if (!cliOverrides?.dryRun) {
     const resolvedCommands: Array<[string, string]> = [];
