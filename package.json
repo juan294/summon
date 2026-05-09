@@ -19,6 +19,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "pnpm build && vitest run --coverage",
+    "test:e2e": "SUMMON_E2E=1 vitest run src/e2e",
     "prepublishOnly": "pnpm run build",
     "prepare": "husky"
   },

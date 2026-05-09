@@ -8,6 +8,8 @@ CLI tool that launches configurable multi-pane Ghostty workspaces using AppleScr
 
 TypeScript 5.7 · Node >= 18 · pnpm · tsup · Vitest · ESLint · zero runtime deps · macOS only
 
+Contributors need Node >=20.19. DevDeps use current stable majors (TS 6, Vitest 4, Vite 8) — ensure your toolchain is up to date before contributing.
+
 ## Build & Run
 
 ```bash
@@ -48,7 +50,7 @@ src/
 
 ## Code Style
 
-- **Zero runtime dependencies** -- stdlib only (`node:util`, `node:fs`, etc.)
+- **Zero runtime dependencies** -- stdlib only (`node:util`, `node:fs`, etc.) — enforced: `node -e "if (Object.keys(require('./package.json').dependencies||{}).length) process.exit(1)"` in CI.
 - TypeScript strict mode with `noUncheckedIndexedAccess`
 - ESM throughout (`"type": "module"`)
 - Functional style -- prefer pure functions, minimize side effects
@@ -145,3 +147,14 @@ Go directly to these paths — never search the codebase for them.
 | PR descriptions | `docs/prs/{number}_description.md` | |
 | Research docs | `docs/research/YYYY-MM-DD-description.md` | |
 | Plans | `docs/plans/YYYY-MM-DD-description.md` | Phase files in `-phases/phase-N.md` |
+
+## Security Invariants
+
+**DO NOT REMOVE `src/shell-escape.lint.test.ts`** — This is a load-bearing CI gate.
+It statically scans all source files and fails if any raw template literal interpolates
+a user value into an AppleScript or shell context. Removing this test removes the
+primary injection defense. See src/shell-escape.ts for the escape functions it protects.
+
+## Known TODOs
+
+- **UX-L4**: Add "All projects clean" positive confirmation to briefing output when no issues are found (briefing.ts).

@@ -17,6 +17,14 @@ Publishing checklist and workflow. First published as v0.7.0 on 2026-03-14.
 - [x] `repository`, `homepage`, `bugs` fields in package.json
 - [x] README.md
 
+## Version Bumping
+
+Use `pnpm version patch|minor|major` to bump the version. This automatically:
+- Updates package.json version
+- Creates a git tag
+
+After running, also update CHANGELOG.md (Step 0 above).
+
 ## Publishing a New Version
 
 ### 1. Pre-Publish Verification
@@ -78,3 +86,7 @@ summon .
 - [ ] Tag the commit: `git tag v<version>`
 - [ ] Push the tag: `git push origin v<version>`
 - [ ] Create a GitHub release from the tag
+
+## Supply Chain
+
+Consider adding SBOM generation (`cyclonedx-node`) to the release workflow for future releases.
