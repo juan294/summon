@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-05-09
+
+### Fixed
+
+- Build: disabled tsup code splitting so `dist/index.js` is self-contained.
+  The default ESM splitting generated chunk files excluded from the npm tarball,
+  causing `ERR_MODULE_NOT_FOUND` on install.
+
 ## [1.4.0] - 2026-05-09
 
 ### Added
@@ -522,7 +530,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CodeQL security scanning
 - Dependabot for npm and GitHub Actions
 
-[Unreleased]: https://github.com/juan294/summon/compare/v1.4.0...develop
+[Unreleased]: https://github.com/juan294/summon/compare/v1.4.1...develop
+[1.4.1]: https://github.com/juan294/summon/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/juan294/summon/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/juan294/summon/compare/v1.2.1...v1.3.0
 [1.2.1]: https://github.com/juan294/summon/compare/v1.2.0...v1.2.1
