@@ -1,5 +1,8 @@
 import { setConfig, isValidLayoutName, isCustomLayout, saveCustomLayout } from "./config.js";
-import { SAFE_COMMAND_RE, resolveCommand as resolveCommandPath, promptUser, checkAccessibility, openAccessibilitySettings, isGhosttyInstalled, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT } from "./utils.js";
+import { LAYOUT_INFO, GRID_TEMPLATES } from "./setup-gallery.js";
+export type { GridTemplate } from "./setup-gallery.js";
+export { LAYOUT_INFO, GRID_TEMPLATES };
+import { SAFE_COMMAND_RE, resolveCommand as resolveCommandPath, promptUser, checkAccessibility, openAccessibilitySettings, isGhosttyInstalled, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT, debugLog } from "./utils.js";
 import { isStarshipInstalled, listStarshipPresets } from "./starship.js";
 import { bold, dim, green, yellow, cyan, magenta, brightCyan, colorSwatch } from "./ui/ansi.js";
 import { renderLayoutPreview, renderTemplateGallery } from "./ui/layout-preview.js";
@@ -405,9 +408,10 @@ export function getRandomTip(): string {
 // ---------------------------------------------------------------------------
 
 
-export function printSection(title: string): void {
+export function printSection(title: string, termWidth?: number): void {
   const PREFIX_DASHES = 2;
-  const TOTAL_WIDTH = 40;
+  const rawWidth = termWidth ?? process.stdout.columns ?? 80;
+  const TOTAL_WIDTH = Math.min(rawWidth, 100);
   const prefix = "─".repeat(PREFIX_DASHES);
   const suffixLen = Math.max(
     2,
@@ -435,6 +439,17 @@ export function detectTools(
 }
 
 // ---------------------------------------------------------------------------
+// Wizard back navigation sentinel
+// ---------------------------------------------------------------------------
+
+/**
+ * Sentinel returned by wizard step functions when the user requests to go back.
+ * The wizard state machine checks for this value and decrements the step counter.
+ * @internal — exported for testing only
+ */
+export const WIZARD_BACK = Symbol("WIZARD_BACK");
+
+// ---------------------------------------------------------------------------
 // Interactive input helpers
 // ---------------------------------------------------------------------------
 
@@ -442,12 +457,13 @@ export function detectTools(
  * Show numbered options and prompt for selection.
  * Re-prompts on invalid input. Returns 0-based index.
  * Empty input selects defaultIdx.
+ * Returns WIZARD_BACK if the user enters 'b' or 'back'.
  */
 export async function numberedSelect(
   options: SelectOption[],
   promptText: string,
   defaultIdx?: number,
-): Promise<number> {
+): Promise<number | typeof WIZARD_BACK> {
   // Display options
   for (let i = 0; i < options.length; i++) {
     const opt = options[i]!;
@@ -456,8 +472,12 @@ export async function numberedSelect(
     console.log(`${marker}${i + 1}) ${opt.label}${detail}`);
   }
 
-  const ask = async (): Promise<number> => {
+  const ask = async (): Promise<number | typeof WIZARD_BACK> => {
     const trimmed = await promptUser(promptText);
+
+    if (trimmed === "b" || trimmed === "back") {
+      return WIZARD_BACK;
+    }
 
     if (trimmed === "" && defaultIdx !== undefined) {
       return defaultIdx;
@@ -569,73 +589,7 @@ export const SIDEBAR_CATALOG: readonly ToolEntry[] = [
   { cmd: "htop", name: "htop", desc: "Process viewer" },
 ];
 
-export const LAYOUT_INFO: Record<string, { desc: string; diagram: string }> = {
-  minimal: {
-    desc: "Single editor + sidebar",
-    diagram: [
-      "  ┌────────┬──────┐",
-      "  │ editor │ side │",
-      "  └────────┴──────┘",
-    ].join("\n"),
-  },
-  pair: {
-    desc: "Two editors + sidebar + shell",
-    diagram: [
-      "  ┌────────┬────────┬──────┐",
-      "  │        │ editor │      │",
-      "  │ editor ├────────┤ side │",
-      "  │        │ shell  │      │",
-      "  └────────┴────────┴──────┘",
-    ].join("\n"),
-  },
-  full: {
-    desc: "Three editors + sidebar + shell",
-    diagram: [
-      "  ┌────────┬────────┬──────┐",
-      "  │ editor │ editor │ side │",
-      "  ├────────┼────────┤      │",
-      "  │ editor │ shell  │      │",
-      "  └────────┴────────┴──────┘",
-    ].join("\n"),
-  },
-  cli: {
-    desc: "Single editor + sidebar + shell",
-    diagram: [
-      "  ┌────────┬────────┬──────┐",
-      "  │ editor │ shell  │ side │",
-      "  └────────┴────────┴──────┘",
-    ].join("\n"),
-  },
-  btop: {
-    desc: "Editor + system monitor + sidebar + shell",
-    diagram: [
-      "  ┌────────┬────────┬──────┐",
-      "  │        │  btop  │      │",
-      "  │ editor ├────────┤ side │",
-      "  │        │ shell  │      │",
-      "  └────────┴────────┴──────┘",
-    ].join("\n"),
-  },
-};
-
-// ---------------------------------------------------------------------------
-// Grid templates for visual layout builder
-// ---------------------------------------------------------------------------
-
-export interface GridTemplate {
-  label: string;       // display name, e.g., "2 + 1"
-  columns: number[];   // pane count per column (sidebar always appended)
-}
-
-export const GRID_TEMPLATES: readonly GridTemplate[] = [
-  { label: "1 + 1",     columns: [1, 1] },
-  { label: "2 + 1",     columns: [2, 1] },
-  { label: "1 + 1 + 1", columns: [1, 1, 1] },
-  { label: "1 + 2",     columns: [1, 2] },
-  { label: "1 + 2 + 1", columns: [1, 2, 1] },
-  { label: "2 + 2",     columns: [2, 2] },
-  { label: "2 + 1 + 1", columns: [2, 1, 1] },
-];
+// LAYOUT_INFO and GRID_TEMPLATES are imported from ./setup-gallery.js (AR-S2 #317)
 
 const INSTALL_HINTS: Record<string, string> = {
   claude: "npm install -g @anthropic-ai/claude-code",
@@ -688,7 +642,7 @@ function printWelcome(): void {
   console.log();
 }
 
-export async function selectLayout(): Promise<string> {
+export async function selectLayout(): Promise<string | typeof WIZARD_BACK> {
   printSection("Layout");
   const presetNames = Object.keys(LAYOUT_INFO);
   const options: SelectOption[] = presetNames.map((name) => {
@@ -711,6 +665,8 @@ export async function selectLayout(): Promise<string> {
     `  Select [1-${totalCount}] (default: ${defaultIdx + 1}): `,
     defaultIdx,
   );
+
+  if (idx === WIZARD_BACK) return WIZARD_BACK;
 
   // Custom layout: flow into the layout builder
   if (idx === presetNames.length) {
@@ -803,7 +759,7 @@ async function selectSidebar(): Promise<string> {
   return selectToolFromCatalog(SIDEBAR_CATALOG, "Sidebar");
 }
 
-export async function selectShell(): Promise<string> {
+export async function selectShell(): Promise<string | typeof WIZARD_BACK> {
   printSection("Shell Pane");
   const options: SelectOption[] = [
     {
@@ -817,6 +773,7 @@ export async function selectShell(): Promise<string> {
     },
   ];
   const idx = await numberedSelect(options, "  Select [1-3] (default: 1): ", 0);
+  if (idx === WIZARD_BACK) return WIZARD_BACK;
   const chosen = options[idx]!;
   if (chosen.value === "__custom__") {
     let cmd = "";
@@ -850,7 +807,7 @@ const STARSHIP_PRESET_PALETTES: Record<string, string[]> = {
   "catppuccin-powerline": ["#f38ba8", "#fab387", "#f9e2af", "#a6e3a1", "#74c7ec", "#b4befe"],
 };
 
-export async function selectStarshipPreset(): Promise<string | null> {
+export async function selectStarshipPreset(): Promise<string | null | typeof WIZARD_BACK> {
   if (!isStarshipInstalled()) return null;
   const presets = listStarshipPresets();
   if (presets.length === 0) return null;
@@ -876,6 +833,7 @@ export async function selectStarshipPreset(): Promise<string | null> {
     `  Select [1-${options.length}] (default: 1): `,
     0,
   );
+  if (idx === WIZARD_BACK) return WIZARD_BACK;
   const chosen = options[idx]!;
   if (chosen.value === "__skip__") return null;
   if (chosen.value === "__random__") {
@@ -986,8 +944,7 @@ export async function checkAndRecoverAccessibility(): Promise<boolean> {
   console.log(`  ${yellow("!")} Accessibility permission not granted`);
   console.log();
   console.log(dim("  Summon uses System Events to control Ghostty panes."));
-  console.log(dim("  Your terminal app needs Accessibility permission in:"));
-  console.log(dim(`  ${ACCESSIBILITY_SETTINGS_PATH}`));
+  console.log(dim(`  Grant accessibility access to Ghostty in ${ACCESSIBILITY_SETTINGS_PATH}.`));
   console.log();
 
   const shouldOpen = await confirm("  Open Accessibility settings now?");
@@ -1015,6 +972,16 @@ export async function checkAndRecoverAccessibility(): Promise<boolean> {
   return false;
 }
 
+/** Wizard step indices for back navigation history tracking. */
+const enum WizardStep {
+  Layout = 0,
+  Editor = 1,
+  Sidebar = 2,
+  Shell = 3,
+  Starship = 4,
+  Confirm = 5,
+}
+
 export async function runSetup(): Promise<void> {
   if (!process.stdin.isTTY) {
     console.error("Setup requires an interactive terminal.");
@@ -1022,45 +989,108 @@ export async function runSetup(): Promise<void> {
     process.exit(1);
   }
 
+  debugLog("wizard start");
   printWelcome();
 
   // UX-H3 (#282): accessibility check runs AFTER the first selectLayout prompt
   // so users can read the welcome before being presented with a system-permission dialog.
   let accessibilityChecked = false;
 
+  // State collected across wizard steps
+  let layout = "";
+  let editor = "";
+  let sidebar = "";
+  let shell = "false";
+  let starshipPreset: string | null = null;
+
+  // Step-based navigation: history tracks which steps we've visited
+  const history: WizardStep[] = [];
+  let currentStep: WizardStep = WizardStep.Layout;
+
+  const goBack = (): void => {
+    const prev = history.pop();
+    currentStep = prev ?? WizardStep.Layout;
+  };
+
   while (true) {
-    const layout = await selectLayout();
-
-    if (!accessibilityChecked) {
-      accessibilityChecked = true;
-      await checkAndRecoverAccessibility();
+    if (currentStep === WizardStep.Layout) {
+      debugLog(`wizard step: layout`);
+      const result = await selectLayout();
+      if (result === WIZARD_BACK) {
+        // Already at first step — just re-show
+        continue;
+      }
+      layout = result;
+      debugLog(`wizard step complete: layout=${layout}`);
+      if (!accessibilityChecked) {
+        accessibilityChecked = true;
+        await checkAndRecoverAccessibility();
+      }
+      history.push(WizardStep.Layout);
+      const isCustom = isCustomLayout(layout);
+      if (isCustom) {
+        console.log(dim("  Custom layout — pane commands are defined in the layout."));
+        console.log(dim("  Skipping editor, sidebar, and shell selection."));
+        console.log();
+        currentStep = WizardStep.Starship;
+      } else {
+        currentStep = WizardStep.Editor;
+      }
+      continue;
     }
-    const isCustom = isCustomLayout(layout);
 
-    // Custom layouts define their own pane commands — skip editor/sidebar/shell
-    let editor = "";
-    let sidebar = "";
-    let shell = "false";
-
-    if (!isCustom) {
+    if (currentStep === WizardStep.Editor) {
+      debugLog(`wizard step: editor`);
       editor = await selectEditor();
-      sidebar = await selectSidebar();
+      history.push(WizardStep.Editor);
+      currentStep = WizardStep.Sidebar;
+      continue;
+    }
 
+    if (currentStep === WizardStep.Sidebar) {
+      debugLog(`wizard step: sidebar`);
+      sidebar = await selectSidebar();
+      history.push(WizardStep.Sidebar);
       if (layout === "minimal") {
         console.log(dim("  Minimal layout has no shell pane."));
         console.log();
+        shell = "false";
+        currentStep = WizardStep.Starship;
       } else {
-        shell = await selectShell();
+        currentStep = WizardStep.Shell;
       }
-    } else {
-      console.log(dim("  Custom layout — pane commands are defined in the layout."));
-      console.log(dim("  Skipping editor, sidebar, and shell selection."));
-      console.log();
+      continue;
     }
 
-    const starshipPreset = await selectStarshipPreset();
+    if (currentStep === WizardStep.Shell) {
+      debugLog(`wizard step: shell`);
+      const result = await selectShell();
+      if (result === WIZARD_BACK) {
+        goBack();
+        continue;
+      }
+      shell = result;
+      history.push(WizardStep.Shell);
+      currentStep = WizardStep.Starship;
+      continue;
+    }
 
-    const result: SetupResult = { layout, editor, sidebar, shell };
+    if (currentStep === WizardStep.Starship) {
+      debugLog(`wizard step: starship`);
+      const result = await selectStarshipPreset();
+      if (result === WIZARD_BACK) {
+        goBack();
+        continue;
+      }
+      starshipPreset = result;
+      history.push(WizardStep.Starship);
+      currentStep = WizardStep.Confirm;
+      continue;
+    }
+
+    // Confirm step
+    const isCustom = isCustomLayout(layout);
+    const wizardResult: SetupResult = { layout, editor, sidebar, shell };
 
     if (isCustom) {
       printSection("Summary");
@@ -1070,26 +1100,27 @@ export async function runSetup(): Promise<void> {
       }
       console.log();
     } else {
-      printSummary(result, starshipPreset);
+      printSummary(wizardResult, starshipPreset);
     }
 
     const accepted = await confirm("  Save these settings?");
     if (accepted) {
-      setConfig("layout", result.layout);
+      setConfig("layout", wizardResult.layout);
       if (!isCustom) {
-        setConfig("editor", result.editor);
-        setConfig("sidebar", result.sidebar);
-        setConfig("shell", result.shell);
+        setConfig("editor", wizardResult.editor);
+        setConfig("sidebar", wizardResult.sidebar);
+        setConfig("shell", wizardResult.shell);
       }
       if (starshipPreset) {
         setConfig("starship-preset", starshipPreset);
       }
 
       if (!isCustom) {
-        const validation = validateSetup(result);
+        const validation = validateSetup(wizardResult);
         printValidation(validation);
       }
 
+      debugLog("wizard exit: completed");
       console.log(green("  Settings saved to ~/.config/summon/config"));
       console.log();
       console.log(
@@ -1101,7 +1132,16 @@ export async function runSetup(): Promise<void> {
       return;
     }
     // User declined — loop back to layout selection
+    debugLog("wizard exit: cancelled (looping back)");
     console.log();
+    // Reset wizard state and restart from layout
+    history.length = 0;
+    layout = "";
+    editor = "";
+    sidebar = "";
+    shell = "false";
+    starshipPreset = null;
+    currentStep = WizardStep.Layout;
   }
 }
 
@@ -1148,25 +1188,31 @@ function editDistance(a: string, b: string): number {
  * Validate a command entered in the layout builder.
  * If the command isn't found, warns the user and suggests the closest match.
  * Returns the command to use (original, corrected, or empty string to re-prompt).
+ * Also returns whether the renderer state is now stale (extra output was printed).
+ * @internal — exported for testing only
  */
-async function validateBuilderCommand(cmd: string, knownCmds: string[]): Promise<string> {
-  if (cmd === "shell") return cmd; // special value — plain shell
+export async function validateBuilderCommand(
+  cmd: string,
+  knownCmds: string[],
+): Promise<{ cmd: string; rendererStale: boolean }> {
+  if (cmd === "shell") return { cmd, rendererStale: false }; // special value — plain shell
   const cmdName = commandExecutable(cmd) ?? cmd;
-  if (resolveCommandPath(cmdName)) return cmd; // found in PATH
+  if (resolveCommandPath(cmdName)) return { cmd, rendererStale: false }; // found in PATH
 
+  // Command not found — will print extra output, so renderer state becomes stale
   const suggestion = findClosestCommand(cmdName, knownCmds);
   if (suggestion) {
     console.log(yellow(`  '${cmdName}' not found. Did you mean '${suggestion}'?`));
     const useSuggestion = await confirm(`  Use '${suggestion}' instead?`);
     if (useSuggestion) {
-      return replaceCommandExecutable(cmd, suggestion);
+      return { cmd: replaceCommandExecutable(cmd, suggestion), rendererStale: true };
     }
   } else {
     console.log(yellow(`  '${cmdName}' not found on this system.`));
   }
   const keepAnyway = await confirm("  Keep it anyway?");
-  if (keepAnyway) return cmd;
-  return ""; // empty = re-prompt
+  if (keepAnyway) return { cmd, rendererStale: true };
+  return { cmd: "", rendererStale: true }; // empty = re-prompt
 }
 
 /**
@@ -1354,8 +1400,8 @@ export async function runLayoutBuilder(name: string): Promise<void> {
           `  Column ${c + 1}, Pane ${p + 1} \u2014 command [shell]: `,
         );
         cmd = input || "shell";
-        const validated = await validateBuilderCommand(cmd, availableCmds);
-        if (validated !== cmd) {
+        const { cmd: validated, rendererStale } = await validateBuilderCommand(cmd, availableCmds);
+        if (rendererStale) {
           // Validation printed extra lines — line counts are unreliable now
           renderer.reset();
         }
