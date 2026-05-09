@@ -72,6 +72,13 @@ if (parsed.values.help) {
   process.exit(0);
 }
 
+// UX-M8 (#314): Warn if --once is used with a non-launch subcommand
+if (parsed.values.once && parsed.subcommand && parsed.subcommand in registry) {
+  console.error(
+    `Warning: --once has no effect with the '${parsed.subcommand}' command`,
+  );
+}
+
 if (isFirstRun() && process.stdin.isTTY) {
   if (!parsed.subcommand || !hasSubcommandHelp(parsed.subcommand)) {
     const { runSetup } = await import("./setup.js");
@@ -83,6 +90,15 @@ if (isFirstRun() && process.stdin.isTTY) {
 }
 
 if (!parsed.subcommand) {
+  // UX-S1 (#315): Show quick-start hint for returning users in TTY
+  const isTTY = process.stdin.isTTY || process.env["SUMMON_FORCE_TTY"] === "1";
+  if (isTTY) {
+    console.log(
+      "Usage: summon <path>           Launch a workspace\n" +
+        "       summon --help           Show all commands",
+    );
+    process.exit(0);
+  }
   showHelp();
   process.exit(0);
 }

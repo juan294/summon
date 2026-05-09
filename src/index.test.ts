@@ -1692,4 +1692,80 @@ describe("CLI integration", () => {
       expect(result.stderr).toContain("customcheck2");
     });
   });
+
+  // #314 UX-M8: --once validation for non-launch subcommands
+  describe("--once validation for non-launch subcommands (#314)", () => {
+    it("warns on stderr when --once is passed to 'list' subcommand", () => {
+      const result = run("list", "--once");
+      expect(result.status).toBe(0);
+      expect(result.stderr).toContain("Warning:");
+      expect(result.stderr).toContain("--once");
+      expect(result.stderr).toContain("list");
+    });
+
+    it("warns on stderr when --once is passed to 'config' subcommand", () => {
+      const result = run("config", "--once");
+      expect(result.status).toBe(0);
+      expect(result.stderr).toContain("Warning:");
+      expect(result.stderr).toContain("--once");
+      expect(result.stderr).toContain("config");
+    });
+
+    it("warns on stderr when --once is passed to 'status' subcommand", () => {
+      const result = run("status", "--once");
+      // status --once may show warning but still run
+      expect(result.stderr).toContain("Warning:");
+      expect(result.stderr).toContain("--once");
+      expect(result.stderr).toContain("status");
+    });
+
+    it("does not warn when --once is used with the launch flow (path argument)", () => {
+      const result = run(".", "--once", "--dry-run");
+      expect(result.status).toBe(0);
+      expect(result.stderr).not.toContain("--once has no effect");
+    });
+  });
+
+  // #315 UX-S1: quick-start hint for returning users (no subcommand, not first run, TTY)
+  describe("quick-start hint for returning users (#315)", () => {
+    it("prints quick-start hint when no subcommand and not first-run and SUMMON_FORCE_TTY set", () => {
+      // Set up a non-first-run home (has config dir)
+      const freshHome = mkdtempSync(join(tmpdir(), "summon-quickstart-"));
+      const configDir = join(freshHome, ".config", "summon");
+      mkdirSync(configDir, { recursive: true });
+      writeFileSync(join(configDir, "config"), "editor=vim\n", "utf-8");
+
+      const result = spawnSync("node", [CLI_PATH], {
+        encoding: "utf-8",
+        cwd: freshHome,
+        env: { ...process.env, HOME: freshHome, SUMMON_FORCE_TTY: "1" },
+        timeout: 30_000,
+      });
+      rmSync(freshHome, { recursive: true, force: true });
+
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("Usage: summon <path>");
+      expect(result.stdout).toContain("summon --help");
+    });
+
+    it("does not print quick-start hint when no SUMMON_FORCE_TTY and not a real TTY", () => {
+      const freshHome = mkdtempSync(join(tmpdir(), "summon-noqs-"));
+      const configDir = join(freshHome, ".config", "summon");
+      mkdirSync(configDir, { recursive: true });
+      writeFileSync(join(configDir, "config"), "editor=vim\n", "utf-8");
+
+      const result = spawnSync("node", [CLI_PATH], {
+        encoding: "utf-8",
+        cwd: freshHome,
+        env: { ...process.env, HOME: freshHome },
+        timeout: 30_000,
+      });
+      rmSync(freshHome, { recursive: true, force: true });
+
+      // Without force TTY, should show full help (not quick-start)
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("Options:");
+      expect(result.stdout).not.toContain("Usage: summon <path>           Launch a workspace");
+    });
+  });
 });
