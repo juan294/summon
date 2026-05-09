@@ -206,6 +206,19 @@ describe("handleSnapshotCommand", () => {
       "usage:Usage: summon snapshot <save|show|clear> [project]",
     );
   });
+
+  it("includes subcommand examples in the usage message for unknown actions", async () => {
+    let usageMessage = "";
+    mockExitWithUsageHint.mockImplementation((msg?: string) => {
+      usageMessage = msg ?? "";
+      throw new Error(`usage:${usageMessage}`);
+    });
+
+    await expect(handleSnapshotCommand(makeContext({ args: ["wat"] }))).rejects.toThrow(/usage:/);
+    expect(usageMessage).toMatch(/save \[name\]/);
+    expect(usageMessage).toMatch(/show \[name\]/);
+    expect(usageMessage).toMatch(/clear \[name\]/);
+  });
 });
 
 describe("handleBriefingCommand", () => {

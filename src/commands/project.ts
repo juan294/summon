@@ -87,10 +87,13 @@ export async function handleOpenCommand({ overrides }: CommandContext): Promise<
   const colPad = " ".repeat(Math.max(0, nameWidth - "name".length));
   console.log(`  summon — select a project${colPad}  ${activeCount} active / ${rows.length} total\n`);
   const width = process.stdout.columns || 80;
+  const numWidth = String(rows.length).length;
+  const prefixWidth = 2 + numWidth + 2; // "  N  "
   for (const [index, row] of rows.entries()) {
-    console.log(`  ${index + 1}  ${renderRow(row, width - 5, false).trimStart()}`);
+    const num = String(index + 1).padStart(numWidth);
+    console.log(`  ${num}  ${renderRow(row, width - prefixWidth, false).trimStart()}`);
   }
-  console.log();
+  console.log(`(↑↓/jk in 'summon status' for interactive mode)`);
 
   let selectedRow: (typeof rows)[number] | undefined;
   while (selectedRow === undefined) {

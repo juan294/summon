@@ -61,7 +61,17 @@ export async function handleSnapshotCommand({ args }: CommandContext): Promise<v
       return;
     }
     default:
-      exitWithUsageHint("Usage: summon snapshot <save|show|clear> [project]");
+      exitWithUsageHint(
+        "Usage: summon snapshot <save|show|clear> [project]\n\n" +
+        "Subcommands:\n" +
+        "  summon snapshot save [name]    Save current workspace state\n" +
+        "  summon snapshot show [name]    Show a saved snapshot\n" +
+        "  summon snapshot clear [name]   Remove a saved snapshot\n\n" +
+        "Examples:\n" +
+        "  summon snapshot save myapp\n" +
+        "  summon snapshot show myapp\n" +
+        "  summon snapshot clear myapp",
+      );
   }
 }
 
