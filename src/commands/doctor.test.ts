@@ -90,7 +90,9 @@ describe("handleDoctorCommand", () => {
     expect(logSpy).toHaveBeenCalledWith('  + editor command "nvim" found at /usr/bin/nvim');
     expect(logSpy).toHaveBeenCalledWith('  + sidebar command "lazygit" found at /usr/bin/nvim');
     expect(logSpy).toHaveBeenCalledWith("  + No port conflicts (2 projects checked)");
-    expect(logSpy).toHaveBeenCalledWith("\n  All recommended settings are configured!");
+    // Issue count summary shows "All checks passed" when clean
+    const allOutput = logSpy.mock.calls.flat().join("\n");
+    expect(allOutput).toContain("✓ All checks passed.");
   });
 
   it("lists missing settings and exits with code 2 when issues remain", async () => {
@@ -150,6 +152,9 @@ describe("handleDoctorCommand", () => {
     await expect(handleDoctorCommand(makeContext())).rejects.toThrow("exit:2");
     expect(logSpy).toHaveBeenCalledWith('  - editor command "missing-editor" not found in PATH');
     expect(logSpy).toHaveBeenCalledWith('    Install "missing-editor" or change with: summon set editor <command>');
+    // Issue count shown in summary
+    const allOutput = logSpy.mock.calls.flat().join("\n");
+    expect(allOutput).toMatch(/Found \d+ issue/);
   });
 
   it("uses the full configured command when no executable can be parsed", async () => {
@@ -168,5 +173,46 @@ describe("handleDoctorCommand", () => {
 
     expect(logSpy).toHaveBeenCalledWith('  - editor command "   " not found in PATH');
     expect(logSpy).toHaveBeenCalledWith('    Install "   " or change with: summon set editor <command>');
+  });
+
+  it("shows '✓ All checks passed.' when there are no issues", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue(
+      "notify-on-command-finish = unfocused\nshell-integration = detect\n",
+    );
+
+    await handleDoctorCommand(makeContext());
+
+    const output = logSpy.mock.calls.flat().join("\n");
+    expect(output).toContain("✓ All checks passed.");
+  });
+
+  it("prints issue count summary when issues are found", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+    mockCheckAccessibility.mockReturnValue(false);
+
+    await expect(handleDoctorCommand(makeContext())).rejects.toThrow("exit:2");
+
+    const output = logSpy.mock.calls.flat().join("\n");
+    expect(output).toMatch(/Found \d+ issue/);
+  });
+
+  it("prints auto-fixable count in issue summary", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+    // Missing ghost config settings are auto-fixable
+    mockExistsSync.mockReturnValue(false);
+
+    await expect(handleDoctorCommand(makeContext())).rejects.toThrow("exit:2");
+
+    const output = logSpy.mock.calls.flat().join("\n");
+    expect(output).toMatch(/auto-fixable/);
+    expect(output).toContain("summon doctor --fix");
   });
 });

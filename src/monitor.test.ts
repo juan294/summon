@@ -201,6 +201,17 @@ describe("renderFooter", () => {
     expect(result).toContain("refresh");
     expect(result).toContain("quit");
   });
+
+  it("shows j/k as navigation aliases", () => {
+    const result = renderFooter(80);
+    expect(result).toContain("j");
+    expect(result).toContain("k");
+  });
+
+  it("shows ? for help", () => {
+    const result = renderFooter(80);
+    expect(result).toContain("?");
+  });
 });
 
 describe("renderScreen", () => {
@@ -220,6 +231,12 @@ describe("renderScreen", () => {
     expect(screen).toContain("summon status");
     expect(screen).toContain("0 / 0");
     expect(screen).toContain("navigate");
+  });
+
+  it("shows empty state message when there are no projects", () => {
+    const screen = renderScreen([], 0, 80, 24);
+    expect(screen).toContain("No projects registered");
+    expect(screen).toContain("summon add");
   });
 
   it("handles more rows than screen height (scrolling)", () => {
@@ -721,5 +738,36 @@ describe.skipIf(nodeMajor < 20)("runMonitor", () => {
 
     expect(exitSpy).toHaveBeenCalledWith(1);
     exitSpy.mockRestore();
+  });
+
+  it("prints error message when launch fails", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(process, "exit").mockImplementation(() => undefined as never);
+    listProjects.mockReturnValue([["myapp", "/tmp/myapp"]]);
+    readAllStatuses.mockReturnValue([
+      makeResolvedStatus({ project: "myapp", state: "active", uptime: 60_000 }),
+    ]);
+    getGitBranch.mockReturnValue("main");
+    mockLaunch.mockRejectedValueOnce(new Error("osascript error"));
+
+    const monitorPromise = runMonitor();
+    process.stdin.emit("data", Buffer.from("\r"));
+    await monitorPromise;
+    await vi.dynamicImportSettled();
+
+    expect(errorSpy).toHaveBeenCalledWith("Launch failed:", "osascript error");
+    errorSpy.mockRestore();
+  });
+
+  it("shows ? help overlay and dismisses on any key", async () => {
+    const monitorPromise = runMonitor();
+    process.stdin.emit("data", Buffer.from("?"));
+    // any key to dismiss
+    process.stdin.emit("data", Buffer.from(" "));
+    process.stdin.emit("data", Buffer.from("q"));
+    await monitorPromise;
+
+    const output = writeSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("");
+    expect(output).toContain("Key bindings");
   });
 });

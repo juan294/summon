@@ -99,7 +99,7 @@ export function renderHeader(activeCount: number, totalCount: number, width: num
 }
 
 export function renderFooter(width: number): string {
-  const keys = "  \u2191\u2193 navigate  \u23CE open  r refresh  q quit";
+  const keys = "  \u2191\u2193/jk navigate  \u23CE open  r refresh  ? help  q quit";
   const padded = keys.length < width ? keys + " ".repeat(width - keys.length) : keys.slice(0, width);
   return dim(padded);
 }
@@ -126,9 +126,17 @@ export function renderScreen(rows: ProjectRow[], selectedIndex: number, width: n
   }
 
   const visibleRows = rows.slice(scrollStart, scrollStart + availableRows);
-  const renderedRows = visibleRows.map((row, i) =>
-    renderRow(row, width, scrollStart + i === selectedIndex),
-  );
+  let renderedRows: string[];
+  if (rows.length === 0) {
+    renderedRows = [
+      "  No projects registered.",
+      "  Run 'summon add <name> <path>' to get started.",
+    ];
+  } else {
+    renderedRows = visibleRows.map((row, i) =>
+      renderRow(row, width, scrollStart + i === selectedIndex),
+    );
+  }
 
   // Pad with empty lines if fewer rows than available space
   while (renderedRows.length < availableRows) {
@@ -258,6 +266,12 @@ export async function runMonitor(): Promise<void> {
   // Declared here so cleanup() can reference it; assigned inside the promise
   let onKeypress: (data: Buffer) => void;
 
+  const onUncaughtException = (err: Error): void => {
+    cleanup();
+    process.stderr.write(err.stack ?? err.message);
+    process.exit(1);
+  };
+
   function cleanup(): void {
     if (refreshTimer) clearInterval(refreshTimer);
     process.stdout.write(SHOW_CURSOR + EXIT_ALT_SCREEN);
@@ -266,7 +280,13 @@ export async function runMonitor(): Promise<void> {
     }
     if (onKeypress) process.stdin.off("data", onKeypress);
     process.off("SIGWINCH", onResize);
+    process.off("exit", cleanup);
+    process.off("uncaughtException", onUncaughtException);
   }
+
+  // Register cleanup BEFORE entering alt-screen/raw mode so signals always restore terminal
+  process.once("exit", cleanup);
+  process.once("uncaughtException", onUncaughtException);
 
   process.stdout.write(ENTER_ALT_SCREEN + HIDE_CURSOR);
 
@@ -315,6 +335,32 @@ export async function runMonitor(): Promise<void> {
         return;
       }
 
+      // ? → show help overlay
+      if (key === "?") {
+        const helpLines = [
+          "",
+          "  Key bindings:",
+          "  ↑/k        move up",
+          "  ↓/j        move down",
+          "  ⏎          open selected project",
+          "  r          refresh",
+          "  ?          show this help",
+          "  q / Ctrl+C quit",
+          "",
+          "  Press any key to dismiss...",
+        ];
+        process.stdout.write(CLEAR_SCREEN + helpLines.join("\n"));
+
+        // Wait for any key to dismiss
+        const dismissHelp = (dismissData: Buffer): void => {
+          void dismissData;
+          process.stdin.off("data", dismissHelp);
+          render();
+        };
+        process.stdin.once("data", dismissHelp);
+        return;
+      }
+
       // Enter → open selected project
       if (key === "\r" || key === "\n") {
         if (rows.length > 0) {
@@ -322,17 +368,18 @@ export async function runMonitor(): Promise<void> {
           if (selected) {
             cleanup();
             console.log(`Opening ${selected.name}...`);
-            resolve();
-            import("./launcher.js").then(({ launch }) => {
-              launch(selected.directory).catch(() => {
+            import("./launcher.js").then(async ({ launch }) => {
+              await launch(selected.directory).catch((err: Error) => {
+                console.error("Launch failed:", err.message);
                 process.exit(1);
               });
+              resolve();
             });
           }
         }
         return;
       }
-    }
+    };
 
     process.stdin.on("data", onKeypress);
   });

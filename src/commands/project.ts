@@ -12,8 +12,22 @@ import { promptUser, exitWithUsageHint } from "../utils.js";
 import { validateProjectNameOrExit } from "../validation.js";
 import type { CommandContext } from "./types.js";
 
+// Output helpers for consistent prefixes (UX-H5)
+const sym = {
+  ok: "✓",
+  warn: "!",
+  err: "✗",
+  info: "→",
+} as const;
+
 function expandHome(path: string): string {
   return resolve(path.replace(/^~/, homedir()));
+}
+
+/** Compute column widths from actual data lengths (UX-H6). */
+function computeColumnWidths(rows: { name: string }[]): { nameWidth: number } {
+  const nameWidth = Math.max(4, ...rows.map((r) => r.name.length));
+  return { nameWidth };
 }
 
 export async function handleAddCommand({ args }: CommandContext): Promise<void> {
@@ -24,10 +38,10 @@ export async function handleAddCommand({ args }: CommandContext): Promise<void> 
   validateProjectNameOrExit(name);
   const resolved = expandHome(path);
   if (!existsSync(resolved)) {
-    console.warn(`Warning: path does not exist: ${resolved}`);
+    console.warn(`${sym.warn} Warning: path does not exist: ${resolved}`);
   }
   addProject(name, resolved);
-  console.log(`Registered: ${name} → ${resolved}`);
+  console.log(`${sym.ok} Registered: ${name} → ${resolved}`);
 }
 
 export async function handleRemoveCommand({ args }: CommandContext): Promise<void> {
@@ -37,7 +51,7 @@ export async function handleRemoveCommand({ args }: CommandContext): Promise<voi
   }
   const existed = removeProject(name);
   if (existed) {
-    console.log(`Removed: ${name}`);
+    console.log(`${sym.ok} Removed: ${name}`);
     return;
   }
 
@@ -69,7 +83,9 @@ export async function handleOpenCommand({ overrides }: CommandContext): Promise<
   }
 
   const activeCount = rows.filter((row) => row.state === "active" || row.state === "active-long").length;
-  console.log(`  summon — select a project${" ".repeat(20)}${activeCount} active / ${rows.length} total\n`);
+  const { nameWidth } = computeColumnWidths(rows);
+  const colPad = " ".repeat(Math.max(0, nameWidth - "name".length));
+  console.log(`  summon — select a project${colPad}  ${activeCount} active / ${rows.length} total\n`);
   const width = process.stdout.columns || 80;
   for (const [index, row] of rows.entries()) {
     console.log(`  ${index + 1}  ${renderRow(row, width - 5, false).trimStart()}`);
