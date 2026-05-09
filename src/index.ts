@@ -66,24 +66,36 @@ if (parsed.values.version) {
 if (parsed.values.help) {
   if (parsed.subcommand && hasSubcommandHelp(parsed.subcommand)) {
     showSubcommandHelp(parsed.subcommand);
-  } else {
-    showHelp();
+    process.exit(0);
   }
+  // FE-H2 (#255): unknown subcommand with --help
+  if (parsed.subcommand && !hasSubcommandHelp(parsed.subcommand) && !registry[parsed.subcommand]) {
+    console.error(`Error: Unknown command: ${parsed.subcommand}. Run 'summon --help' to see available commands.`);
+    process.exit(1);
+  }
+  showHelp();
   process.exit(0);
 }
 
-if (isFirstRun() && process.stdin.isTTY) {
-  if (!parsed.subcommand || !hasSubcommandHelp(parsed.subcommand)) {
-    const { runSetup } = await import("./setup.js");
-    await runSetup();
-    if (!parsed.subcommand) {
-      process.exit(0);
-    }
-  }
+// FE-H1 (#254): first-run wizard ONLY fires when no subcommand was supplied
+if (isFirstRun() && process.stdin.isTTY && parsed.subcommand === undefined) {
+  console.log("Press Ctrl+C at any time to skip setup. Re-run later with: summon setup");
+  const { runSetup } = await import("./setup.js");
+  await runSetup();
+  process.exit(0);
 }
 
 if (!parsed.subcommand) {
   showHelp();
+  process.exit(0);
+}
+
+// trust subcommand wiring (WU-1)
+if (parsed.subcommand === "trust") {
+  const dir = parsed.args[0] ?? ".";
+  const { trustProject } = await import("./trust.js");
+  trustProject(typeof dir === "string" ? dir : ".");
+  console.log(`✓ Trusted: ${dir}`);
   process.exit(0);
 }
 
@@ -99,6 +111,8 @@ if (handler) {
     overrides,
   });
 } else {
+  // Not a known subcommand — treat as a workspace target (path or registered project name).
+  // resolveTargetDirectory handles path resolution, project registry lookup, and error reporting.
   const targetDir = resolveTargetDirectory(parsed.subcommand);
   await launch(targetDir, overrides);
 }
