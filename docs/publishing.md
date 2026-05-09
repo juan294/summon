@@ -19,6 +19,19 @@ Publishing checklist and workflow. First published as v0.7.0 on 2026-03-14.
 
 ## Publishing a New Version
 
+### 0. Prepare CHANGELOG.md
+
+Promote the `[Unreleased]` section to the new version number and add today's date:
+
+1. Replace `## [Unreleased]` with `## [X.Y.Z] - YYYY-MM-DD`
+2. Add a new empty `## [Unreleased]` section above it
+3. Update the comparison links at the bottom of CHANGELOG.md
+
+Verify the package version matches the intended release:
+```bash
+node -p "require('./package.json').version"
+```
+
 ### 1. Pre-Publish Verification
 ```bash
 pnpm pack
