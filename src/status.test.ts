@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdirSync, existsSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, existsSync, readFileSync, writeFileSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -75,6 +75,13 @@ describe("writeStatus", () => {
 
   it("rejects path traversal in project name", () => {
     expect(() => writeStatus(makeStatus({ project: "../../etc/evil" }))).toThrow("Invalid status path");
+  });
+
+  it("writes status JSON with mode 0o600", () => {
+    writeStatus(makeStatus({ project: "myapp" }));
+    const filePath = join(TEST_STATUS_DIR, "myapp.json");
+    const mode = statSync(filePath).mode & 0o777;
+    expect(mode).toBe(0o600);
   });
 });
 

@@ -67,7 +67,7 @@ function pidFilePath(projectName: string): string {
  */
 export function writeStatus(status: WorkspaceStatus): void {
   mkdirSync(STATUS_DIR, { recursive: true, mode: 0o700 });
-  writeFileSync(statusFilePath(status.project), JSON.stringify(status, null, 2) + "\n", { mode: 0o644 });
+  writeFileSync(statusFilePath(status.project), JSON.stringify(status, null, 2) + "\n", { mode: 0o600 });
 }
 
 export function clearStatus(projectName: string): void {
