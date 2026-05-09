@@ -126,7 +126,7 @@ export function formatTimeSince(isoTimestamp: string): string {
   const then = Date.parse(isoTimestamp);
   if (isNaN(then)) return "unknown";
 
-  const diffMs = Date.now() - then;
+  const diffMs = Math.max(0, Date.now() - then);
   const minutes = Math.floor(diffMs / 60_000);
   const hours = Math.floor(diffMs / 3_600_000);
   const days = Math.floor(diffMs / 86_400_000);

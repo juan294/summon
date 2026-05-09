@@ -269,6 +269,11 @@ describe("formatTimeSince", () => {
   it("returns 'unknown' for invalid timestamp", () => {
     expect(formatTimeSince("not-a-date")).toBe("unknown");
   });
+
+  it("returns '0m ago' for a future timestamp (clock skew / negative diff)", () => {
+    const futureTimestamp = new Date(Date.now() + 10_000).toISOString();
+    expect(formatTimeSince(futureTimestamp)).toBe("0m ago");
+  });
 });
 
 describe("formatRestorationBanner", () => {
