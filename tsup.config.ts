@@ -10,6 +10,6 @@ export default defineConfig({
   clean: true,
   sourcemap: "inline",
   banner: { js: "#!/usr/bin/env node" },
-  minify: false,
+  minify: true,
   define: { __VERSION__: JSON.stringify(version) },
 });
