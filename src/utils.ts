@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { homedir } from "node:os";
@@ -158,4 +158,30 @@ export function openAccessibilitySettings(): void {
 export function gitSafeEnv(): NodeJS.ProcessEnv {
   const { GIT_DIR: _gd, GIT_WORK_TREE: _gwt, GIT_INDEX_FILE: _gif, ...clean } = process.env;
   return clean;
+}
+
+/**
+ * Returns true when SUMMON_DEBUG=1 is set in the environment.
+ */
+export const isDebug = (): boolean => process.env["SUMMON_DEBUG"] === "1";
+
+/**
+ * Write a debug message to stderr, but only when SUMMON_DEBUG=1.
+ * Each message includes an ISO timestamp for post-launch triage.
+ */
+export function debugLog(...args: unknown[]): void {
+  if (isDebug()) {
+    const timestamp = new Date().toISOString();
+    process.stderr.write(`[summon:debug ${timestamp}] ${args.join(" ")}\n`);
+  }
+}
+
+/**
+ * Returns the path to the summon debug log directory (~/.config/summon/logs/).
+ * Creates the directory if it does not already exist.
+ */
+export function getLogDir(): string {
+  const dir = join(homedir(), ".config", "summon", "logs");
+  mkdirSync(dir, { recursive: true });
+  return dir;
 }

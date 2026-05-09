@@ -8,8 +8,10 @@ vi.mock("node:child_process", () => ({
 
 // Mock node:fs for isGhosttyInstalled tests
 const mockExistsSync = vi.fn((_path: string) => false);
+const mockMkdirSync = vi.fn();
 vi.mock("node:fs", () => ({
   existsSync: (path: string) => mockExistsSync(path),
+  mkdirSync: (...args: unknown[]) => mockMkdirSync(...args),
 }));
 
 // Mock readline for promptUser tests
@@ -27,7 +29,7 @@ vi.mock("node:readline", () => ({
 }));
 
 // Import after mocks
-const { SAFE_COMMAND_RE, GHOSTTY_PATHS, GHOSTTY_APP_NAME, SUMMON_WORKSPACE_ENV, resolveCommand, promptUser, getErrorMessage, exitWithUsageHint, checkAccessibility, openAccessibilitySettings, isAccessibilityError, isGhosttyInstalled, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT, PromptCancelled } = await import("./utils.js");
+const { SAFE_COMMAND_RE, GHOSTTY_PATHS, GHOSTTY_APP_NAME, SUMMON_WORKSPACE_ENV, resolveCommand, promptUser, getErrorMessage, exitWithUsageHint, checkAccessibility, openAccessibilitySettings, isAccessibilityError, isGhosttyInstalled, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT, PromptCancelled, isDebug, debugLog, getLogDir } = await import("./utils.js");
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -415,5 +417,69 @@ describe("isGhosttyInstalled", () => {
   it("returns false when Ghostty is not found at any known path", () => {
     mockExistsSync.mockReturnValue(false);
     expect(isGhosttyInstalled()).toBe(false);
+  });
+});
+
+describe("isDebug", () => {
+  it("returns false when SUMMON_DEBUG is not set", () => {
+    delete process.env["SUMMON_DEBUG"];
+    expect(isDebug()).toBe(false);
+  });
+
+  it("returns true when SUMMON_DEBUG is '1'", () => {
+    process.env["SUMMON_DEBUG"] = "1";
+    expect(isDebug()).toBe(true);
+    delete process.env["SUMMON_DEBUG"];
+  });
+
+  it("returns false when SUMMON_DEBUG is set to a value other than '1'", () => {
+    process.env["SUMMON_DEBUG"] = "true";
+    expect(isDebug()).toBe(false);
+    delete process.env["SUMMON_DEBUG"];
+  });
+});
+
+describe("debugLog", () => {
+  it("does not write to stderr when SUMMON_DEBUG is not set", () => {
+    delete process.env["SUMMON_DEBUG"];
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    debugLog("should not appear");
+    expect(writeSpy).not.toHaveBeenCalled();
+    writeSpy.mockRestore();
+  });
+
+  it("writes to stderr when SUMMON_DEBUG=1", () => {
+    process.env["SUMMON_DEBUG"] = "1";
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    debugLog("hello", "world");
+    expect(writeSpy).toHaveBeenCalledOnce();
+    const output = writeSpy.mock.calls[0]?.[0] as string;
+    expect(output).toMatch(/^\[summon:debug /);
+    expect(output).toContain("hello world");
+    writeSpy.mockRestore();
+    delete process.env["SUMMON_DEBUG"];
+  });
+
+  it("includes a timestamp in the debug output", () => {
+    process.env["SUMMON_DEBUG"] = "1";
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    debugLog("timestamped");
+    const output = writeSpy.mock.calls[0]?.[0] as string;
+    // ISO timestamp pattern
+    expect(output).toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+    writeSpy.mockRestore();
+    delete process.env["SUMMON_DEBUG"];
+  });
+});
+
+describe("getLogDir", () => {
+  it("returns a path ending in logs/", () => {
+    const dir = getLogDir();
+    expect(dir).toMatch(/logs[/\\]?$/);
+  });
+
+  it("returns a path inside ~/.config/summon/", () => {
+    const dir = getLogDir();
+    expect(dir).toContain(".config/summon");
   });
 });
