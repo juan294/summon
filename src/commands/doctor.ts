@@ -22,6 +22,10 @@ export async function handleDoctorCommand({ values }: CommandContext): Promise<v
 
   const fixFlag = values.fix;
 
+  // Track issues for summary (UX-M4)
+  let totalIssues = 0;
+  let autoFixable = 0;
+
   console.log("Checking Ghostty configuration...\n");
 
   const ghosttyConfigPath = join(homedir(), ".config", "ghostty", "config");
@@ -62,6 +66,8 @@ export async function handleDoctorCommand({ values }: CommandContext): Promise<v
       console.log(`  + ${check.name} (${check.key}) is configured`);
     } else {
       allGood = false;
+      totalIssues++;
+      autoFixable++;
       missingSettings.push({ key: check.key, recommended: check.recommended });
       console.log(`  - ${check.name}`);
       if (!fixFlag) {
@@ -97,6 +103,7 @@ export async function handleDoctorCommand({ values }: CommandContext): Promise<v
     console.log("  + Accessibility permission is granted");
   } else {
     allGood = false;
+    totalIssues++;
     console.log("  - Accessibility permission is required");
     console.log(`    ${ACCESSIBILITY_REQUIRED_MSG}`);
     console.log(`    ${ACCESSIBILITY_SETTINGS_PATH}`);
@@ -122,6 +129,7 @@ export async function handleDoctorCommand({ values }: CommandContext): Promise<v
         console.log(`  + ${key} command "${binary}" found at ${found}`);
       } else {
         allGood = false;
+        totalIssues++;
         console.log(`  - ${key} command "${binary ?? cmd}" not found in PATH`);
         console.log(`    Install "${binary ?? cmd}" or change with: summon set ${key} <command>`);
         console.log();
@@ -138,12 +146,19 @@ export async function handleDoctorCommand({ values }: CommandContext): Promise<v
   } else {
     allGood = false;
     for (const [port, projects] of conflicts) {
+      totalIssues++;
       console.log(`  - Port conflict: port ${port} used by ${projects.join(", ")}`);
     }
   }
 
-  if (allGood && missingSettings.length === 0) {
-    console.log("\n  All recommended settings are configured!");
+  console.log();
+
+  // Issue count summary (UX-M4)
+  if (totalIssues === 0) {
+    console.log("✓ All checks passed.");
+  } else {
+    const fixablePart = autoFixable > 0 ? ` (${autoFixable} auto-fixable)` : "";
+    console.log(`Found ${totalIssues} issue${totalIssues !== 1 ? "s" : ""}${fixablePart}. Run 'summon doctor --fix' to apply fixes.`);
   }
 
   const configFixed = fixFlag && missingSettings.length > 0;

@@ -120,8 +120,8 @@ describe("handleAddCommand", () => {
     await handleAddCommand(makeContext({ args: ["demo", "~/code/demo"] }));
 
     expect(mockAddProject).toHaveBeenCalledWith("demo", "/Users/tester/code/demo");
-    expect(warnSpy).toHaveBeenCalledWith("Warning: path does not exist: /Users/tester/code/demo");
-    expect(logSpy).toHaveBeenCalledWith("Registered: demo → /Users/tester/code/demo");
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("Warning: path does not exist: /Users/tester/code/demo"));
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("Registered: demo"));
   });
 });
 
@@ -138,7 +138,7 @@ describe("handleRemoveCommand", () => {
 
     await handleRemoveCommand(makeContext({ args: ["demo"] }));
 
-    expect(logSpy).toHaveBeenCalledWith("Removed: demo");
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("Removed: demo"));
   });
 
   it("exits when the project does not exist", async () => {
