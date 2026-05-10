@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.2] - 2026-05-10
+
+### Fixed
+
+- `summon trust .` now stores the absolute project path so trust persists across
+  launches. Previously the literal `"."` was recorded, never matching the resolved
+  target dir on subsequent runs.
+- Pane cleanup on launch no longer requires the front tab title to contain the
+  project marker. Re-launching a project from any tab clears the existing panes
+  and renders the fresh layout. `--no-clean` and `--new-window` remain the
+  escape hatches.
+
+### Added
+
+- `--no-project-config` flag — skips reading and trust-checking the `.summon`
+  file. The flag was previously advertised in the trust error message but never
+  wired into the parser.
+
 ## [1.4.1] - 2026-05-09
 
 ### Fixed
