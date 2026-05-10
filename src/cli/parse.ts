@@ -24,6 +24,7 @@ export type ParsedValues = {
   "font-size"?: string;
   "on-start"?: string;
   "new-window"?: boolean;
+  "no-project-config"?: boolean;
   fullscreen?: boolean;
   maximize?: boolean;
   float?: boolean;
@@ -98,6 +99,7 @@ Options:
   --font-size <n>             Override font size for workspace panes
   --on-start <cmd>            Run command before workspace creation
   --new-window                Open workspace in a new Ghostty window
+  --no-project-config         Skip the .summon file (do not require trust)
   --fullscreen                Start workspace in fullscreen mode
   --maximize                  Start workspace maximized
   --float                     Float workspace window on top
@@ -304,6 +306,7 @@ const parseOpts = {
     "font-size": { type: "string" },
     "on-start": { type: "string" },
     "new-window": { type: "boolean" },
+    "no-project-config": { type: "boolean" },
     fullscreen: { type: "boolean" },
     maximize: { type: "boolean" },
     float: { type: "boolean" },
@@ -386,6 +389,7 @@ export function buildOverrides(values: ParsedValues): CLIOverrides {
   if (values["font-size"] !== undefined) overrides["font-size"] = values["font-size"];
   if (values["on-start"] !== undefined) overrides["on-start"] = values["on-start"];
   if (values["new-window"] !== undefined) overrides["new-window"] = "true";
+  if (values["no-project-config"] !== undefined) overrides["no-project-config"] = "true";
   if (values.fullscreen !== undefined) overrides.fullscreen = "true";
   if (values.maximize !== undefined) overrides.maximize = "true";
   if (values.float !== undefined) overrides.float = "true";
