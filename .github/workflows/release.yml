@@ -52,9 +52,23 @@ jobs:
           tar tzf "$TARBALL" | grep -E "(index\.js|bin)" || (echo "ERROR: Missing expected files in tarball" && exit 1)
           npm install -g "$TARBALL"
           summon --version
+          summon --help
+          summon doctor
 
-      # IMPORTANT: Configure trusted publisher on npmjs.com for OIDC to work
-      # Until OIDC is configured on npmjs.com, NODE_AUTH_TOKEN is used as fallback
+      - name: AppleScript E2E smoke test
+        # Validates generated AppleScript syntax via osacompile (no Ghostty needed)
+        run: SUMMON_E2E=1 pnpm test:e2e
+
+      # TODO: OIDC — migrate away from long-lived NPM_TOKEN
+      # Current state: NODE_AUTH_TOKEN (NPM_TOKEN secret) is the active publish credential.
+      # id-token: write is declared above but OIDC trusted publishing is NOT yet active.
+      #
+      # To complete the migration:
+      #   1. Go to https://www.npmjs.com/package/summon-ws -> Settings -> Publishing
+      #   2. Add a trusted publisher: GitHub Actions, repo juan294/summon, workflow release.yml
+      #   3. Once configured, remove NODE_AUTH_TOKEN from the Publish step below.
+      #      The --provenance flag will then use the OIDC token automatically.
+      #   4. Revoke the NPM_TOKEN secret from GitHub Settings -> Secrets.
       - name: Publish
         run: npm publish summon-ws-*.tgz --provenance --access public
         env:

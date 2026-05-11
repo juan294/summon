@@ -100,6 +100,56 @@ summon .
 - [ ] Push the tag: `git push origin v<version>`
 - [ ] Create a GitHub release from the tag
 
+## Rollback
+
+If a bad version is published, act quickly — npm does not allow unpublishing versions older than 72 hours.
+
+### 1. Deprecate the bad version
+
+This keeps the package installable but warns users away:
+
+```bash
+npm deprecate summon-ws@<bad-version> "Critical bug — use <previous-version> instead"
+```
+
+### 2. Repoint the `latest` dist-tag to the last good version
+
+```bash
+npm dist-tag add summon-ws@<good-version> latest
+```
+
+After this, `npm install -g summon-ws` will install the good version again.
+
+### 3. Publish a canary fix before promoting to `latest`
+
+If you have a fix ready but want to test it before making it the default:
+
+```bash
+# Publish under the `next` tag — does NOT affect `latest`
+npm publish --tag next
+
+# Verify it works:
+npm install -g summon-ws@next
+summon --version
+summon --help
+summon doctor
+
+# Promote to latest once verified:
+npm dist-tag add summon-ws@<fixed-version> latest
+```
+
+### 4. Post-incident verification
+
+Confirm dist-tags are pointing at the right versions:
+
+```bash
+npm info summon-ws dist-tags
+# Should show: { latest: '<good-version>', ... }
+
+npm info summon-ws@latest version
+# Must match the intended good version
+```
+
 ## Supply Chain
 
 Consider adding SBOM generation (`cyclonedx-node`) to the release workflow for future releases.
