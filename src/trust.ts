@@ -49,6 +49,14 @@ function saveTrustDb(db: Record<string, string>): void {
 }
 
 /**
+ * Compute the SHA-256 hash of a string.
+ * Returns the hex digest.
+ */
+export function hashContent(content: string): string {
+  return createHash("sha256").update(content).digest("hex");
+}
+
+/**
  * Compute the SHA-256 hash of a .summon file in the given directory.
  * Returns the hex digest, or null if the file does not exist.
  */
@@ -56,7 +64,7 @@ export function hashSummonFile(dir: string): string | null {
   const summonPath = join(dir, ".summon");
   if (!existsSync(summonPath)) return null;
   const content = readFileSync(summonPath, "utf-8");
-  return createHash("sha256").update(content).digest("hex");
+  return hashContent(content);
 }
 
 /**
@@ -82,6 +90,23 @@ export function trustProject(dir: string): void {
   const db = loadTrustDb();
   db[dir] = hash;
   saveTrustDb(db);
+}
+
+/**
+ * Assert that the .summon file is trusted using pre-read content.
+ * Throws SummonError if the content hash does not match the stored trust hash.
+ *
+ * Use this variant when the file content has already been read from disk,
+ * to avoid a TOCTOU race between hashing and parsing (BE-B2 #357).
+ */
+export function assertTrustedContent(targetDir: string, content: string): void {
+  const hash = hashContent(content);
+  const db = loadTrustDb();
+  if (db[targetDir] === hash) return;
+
+  throw new SummonError(
+    `This project has a .summon file.\nRun 'summon trust .' to allow it, or use --no-project-config to skip it.`,
+  );
 }
 
 /**

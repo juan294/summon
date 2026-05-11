@@ -126,7 +126,14 @@ export function parseWorkspaceStatus(raw: unknown): WorkspaceStatus | null {
   if (typeof d["layout"] !== "string") return null;
   if (!Array.isArray(d["panes"])) return null;
 
-  return raw as WorkspaceStatus;
+  // Validate that every pane element is a string (BE-M5 #379).
+  // If any element is not a string, return empty panes rather than rejecting the record.
+  const rawPanes = d["panes"] as unknown[];
+  const validPanes = rawPanes.every((p) => typeof p === "string")
+    ? rawPanes as string[]
+    : [];
+
+  return { ...(raw as WorkspaceStatus), panes: validPanes };
 }
 
 export function readStatus(projectName: string): ResolvedStatus | null {
