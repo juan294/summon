@@ -269,3 +269,222 @@ describe("session launch --new-window <name>", () => {
     logSpy.mockRestore();
   });
 });
+
+describe("session launch with no name and no --all", () => {
+  it("prints usage and lists saved sessions then exits 1", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const mockExit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error("process.exit:" + code);
+    }) as never);
+    mockListSessions.mockReturnValue(["alpha", "beta"]);
+
+    await expect(
+      handleSessionCommand(makeContext({ args: [] })),
+    ).rejects.toThrow("process.exit:1");
+
+    const allErrors = errorSpy.mock.calls.map((c) => c[0] as string).join("\n");
+    expect(allErrors).toContain("Usage:");
+    expect(allErrors).toContain("alpha");
+    expect(allErrors).toContain("beta");
+    expect(mockLaunch).not.toHaveBeenCalled();
+    mockExit.mockRestore();
+    errorSpy.mockRestore();
+  });
+
+  it("prints usage and 'no saved sessions' message when list is empty then exits 1", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const mockExit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error("process.exit:" + code);
+    }) as never);
+    mockListSessions.mockReturnValue([]);
+
+    await expect(
+      handleSessionCommand(makeContext({ args: [] })),
+    ).rejects.toThrow("process.exit:1");
+
+    const allErrors = errorSpy.mock.calls.map((c) => c[0] as string).join("\n");
+    expect(allErrors).toContain("Usage:");
+    expect(allErrors).toContain("No saved sessions");
+    expect(mockLaunch).not.toHaveBeenCalled();
+    mockExit.mockRestore();
+    errorSpy.mockRestore();
+  });
+});
+
+describe("session launch <name> — session not found", () => {
+  it("errors when readSession returns null", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const mockExit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error("process.exit:" + code);
+    }) as never);
+    mockReadSession.mockReturnValue(null);
+
+    await expect(
+      handleSessionCommand(makeContext({ args: ["nonexistent"] })),
+    ).rejects.toThrow("process.exit:1");
+
+    expect(mockLaunch).not.toHaveBeenCalled();
+    const allErrors = errorSpy.mock.calls.map((c) => c[0] as string).join("\n");
+    expect(allErrors).toContain("nonexistent");
+    mockExit.mockRestore();
+    errorSpy.mockRestore();
+  });
+});
+
+describe("session launch — unknown projects in session", () => {
+  it("errors when a project in the session is not registered", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const mockExit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error("process.exit:" + code);
+    }) as never);
+    mockReadSession.mockReturnValue(["api", "unknown-proj"]);
+    mockGetProject.mockImplementation((name: string) => {
+      return name === "api" ? "/tmp/api" : undefined;
+    });
+
+    await expect(
+      handleSessionCommand(makeContext({ args: ["myteam"] })),
+    ).rejects.toThrow("process.exit:1");
+
+    expect(mockLaunch).not.toHaveBeenCalled();
+    const allErrors = errorSpy.mock.calls.map((c) => c[0] as string).join("\n");
+    expect(allErrors).toContain("unknown-proj");
+    mockExit.mockRestore();
+    errorSpy.mockRestore();
+  });
+});
+
+describe("session remove", () => {
+  it("calls deleteSession and confirms removal", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockDeleteSession.mockReturnValue(true);
+
+    await handleSessionCommand(makeContext({ args: ["remove", "myteam"] }));
+
+    expect(mockDeleteSession).toHaveBeenCalledWith("myteam");
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("myteam"));
+    logSpy.mockRestore();
+  });
+
+  it("errors when session does not exist", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const mockExit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error("process.exit:" + code);
+    }) as never);
+    mockDeleteSession.mockReturnValue(false);
+
+    await expect(
+      handleSessionCommand(makeContext({ args: ["remove", "ghost"] })),
+    ).rejects.toThrow("process.exit:1");
+
+    const allErrors = errorSpy.mock.calls.map((c) => c[0] as string).join("\n");
+    expect(allErrors).toContain("ghost");
+    mockExit.mockRestore();
+    errorSpy.mockRestore();
+  });
+
+  it("errors when no name is provided", async () => {
+    const mockExit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error("process.exit:" + code);
+    }) as never);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(
+      handleSessionCommand(makeContext({ args: ["remove"] })),
+    ).rejects.toThrow("process.exit");
+
+    mockExit.mockRestore();
+  });
+});
+
+describe("session show — not found", () => {
+  it("errors when session does not exist", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const mockExit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error("process.exit:" + code);
+    }) as never);
+    mockReadSession.mockReturnValue(null);
+
+    await expect(
+      handleSessionCommand(makeContext({ args: ["show", "ghost"] })),
+    ).rejects.toThrow("process.exit:1");
+
+    const allErrors = errorSpy.mock.calls.map((c) => c[0] as string).join("\n");
+    expect(allErrors).toContain("ghost");
+    mockExit.mockRestore();
+    errorSpy.mockRestore();
+  });
+
+  it("errors when no name is provided to show", async () => {
+    const mockExit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error("process.exit:" + code);
+    }) as never);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(
+      handleSessionCommand(makeContext({ args: ["show"] })),
+    ).rejects.toThrow("process.exit");
+
+    mockExit.mockRestore();
+  });
+});
+
+describe("session add — no args", () => {
+  it("errors when no name is provided", async () => {
+    const mockExit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error("process.exit:" + code);
+    }) as never);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(
+      handleSessionCommand(makeContext({ args: ["add"] })),
+    ).rejects.toThrow("process.exit");
+
+    expect(mockWriteSession).not.toHaveBeenCalled();
+    mockExit.mockRestore();
+  });
+
+  it("errors when name is given but no projects", async () => {
+    const mockExit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error("process.exit:" + code);
+    }) as never);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(
+      handleSessionCommand(makeContext({ args: ["add", "myteam"] })),
+    ).rejects.toThrow("process.exit");
+
+    expect(mockWriteSession).not.toHaveBeenCalled();
+    mockExit.mockRestore();
+  });
+});
+
+describe("session launch — partial failure shows already-launched list", () => {
+  it("reports already-launched projects when first succeeds and second fails", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const mockExit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error("process.exit:" + code);
+    }) as never);
+
+    mockReadSession.mockReturnValue(["api", "web"]);
+    mockGetProject.mockImplementation((name: string) => {
+      const map: Record<string, string> = { api: "/tmp/api", web: "/tmp/web" };
+      return map[name];
+    });
+    mockLaunch
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("osascript timeout"));
+
+    await expect(
+      handleSessionCommand(makeContext({ args: ["myteam"] })),
+    ).rejects.toThrow("process.exit:1");
+
+    const allErrors = errorSpy.mock.calls.map((c) => c[0] as string).join("\n");
+    // Should mention the already-launched project
+    expect(allErrors).toContain("api");
+    mockExit.mockRestore();
+    errorSpy.mockRestore();
+    logSpy.mockRestore();
+  });
+});
