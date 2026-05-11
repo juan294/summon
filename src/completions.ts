@@ -28,10 +28,11 @@ _summon() {
     'keybindings:Generate Ghostty key table for navigation'
     'layout:Manage custom layouts'
     'session:Launch a saved multi-project session'
+    'trust:Trust the .summon file in a directory'
   )
 
   local -a config_keys=(${configKeys})
-  local -a layout_presets=(\${(f)"$(summon layout list 2>/dev/null)"})
+  local -a layout_presets=(\${(f)"$(summon layout list --names 2>/dev/null)"})
   local projects_file="\${HOME}/.config/summon/projects"
   local sessions_dir="\${HOME}/.config/summon/sessions"
   local -a session_names=()
@@ -187,10 +188,10 @@ export function generateBashCompletion(): string {
     local prev="\${COMP_WORDS[COMP_CWORD-1]}"
   fi
 
-  local subcommands="add remove list set config setup completions doctor open status switch snapshot briefing ports export freeze keybindings layout session"
+  local subcommands="add remove list set config setup completions doctor open status switch snapshot briefing ports export freeze keybindings layout session trust"
   local config_keys="${configKeys}"
   local layout_presets
-  layout_presets=$(summon layout list 2>/dev/null)
+  layout_presets=$(summon layout list --names 2>/dev/null)
   local projects_file="\${HOME}/.config/summon/projects"
   local sessions_dir="\${HOME}/.config/summon/sessions"
   local session_names=""
@@ -327,6 +328,7 @@ export function generateFishCompletion(): string {
     ["keybindings", "Generate Ghostty key table for navigation"],
     ["layout", "Manage custom layouts"],
     ["session", "Launch a saved multi-project session"],
+    ["trust", "Trust the .summon file in a directory"],
   ];
 
   const subcommandLines = subcommands
@@ -336,6 +338,7 @@ export function generateFishCompletion(): string {
   const layoutPresets = allLayouts.join(" ");
 
   return `# summon fish completion
+# Setup: eval (summon completions fish | psub)
 complete -c summon -f
 ${subcommandLines}
 complete -c summon -l help -s h -d 'Show help'

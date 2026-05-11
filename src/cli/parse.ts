@@ -88,6 +88,7 @@ TOOLS
   summon doctor               Check Ghostty config for recommended settings
   summon doctor --fix         Auto-add missing recommended settings (backs up first)
   summon completions <shell>  Generate shell completion script (zsh, bash, fish)
+  summon trust [path]         Trust the .summon file in the given directory (default: current)
 
 Options:
   -h, --help                  Show this help message
@@ -163,7 +164,6 @@ Examples:
   summon freeze mysetup           Save current config as reusable layout
 
 Run 'summon <command> --help' for details on each command.
-Run 'summon help <topic>' for topic-specific help.
 `.trim();
 
 const SUBCOMMAND_HELP: Record<string, string> = {
@@ -197,11 +197,12 @@ You can also set individual values with: summon set <key> <value>`,
 
   completions: `Usage: summon completions <shell>
 
-Generate shell completion script. Supported shells: zsh, bash.
+Generate shell completion script. Supported shells: zsh, bash, fish.
 
 Setup (add to your shell config):
   zsh:   eval "$(summon completions zsh)"
-  bash:  eval "$(summon completions bash)"`,
+  bash:  eval "$(summon completions bash)"
+  fish:  eval (summon completions fish | psub)`,
 
   status: `Usage: summon status [--once]
 
@@ -312,6 +313,18 @@ Actions:
 
 Session names must start with a letter and contain only letters, digits, hyphens, and underscores.
 Reserved names: add, remove, list, show, all.`,
+
+  trust: `Usage: summon trust [path]
+
+Mark the .summon file in the given directory as trusted.
+Defaults to the current directory if no path is given.
+
+Summon refuses to execute .summon files from untrusted directories.
+Running this command approves the file's current contents.
+
+Example:
+  summon trust         Trust .summon in current directory
+  summon trust ~/app   Trust .summon in ~/app`,
 };
 
 const parseOpts = {
@@ -356,9 +369,15 @@ function safeParse(args: string[]): { values: ParsedValues; positionals: string[
     };
   } catch (err) {
     const msg = getErrorMessage(err);
-    console.error(`Error: ${msg}`);
-    if (msg.includes("ambiguous")) {
-      console.error("Tip: To pass a value starting with '-', use '--flag=-value' syntax.");
+    // UX-M3 (#396): transform raw parseArgs "Unknown option" into actionable message
+    const unknownMatch = msg.match(/Unknown option\s+'?(--[A-Za-z0-9-]+)/);
+    if (unknownMatch?.[1]) {
+      console.error(`Error: Unknown flag '${unknownMatch[1]}'. Run 'summon --help' to see available flags.`);
+    } else {
+      console.error(`Error: ${msg}`);
+      if (msg.includes("ambiguous")) {
+        console.error("Tip: To pass a value starting with '-', use '--flag=-value' syntax.");
+      }
     }
     exitWithUsageHint();
   }

@@ -317,6 +317,42 @@ describe("session subcommand completions", () => {
   });
 });
 
+describe("trust subcommand in completions (FE-H2 #359)", () => {
+  test("zsh completions include trust subcommand", () => {
+    const result = generateZshCompletion();
+    expect(result).toContain("trust");
+  });
+
+  test("bash completions include trust subcommand", () => {
+    const result = generateBashCompletion();
+    expect(result).toContain("trust");
+  });
+
+  test("fish completions include trust subcommand", () => {
+    const result = generateFishCompletion();
+    expect(result).toContain("trust");
+  });
+});
+
+describe("layout list --names for completions (FE-M4 #388)", () => {
+  test("bash completions use 'summon layout list --names' for layout presets", () => {
+    const result = generateBashCompletion();
+    expect(result).toContain("summon layout list --names");
+  });
+
+  test("zsh completions use 'summon layout list --names' for layout presets", () => {
+    const result = generateZshCompletion();
+    expect(result).toContain("summon layout list --names");
+  });
+});
+
+describe("fish completions setup snippet (UX-M8 #397)", () => {
+  test("fish completions include fish shell setup snippet hint", () => {
+    const result = generateFishCompletion();
+    expect(result).toContain("psub");
+  });
+});
+
 describe("custom layout completions", () => {
   test("zsh completions use dynamic command substitution for --layout (includes custom layouts at completion time)", () => {
     const result = generateZshCompletion();
