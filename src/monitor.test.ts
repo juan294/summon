@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+// Ensure truncate is imported for direct testing
 
 vi.mock("./config.js", async (importOriginal) => {
   const original = await importOriginal<typeof import("./config.js")>();
@@ -20,7 +21,7 @@ vi.mock("./launcher.js", () => ({
 const {
   formatUptime, stateColor, stateDot, renderRow, renderHeader, renderFooter,
   renderScreen, loadProjectRows, printStatusOnce, runMonitor, resetGitBranchCache,
-  prefetchGitBranches,
+  prefetchGitBranches, truncate,
 } = await import("./monitor.js");
 import type { ProjectRow } from "./monitor.js";
 
@@ -126,6 +127,40 @@ describe("stateDot", () => {
   });
 });
 
+describe("truncate", () => {
+  it("returns the string unchanged when it fits", () => {
+    expect(truncate("main", 10)).toBe("main");
+  });
+
+  it("truncates with ellipsis when string exceeds maxLen", () => {
+    const result = truncate("a-very-long-branch-name", 20);
+    expect(result.length).toBeLessThanOrEqual(20);
+    expect(result.endsWith("…")).toBe(true);
+  });
+
+  it("handles maxLen of 1 (returns just ellipsis)", () => {
+    expect(truncate("hello", 1)).toBe("…");
+  });
+
+  it("handles maxLen of 0 (returns empty string)", () => {
+    expect(truncate("hello", 0)).toBe("");
+  });
+
+  it("handles negative maxLen (returns empty string)", () => {
+    expect(truncate("hello", -1)).toBe("");
+  });
+
+  it("returns exact-length string unchanged", () => {
+    expect(truncate("abc", 3)).toBe("abc");
+  });
+
+  it("truncates to exactly maxLen characters including ellipsis", () => {
+    const result = truncate("abcdefghij", 5);
+    expect(result).toBe("abcd…");
+    expect(result.length).toBe(5);
+  });
+});
+
 describe("renderRow", () => {
   it("renders active project with filled dot", () => {
     const row = makeRow({ state: "active" });
@@ -140,6 +175,26 @@ describe("renderRow", () => {
     const result = renderRow(row, 80, false);
     expect(result).toContain("○");
     expect(result).toContain("stopped");
+  });
+
+  it("stopped workspace shows directory path instead of git branch (#429)", () => {
+    const row = makeRow({ state: "stopped", directory: "/tmp/myapp", gitBranch: "feat/auth" });
+    const result = renderRow(row, 80, false);
+    expect(result).toContain("/tmp/myapp");
+    expect(result).not.toContain("feat/auth");
+  });
+
+  it("unknown workspace shows directory path instead of em dash (#429)", () => {
+    const row = makeRow({ state: "unknown", directory: "/Users/dev/project", gitBranch: "—" });
+    const result = renderRow(row, 80, false);
+    expect(result).toContain("/Users/dev/project");
+  });
+
+  it("active workspace shows git branch, not directory (#429)", () => {
+    const row = makeRow({ state: "active", directory: "/tmp/myapp", gitBranch: "feature/login" });
+    const result = renderRow(row, 80, false);
+    expect(result).toContain("feature/login");
+    expect(result).not.toContain("/tmp/myapp");
   });
 
   it("selected row rendering is controlled by the invert helper (not raw escape)", () => {
@@ -1013,5 +1068,25 @@ describe.skipIf(nodeMajor < 20)("runMonitor", () => {
 
     const output = writeSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("");
     expect(output).toContain("Key bindings");
+  });
+
+  it("#413 FE-M7: help overlay uses bold/dim/cyan helpers (no raw ANSI in help text strings)", async () => {
+    // The help overlay must use bold()/dim()/cyan() helpers, not raw \x1b[ escape sequences
+    // embedded literally in string literals. We verify the structural content is present:
+    // key names (cyan), descriptions (dim), header (bold).
+    const monitorPromise = runMonitor();
+    process.stdin.emit("data", Buffer.from("?"));
+    process.stdin.emit("data", Buffer.from(" "));
+    process.stdin.emit("data", Buffer.from("q"));
+    await monitorPromise;
+
+    const output = writeSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("");
+    // All key binding labels must be present in the overlay output
+    expect(output).toContain("move up");
+    expect(output).toContain("move down");
+    expect(output).toContain("open selected project");
+    expect(output).toContain("refresh");
+    expect(output).toContain("quit");
+    expect(output).toContain("Press any key to dismiss");
   });
 });

@@ -1,7 +1,7 @@
 import { readAllStatuses, getGitBranch } from "./status.js";
 import type { ResolvedStatus } from "./status.js";
 import { listProjects } from "./config.js";
-import { bold, dim, green, yellow, invert } from "./ui/ansi.js";
+import { bold, dim, green, yellow, cyan, invert } from "./ui/ansi.js";
 
 // --- Types ---
 
@@ -34,6 +34,16 @@ const CLEAR_SCREEN = "\x1b[H\x1b[2J";
 const CURSOR_HOME = "\x1b[H";
 
 // --- Formatting (pure functions, testable) ---
+
+/**
+ * Truncates a string to maxLen characters, appending an ellipsis if truncated.
+ * The returned string is always <= maxLen characters.
+ */
+export function truncate(str: string, maxLen: number): string {
+  if (maxLen <= 0) return "";
+  if (str.length <= maxLen) return str;
+  return str.slice(0, maxLen - 1) + "…";
+}
 
 export function formatUptime(ms: number): string {
   const seconds = Math.floor(ms / 1000);
@@ -69,7 +79,7 @@ export function stateDot(state: ProjectState): string {
 export function renderRow(row: ProjectRow, width: number, selected: boolean): string {
   const colorFn = stateColor(row.state);
   const dot = colorFn(stateDot(row.state));
-  const name = row.name.length > NAME_WIDTH ? row.name.slice(0, NAME_WIDTH - 1) + "\u2026" : row.name.padEnd(NAME_WIDTH);
+  const name = truncate(row.name, NAME_WIDTH).padEnd(NAME_WIDTH);
   const stateText = row.state === "active-long" ? "active" : row.state;
   const stateLabel = colorFn(stateText);
   // Pad the visible text, not the ANSI-wrapped version
@@ -77,9 +87,11 @@ export function renderRow(row: ProjectRow, width: number, selected: boolean): st
   const uptime = row.uptime.padEnd(UPTIME_WIDTH);
 
   const branchWidth = Math.max(0, width - FIXED_COLS);
-  const branch = row.gitBranch.length > branchWidth
-    ? row.gitBranch.slice(0, Math.max(0, branchWidth - 1)) + "\u2026"
-    : row.gitBranch;
+  // For stopped/unknown workspaces, show the directory path (dimmed) instead of em dash
+  const isStopped = row.state === "stopped" || row.state === "unknown";
+  const rawBranchText = isStopped ? row.directory : row.gitBranch;
+  const branchText = truncate(rawBranchText, branchWidth);
+  const branch = isStopped ? dim(branchText) : branchText;
 
   const line = `  ${dot} ${name}  ${stateLabel}${statePad}  ${uptime}  ${branch}`;
 
@@ -399,15 +411,15 @@ export async function runMonitor(): Promise<void> {
       if (key === "?") {
         const helpLines = [
           "",
-          "  Key bindings:",
-          "  ↑/k        move up",
-          "  ↓/j        move down",
-          "  ⏎          open selected project",
-          "  r          refresh",
-          "  ?          show this help",
-          "  q / Ctrl+C quit",
+          `  ${bold("Key bindings:")}`,
+          `  ${cyan("↑/k")}        ${dim("move up")}`,
+          `  ${cyan("↓/j")}        ${dim("move down")}`,
+          `  ${cyan("⏎")}          ${dim("open selected project")}`,
+          `  ${cyan("r")}          ${dim("refresh")}`,
+          `  ${cyan("?")}          ${dim("show this help")}`,
+          `  ${cyan("q / Ctrl+C")} ${dim("quit")}`,
           "",
-          "  Press any key to dismiss...",
+          `  ${dim("Press any key to dismiss...")}`,
         ];
         process.stdout.write(CLEAR_SCREEN + helpLines.join("\n"));
 

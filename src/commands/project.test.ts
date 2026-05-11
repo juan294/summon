@@ -288,6 +288,60 @@ describe("handleOpenCommand", () => {
   });
 });
 
+describe("#411 FE-L1: consistent error formatting", () => {
+  it("handleRemoveCommand uses console.error (not process.stdout.write) for missing project", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+    mockRemoveProject.mockReturnValue(false);
+
+    await expect(handleRemoveCommand(makeContext({ args: ["ghost"] }))).rejects.toThrow("exit:1");
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("Project not found"));
+    // Error must NOT go to stdout
+    const stdoutCalls = stdoutSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(stdoutCalls).not.toContain("Project not found");
+
+    errorSpy.mockRestore();
+    stdoutSpy.mockRestore();
+  });
+
+  it("handleOpenCommand uses console.error (not process.stdout.write) for no projects", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+    mockLoadProjectRows.mockReturnValue([]);
+
+    await expect(handleOpenCommand(makeContext())).rejects.toThrow("exit:1");
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("No projects registered"));
+    const stdoutCalls = stdoutSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(stdoutCalls).not.toContain("No projects registered");
+
+    errorSpy.mockRestore();
+    stdoutSpy.mockRestore();
+  });
+
+  it("resolveTargetDirectory uses console.error (not process.stdout.write) for unknown project", () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+    mockGetProject.mockReturnValue(undefined);
+
+    expect(() => resolveTargetDirectory("unknown-project")).toThrow("exit:1");
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("Unknown project"));
+    const stdoutCalls = stdoutSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(stdoutCalls).not.toContain("Unknown project");
+
+    errorSpy.mockRestore();
+    stdoutSpy.mockRestore();
+  });
+});
+
 describe("resolveTargetDirectory", () => {
   it("resolves current and relative paths directly", () => {
     expect(resolveTargetDirectory(".")).toBe(process.cwd());
