@@ -119,6 +119,24 @@ export class PreviewRenderer {
     this.linesSince = 0;
     this.active = false;
   }
+
+  /**
+   * Erase the preview from the terminal and reset state.
+   * Moves cursor back to the start of the preview and clears to end of screen,
+   * so subsequent output (e.g. validation warnings) appears on a clean screen.
+   * If the renderer is inactive this is a no-op.
+   */
+  clear(): void {
+    if (this.active) {
+      const totalUp = this.lastHeight + this.linesSince;
+      process.stdout.write(ansiSyncStart());
+      process.stdout.write(ansiLineStart() + ansiUp(totalUp) + ansiClearDown());
+      process.stdout.write(ansiSyncEnd());
+    }
+    this.lastHeight = 0;
+    this.linesSince = 0;
+    this.active = false;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -464,15 +482,25 @@ export async function numberedSelect(
   promptText: string,
   defaultIdx?: number,
 ): Promise<number | typeof WIZARD_BACK> {
-  // Display options
-  for (let i = 0; i < options.length; i++) {
-    const opt = options[i]!;
-    const marker = opt.marker ?? "  ";
-    const detail = opt.detail ? `    ${dim(opt.detail)}` : "";
-    console.log(`${marker}${i + 1}) ${opt.label}${detail}`);
-  }
+  const printOptions = (): void => {
+    for (let i = 0; i < options.length; i++) {
+      const opt = options[i]!;
+      const marker = opt.marker ?? "  ";
+      const detail = opt.detail ? `    ${dim(opt.detail)}` : "";
+      console.log(`${marker}${i + 1}) ${opt.label}${detail}`);
+    }
+  };
 
-  const ask = async (): Promise<number | typeof WIZARD_BACK> => {
+  // Display options on initial render
+  printOptions();
+
+  const ask = async (isRetry = false): Promise<number | typeof WIZARD_BACK> => {
+    if (isRetry) {
+      // Move cursor back to start of options block, clear, and reprint options + warning position
+      process.stdout.write(ansiLineStart() + ansiUp(options.length) + ansiClearDown());
+      printOptions();
+    }
+
     const trimmed = await promptUser(promptText);
 
     if (trimmed === "b" || trimmed === "back") {
@@ -490,7 +518,7 @@ export async function numberedSelect(
           `  Invalid selection. Please enter a number between 1 and ${options.length}.`,
         ),
       );
-      return ask();
+      return ask(true);
     }
 
     return num - 1;
@@ -721,14 +749,27 @@ export async function selectToolFromCatalog(
     return askCustom();
   }
 
-  // Display only available tools
-  for (let i = 0; i < available.length; i++) {
-    const t = available[i]!;
-    console.log(`  * ${i + 1}) ${t.cmd.padEnd(10)} ${t.name}    ${dim(t.desc)}`);
-  }
-  console.log(`    c) Custom command`);
+  // The tool list height is available.length tool rows + 1 "c) Custom" row
+  const toolListHeight = available.length + 1;
 
-  const askTool = async (): Promise<string> => {
+  const printToolList = (): void => {
+    for (let i = 0; i < available.length; i++) {
+      const t = available[i]!;
+      console.log(`  * ${i + 1}) ${t.cmd.padEnd(10)} ${t.name}    ${dim(t.desc)}`);
+    }
+    console.log(`    c) Custom command`);
+  };
+
+  // Display only available tools
+  printToolList();
+
+  const askTool = async (isRetry = false): Promise<string> => {
+    if (isRetry) {
+      // Move cursor back to start of tool list, clear, and reprint
+      process.stdout.write(ansiLineStart() + ansiUp(toolListHeight) + ansiClearDown());
+      printToolList();
+    }
+
     const trimmed = (await promptUser(`  Select (default: 1): `)).toLowerCase();
     if (trimmed === "") {
       return available[0]!.cmd;
@@ -743,7 +784,7 @@ export async function selectToolFromCatalog(
           `  Invalid selection. Please enter a number between 1 and ${available.length}, or "c" for custom.`,
         ),
       );
-      return askTool();
+      return askTool(true);
     }
     return available[num - 1]!.cmd;
   };
@@ -1400,11 +1441,11 @@ export async function runLayoutBuilder(name: string): Promise<void> {
           `  Column ${c + 1}, Pane ${p + 1} \u2014 command [shell]: `,
         );
         cmd = input || "shell";
-        const { cmd: validated, rendererStale } = await validateBuilderCommand(cmd, availableCmds);
-        if (rendererStale) {
-          // Validation printed extra lines — line counts are unreliable now
-          renderer.reset();
-        }
+        // Clear the preview before validation (while cursor math is still accurate),
+        // so any warning output from validateBuilderCommand appears on a clean screen.
+        // FE-M5 (#389): prevents stacked duplicate previews after validation errors.
+        renderer.clear();
+        const { cmd: validated } = await validateBuilderCommand(cmd, availableCmds);
         cmd = validated;
       }
       column.push(cmd);
