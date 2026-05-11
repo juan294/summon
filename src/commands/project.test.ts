@@ -333,9 +333,9 @@ describe("#411 FE-L1: consistent error formatting", () => {
     mockGetProject.mockReturnValue(undefined);
 
     expect(() => resolveTargetDirectory("unknown-project")).toThrow("exit:1");
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("Unknown project"));
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("not a known command or registered project"));
     const stdoutCalls = stdoutSpy.mock.calls.map((c) => String(c[0])).join("\n");
-    expect(stdoutCalls).not.toContain("Unknown project");
+    expect(stdoutCalls).not.toContain("not a known command or registered project");
 
     errorSpy.mockRestore();
     stdoutSpy.mockRestore();
