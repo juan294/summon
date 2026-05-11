@@ -494,16 +494,22 @@ export async function numberedSelect(
   // Display options on initial render
   printOptions();
 
+  // #434 UX-M7: Back hint shown below options so users know they can press 0/b to go back.
+  const BACK_HINT = dim("  (press 0 or b to go back)");
+  console.log(BACK_HINT);
+
   const ask = async (isRetry = false): Promise<number | typeof WIZARD_BACK> => {
     if (isRetry) {
-      // Move cursor back to start of options block, clear, and reprint options + warning position
-      process.stdout.write(ansiLineStart() + ansiUp(options.length) + ansiClearDown());
+      // #412 FE-M6: On retry we need to move up past: options, back hint (1 line),
+      // the previous prompt+answer line (1 line), and the error message line (1 line) = options.length + 3.
+      process.stdout.write(ansiLineStart() + ansiUp(options.length + 3) + ansiClearDown());
       printOptions();
+      console.log(BACK_HINT);
     }
 
     const trimmed = await promptUser(promptText);
 
-    if (trimmed === "b" || trimmed === "back") {
+    if (trimmed === "0" || trimmed === "b" || trimmed === "back") {
       return WIZARD_BACK;
     }
 
@@ -719,6 +725,8 @@ export async function selectLayout(): Promise<string | typeof WIZARD_BACK> {
   // Show the diagram for the chosen layout
   console.log();
   console.log(LAYOUT_INFO[chosen]!.diagram);
+  // #427 UX-L3: legend explaining pane label shorthands shown in the diagram
+  console.log(dim("  [E] = editor  [S] = sidebar  [R] = right column / shell"));
   console.log();
   return chosen;
 }
@@ -1023,6 +1031,9 @@ const enum WizardStep {
   Confirm = 5,
 }
 
+// AR-L2 (#399): This function is the wizard state machine and composes multiple concerns
+// (welcome, layout, editor, sidebar, shell, starship, confirm). Extracting it into a
+// dedicated module (e.g., src/wizard.ts) is tracked as architectural debt in #399.
 export async function runSetup(): Promise<void> {
   if (!process.stdin.isTTY) {
     console.error("Setup requires an interactive terminal.");

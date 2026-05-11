@@ -265,6 +265,46 @@ describe("numberedSelect", () => {
     expect(allOutput.some((s) => s.includes("1") && s.includes("2"))).toBe(true);
     logSpy.mockRestore();
   });
+
+  // #434 UX-M7: back hint
+  it("shows back hint below options (#434)", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("1"));
+    const options = [{ label: "A", value: "a" }, { label: "B", value: "b" }];
+    await numberedSelect(options, "Pick: ");
+    const allOutput = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(allOutput.some((s) => s.includes("press 0") && s.includes("b") && s.includes("back"))).toBe(true);
+    logSpy.mockRestore();
+  });
+
+  // #434 UX-M7: "0" also triggers back
+  it("returns WIZARD_BACK when user enters '0' (#434)", async () => {
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("0"));
+    const options = [{ label: "A", value: "a" }, { label: "B", value: "b" }];
+    const result = await numberedSelect(options, "Pick: ");
+    expect(result).toBe(WIZARD_BACK);
+  });
+
+  // #412 FE-M6: error messages must not stack on multiple invalid attempts
+  it("clears previous error before re-render on repeated invalid input (#412)", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    let callCount = 0;
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      callCount++;
+      if (callCount <= 2) cb("99"); // out of range twice
+      else cb("1");
+    });
+    const options = [{ label: "A", value: "a" }, { label: "B", value: "b" }];
+    await numberedSelect(options, "Pick: ");
+    // On each retry, an ansiClearDown sequence must be emitted to erase the stale error line
+    const stdoutCalls = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    const clearDownCount = stdoutCalls.filter((c: string) => c.includes("\x1b[0J")).length;
+    // Two retries → two clear-down sequences
+    expect(clearDownCount).toBeGreaterThanOrEqual(2);
+    logSpy.mockRestore();
+    stdoutSpy.mockRestore();
+  });
 });
 
 describe("textInput", () => {
@@ -556,6 +596,19 @@ describe("selectLayout", () => {
     );
     const result = await selectLayout();
     expect(result).toBe("pair");
+    logSpy.mockRestore();
+  });
+
+  // #427 UX-L3: legend for pane label shorthands
+  it("shows pane label legend after layout preview (#427)", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) =>
+      cb("1"), // select "minimal"
+    );
+    await selectLayout();
+    const allOutput = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    // Legend must appear explaining [E], [S], [R] shorthand labels
+    expect(allOutput.some((s) => s.includes("[E]") && s.includes("[S]") && s.includes("[R]"))).toBe(true);
     logSpy.mockRestore();
   });
 });
