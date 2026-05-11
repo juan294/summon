@@ -304,6 +304,13 @@ function emitNewWindow(
   add(1, "set win to front window");
 }
 
+/** Emit AppleScript to open a new tab in the front window via Ghostty's dictionary verb. */
+function emitNewTab(sb: ScriptBuilder): void {
+  const { add } = sb;
+  add(1, "set newTabRef to make new tab of front window with configuration cfg");
+  add(1, `delay ${NEW_WINDOW_DELAY}`);
+}
+
 /** Emit right column pane splits (first right pane + additional editors + optional shell). */
 function emitRightColumnSplits(
   sb: ScriptBuilder,
@@ -520,8 +527,13 @@ function generateAppleScriptImpl(plan: LayoutPlan, targetDir: string, starshipCo
 
   emitSurfaceConfig(sb, targetDir, plan.fontSize, allEnvVars);
   emitClosePrelude(sb, plan.cleanRestoredPanes);
-  emitNewWindow(sb, plan.newWindow);
-  sb.add(1, "set paneRoot to terminal 1 of selected tab of win");
+  if (plan.newTab) {
+    emitNewTab(sb);
+    sb.add(1, "set paneRoot to terminal 1 of newTabRef");
+  } else {
+    emitNewWindow(sb, plan.newWindow);
+    sb.add(1, "set paneRoot to terminal 1 of selected tab of win");
+  }
   sb.blank();
 
   titles.push(["paneRoot", formatTitle("editor", plan.editor || null)]);
@@ -588,8 +600,13 @@ export function generateTreeAppleScript(
 
   emitSurfaceConfig(sb, targetDir, plan.fontSize, allEnvVars);
   emitClosePrelude(sb, plan.cleanRestoredPanes);
-  emitNewWindow(sb, plan.newWindow);
-  sb.add(1, `set ${rootPaneVar} to terminal 1 of selected tab of win`);
+  if (plan.newTab) {
+    emitNewTab(sb);
+    sb.add(1, `set ${rootPaneVar} to terminal 1 of newTabRef`);
+  } else {
+    emitNewWindow(sb, plan.newWindow);
+    sb.add(1, `set ${rootPaneVar} to terminal 1 of selected tab of win`);
+  }
   sb.blank();
 
   emitTreeTraversal(sb, plan.tree, rootPaneVar, plan, targetDir);

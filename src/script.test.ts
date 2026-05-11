@@ -766,6 +766,40 @@ describe("generateAppleScript", () => {
       });
     });
 
+    describe("new-tab flag", () => {
+      it("emits make new tab when newTab=true", () => {
+        const plan = planLayout({ newTab: true });
+        const script = generateAppleScript(plan, "/tmp/test");
+        expect(script).toContain("make new tab of front window with configuration cfg");
+        expect(script).toContain("set paneRoot to terminal 1 of newTabRef");
+      });
+
+      it("does not emit Cmd+N when newTab=true", () => {
+        const plan = planLayout({ newTab: true });
+        const script = generateAppleScript(plan, "/tmp/test");
+        expect(script).not.toContain('keystroke "n" using command down');
+      });
+
+      it("does not bind paneRoot via selected tab of win when newTab=true", () => {
+        const plan = planLayout({ newTab: true });
+        const script = generateAppleScript(plan, "/tmp/test");
+        // paneRoot must be bound via newTabRef, not via selected tab of win
+        expect(script).not.toContain("set paneRoot to terminal 1 of selected tab of win");
+      });
+
+      it("does not emit make new tab when newTab=false (default regression guard)", () => {
+        const plan = planLayout();
+        const script = generateAppleScript(plan, "/tmp/test");
+        expect(script).not.toContain("make new tab");
+      });
+
+      it("throws when both newWindow and newTab are true", () => {
+        expect(() => planLayout({ newWindow: true, newTab: true })).toThrow(
+          "--new-window and --new-tab are mutually exclusive",
+        );
+      });
+    });
+
     describe("fullscreen flag", () => {
       it("generates toggle_fullscreen when fullscreen=true", () => {
         const plan = planLayout({ fullscreen: true });
@@ -944,6 +978,7 @@ describe("generateTreeAppleScript", () => {
       editorSize: 75,
       fontSize: null,
       newWindow: false,
+      newTab: false,
       fullscreen: false,
       maximize: false,
       float: false,
@@ -1125,6 +1160,53 @@ describe("generateTreeAppleScript", () => {
     expect(script).toContain('keystroke "n" using command down');
     expect(script).toContain("set win to front window");
     expect(script).not.toContain("make new window");
+  });
+
+  it("new tab mode emits make new tab AppleScript", () => {
+    const plan = makePlan(
+      { type: "pane", name: "editor", command: "claude" },
+      { newTab: true },
+    );
+    const script = generateTreeAppleScript(plan, "/tmp/project");
+
+    expect(script).toContain("make new tab of front window with configuration cfg");
+    expect(script).toContain("set pane_editor to terminal 1 of newTabRef");
+  });
+
+  it("new tab mode does not emit Cmd+N", () => {
+    const plan = makePlan(
+      { type: "pane", name: "editor", command: "claude" },
+      { newTab: true },
+    );
+    const script = generateTreeAppleScript(plan, "/tmp/project");
+
+    expect(script).not.toContain('keystroke "n" using command down');
+  });
+
+  it("new tab mode does not bind root pane via selected tab of win", () => {
+    const plan = makePlan(
+      { type: "pane", name: "editor", command: "claude" },
+      { newTab: true },
+    );
+    const script = generateTreeAppleScript(plan, "/tmp/project");
+
+    expect(script).not.toContain("set pane_editor to terminal 1 of selected tab of win");
+  });
+
+  it("new tab mode does not emit make new tab when newTab=false (regression guard)", () => {
+    const plan = makePlan(
+      { type: "pane", name: "editor", command: "claude" },
+    );
+    const script = generateTreeAppleScript(plan, "/tmp/project");
+
+    expect(script).not.toContain("make new tab");
+  });
+
+  it("throws when both newWindow and newTab are true in buildTreePlan", () => {
+    const tree: LayoutNode = { type: "pane", name: "editor", command: "claude" };
+    expect(() => buildTreePlan(tree, { newWindow: true, newTab: true })).toThrow(
+      "--new-window and --new-tab are mutually exclusive",
+    );
   });
 
   it("fullscreen mode", () => {
@@ -1493,6 +1575,7 @@ describe("tab title", () => {
       editorSize: 75,
       fontSize: null,
       newWindow: false,
+      newTab: false,
       fullscreen: false,
       maximize: false,
       float: false,
@@ -1547,6 +1630,7 @@ describe("status trap", () => {
       editorSize: 75,
       fontSize: null,
       newWindow: false,
+      newTab: false,
       fullscreen: false,
       maximize: false,
       float: false,

@@ -8,6 +8,7 @@ import {
   showSubcommandHelp,
 } from "./cli/parse.js";
 import { handleLayoutCommand } from "./commands/layout.js";
+import { handleSessionCommand } from "./commands/session.js";
 import { handleDoctorCommand } from "./commands/doctor.js";
 import {
   handleConfigCommand,
@@ -54,6 +55,7 @@ const registry: Record<string, CommandHandler> = {
   open: handleOpenCommand,
   export: handleExportCommand,
   layout: handleLayoutCommand,
+  session: handleSessionCommand,
 };
 
 const parsed = parseCli(process.argv.slice(2));

@@ -264,6 +264,59 @@ describe("generateFishCompletion", () => {
   });
 });
 
+describe("session subcommand completions", () => {
+  test("zsh output contains session in subcommands list", () => {
+    const result = generateZshCompletion();
+    expect(result).toMatch(/'session:/);
+  });
+
+  test("bash output contains session in subcommands list", () => {
+    const result = generateBashCompletion();
+    expect(result).toMatch(/subcommands="[^"]*\bsession\b/);
+  });
+
+  test("fish output contains session subcommand", () => {
+    const result = generateFishCompletion();
+    expect(result).toContain("session");
+  });
+
+  test("zsh session completion includes add remove list show subcommands", () => {
+    const result = generateZshCompletion();
+    expect(result).toMatch(/session\)[\s\S]*?add\b[\s\S]*?remove\b[\s\S]*?list\b[\s\S]*?show\b/);
+  });
+
+  test("bash session completion includes add remove list show subcommands", () => {
+    const result = generateBashCompletion();
+    expect(result).toMatch(/session\)[\s\S]*?add\b[\s\S]*?remove\b[\s\S]*?list\b[\s\S]*?show\b/);
+  });
+
+  test("zsh completion includes sessions directory for name expansion", () => {
+    const result = generateZshCompletion();
+    expect(result).toContain(".config/summon/sessions");
+  });
+
+  test("bash completion includes sessions directory for name expansion", () => {
+    const result = generateBashCompletion();
+    expect(result).toContain(".config/summon/sessions");
+  });
+
+  test("--all flag appears in zsh session completion", () => {
+    const result = generateZshCompletion();
+    expect(result).toMatch(/session\)[\s\S]*?--all/);
+  });
+
+  test("--all flag appears in bash session completion", () => {
+    const result = generateBashCompletion();
+    expect(result).toMatch(/session\)[\s\S]*?--all/);
+  });
+
+  test("--new-tab flag appears in all shells", () => {
+    expect(generateZshCompletion()).toContain("--new-tab");
+    expect(generateBashCompletion()).toContain("--new-tab");
+    expect(generateFishCompletion()).toContain("new-tab");
+  });
+});
+
 describe("custom layout completions", () => {
   test("zsh completions use dynamic command substitution for --layout (includes custom layouts at completion time)", () => {
     const result = generateZshCompletion();

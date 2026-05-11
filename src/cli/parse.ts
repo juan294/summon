@@ -24,6 +24,7 @@ export type ParsedValues = {
   "font-size"?: string;
   "on-start"?: string;
   "new-window"?: boolean;
+  "new-tab"?: boolean;
   fullscreen?: boolean;
   maximize?: boolean;
   float?: boolean;
@@ -31,6 +32,7 @@ export type ParsedValues = {
   vim?: boolean;
   once?: boolean;
   "dry-run"?: boolean;
+  all?: boolean;
 };
 
 export type ParsedCli = {
@@ -74,6 +76,14 @@ MONITORING
   summon ports                Show port assignments and detect conflicts
   summon snapshot <action>    Manage context snapshots (save, show, clear)
 
+SESSIONS
+  summon session <name>          Launch a saved multi-project session
+  summon session --all           Launch every registered project
+  summon session add <name> ...  Save a session
+  summon session remove <name>   Delete a session
+  summon session list            List saved sessions
+  summon session show <name>     Print the project list for a session
+
 TOOLS
   summon doctor               Check Ghostty config for recommended settings
   summon doctor --fix         Auto-add missing recommended settings (backs up first)
@@ -98,6 +108,7 @@ Options:
   --font-size <n>             Override font size for workspace panes
   --on-start <cmd>            Run command before workspace creation
   --new-window                Open workspace in a new Ghostty window
+  --new-tab                   Open workspace in a new Ghostty tab
   --fullscreen                Start workspace in fullscreen mode
   --maximize                  Start workspace maximized
   --float                     Float workspace window on top
@@ -281,6 +292,26 @@ Actions:
 
 Layout names must start with a letter and contain only letters, digits,
 hyphens, and underscores. Built-in preset names cannot be used.`,
+
+  session: `Usage: summon session <name>
+          summon session --all
+          summon session add <name> <project> [<project> ...]
+          summon session remove <name>
+          summon session list
+          summon session show <name>
+
+Launch a saved multi-project session. Each project opens in its own Ghostty tab.
+
+Actions:
+  <name>              Launch the named session
+  --all               Launch every registered project
+  add <name> ...      Save a new session
+  remove <name>       Delete a saved session
+  list                List all saved sessions
+  show <name>         Print the project list for a session
+
+Session names must start with a letter and contain only letters, digits, hyphens, and underscores.
+Reserved names: add, remove, list, show, all.`,
 };
 
 const parseOpts = {
@@ -304,6 +335,7 @@ const parseOpts = {
     "font-size": { type: "string" },
     "on-start": { type: "string" },
     "new-window": { type: "boolean" },
+    "new-tab": { type: "boolean" },
     fullscreen: { type: "boolean" },
     maximize: { type: "boolean" },
     float: { type: "boolean" },
@@ -311,6 +343,7 @@ const parseOpts = {
     vim: { type: "boolean" },
     once: { type: "boolean" },
     "dry-run": { type: "boolean", short: "n" },
+    all: { type: "boolean" },
   },
 } as const;
 
@@ -386,6 +419,7 @@ export function buildOverrides(values: ParsedValues): CLIOverrides {
   if (values["font-size"] !== undefined) overrides["font-size"] = values["font-size"];
   if (values["on-start"] !== undefined) overrides["on-start"] = values["on-start"];
   if (values["new-window"] !== undefined) overrides["new-window"] = "true";
+  if (values["new-tab"] !== undefined) overrides["new-tab"] = "true";
   if (values.fullscreen !== undefined) overrides.fullscreen = "true";
   if (values.maximize !== undefined) overrides.maximize = "true";
   if (values.float !== undefined) overrides.float = "true";

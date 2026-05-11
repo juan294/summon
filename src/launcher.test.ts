@@ -2788,6 +2788,16 @@ describe("optsToConfigMap", () => {
     expect(result.get("font-size")).toBe("18.5");
   });
 
+  it("includes new-tab when newTab=true", () => {
+    const result = optsToConfigMap({ newTab: true });
+    expect(result.get("new-tab")).toBe("true");
+  });
+
+  it("excludes new-tab when newTab is false", () => {
+    const result = optsToConfigMap({ newTab: false });
+    expect(result.has("new-tab")).toBe(false);
+  });
+
 });
 
 describe("tree layout + project CWD merge (#185)", () => {
@@ -3579,5 +3589,16 @@ describe("skip-pane integration in launch() (UX-S2 #340)", () => {
     expect(mockGenerateAppleScript).toHaveBeenCalled();
 
     warnSpy.mockRestore();
+  });
+});
+
+describe("newWindow and newTab mutual exclusion", () => {
+  it("throws with a descriptive error when both new-window and new-tab are set", async () => {
+    vi.mocked(listConfig).mockReturnValue(new Map());
+    mockReadKVFile.mockReturnValue(new Map());
+
+    await expect(
+      launch("/tmp/workspace", { "new-window": "true", "new-tab": "true", dryRun: true }),
+    ).rejects.toThrow("--new-window and --new-tab are mutually exclusive");
   });
 });

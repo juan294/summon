@@ -39,6 +39,7 @@ export function optsToConfigMap(opts: Partial<LayoutOptions>): Map<string, strin
   if (opts.autoResize !== undefined) entries.set("auto-resize", String(opts.autoResize));
   if (opts.fontSize !== undefined && opts.fontSize !== null) entries.set("font-size", String(opts.fontSize));
   if (opts.newWindow) entries.set("new-window", "true");
+  if (opts.newTab) entries.set("new-tab", "true");
   if (opts.fullscreen) entries.set("fullscreen", "true");
   if (opts.maximize) entries.set("maximize", "true");
   if (opts.float) entries.set("float", "true");
@@ -58,6 +59,7 @@ export interface CLIOverrides {
   "font-size"?: string;
   "on-start"?: string;
   "new-window"?: string;
+  "new-tab"?: string;
   fullscreen?: string;
   maximize?: string;
   float?: string;
@@ -358,6 +360,7 @@ function resolveLayoutBase(
       }
     }
     if (customData.has("new-window")) base.newWindow = customData.get("new-window") === "true";
+    if (customData.has("new-tab")) base.newTab = customData.get("new-tab") === "true";
     if (customData.has("fullscreen")) base.fullscreen = customData.get("fullscreen") === "true";
     if (customData.has("maximize")) base.maximize = customData.get("maximize") === "true";
     if (customData.has("float")) base.float = customData.get("float") === "true";
@@ -450,10 +453,12 @@ function layerConfigValues(
   }
 
   const newWindow = pick(cliOverrides["new-window"], "new-window");
+  const newTab = pick(cliOverrides["new-tab"], "new-tab");
   const fullscreen = pick(cliOverrides.fullscreen, "fullscreen");
   const maximize = pick(cliOverrides.maximize, "maximize");
   const float = pick(cliOverrides.float, "float");
   if (newWindow !== undefined) result.newWindow = newWindow === "true";
+  if (newTab !== undefined) result.newTab = newTab === "true";
   if (fullscreen !== undefined) result.fullscreen = fullscreen === "true";
   if (maximize !== undefined) result.maximize = maximize === "true";
   if (float !== undefined) result.float = float === "true";
@@ -657,6 +662,7 @@ async function launchTreeLayout(
     editorSize: opts.editorSize,
     fontSize: opts.fontSize,
     newWindow: opts.newWindow,
+    newTab: opts.newTab,
     fullscreen: opts.fullscreen,
     maximize: opts.maximize,
     float: opts.float,

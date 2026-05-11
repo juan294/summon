@@ -132,6 +132,12 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 | `summon briefing` | Morning briefing — overnight commits, dirty files, recommendations |
 | `summon ports` | Detect port assignments across projects, highlight conflicts |
 | `summon snapshot <action>` | Manage context snapshots (save, show, clear) |
+| `summon session <name>` | Launch a saved multi-project session — one Ghostty tab per project |
+| `summon session add <name> <p>...` | Save a session (named list of registered projects) |
+| `summon session list` | List saved sessions |
+| `summon session show <name>` | Print a session's project list |
+| `summon session remove <name>` | Delete a saved session |
+| `summon session --all` | Launch every registered project as tabs |
 | `summon trust <dir>` | Trust a project's `.summon` file (required before first launch in untrusted directories) |
 | `summon completions <shell>` | Generate shell completion script (`zsh`, `bash`, `fish`) |
 

@@ -162,19 +162,19 @@ export function listConfig(): Map<string, string> {
   return config;
 }
 
-export const VALID_KEYS = ["editor", "sidebar", "panes", "editor-size", "shell", "layout", "auto-resize", "starship-preset", "new-window", "fullscreen", "maximize", "float", "font-size", "on-start", "on-stop", "clean"];
+export const VALID_KEYS = ["editor", "sidebar", "panes", "editor-size", "shell", "layout", "auto-resize", "starship-preset", "new-window", "new-tab", "fullscreen", "maximize", "float", "font-size", "on-start", "on-stop", "clean"];
 
 /** Set of all known config keys — used to warn on unknown/misspelled keys. */
 export const KNOWN_CONFIG_KEYS = new Set(VALID_KEYS);
 
 /** Config keys that accept only "true" or "false" values. */
-export const BOOLEAN_KEYS = new Set(["auto-resize", "new-window", "fullscreen", "maximize", "float", "clean"]);
+export const BOOLEAN_KEYS = new Set(["auto-resize", "new-window", "new-tab", "fullscreen", "maximize", "float", "clean"]);
 
 export const CLI_FLAGS = [
   "--help", "--version", "--layout", "--editor", "--panes",
   "--editor-size", "--sidebar", "--shell", "--auto-resize",
   "--no-auto-resize", "--starship-preset", "--dry-run",
-  "--env", "--new-window", "--fullscreen", "--maximize", "--float", "--font-size", "--on-start", "--once",
+  "--env", "--new-window", "--new-tab", "--fullscreen", "--maximize", "--float", "--font-size", "--on-start", "--once",
   "--clean", "--no-clean",
   "-h", "-v", "-l", "-e", "-p", "-s", "-n",
 ];
