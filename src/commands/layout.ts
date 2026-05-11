@@ -12,6 +12,7 @@ import { isPresetName } from "../layout.js";
 import { SAFE_COMMAND_RE, exitWithUsageHint } from "../utils.js";
 import { parseTreeDSL } from "../tree.js";
 import { renderLayoutPreview } from "../ui/layout-preview.js";
+import { bold, cyan } from "../ui/ansi.js";
 import type { CommandContext } from "./types.js";
 import {
   layoutNotFoundOrExit,
@@ -20,7 +21,12 @@ import {
 } from "./layout-support.js";
 
 export async function handleLayoutCommand({ args }: CommandContext): Promise<void> {
-  const [action, layoutName] = args;
+  // FE-M4 (#388): --names is a sub-flag for "layout list", passed as an extra positional arg
+  const namesIndex = args.indexOf("--names");
+  const namesFlag = namesIndex !== -1;
+  // Remove --names from args for further processing
+  const cleanArgs = namesFlag ? args.filter(a => a !== "--names") : args;
+  const [action, layoutName] = cleanArgs;
   if (!action) {
     exitWithUsageHint("Usage: summon layout <create|save|list|show|delete|edit> [name]");
   }
@@ -52,6 +58,15 @@ export async function handleLayoutCommand({ args }: CommandContext): Promise<voi
 
     case "list": {
       const layouts = listCustomLayouts();
+
+      // FE-M4 (#388): --names outputs one bare name per line for use in shell completions
+      if (namesFlag) {
+        for (const name of layouts) {
+          console.log(name);
+        }
+        return;
+      }
+
       if (layouts.length === 0) {
         console.log("No custom layouts saved. Use: summon layout save <name>");
         return;
@@ -61,7 +76,7 @@ export async function handleLayoutCommand({ args }: CommandContext): Promise<voi
       for (const [index, name] of layouts.entries()) {
         const data = readCustomLayout(name);
         if (!data) {
-          console.log(`  \x1b[1m${name}\x1b[0m`);
+          console.log(`  ${bold(name)}`);
         } else {
           const paneMap = new Map<string, string>();
           let tree = "";
@@ -76,7 +91,7 @@ export async function handleLayoutCommand({ args }: CommandContext): Promise<voi
             }
           }
 
-          console.log(`  \x1b[1m${name}\x1b[0m`);
+          console.log(`  ${bold(name)}`);
           if (tree && paneMap.size > 0) {
             try {
               const node = parseTreeDSL(tree);
@@ -86,12 +101,12 @@ export async function handleLayoutCommand({ args }: CommandContext): Promise<voi
                 console.log(`    ${line}`);
               }
             } catch {
-              const paneList = [...paneMap.entries()].map(([key, value]) => `${key}=\x1b[36m${value}\x1b[0m`);
+              const paneList = [...paneMap.entries()].map(([key, value]) => `${key}=${cyan(value)}`);
               console.log(`    Panes:  ${paneList.join("  ")}`);
               console.log(`    Tree:   ${tree}`);
             }
           } else if (paneMap.size > 0) {
-            const paneList = [...paneMap.entries()].map(([key, value]) => `${key}=\x1b[36m${value}\x1b[0m`);
+            const paneList = [...paneMap.entries()].map(([key, value]) => `${key}=${cyan(value)}`);
             console.log(`    Panes:  ${paneList.join("  ")}`);
           }
           if (other.length > 0) {

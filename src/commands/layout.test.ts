@@ -152,7 +152,8 @@ describe("handleLayoutCommand", () => {
     expect(logSpy).toHaveBeenCalledWith("    ┌──┐");
     expect(logSpy).toHaveBeenCalledWith("    └──┘");
     expect(logSpy).toHaveBeenCalledWith("    Config: layout=pair");
-    expect(logSpy).toHaveBeenCalledWith("    Panes:  main=\x1b[36mnvim\x1b[0m");
+    // FE-H1 (#358): cyan() helper used instead of raw ANSI; no-color in test env → plain text
+    expect(logSpy).toHaveBeenCalledWith("    Panes:  main=nvim");
     expect(logSpy).toHaveBeenCalledWith("    Tree:   bad-tree");
   });
 
@@ -163,7 +164,8 @@ describe("handleLayoutCommand", () => {
 
     await handleLayoutCommand(makeContext({ args: ["list"] }));
 
-    expect(logSpy).toHaveBeenCalledWith("  \x1b[1morphan\x1b[0m");
+    // FE-H1 (#358): bold() helper used instead of raw ANSI; no-color in test env → plain text
+    expect(logSpy).toHaveBeenCalledWith("  orphan");
   });
 
   it("lists pane definitions when a layout has panes but no tree", async () => {
@@ -176,7 +178,8 @@ describe("handleLayoutCommand", () => {
 
     await handleLayoutCommand(makeContext({ args: ["list"] }));
 
-    expect(logSpy).toHaveBeenCalledWith("    Panes:  main=\x1b[36mnvim\x1b[0m  shell=\x1b[36mzsh\x1b[0m");
+    // FE-H1 (#358): cyan() helper used instead of raw ANSI; no-color in test env → plain text
+    expect(logSpy).toHaveBeenCalledWith("    Panes:  main=nvim  shell=zsh");
   });
 
   it("shows custom layout contents", async () => {
@@ -292,5 +295,27 @@ describe("handleLayoutCommand", () => {
     await expect(handleLayoutCommand(makeContext({ args: ["wat"] }))).rejects.toThrow(
       "usage:Error: Unknown layout action: wat\nUsage: summon layout <create|save|list|show|delete|edit> [name]",
     );
+  });
+
+  // FE-M4 (#388): --names flag outputs one bare name per line
+  it("outputs one bare layout name per line when --names flag is passed (FE-M4 #388)", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockListCustomLayouts.mockReturnValue(["team", "minimal", "devops"]);
+
+    await handleLayoutCommand(makeContext({ args: ["list", "--names"] }));
+
+    const calls = logSpy.mock.calls.map(c => c[0] as string);
+    expect(calls).toEqual(["team", "minimal", "devops"]);
+    logSpy.mockRestore();
+  });
+
+  it("outputs nothing for --names when no custom layouts exist (FE-M4 #388)", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockListCustomLayouts.mockReturnValue([]);
+
+    await handleLayoutCommand(makeContext({ args: ["list", "--names"] }));
+
+    expect(logSpy).not.toHaveBeenCalled();
+    logSpy.mockRestore();
   });
 });

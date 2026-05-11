@@ -1710,11 +1710,10 @@ describe("CLI integration", () => {
       expect(result.stderr).toContain("config");
     });
 
-    it("warns on stderr when --once is passed to 'status' subcommand", () => {
+    it("does NOT warn when --once is passed to 'status' subcommand (status legitimately uses --once) (UX-H3 #372)", () => {
       const result = run("status", "--once");
-      expect(result.stderr).toContain("Warning:");
-      expect(result.stderr).toContain("--once");
-      expect(result.stderr).toContain("status");
+      // status is in the ONCE_ALLOWED_SUBCOMMANDS allowlist — no warning should be emitted
+      expect(result.stderr).not.toContain("--once has no effect");
     });
 
     it("does not warn when --once is used with the launch flow (path argument)", () => {

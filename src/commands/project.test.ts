@@ -121,7 +121,22 @@ describe("handleAddCommand", () => {
 
     expect(mockAddProject).toHaveBeenCalledWith("demo", "/Users/tester/code/demo");
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("Warning: path does not exist: /Users/tester/code/demo"));
-    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("Registered: demo"));
+    // UX-M1 (#395): message should indicate warning, not plain success
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("Registered with warning"));
+    logSpy.mockRestore();
+    warnSpy.mockRestore();
+  });
+
+  it("shows plain success message when path exists (UX-M1 #395)", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockExistsSync.mockReturnValue(true);
+
+    await handleAddCommand(makeContext({ args: ["demo", "/tmp/x"] }));
+
+    const msg = logSpy.mock.calls.map(c => c[0] as string).join("\n");
+    expect(msg).toContain("Registered: demo");
+    expect(msg).not.toContain("warning");
+    logSpy.mockRestore();
   });
 });
 
