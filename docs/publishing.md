@@ -2,6 +2,16 @@
 
 Publishing checklist and workflow. First published as v0.7.0 on 2026-03-14.
 
+## Build Output Notes
+
+Code splitting is enabled in `tsup.config.ts`. The `dist/` directory now produces
+multiple chunk files (e.g. `index.js`, `chunk-*.js`) rather than a single monolith.
+All chunks are required at runtime — the `files: ["dist"]` field in `package.json`
+already ensures the full `dist/` directory is included in the published tarball.
+
+When verifying a tarball with `tar tzf summon-ws-<version>.tgz`, expect to see
+`package/dist/index.js` plus one or more `package/dist/chunk-*.js` files.
+
 ## Setup (completed)
 
 - [x] Package name `summon-ws` chosen (npm)
