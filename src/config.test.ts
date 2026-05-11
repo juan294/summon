@@ -11,6 +11,8 @@ import {
   readKVFile,
   readKVFromString,
   resetConfigCache,
+  clearKVCache,
+  clearProjectCache,
   isFirstRun,
   LAYOUTS_DIR,
   listCustomLayouts,
@@ -775,5 +777,104 @@ describe("readKVFromString (BE-B2, BE-M1 #357 #375)", () => {
     const map = readKVFromString("editor=vim\r\npanes=2\r\n");
     expect(map.get("editor")).toBe("vim");
     expect(map.get("panes")).toBe("2");
+  });
+});
+
+describe("clearKVCache and clearProjectCache (#402 #403 #404)", () => {
+  it("clearKVCache is exported and callable", () => {
+    expect(clearKVCache).toBeDefined();
+    expect(() => clearKVCache()).not.toThrow();
+  });
+
+  it("clearProjectCache is exported and callable", () => {
+    expect(clearProjectCache).toBeDefined();
+    expect(() => clearProjectCache()).not.toThrow();
+  });
+
+  it("clearKVCache causes re-read on next call", async () => {
+    const fs = await import("node:fs");
+    const readFileSpy = fs.readFileSync as ReturnType<typeof vi.fn>;
+
+    // Warm cache
+    listProjects();
+
+    // Freeze mtime so cache would normally be hit
+    const store = await getStore();
+    const mtimes = await getMtimes();
+    for (const key of store.keys()) {
+      if (!mtimes.has(key)) mtimes.set(key, 1000);
+    }
+
+    readFileSpy.mockClear();
+    listProjects(); // should hit cache (no read)
+    expect(readFileSpy).not.toHaveBeenCalled();
+
+    // Clear the KV cache
+    clearKVCache();
+
+    listProjects(); // should re-read after cache cleared
+    expect(readFileSpy).toHaveBeenCalled();
+  });
+
+  it("clearProjectCache causes re-read on next call", async () => {
+    const fs = await import("node:fs");
+    const readFileSpy = fs.readFileSync as ReturnType<typeof vi.fn>;
+
+    addProject("cachetest", "/some/path");
+
+    // Warm the cache with a read after the write
+    getProject("cachetest");
+
+    // Freeze mtime so subsequent reads hit cache
+    const store = await getStore();
+    const mtimes = await getMtimes();
+    for (const key of store.keys()) {
+      if (!mtimes.has(key)) mtimes.set(key, 1000);
+    }
+
+    readFileSpy.mockClear();
+    getProject("cachetest"); // should hit cache — no read
+    expect(readFileSpy).not.toHaveBeenCalled();
+
+    clearProjectCache();
+    getProject("cachetest"); // should re-read after cache cleared
+    expect(readFileSpy).toHaveBeenCalled();
+  });
+});
+
+describe("readCustomLayout uses mtime cache (#402 AR-M3)", () => {
+  it("readCustomLayout uses cached result when mtime is unchanged", async () => {
+    const fs = await import("node:fs");
+    const readFileSpy = fs.readFileSync as ReturnType<typeof vi.fn>;
+    const store = await getStore();
+    const mtimes = await getMtimes();
+
+    store.set(`${LAYOUTS_DIR}/mywork`, "panes=3\neditor=vim\n");
+    mtimes.set(`${LAYOUTS_DIR}/mywork`, 1000);
+
+    // First read — warms cache
+    readCustomLayout("mywork");
+    readFileSpy.mockClear();
+
+    // Second read — mtime unchanged, should hit cache
+    readCustomLayout("mywork");
+    expect(readFileSpy).not.toHaveBeenCalled();
+  });
+
+  it("readCustomLayout re-reads when mtime changes", async () => {
+    const fs = await import("node:fs");
+    const readFileSpy = fs.readFileSync as ReturnType<typeof vi.fn>;
+    const store = await getStore();
+    const mtimes = await getMtimes();
+
+    store.set(`${LAYOUTS_DIR}/mywork`, "panes=3\n");
+    mtimes.set(`${LAYOUTS_DIR}/mywork`, 1000);
+
+    readCustomLayout("mywork"); // warm
+    readFileSpy.mockClear();
+
+    mtimes.set(`${LAYOUTS_DIR}/mywork`, 2000); // bump mtime
+    readCustomLayout("mywork"); // should re-read
+    expect(readFileSpy).toHaveBeenCalled();
   });
 });

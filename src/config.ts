@@ -27,6 +27,24 @@ export function resetConfigCache(): void {
 }
 
 /**
+ * Clear the KV file cache, forcing the next read to re-stat and re-read from disk.
+ * @internal — exported for testing only (#403 BE-L1)
+ */
+export function clearKVCache(): void {
+  fileCache.clear();
+}
+
+/**
+ * Clear the project registry cache, forcing the next project lookup to re-read from disk.
+ * @internal — exported for testing only (#404 BE-L3)
+ */
+export function clearProjectCache(): void {
+  // Projects are stored in fileCache keyed by PROJECTS_FILE path.
+  // Clearing the entire KV cache also covers the project registry.
+  fileCache.clear();
+}
+
+/**
  * Check if this is a first-run scenario (config file does not exist yet).
  * Does NOT call ensureConfig() — must not create the file as a side effect.
  */
@@ -229,7 +247,9 @@ export function listCustomLayouts(): string[] {
 export function readCustomLayout(name: string): Map<string, string> | null {
   const filePath = layoutPath(name);
   if (!existsSync(filePath)) return null;
-  return readKVFile(filePath);
+  // Use readKVCached (not readKVFile) so custom layout reads participate in
+  // the mtime-based memoization — fixes #402 AR-M3 implicit coupling.
+  return readKVCached(filePath);
 }
 
 export function saveCustomLayout(name: string, entries: Map<string, string>): void {

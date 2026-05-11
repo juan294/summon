@@ -8,7 +8,7 @@ const TEST_STATUS_DIR = join(tmpdir(), `summon-status-test-${process.pid}`);
 
 // Mock the STATUS_DIR before importing status module
 import { vi } from "vitest";
-vi.mock("./config.js", () => ({
+vi.mock("./paths.js", () => ({
   STATUS_DIR: TEST_STATUS_DIR,
   CONFIG_DIR: join(tmpdir(), `summon-config-test-${process.pid}`),
 }));

@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { CONFIG_DIR } from "./config.js";
+import { CONFIG_DIR } from "./paths.js";
 import { resolveCommand, SAFE_COMMAND_RE, getErrorMessage } from "./utils.js";
 
 /** Directory for cached Starship preset TOML files. */

@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import { execFileSync } from "node:child_process";
-import { SNAPSHOTS_DIR } from "./config.js";
+import { SNAPSHOTS_DIR } from "./paths.js";
 import { gitSafeEnv } from "./utils.js";
 
 // --- Types ---

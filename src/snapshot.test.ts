@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 const TEST_SNAPSHOTS_DIR = join(tmpdir(), `summon-snapshots-test-${process.pid}`);
 
 // Mock the SNAPSHOTS_DIR before importing snapshot module
-vi.mock("./config.js", () => ({
+vi.mock("./paths.js", () => ({
   SNAPSHOTS_DIR: TEST_SNAPSHOTS_DIR,
   CONFIG_DIR: join(tmpdir(), `summon-config-test-${process.pid}`),
 }));
