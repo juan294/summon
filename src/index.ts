@@ -86,11 +86,13 @@ if (isFirstRun() && process.stdin.isTTY) {
 
 if (!parsed.subcommand) {
   // UX-S1 (#315): Show quick-start hint for returning users in TTY
+  // UX-L1 (#425): Include setup and --help in the hint so users know where to start
   const isTTY = process.stdin.isTTY || process.env["SUMMON_FORCE_TTY"] === "1";
   if (isTTY) {
     console.log(
       "Usage: summon <path>           Launch a workspace\n" +
-        "       summon --help           Show all commands",
+        "       summon setup            Configure summon for the first time\n" +
+        "       summon --help           Full help",
     );
     process.exit(0);
   }

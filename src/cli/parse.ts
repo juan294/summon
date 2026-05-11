@@ -5,6 +5,7 @@ import { validateIntFlag, validateFloatFlag } from "../validation.js";
 import { getErrorMessage, exitWithUsageHint } from "../utils.js";
 import { VALID_KEYS } from "../config.js";
 import { validateLayoutOrExit } from "../commands/layout-support.js";
+import { bold, cyan, dim } from "../ui/ansi.js";
 
 export type ParsedValues = {
   help?: boolean;
@@ -42,129 +43,135 @@ export type ParsedCli = {
   args: string[];
 };
 
-const HELP = `
-summon v${__VERSION__} -- Launch multi-pane Ghostty workspaces
+function buildHelp(): string {
+  const h = (s: string) => bold(cyan(s));
+  const cmd = (s: string) => cyan(s);
+  const note = (s: string) => dim(s);
 
-Usage: summon <command|target> [options]
-
-LAUNCH
-  summon <target>             Launch workspace (project name, path, or '.')
-  summon open                 Select and launch a registered project
-  summon switch               Switch to an active workspace (focuses if running, launches if not)
-
-PROJECTS
-  summon add <name> <path>    Register a project name -> path mapping
-  summon remove <name>        Remove a registered project
-  summon list                 List all registered projects
-
-CONFIG
-  summon set <key> [value]    Set a machine-level config value
-  summon config               Show current machine configuration
-  summon setup                Configure workspace defaults interactively
-  summon freeze <name>        Save current resolved config as a reusable layout
-  summon export [path]        Export config as a .summon project file
-
-LAYOUT
-  summon layout <action>      Manage custom layouts (create, save, list, show, delete, edit)
-  summon keybindings          Generate Ghostty key table for workspace navigation
-  summon keybindings --vim    Use vim-style keys (hjkl) instead of arrows
-
-MONITORING
-  summon status               Interactive workspace status dashboard
-  summon status --once        Print status table once and exit
-  summon briefing             Morning briefing across all projects
-  summon ports                Show port assignments and detect conflicts
-  summon snapshot <action>    Manage context snapshots (save, show, clear)
-
-SESSIONS
-  summon session <name>          Launch a saved multi-project session
-  summon session --all           Launch every registered project
-  summon session add <name> ...  Save a session
-  summon session remove <name>   Delete a session
-  summon session list            List saved sessions
-  summon session show <name>     Print the project list for a session
-
-TOOLS
-  summon doctor               Check Ghostty config for recommended settings
-  summon doctor --fix         Auto-add missing recommended settings (backs up first)
-  summon completions <shell>  Generate shell completion script (zsh, bash, fish)
-  summon trust [path]         Trust the .summon file in the given directory (default: current)
-
-Options:
-  -h, --help                  Show this help message
-  -v, --version               Show version number
-  -l, --layout <name>         Use a layout preset or custom layout
-                              Tree layout DSL: summon <path> --layout 'root(left right)'
-  -e, --editor <cmd>          Override editor command
-  -p, --panes <n>             Override number of editor panes
-  --editor-size <n>           Override editor width %
-  -s, --sidebar <cmd>         Override sidebar command
-  --shell <value>             Shell pane: true, false, or a command
-  --auto-resize               Resize sidebar to match editor-size (default: on)
-  --no-auto-resize            Disable auto-resize
-  --clean                     Auto-close stale panes from prior Ghostty session (default: on)
-  --no-clean                  Skip auto-close of restored panes
-  --starship-preset <preset>  Starship prompt preset name (per-workspace)
-  --env <KEY=VALUE>           Set environment variable (repeatable; e.g. --env PORT=3000)
-  --font-size <n>             Override font size for workspace panes
-  --on-start <cmd>            Run command before workspace creation
-  --new-window                Open workspace in a new Ghostty window
-  --new-tab                   Open workspace in a new Ghostty tab
-  --fullscreen                Start workspace in fullscreen mode
-  --maximize                  Start workspace maximized
-  --float                     Float workspace window on top
-  -n, --dry-run               Print generated AppleScript without executing
-
-Config keys: (set via 'summon set <key> <value>' or in .summon file)
-  editor          Command for coding panes (set during setup)
-  sidebar         Command for sidebar pane (default: lazygit)
-  panes           Number of editor panes (default: 2)
-  editor-size     Width % for editor grid (default: 75)
-  shell           Shell pane: true, false, or command (default: true)
-  layout          Default layout preset or custom layout name
-  auto-resize     Resize sidebar to match editor-size (default: on)
-  clean           Auto-close restored panes on launch (default: on)
-  starship-preset Starship prompt theme preset (per-workspace)
-  new-window      Open workspace in a new window (default: false)
-  fullscreen      Start workspace in fullscreen (default: false)
-  maximize        Start workspace maximized (default: false)
-  float           Float workspace window on top (default: false)
-  font-size       Font size in points for workspace panes
-  on-start        Command to run before workspace launches
-
-Config-only keys (no CLI flag):
-  on-stop         Command to run when workspace exits (available as config key only)
-  env.<KEY>       Environment variable passed to all panes (e.g. env.PORT=3000)
-
-Layout presets:
-  minimal       1 editor pane, no shell
-  full          3 editor panes + shell
-  pair          2 editor panes + shell
-  cli           1 editor pane + shell
-  btop          editor + btop + shell + sidebar
-
-Per-project config:
-  Place a .summon file in your project root with key=value pairs.
-  Project config overrides machine config; CLI flags override both.
-  Custom layouts support tree DSL syntax for advanced pane arrangements.
-  Example: summon <path> --layout 'root(left right)'
-  Note: .summon files can specify commands that will be executed.
-  Review .summon files before running summon in untrusted directories.
-
-Requires: macOS, Ghostty 1.3.1+
-
-Examples:
-  summon .                        Launch workspace in current directory
-  summon myapp                    Launch workspace for registered project
-  summon add myapp ~/code/app     Register a project
-  summon set editor vim           Set the editor command
-  summon . --layout minimal       Launch with minimal preset
-  summon . --shell "npm run dev"  Launch with custom shell command
-  summon doctor                   Check config and fix issues
-  summon freeze mysetup           Save current config as reusable layout
-
-Run 'summon <command> --help' for details on each command.
-`.trim();
+  return [
+    `${bold(`summon v${__VERSION__}`)} ${note("-- Launch multi-pane Ghostty workspaces")}`,
+    "",
+    `${bold("Usage:")} summon <command|target> [options]`,
+    "",
+    h("LAUNCH"),
+    `  ${cmd("summon <target>")}             Launch workspace (project name, path, or '.')`,
+    `  ${cmd("summon open")}                 Select and launch a registered project`,
+    `  ${cmd("summon switch")}               Switch to an active workspace (focuses if running, launches if not)`,
+    "",
+    h("SESSIONS"),
+    `  ${cmd("summon session <name>")}          Launch a saved multi-project session`,
+    `  ${cmd("summon session --all")}           Launch every registered project`,
+    `  ${cmd("summon session add <name> ...")}  Save a session`,
+    `  ${cmd("summon session remove <name>")}   Delete a session`,
+    `  ${cmd("summon session list")}            List saved sessions`,
+    `  ${cmd("summon session show <name>")}     Print the project list for a session`,
+    "",
+    h("PROJECTS"),
+    `  ${cmd("summon add <name> <path>")}    Register a project name -> path mapping`,
+    `  ${cmd("summon remove <name>")}        Remove a registered project`,
+    `  ${cmd("summon list")}                 List all registered projects`,
+    "",
+    h("CONFIG"),
+    `  ${cmd("summon set <key> [value]")}    Set a machine-level config value`,
+    `  ${cmd("summon config")}               Show current machine configuration`,
+    `  ${cmd("summon setup")}                Configure workspace defaults interactively`,
+    `  ${cmd("summon freeze <name>")}        Save current resolved config as a reusable layout`,
+    `  ${cmd("summon export [path]")}        Export config as a .summon project file`,
+    "",
+    h("LAYOUT"),
+    `  ${cmd("summon layout <action>")}      Manage custom layouts (create, save, list, show, delete, edit)`,
+    `  ${cmd("summon keybindings")}          Generate Ghostty key table for workspace navigation`,
+    `  ${cmd("summon keybindings --vim")}    Use vim-style keys (hjkl) instead of arrows`,
+    "",
+    h("MONITORING"),
+    `  ${cmd("summon status")}               Interactive workspace status dashboard`,
+    `  ${cmd("summon status --once")}        Print status table once and exit`,
+    `  ${cmd("summon briefing")}             Morning briefing across all projects`,
+    `  ${cmd("summon ports")}                Show port assignments and detect conflicts`,
+    `  ${cmd("summon snapshot <action>")}    Manage context snapshots (save, show, clear)`,
+    "",
+    h("TOOLS"),
+    `  ${cmd("summon doctor")}               Check Ghostty config for recommended settings`,
+    `  ${cmd("summon doctor --fix")}         Auto-add missing recommended settings (backs up first)`,
+    `  ${cmd("summon completions <shell>")}  Generate shell completion script (zsh, bash, fish)`,
+    `  ${cmd("summon trust [path]")}         Trust the .summon file in the given directory (default: current)`,
+    "",
+    bold("Options:"),
+    `  -h, --help                  Show this help message`,
+    `  -v, --version               Show version number`,
+    `  -l, --layout <name>         Use a layout preset or custom layout`,
+    `                              ${note("Tree layout DSL: summon <path> --layout 'root(left right)'")}`,
+    `  -e, --editor <cmd>          Override editor command`,
+    `  -p, --panes <n>             Override number of editor panes`,
+    `  --editor-size <n>           Override editor width %`,
+    `  -s, --sidebar <cmd>         Override sidebar command`,
+    `  --shell <value>             Shell pane: true, false, or a command`,
+    `  --auto-resize               Resize sidebar to match editor-size (default: on)`,
+    `  --no-auto-resize            Disable auto-resize`,
+    `  --clean                     Auto-close stale panes from prior Ghostty session (default: on)`,
+    `  --no-clean                  Skip auto-close of restored panes`,
+    `  --starship-preset <preset>  Starship prompt preset name (per-workspace)`,
+    `  --env <KEY=VALUE>           Set environment variable (repeatable; e.g. --env PORT=3000)`,
+    `  --font-size <n>             Override font size for workspace panes`,
+    `  --on-start <cmd>            Run command before workspace creation`,
+    `  --new-window                Open workspace in a new Ghostty window`,
+    `  --new-tab                   Open workspace in a new Ghostty tab`,
+    `  --fullscreen                Start workspace in fullscreen mode`,
+    `  --maximize                  Start workspace maximized`,
+    `  --float                     Float workspace window on top`,
+    `  -n, --dry-run               Print generated AppleScript without executing`,
+    "",
+    bold("Config keys:") + note(" (set via 'summon set <key> <value>' or in .summon file)"),
+    `  editor          Command for coding panes (set during setup)`,
+    `  sidebar         Command for sidebar pane (default: lazygit)`,
+    `  panes           Number of editor panes (default: 2)`,
+    `  editor-size     Width % for editor grid (default: 75)`,
+    `  shell           Shell pane: true, false, or command (default: true)`,
+    `  layout          Default layout preset or custom layout name`,
+    `  auto-resize     Resize sidebar to match editor-size (default: on)`,
+    `  clean           Auto-close restored panes on launch (default: on)`,
+    `  starship-preset Starship prompt theme preset (per-workspace)`,
+    `  new-window      Open workspace in a new window (default: false)`,
+    `  fullscreen      Start workspace in fullscreen (default: false)`,
+    `  maximize        Start workspace maximized (default: false)`,
+    `  float           Float workspace window on top (default: false)`,
+    `  font-size       Font size in points for workspace panes`,
+    `  on-start        Command to run before workspace launches`,
+    "",
+    bold("Config-only keys") + note(" (no CLI flag):"),
+    `  on-stop         Command to run when workspace exits (available as config key only)`,
+    `  env.<KEY>       Environment variable passed to all panes (e.g. env.PORT=3000)`,
+    "",
+    bold("Layout presets:"),
+    `  minimal       1 editor pane, no shell`,
+    `  full          3 editor panes + shell`,
+    `  pair          2 editor panes + shell`,
+    `  cli           1 editor pane + shell`,
+    `  btop          editor + btop + shell + sidebar`,
+    "",
+    bold("Per-project config:"),
+    `  Place a .summon file in your project root with key=value pairs.`,
+    `  Project config overrides machine config; CLI flags override both.`,
+    `  Custom layouts support tree DSL syntax for advanced pane arrangements.`,
+    `  Example: summon <path> --layout 'root(left right)'`,
+    `  Note: .summon files can specify commands that will be executed.`,
+    `  Review .summon files before running summon in untrusted directories.`,
+    "",
+    note("Requires: macOS, Ghostty 1.3.1+"),
+    "",
+    bold("Examples:"),
+    `  summon .                        Launch workspace in current directory`,
+    `  summon myapp                    Launch workspace for registered project`,
+    `  summon add myapp ~/code/app     Register a project`,
+    `  summon set editor vim           Set the editor command`,
+    `  summon . --layout minimal       Launch with minimal preset`,
+    `  summon . --shell "npm run dev"  Launch with custom shell command`,
+    `  summon doctor                   Check config and fix issues`,
+    `  summon freeze mysetup           Save current config as reusable layout`,
+    "",
+    note("Run 'summon <command> --help' for details on each command."),
+  ].join("\n");
+}
 
 const SUBCOMMAND_HELP: Record<string, string> = {
   add: `Usage: summon add <name> <path>
@@ -447,7 +454,7 @@ export function buildOverrides(values: ParsedValues): CLIOverrides {
 }
 
 export function showHelp(): void {
-  console.log(HELP);
+  console.log(buildHelp());
 }
 
 export function hasSubcommandHelp(subcommand: string): boolean {

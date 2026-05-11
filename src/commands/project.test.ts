@@ -368,8 +368,8 @@ describe("resolveTargetDirectory", () => {
     mockGetProject.mockReturnValue(undefined);
 
     expect(() => resolveTargetDirectory("missing")).toThrow("exit:1");
-    expect(errorSpy).toHaveBeenCalledWith("Error: Unknown project: missing");
-    expect(errorSpy).toHaveBeenCalledWith("Register it with: summon add missing /path/to/project");
-    expect(errorSpy).toHaveBeenCalledWith("Or see available:  summon list");
+    expect(errorSpy).toHaveBeenCalledWith(`Error: "missing" is not a known command or registered project. Try: summon --help`);
+    expect(errorSpy).toHaveBeenCalledWith("To register as a project: summon add missing /path/to/project");
+    expect(errorSpy).toHaveBeenCalledWith("Or see available:         summon list");
   });
 });

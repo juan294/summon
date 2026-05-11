@@ -328,6 +328,38 @@ describe("fish completions in subcommand help (UX-M8 #397)", () => {
   });
 });
 
+// --- UX-L1: help text mentions session prominently ---
+
+describe("session in help text (UX-M6 #433)", () => {
+  it("mentions 'session' in the main help text", () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    showHelp();
+
+    const output = logSpy.mock.calls.map(c => c[0]).join("\n");
+    expect(output).toContain("session");
+    logSpy.mockRestore();
+  });
+
+  it("has subcommand help for 'session'", () => {
+    expect(hasSubcommandHelp("session")).toBe(true);
+  });
+});
+
+// --- UX-M2: unknown command error includes help suggestion ---
+
+describe("unknown command error includes help suggestion (UX-M2 #430)", () => {
+  it("showHelp output passes basic sanity — at least contains 'Usage'", () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    showHelp();
+
+    const output = logSpy.mock.calls.map(c => c[0]).join("\n");
+    expect(output).toContain("Usage");
+    logSpy.mockRestore();
+  });
+});
+
 // --- AR-L3: bounds-checked subcommand help ---
 
 describe("showSubcommandHelp — bounds check (AR-L3)", () => {

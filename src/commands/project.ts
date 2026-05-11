@@ -142,9 +142,9 @@ export function resolveTargetDirectory(target: string): string {
 
   const projectPath = getProject(target);
   if (!projectPath) {
-    console.error(`Error: Unknown project: ${target}`);
-    console.error(`Register it with: summon add ${target} /path/to/project`);
-    console.error("Or see available:  summon list");
+    console.error(`Error: "${target}" is not a known command or registered project. Try: summon --help`);
+    console.error(`To register as a project: summon add ${target} /path/to/project`);
+    console.error("Or see available:         summon list");
     process.exit(1);
   }
 

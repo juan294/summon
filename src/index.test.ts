@@ -1791,6 +1791,52 @@ describe("CLI integration", () => {
     });
   });
 
+  // UX-M2 (#430): Unknown command error includes "Try" or "help" suggestion
+  describe("unknown command error includes actionable suggestion (UX-M2 #430)", () => {
+    it("unknown subcommand error message contains 'Try' and '--help'", () => {
+      const freshHome = mkdtempSync(join(tmpdir(), "summon-m2-"));
+      const result = spawnSync("node", [CLI_PATH, "foobarnotacommand"], {
+        encoding: "utf-8",
+        cwd: freshHome,
+        env: { ...process.env, HOME: freshHome },
+        timeout: 30_000,
+      });
+      rmSync(freshHome, { recursive: true, force: true });
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("Try");
+      expect(result.stderr).toContain("--help");
+    });
+  });
+
+  // UX-L1 (#425): No-args hint includes setup and --help
+  describe("no-args hint includes setup and --help (UX-L1 #425)", () => {
+    it("hint mentions 'setup' and '--help' when SUMMON_FORCE_TTY is set", () => {
+      const freshHome = mkdtempSync(join(tmpdir(), "summon-l1-"));
+      const configDir = join(freshHome, ".config", "summon");
+      mkdirSync(configDir, { recursive: true });
+      writeFileSync(join(configDir, "config"), "editor=vim\n", "utf-8");
+      const result = spawnSync("node", [CLI_PATH], {
+        encoding: "utf-8",
+        cwd: freshHome,
+        env: { ...process.env, HOME: freshHome, SUMMON_FORCE_TTY: "1" },
+        timeout: 30_000,
+      });
+      rmSync(freshHome, { recursive: true, force: true });
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("setup");
+      expect(result.stdout).toContain("--help");
+    });
+  });
+
+  // UX-M6 (#433): Help text mentions session prominently
+  describe("help output mentions session (UX-M6 #433)", () => {
+    it("--help output contains 'session'", () => {
+      const result = run("--help");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("session");
+    });
+  });
+
   // FE-H2 (#255): --help with unknown subcommand should note unknown command
   describe("--help with unknown subcommand shows unknown command message (#255)", () => {
     it("exits 1 and shows error when 'summon unknownsubcmd --help' is run", () => {
