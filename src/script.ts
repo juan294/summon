@@ -185,18 +185,9 @@ function emitRootPaneCommand(
   }
 }
 
-/** Single-slot memoization cache for tab-title escaping (PE-L4). */
-const tabTitleEscapeCache: { input: string; output: string } | null = null;
-let _tabTitleEscapeCache: { input: string; output: string } | null = tabTitleEscapeCache;
-
-/** Escape a tab title, using a single-slot cache for stability across repeated calls. */
+/** Escape a tab title for use in an AppleScript action string. */
 function escapeTabTitle(title: string): string {
-  if (_tabTitleEscapeCache !== null && _tabTitleEscapeCache.input === title) {
-    return _tabTitleEscapeCache.output;
-  }
-  const output = escapeAppleScript(title);
-  _tabTitleEscapeCache = { input: title, output };
-  return output;
+  return escapeAppleScript(title);
 }
 
 /** Emit pane and tab titles block. */
@@ -474,61 +465,10 @@ export function generateFocusScript(tabTitle: string): string {
 // projectName, onStop). Any new option must be plumbed through both functions. Consider
 // extracting shared option handling into a common helper to reduce duplication.
 
-/** Options object form for generateAppleScript (AR-L5). */
-export interface GenerateAppleScriptOptions {
-  plan: LayoutPlan;
-  targetDir: string;
-  starshipConfigPath?: string | null;
-  envVars?: Record<string, string>;
-  projectName?: string;
-  onStop?: string;
-}
-
 /**
  * Generate AppleScript for a traditional (LayoutPlan) workspace.
- * Accepts either a single options object or positional arguments (backward-compatible).
  */
-export function generateAppleScript(opts: GenerateAppleScriptOptions): string;
-export function generateAppleScript(plan: LayoutPlan, targetDir: string, starshipConfigPath?: string | null, envVars?: Record<string, string>, projectName?: string, onStop?: string): string;
-export function generateAppleScript(
-  planOrOpts: LayoutPlan | GenerateAppleScriptOptions,
-  targetDir?: string,
-  starshipConfigPath?: string | null,
-  envVars?: Record<string, string>,
-  projectName?: string,
-  onStop?: string,
-): string {
-  // Resolve arguments from options object or positional form
-  let plan: LayoutPlan;
-  let resolvedTargetDir: string;
-  let resolvedStarshipConfigPath: string | null | undefined;
-  let resolvedEnvVars: Record<string, string> | undefined;
-  let resolvedProjectName: string | undefined;
-  let resolvedOnStop: string | undefined;
-
-  if ("plan" in planOrOpts && "targetDir" in planOrOpts) {
-    // Options object form
-    const opts = planOrOpts as GenerateAppleScriptOptions;
-    plan = opts.plan;
-    resolvedTargetDir = opts.targetDir;
-    resolvedStarshipConfigPath = opts.starshipConfigPath;
-    resolvedEnvVars = opts.envVars;
-    resolvedProjectName = opts.projectName;
-    resolvedOnStop = opts.onStop;
-  } else {
-    // Positional form
-    plan = planOrOpts as LayoutPlan;
-    resolvedTargetDir = targetDir!;
-    resolvedStarshipConfigPath = starshipConfigPath;
-    resolvedEnvVars = envVars;
-    resolvedProjectName = projectName;
-    resolvedOnStop = onStop;
-  }
-
-  return generateAppleScriptImpl(plan, resolvedTargetDir, resolvedStarshipConfigPath, resolvedEnvVars, resolvedProjectName, resolvedOnStop);
-}
-
-function generateAppleScriptImpl(plan: LayoutPlan, targetDir: string, starshipConfigPath?: string | null, envVars?: Record<string, string>, projectName?: string, onStop?: string): string {
+export function generateAppleScript(plan: LayoutPlan, targetDir: string, starshipConfigPath?: string | null, envVars?: Record<string, string>, projectName?: string, onStop?: string): string {
   const lines: string[] = [];
   const titles: Array<[string, string]> = [];
   const interactiveShellPanes: string[] = [];
