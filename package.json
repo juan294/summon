@@ -44,7 +44,7 @@
     "url": "https://github.com/juan294/summon/issues"
   },
   "files": [
-    "dist/index.js"
+    "dist"
   ],
   "publishConfig": {
     "access": "public"
