@@ -7,6 +7,7 @@ const mockReadFileSync = vi.fn();
 const mockWriteFileSync = vi.fn();
 const mockMkdirSync = vi.fn();
 const mockRealpathSync = vi.fn();
+const mockStatSync = vi.fn();
 
 vi.mock("node:fs", () => ({
   existsSync: (path: string) => mockExistsSync(path),
@@ -14,6 +15,7 @@ vi.mock("node:fs", () => ({
   writeFileSync: (path: string, data: string, encoding: string) => mockWriteFileSync(path, data, encoding),
   mkdirSync: (path: string, opts: unknown) => mockMkdirSync(path, opts),
   realpathSync: (path: string) => mockRealpathSync(path),
+  statSync: (path: string) => mockStatSync(path),
 }));
 
 // Mock node:os
@@ -22,7 +24,7 @@ vi.mock("node:os", () => ({
 }));
 
 // Import after mocks
-const { hashSummonFile, isTrusted, trustProject, assertTrusted, handleTrustCommand, SummonError } = await import("./trust.js");
+const { hashSummonFile, isTrusted, trustProject, assertTrusted, handleTrustCommand, SummonError, clearTrustCache } = await import("./trust.js");
 
 const TRUST_FILE = "/home/testuser/.config/summon/trust.json";
 
@@ -33,8 +35,11 @@ function sha256(content: string): string {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  clearTrustCache();
   // Default: realpathSync resolves to the same path (simulates absolute paths that exist)
   mockRealpathSync.mockImplementation((p: string) => p);
+  // Default: statSync returns a fake mtime
+  mockStatSync.mockImplementation(() => ({ mtimeMs: 1000 }));
 });
 
 describe("SummonError", () => {
@@ -353,6 +358,51 @@ describe("path normalization", () => {
 
     // isTrusted with "." should normalize to absPath and find the trust entry
     expect(isTrusted(".")).toBe(true);
+  });
+});
+
+describe("isTrusted mtime memoization", () => {
+  it("does not rehash on second call when mtime is unchanged", () => {
+    const content = "editor = vim\n";
+    const hash = sha256(content);
+    mockStatSync.mockReturnValue({ mtimeMs: 5000 });
+    mockReadFileSync.mockImplementation((p: string) => {
+      if (p.endsWith(".summon")) return content;
+      return JSON.stringify({ "/proj": hash });
+    });
+    mockExistsSync.mockReturnValue(true);
+
+    isTrusted("/proj");
+    isTrusted("/proj");
+
+    // readFileSync for .summon should be called only once (second call hits cache)
+    const summonCalls = mockReadFileSync.mock.calls.filter((args: unknown[]) => typeof args[0] === "string" && args[0].endsWith(".summon"));
+    expect(summonCalls.length).toBe(1);
+  });
+
+  it("rehashes when mtime changes", () => {
+    const content = "editor = vim\n";
+    const hash = sha256(content);
+    mockStatSync.mockReturnValueOnce({ mtimeMs: 5000 }).mockReturnValueOnce({ mtimeMs: 6000 });
+    mockReadFileSync.mockImplementation((p: string) => {
+      if (p.endsWith(".summon")) return content;
+      return JSON.stringify({ "/proj": hash });
+    });
+    mockExistsSync.mockReturnValue(true);
+
+    isTrusted("/proj");
+    isTrusted("/proj");
+
+    const summonCalls = mockReadFileSync.mock.calls.filter((args: unknown[]) => typeof args[0] === "string" && args[0].endsWith(".summon"));
+    expect(summonCalls.length).toBe(2);
+  });
+
+  it("returns true immediately when file does not exist (no statSync call)", () => {
+    mockExistsSync.mockReturnValue(false);
+
+    expect(isTrusted("/proj")).toBe(true);
+    expect(mockStatSync).not.toHaveBeenCalled();
+    expect(mockReadFileSync).not.toHaveBeenCalled();
   });
 });
 

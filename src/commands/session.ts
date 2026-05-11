@@ -12,6 +12,20 @@ import type { CommandContext } from "./types.js";
 
 const RESERVED = new Set(["add", "remove", "list", "show", "all"]);
 
+const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
+
+async function runWithSpinner<T>(label: string, fn: () => Promise<T>): Promise<T> {
+  if (!process.stdout.isTTY) return fn();
+  let frame = 0;
+  const timer = setInterval(() => {
+    process.stdout.write(`\r${SPINNER_FRAMES[frame++ % SPINNER_FRAMES.length]} ${label}`);
+  }, 80);
+  return fn().finally(() => {
+    clearInterval(timer);
+    process.stdout.write("\r\x1b[K");
+  });
+}
+
 export async function handleSessionCommand(ctx: CommandContext): Promise<void> {
   const [sub, ...rest] = ctx.args;
   switch (sub) {
@@ -95,9 +109,9 @@ async function cmdLaunch(ctx: CommandContext, name: string | undefined): Promise
     if (i > 0) {
       delete overrides["new-window"];
     }
-    console.log(`[${i + 1}/${total}] Summoning ${proj}...`);
     try {
-      await launch(dir, overrides);
+      await runWithSpinner(`[${i + 1}/${total}] Summoning ${proj}...`, () => launch(dir, overrides));
+      console.log(`[${i + 1}/${total}] Launched ${proj}`);
       launched.push(proj);
     } catch (err) {
       console.error(`Error launching ${proj}: ${getErrorMessage(err)}`);

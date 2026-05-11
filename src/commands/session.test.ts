@@ -488,3 +488,23 @@ describe("session launch — partial failure shows already-launched list", () =>
     logSpy.mockRestore();
   });
 });
+
+describe("session launch — spinner", () => {
+  it("does not write to stdout when not a TTY", async () => {
+    const writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    Object.defineProperty(process.stdout, "isTTY", { value: false, configurable: true });
+
+    mockReadSession.mockReturnValue(["api"]);
+    mockGetProject.mockReturnValue("/tmp/api");
+    mockLaunch.mockResolvedValue(undefined);
+
+    await handleSessionCommand(makeContext({ args: ["mysession"] }));
+
+    expect(writeSpy).not.toHaveBeenCalled();
+
+    writeSpy.mockRestore();
+    logSpy.mockRestore();
+    Object.defineProperty(process.stdout, "isTTY", { value: undefined, configurable: true });
+  });
+});

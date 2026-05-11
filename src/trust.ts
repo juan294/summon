@@ -9,7 +9,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, writeFileSync, mkdirSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, realpathSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { homedir } from "node:os";
 
@@ -23,6 +23,13 @@ export class SummonError extends Error {
 
 /** Path to the trust database. */
 const TRUST_FILE = join(homedir(), ".config", "summon", "trust.json");
+
+/** Mtime-based cache: avoid rehashing on every launch when the file hasn't changed. */
+const trustCache = new Map<string, { mtimeMs: number; trusted: boolean }>();
+
+export function clearTrustCache(): void {
+  trustCache.clear();
+}
 
 /** Path to the summon config directory. */
 const CONFIG_DIR = join(homedir(), ".config", "summon");
@@ -70,14 +77,33 @@ export function hashSummonFile(dir: string): string | null {
 /**
  * Check whether the .summon file in the given directory is trusted.
  * Returns true if no .summon file exists (nothing to trust) or if the
- * current file hash matches the stored hash.
+ * current file hash matches the stored hash. Results are mtime-memoized
+ * so repeated launches do not rehash an unchanged file.
  */
 export function isTrusted(dir: string): boolean {
   const normalizedDir = (() => { try { return realpathSync(dir); } catch { return resolve(dir); } })();
-  const hash = hashSummonFile(dir);
-  if (hash === null) return true; // no .summon file → trusted by default
+  const summonPath = join(dir, ".summon");
+
+  if (!existsSync(summonPath)) return true; // no .summon file → trusted by default
+
+  // Use mtime to skip rehash when file is unchanged
+  let mtimeMs: number;
+  try {
+    mtimeMs = statSync(summonPath).mtimeMs;
+  } catch {
+    // File disappeared between existsSync and statSync → treat as absent
+    return true;
+  }
+
+  const cached = trustCache.get(normalizedDir);
+  if (cached !== undefined && cached.mtimeMs === mtimeMs) return cached.trusted;
+
+  const content = readFileSync(summonPath, "utf-8");
+  const hash = hashContent(content);
   const db = loadTrustDb();
-  return db[normalizedDir] === hash;
+  const trusted = db[normalizedDir] === hash;
+  trustCache.set(normalizedDir, { mtimeMs, trusted });
+  return trusted;
 }
 
 /**

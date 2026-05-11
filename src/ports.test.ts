@@ -343,6 +343,32 @@ describe("detectAllPorts", () => {
     expect(conflicts.size).toBe(0);
   });
 
+  it("does not match git -p flag as a port", async () => {
+    const dir = projectDir("proj-git");
+    writeFileSync(
+      join(dir, "package.json"),
+      JSON.stringify({
+        scripts: { log: "git -p 0 log --oneline" },
+      }),
+    );
+
+    const ports = await detectProjectPorts("proj-git", dir, "unknown");
+    expect(ports).toEqual([]);
+  });
+
+  it("does not match -p inside a string literal in an echo command", async () => {
+    const dir = projectDir("proj-echo");
+    writeFileSync(
+      join(dir, "package.json"),
+      JSON.stringify({
+        scripts: { info: "echo 'serve --port 3000 in prod'" },
+      }),
+    );
+
+    const ports = await detectProjectPorts("proj-echo", dir, "unknown");
+    expect(ports).toEqual([]);
+  });
+
   it("handles mix of conflicting and unique ports", async () => {
     const dirA = projectDir("proj-a");
     const dirB = projectDir("proj-b");
