@@ -55,8 +55,8 @@ node -p "require('./package.json').version"
 pnpm pack
 # Inspect the tarball contents:
 tar tzf summon-ws-<version>.tgz
-# Should contain: package/dist/index.js, package/package.json,
-#                 package/README.md, package/LICENSE
+# Should contain: package/dist/index.js, package/dist/chunk-*.js,
+#                 package/package.json, package/README.md, package/LICENSE
 # Should NOT contain: docs/, src/, node_modules/
 
 # Install globally from the tarball:
