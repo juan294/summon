@@ -304,10 +304,21 @@ function emitNewWindow(
   add(1, "set win to front window");
 }
 
-/** Emit AppleScript to open a new tab in the front window via Ghostty's dictionary verb. */
+/**
+ * Emit AppleScript to open a new tab in the front Ghostty window via System Events Cmd+T.
+ *
+ * Why not `make new tab`: Ghostty's dictionary verb creates the tab but its return value
+ * triggers a Cocoa Scripting coercion error (-2710) that aborts the enclosing AppleScript
+ * block. Cmd+T via System Events is the same pattern summon uses for `--new-window`
+ * (Cmd+N) and avoids the bug. The new tab becomes selected automatically.
+ */
 function emitNewTab(sb: ScriptBuilder): void {
   const { add } = sb;
-  add(1, "set newTabRef to make new tab of front window with configuration cfg");
+  add(1, 'tell application "System Events"');
+  add(2, `tell process "${GHOSTTY_APP_NAME}"`);
+  add(3, 'keystroke "t" using command down');
+  add(2, "end tell");
+  add(1, "end tell");
   add(1, `delay ${NEW_WINDOW_DELAY}`);
 }
 
@@ -529,7 +540,7 @@ function generateAppleScriptImpl(plan: LayoutPlan, targetDir: string, starshipCo
   emitClosePrelude(sb, plan.cleanRestoredPanes);
   if (plan.newTab) {
     emitNewTab(sb);
-    sb.add(1, "set paneRoot to terminal 1 of newTabRef");
+    sb.add(1, "set paneRoot to terminal 1 of selected tab of front window");
   } else {
     emitNewWindow(sb, plan.newWindow);
     sb.add(1, "set paneRoot to terminal 1 of selected tab of win");
@@ -602,7 +613,7 @@ export function generateTreeAppleScript(
   emitClosePrelude(sb, plan.cleanRestoredPanes);
   if (plan.newTab) {
     emitNewTab(sb);
-    sb.add(1, `set ${rootPaneVar} to terminal 1 of newTabRef`);
+    sb.add(1, `set ${rootPaneVar} to terminal 1 of selected tab of front window`);
   } else {
     emitNewWindow(sb, plan.newWindow);
     sb.add(1, `set ${rootPaneVar} to terminal 1 of selected tab of win`);

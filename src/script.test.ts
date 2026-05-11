@@ -767,11 +767,11 @@ describe("generateAppleScript", () => {
     });
 
     describe("new-tab flag", () => {
-      it("emits make new tab when newTab=true", () => {
+      it("emits Cmd+T System Events keystroke when newTab=true", () => {
         const plan = planLayout({ newTab: true });
         const script = generateAppleScript(plan, "/tmp/test");
-        expect(script).toContain("make new tab of front window with configuration cfg");
-        expect(script).toContain("set paneRoot to terminal 1 of newTabRef");
+        expect(script).toContain('keystroke "t" using command down');
+        expect(script).toContain("set paneRoot to terminal 1 of selected tab of front window");
       });
 
       it("does not emit Cmd+N when newTab=true", () => {
@@ -783,14 +783,15 @@ describe("generateAppleScript", () => {
       it("does not bind paneRoot via selected tab of win when newTab=true", () => {
         const plan = planLayout({ newTab: true });
         const script = generateAppleScript(plan, "/tmp/test");
-        // paneRoot must be bound via newTabRef, not via selected tab of win
+        // paneRoot must be bound via front window (not the `win` variable that
+        // newWindow path uses) since newTab doesn't set `win`.
         expect(script).not.toContain("set paneRoot to terminal 1 of selected tab of win");
       });
 
-      it("does not emit make new tab when newTab=false (default regression guard)", () => {
+      it("does not emit Cmd+T when newTab=false (default regression guard)", () => {
         const plan = planLayout();
         const script = generateAppleScript(plan, "/tmp/test");
-        expect(script).not.toContain("make new tab");
+        expect(script).not.toContain('keystroke "t" using command down');
       });
 
       it("throws when both newWindow and newTab are true", () => {
@@ -1162,15 +1163,15 @@ describe("generateTreeAppleScript", () => {
     expect(script).not.toContain("make new window");
   });
 
-  it("new tab mode emits make new tab AppleScript", () => {
+  it("new tab mode emits Cmd+T keystroke", () => {
     const plan = makePlan(
       { type: "pane", name: "editor", command: "claude" },
       { newTab: true },
     );
     const script = generateTreeAppleScript(plan, "/tmp/project");
 
-    expect(script).toContain("make new tab of front window with configuration cfg");
-    expect(script).toContain("set pane_editor to terminal 1 of newTabRef");
+    expect(script).toContain('keystroke "t" using command down');
+    expect(script).toContain("set pane_editor to terminal 1 of selected tab of front window");
   });
 
   it("new tab mode does not emit Cmd+N", () => {
@@ -1193,13 +1194,13 @@ describe("generateTreeAppleScript", () => {
     expect(script).not.toContain("set pane_editor to terminal 1 of selected tab of win");
   });
 
-  it("new tab mode does not emit make new tab when newTab=false (regression guard)", () => {
+  it("new tab mode does not emit Cmd+T when newTab=false (regression guard)", () => {
     const plan = makePlan(
       { type: "pane", name: "editor", command: "claude" },
     );
     const script = generateTreeAppleScript(plan, "/tmp/project");
 
-    expect(script).not.toContain("make new tab");
+    expect(script).not.toContain('keystroke "t" using command down');
   });
 
   it("throws when both newWindow and newTab are true in buildTreePlan", () => {
