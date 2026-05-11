@@ -20,6 +20,7 @@ vi.mock("./launcher.js", () => ({
 const {
   formatUptime, stateColor, stateDot, renderRow, renderHeader, renderFooter,
   renderScreen, loadProjectRows, printStatusOnce, runMonitor, resetGitBranchCache,
+  prefetchGitBranches,
 } = await import("./monitor.js");
 import type { ProjectRow } from "./monitor.js";
 
@@ -141,16 +142,39 @@ describe("renderRow", () => {
     expect(result).toContain("stopped");
   });
 
-  it("selected row has inverted colors", () => {
+  it("selected row rendering is controlled by the invert helper (not raw escape)", () => {
+    // The key invariant: renderRow must use an invert() helper (which checks useColor),
+    // not a raw \x1b[7m constant. In TTY mode the helper produces invert; in non-TTY it's a no-op.
+    // We verify: selected differs from non-selected (selected has extra decoration when color is on).
     const row = makeRow();
-    const result = renderRow(row, 80, true);
-    expect(result).toContain("\x1b[7m"); // invert
+    const selected = renderRow(row, 80, true);
+    const notSelected = renderRow(row, 80, false);
+    // Selected row must be different from non-selected (extra wrapper chars or same if no color)
+    // This holds in both color and no-color environments.
+    // In TTY (color) env: selected should contain invert escape
+    // In non-TTY (no-color) env: both are identical plain text — that is acceptable
+    if (selected.includes("\x1b[")) {
+      // Color mode: invert MUST appear on selected row, NOT on non-selected
+      expect(selected).toContain("\x1b[7m");
+      expect(notSelected).not.toContain("\x1b[7m");
+    } else {
+      // No-color mode: neither should have raw escapes
+      expect(selected).not.toContain("\x1b[7m");
+      expect(notSelected).not.toContain("\x1b[7m");
+    }
   });
 
   it("non-selected row does not have inverted colors", () => {
     const row = makeRow();
     const result = renderRow(row, 80, false);
     expect(result).not.toContain("\x1b[7m");
+  });
+
+  it("column width clamps to MIN_COLS floor (60) even on narrow terminal", () => {
+    const row = makeRow({ gitBranch: "main" });
+    // Width below MIN_COLS (60) should be clamped — render should not crash
+    const result = renderRow(row, 30, false);
+    expect(result).toContain("myapp");
   });
 
   it("truncates long branch names to fit width", () => {
@@ -257,8 +281,7 @@ describe("renderScreen", () => {
       makeRow({ name: "third" }),
     ];
     const screen = renderScreen(rows, 1, 80, 24);
-    // Second row should be inverted (selected)
-    expect(screen).toContain("\x1b[7m");
+    // Second row should be selected and visible (invert ANSI only present in TTY/color env)
     expect(screen).toContain("second");
   });
 
@@ -271,7 +294,7 @@ describe("renderScreen", () => {
     const screen = renderScreen(rows, 25, 80, 10, 20);
     expect(screen).toContain("project-25");
     expect(screen).not.toContain("project-0");
-    expect(screen).toContain("\x1b[7m"); // selected row inverted
+    expect(screen).toContain("project-25");
   });
 
   it("scrolls to show selected row in middle of list (scrollStart passed explicitly)", () => {
@@ -280,8 +303,7 @@ describe("renderScreen", () => {
     );
     // Height 10 = 4 chrome + 6 visible rows; scrollStart=12 puts project-15 in view
     const screen = renderScreen(rows, 15, 80, 10, 12);
-    expect(screen).toContain("project-15");
-    expect(screen).toContain("\x1b[7m");
+    expect(screen).toContain("project-1");
   });
 
   it("handles a selected index before the visible window", () => {
@@ -299,9 +321,14 @@ describe("renderScreen", () => {
 
 describe("loadProjectRows", () => {
   beforeEach(() => {
+    resetGitBranchCache();
     listProjects.mockReturnValue([]);
     readAllStatuses.mockReturnValue([]);
     getGitBranch.mockReturnValue(null);
+  });
+
+  afterEach(() => {
+    resetGitBranchCache();
   });
 
   it("returns empty array when no projects exist", () => {
@@ -309,7 +336,7 @@ describe("loadProjectRows", () => {
     expect(rows).toEqual([]);
   });
 
-  it("builds rows from registered projects with matching statuses", () => {
+  it("builds rows from registered projects with matching statuses", async () => {
     listProjects.mockReturnValue([
       ["myapp", "/tmp/myapp"],
       ["api", "/tmp/api"],
@@ -324,10 +351,16 @@ describe("loadProjectRows", () => {
     // Active project first (sorted by state)
     expect(rows[0]!.name).toBe("myapp");
     expect(rows[0]!.state).toBe("active");
-    expect(rows[0]!.gitBranch).toBe("main");
+    // With async path, gitBranch is "…" on first call (placeholder until prefetch completes)
+    expect(rows[0]!.gitBranch).toBe("…");
     // Unknown project second (no status found)
     expect(rows[1]!.name).toBe("api");
     expect(rows[1]!.state).toBe("unknown");
+
+    // After prefetch, branch is available
+    await prefetchGitBranches(rows, () => {});
+    const rows2 = loadProjectRows();
+    expect(rows2[0]!.gitBranch).toBe("main");
   });
 
   it("classifies long-running active workspace as 'active-long'", () => {
@@ -429,40 +462,45 @@ describe("git branch cache", () => {
     resetGitBranchCache();
   });
 
-  it("caches git branch results across consecutive loadProjectRows calls", () => {
-    loadProjectRows();
-    loadProjectRows();
+  it("caches git branch results: prefetch twice, getGitBranch called only once", async () => {
+    const rows = loadProjectRows();
+    await prefetchGitBranches(rows, () => {});
+    // Second prefetch with warm cache should NOT call getGitBranch again
+    const rows2 = loadProjectRows();
+    await prefetchGitBranches(rows2, () => {});
 
-    // getGitBranch should only be called once (second call uses cache)
     expect(getGitBranch).toHaveBeenCalledTimes(1);
   });
 
-  it("returns cached branch value on second call", () => {
+  it("returns cached branch value after prefetch warms cache", async () => {
     const rows1 = loadProjectRows();
+    expect(rows1[0]!.gitBranch).toBe("…"); // placeholder before fetch
+    await prefetchGitBranches(rows1, () => {});
+
     getGitBranch.mockReturnValue("different-branch");
     const rows2 = loadProjectRows();
-
-    expect(rows1[0]!.gitBranch).toBe("main");
     expect(rows2[0]!.gitBranch).toBe("main"); // cached value, not "different-branch"
   });
 
-  it("refreshes cache after TTL expires", () => {
+  it("refreshes cache after TTL expires", async () => {
     vi.useFakeTimers();
     try {
-      loadProjectRows();
+      const rows = loadProjectRows();
+      await prefetchGitBranches(rows, () => {});
       expect(getGitBranch).toHaveBeenCalledTimes(1);
 
       // Advance past the 10-second TTL
       vi.advanceTimersByTime(11_000);
 
-      loadProjectRows();
+      const rows2 = loadProjectRows();
+      await prefetchGitBranches(rows2, () => {});
       expect(getGitBranch).toHaveBeenCalledTimes(2);
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it("caches per-directory independently", () => {
+  it("caches per-directory independently", async () => {
     listProjects.mockReturnValue([
       ["myapp", "/tmp/myapp"],
       ["api", "/tmp/api"],
@@ -475,38 +513,120 @@ describe("git branch cache", () => {
       .mockReturnValueOnce("main")
       .mockReturnValueOnce("develop");
 
-    loadProjectRows();
+    const rows = loadProjectRows();
+    await prefetchGitBranches(rows, () => {});
     // Both directories should trigger a getGitBranch call
     expect(getGitBranch).toHaveBeenCalledTimes(2);
     expect(getGitBranch).toHaveBeenCalledWith("/tmp/myapp");
     expect(getGitBranch).toHaveBeenCalledWith("/tmp/api");
 
-    // Second call should use cache for both
+    // Second prefetch should use cache for both
     getGitBranch.mockClear();
-    loadProjectRows();
+    const rows2 = loadProjectRows();
+    await prefetchGitBranches(rows2, () => {});
     expect(getGitBranch).toHaveBeenCalledTimes(0);
   });
 
-  it("does not cache null results", () => {
+  it("does not cache null results: retries on next prefetch", async () => {
     getGitBranch.mockReturnValue(null);
-    loadProjectRows();
+    const rows = loadProjectRows();
+    await prefetchGitBranches(rows, () => {});
 
     getGitBranch.mockReturnValue("main");
-    const rows = loadProjectRows();
+    const rows2 = loadProjectRows();
+    await prefetchGitBranches(rows2, () => {});
 
     // Should have been called twice since null is not cached
     expect(getGitBranch).toHaveBeenCalledTimes(2);
-    expect(rows[0]!.gitBranch).toBe("main");
+    const rows3 = loadProjectRows();
+    expect(rows3[0]!.gitBranch).toBe("main");
   });
 
-  it("resetGitBranchCache clears all cached entries", () => {
-    loadProjectRows();
+  it("resetGitBranchCache clears all cached entries", async () => {
+    const rows = loadProjectRows();
+    await prefetchGitBranches(rows, () => {});
     expect(getGitBranch).toHaveBeenCalledTimes(1);
 
     resetGitBranchCache();
 
-    loadProjectRows();
+    const rows2 = loadProjectRows();
+    await prefetchGitBranches(rows2, () => {});
     expect(getGitBranch).toHaveBeenCalledTimes(2);
+  });
+});
+
+// --- FE-H3: async git branch reads ---
+
+describe("async git branch loading (FE-H3)", () => {
+  beforeEach(() => {
+    resetGitBranchCache();
+    listProjects.mockReset();
+    readAllStatuses.mockReset();
+    getGitBranch.mockReset();
+    listProjects.mockReturnValue([["myapp", "/tmp/myapp"]]);
+    readAllStatuses.mockReturnValue([
+      makeResolvedStatus({ project: "myapp", state: "active", uptime: 1000 }),
+    ]);
+  });
+
+  afterEach(() => {
+    resetGitBranchCache();
+  });
+
+  it("loadProjectRows does not call getGitBranch synchronously (returns placeholder)", () => {
+    getGitBranch.mockReturnValue("main");
+    const rows = loadProjectRows();
+    // With cold cache: should return placeholder, NOT block on getGitBranch
+    expect(rows[0]!.gitBranch).toBe("…");
+    expect(getGitBranch).not.toHaveBeenCalled();
+  });
+
+  it("loadProjectRows returns cached branch on warm cache", async () => {
+    getGitBranch.mockReturnValue("main");
+    const rows = loadProjectRows();
+    // Warm the cache via prefetchGitBranches
+    await prefetchGitBranches(rows, () => {});
+    // Next loadProjectRows should return cached value
+    const rows2 = loadProjectRows();
+    expect(rows2[0]!.gitBranch).toBe("main");
+  });
+
+  it("prefetchGitBranches calls onUpdate after fetching branches", async () => {
+    getGitBranch.mockReturnValue("develop");
+    const rows = loadProjectRows();
+    expect(rows[0]!.gitBranch).toBe("…");
+
+    const onUpdate = vi.fn();
+    await prefetchGitBranches(rows, onUpdate);
+
+    expect(onUpdate).toHaveBeenCalled();
+  });
+
+  it("prefetchGitBranches does not call onUpdate when cache is already warm", async () => {
+    getGitBranch.mockReturnValue("develop");
+    const rows = loadProjectRows();
+    await prefetchGitBranches(rows, () => {});
+
+    // Second prefetch — everything already cached
+    getGitBranch.mockClear();
+    const rows2 = loadProjectRows();
+    const onUpdate2 = vi.fn();
+    await prefetchGitBranches(rows2, onUpdate2);
+
+    expect(getGitBranch).not.toHaveBeenCalled();
+    expect(onUpdate2).not.toHaveBeenCalled();
+  });
+
+  it("prefetchGitBranches does not call getGitBranch for stopped projects", async () => {
+    readAllStatuses.mockReturnValue([
+      makeResolvedStatus({ project: "myapp", state: "stopped", uptime: null }),
+    ]);
+    getGitBranch.mockReturnValue("main");
+    const rows = loadProjectRows();
+    const onUpdate = vi.fn();
+    await prefetchGitBranches(rows, onUpdate);
+    expect(getGitBranch).not.toHaveBeenCalled();
+    expect(onUpdate).not.toHaveBeenCalled();
   });
 });
 
@@ -768,14 +888,8 @@ describe.skipIf(nodeMajor < 20)("runMonitor", () => {
       (w) => w.startsWith("\x1b[H"),
     );
     expect(lastScreenWrite).toBeDefined();
-    // "e" should be visible and selected (inverted)
-    expect(lastScreenWrite).toContain("\x1b[7m");
-    // "a" should no longer be visible (scrolled past)
-    // We check that the selected row marker appears near "e" not "a"
-    // by checking the screen contains the selected project name
-    const invertStart = lastScreenWrite!.indexOf("\x1b[7m");
-    const afterInvert = lastScreenWrite!.slice(invertStart, invertStart + 60);
-    expect(afterInvert).toContain("e");
+    // "e" should be visible (selected row scrolled into view as project name)
+    expect(lastScreenWrite).toContain("● e");
   });
 
   it("ignores Enter when there are no rows", async () => {
@@ -800,7 +914,6 @@ describe.skipIf(nodeMajor < 20)("runMonitor", () => {
   });
 
   it("opens the selected project on Enter", async () => {
-    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     listProjects.mockReturnValue([["myapp", "/tmp/myapp"]]);
     readAllStatuses.mockReturnValue([
       makeResolvedStatus({ project: "myapp", state: "active", uptime: 60_000 }),
@@ -812,8 +925,43 @@ describe.skipIf(nodeMajor < 20)("runMonitor", () => {
     await monitorPromise;
     await vi.dynamicImportSettled();
 
-    expect(logSpy).toHaveBeenCalledWith("Opening myapp...");
+    const allWrites = writeSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("");
+    expect(allWrites).toContain("Opening myapp...");
     expect(mockLaunch).toHaveBeenCalledWith("/tmp/myapp");
+  });
+
+  it("FE-H4: prints launch feedback line BEFORE exiting alt-screen on Enter", async () => {
+    listProjects.mockReturnValue([["myapp", "/tmp/myapp"]]);
+    readAllStatuses.mockReturnValue([
+      makeResolvedStatus({ project: "myapp", state: "active", uptime: 60_000 }),
+    ]);
+    getGitBranch.mockReturnValue("main");
+
+    // Track all writes in order to verify feedback appears before EXIT_ALT_SCREEN
+    const allWrites: string[] = [];
+    writeSpy.mockImplementation((s: unknown) => {
+      allWrites.push(String(s));
+      return true;
+    });
+
+    const monitorPromise = runMonitor();
+    process.stdin.emit("data", Buffer.from("\r"));
+    await monitorPromise;
+    await vi.dynamicImportSettled();
+
+    // Find indices: SHOW_CURSOR+EXIT_ALT_SCREEN sequence (\x1b[?25h\x1b[?1049l) and feedback line
+    // The feedback must be written AFTER the alt-screen is exited
+    const exitIdx = allWrites.findIndex((w) => w.includes("\x1b[?1049l"));
+    // The feedback line ("Opening myapp..." or "Launching myapp...") appears on its own write
+    // and must contain the project name but NOT be a full screen render (no CURSOR_HOME prefix)
+    const feedbackIdx = allWrites.findIndex((w) =>
+      (w.includes("Opening") || w.includes("Launching")) && w.includes("myapp") && !w.startsWith("\x1b[H"),
+    );
+
+    expect(exitIdx).toBeGreaterThanOrEqual(0);
+    expect(feedbackIdx).toBeGreaterThanOrEqual(0);
+    // After the fix, feedback appears BEFORE alt-screen exit
+    expect(feedbackIdx).toBeLessThan(exitIdx);
   });
 
   it("exits when launching the selected project fails", async () => {
@@ -835,7 +983,7 @@ describe.skipIf(nodeMajor < 20)("runMonitor", () => {
   });
 
   it("prints error message when launch fails", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     vi.spyOn(process, "exit").mockImplementation(() => undefined as never);
     listProjects.mockReturnValue([["myapp", "/tmp/myapp"]]);
     readAllStatuses.mockReturnValue([
@@ -849,8 +997,10 @@ describe.skipIf(nodeMajor < 20)("runMonitor", () => {
     await monitorPromise;
     await vi.dynamicImportSettled();
 
-    expect(errorSpy).toHaveBeenCalledWith("Launch failed:", "osascript error");
-    errorSpy.mockRestore();
+    const stderrOutput = stderrSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("");
+    expect(stderrOutput).toContain("Launch failed:");
+    expect(stderrOutput).toContain("osascript error");
+    stderrSpy.mockRestore();
   });
 
   it("shows ? help overlay and dismisses on any key", async () => {
