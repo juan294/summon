@@ -465,10 +465,20 @@ export function generateFocusScript(tabTitle: string): string {
 // projectName, onStop). Any new option must be plumbed through both functions. Consider
 // extracting shared option handling into a common helper to reduce duplication.
 
+/** Memoization cache for generateAppleScript — keyed by JSON fingerprint of all inputs. */
+const scriptCache = new Map<string, string>();
+
+export function clearScriptCache(): void {
+  scriptCache.clear();
+}
+
 /**
  * Generate AppleScript for a traditional (LayoutPlan) workspace.
  */
 export function generateAppleScript(plan: LayoutPlan, targetDir: string, starshipConfigPath?: string | null, envVars?: Record<string, string>, projectName?: string, onStop?: string): string {
+  const cacheKey = JSON.stringify({ plan, targetDir, starshipConfigPath, envVars, projectName, onStop });
+  const cached = scriptCache.get(cacheKey);
+  if (cached !== undefined) return cached;
   const lines: string[] = [];
   const titles: Array<[string, string]> = [];
   const interactiveShellPanes: string[] = [];
@@ -530,7 +540,9 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, starshi
   emitWindowState(sb, "paneRoot", plan);
 
   sb.add(0, "end tell");
-  return lines.join("\n");
+  const result = lines.join("\n");
+  scriptCache.set(cacheKey, result);
+  return result;
 }
 
 export function generateTreeAppleScript(

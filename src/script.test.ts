@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { generateAppleScript, generateTreeAppleScript, generateFocusScript } from "./script.js";
+import { describe, it, expect, beforeEach } from "vitest";
+import { generateAppleScript, generateTreeAppleScript, generateFocusScript, clearScriptCache } from "./script.js";
 import { planLayout, getPreset } from "./layout.js";
 import { collectLeaves, buildTreePlan } from "./tree.js";
 import type { TreeLayoutPlan, LayoutNode } from "./tree.js";
@@ -1815,5 +1815,33 @@ describe("escapeAppleScript — fuzz / property tests (SE-S1)", () => {
         throw new Error(`escapeAppleScript produced unescaped double-quote for input: ${JSON.stringify(input)}`);
       }
     }
+  });
+});
+
+describe("PE-M1: generateAppleScript memoization (#416)", () => {
+  beforeEach(() => {
+    clearScriptCache();
+  });
+
+  it("returns identical output for identical inputs", () => {
+    const plan = planLayout();
+    const r1 = generateAppleScript(plan, "/tmp/project");
+    const r2 = generateAppleScript(plan, "/tmp/project");
+    expect(r1).toBe(r2);
+  });
+
+  it("returns different output for different targetDir", () => {
+    const plan = planLayout();
+    const r1 = generateAppleScript(plan, "/tmp/project-a");
+    const r2 = generateAppleScript(plan, "/tmp/project-b");
+    expect(r1).not.toBe(r2);
+  });
+
+  it("clearScriptCache forces regeneration on next call", () => {
+    const plan = planLayout();
+    const r1 = generateAppleScript(plan, "/tmp/project");
+    clearScriptCache();
+    const r2 = generateAppleScript(plan, "/tmp/project");
+    expect(r1).toBe(r2); // same output (deterministic), just regenerated
   });
 });

@@ -326,6 +326,11 @@ export function resolveTreeCommands(
         );
       }
       usedNames.add(node.name);
+      if (cmd.trim() === "") {
+        throw new Error(
+          `Pane '${node.name}' has an empty command (pane.${node.name} is defined but blank)`,
+        );
+      }
       return cwd ? { ...node, command: cmd, cwd } : { ...node, command: cmd };
     }
     return {
