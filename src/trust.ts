@@ -9,8 +9,8 @@
  */
 
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, realpathSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { homedir } from "node:os";
 
 /** Error thrown when a .summon file exists but is not trusted. */
@@ -65,11 +65,11 @@ export function hashSummonFile(dir: string): string | null {
  * current file hash matches the stored hash.
  */
 export function isTrusted(dir: string): boolean {
+  const normalizedDir = (() => { try { return realpathSync(dir); } catch { return resolve(dir); } })();
   const hash = hashSummonFile(dir);
   if (hash === null) return true; // no .summon file → trusted by default
   const db = loadTrustDb();
-  const resolvedDir = join(dir); // keep consistent
-  return db[resolvedDir] === hash;
+  return db[normalizedDir] === hash;
 }
 
 /**
@@ -77,10 +77,11 @@ export function isTrusted(dir: string): boolean {
  * No-op if the .summon file does not exist.
  */
 export function trustProject(dir: string): void {
+  const normalizedDir = (() => { try { return realpathSync(dir); } catch { return resolve(dir); } })();
   const hash = hashSummonFile(dir);
   if (hash === null) return;
   const db = loadTrustDb();
-  db[dir] = hash;
+  db[normalizedDir] = hash;
   saveTrustDb(db);
 }
 
@@ -100,9 +101,13 @@ export function assertTrusted(targetDir: string): void {
   let trusted: boolean;
   try {
     trusted = isTrusted(targetDir);
-  } catch {
-    // Unable to compute or read trust state — fail open (do not block).
-    return;
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === undefined || code === "ENOENT") return; // no .summon file or non-OS error → nothing to check
+    throw new Error(
+      "Cannot verify trust for this project; run 'summon trust .' to re-establish",
+      { cause: err },
+    );
   }
   if (trusted) return;
 
