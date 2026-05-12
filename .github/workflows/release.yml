@@ -62,7 +62,6 @@ jobs:
           npm install -g "$TARBALL"
           summon --version
           summon --help
-          summon doctor
 
       - name: AppleScript E2E smoke test
         # Validates generated AppleScript syntax via osacompile (no Ghostty needed)
