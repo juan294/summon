@@ -6,12 +6,16 @@ const mockExistsSync = vi.fn();
 const mockReadFileSync = vi.fn();
 const mockWriteFileSync = vi.fn();
 const mockMkdirSync = vi.fn();
+const mockRealpathSync = vi.fn();
+const mockStatSync = vi.fn();
 
 vi.mock("node:fs", () => ({
   existsSync: (path: string) => mockExistsSync(path),
   readFileSync: (path: string, encoding: string) => mockReadFileSync(path, encoding),
   writeFileSync: (path: string, data: string, encoding: string) => mockWriteFileSync(path, data, encoding),
   mkdirSync: (path: string, opts: unknown) => mockMkdirSync(path, opts),
+  realpathSync: (path: string) => mockRealpathSync(path),
+  statSync: (path: string) => mockStatSync(path),
 }));
 
 // Mock node:os
@@ -20,7 +24,7 @@ vi.mock("node:os", () => ({
 }));
 
 // Import after mocks
-const { hashSummonFile, isTrusted, trustProject, assertTrusted, handleTrustCommand, SummonError } = await import("./trust.js");
+const { hashSummonFile, isTrusted, trustProject, assertTrusted, handleTrustCommand, SummonError, clearTrustCache } = await import("./trust.js");
 
 const TRUST_FILE = "/home/testuser/.config/summon/trust.json";
 
@@ -31,6 +35,11 @@ function sha256(content: string): string {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  clearTrustCache();
+  // Default: realpathSync resolves to the same path (simulates absolute paths that exist)
+  mockRealpathSync.mockImplementation((p: string) => p);
+  // Default: statSync returns a fake mtime
+  mockStatSync.mockImplementation(() => ({ mtimeMs: 1000 }));
 });
 
 describe("SummonError", () => {
@@ -285,6 +294,132 @@ describe("assertTrusted", () => {
     });
 
     expect(() => assertTrusted("/some/dir")).not.toThrow();
+  });
+});
+
+describe("path normalization", () => {
+  it("trusting via relative path (.) is found when queried with absolute path", () => {
+    const content = "editor = vim\n";
+    const hash = sha256(content);
+    const absPath = "/home/testuser/myproject";
+
+    // realpathSync resolves "." to the absolute path
+    mockRealpathSync.mockImplementation((p: string) => {
+      if (p === ".") return absPath;
+      return p;
+    });
+
+    mockExistsSync.mockImplementation((p: string) => {
+      if (p.endsWith(".summon")) return true;
+      if (p === TRUST_FILE) return false; // no existing trust.json before write
+      return false;
+    });
+    mockReadFileSync.mockImplementation((p: string) => {
+      if (p.endsWith(".summon")) return content;
+      // After trust is written, simulate reading it back
+      return JSON.stringify({ [absPath]: hash });
+    });
+
+    // Trust via relative path "."
+    trustProject(".");
+
+    // Verify the DB was written with the absolute key
+    const written = mockWriteFileSync.mock.calls[0]![1] as string;
+    const parsed = JSON.parse(written) as Record<string, string>;
+    expect(parsed[absPath]).toBe(hash);
+    expect(parsed["."]).toBeUndefined();
+
+    // Now isTrusted with the absolute path should return true
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockImplementation((p: string) => {
+      if (p.endsWith(".summon")) return content;
+      return JSON.stringify({ [absPath]: hash });
+    });
+
+    expect(isTrusted(absPath)).toBe(true);
+  });
+
+  it("trusting via absolute path is found when queried with relative path (.)", () => {
+    const content = "editor = vim\n";
+    const hash = sha256(content);
+    const absPath = "/home/testuser/myproject";
+
+    // realpathSync normalizes both absolute path and "." to absPath
+    mockRealpathSync.mockImplementation((p: string) => {
+      if (p === "." || p === absPath) return absPath;
+      return p;
+    });
+
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockImplementation((p: string) => {
+      if (p.endsWith(".summon")) return content;
+      return JSON.stringify({ [absPath]: hash });
+    });
+
+    // isTrusted with "." should normalize to absPath and find the trust entry
+    expect(isTrusted(".")).toBe(true);
+  });
+});
+
+describe("isTrusted mtime memoization", () => {
+  it("does not rehash on second call when mtime is unchanged", () => {
+    const content = "editor = vim\n";
+    const hash = sha256(content);
+    mockStatSync.mockReturnValue({ mtimeMs: 5000 });
+    mockReadFileSync.mockImplementation((p: string) => {
+      if (p.endsWith(".summon")) return content;
+      return JSON.stringify({ "/proj": hash });
+    });
+    mockExistsSync.mockReturnValue(true);
+
+    isTrusted("/proj");
+    isTrusted("/proj");
+
+    // readFileSync for .summon should be called only once (second call hits cache)
+    const summonCalls = mockReadFileSync.mock.calls.filter((args: unknown[]) => typeof args[0] === "string" && args[0].endsWith(".summon"));
+    expect(summonCalls.length).toBe(1);
+  });
+
+  it("rehashes when mtime changes", () => {
+    const content = "editor = vim\n";
+    const hash = sha256(content);
+    mockStatSync.mockReturnValueOnce({ mtimeMs: 5000 }).mockReturnValueOnce({ mtimeMs: 6000 });
+    mockReadFileSync.mockImplementation((p: string) => {
+      if (p.endsWith(".summon")) return content;
+      return JSON.stringify({ "/proj": hash });
+    });
+    mockExistsSync.mockReturnValue(true);
+
+    isTrusted("/proj");
+    isTrusted("/proj");
+
+    const summonCalls = mockReadFileSync.mock.calls.filter((args: unknown[]) => typeof args[0] === "string" && args[0].endsWith(".summon"));
+    expect(summonCalls.length).toBe(2);
+  });
+
+  it("returns true immediately when file does not exist (no statSync call)", () => {
+    mockExistsSync.mockReturnValue(false);
+
+    expect(isTrusted("/proj")).toBe(true);
+    expect(mockStatSync).not.toHaveBeenCalled();
+    expect(mockReadFileSync).not.toHaveBeenCalled();
+  });
+});
+
+describe("assertTrusted fail-closed", () => {
+  it("throws when isTrusted throws a non-ENOENT error (e.g. EACCES on .summon file)", () => {
+    mockExistsSync.mockImplementation((p: string) => {
+      if (p.endsWith(".summon")) return true;
+      return false; // trust.json doesn't exist
+    });
+
+    // Simulate a permission error when reading the .summon file itself
+    const permError = Object.assign(new Error("Permission denied"), { code: "EACCES" });
+    mockReadFileSync.mockImplementation((_p: string) => {
+      throw permError;
+    });
+
+    expect(() => assertTrusted("/some/dir")).toThrow(/Cannot verify trust/);
   });
 });
 

@@ -265,6 +265,46 @@ describe("numberedSelect", () => {
     expect(allOutput.some((s) => s.includes("1") && s.includes("2"))).toBe(true);
     logSpy.mockRestore();
   });
+
+  // #434 UX-M7: back hint
+  it("shows back hint below options (#434)", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("1"));
+    const options = [{ label: "A", value: "a" }, { label: "B", value: "b" }];
+    await numberedSelect(options, "Pick: ");
+    const allOutput = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(allOutput.some((s) => s.includes("press 0") && s.includes("b") && s.includes("back"))).toBe(true);
+    logSpy.mockRestore();
+  });
+
+  // #434 UX-M7: "0" also triggers back
+  it("returns WIZARD_BACK when user enters '0' (#434)", async () => {
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("0"));
+    const options = [{ label: "A", value: "a" }, { label: "B", value: "b" }];
+    const result = await numberedSelect(options, "Pick: ");
+    expect(result).toBe(WIZARD_BACK);
+  });
+
+  // #412 FE-M6: error messages must not stack on multiple invalid attempts
+  it("clears previous error before re-render on repeated invalid input (#412)", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    let callCount = 0;
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      callCount++;
+      if (callCount <= 2) cb("99"); // out of range twice
+      else cb("1");
+    });
+    const options = [{ label: "A", value: "a" }, { label: "B", value: "b" }];
+    await numberedSelect(options, "Pick: ");
+    // On each retry, an ansiClearDown sequence must be emitted to erase the stale error line
+    const stdoutCalls = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    const clearDownCount = stdoutCalls.filter((c: string) => c.includes("\x1b[0J")).length;
+    // Two retries → two clear-down sequences
+    expect(clearDownCount).toBeGreaterThanOrEqual(2);
+    logSpy.mockRestore();
+    stdoutSpy.mockRestore();
+  });
 });
 
 describe("textInput", () => {
@@ -556,6 +596,19 @@ describe("selectLayout", () => {
     );
     const result = await selectLayout();
     expect(result).toBe("pair");
+    logSpy.mockRestore();
+  });
+
+  // #427 UX-L3: legend for pane label shorthands
+  it("shows pane label legend after layout preview (#427)", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) =>
+      cb("1"), // select "minimal"
+    );
+    await selectLayout();
+    const allOutput = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    // Legend must appear explaining [E], [S], [R] shorthand labels
+    expect(allOutput.some((s) => s.includes("[E]") && s.includes("[S]") && s.includes("[R]"))).toBe(true);
     logSpy.mockRestore();
   });
 });
@@ -3846,5 +3899,209 @@ describe("wizard debug logging (FE-S2)", () => {
     Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, writable: true });
     stderrSpy.mockRestore();
     logSpy.mockRestore();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FE-M1 (#385) — Wizard select re-renders options on invalid input
+// ---------------------------------------------------------------------------
+
+describe("numberedSelect — re-render on invalid input (FE-M1)", () => {
+  let logSpy: ReturnType<typeof vi.spyOn>;
+  let stdoutSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+  });
+
+  afterEach(() => {
+    logSpy.mockRestore();
+    stdoutSpy.mockRestore();
+  });
+
+  it("emits cursor-up ANSI sequence on invalid input before reprinting options", async () => {
+    let callCount = 0;
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      callCount++;
+      if (callCount === 1) cb("abc"); // invalid
+      else cb("1");
+    });
+    const options = [
+      { label: "A", value: "a" },
+      { label: "B", value: "b" },
+    ];
+    await numberedSelect(options, "Pick: ");
+
+    // Should emit cursor-up sequence (to move back to start of options block)
+    const stdoutCalls = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(stdoutCalls.some((c: string) => c.includes("\x1b[") && c.includes("A"))).toBe(true);
+    // Should emit clear-down sequence
+    expect(stdoutCalls.some((c: string) => c.includes("\x1b[0J"))).toBe(true);
+  });
+
+  it("reprints options after invalid input (options visible again after warning)", async () => {
+    let callCount = 0;
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      callCount++;
+      if (callCount === 1) cb("99"); // out of range
+      else cb("2");
+    });
+    const options = [
+      { label: "Alpha", value: "a" },
+      { label: "Beta", value: "b" },
+    ];
+    await numberedSelect(options, "Pick: ");
+
+    const allOutput = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    // Options should appear at least twice (initial print + reprint after invalid)
+    const alphaCount = allOutput.filter((s: string) => s.includes("Alpha")).length;
+    expect(alphaCount).toBeGreaterThanOrEqual(2);
+  });
+
+  it("does NOT emit cursor-up on first valid input (no re-render needed)", async () => {
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("1"));
+    const options = [{ label: "A", value: "a" }];
+    await numberedSelect(options, "Pick: ");
+
+    const stdoutCalls = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    // No cursor-up should be emitted on first valid input
+    expect(stdoutCalls.some((c: string) => c.includes("\x1b[") && c.includes("A"))).toBe(false);
+  });
+});
+
+describe("selectToolFromCatalog — re-render on invalid input (FE-M1)", () => {
+  let logSpy: ReturnType<typeof vi.spyOn>;
+  let stdoutSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    mockExecFileSync.mockReturnValue("/usr/bin/stub\n"); // all tools available
+  });
+
+  afterEach(() => {
+    logSpy.mockRestore();
+    stdoutSpy.mockRestore();
+  });
+
+  it("emits cursor-up ANSI sequence when invalid input entered in askTool", async () => {
+    let callCount = 0;
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      callCount++;
+      if (callCount === 1) cb("999"); // out of range
+      else cb("1");
+    });
+    await selectToolFromCatalog(EDITOR_CATALOG, "Editor");
+
+    const stdoutCalls = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(stdoutCalls.some((c: string) => c.includes("\x1b[") && c.includes("A"))).toBe(true);
+    expect(stdoutCalls.some((c: string) => c.includes("\x1b[0J"))).toBe(true);
+  });
+
+  it("reprints tool list after invalid input", async () => {
+    let callCount = 0;
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      callCount++;
+      if (callCount === 1) cb("999"); // out of range
+      else cb("1");
+    });
+    await selectToolFromCatalog(EDITOR_CATALOG, "Editor");
+
+    const allOutput = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    // Tool list lines should appear at least twice
+    const vimCount = allOutput.filter((s: string) => s.includes("vim")).length;
+    expect(vimCount).toBeGreaterThanOrEqual(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FE-M5 (#389) — PreviewRenderer.clear() + no stacked previews after validation
+// ---------------------------------------------------------------------------
+
+describe("PreviewRenderer.clear() (FE-M5)", () => {
+  let logSpy: ReturnType<typeof vi.spyOn>;
+  let stdoutSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+  });
+
+  afterEach(() => {
+    logSpy.mockRestore();
+    stdoutSpy.mockRestore();
+  });
+
+  it("clear() emits cursor-up and clear-down when renderer is active", () => {
+    const renderer = new PreviewRenderer();
+    renderer.draw([["?"]]);
+    renderer.log("hint");
+
+    stdoutSpy.mockClear();
+    renderer.clear();
+
+    const stdoutCalls = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(stdoutCalls.some((c: string) => c.includes("A"))).toBe(true);
+    expect(stdoutCalls.some((c: string) => c.includes("\x1b[0J"))).toBe(true);
+  });
+
+  it("clear() resets internal state (subsequent draw acts as first draw)", () => {
+    const renderer = new PreviewRenderer();
+    renderer.draw([["?"]]);
+    renderer.clear();
+
+    stdoutSpy.mockClear();
+    renderer.draw([["nvim"]]);
+
+    // After clear, next draw should not emit cursor-up (acts as first draw)
+    const stdoutCalls = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(stdoutCalls.some((c: string) => c.includes("A"))).toBe(false);
+  });
+
+  it("clear() is a noop when renderer is inactive", () => {
+    const renderer = new PreviewRenderer();
+    // Don't draw anything — renderer is inactive
+    renderer.clear();
+
+    const stdoutCalls = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(stdoutCalls.some((c: string) => c.includes("A"))).toBe(false);
+    expect(stdoutCalls.some((c: string) => c.includes("\x1b[0J"))).toBe(false);
+  });
+
+  it("runLayoutBuilder: after validation stale, next preview draw is fresh (no stacking)", async () => {
+    const origIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", { value: true, writable: true });
+    mockIsValidLayoutName.mockReturnValue(true);
+    mockIsCustomLayout.mockReturnValue(false);
+
+    let callCount = 0;
+    // Command not found on first attempt, then found on second
+    mockExecFileSync.mockImplementation((_bin: string, args?: string[]) => {
+      // For template selection and confirmation prompts, return stub
+      // For command resolution: first call to "badcmd" not found, second to "nvim" found
+      if (Array.isArray(args) && args[3] === "badcmd") throw new Error("not found");
+      return "/usr/bin/stub\n";
+    });
+
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      callCount++;
+      if (_q.includes("[Y/n]")) {
+        cb("y"); // confirm for "keep anyway" or save
+      } else if (_q.includes("Column 1, Pane 1")) {
+        if (callCount <= 4) cb("badcmd"); // first attempt — will be stale
+        else cb("nvim"); // valid command
+      } else {
+        cb("1");
+      }
+    });
+
+    await runLayoutBuilder("staletest");
+
+    // There should be cursor-up sequences from the clear() calls
+    const stdoutCalls = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(stdoutCalls.some((c: string) => c.includes("\x1b[") && c.includes("A"))).toBe(true);
+
+    Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, writable: true });
   });
 });

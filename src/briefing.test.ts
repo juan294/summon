@@ -74,6 +74,7 @@ function makeSummary(overrides?: Partial<BriefingSummary>): BriefingSummary {
     activeCount: 1,
     totalOvernightCommits: 5,
     recommendation: null,
+    allClean: false,
     ...overrides,
   };
 }

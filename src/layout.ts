@@ -23,6 +23,7 @@ export interface LayoutOptions {
   autoResize: boolean;
   fontSize: number | null;
   newWindow: boolean;
+  newTab: boolean;
   fullscreen: boolean;
   maximize: boolean;
   float: boolean;
@@ -39,6 +40,7 @@ const DEFAULT_OPTIONS: LayoutOptions = {
   autoResize: true,
   fontSize: null,
   newWindow: false,
+  newTab: false,
   fullscreen: false,
   maximize: false,
   float: false,
@@ -58,6 +60,7 @@ export interface LayoutPlan {
   autoResize: boolean;
   fontSize: number | null;
   newWindow: boolean;
+  newTab: boolean;
   fullscreen: boolean;
   maximize: boolean;
   float: boolean;
@@ -100,7 +103,7 @@ export function planLayout(partial?: Partial<LayoutOptions>): LayoutPlan {
   const opts = { ...DEFAULT_OPTIONS, ...partial };
   const leftColumnCount = Math.ceil(opts.editorPanes / 2);
   const { hasShell, shellCommand } = parseShell(opts.shell);
-  return {
+  const result: LayoutPlan = {
     editorSize: opts.editorSize,
     sidebarSize: 100 - opts.editorSize,
     leftColumnCount,
@@ -113,9 +116,14 @@ export function planLayout(partial?: Partial<LayoutOptions>): LayoutPlan {
     autoResize: opts.autoResize,
     fontSize: opts.fontSize ?? null,
     newWindow: opts.newWindow,
+    newTab: opts.newTab ?? false,
     fullscreen: opts.fullscreen,
     maximize: opts.maximize,
     float: opts.float,
     cleanRestoredPanes: opts.cleanRestoredPanes,
   };
+  if (result.newWindow && result.newTab) {
+    throw new Error("--new-window and --new-tab are mutually exclusive");
+  }
+  return result;
 }

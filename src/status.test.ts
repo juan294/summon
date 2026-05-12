@@ -8,12 +8,12 @@ const TEST_STATUS_DIR = join(tmpdir(), `summon-status-test-${process.pid}`);
 
 // Mock the STATUS_DIR before importing status module
 import { vi } from "vitest";
-vi.mock("./config.js", () => ({
+vi.mock("./paths.js", () => ({
   STATUS_DIR: TEST_STATUS_DIR,
   CONFIG_DIR: join(tmpdir(), `summon-config-test-${process.pid}`),
 }));
 
-const { writeStatus, clearStatus, readStatus, readAllStatuses, isWorkspaceActive, cleanStaleStatuses, getGitBranch } = await import("./status.js");
+const { writeStatus, clearStatus, readStatus, readAllStatuses, isWorkspaceActive, cleanStaleStatuses, getGitBranch, parseWorkspaceStatus } = await import("./status.js");
 import type { WorkspaceStatus } from "./status.js";
 
 function makeStatus(overrides?: Partial<WorkspaceStatus>): WorkspaceStatus {
@@ -446,5 +446,47 @@ describe("getGitBranch", () => {
   it("returns null for nonexistent directory", () => {
     const branch = getGitBranch("/nonexistent/directory/that/does/not/exist");
     expect(branch).toBeNull();
+  });
+});
+
+describe("parseWorkspaceStatus panes element type validation (BE-M5 #379)", () => {
+  const base = {
+    version: 1,
+    source: "summon",
+    project: "testapp",
+    directory: "/tmp/testapp",
+    pid: 1234,
+    startedAt: new Date().toISOString(),
+    layout: "full",
+  };
+
+  it("accepts panes array of all strings", () => {
+    const result = parseWorkspaceStatus({ ...base, panes: ["editor", "sidebar"] });
+    expect(result).not.toBeNull();
+    expect(result!.panes).toEqual(["editor", "sidebar"]);
+  });
+
+  it("returns empty panes when array contains non-string elements (null)", () => {
+    const result = parseWorkspaceStatus({ ...base, panes: [null, "editor"] });
+    expect(result).not.toBeNull();
+    expect(result!.panes).toEqual([]);
+  });
+
+  it("returns empty panes when array contains numeric elements", () => {
+    const result = parseWorkspaceStatus({ ...base, panes: [42, "editor"] });
+    expect(result).not.toBeNull();
+    expect(result!.panes).toEqual([]);
+  });
+
+  it("returns empty panes when array contains object elements", () => {
+    const result = parseWorkspaceStatus({ ...base, panes: [{ name: "editor" }] });
+    expect(result).not.toBeNull();
+    expect(result!.panes).toEqual([]);
+  });
+
+  it("accepts an empty panes array", () => {
+    const result = parseWorkspaceStatus({ ...base, panes: [] });
+    expect(result).not.toBeNull();
+    expect(result!.panes).toEqual([]);
   });
 });

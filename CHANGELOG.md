@@ -7,6 +7,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-05-11
+
+### Added
+
+- **`summon session`** — multi-project tab orchestration: launch a saved set of projects
+  as separate Ghostty tabs in one command. Subcommands: `add`, `remove`, `list`, `show`,
+  `--all` (launch every registered project). Sessions stored in `~/.config/summon/sessions/`.
+- **Auto-clear restored panes** — stale panes from a prior Ghostty session are now cleaned
+  up automatically on workspace launch (controlled by the `clean` config key; see Changed).
+- Workspace monitoring subcommands: `briefing`, `monitor`, `ports`, `snapshot`, `status`
+  (introduced as part of the workspace management suite).
+
+### Changed
+
+- **Trust gate is now fail-closed by default.** Projects with a `.summon` file are blocked
+  until the user explicitly runs `summon trust <dir>`. The file's SHA-256 hash is stored and
+  re-verified on every launch; a changed file requires re-trusting.
+- **`--clean` / `clean` config key defaults to `off`.** Auto-close of restored panes must
+  now be explicitly enabled via `--clean` or `clean=true` in config. Previously defaulted on.
+- `summon doctor` output now shows `✔` / `✖` indicators with a pass/fail count summary
+  and auto-fixable count (`--fix`).
+- `summon open` uses the monitor TUI picker instead of a plain numbered list.
+- Setup wizard gains back-navigation, preview re-enable after validation errors, and a
+  legend for layout preview labels.
+- Monitor TUI: branch names truncated with `…` on narrow terminals; stopped workspaces
+  display their directory path instead of an em dash.
+- CLI help text colorized (bold section headers, cyan command names, dim descriptions).
+- Unknown commands suggest `summon --help`; bare `summon` with no projects shows an
+  actionable empty-state hint.
+- Config key validation now rejects keys containing `=`, newlines, or a `#` prefix.
+- `summon trust` displays the SHA-256 hash of the trusted file for verification.
+
+### Fixed
+
+- Security: single-read `.summon` validation eliminates TOCTOU race between hash check
+  and config parse.
+- Security: `PROJECT_NAME_RE` hardened — rejects names with shell metacharacters
+  (`;`, `|`, backticks) that could reach AppleScript or shell contexts.
+- Config: inline `# comment` stripping in KV files; CRLF normalization; mtime-based
+  memoization for repeated reads within a session.
+- Trust: path normalization for symlinks and relative paths before hashing; fail-closed
+  on IO errors (permission denied no longer silently bypasses trust).
+- Launcher: non-empty pane commands validated before AppleScript generation; rollback
+  skips `closeWorkspaceWindow` on accessibility errors.
+- Monitor: async git branch reads; `NO_COLOR` respected for INVERT escape; narrow-terminal
+  floor at 60 columns.
+- Port detection: regex hardened to avoid false positives inside string literals and
+  unrelated process args.
+- Completions: dynamic layout list generated at shell completion time rather than hardcoded.
+- Snapshot: negative `formatTimeSince` diffs clamped to `0`.
+- Code splitting re-enabled (`splitting: true`) to un-nullify dynamic import pattern;
+  all chunks included in published tarball via `files: ["dist"]`.
+
+### Infrastructure
+
+- Node 24 added to CI matrix; `timeout-minutes: 15` added to build jobs.
+- pnpm store caching in CI for faster installs.
+- SECURITY.md expanded with vulnerability reporting process.
+- E2E AppleScript syntax test guarded with Ghostty presence check
+  (`/Applications/Ghostty.app`) — skips automatically on machines without Ghostty.
+
 ## [1.4.2] - 2026-05-10
 
 ### Fixed
@@ -548,7 +609,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CodeQL security scanning
 - Dependabot for npm and GitHub Actions
 
-[Unreleased]: https://github.com/juan294/summon/compare/v1.4.1...develop
+[Unreleased]: https://github.com/juan294/summon/compare/v1.5.0...develop
+[1.5.0]: https://github.com/juan294/summon/compare/v1.4.2...v1.5.0
+[1.4.2]: https://github.com/juan294/summon/compare/v1.4.1...v1.4.2
 [1.4.1]: https://github.com/juan294/summon/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/juan294/summon/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/juan294/summon/compare/v1.2.1...v1.3.0

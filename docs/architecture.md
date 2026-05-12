@@ -299,6 +299,8 @@ flowchart TD
     scan env, package.json, framework configs"]
     dispatch -->|"snapshot"| snapshotcmd["snapshot.ts:
     save / show / clear context snapshots"]
+    dispatch -->|"session"| sessioncmd["commands/session.ts:
+    launch / add / remove / list / show / --all"]
     dispatch -->|"default (launch target)"| resolve["resolve target directory
     (., absolute path, or project name)"]
 

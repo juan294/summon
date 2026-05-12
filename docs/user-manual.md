@@ -311,6 +311,37 @@ Detect and display port assignments across all registered projects. Scans `.summ
 summon ports
 ```
 
+### `summon session`
+
+Launch multiple registered projects at once — one Ghostty tab per project.
+
+A *session* is a named list of registered project names stored at `~/.config/summon/sessions/<name>`. The order of projects in the file defines the tab order.
+
+```bash
+# Save a session
+summon session add daily api web worker
+
+# Launch it — opens 3 tabs in the current Ghostty window
+summon session daily
+
+# Launch every registered project
+summon session --all
+```
+
+The first project lands in the currently selected tab; each subsequent project opens a new tab via Ghostty's `make new tab` API. Launch is sequential and aborts on the first error — already-opened tabs are not closed.
+
+CLI flags on `summon session` (e.g. `--starship-preset`, `--layout`) apply to every project unless overridden by that project's `.summon` file. Passing `--new-window` opens the first project in a new window; the remaining projects open as tabs in that window.
+
+| Subcommand | Description |
+|---|---|
+| `summon session add <name> <p1> <p2> ...` | Save a session |
+| `summon session remove <name>` | Delete a session |
+| `summon session list` | List saved sessions |
+| `summon session show <name>` | Print a session's project list |
+| `summon session --all` | Launch every registered project |
+
+Reserved names (cannot be used as session names): `add`, `remove`, `list`, `show`, `all`.
+
 ### `summon snapshot <action>`
 
 Manage workspace context snapshots. Save the current project state (git branch, dirty files, recent commits, layout name) and restore it later.

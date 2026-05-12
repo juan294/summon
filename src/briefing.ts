@@ -30,6 +30,7 @@ export interface BriefingSummary {
   activeCount: number;
   totalOvernightCommits: number;
   recommendation: string | null;
+  allClean: boolean;
 }
 
 // --- Agent commit detection heuristic ---
@@ -146,6 +147,9 @@ export async function collectBriefingData(): Promise<{ projects: ProjectBriefing
 
   const activeCount = projects.filter(p => p.state === "active").length;
   const totalOvernightCommits = projects.reduce((sum, p) => sum + p.overnightCommits.length, 0);
+  const allClean = projects.length > 0 && projects.every(
+    p => p.dirtyFiles.length === 0 && p.overnightCommits.length === 0,
+  );
 
   return {
     projects,
@@ -154,6 +158,7 @@ export async function collectBriefingData(): Promise<{ projects: ProjectBriefing
       activeCount,
       totalOvernightCommits,
       recommendation: generateRecommendation(projects),
+      allClean,
     },
   };
 }
@@ -198,10 +203,13 @@ export function formatProjectBriefing(project: ProjectBriefing): string {
   } else if (project.lastSession) {
     lines.push(`  \u2514\u2500 Last session: ${dim(project.lastSession)}`);
   } else {
-    // Replace last ├─ with └─ for clean tree ending
-    const lastIdx = lines.length - 1;
-    const lastLine = lines[lastIdx];
-    if (lastLine) lines[lastIdx] = lastLine.replace("\u251C\u2500", "\u2514\u2500");
+    // Scan backward for last \u251C\u2500 line and convert to \u2514\u2500 (robust to sub-lines)
+    for (let i = lines.length - 1; i >= 0; i--) {
+      if (lines[i]?.includes("\u251C\u2500")) {
+        lines[i] = lines[i]!.replace("\u251C\u2500", "\u2514\u2500");
+        break;
+      }
+    }
   }
 
   return lines.join("\n");
@@ -224,6 +232,9 @@ export function formatBriefingSummary(summary: BriefingSummary): string {
   const sep = dim("\u2500".repeat(48));
   lines.push(`  ${sep}`);
   lines.push(`  ${summary.totalProjects} projects \u00B7 ${summary.activeCount} active \u00B7 ${summary.totalOvernightCommits} overnight commits`);
+  if (summary.allClean) {
+    lines.push(`  ${green("✔")} All projects clean`);
+  }
   if (summary.recommendation) {
     lines.push(`\n  Start with: ${bold(summary.recommendation)}`);
   }

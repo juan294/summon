@@ -27,11 +27,18 @@ _summon() {
     'freeze:Save current config as a reusable layout'
     'keybindings:Generate Ghostty key table for navigation'
     'layout:Manage custom layouts'
+    'session:Launch a saved multi-project session'
+    'trust:Trust the .summon file in a directory'
   )
 
   local -a config_keys=(${configKeys})
-  local -a layout_presets=(\${(f)"$(summon layout list 2>/dev/null)"})
+  local -a layout_presets=(\${(f)"$(summon layout list --names 2>/dev/null)"})
   local projects_file="\${HOME}/.config/summon/projects"
+  local sessions_dir="\${HOME}/.config/summon/sessions"
+  local -a session_names=()
+  if [[ -d "$sessions_dir" ]]; then
+    session_names=(\${(f)"$(ls "$sessions_dir" 2>/dev/null)"})
+  fi
 
   # Read project names dynamically
   local -a project_names=()
@@ -57,6 +64,7 @@ _summon() {
     '--font-size[Font size in points]:size:' \\
     '--on-start[Run command before workspace creation]:command:' \\
     '--new-window[Open in new Ghostty window]' \\
+    '--new-tab[Open in a new Ghostty tab]' \\
     '--fullscreen[Start in fullscreen mode]' \\
     '--maximize[Start maximized]' \\
     '--float[Float window on top]' \\
@@ -144,6 +152,18 @@ _summon() {
             esac
           fi
           ;;
+        session)
+          if (( CURRENT == 2 )); then
+            compadd -- --all add remove list show
+            compadd -a session_names
+          elif (( CURRENT == 3 )); then
+            case "\${words[2]}" in
+              show|remove)
+                compadd -a session_names
+                ;;
+            esac
+          fi
+          ;;
       esac
       ;;
   esac
@@ -168,11 +188,16 @@ export function generateBashCompletion(): string {
     local prev="\${COMP_WORDS[COMP_CWORD-1]}"
   fi
 
-  local subcommands="add remove list set config setup completions doctor open status switch snapshot briefing ports export freeze keybindings layout"
+  local subcommands="add remove list set config setup completions doctor open status switch snapshot briefing ports export freeze keybindings layout session trust"
   local config_keys="${configKeys}"
   local layout_presets
-  layout_presets=$(summon layout list 2>/dev/null)
+  layout_presets=$(summon layout list --names 2>/dev/null)
   local projects_file="\${HOME}/.config/summon/projects"
+  local sessions_dir="\${HOME}/.config/summon/sessions"
+  local session_names=""
+  if [[ -d "$sessions_dir" ]]; then
+    session_names=$(ls "$sessions_dir" 2>/dev/null)
+  fi
 
   local project_names=""
   if [[ -f "$projects_file" ]]; then
@@ -261,6 +286,17 @@ export function generateBashCompletion(): string {
         esac
       fi
       ;;
+    session)
+      if (( cword == 2 )); then
+        COMPREPLY=($(compgen -W "--all add remove list show $session_names" -- "$cur"))
+      elif (( cword == 3 )); then
+        case "\${words[2]}" in
+          show|remove)
+            COMPREPLY=($(compgen -W "$session_names" -- "$cur"))
+            ;;
+        esac
+      fi
+      ;;
   esac
 }
 
@@ -291,6 +327,8 @@ export function generateFishCompletion(): string {
     ["freeze", "Save current config as a reusable layout"],
     ["keybindings", "Generate Ghostty key table for navigation"],
     ["layout", "Manage custom layouts"],
+    ["session", "Launch a saved multi-project session"],
+    ["trust", "Trust the .summon file in a directory"],
   ];
 
   const subcommandLines = subcommands
@@ -300,6 +338,7 @@ export function generateFishCompletion(): string {
   const layoutPresets = allLayouts.join(" ");
 
   return `# summon fish completion
+# Setup: eval (summon completions fish | psub)
 complete -c summon -f
 ${subcommandLines}
 complete -c summon -l help -s h -d 'Show help'
@@ -319,9 +358,12 @@ complete -c summon -l env -d 'Set environment variable (KEY=VALUE)'
 complete -c summon -l font-size -d 'Font size in points'
 complete -c summon -l on-start -d 'Run command before workspace creation'
 complete -c summon -l new-window -d 'Open in new Ghostty window'
+complete -c summon -l new-tab -d 'Open in a new Ghostty tab'
 complete -c summon -l fullscreen -d 'Start in fullscreen mode'
 complete -c summon -l maximize -d 'Start maximized'
 complete -c summon -l float -d 'Float window on top'
 complete -c summon -l dry-run -s n -d 'Print AppleScript without executing'
+complete -c summon -n '__fish_seen_subcommand_from session' -n 'not __fish_seen_subcommand_from add remove list show' -a 'add remove list show' -d 'Session action'
+complete -c summon -n '__fish_seen_subcommand_from session' -l all -d 'Launch every registered project'
 `;
 }

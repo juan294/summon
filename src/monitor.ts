@@ -1,7 +1,7 @@
 import { readAllStatuses, getGitBranch } from "./status.js";
 import type { ResolvedStatus } from "./status.js";
 import { listProjects } from "./config.js";
-import { bold, dim, green, yellow } from "./ui/ansi.js";
+import { bold, dim, green, yellow, cyan, invert } from "./ui/ansi.js";
 
 // --- Types ---
 
@@ -23,6 +23,7 @@ const NAME_WIDTH = 16;
 const STATE_WIDTH = 8;
 const UPTIME_WIDTH = 8;
 const FIXED_COLS = 2 + NAME_WIDTH + 2 + STATE_WIDTH + 2 + UPTIME_WIDTH + 2; // dot + spaces + padding
+const MIN_COLS = 60; // minimum terminal width floor to prevent wrapping on narrow terminals
 
 // Terminal control sequences
 const ENTER_ALT_SCREEN = "\x1b[?1049h";
@@ -31,10 +32,18 @@ const HIDE_CURSOR = "\x1b[?25l";
 const SHOW_CURSOR = "\x1b[?25h";
 const CLEAR_SCREEN = "\x1b[H\x1b[2J";
 const CURSOR_HOME = "\x1b[H";
-const INVERT = "\x1b[7m";
-const RESET = "\x1b[0m";
 
 // --- Formatting (pure functions, testable) ---
+
+/**
+ * Truncates a string to maxLen characters, appending an ellipsis if truncated.
+ * The returned string is always <= maxLen characters.
+ */
+export function truncate(str: string, maxLen: number): string {
+  if (maxLen <= 0) return "";
+  if (str.length <= maxLen) return str;
+  return str.slice(0, maxLen - 1) + "…";
+}
 
 export function formatUptime(ms: number): string {
   const seconds = Math.floor(ms / 1000);
@@ -70,7 +79,7 @@ export function stateDot(state: ProjectState): string {
 export function renderRow(row: ProjectRow, width: number, selected: boolean): string {
   const colorFn = stateColor(row.state);
   const dot = colorFn(stateDot(row.state));
-  const name = row.name.length > NAME_WIDTH ? row.name.slice(0, NAME_WIDTH - 1) + "\u2026" : row.name.padEnd(NAME_WIDTH);
+  const name = truncate(row.name, NAME_WIDTH).padEnd(NAME_WIDTH);
   const stateText = row.state === "active-long" ? "active" : row.state;
   const stateLabel = colorFn(stateText);
   // Pad the visible text, not the ANSI-wrapped version
@@ -78,14 +87,16 @@ export function renderRow(row: ProjectRow, width: number, selected: boolean): st
   const uptime = row.uptime.padEnd(UPTIME_WIDTH);
 
   const branchWidth = Math.max(0, width - FIXED_COLS);
-  const branch = row.gitBranch.length > branchWidth
-    ? row.gitBranch.slice(0, Math.max(0, branchWidth - 1)) + "\u2026"
-    : row.gitBranch;
+  // For stopped/unknown workspaces, show the directory path (dimmed) instead of em dash
+  const isStopped = row.state === "stopped" || row.state === "unknown";
+  const rawBranchText = isStopped ? row.directory : row.gitBranch;
+  const branchText = truncate(rawBranchText, branchWidth);
+  const branch = isStopped ? dim(branchText) : branchText;
 
   const line = `  ${dot} ${name}  ${stateLabel}${statePad}  ${uptime}  ${branch}`;
 
   if (selected) {
-    return `${INVERT}${line}${RESET}`;
+    return invert(line);
   }
   return line;
 }
@@ -139,24 +150,59 @@ export function renderScreen(rows: ProjectRow[], selectedIndex: number, width: n
 // --- Git Branch Cache ---
 
 const gitBranchCache = new Map<string, { value: string; timestamp: number }>();
+const gitBranchFetching = new Set<string>(); // directories with in-flight fetches
 const GIT_CACHE_TTL_MS = 10_000; // 10 seconds
 
+/**
+ * Returns cached git branch if fresh, or null if stale/missing.
+ * Never blocks — callers should use "…" placeholder when null is returned
+ * and kick off an async fetch via prefetchGitBranches().
+ */
 function getCachedGitBranch(directory: string): string | null {
   const cached = gitBranchCache.get(directory);
   if (cached && Date.now() - cached.timestamp < GIT_CACHE_TTL_MS) {
     return cached.value;
   }
-  const branch = getGitBranch(directory);
-  if (branch) {
-    gitBranchCache.set(directory, { value: branch, timestamp: Date.now() });
-  } else {
-    gitBranchCache.delete(directory);
-  }
-  return branch;
+  return null;
+}
+
+/**
+ * Async: for each active row whose branch is not yet cached, spawn a background
+ * git call. Calls onUpdate() once (after all fetches) if any new data was stored.
+ * Safe to call from a render loop — won't double-fetch the same directory.
+ */
+export async function prefetchGitBranches(rows: ProjectRow[], onUpdate: () => void): Promise<void> {
+  const toFetch = rows.filter(
+    (r) =>
+      (r.state === "active" || r.state === "active-long") &&
+      !getCachedGitBranch(r.directory) &&
+      !gitBranchFetching.has(r.directory),
+  );
+
+  if (toFetch.length === 0) return;
+
+  toFetch.forEach((r) => gitBranchFetching.add(r.directory));
+
+  await Promise.all(
+    toFetch.map(async (r) => {
+      // Wrap in a resolved promise to yield the event loop before the blocking git call
+      await Promise.resolve();
+      const branch = getGitBranch(r.directory);
+      if (branch) {
+        gitBranchCache.set(r.directory, { value: branch, timestamp: Date.now() });
+      } else {
+        gitBranchCache.delete(r.directory);
+      }
+      gitBranchFetching.delete(r.directory);
+    }),
+  );
+
+  onUpdate();
 }
 
 export function resetGitBranchCache(): void {
   gitBranchCache.clear();
+  gitBranchFetching.clear();
 }
 
 // --- Data Loading ---
@@ -169,12 +215,21 @@ function classifyState(status: ResolvedStatus): ProjectState {
 
 function statusToRow(name: string, directory: string, status: ResolvedStatus): ProjectRow {
   const state = classifyState(status);
+  const isActive = status.state === "active";
+  let gitBranch: string;
+  if (isActive) {
+    const cached = getCachedGitBranch(directory);
+    // Use cached value if fresh; use "\u2026" as a placeholder when git data is being fetched async
+    gitBranch = cached ?? "\u2026";
+  } else {
+    gitBranch = "\u2014";
+  }
   return {
     name,
     directory,
     state,
     uptime: status.uptime !== null ? formatUptime(status.uptime) : "\u2014",
-    gitBranch: status.state === "active" ? (getCachedGitBranch(directory) ?? "\u2014") : "\u2014",
+    gitBranch,
   };
 }
 
@@ -235,7 +290,7 @@ export async function runMonitor(): Promise<void> {
   let scrollStart = 0;
   let refreshTimer: ReturnType<typeof setInterval> | null = null;
 
-  const getWidth = () => process.stdout.columns || 80;
+  const getWidth = () => Math.max(MIN_COLS, process.stdout.columns || 80);
   const getHeight = () => process.stdout.rows || 24;
 
   function updateScroll(): void {
@@ -261,6 +316,14 @@ export async function runMonitor(): Promise<void> {
       selectedIndex = Math.max(0, rows.length - 1);
     }
     render(false);
+    // Kick off async git branch fetches without blocking the render loop
+    void prefetchGitBranches(rows, () => {
+      rows = loadProjectRows();
+      if (selectedIndex >= rows.length) {
+        selectedIndex = Math.max(0, rows.length - 1);
+      }
+      render(false);
+    });
   }
 
   const onResize = () => render(true);
@@ -297,6 +360,14 @@ export async function runMonitor(): Promise<void> {
   process.stdin.resume();
 
   render(true);
+  // Initial async branch fetch so the "…" placeholders are filled quickly
+  void prefetchGitBranches(rows, () => {
+    rows = loadProjectRows();
+    if (selectedIndex >= rows.length) {
+      selectedIndex = Math.max(0, rows.length - 1);
+    }
+    render(false);
+  });
 
   refreshTimer = setInterval(refresh, REFRESH_INTERVAL_MS);
   process.on("SIGWINCH", onResize);
@@ -340,15 +411,15 @@ export async function runMonitor(): Promise<void> {
       if (key === "?") {
         const helpLines = [
           "",
-          "  Key bindings:",
-          "  ↑/k        move up",
-          "  ↓/j        move down",
-          "  ⏎          open selected project",
-          "  r          refresh",
-          "  ?          show this help",
-          "  q / Ctrl+C quit",
+          `  ${bold("Key bindings:")}`,
+          `  ${cyan("↑/k")}        ${dim("move up")}`,
+          `  ${cyan("↓/j")}        ${dim("move down")}`,
+          `  ${cyan("⏎")}          ${dim("open selected project")}`,
+          `  ${cyan("r")}          ${dim("refresh")}`,
+          `  ${cyan("?")}          ${dim("show this help")}`,
+          `  ${cyan("q / Ctrl+C")} ${dim("quit")}`,
           "",
-          "  Press any key to dismiss...",
+          `  ${dim("Press any key to dismiss...")}`,
         ];
         process.stdout.write(CLEAR_SCREEN + helpLines.join("\n"));
 
@@ -367,11 +438,12 @@ export async function runMonitor(): Promise<void> {
         if (rows.length > 0) {
           const selected = rows[selectedIndex];
           if (selected) {
+            // Print feedback BEFORE exiting alt-screen so user sees "Opening..." immediately
+            process.stdout.write(`Opening ${selected.name}...\n`);
             cleanup();
-            console.log(`Opening ${selected.name}...`);
             import("./launcher.js").then(async ({ launch }) => {
               await launch(selected.directory).catch((err: Error) => {
-                console.error("Launch failed:", err.message);
+                process.stderr.write(`Launch failed: ${err.message}\n`);
                 process.exit(1);
               });
               resolve();

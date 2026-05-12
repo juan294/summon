@@ -185,18 +185,9 @@ function emitRootPaneCommand(
   }
 }
 
-/** Single-slot memoization cache for tab-title escaping (PE-L4). */
-const tabTitleEscapeCache: { input: string; output: string } | null = null;
-let _tabTitleEscapeCache: { input: string; output: string } | null = tabTitleEscapeCache;
-
-/** Escape a tab title, using a single-slot cache for stability across repeated calls. */
+/** Escape a tab title for use in an AppleScript action string. */
 function escapeTabTitle(title: string): string {
-  if (_tabTitleEscapeCache !== null && _tabTitleEscapeCache.input === title) {
-    return _tabTitleEscapeCache.output;
-  }
-  const output = escapeAppleScript(title);
-  _tabTitleEscapeCache = { input: title, output };
-  return output;
+  return escapeAppleScript(title);
 }
 
 /** Emit pane and tab titles block. */
@@ -302,6 +293,24 @@ function emitNewWindow(
     add(1, `delay ${NEW_WINDOW_DELAY}`);
   }
   add(1, "set win to front window");
+}
+
+/**
+ * Emit AppleScript to open a new tab in the front Ghostty window via System Events Cmd+T.
+ *
+ * Why not `make new tab`: Ghostty's dictionary verb creates the tab but its return value
+ * triggers a Cocoa Scripting coercion error (-2710) that aborts the enclosing AppleScript
+ * block. Cmd+T via System Events is the same pattern summon uses for `--new-window`
+ * (Cmd+N) and avoids the bug. The new tab becomes selected automatically.
+ */
+function emitNewTab(sb: ScriptBuilder): void {
+  const { add } = sb;
+  add(1, 'tell application "System Events"');
+  add(2, `tell process "${GHOSTTY_APP_NAME}"`);
+  add(3, 'keystroke "t" using command down');
+  add(2, "end tell");
+  add(1, "end tell");
+  add(1, `delay ${NEW_WINDOW_DELAY}`);
 }
 
 /** Emit right column pane splits (first right pane + additional editors + optional shell). */
@@ -456,61 +465,20 @@ export function generateFocusScript(tabTitle: string): string {
 // projectName, onStop). Any new option must be plumbed through both functions. Consider
 // extracting shared option handling into a common helper to reduce duplication.
 
-/** Options object form for generateAppleScript (AR-L5). */
-export interface GenerateAppleScriptOptions {
-  plan: LayoutPlan;
-  targetDir: string;
-  starshipConfigPath?: string | null;
-  envVars?: Record<string, string>;
-  projectName?: string;
-  onStop?: string;
+/** Memoization cache for generateAppleScript — keyed by JSON fingerprint of all inputs. */
+const scriptCache = new Map<string, string>();
+
+export function clearScriptCache(): void {
+  scriptCache.clear();
 }
 
 /**
  * Generate AppleScript for a traditional (LayoutPlan) workspace.
- * Accepts either a single options object or positional arguments (backward-compatible).
  */
-export function generateAppleScript(opts: GenerateAppleScriptOptions): string;
-export function generateAppleScript(plan: LayoutPlan, targetDir: string, starshipConfigPath?: string | null, envVars?: Record<string, string>, projectName?: string, onStop?: string): string;
-export function generateAppleScript(
-  planOrOpts: LayoutPlan | GenerateAppleScriptOptions,
-  targetDir?: string,
-  starshipConfigPath?: string | null,
-  envVars?: Record<string, string>,
-  projectName?: string,
-  onStop?: string,
-): string {
-  // Resolve arguments from options object or positional form
-  let plan: LayoutPlan;
-  let resolvedTargetDir: string;
-  let resolvedStarshipConfigPath: string | null | undefined;
-  let resolvedEnvVars: Record<string, string> | undefined;
-  let resolvedProjectName: string | undefined;
-  let resolvedOnStop: string | undefined;
-
-  if ("plan" in planOrOpts && "targetDir" in planOrOpts) {
-    // Options object form
-    const opts = planOrOpts as GenerateAppleScriptOptions;
-    plan = opts.plan;
-    resolvedTargetDir = opts.targetDir;
-    resolvedStarshipConfigPath = opts.starshipConfigPath;
-    resolvedEnvVars = opts.envVars;
-    resolvedProjectName = opts.projectName;
-    resolvedOnStop = opts.onStop;
-  } else {
-    // Positional form
-    plan = planOrOpts as LayoutPlan;
-    resolvedTargetDir = targetDir!;
-    resolvedStarshipConfigPath = starshipConfigPath;
-    resolvedEnvVars = envVars;
-    resolvedProjectName = projectName;
-    resolvedOnStop = onStop;
-  }
-
-  return generateAppleScriptImpl(plan, resolvedTargetDir, resolvedStarshipConfigPath, resolvedEnvVars, resolvedProjectName, resolvedOnStop);
-}
-
-function generateAppleScriptImpl(plan: LayoutPlan, targetDir: string, starshipConfigPath?: string | null, envVars?: Record<string, string>, projectName?: string, onStop?: string): string {
+export function generateAppleScript(plan: LayoutPlan, targetDir: string, starshipConfigPath?: string | null, envVars?: Record<string, string>, projectName?: string, onStop?: string): string {
+  const cacheKey = JSON.stringify({ plan, targetDir, starshipConfigPath, envVars, projectName, onStop });
+  const cached = scriptCache.get(cacheKey);
+  if (cached !== undefined) return cached;
   const lines: string[] = [];
   const titles: Array<[string, string]> = [];
   const interactiveShellPanes: string[] = [];
@@ -520,8 +488,13 @@ function generateAppleScriptImpl(plan: LayoutPlan, targetDir: string, starshipCo
 
   emitSurfaceConfig(sb, targetDir, plan.fontSize, allEnvVars);
   emitClosePrelude(sb, plan.cleanRestoredPanes);
-  emitNewWindow(sb, plan.newWindow);
-  sb.add(1, "set paneRoot to terminal 1 of selected tab of win");
+  if (plan.newTab) {
+    emitNewTab(sb);
+    sb.add(1, "set paneRoot to terminal 1 of selected tab of front window");
+  } else {
+    emitNewWindow(sb, plan.newWindow);
+    sb.add(1, "set paneRoot to terminal 1 of selected tab of win");
+  }
   sb.blank();
 
   titles.push(["paneRoot", formatTitle("editor", plan.editor || null)]);
@@ -567,7 +540,9 @@ function generateAppleScriptImpl(plan: LayoutPlan, targetDir: string, starshipCo
   emitWindowState(sb, "paneRoot", plan);
 
   sb.add(0, "end tell");
-  return lines.join("\n");
+  const result = lines.join("\n");
+  scriptCache.set(cacheKey, result);
+  return result;
 }
 
 export function generateTreeAppleScript(
@@ -588,8 +563,13 @@ export function generateTreeAppleScript(
 
   emitSurfaceConfig(sb, targetDir, plan.fontSize, allEnvVars);
   emitClosePrelude(sb, plan.cleanRestoredPanes);
-  emitNewWindow(sb, plan.newWindow);
-  sb.add(1, `set ${rootPaneVar} to terminal 1 of selected tab of win`);
+  if (plan.newTab) {
+    emitNewTab(sb);
+    sb.add(1, `set ${rootPaneVar} to terminal 1 of selected tab of front window`);
+  } else {
+    emitNewWindow(sb, plan.newWindow);
+    sb.add(1, `set ${rootPaneVar} to terminal 1 of selected tab of win`);
+  }
   sb.blank();
 
   emitTreeTraversal(sb, plan.tree, rootPaneVar, plan, targetDir);

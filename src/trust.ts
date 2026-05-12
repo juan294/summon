@@ -9,7 +9,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, realpathSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { homedir } from "node:os";
 
@@ -23,6 +23,13 @@ export class SummonError extends Error {
 
 /** Path to the trust database. */
 const TRUST_FILE = join(homedir(), ".config", "summon", "trust.json");
+
+/** Mtime-based cache: avoid rehashing on every launch when the file hasn't changed. */
+const trustCache = new Map<string, { mtimeMs: number; trusted: boolean }>();
+
+export function clearTrustCache(): void {
+  trustCache.clear();
+}
 
 /** Path to the summon config directory. */
 const CONFIG_DIR = join(homedir(), ".config", "summon");
@@ -49,6 +56,14 @@ function saveTrustDb(db: Record<string, string>): void {
 }
 
 /**
+ * Compute the SHA-256 hash of a string.
+ * Returns the hex digest.
+ */
+export function hashContent(content: string): string {
+  return createHash("sha256").update(content).digest("hex");
+}
+
+/**
  * Compute the SHA-256 hash of a .summon file in the given directory.
  * Returns the hex digest, or null if the file does not exist.
  */
@@ -56,20 +71,39 @@ export function hashSummonFile(dir: string): string | null {
   const summonPath = join(dir, ".summon");
   if (!existsSync(summonPath)) return null;
   const content = readFileSync(summonPath, "utf-8");
-  return createHash("sha256").update(content).digest("hex");
+  return hashContent(content);
 }
 
 /**
  * Check whether the .summon file in the given directory is trusted.
  * Returns true if no .summon file exists (nothing to trust) or if the
- * current file hash matches the stored hash.
+ * current file hash matches the stored hash. Results are mtime-memoized
+ * so repeated launches do not rehash an unchanged file.
  */
 export function isTrusted(dir: string): boolean {
-  const hash = hashSummonFile(dir);
-  if (hash === null) return true; // no .summon file → trusted by default
+  const normalizedDir = (() => { try { return realpathSync(dir); } catch { return resolve(dir); } })();
+  const summonPath = join(dir, ".summon");
+
+  if (!existsSync(summonPath)) return true; // no .summon file → trusted by default
+
+  // Use mtime to skip rehash when file is unchanged
+  let mtimeMs: number;
+  try {
+    mtimeMs = statSync(summonPath).mtimeMs;
+  } catch {
+    // File disappeared between existsSync and statSync → treat as absent
+    return true;
+  }
+
+  const cached = trustCache.get(normalizedDir);
+  if (cached !== undefined && cached.mtimeMs === mtimeMs) return cached.trusted;
+
+  const content = readFileSync(summonPath, "utf-8");
+  const hash = hashContent(content);
   const db = loadTrustDb();
-  const resolvedDir = resolve(dir);
-  return db[resolvedDir] === hash;
+  const trusted = db[normalizedDir] === hash;
+  trustCache.set(normalizedDir, { mtimeMs, trusted });
+  return trusted;
 }
 
 /**
@@ -77,11 +111,29 @@ export function isTrusted(dir: string): boolean {
  * No-op if the .summon file does not exist.
  */
 export function trustProject(dir: string): void {
+  const normalizedDir = (() => { try { return realpathSync(dir); } catch { return resolve(dir); } })();
   const hash = hashSummonFile(dir);
   if (hash === null) return;
   const db = loadTrustDb();
-  db[resolve(dir)] = hash;
+  db[normalizedDir] = hash;
   saveTrustDb(db);
+}
+
+/**
+ * Assert that the .summon file is trusted using pre-read content.
+ * Throws SummonError if the content hash does not match the stored trust hash.
+ *
+ * Use this variant when the file content has already been read from disk,
+ * to avoid a TOCTOU race between hashing and parsing (BE-B2 #357).
+ */
+export function assertTrustedContent(targetDir: string, content: string): void {
+  const hash = hashContent(content);
+  const db = loadTrustDb();
+  if (db[targetDir] === hash) return;
+
+  throw new SummonError(
+    `This project has a .summon file.\nRun 'summon trust .' to allow it, or use --no-project-config to skip it.`,
+  );
 }
 
 /**
@@ -101,9 +153,13 @@ export function assertTrusted(targetDir: string, opts?: { skip?: boolean }): voi
   let trusted: boolean;
   try {
     trusted = isTrusted(targetDir);
-  } catch {
-    // Unable to compute or read trust state — fail open (do not block).
-    return;
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === undefined || code === "ENOENT") return; // no .summon file or non-OS error → nothing to check
+    throw new Error(
+      "Cannot verify trust for this project; run 'summon trust .' to re-establish",
+      { cause: err },
+    );
   }
   if (trusted) return;
 

@@ -87,12 +87,12 @@ describe("handleDoctorCommand", () => {
 
     await handleDoctorCommand(makeContext());
 
-    expect(logSpy).toHaveBeenCalledWith('  + editor command "nvim" found at /usr/bin/nvim');
-    expect(logSpy).toHaveBeenCalledWith('  + sidebar command "lazygit" found at /usr/bin/nvim');
-    expect(logSpy).toHaveBeenCalledWith("  + No port conflicts (2 projects checked)");
+    expect(logSpy).toHaveBeenCalledWith('  ✔ PASS  editor command "nvim" found at /usr/bin/nvim');
+    expect(logSpy).toHaveBeenCalledWith('  ✔ PASS  sidebar command "lazygit" found at /usr/bin/nvim');
+    expect(logSpy).toHaveBeenCalledWith("  ✔ PASS  No port conflicts (2 projects checked)");
     // Issue count summary shows "All checks passed" when clean
     const allOutput = logSpy.mock.calls.flat().join("\n");
-    expect(allOutput).toContain("✓ All checks passed.");
+    expect(allOutput).toMatch(/✓ \d+\/\d+ checks passed\./);
   });
 
   it("lists missing settings and exits with code 2 when issues remain", async () => {
@@ -150,11 +150,11 @@ describe("handleDoctorCommand", () => {
     mockResolveCommand.mockReturnValue(null);
 
     await expect(handleDoctorCommand(makeContext())).rejects.toThrow("exit:2");
-    expect(logSpy).toHaveBeenCalledWith('  - editor command "missing-editor" not found in PATH');
+    expect(logSpy).toHaveBeenCalledWith('  ✖ FAIL  editor command "missing-editor" not found in PATH');
     expect(logSpy).toHaveBeenCalledWith('    Install "missing-editor" or change with: summon set editor <command>');
     // Issue count shown in summary
     const allOutput = logSpy.mock.calls.flat().join("\n");
-    expect(allOutput).toMatch(/Found \d+ issue/);
+    expect(allOutput).toMatch(/\d+\/\d+ checks passed/);
   });
 
   it("uses the full configured command when no executable can be parsed", async () => {
@@ -171,11 +171,11 @@ describe("handleDoctorCommand", () => {
 
     await expect(handleDoctorCommand(makeContext())).rejects.toThrow("exit:2");
 
-    expect(logSpy).toHaveBeenCalledWith('  - editor command "   " not found in PATH');
+    expect(logSpy).toHaveBeenCalledWith('  ✖ FAIL  editor command "   " not found in PATH');
     expect(logSpy).toHaveBeenCalledWith('    Install "   " or change with: summon set editor <command>');
   });
 
-  it("shows '✓ All checks passed.' when there are no issues", async () => {
+  it("shows '✓ N/N checks passed.' when there are no issues", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     mockExistsSync.mockReturnValue(true);
     mockReadFileSync.mockReturnValue(
@@ -185,7 +185,7 @@ describe("handleDoctorCommand", () => {
     await handleDoctorCommand(makeContext());
 
     const output = logSpy.mock.calls.flat().join("\n");
-    expect(output).toContain("✓ All checks passed.");
+    expect(output).toMatch(/✓ \d+\/\d+ checks passed\./);
   });
 
   it("prints issue count summary when issues are found", async () => {
@@ -198,7 +198,7 @@ describe("handleDoctorCommand", () => {
     await expect(handleDoctorCommand(makeContext())).rejects.toThrow("exit:2");
 
     const output = logSpy.mock.calls.flat().join("\n");
-    expect(output).toMatch(/Found \d+ issue/);
+    expect(output).toMatch(/\d+\/\d+ checks passed/);
   });
 
   it("prints auto-fixable count in issue summary", async () => {
@@ -214,5 +214,65 @@ describe("handleDoctorCommand", () => {
     const output = logSpy.mock.calls.flat().join("\n");
     expect(output).toMatch(/auto-fixable/);
     expect(output).toContain("summon doctor --fix");
+  });
+
+  // #432 UX-M5: visual pass/fail indicators instead of raw booleans
+  it("shows a visual PASS indicator for passing checks, not the literal string 'true'", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue(
+      "notify-on-command-finish = unfocused\nshell-integration = detect\n",
+    );
+
+    await handleDoctorCommand(makeContext());
+
+    const output = logSpy.mock.calls.flat().join("\n");
+    expect(output).not.toContain("true");
+    // Should contain a pass symbol (✔ or ✓ or PASS)
+    expect(output).toMatch(/PASS|✔|✓/);
+  });
+
+  it("shows a visual FAIL indicator for failing checks, not the literal string 'false'", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+    mockCheckAccessibility.mockReturnValue(false);
+
+    await expect(handleDoctorCommand(makeContext())).rejects.toThrow("exit:2");
+
+    const output = logSpy.mock.calls.flat().join("\n");
+    expect(output).not.toContain("false");
+    // Should contain a fail symbol (✖ or ✗ or FAIL)
+    expect(output).toMatch(/FAIL|✖|✗/);
+  });
+
+  // #435 UX-M9: summary count of passed/failed checks
+  it("shows a passed/total summary count at the end of output", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue(
+      "notify-on-command-finish = unfocused\nshell-integration = detect\n",
+    );
+
+    await handleDoctorCommand(makeContext());
+
+    const output = logSpy.mock.calls.flat().join("\n");
+    // Should show something like "4/4 checks passed" or "All 4 checks passed"
+    expect(output).toMatch(/\d+\/\d+ checks passed|\d+ checks passed|all.*checks passed/i);
+  });
+
+  it("shows a next-steps hint when checks fail", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+    mockCheckAccessibility.mockReturnValue(false);
+
+    await expect(handleDoctorCommand(makeContext())).rejects.toThrow("exit:2");
+
+    const output = logSpy.mock.calls.flat().join("\n");
+    // Should hint at summon setup when accessibility fails
+    expect(output).toMatch(/summon setup|fix/i);
   });
 });

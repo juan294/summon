@@ -29,7 +29,7 @@ vi.mock("node:readline", () => ({
 }));
 
 // Import after mocks
-const { SAFE_COMMAND_RE, GHOSTTY_PATHS, GHOSTTY_APP_NAME, SUMMON_WORKSPACE_ENV, resolveCommand, promptUser, getErrorMessage, exitWithUsageHint, checkAccessibility, openAccessibilitySettings, isAccessibilityError, isGhosttyInstalled, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT, PromptCancelled, isDebug, debugLog, getLogDir, supportsColor, confirm } = await import("./utils.js");
+const { SAFE_COMMAND_RE, GHOSTTY_PATHS, GHOSTTY_APP_NAME, SUMMON_WORKSPACE_ENV, resolveCommand, promptUser, getErrorMessage, exitWithUsageHint, checkAccessibility, openAccessibilitySettings, isAccessibilityError, isGhosttyInstalled, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT, PromptCancelled, isDebug, debugLog, getLogDir, supportsColor, confirm, gitSafeEnv } = await import("./utils.js");
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -556,6 +556,68 @@ const mockStdinSetEncoding = vi.fn();
 const mockStdinOnce = vi.fn();
 const mockStdinOff = vi.fn();
 const mockStdinOn = vi.fn();
+
+// ---------------------------------------------------------------------------
+// gitSafeEnv
+// ---------------------------------------------------------------------------
+
+describe("gitSafeEnv", () => {
+  const originalEnv = process.env;
+
+  beforeEach(() => {
+    process.env = { ...originalEnv };
+  });
+
+  afterEach(() => {
+    process.env = originalEnv;
+  });
+
+  it("returns an object (the cleaned env)", () => {
+    const result = gitSafeEnv();
+    expect(typeof result).toBe("object");
+  });
+
+  it("strips GIT_DIR from the returned env", () => {
+    process.env["GIT_DIR"] = "/some/repo/.git";
+    const result = gitSafeEnv();
+    expect("GIT_DIR" in result).toBe(false);
+  });
+
+  it("strips GIT_WORK_TREE from the returned env", () => {
+    process.env["GIT_WORK_TREE"] = "/some/repo";
+    const result = gitSafeEnv();
+    expect("GIT_WORK_TREE" in result).toBe(false);
+  });
+
+  it("strips GIT_INDEX_FILE from the returned env", () => {
+    process.env["GIT_INDEX_FILE"] = "/some/index";
+    const result = gitSafeEnv();
+    expect("GIT_INDEX_FILE" in result).toBe(false);
+  });
+
+  it("strips all three git context vars when all are set", () => {
+    process.env["GIT_DIR"] = "/a";
+    process.env["GIT_WORK_TREE"] = "/b";
+    process.env["GIT_INDEX_FILE"] = "/c";
+    const result = gitSafeEnv();
+    expect("GIT_DIR" in result).toBe(false);
+    expect("GIT_WORK_TREE" in result).toBe(false);
+    expect("GIT_INDEX_FILE" in result).toBe(false);
+  });
+
+  it("preserves other env vars", () => {
+    process.env["MY_CUSTOM_VAR"] = "hello";
+    const result = gitSafeEnv();
+    expect(result["MY_CUSTOM_VAR"]).toBe("hello");
+  });
+
+  it("does not modify process.env (returns a new object)", () => {
+    process.env["GIT_DIR"] = "/some/.git";
+    gitSafeEnv();
+    // process.env should still have GIT_DIR — we only stripped from the returned copy
+    expect(process.env["GIT_DIR"]).toBe("/some/.git");
+  });
+});
 
 describe("PromptCancelled", () => {
   it("is an Error subclass", () => {

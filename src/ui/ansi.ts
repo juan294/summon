@@ -22,12 +22,20 @@ export function green(s: string): string {
   return wrap("32", s);
 }
 
+export function red(s: string): string {
+  return wrap("31", s);
+}
+
 export function yellow(s: string): string {
   return wrap("33", s);
 }
 
 export function cyan(s: string): string {
   return wrap("36", s);
+}
+
+export function invert(s: string): string {
+  return wrap("7", s);
 }
 
 export function magenta(s: string): string {

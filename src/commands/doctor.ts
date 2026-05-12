@@ -9,7 +9,11 @@ import {
   ACCESSIBILITY_ENABLE_HINT,
 } from "../utils.js";
 import { commandExecutable } from "../command-spec.js";
+import { green, red, yellow, bold } from "../ui/ansi.js";
 import type { CommandContext } from "./types.js";
+
+const PASS = green("✔ PASS");
+const FAIL = red("✖ FAIL");
 
 export async function handleDoctorCommand({ values }: CommandContext): Promise<void> {
   const {
@@ -22,9 +26,11 @@ export async function handleDoctorCommand({ values }: CommandContext): Promise<v
 
   const fixFlag = values.fix;
 
-  // Track issues for summary (UX-M4)
+  // Track pass/fail counts for summary (UX-M4, UX-M5, UX-M9)
   let totalIssues = 0;
   let autoFixable = 0;
+  let totalChecks = 0;
+  let passedChecks = 0;
 
   console.log("Checking Ghostty configuration...\n");
 
@@ -62,14 +68,16 @@ export async function handleDoctorCommand({ values }: CommandContext): Promise<v
 
   for (const check of checks) {
     const isSet = check.regex.test(configContent);
+    totalChecks++;
     if (isSet) {
-      console.log(`  + ${check.name} (${check.key}) is configured`);
+      passedChecks++;
+      console.log(`  ${PASS}  ${check.name} (${check.key}) is configured`);
     } else {
       allGood = false;
       totalIssues++;
       autoFixable++;
       missingSettings.push({ key: check.key, recommended: check.recommended });
-      console.log(`  - ${check.name}`);
+      console.log(`  ${FAIL}  ${check.name}`);
       if (!fixFlag) {
         console.log("    Add to ~/.config/ghostty/config:");
         console.log(`    ${check.key} = ${check.recommended}`);
@@ -99,12 +107,14 @@ export async function handleDoctorCommand({ values }: CommandContext): Promise<v
   console.log("Checking permissions...\n");
 
   const accessOk = checkAccessibility();
+  totalChecks++;
   if (accessOk) {
-    console.log("  + Accessibility permission is granted");
+    passedChecks++;
+    console.log(`  ${PASS}  Accessibility permission is granted`);
   } else {
     allGood = false;
     totalIssues++;
-    console.log("  - Accessibility permission is required");
+    console.log(`  ${FAIL}  Accessibility permission is required`);
     console.log(`    ${ACCESSIBILITY_REQUIRED_MSG}`);
     console.log(`    ${ACCESSIBILITY_SETTINGS_PATH}`);
     console.log(`    ${ACCESSIBILITY_ENABLE_HINT}`);
@@ -125,12 +135,14 @@ export async function handleDoctorCommand({ values }: CommandContext): Promise<v
     for (const { key, cmd } of commandChecks) {
       const binary = commandExecutable(cmd);
       const found = binary ? resolveCommand(binary) : null;
+      totalChecks++;
       if (found) {
-        console.log(`  + ${key} command "${binary}" found at ${found}`);
+        passedChecks++;
+        console.log(`  ${PASS}  ${key} command "${binary}" found at ${found}`);
       } else {
         allGood = false;
         totalIssues++;
-        console.log(`  - ${key} command "${binary ?? cmd}" not found in PATH`);
+        console.log(`  ${FAIL}  ${key} command "${binary ?? cmd}" not found in PATH`);
         console.log(`    Install "${binary ?? cmd}" or change with: summon set ${key} <command>`);
         console.log();
       }
@@ -141,24 +153,28 @@ export async function handleDoctorCommand({ values }: CommandContext): Promise<v
   console.log("Checking port conflicts...\n");
   const { detectAllPorts } = await import("../ports.js");
   const { conflicts } = await detectAllPorts();
+  totalChecks++;
   if (conflicts.size === 0) {
-    console.log(`  + No port conflicts (${listProjects().size} projects checked)`);
+    passedChecks++;
+    console.log(`  ${PASS}  No port conflicts (${listProjects().size} projects checked)`);
   } else {
     allGood = false;
     for (const [port, projects] of conflicts) {
       totalIssues++;
-      console.log(`  - Port conflict: port ${port} used by ${projects.join(", ")}`);
+      console.log(`  ${FAIL}  Port conflict: port ${port} used by ${projects.join(", ")}`);
     }
   }
 
   console.log();
 
-  // Issue count summary (UX-M4)
+  // Pass/fail summary (UX-M4, UX-M9)
   if (totalIssues === 0) {
-    console.log("✓ All checks passed.");
+    console.log(green(`✓ ${passedChecks}/${totalChecks} checks passed.`));
   } else {
-    const fixablePart = autoFixable > 0 ? ` (${autoFixable} auto-fixable)` : "";
-    console.log(`Found ${totalIssues} issue${totalIssues !== 1 ? "s" : ""}${fixablePart}. Run 'summon doctor --fix' to apply fixes.`);
+    const failedChecks = totalChecks - passedChecks;
+    const fixablePart = autoFixable > 0 ? ` (${autoFixable} auto-fixable with --fix)` : "";
+    console.log(yellow(bold(`${passedChecks}/${totalChecks} checks passed — ${failedChecks} failed${fixablePart}.`)));
+    console.log(`  Run 'summon doctor --fix' to apply fixes, or 'summon setup' to reconfigure.`);
   }
 
   const configFixed = fixFlag && missingSettings.length > 0;

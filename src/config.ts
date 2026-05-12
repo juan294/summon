@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync, readdirSy
 import { join, resolve, sep } from "node:path";
 import { isPresetName } from "./layout.js";
 import { CONFIG_DIR, LAYOUTS_DIR } from "./paths.js";
+import { PROJECT_NAME_RE as STRICT_PROJECT_NAME_RE } from "./validation.js";
 
 // Re-export path constants for backward compatibility
 export { CONFIG_DIR, LAYOUTS_DIR, STATUS_DIR, SNAPSHOTS_DIR } from "./paths.js";
@@ -26,6 +27,24 @@ export function resetConfigCache(): void {
 }
 
 /**
+ * Clear the KV file cache, forcing the next read to re-stat and re-read from disk.
+ * @internal — exported for testing only (#403 BE-L1)
+ */
+export function clearKVCache(): void {
+  fileCache.clear();
+}
+
+/**
+ * Clear the project registry cache, forcing the next project lookup to re-read from disk.
+ * @internal — exported for testing only (#404 BE-L3)
+ */
+export function clearProjectCache(): void {
+  // Projects are stored in fileCache keyed by PROJECTS_FILE path.
+  // Clearing the entire KV cache also covers the project registry.
+  fileCache.clear();
+}
+
+/**
  * Check if this is a first-run scenario (config file does not exist yet).
  * Does NOT call ensureConfig() — must not create the file as a side effect.
  */
@@ -44,23 +63,44 @@ const fileCache = new Map<string, CacheEntry>();
 
 // --- Per-project config ---
 
-export function readKVFile(path: string): Map<string, string> {
+/**
+ * Parse a KV config string (already read from disk) into a Map.
+ * Same parsing logic as readKVFile but operates on a pre-read string.
+ * Use this when the file content has already been read (e.g. for TOCTOU prevention).
+ */
+export function readKVFromString(content: string): Map<string, string> {
   const map = new Map<string, string>();
-  let content: string;
-  try {
-    content = readFileSync(path, "utf-8").trim();
-  } catch (err: unknown) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return map;
-    throw err;
-  }
-  if (!content) return map;
-  for (const line of content.replace(/\r\n?/g, "\n").split("\n")) {
+  const trimmed = content.trim();
+  if (!trimmed) return map;
+  for (const line of trimmed.replace(/\r\n?/g, "\n").split("\n")) {
     if (line.trimStart().startsWith("#")) continue;
     const idx = line.indexOf("=");
-    if (idx === -1) continue;
-    map.set(line.slice(0, idx).trim(), line.slice(idx + 1).trim());
+    if (idx === -1) {
+      const trimmedLine = line.trim();
+      if (trimmedLine.length > 0) {
+        process.stderr.write("summon: warning: ignored malformed config line: " + trimmedLine + "\n");
+      }
+      continue;
+    }
+    const key = line.slice(0, idx).trim();
+    const rawValue = line.slice(idx + 1).trim();
+    // Strip inline comments: remove everything after " # " (space-hash-space)
+    const commentIdx = rawValue.indexOf(" # ");
+    const value = commentIdx !== -1 ? rawValue.slice(0, commentIdx).trim() : rawValue;
+    map.set(key, value);
   }
   return map;
+}
+
+export function readKVFile(path: string): Map<string, string> {
+  let content: string;
+  try {
+    content = readFileSync(path, "utf-8");
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return new Map<string, string>();
+    throw err;
+  }
+  return readKVFromString(content);
 }
 
 function readKVCached(file: string): Map<string, string> {
@@ -108,8 +148,8 @@ function writeKV(file: string, map: Map<string, string>): void {
 export const PROJECT_NAME_RE = /[=\s/\\]/;
 
 export function addProject(name: string, path: string): void {
-  if (PROJECT_NAME_RE.test(name)) {
-    throw new Error(`Invalid project name: "${name}". Names must not contain '=', spaces, or path separators.`);
+  if (!STRICT_PROJECT_NAME_RE.test(name)) {
+    throw new Error(`Invalid project name: "${name}". Names must start with a letter, digit, or underscore, contain only letters, digits, and "_.-", and be 1-64 chars.`);
   }
   const resolvedPath = resolve(path);
   const projects = readKV(PROJECTS_FILE);
@@ -135,6 +175,9 @@ export function listProjects(): Map<string, string> {
 // --- Machine config ---
 
 export function setConfig(key: string, value: string): void {
+  if (key.includes("=") || key.includes("\n") || key.includes("\r") || key.startsWith("#")) {
+    throw new Error(`Invalid config key: "${key}". Keys must not contain '=', newlines, or start with '#'.`);
+  }
   const config = readKV(CONFIG_FILE);
   config.set(key, value);
   writeKV(CONFIG_FILE, config);
@@ -162,19 +205,19 @@ export function listConfig(): Map<string, string> {
   return config;
 }
 
-export const VALID_KEYS = ["editor", "sidebar", "panes", "editor-size", "shell", "layout", "auto-resize", "starship-preset", "new-window", "fullscreen", "maximize", "float", "font-size", "on-start", "on-stop", "clean"];
+export const VALID_KEYS = ["editor", "sidebar", "panes", "editor-size", "shell", "layout", "auto-resize", "starship-preset", "new-window", "new-tab", "fullscreen", "maximize", "float", "font-size", "on-start", "on-stop", "clean"];
 
 /** Set of all known config keys — used to warn on unknown/misspelled keys. */
 export const KNOWN_CONFIG_KEYS = new Set(VALID_KEYS);
 
 /** Config keys that accept only "true" or "false" values. */
-export const BOOLEAN_KEYS = new Set(["auto-resize", "new-window", "fullscreen", "maximize", "float", "clean"]);
+export const BOOLEAN_KEYS = new Set(["auto-resize", "new-window", "new-tab", "fullscreen", "maximize", "float", "clean"]);
 
 export const CLI_FLAGS = [
   "--help", "--version", "--layout", "--editor", "--panes",
   "--editor-size", "--sidebar", "--shell", "--auto-resize",
   "--no-auto-resize", "--starship-preset", "--dry-run",
-  "--env", "--new-window", "--fullscreen", "--maximize", "--float", "--font-size", "--on-start", "--once",
+  "--env", "--new-window", "--new-tab", "--fullscreen", "--maximize", "--float", "--font-size", "--on-start", "--once",
   "--clean", "--no-clean",
   "-h", "-v", "-l", "-e", "-p", "-s", "-n",
 ];
@@ -204,7 +247,9 @@ export function listCustomLayouts(): string[] {
 export function readCustomLayout(name: string): Map<string, string> | null {
   const filePath = layoutPath(name);
   if (!existsSync(filePath)) return null;
-  return readKVFile(filePath);
+  // Use readKVCached (not readKVFile) so custom layout reads participate in
+  // the mtime-based memoization — fixes #402 AR-M3 implicit coupling.
+  return readKVCached(filePath);
 }
 
 export function saveCustomLayout(name: string, entries: Map<string, string>): void {

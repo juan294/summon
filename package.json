@@ -1,6 +1,6 @@
 {
   "name": "summon-ws",
-  "version": "1.4.2",
+  "version": "1.5.0",
   "description": "Launch configurable multi-pane Ghostty workspaces with one command",
   "type": "module",
   "packageManager": "pnpm@10.29.2",
@@ -44,7 +44,7 @@
     "url": "https://github.com/juan294/summon/issues"
   },
   "files": [
-    "dist/index.js"
+    "dist"
   ],
   "publishConfig": {
     "access": "public"

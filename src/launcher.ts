@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { execFileSync, execSync } from "node:child_process";
 import {
@@ -13,7 +13,7 @@ import {
   EDITOR_SIZE_DEFAULT,
 } from "./layout.js";
 import type { LayoutOptions } from "./layout.js";
-import { listConfig, listProjects, readKVFile, readCustomLayout, isCustomLayout, LAYOUT_NAME_RE } from "./config.js";
+import { listConfig, listProjects, readKVFile, readKVFromString, readCustomLayout, isCustomLayout, LAYOUT_NAME_RE } from "./config.js";
 import { writeStatus } from "./status.js";
 import type { WorkspaceStatus } from "./status.js";
 import { generateAppleScript, generateTreeAppleScript, generateFocusScript } from "./script.js";
@@ -21,7 +21,7 @@ import { parseTreeDSL, extractPaneDefinitions, extractPaneCwds, resolveTreeComma
 import type { LayoutNode } from "./tree.js";
 import { resolveCommand as resolveCommandPath, getErrorMessage, SUMMON_WORKSPACE_ENV, promptUser, ACCESSIBILITY_SETTINGS_PATH } from "./utils.js";
 import { ensureGhostty, ensureAccessibility, printAccessibilityHint, confirmDangerousCommands, isAccessibilityError } from "./launch-guards.js";
-import { assertTrusted, SummonError } from "./trust.js";
+import { assertTrusted, assertTrustedContent, SummonError } from "./trust.js";
 import { parseIntInRange, parsePositiveFloat, ENV_KEY_RE, PROJECT_NAME_RE, sanitizeProjectName } from "./validation.js";
 import { isStarshipInstalled, ensurePresetConfig, getPresetConfigPath } from "./starship.js";
 // command-spec is a pure utility module with no imports from this file.
@@ -39,6 +39,7 @@ export function optsToConfigMap(opts: Partial<LayoutOptions>): Map<string, strin
   if (opts.autoResize !== undefined) entries.set("auto-resize", String(opts.autoResize));
   if (opts.fontSize !== undefined && opts.fontSize !== null) entries.set("font-size", String(opts.fontSize));
   if (opts.newWindow) entries.set("new-window", "true");
+  if (opts.newTab) entries.set("new-tab", "true");
   if (opts.fullscreen) entries.set("fullscreen", "true");
   if (opts.maximize) entries.set("maximize", "true");
   if (opts.float) entries.set("float", "true");
@@ -58,6 +59,7 @@ export interface CLIOverrides {
   "font-size"?: string;
   "on-start"?: string;
   "new-window"?: string;
+  "new-tab"?: string;
   "no-project-config"?: string;
   fullscreen?: string;
   maximize?: string;
@@ -134,7 +136,11 @@ function executeScript(script: string): void {
 
     // Best-effort rollback: the AppleScript may have opened a window before failing.
     // Attempt to close it so the user is not left with a stale empty window (BE-S26 #322).
-    closeWorkspaceWindow();
+    // Skip rollback for accessibility errors — osascript couldn't run at all,
+    // so no window was created (BE-M3 #377).
+    if (!isAccessibilityError(message)) {
+      closeWorkspaceWindow();
+    }
 
     if (isAccessibilityError(message)) {
       console.error();
@@ -359,6 +365,7 @@ function resolveLayoutBase(
       }
     }
     if (customData.has("new-window")) base.newWindow = customData.get("new-window") === "true";
+    if (customData.has("new-tab")) base.newTab = customData.get("new-tab") === "true";
     if (customData.has("fullscreen")) base.fullscreen = customData.get("fullscreen") === "true";
     if (customData.has("maximize")) base.maximize = customData.get("maximize") === "true";
     if (customData.has("float")) base.float = customData.get("float") === "true";
@@ -451,10 +458,12 @@ function layerConfigValues(
   }
 
   const newWindow = pick(cliOverrides["new-window"], "new-window");
+  const newTab = pick(cliOverrides["new-tab"], "new-tab");
   const fullscreen = pick(cliOverrides.fullscreen, "fullscreen");
   const maximize = pick(cliOverrides.maximize, "maximize");
   const float = pick(cliOverrides.float, "float");
   if (newWindow !== undefined) result.newWindow = newWindow === "true";
+  if (newTab !== undefined) result.newTab = newTab === "true";
   if (fullscreen !== undefined) result.fullscreen = fullscreen === "true";
   if (maximize !== undefined) result.maximize = maximize === "true";
   if (float !== undefined) result.float = float === "true";
@@ -462,10 +471,16 @@ function layerConfigValues(
   return result;
 }
 
-export function resolveConfig(targetDir: string, cliOverrides: CLIOverrides): ResolvedConfig {
+export function resolveConfig(targetDir: string, cliOverrides: CLIOverrides, summonFileContent?: string): ResolvedConfig {
   const projectConfigPath = join(targetDir, ".summon");
   const skipProjectConfig = cliOverrides["no-project-config"] === "true";
-  const project = skipProjectConfig ? new Map<string, string>() : readKVFile(projectConfigPath);
+  // Use pre-read content if provided (TOCTOU prevention, BE-B2 #357);
+  // fall back to reading from disk (e.g. when called without pre-read content).
+  const project = skipProjectConfig
+    ? new Map<string, string>()
+    : summonFileContent !== undefined
+      ? readKVFromString(summonFileContent)
+      : readKVFile(projectConfigPath);
   if (project.size > 0) {
     console.log(`Using project config: ${projectConfigPath}`);
   }
@@ -573,7 +588,8 @@ export function decideCleanRestoredPanes(
   if (opts.newWindow) return;
 
   const cleanRaw = pickConfigValue(cliOverrides.clean, "clean", project, machineConfig);
-  const cleanEnabled = cleanRaw === undefined ? true : cleanRaw === "true";
+  // Default to false — clean must be explicitly enabled via --clean or clean=true (BE-H1 #362).
+  const cleanEnabled = cleanRaw === "true";
   if (!cleanEnabled) return;
 
   // In dry-run mode, skip the probe but honor an explicit --clean flag so the
@@ -648,12 +664,13 @@ async function launchTreeLayout(
   projectName?: string,
   onStop?: string,
 ): Promise<string[]> {
-  const resolvedTree = resolveTreeCmds(treeLayout.tree, treeLayout.panes, treeLayout.paneCwds);
+  const resolvedTree = resolveTreeCmds(treeLayout.tree, treeLayout.panes, treeLayout.paneCwds, resolve(targetDir));
   const treePlanOpts = {
     autoResize: opts.autoResize,
     editorSize: opts.editorSize,
     fontSize: opts.fontSize,
     newWindow: opts.newWindow,
+    newTab: opts.newTab,
     fullscreen: opts.fullscreen,
     maximize: opts.maximize,
     float: opts.float,
@@ -752,10 +769,28 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
     throw new Error(msg);
   }
 
+  // Read .summon once for both trust verification and config parsing (BE-B2 #357).
+  // This eliminates the TOCTOU window between hashing and re-reading.
+  const summonFilePath = join(targetDir, ".summon");
+  let summonFileContent: string | undefined;
+  if (existsSync(summonFilePath)) {
+    try {
+      summonFileContent = readFileSync(summonFilePath, "utf-8");
+    } catch {
+      summonFileContent = undefined;
+    }
+  }
+
   // Trust gate: verify the .summon file (if present) is explicitly trusted before
   // reading or acting on any of its values (BE-B1, BE-B2, SE-H1).
   try {
-    assertTrusted(targetDir, { skip: cliOverrides?.["no-project-config"] === "true" });
+    if (cliOverrides?.["no-project-config"] === "true") {
+      // skip trust check
+    } else if (summonFileContent !== undefined) {
+      assertTrustedContent(targetDir, summonFileContent);
+    } else {
+      assertTrusted(targetDir);
+    }
   } catch (err) {
     if (err instanceof SummonError) {
       console.error(err.message);
@@ -765,7 +800,7 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
   }
 
   let config: ReturnType<typeof resolveConfig>;
-  config = resolveConfig(targetDir, cliOverrides ?? {});
+  config = resolveConfig(targetDir, cliOverrides ?? {}, summonFileContent);
 
   // If no editor is configured from any source and this isn't a tree layout
   // (which defines its own pane commands), redirect to the setup wizard.

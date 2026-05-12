@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { generateAppleScript, generateTreeAppleScript, generateFocusScript } from "./script.js";
+import { describe, it, expect, beforeEach } from "vitest";
+import { generateAppleScript, generateTreeAppleScript, generateFocusScript, clearScriptCache } from "./script.js";
 import { planLayout, getPreset } from "./layout.js";
 import { collectLeaves, buildTreePlan } from "./tree.js";
 import type { TreeLayoutPlan, LayoutNode } from "./tree.js";
@@ -766,6 +766,41 @@ describe("generateAppleScript", () => {
       });
     });
 
+    describe("new-tab flag", () => {
+      it("emits Cmd+T System Events keystroke when newTab=true", () => {
+        const plan = planLayout({ newTab: true });
+        const script = generateAppleScript(plan, "/tmp/test");
+        expect(script).toContain('keystroke "t" using command down');
+        expect(script).toContain("set paneRoot to terminal 1 of selected tab of front window");
+      });
+
+      it("does not emit Cmd+N when newTab=true", () => {
+        const plan = planLayout({ newTab: true });
+        const script = generateAppleScript(plan, "/tmp/test");
+        expect(script).not.toContain('keystroke "n" using command down');
+      });
+
+      it("does not bind paneRoot via selected tab of win when newTab=true", () => {
+        const plan = planLayout({ newTab: true });
+        const script = generateAppleScript(plan, "/tmp/test");
+        // paneRoot must be bound via front window (not the `win` variable that
+        // newWindow path uses) since newTab doesn't set `win`.
+        expect(script).not.toContain("set paneRoot to terminal 1 of selected tab of win");
+      });
+
+      it("does not emit Cmd+T when newTab=false (default regression guard)", () => {
+        const plan = planLayout();
+        const script = generateAppleScript(plan, "/tmp/test");
+        expect(script).not.toContain('keystroke "t" using command down');
+      });
+
+      it("throws when both newWindow and newTab are true", () => {
+        expect(() => planLayout({ newWindow: true, newTab: true })).toThrow(
+          "--new-window and --new-tab are mutually exclusive",
+        );
+      });
+    });
+
     describe("fullscreen flag", () => {
       it("generates toggle_fullscreen when fullscreen=true", () => {
         const plan = planLayout({ fullscreen: true });
@@ -944,6 +979,7 @@ describe("generateTreeAppleScript", () => {
       editorSize: 75,
       fontSize: null,
       newWindow: false,
+      newTab: false,
       fullscreen: false,
       maximize: false,
       float: false,
@@ -1125,6 +1161,53 @@ describe("generateTreeAppleScript", () => {
     expect(script).toContain('keystroke "n" using command down');
     expect(script).toContain("set win to front window");
     expect(script).not.toContain("make new window");
+  });
+
+  it("new tab mode emits Cmd+T keystroke", () => {
+    const plan = makePlan(
+      { type: "pane", name: "editor", command: "claude" },
+      { newTab: true },
+    );
+    const script = generateTreeAppleScript(plan, "/tmp/project");
+
+    expect(script).toContain('keystroke "t" using command down');
+    expect(script).toContain("set pane_editor to terminal 1 of selected tab of front window");
+  });
+
+  it("new tab mode does not emit Cmd+N", () => {
+    const plan = makePlan(
+      { type: "pane", name: "editor", command: "claude" },
+      { newTab: true },
+    );
+    const script = generateTreeAppleScript(plan, "/tmp/project");
+
+    expect(script).not.toContain('keystroke "n" using command down');
+  });
+
+  it("new tab mode does not bind root pane via selected tab of win", () => {
+    const plan = makePlan(
+      { type: "pane", name: "editor", command: "claude" },
+      { newTab: true },
+    );
+    const script = generateTreeAppleScript(plan, "/tmp/project");
+
+    expect(script).not.toContain("set pane_editor to terminal 1 of selected tab of win");
+  });
+
+  it("new tab mode does not emit Cmd+T when newTab=false (regression guard)", () => {
+    const plan = makePlan(
+      { type: "pane", name: "editor", command: "claude" },
+    );
+    const script = generateTreeAppleScript(plan, "/tmp/project");
+
+    expect(script).not.toContain('keystroke "t" using command down');
+  });
+
+  it("throws when both newWindow and newTab are true in buildTreePlan", () => {
+    const tree: LayoutNode = { type: "pane", name: "editor", command: "claude" };
+    expect(() => buildTreePlan(tree, { newWindow: true, newTab: true })).toThrow(
+      "--new-window and --new-tab are mutually exclusive",
+    );
   });
 
   it("fullscreen mode", () => {
@@ -1493,6 +1576,7 @@ describe("tab title", () => {
       editorSize: 75,
       fontSize: null,
       newWindow: false,
+      newTab: false,
       fullscreen: false,
       maximize: false,
       float: false,
@@ -1547,6 +1631,7 @@ describe("status trap", () => {
       editorSize: 75,
       fontSize: null,
       newWindow: false,
+      newTab: false,
       fullscreen: false,
       maximize: false,
       float: false,
@@ -1626,84 +1711,29 @@ describe("generateFocusScript", () => {
   });
 });
 
-// --- AR-L5: options object API ---
+// AR-L5 options object overload has been removed (AR-M2 #373) — the half-finished
+// refactor was dead code; all callers in launcher.ts use the positional form.
 
-describe("generateAppleScript — options object form (AR-L5)", () => {
-  it("accepts a single options object and produces the same output as positional form", () => {
-    const plan = planLayout({ editor: "vim" });
-    const scriptFromOptions = generateAppleScript({
-      plan,
-      targetDir: "/tmp/project",
-      starshipConfigPath: null,
-      envVars: { NODE_ENV: "test" },
-      projectName: "myapp",
-      onStop: "echo done",
-    });
+// --- PE-L4 (removed): tab-title escapeAppleScript was previously memoized with module-global
+// state (_tabTitleEscapeCache). The cache has been removed (fixes BE-H2 + BE-L2) — script.ts
+// now calls escapeAppleScript(title) directly on each invocation to preserve the pure-function
+// architecture invariant documented in CLAUDE.md.
 
-    expect(scriptFromOptions).toContain('tell application "Ghostty"');
-    expect(scriptFromOptions).toContain("new surface configuration");
-    expect(scriptFromOptions).toContain("myapp");
-    expect(scriptFromOptions).toContain("NODE_ENV=test");
-    expect(scriptFromOptions).toContain("echo done");
-    expect(scriptFromOptions).toContain("end tell");
+describe("escapeTabTitle — no module-global mutable state (BE-H2, BE-L2)", () => {
+  it("repeated generateAppleScript calls with the same tab title produce identical output (cache not needed)", () => {
+    const plan = planLayout(getPreset("full"));
+    const script1 = generateAppleScript(plan, "/tmp/proj", null, undefined, "stable-title");
+    const script2 = generateAppleScript(plan, "/tmp/proj", null, undefined, "stable-title");
+    // Pure function: same inputs → same outputs, no state required
+    expect(script1).toBe(script2);
+    expect(script1).toContain("set_tab_title:[stable-title]");
   });
 
-  it("options object with only required fields works (optional fields omitted)", () => {
+  it("tab title is correctly escaped on each call without caching", () => {
     const plan = planLayout();
-    const script = generateAppleScript({ plan, targetDir: "/tmp/bare" });
-    expect(script).toContain('tell application "Ghostty"');
-    expect(script).toContain("/tmp/bare");
-    expect(script).toContain("end tell");
-  });
-
-  it("options object result matches positional-arg result exactly", () => {
-    const plan = planLayout({ editor: "nvim" });
-    const starshipPath = "/usr/local/starship.toml";
-    const envVars = { DEBUG: "1" };
-    const projectName = "testproj";
-    const onStop = "cleanup.sh";
-
-    const fromOptions = generateAppleScript({
-      plan,
-      targetDir: "/tmp/mydir",
-      starshipConfigPath: starshipPath,
-      envVars,
-      projectName,
-      onStop,
-    });
-    const fromPositional = generateAppleScript(plan, "/tmp/mydir", starshipPath, envVars, projectName, onStop);
-
-    expect(fromOptions).toBe(fromPositional);
-  });
-});
-
-// --- PE-L4: tab-title escapeAppleScript memoization ---
-
-describe("escapeAppleScript memoization (PE-L4)", () => {
-  beforeEach(() => {
-    vi.resetModules();
-  });
-
-  it("escapeAppleScript is called only once across two generateAppleScript calls with the same tab title", async () => {
-    // Dynamically import so the spy can intercept the module's live binding
-    const escapeModule = await import("./shell-escape.js");
-    const spy = vi.spyOn(escapeModule, "escapeAppleScript");
-
-    const { generateAppleScript: gas } = await import("./script.js");
-    const { planLayout: pl } = await import("./layout.js");
-
-    const plan = pl(getPreset("full"));
-    const title = "[stable-title]";
-
-    // Call twice with the identical tab title — memoization should deduplicate
-    gas({ plan, targetDir: "/tmp/proj", projectName: "stable-title" });
-    gas({ plan, targetDir: "/tmp/proj", projectName: "stable-title" });
-
-    // With a single-slot cache, escapeAppleScript(title) should be called only once
-    const tabTitleCalls = spy.mock.calls.filter(([arg]) => arg === title);
-    expect(tabTitleCalls.length).toBe(1);
-
-    spy.mockRestore();
+    const script = generateAppleScript(plan, "/tmp/proj", null, undefined, 'my"app');
+    // projectName wraps in brackets: [my"app] → escapeAppleScript → [my\"app]
+    expect(script).toContain('set_tab_title:[my\\"app]');
   });
 });
 
@@ -1785,5 +1815,33 @@ describe("escapeAppleScript — fuzz / property tests (SE-S1)", () => {
         throw new Error(`escapeAppleScript produced unescaped double-quote for input: ${JSON.stringify(input)}`);
       }
     }
+  });
+});
+
+describe("PE-M1: generateAppleScript memoization (#416)", () => {
+  beforeEach(() => {
+    clearScriptCache();
+  });
+
+  it("returns identical output for identical inputs", () => {
+    const plan = planLayout();
+    const r1 = generateAppleScript(plan, "/tmp/project");
+    const r2 = generateAppleScript(plan, "/tmp/project");
+    expect(r1).toBe(r2);
+  });
+
+  it("returns different output for different targetDir", () => {
+    const plan = planLayout();
+    const r1 = generateAppleScript(plan, "/tmp/project-a");
+    const r2 = generateAppleScript(plan, "/tmp/project-b");
+    expect(r1).not.toBe(r2);
+  });
+
+  it("clearScriptCache forces regeneration on next call", () => {
+    const plan = planLayout();
+    const r1 = generateAppleScript(plan, "/tmp/project");
+    clearScriptCache();
+    const r2 = generateAppleScript(plan, "/tmp/project");
+    expect(r1).toBe(r2); // same output (deterministic), just regenerated
   });
 });

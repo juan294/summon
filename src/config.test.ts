@@ -9,7 +9,10 @@ import {
   getConfig,
   listConfig,
   readKVFile,
+  readKVFromString,
   resetConfigCache,
+  clearKVCache,
+  clearProjectCache,
   isFirstRun,
   LAYOUTS_DIR,
   listCustomLayouts,
@@ -385,9 +388,9 @@ describe("writeKV newline sanitization (#26)", () => {
     expect(getConfig("key")).toBe("valueinjected=evil");
   });
 
-  it("strips newlines from config keys", () => {
-    setConfig("bad\nkey", "value");
-    expect(getConfig("badkey")).toBe("value");
+  it("rejects config keys containing newlines (BE-M2 #376)", () => {
+    // Previously this silently stripped newlines; now it throws to prevent key confusion.
+    expect(() => setConfig("bad\nkey", "value")).toThrow("Invalid config key");
   });
 
   it("strips carriage returns from values", () => {
@@ -672,5 +675,206 @@ describe("addProject validation (BE-B4)", () => {
     expect(stored).not.toBeUndefined();
     // Should be an absolute path
     expect(stored!.startsWith("/")).toBe(true);
+  });
+});
+
+describe("addProject strict validation (SE-M3 #394)", () => {
+  it("rejects names with shell metacharacter semicolon", () => {
+    expect(() => addProject("proj;rm", "/home/user/proj")).toThrow("Invalid project name");
+  });
+
+  it("rejects names with pipe character", () => {
+    expect(() => addProject("proj|evil", "/home/user/proj")).toThrow("Invalid project name");
+  });
+
+  it("rejects names with backtick", () => {
+    expect(() => addProject("proj`cmd`", "/home/user/proj")).toThrow("Invalid project name");
+  });
+
+  it("rejects names starting with a dot", () => {
+    expect(() => addProject(".hidden", "/home/user/proj")).toThrow("Invalid project name");
+  });
+
+  it("accepts names with dots and dashes in body", () => {
+    expect(() => addProject("my.project-v2", "/home/user/proj")).not.toThrow();
+  });
+
+  it("accepts names up to 64 chars", () => {
+    const long = "a".repeat(64);
+    expect(() => addProject(long, "/home/user/proj")).not.toThrow();
+  });
+
+  it("rejects names longer than 64 chars", () => {
+    const tooLong = "a".repeat(65);
+    expect(() => addProject(tooLong, "/home/user/proj")).toThrow("Invalid project name");
+  });
+});
+
+describe("setConfig key validation (BE-M2 #376)", () => {
+  it("rejects keys containing =", () => {
+    expect(() => setConfig("key=evil", "value")).toThrow("Invalid config key");
+  });
+
+  it("rejects keys starting with #", () => {
+    expect(() => setConfig("#commented", "value")).toThrow("Invalid config key");
+  });
+
+  it("rejects keys containing carriage returns", () => {
+    expect(() => setConfig("bad\rkey", "value")).toThrow("Invalid config key");
+  });
+
+  it("accepts normal keys", () => {
+    expect(() => setConfig("editor", "vim")).not.toThrow();
+    expect(getConfig("editor")).toBe("vim");
+  });
+});
+
+describe("readKVFromString (BE-B2, BE-M1 #357 #375)", () => {
+  it("parses valid key=value lines", () => {
+    const map = readKVFromString("editor=vim\npanes=3\n");
+    expect(map.get("editor")).toBe("vim");
+    expect(map.get("panes")).toBe("3");
+  });
+
+  it("skips comment lines starting with #", () => {
+    const map = readKVFromString("# comment\neditor=vim\n");
+    expect(map.get("editor")).toBe("vim");
+    expect(map.size).toBe(1);
+  });
+
+  it("strips inline comments after ' # '", () => {
+    const map = readKVFromString("editor=vim # my editor\n");
+    expect(map.get("editor")).toBe("vim");
+  });
+
+  it("does not strip # without surrounding spaces", () => {
+    const map = readKVFromString("editor=vim#no-strip\n");
+    expect(map.get("editor")).toBe("vim#no-strip");
+  });
+
+  it("emits warning to stderr for malformed lines (BE-M1 #375)", () => {
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    readKVFromString("malformed line without equals\n");
+    expect(stderrSpy).toHaveBeenCalledWith(
+      expect.stringContaining("malformed config line"),
+    );
+    stderrSpy.mockRestore();
+  });
+
+  it("does not warn for empty or whitespace-only lines", () => {
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    readKVFromString("editor=vim\n\n  \npanes=2\n");
+    expect(stderrSpy).not.toHaveBeenCalled();
+    stderrSpy.mockRestore();
+  });
+
+  it("returns empty map for empty content", () => {
+    expect(readKVFromString("").size).toBe(0);
+    expect(readKVFromString("   ").size).toBe(0);
+  });
+
+  it("handles CRLF line endings", () => {
+    const map = readKVFromString("editor=vim\r\npanes=2\r\n");
+    expect(map.get("editor")).toBe("vim");
+    expect(map.get("panes")).toBe("2");
+  });
+});
+
+describe("clearKVCache and clearProjectCache (#402 #403 #404)", () => {
+  it("clearKVCache is exported and callable", () => {
+    expect(clearKVCache).toBeDefined();
+    expect(() => clearKVCache()).not.toThrow();
+  });
+
+  it("clearProjectCache is exported and callable", () => {
+    expect(clearProjectCache).toBeDefined();
+    expect(() => clearProjectCache()).not.toThrow();
+  });
+
+  it("clearKVCache causes re-read on next call", async () => {
+    const fs = await import("node:fs");
+    const readFileSpy = fs.readFileSync as ReturnType<typeof vi.fn>;
+
+    // Warm cache
+    listProjects();
+
+    // Freeze mtime so cache would normally be hit
+    const store = await getStore();
+    const mtimes = await getMtimes();
+    for (const key of store.keys()) {
+      if (!mtimes.has(key)) mtimes.set(key, 1000);
+    }
+
+    readFileSpy.mockClear();
+    listProjects(); // should hit cache (no read)
+    expect(readFileSpy).not.toHaveBeenCalled();
+
+    // Clear the KV cache
+    clearKVCache();
+
+    listProjects(); // should re-read after cache cleared
+    expect(readFileSpy).toHaveBeenCalled();
+  });
+
+  it("clearProjectCache causes re-read on next call", async () => {
+    const fs = await import("node:fs");
+    const readFileSpy = fs.readFileSync as ReturnType<typeof vi.fn>;
+
+    addProject("cachetest", "/some/path");
+
+    // Warm the cache with a read after the write
+    getProject("cachetest");
+
+    // Freeze mtime so subsequent reads hit cache
+    const store = await getStore();
+    const mtimes = await getMtimes();
+    for (const key of store.keys()) {
+      if (!mtimes.has(key)) mtimes.set(key, 1000);
+    }
+
+    readFileSpy.mockClear();
+    getProject("cachetest"); // should hit cache — no read
+    expect(readFileSpy).not.toHaveBeenCalled();
+
+    clearProjectCache();
+    getProject("cachetest"); // should re-read after cache cleared
+    expect(readFileSpy).toHaveBeenCalled();
+  });
+});
+
+describe("readCustomLayout uses mtime cache (#402 AR-M3)", () => {
+  it("readCustomLayout uses cached result when mtime is unchanged", async () => {
+    const fs = await import("node:fs");
+    const readFileSpy = fs.readFileSync as ReturnType<typeof vi.fn>;
+    const store = await getStore();
+    const mtimes = await getMtimes();
+
+    store.set(`${LAYOUTS_DIR}/mywork`, "panes=3\neditor=vim\n");
+    mtimes.set(`${LAYOUTS_DIR}/mywork`, 1000);
+
+    // First read — warms cache
+    readCustomLayout("mywork");
+    readFileSpy.mockClear();
+
+    // Second read — mtime unchanged, should hit cache
+    readCustomLayout("mywork");
+    expect(readFileSpy).not.toHaveBeenCalled();
+  });
+
+  it("readCustomLayout re-reads when mtime changes", async () => {
+    const fs = await import("node:fs");
+    const readFileSpy = fs.readFileSync as ReturnType<typeof vi.fn>;
+    const store = await getStore();
+    const mtimes = await getMtimes();
+
+    store.set(`${LAYOUTS_DIR}/mywork`, "panes=3\n");
+    mtimes.set(`${LAYOUTS_DIR}/mywork`, 1000);
+
+    readCustomLayout("mywork"); // warm
+    readFileSpy.mockClear();
+
+    mtimes.set(`${LAYOUTS_DIR}/mywork`, 2000); // bump mtime
+    readCustomLayout("mywork"); // should re-read
+    expect(readFileSpy).toHaveBeenCalled();
   });
 });

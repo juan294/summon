@@ -37,11 +37,17 @@ export async function handleAddCommand({ args }: CommandContext): Promise<void> 
   }
   validateProjectNameOrExit(name);
   const resolved = expandHome(path);
-  if (!existsSync(resolved)) {
+  const pathExists = existsSync(resolved);
+  if (!pathExists) {
     console.warn(`${sym.warn} Warning: path does not exist: ${resolved}`);
   }
   addProject(name, resolved);
-  console.log(`${sym.ok} Registered: ${name} → ${resolved}`);
+  // UX-M1 (#395): distinguish between clean registration and registration with a warning
+  if (pathExists) {
+    console.log(`${sym.ok} Registered: ${name} → ${resolved}`);
+  } else {
+    console.log(`${sym.warn} Registered with warning: ${name} → ${resolved} (path does not exist)`);
+  }
 }
 
 export async function handleRemoveCommand({ args }: CommandContext): Promise<void> {
@@ -136,9 +142,9 @@ export function resolveTargetDirectory(target: string): string {
 
   const projectPath = getProject(target);
   if (!projectPath) {
-    console.error(`Error: Unknown project: ${target}`);
-    console.error(`Register it with: summon add ${target} /path/to/project`);
-    console.error("Or see available:  summon list");
+    console.error(`Error: "${target}" is not a known command or registered project. Try: summon --help`);
+    console.error(`To register as a project: summon add ${target} /path/to/project`);
+    console.error("Or see available:         summon list");
     process.exit(1);
   }
 

@@ -12,10 +12,11 @@ permissions:
 jobs:
   build:
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     strategy:
       matrix:
-        # Vite 8 supports Node 20.19+ and 22.12+.
-        node-version: [20, 22]
+        # Vite 8 supports Node 20.19+ and 22.12+. Node 24 added for forward-compat.
+        node-version: [20, 22, 24]
         os: [macos-latest]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -24,6 +25,15 @@ jobs:
           node-version: ${{ matrix.node-version }}
       - run: corepack enable
       - run: corepack prepare pnpm@10.29.2 --activate
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        run: echo "dir=$(pnpm store path)" >> $GITHUB_OUTPUT
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.dir }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm lint

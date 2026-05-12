@@ -12,6 +12,25 @@ export interface PortAssignment {
 
 const PORT_ENV_KEYS = ["PORT", "DEV_PORT", "API_PORT", "VITE_PORT", "NEXT_PORT", "DB_PORT"];
 
+const DEV_SERVER_NAMES = new Set([
+  "vite", "next", "nuxt", "astro", "remix", "webpack", "parcel",
+  "serve", "http-server", "fastapi", "uvicorn", "flask", "django",
+  "rails", "puma", "spring", "nodemon", "ts-node", "tsx", "deno", "bun",
+]);
+
+const RUNNER_PREFIXES = new Set(["npx", "pnpm", "yarn", "bunx", "node", "bun", "deno"]);
+
+function isDevServerScript(script: string): boolean {
+  const tokens = script.trim().split(/\s+/);
+  for (const token of tokens) {
+    if (token.startsWith("-")) continue;
+    const name = token.split("/").pop() ?? token;
+    if (DEV_SERVER_NAMES.has(name)) return true;
+    if (!RUNNER_PREFIXES.has(name)) return false;
+  }
+  return false;
+}
+
 const FRAMEWORK_DEFAULTS: ReadonlyArray<{ pattern: string; port: number; name: string }> = [
   { pattern: "next.config", port: 3000, name: "Next.js" },
   { pattern: "vite.config", port: 5173, name: "Vite" },
@@ -54,6 +73,7 @@ export async function detectProjectPorts(
       };
       const scripts = pkg.scripts ?? {};
       for (const script of Object.values(scripts)) {
+        if (!isDevServerScript(script)) continue;
         const portRe = /(?:-p|--port)[=\s]+(\d+)/g;
         let match;
         while ((match = portRe.exec(script)) !== null) {

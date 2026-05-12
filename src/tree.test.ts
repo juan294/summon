@@ -697,3 +697,23 @@ describe("firstLeaf", () => {
     expect(firstLeaf(root)).toBe(a);
   });
 });
+
+describe("BE-M7: resolveTreeCommands rejects empty pane commands (#405)", () => {
+  it("throws when a pane definition is an empty string", () => {
+    const tree = parseTreeDSL("editor | sidebar");
+    const panes = new Map([["editor", "nvim ."], ["sidebar", ""]]);
+    expect(() => resolveTreeCommands(tree, panes)).toThrow(/empty command/);
+  });
+
+  it("throws when a pane definition is whitespace only", () => {
+    const tree = parseTreeDSL("editor | sidebar");
+    const panes = new Map([["editor", "nvim ."], ["sidebar", "   "]]);
+    expect(() => resolveTreeCommands(tree, panes)).toThrow(/empty command/);
+  });
+
+  it("does not throw when all pane commands are non-empty", () => {
+    const tree = parseTreeDSL("editor | sidebar");
+    const panes = new Map([["editor", "nvim ."], ["sidebar", "lazygit"]]);
+    expect(() => resolveTreeCommands(tree, panes)).not.toThrow();
+  });
+});

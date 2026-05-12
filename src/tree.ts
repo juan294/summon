@@ -29,6 +29,7 @@ export interface TreeLayoutPlan {
   editorSize: number;
   fontSize: number | null;
   newWindow: boolean;
+  newTab: boolean;
   fullscreen: boolean;
   maximize: boolean;
   float: boolean;
@@ -325,6 +326,11 @@ export function resolveTreeCommands(
         );
       }
       usedNames.add(node.name);
+      if (cmd.trim() === "") {
+        throw new Error(
+          `Pane '${node.name}' has an empty command (pane.${node.name} is defined but blank)`,
+        );
+      }
       return cwd ? { ...node, command: cmd, cwd } : { ...node, command: cmd };
     }
     return {
@@ -352,6 +358,7 @@ interface TreePlanOptions {
   editorSize?: number;
   fontSize?: number | null;
   newWindow?: boolean;
+  newTab?: boolean;
   fullscreen?: boolean;
   maximize?: boolean;
   float?: boolean;
@@ -365,6 +372,11 @@ export function buildTreePlan(
 ): TreeLayoutPlan {
   const leaves = collectLeaves(tree);
   const focusPane = leaves[0]!;
+  const newWindow = opts?.newWindow ?? false;
+  const newTab = opts?.newTab ?? false;
+  if (newWindow && newTab) {
+    throw new Error("--new-window and --new-tab are mutually exclusive");
+  }
   return {
     tree,
     leaves,
@@ -372,7 +384,8 @@ export function buildTreePlan(
     autoResize: opts?.autoResize ?? true,
     editorSize: opts?.editorSize ?? EDITOR_SIZE_DEFAULT,
     fontSize: opts?.fontSize ?? null,
-    newWindow: opts?.newWindow ?? false,
+    newWindow,
+    newTab,
     fullscreen: opts?.fullscreen ?? false,
     maximize: opts?.maximize ?? false,
     float: opts?.float ?? false,

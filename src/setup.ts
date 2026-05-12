@@ -119,6 +119,24 @@ export class PreviewRenderer {
     this.linesSince = 0;
     this.active = false;
   }
+
+  /**
+   * Erase the preview from the terminal and reset state.
+   * Moves cursor back to the start of the preview and clears to end of screen,
+   * so subsequent output (e.g. validation warnings) appears on a clean screen.
+   * If the renderer is inactive this is a no-op.
+   */
+  clear(): void {
+    if (this.active) {
+      const totalUp = this.lastHeight + this.linesSince;
+      process.stdout.write(ansiSyncStart());
+      process.stdout.write(ansiLineStart() + ansiUp(totalUp) + ansiClearDown());
+      process.stdout.write(ansiSyncEnd());
+    }
+    this.lastHeight = 0;
+    this.linesSince = 0;
+    this.active = false;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -464,18 +482,34 @@ export async function numberedSelect(
   promptText: string,
   defaultIdx?: number,
 ): Promise<number | typeof WIZARD_BACK> {
-  // Display options
-  for (let i = 0; i < options.length; i++) {
-    const opt = options[i]!;
-    const marker = opt.marker ?? "  ";
-    const detail = opt.detail ? `    ${dim(opt.detail)}` : "";
-    console.log(`${marker}${i + 1}) ${opt.label}${detail}`);
-  }
+  const printOptions = (): void => {
+    for (let i = 0; i < options.length; i++) {
+      const opt = options[i]!;
+      const marker = opt.marker ?? "  ";
+      const detail = opt.detail ? `    ${dim(opt.detail)}` : "";
+      console.log(`${marker}${i + 1}) ${opt.label}${detail}`);
+    }
+  };
 
-  const ask = async (): Promise<number | typeof WIZARD_BACK> => {
+  // Display options on initial render
+  printOptions();
+
+  // #434 UX-M7: Back hint shown below options so users know they can press 0/b to go back.
+  const BACK_HINT = dim("  (press 0 or b to go back)");
+  console.log(BACK_HINT);
+
+  const ask = async (isRetry = false): Promise<number | typeof WIZARD_BACK> => {
+    if (isRetry) {
+      // #412 FE-M6: On retry we need to move up past: options, back hint (1 line),
+      // the previous prompt+answer line (1 line), and the error message line (1 line) = options.length + 3.
+      process.stdout.write(ansiLineStart() + ansiUp(options.length + 3) + ansiClearDown());
+      printOptions();
+      console.log(BACK_HINT);
+    }
+
     const trimmed = await promptUser(promptText);
 
-    if (trimmed === "b" || trimmed === "back") {
+    if (trimmed === "0" || trimmed === "b" || trimmed === "back") {
       return WIZARD_BACK;
     }
 
@@ -490,7 +524,7 @@ export async function numberedSelect(
           `  Invalid selection. Please enter a number between 1 and ${options.length}.`,
         ),
       );
-      return ask();
+      return ask(true);
     }
 
     return num - 1;
@@ -691,6 +725,8 @@ export async function selectLayout(): Promise<string | typeof WIZARD_BACK> {
   // Show the diagram for the chosen layout
   console.log();
   console.log(LAYOUT_INFO[chosen]!.diagram);
+  // #427 UX-L3: legend explaining pane label shorthands shown in the diagram
+  console.log(dim("  [E] = editor  [S] = sidebar  [R] = right column / shell"));
   console.log();
   return chosen;
 }
@@ -721,14 +757,27 @@ export async function selectToolFromCatalog(
     return askCustom();
   }
 
-  // Display only available tools
-  for (let i = 0; i < available.length; i++) {
-    const t = available[i]!;
-    console.log(`  * ${i + 1}) ${t.cmd.padEnd(10)} ${t.name}    ${dim(t.desc)}`);
-  }
-  console.log(`    c) Custom command`);
+  // The tool list height is available.length tool rows + 1 "c) Custom" row
+  const toolListHeight = available.length + 1;
 
-  const askTool = async (): Promise<string> => {
+  const printToolList = (): void => {
+    for (let i = 0; i < available.length; i++) {
+      const t = available[i]!;
+      console.log(`  * ${i + 1}) ${t.cmd.padEnd(10)} ${t.name}    ${dim(t.desc)}`);
+    }
+    console.log(`    c) Custom command`);
+  };
+
+  // Display only available tools
+  printToolList();
+
+  const askTool = async (isRetry = false): Promise<string> => {
+    if (isRetry) {
+      // Move cursor back to start of tool list, clear, and reprint
+      process.stdout.write(ansiLineStart() + ansiUp(toolListHeight) + ansiClearDown());
+      printToolList();
+    }
+
     const trimmed = (await promptUser(`  Select (default: 1): `)).toLowerCase();
     if (trimmed === "") {
       return available[0]!.cmd;
@@ -743,7 +792,7 @@ export async function selectToolFromCatalog(
           `  Invalid selection. Please enter a number between 1 and ${available.length}, or "c" for custom.`,
         ),
       );
-      return askTool();
+      return askTool(true);
     }
     return available[num - 1]!.cmd;
   };
@@ -982,6 +1031,9 @@ const enum WizardStep {
   Confirm = 5,
 }
 
+// AR-L2 (#399): This function is the wizard state machine and composes multiple concerns
+// (welcome, layout, editor, sidebar, shell, starship, confirm). Extracting it into a
+// dedicated module (e.g., src/wizard.ts) is tracked as architectural debt in #399.
 export async function runSetup(): Promise<void> {
   if (!process.stdin.isTTY) {
     console.error("Setup requires an interactive terminal.");
@@ -1400,11 +1452,11 @@ export async function runLayoutBuilder(name: string): Promise<void> {
           `  Column ${c + 1}, Pane ${p + 1} \u2014 command [shell]: `,
         );
         cmd = input || "shell";
-        const { cmd: validated, rendererStale } = await validateBuilderCommand(cmd, availableCmds);
-        if (rendererStale) {
-          // Validation printed extra lines — line counts are unreliable now
-          renderer.reset();
-        }
+        // Clear the preview before validation (while cursor math is still accurate),
+        // so any warning output from validateBuilderCommand appears on a clean screen.
+        // FE-M5 (#389): prevents stacked duplicate previews after validation errors.
+        renderer.clear();
+        const { cmd: validated } = await validateBuilderCommand(cmd, availableCmds);
         cmd = validated;
       }
       column.push(cmd);

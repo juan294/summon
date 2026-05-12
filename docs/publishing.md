@@ -2,6 +2,16 @@
 
 Publishing checklist and workflow. First published as v0.7.0 on 2026-03-14.
 
+## Build Output Notes
+
+Code splitting is enabled in `tsup.config.ts`. The `dist/` directory now produces
+multiple chunk files (e.g. `index.js`, `chunk-*.js`) rather than a single monolith.
+All chunks are required at runtime — the `files: ["dist"]` field in `package.json`
+already ensures the full `dist/` directory is included in the published tarball.
+
+When verifying a tarball with `tar tzf summon-ws-<version>.tgz`, expect to see
+`package/dist/index.js` plus one or more `package/dist/chunk-*.js` files.
+
 ## Setup (completed)
 
 - [x] Package name `summon-ws` chosen (npm)
@@ -45,8 +55,8 @@ node -p "require('./package.json').version"
 pnpm pack
 # Inspect the tarball contents:
 tar tzf summon-ws-<version>.tgz
-# Should contain: package/dist/index.js, package/package.json,
-#                 package/README.md, package/LICENSE
+# Should contain: package/dist/index.js, package/dist/chunk-*.js,
+#                 package/package.json, package/README.md, package/LICENSE
 # Should NOT contain: docs/, src/, node_modules/
 
 # Install globally from the tarball:
@@ -99,6 +109,56 @@ summon .
 - [ ] Tag the commit: `git tag v<version>`
 - [ ] Push the tag: `git push origin v<version>`
 - [ ] Create a GitHub release from the tag
+
+## Rollback
+
+If a bad version is published, act quickly — npm does not allow unpublishing versions older than 72 hours.
+
+### 1. Deprecate the bad version
+
+This keeps the package installable but warns users away:
+
+```bash
+npm deprecate summon-ws@<bad-version> "Critical bug — use <previous-version> instead"
+```
+
+### 2. Repoint the `latest` dist-tag to the last good version
+
+```bash
+npm dist-tag add summon-ws@<good-version> latest
+```
+
+After this, `npm install -g summon-ws` will install the good version again.
+
+### 3. Publish a canary fix before promoting to `latest`
+
+If you have a fix ready but want to test it before making it the default:
+
+```bash
+# Publish under the `next` tag — does NOT affect `latest`
+npm publish --tag next
+
+# Verify it works:
+npm install -g summon-ws@next
+summon --version
+summon --help
+summon doctor
+
+# Promote to latest once verified:
+npm dist-tag add summon-ws@<fixed-version> latest
+```
+
+### 4. Post-incident verification
+
+Confirm dist-tags are pointing at the right versions:
+
+```bash
+npm info summon-ws dist-tags
+# Should show: { latest: '<good-version>', ... }
+
+npm info summon-ws@latest version
+# Must match the intended good version
+```
 
 ## Supply Chain
 

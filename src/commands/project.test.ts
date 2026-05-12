@@ -121,7 +121,22 @@ describe("handleAddCommand", () => {
 
     expect(mockAddProject).toHaveBeenCalledWith("demo", "/Users/tester/code/demo");
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("Warning: path does not exist: /Users/tester/code/demo"));
-    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("Registered: demo"));
+    // UX-M1 (#395): message should indicate warning, not plain success
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("Registered with warning"));
+    logSpy.mockRestore();
+    warnSpy.mockRestore();
+  });
+
+  it("shows plain success message when path exists (UX-M1 #395)", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockExistsSync.mockReturnValue(true);
+
+    await handleAddCommand(makeContext({ args: ["demo", "/tmp/x"] }));
+
+    const msg = logSpy.mock.calls.map(c => c[0] as string).join("\n");
+    expect(msg).toContain("Registered: demo");
+    expect(msg).not.toContain("warning");
+    logSpy.mockRestore();
   });
 });
 
@@ -273,6 +288,60 @@ describe("handleOpenCommand", () => {
   });
 });
 
+describe("#411 FE-L1: consistent error formatting", () => {
+  it("handleRemoveCommand uses console.error (not process.stdout.write) for missing project", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+    mockRemoveProject.mockReturnValue(false);
+
+    await expect(handleRemoveCommand(makeContext({ args: ["ghost"] }))).rejects.toThrow("exit:1");
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("Project not found"));
+    // Error must NOT go to stdout
+    const stdoutCalls = stdoutSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(stdoutCalls).not.toContain("Project not found");
+
+    errorSpy.mockRestore();
+    stdoutSpy.mockRestore();
+  });
+
+  it("handleOpenCommand uses console.error (not process.stdout.write) for no projects", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+    mockLoadProjectRows.mockReturnValue([]);
+
+    await expect(handleOpenCommand(makeContext())).rejects.toThrow("exit:1");
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("No projects registered"));
+    const stdoutCalls = stdoutSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(stdoutCalls).not.toContain("No projects registered");
+
+    errorSpy.mockRestore();
+    stdoutSpy.mockRestore();
+  });
+
+  it("resolveTargetDirectory uses console.error (not process.stdout.write) for unknown project", () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+    mockGetProject.mockReturnValue(undefined);
+
+    expect(() => resolveTargetDirectory("unknown-project")).toThrow("exit:1");
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("not a known command or registered project"));
+    const stdoutCalls = stdoutSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(stdoutCalls).not.toContain("not a known command or registered project");
+
+    errorSpy.mockRestore();
+    stdoutSpy.mockRestore();
+  });
+});
+
 describe("resolveTargetDirectory", () => {
   it("resolves current and relative paths directly", () => {
     expect(resolveTargetDirectory(".")).toBe(process.cwd());
@@ -299,8 +368,8 @@ describe("resolveTargetDirectory", () => {
     mockGetProject.mockReturnValue(undefined);
 
     expect(() => resolveTargetDirectory("missing")).toThrow("exit:1");
-    expect(errorSpy).toHaveBeenCalledWith("Error: Unknown project: missing");
-    expect(errorSpy).toHaveBeenCalledWith("Register it with: summon add missing /path/to/project");
-    expect(errorSpy).toHaveBeenCalledWith("Or see available:  summon list");
+    expect(errorSpy).toHaveBeenCalledWith(`Error: "missing" is not a known command or registered project. Try: summon --help`);
+    expect(errorSpy).toHaveBeenCalledWith("To register as a project: summon add missing /path/to/project");
+    expect(errorSpy).toHaveBeenCalledWith("Or see available:         summon list");
   });
 });
