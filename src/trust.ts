@@ -143,7 +143,8 @@ export function assertTrustedContent(targetDir: string, content: string): void {
  * Call this early in the launch flow, before any project config values
  * are acted upon.
  */
-export function assertTrusted(targetDir: string): void {
+export function assertTrusted(targetDir: string, opts?: { skip?: boolean }): void {
+  if (opts?.skip) return;
   const summonPath = join(targetDir, ".summon");
   if (!existsSync(summonPath)) return;
   // If we can't determine the hash (e.g., permission error), skip the check
@@ -173,12 +174,13 @@ export function assertTrusted(targetDir: string): void {
  * Prints a confirmation message or an error if no .summon file exists.
  */
 export function handleTrustCommand(dir: string): void {
-  const summonPath = join(dir, ".summon");
+  const resolvedDir = resolve(dir);
+  const summonPath = join(resolvedDir, ".summon");
   if (!existsSync(summonPath)) {
-    console.error(`No .summon file found in: ${dir}`);
+    console.error(`No .summon file found in: ${resolvedDir}`);
     process.exit(1);
   }
-  trustProject(dir);
-  console.log(`Trusted .summon file in: ${dir}`);
-  console.log(`SHA-256: ${hashSummonFile(dir)}`);
+  trustProject(resolvedDir);
+  console.log(`Trusted .summon file in: ${resolvedDir}`);
+  console.log(`SHA-256: ${hashSummonFile(resolvedDir)}`);
 }

@@ -60,6 +60,7 @@ export interface CLIOverrides {
   "on-start"?: string;
   "new-window"?: string;
   "new-tab"?: string;
+  "no-project-config"?: string;
   fullscreen?: string;
   maximize?: string;
   float?: string;
@@ -472,11 +473,14 @@ function layerConfigValues(
 
 export function resolveConfig(targetDir: string, cliOverrides: CLIOverrides, summonFileContent?: string): ResolvedConfig {
   const projectConfigPath = join(targetDir, ".summon");
+  const skipProjectConfig = cliOverrides["no-project-config"] === "true";
   // Use pre-read content if provided (TOCTOU prevention, BE-B2 #357);
   // fall back to reading from disk (e.g. when called without pre-read content).
-  const project = summonFileContent !== undefined
-    ? readKVFromString(summonFileContent)
-    : readKVFile(projectConfigPath);
+  const project = skipProjectConfig
+    ? new Map<string, string>()
+    : summonFileContent !== undefined
+      ? readKVFromString(summonFileContent)
+      : readKVFile(projectConfigPath);
   if (project.size > 0) {
     console.log(`Using project config: ${projectConfigPath}`);
   }
@@ -578,7 +582,7 @@ export function decideCleanRestoredPanes(
   project: Map<string, string>,
   machineConfig: Map<string, string>,
   dryRun: boolean | undefined,
-  projectName?: string,
+  _projectName?: string,
 ): void {
   if (process.env[SUMMON_WORKSPACE_ENV]) return;
   if (opts.newWindow) return;
@@ -598,13 +602,8 @@ export function decideCleanRestoredPanes(
   const count = probePaneCount();
   if (count === null || count <= 1) return;
 
-  // Only auto-clean when the front tab title contains a summon project marker.
-  // This prevents closing non-summon panes that the user has open.
-  if (projectName) {
-    const tabTitle = probeFrontTabTitle();
-    if (tabTitle === null || !tabTitle.includes(`[${projectName}]`)) return;
-  }
-
+  // Clean every pane in the front tab regardless of how it got there.
+  // Users who don't want this can pass --no-clean or --new-window.
   const stale = count - 1;
   const noun = stale === 1 ? "pane" : "panes";
   console.log(`Clearing ${stale} stale ${noun} from previous session...`);
@@ -785,7 +784,9 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
   // Trust gate: verify the .summon file (if present) is explicitly trusted before
   // reading or acting on any of its values (BE-B1, BE-B2, SE-H1).
   try {
-    if (summonFileContent !== undefined) {
+    if (cliOverrides?.["no-project-config"] === "true") {
+      // skip trust check
+    } else if (summonFileContent !== undefined) {
       assertTrustedContent(targetDir, summonFileContent);
     } else {
       assertTrusted(targetDir);
