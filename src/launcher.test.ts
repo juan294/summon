@@ -3628,7 +3628,7 @@ describe("newWindow and newTab mutual exclusion", () => {
 });
 
 describe("QA-M3: security gate branches (trust + dangerous command skip)", () => {
-  it("exits with error message when assertTrustedContent throws SummonError", async () => {
+  it("rethrows SummonError when assertTrustedContent rejects an untrusted file", async () => {
     const { SummonError } = await import("./trust.js");
     mockAssertTrustedContent.mockImplementation(() => {
       throw new SummonError("Untrusted .summon file. Run 'summon trust .' to allow it.");
@@ -3638,19 +3638,8 @@ describe("QA-M3: security gate branches (trust + dangerous command skip)", () =>
       throw new SummonError("Untrusted .summon file. Run 'summon trust .' to allow it.");
     });
 
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => {
-      throw new Error("process.exit called");
-    });
-
-    await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit called");
-    expect(exitSpy).toHaveBeenCalledWith(1);
-    expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining("Untrusted .summon file"),
-    );
-
-    errorSpy.mockRestore();
-    exitSpy.mockRestore();
+    await expect(launch("/tmp/workspace")).rejects.toBeInstanceOf(SummonError);
+    await expect(launch("/tmp/workspace")).rejects.toThrow(/Untrusted \.summon file/);
   });
 
   it("non-SummonError from assertTrustedContent is rethrown (not swallowed)", async () => {

@@ -21,7 +21,7 @@ import { parseTreeDSL, extractPaneDefinitions, extractPaneCwds, resolveTreeComma
 import type { LayoutNode } from "./tree.js";
 import { resolveCommand as resolveCommandPath, getErrorMessage, SUMMON_WORKSPACE_ENV, promptUser, ACCESSIBILITY_SETTINGS_PATH } from "./utils.js";
 import { ensureGhostty, ensureAccessibility, printAccessibilityHint, confirmDangerousCommands, isAccessibilityError } from "./launch-guards.js";
-import { assertTrusted, assertTrustedContent, SummonError } from "./trust.js";
+import { assertTrusted, assertTrustedContent } from "./trust.js";
 import { parseIntInRange, parsePositiveFloat, ENV_KEY_RE, PROJECT_NAME_RE, sanitizeProjectName } from "./validation.js";
 import { isStarshipInstalled, ensurePresetConfig, getPresetConfigPath } from "./starship.js";
 // command-spec is a pure utility module with no imports from this file.
@@ -783,20 +783,16 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
 
   // Trust gate: verify the .summon file (if present) is explicitly trusted before
   // reading or acting on any of its values (BE-B1, BE-B2, SE-H1).
-  try {
-    if (cliOverrides?.["no-project-config"] === "true") {
-      // skip trust check
-    } else if (summonFileContent !== undefined) {
-      assertTrustedContent(targetDir, summonFileContent);
-    } else {
-      assertTrusted(targetDir);
-    }
-  } catch (err) {
-    if (err instanceof SummonError) {
-      console.error(err.message);
-      process.exit(1);
-    }
-    throw err;
+  // SummonError is rethrown so callers (e.g. `session --all`) can choose to skip
+  // an untrusted project and continue with the rest, instead of terminating the
+  // whole process. The top-level direct-launch entry catches SummonError and
+  // converts it to a clean exit 1 with the user-facing message.
+  if (cliOverrides?.["no-project-config"] === "true") {
+    // skip trust check
+  } else if (summonFileContent !== undefined) {
+    assertTrustedContent(targetDir, summonFileContent);
+  } else {
+    assertTrusted(targetDir);
   }
 
   let config: ReturnType<typeof resolveConfig>;

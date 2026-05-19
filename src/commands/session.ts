@@ -7,6 +7,7 @@ import {
   deleteSession,
   isValidSessionName,
 } from "../sessions.js";
+import { SummonError } from "../trust.js";
 import { exitWithUsageHint, getErrorMessage } from "../utils.js";
 import type { CommandContext } from "./types.js";
 
@@ -100,20 +101,36 @@ async function cmdLaunch(ctx: CommandContext, name: string | undefined): Promise
 
   const total = projects.length;
   const launched: string[] = [];
+  const skippedUntrusted: string[] = [];
+  // Treat first-launch placement the same regardless of whether earlier
+  // projects were skipped: the first *successful* launch opens the window,
+  // every subsequent one opens a new tab.
+  let openedFirst = false;
   const baseOverrides = { ...ctx.overrides };
 
   for (let i = 0; i < total; i++) {
     const proj = projects[i]!;
     const dir = getProject(proj)!;
-    const overrides = { ...baseOverrides, "new-tab": i > 0 ? "true" : undefined };
-    if (i > 0) {
+    const overrides = { ...baseOverrides, "new-tab": openedFirst ? "true" : undefined };
+    if (openedFirst) {
       delete overrides["new-window"];
     }
     try {
       await runWithSpinner(`[${i + 1}/${total}] Summoning ${proj}...`, () => launch(dir, overrides));
       console.log(`[${i + 1}/${total}] Launched ${proj}`);
       launched.push(proj);
+      openedFirst = true;
     } catch (err) {
+      // Trust failures are recoverable for a multi-project session: warn,
+      // tell the user how to fix it, and continue with the remaining projects.
+      // Any other failure (osascript error, missing directory, etc.) aborts
+      // the whole session — those are not safely retryable per-project.
+      if (err instanceof SummonError) {
+        console.warn(`[${i + 1}/${total}] Skipped ${proj} — untrusted .summon file.`);
+        console.warn(`  Run 'summon trust ${dir}' to allow it, then re-run.`);
+        skippedUntrusted.push(proj);
+        continue;
+      }
       console.error(`Error launching ${proj}: ${getErrorMessage(err)}`);
       if (launched.length > 0) {
         console.error(`Already launched: ${launched.join(", ")}`);
@@ -122,7 +139,13 @@ async function cmdLaunch(ctx: CommandContext, name: string | undefined): Promise
     }
   }
 
-  console.log(`✓ Session complete: ${total} project(s) launched.`);
+  if (skippedUntrusted.length > 0) {
+    console.log(
+      `✓ Session complete: ${launched.length} launched, ${skippedUntrusted.length} skipped (untrusted): ${skippedUntrusted.join(", ")}`,
+    );
+  } else {
+    console.log(`✓ Session complete: ${total} project(s) launched.`);
+  }
 }
 
 async function cmdAdd(rest: string[], _ctx: CommandContext): Promise<void> {

@@ -1,5 +1,6 @@
 import { isFirstRun } from "./config.js";
 import { launch } from "./launcher.js";
+import { SummonError } from "./trust.js";
 import {
   buildOverrides,
   hasSubcommandHelp,
@@ -116,5 +117,13 @@ if (handlerFactory) {
   // Not a known subcommand — treat as a workspace target (path or registered project name).
   // resolveTargetDirectory handles path resolution, project registry lookup, and error reporting.
   const targetDir = resolveTargetDirectory(parsed.subcommand);
-  await launch(targetDir, overrides);
+  try {
+    await launch(targetDir, overrides);
+  } catch (err) {
+    if (err instanceof SummonError) {
+      console.error(err.message);
+      process.exit(1);
+    }
+    throw err;
+  }
 }
