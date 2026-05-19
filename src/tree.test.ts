@@ -698,17 +698,22 @@ describe("firstLeaf", () => {
   });
 });
 
-describe("BE-M7: resolveTreeCommands rejects empty pane commands (#405)", () => {
-  it("throws when a pane definition is an empty string", () => {
-    const tree = parseTreeDSL("editor | sidebar");
-    const panes = new Map([["editor", "nvim ."], ["sidebar", ""]]);
-    expect(() => resolveTreeCommands(tree, panes)).toThrow(/empty command/);
+describe("resolveTreeCommands accepts empty pane commands as plain-shell panes", () => {
+  it("allows a pane definition that is an empty string (opens a plain shell)", () => {
+    const tree = parseTreeDSL("editor | shell");
+    const panes = new Map([["editor", "nvim ."], ["shell", ""]]);
+    const resolved = resolveTreeCommands(tree, panes);
+    expect(resolved.type).toBe("split");
+    if (resolved.type === "split" && resolved.second.type === "pane") {
+      expect(resolved.second.name).toBe("shell");
+      expect(resolved.second.command).toBe("");
+    }
   });
 
-  it("throws when a pane definition is whitespace only", () => {
-    const tree = parseTreeDSL("editor | sidebar");
-    const panes = new Map([["editor", "nvim ."], ["sidebar", "   "]]);
-    expect(() => resolveTreeCommands(tree, panes)).toThrow(/empty command/);
+  it("allows a pane definition that is whitespace only", () => {
+    const tree = parseTreeDSL("editor | shell");
+    const panes = new Map([["editor", "nvim ."], ["shell", "   "]]);
+    expect(() => resolveTreeCommands(tree, panes)).not.toThrow();
   });
 
   it("does not throw when all pane commands are non-empty", () => {
