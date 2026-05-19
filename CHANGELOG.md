@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.2] - 2026-05-19
+
+### Fixed
+
+- **`summon session --all` no longer aborts on the first untrusted project.**
+  Encountering an untrusted `.summon` file used to terminate the whole session
+  via `process.exit(1)` from inside `launch()`, with the spinner swallowing the
+  error so the user saw only a few tabs open and no clear reason. The trust
+  gate now rethrows `SummonError`, and `session` catches it per-project: prints
+  a warning with the exact `summon trust <path>` hint, continues with the
+  remaining projects, and reports `N launched, M skipped (untrusted)` at the
+  end. Direct `summon <project>` launches still exit cleanly on untrusted
+  files via a top-level catch in the CLI entry.
+
 ## [1.5.1] - 2026-05-19
 
 ### Fixed

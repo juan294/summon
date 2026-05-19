@@ -241,6 +241,47 @@ describe("session launch --all", () => {
   });
 });
 
+describe("session launch — skip untrusted projects and continue", () => {
+  it("skips a project that fails the trust gate and continues with the rest", async () => {
+    const { SummonError } = await import("../trust.js");
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    mockListProjects.mockReturnValue(
+      new Map([
+        ["api", "/tmp/api"],
+        ["web", "/tmp/web"],
+        ["worker", "/tmp/worker"],
+      ]),
+    );
+    mockGetProject.mockImplementation((name: string) => {
+      const map: Record<string, string> = { api: "/tmp/api", web: "/tmp/web", worker: "/tmp/worker" };
+      return map[name];
+    });
+    // Second project is untrusted; first and third succeed.
+    mockLaunch
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new SummonError("This project has a .summon file. Run 'summon trust .' to allow it."))
+      .mockResolvedValueOnce(undefined);
+
+    await handleSessionCommand(makeContext({ values: { all: true }, args: [] }));
+
+    // All three were attempted; the untrusted one was skipped, not fatal.
+    expect(mockLaunch).toHaveBeenCalledTimes(3);
+    const allWarns = warnSpy.mock.calls.map((c) => c[0] as string).join("\n");
+    expect(allWarns).toContain("web");
+    expect(allWarns.toLowerCase()).toContain("untrusted");
+    const allLogs = logSpy.mock.calls.map((c) => c[0] as string).join("\n");
+    expect(allLogs).toContain("Session complete");
+
+    logSpy.mockRestore();
+    warnSpy.mockRestore();
+    errorSpy.mockRestore();
+  });
+
+});
+
 describe("session launch --new-window <name>", () => {
   it("first call has new-window: 'true' and no new-tab; second call has new-tab: 'true' and no new-window key", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
