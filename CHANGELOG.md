@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-05-19
+
+### Fixed
+
+- **Empty pane commands are valid again.** A blank pane definition (e.g. `pane.shell=`)
+  opens a plain shell — the over-strict guard added in 1.5.0 incorrectly rejected this,
+  breaking `summon session --all` for any layout that included an empty pane (notably
+  the `standard-rpi` template).
+
 ## [1.5.0] - 2026-05-11
 
 ### Added
