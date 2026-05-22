@@ -554,23 +554,6 @@ export function probePaneCount(): number | null {
 }
 
 /**
- * Probe the title of the front Ghostty window's selected tab.
- * Returns null when Ghostty is not running or the script errors.
- */
-export function probeFrontTabTitle(): string | null {
-  try {
-    const out = execFileSync(
-      "osascript",
-      ["-e", 'tell application "Ghostty" to get title of selected tab of front window'],
-      { encoding: "utf-8", timeout: 2000, stdio: ["ignore", "pipe", "ignore"] },
-    ).trim();
-    return out || null;
-  } catch {
-    return null;
-  }
-}
-
-/**
  * Decide whether to auto-clean restored panes from the front window's selected tab.
  * Only cleans panes when the front tab title contains a summon project marker `[<projectName>]`.
  * This prevents destroying non-summon panes.

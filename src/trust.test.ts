@@ -24,7 +24,7 @@ vi.mock("node:os", () => ({
 }));
 
 // Import after mocks
-const { hashSummonFile, isTrusted, trustProject, assertTrusted, handleTrustCommand, SummonError, clearTrustCache } = await import("./trust.js");
+const { hashSummonFile, isTrusted, trustProject, assertTrusted, assertTrustedContent, handleTrustCommand, SummonError, clearTrustCache } = await import("./trust.js");
 
 const TRUST_FILE = "/home/testuser/.config/summon/trust.json";
 
@@ -403,6 +403,53 @@ describe("isTrusted mtime memoization", () => {
     expect(isTrusted("/proj")).toBe(true);
     expect(mockStatSync).not.toHaveBeenCalled();
     expect(mockReadFileSync).not.toHaveBeenCalled();
+  });
+});
+
+describe("isTrusted TOCTOU branch", () => {
+  it("returns true when statSync throws ENOENT (file vanished between existsSync and statSync)", () => {
+    mockExistsSync.mockImplementation((p: string) => {
+      if (p.endsWith(".summon")) return true;
+      return false;
+    });
+    const enoentError = Object.assign(new Error("ENOENT: no such file"), { code: "ENOENT" });
+    mockStatSync.mockImplementation(() => { throw enoentError; });
+
+    expect(isTrusted("/some/dir")).toBe(true);
+  });
+});
+
+describe("assertTrustedContent", () => {
+  it("does not throw when content hash matches stored trust entry", () => {
+    const content = "editor = vim\n";
+    const hash = sha256(content);
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue(JSON.stringify({ "/some/dir": hash }));
+
+    expect(() => assertTrustedContent("/some/dir", content)).not.toThrow();
+  });
+
+  it("throws SummonError when content hash does not match stored trust entry", () => {
+    const content = "editor = vim\n";
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue(JSON.stringify({ "/some/dir": "wronghash" }));
+
+    expect(() => assertTrustedContent("/some/dir", content)).toThrow(SummonError);
+  });
+
+  it("throws SummonError when directory has no entry in the trust database", () => {
+    const content = "editor = vim\n";
+    mockExistsSync.mockReturnValue(false);
+
+    expect(() => assertTrustedContent("/some/dir", content)).toThrow(SummonError);
+  });
+
+  it("throws with message mentioning summon trust command", () => {
+    const content = "editor = vim\n";
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue(JSON.stringify({ "/some/dir": "wronghash" }));
+
+    expect(() => assertTrustedContent("/some/dir", content)).toThrow(/summon trust \./);
   });
 });
 
