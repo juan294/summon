@@ -7,6 +7,7 @@ const mockExitWithUsageHint = vi.fn((message?: string) => {
 });
 const mockGenerateZshCompletion = vi.fn();
 const mockGenerateBashCompletion = vi.fn();
+const mockGenerateFishCompletion = vi.fn();
 const mockGenerateKeyTableConfig = vi.fn();
 const mockCollectLeaves = vi.fn();
 const mockResolveTreeCommands = vi.fn();
@@ -25,6 +26,7 @@ vi.mock("../utils.js", () => ({
 vi.mock("../completions.js", () => ({
   generateZshCompletion: (...args: unknown[]) => mockGenerateZshCompletion(...args),
   generateBashCompletion: (...args: unknown[]) => mockGenerateBashCompletion(...args),
+  generateFishCompletion: (...args: unknown[]) => mockGenerateFishCompletion(...args),
 }));
 
 vi.mock("../keybindings.js", () => ({
@@ -65,6 +67,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockGenerateZshCompletion.mockReturnValue("zsh completion");
   mockGenerateBashCompletion.mockReturnValue("bash completion");
+  mockGenerateFishCompletion.mockReturnValue("fish completion");
   mockGenerateKeyTableConfig.mockReturnValue("key table");
 });
 
@@ -79,13 +82,13 @@ describe("handleSetupCommand", () => {
 describe("handleCompletionsCommand", () => {
   it("requires a shell name", async () => {
     await expect(handleCompletionsCommand(makeContext())).rejects.toThrow(
-      "usage:Usage: summon completions <shell>\nSupported shells: zsh, bash",
+      "usage:Usage: summon completions <shell>\nSupported shells: zsh, bash, fish",
     );
   });
 
   it("rejects unsupported shells", async () => {
-    await expect(handleCompletionsCommand(makeContext({ args: ["fish"] }))).rejects.toThrow(
-      "usage:Error: Unsupported shell: fish\nSupported shells: zsh, bash",
+    await expect(handleCompletionsCommand(makeContext({ args: ["ksh"] }))).rejects.toThrow(
+      "usage:Error: Unsupported shell: ksh\nSupported shells: zsh, bash, fish",
     );
   });
 
@@ -103,6 +106,14 @@ describe("handleCompletionsCommand", () => {
     await handleCompletionsCommand(makeContext({ args: ["bash"] }));
 
     expect(logSpy).toHaveBeenCalledWith("bash completion");
+  });
+
+  it("prints fish completion output", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await handleCompletionsCommand(makeContext({ args: ["fish"] }));
+
+    expect(logSpy).toHaveBeenCalledWith("fish completion");
   });
 });
 

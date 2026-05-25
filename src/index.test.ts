@@ -13,7 +13,7 @@ let TEMP_HOME: string;
 beforeAll(() => {
   execSync("pnpm build", { cwd: PROJECT_ROOT, stdio: "ignore" });
   TEMP_HOME = mkdtempSync(join(tmpdir(), "summon-test-"));
-});
+}, 30000);
 
 afterAll(() => {
   rmSync(TEMP_HOME, { recursive: true, force: true });
@@ -1509,7 +1509,7 @@ describe("CLI integration", () => {
     });
 
     it("unsupported shell has Error: prefix", () => {
-      const result = run("completions", "fish");
+      const result = run("completions", "ksh");
       expect(result.status).toBe(1);
       expect(result.stderr).toMatch(/^Error:/m);
     });
@@ -1564,7 +1564,7 @@ describe("CLI integration", () => {
     });
 
     it("unsupported shell shows usage hint", () => {
-      const result = run("completions", "fish");
+      const result = run("completions", "ksh");
       expect(result.status).toBe(1);
       expect(result.stderr).toContain("summon --help");
     });
