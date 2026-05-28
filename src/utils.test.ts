@@ -29,7 +29,7 @@ vi.mock("node:readline", () => ({
 }));
 
 // Import after mocks
-const { SAFE_COMMAND_RE, GHOSTTY_PATHS, GHOSTTY_APP_NAME, SUMMON_WORKSPACE_ENV, resolveCommand, promptUser, getErrorMessage, exitWithUsageHint, checkAccessibility, openAccessibilitySettings, isAccessibilityError, isGhosttyInstalled, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT, ACCESSIBILITY_REQUIRED_MSG, PromptCancelled, isDebug, debugLog, getLogDir, supportsColor, confirm, gitSafeEnv } = await import("./utils.js");
+const { SAFE_COMMAND_RE, GHOSTTY_PATHS, GHOSTTY_APP_NAME, SUMMON_WORKSPACE_ENV, resolveCommand, promptUser, getErrorMessage, exitWithUsageHint, checkAccessibility, openAccessibilitySettings, isAccessibilityError, isGhosttyInstalled, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT, ACCESSIBILITY_REQUIRED_MSG, PromptCancelled, isDebug, debugLog, supportsColor, confirm, gitSafeEnv } = await import("./utils.js");
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -473,18 +473,6 @@ describe("debugLog", () => {
     expect(output).toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
     writeSpy.mockRestore();
     delete process.env["SUMMON_DEBUG"];
-  });
-});
-
-describe("getLogDir", () => {
-  it("returns a path ending in logs/", () => {
-    const dir = getLogDir();
-    expect(dir).toMatch(/logs[/\\]?$/);
-  });
-
-  it("returns a path inside ~/.config/summon/", () => {
-    const dir = getLogDir();
-    expect(dir).toContain(".config/summon");
   });
 });
 

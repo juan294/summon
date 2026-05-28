@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { homedir } from "node:os";
@@ -192,16 +192,6 @@ export function supportsColor(): boolean {
   if (process.env["FORCE_COLOR"] === "1") return true;
   if (process.env["FORCE_COLOR"] === "0") return false;
   return !!process.stdout.isTTY;
-}
-
-/**
- * Returns the path to the summon debug log directory (~/.config/summon/logs/).
- * Creates the directory if it does not already exist.
- */
-export function getLogDir(): string {
-  const dir = join(homedir(), ".config", "summon", "logs");
-  mkdirSync(dir, { recursive: true });
-  return dir;
 }
 
 /**

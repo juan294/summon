@@ -10,7 +10,6 @@ vi.mock("./paths.js", () => ({
   SNAPSHOTS_DIR: "/tmp/test-summon/snapshots",
   LAYOUTS_DIR: "/tmp/test-summon/layouts",
   SESSIONS_DIR: "/tmp/test-summon-sessions",
-  LOGS_DIR: "/tmp/test-summon/logs",
   TRUST_FILE: "/tmp/test-summon/trust.json",
 }));
 
