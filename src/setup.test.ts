@@ -2119,6 +2119,134 @@ describe("runLayoutBuilder", () => {
   });
 });
 
+describe("runLayoutBuilder — numbered quick-pick", () => {
+  let logSpy: ReturnType<typeof vi.spyOn>;
+  let origIsTTY: boolean | undefined;
+
+  beforeEach(() => {
+    logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    origIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", { value: true, writable: true });
+    mockIsValidLayoutName.mockReturnValue(true);
+    mockIsCustomLayout.mockReturnValue(false);
+    // Simulate lazygit and htop installed, everything else not found
+    mockExecFileSync.mockImplementation((_cmd: string, args: string[]) => {
+      if (args[0] === "lazygit") return "/usr/local/bin/lazygit";
+      if (args[0] === "htop") return "/usr/bin/htop";
+      throw new Error("not found"); // all others not found
+    });
+  });
+
+  afterEach(() => {
+    Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, writable: true });
+    logSpy.mockRestore();
+    mockExecFileSync.mockReset();
+  });
+
+  it("selecting '1' picks the first detected tool", async () => {
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      const q = _q;
+      if (q.includes("[Y/n]")) cb("y");
+      else if (q.includes("select or type")) cb("1");  // pick tool #1
+      else cb("1"); // grid selection
+    });
+
+    await runLayoutBuilder("quicktest");
+
+    expect(mockSaveCustomLayout).toHaveBeenCalledTimes(1);
+    const [, savedEntries] = mockSaveCustomLayout.mock.calls[0] as [string, Map<string, string>];
+    // The first detected tool (lazygit, as it appears earliest in SIDEBAR_CATALOG)
+    const treeVal = savedEntries.get("tree") ?? "";
+    expect(treeVal).toContain("lazygit");
+  });
+
+  it("selecting '2' picks the second detected tool", async () => {
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      const q = _q;
+      if (q.includes("[Y/n]")) cb("y");
+      else if (q.includes("select or type")) cb("2"); // pick tool #2
+      else cb("1");
+    });
+
+    await runLayoutBuilder("quicktest2");
+
+    const [, savedEntries] = mockSaveCustomLayout.mock.calls[0] as [string, Map<string, string>];
+    const treeVal = savedEntries.get("tree") ?? "";
+    // Second detected tool — htop (since lazygit is #1)
+    expect(treeVal).toContain("htop");
+  });
+
+  it("empty input defaults to shell", async () => {
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      const q = _q;
+      if (q.includes("[Y/n]")) cb("y");
+      else if (q.includes("select or type")) cb(""); // Enter → shell
+      else cb("1");
+    });
+
+    await runLayoutBuilder("shelldefault");
+
+    const [, savedEntries] = mockSaveCustomLayout.mock.calls[0] as [string, Map<string, string>];
+    const treeVal = savedEntries.get("tree") ?? "";
+    expect(treeVal).toContain("shell");
+  });
+
+  it("free-form text is passed to validateBuilderCommand", async () => {
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      const q = _q;
+      if (q.includes("[Y/n]")) cb("y");
+      else if (q.includes("select or type")) cb("docker"); // free-form
+      else cb("1");
+    });
+
+    await runLayoutBuilder("freeformtest");
+
+    const [, savedEntries] = mockSaveCustomLayout.mock.calls[0] as [string, Map<string, string>];
+    const treeVal = savedEntries.get("tree") ?? "";
+    expect(treeVal).toContain("docker");
+  });
+
+  it("numbered list is shown before the prompt when tools are detected", async () => {
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      const q = _q;
+      if (q.includes("[Y/n]")) cb("y");
+      else if (q.includes("select or type")) cb("1");
+      else cb("1");
+    });
+
+    await runLayoutBuilder("listtest");
+
+    const allOutput = getLogOutput(logSpy);
+    // Should show "1)" in the numbered list
+    expect(allOutput.some((s: string) => s.includes("1)"))).toBe(true);
+    // Should show "c) Custom command"
+    expect(allOutput.some((s: string) => s.includes("c) Custom command"))).toBe(true);
+    // Should show "[Enter] shell (default)"
+    expect(allOutput.some((s: string) => s.includes("[Enter] shell (default)"))).toBe(true);
+  });
+
+  it("shows only [Enter] shell option when no tools are detected", async () => {
+    // Override: nothing is installed
+    mockExecFileSync.mockImplementation(() => { throw new Error("not found"); });
+
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      const q = _q;
+      if (q.includes("[Y/n]")) cb("y");
+      else if (q.includes("select or type")) cb("");
+      else cb("1");
+    });
+
+    await runLayoutBuilder("notools");
+
+    const allOutput = getLogOutput(logSpy);
+    // Should NOT show numbered entries or "c) Custom command"
+    expect(allOutput.some((s: string) => /\* 1\)/.test(s))).toBe(false);
+    expect(allOutput.some((s: string) => s.includes("c) Custom command"))).toBe(false);
+    // Should still show [Enter] shell option
+    expect(allOutput.some((s: string) => s.includes("[Enter] shell (default)"))).toBe(true);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Visual Layout Builder — pure function tests
 // ---------------------------------------------------------------------------

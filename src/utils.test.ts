@@ -29,7 +29,7 @@ vi.mock("node:readline", () => ({
 }));
 
 // Import after mocks
-const { SAFE_COMMAND_RE, GHOSTTY_PATHS, GHOSTTY_APP_NAME, SUMMON_WORKSPACE_ENV, resolveCommand, promptUser, getErrorMessage, exitWithUsageHint, checkAccessibility, openAccessibilitySettings, isAccessibilityError, isGhosttyInstalled, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT, PromptCancelled, isDebug, debugLog, getLogDir, supportsColor, confirm, gitSafeEnv } = await import("./utils.js");
+const { SAFE_COMMAND_RE, GHOSTTY_PATHS, GHOSTTY_APP_NAME, SUMMON_WORKSPACE_ENV, resolveCommand, promptUser, getErrorMessage, exitWithUsageHint, checkAccessibility, openAccessibilitySettings, isAccessibilityError, isGhosttyInstalled, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT, ACCESSIBILITY_REQUIRED_MSG, PromptCancelled, isDebug, debugLog, getLogDir, supportsColor, confirm, gitSafeEnv } = await import("./utils.js");
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -394,8 +394,12 @@ describe("accessibility constants", () => {
     expect(ACCESSIBILITY_SETTINGS_PATH).toContain("Accessibility");
   });
 
-  it("ACCESSIBILITY_ENABLE_HINT mentions terminal app", () => {
-    expect(ACCESSIBILITY_ENABLE_HINT).toContain("terminal app");
+  it("ACCESSIBILITY_ENABLE_HINT names Ghostty specifically", () => {
+    expect(ACCESSIBILITY_ENABLE_HINT).toContain("Ghostty");
+  });
+
+  it("ACCESSIBILITY_REQUIRED_MSG names Ghostty specifically", () => {
+    expect(ACCESSIBILITY_REQUIRED_MSG).toContain("Ghostty");
   });
 });
 
