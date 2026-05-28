@@ -1011,7 +1011,7 @@ export async function checkAndRecoverAccessibility(): Promise<boolean> {
       return true;
     }
     console.log(`  ${yellow("!")} Still not detected — you can grant it later.`);
-    console.log(dim("  Summon will work once your terminal has Accessibility access."));
+    console.log(dim("  Summon will work once Ghostty has Accessibility access."));
     console.log();
     return false;
   }
@@ -1424,13 +1424,8 @@ export async function runLayoutBuilder(name: string): Promise<void> {
   // --- Command assignment with in-place preview ---
   // Detect available tools once
   const detected = detectTools([...EDITOR_CATALOG, ...SIDEBAR_CATALOG]);
-  const availableCmds = detected
-    .filter((t) => t.available)
-    .map((t) => t.cmd);
-  const hintStr =
-    availableCmds.length > 0
-      ? dim(`  Detected: ${availableCmds.join(", ")}`)
-      : "";
+  const availableTools = detected.filter((t) => t.available);
+  const availableCmds = availableTools.map((t) => t.cmd); // still used by validateBuilderCommand
 
   const renderer = new PreviewRenderer();
 
@@ -1444,14 +1439,36 @@ export async function runLayoutBuilder(name: string): Promise<void> {
     const paneCount = paneCountsPerColumn[c]!;
     const column: string[] = [];
     for (let p = 0; p < paneCount; p++) {
-      if (hintStr) renderer.log(hintStr);
+      // Numbered quick-pick list (each renderer.log() call is tracked for cursor math)
+      for (let i = 0; i < availableTools.length; i++) {
+        const t = availableTools[i]!;
+        renderer.log(`  * ${i + 1}) ${t.cmd.padEnd(10)} ${t.name}    ${dim(t.desc)}`);
+      }
+      if (availableTools.length > 0) {
+        renderer.log(`    c) Custom command`);
+      }
+      renderer.log(`    [Enter] shell (default)`);
+
       let cmd = "";
       while (!cmd) {
         renderer.countPrompt();
-        const input = await promptUser(
-          `  Column ${c + 1}, Pane ${p + 1} \u2014 command [shell]: `,
+        const raw = await promptUser(
+          `  Column ${c + 1}, Pane ${p + 1} \u2014 select or type [shell]: `,
         );
-        cmd = input || "shell";
+        const trimmed = raw.trim();
+        if (trimmed === "") {
+          cmd = "shell";
+        } else if (trimmed.toLowerCase() === "c") {
+          renderer.countPrompt(); // account for the upcoming textInput prompt + answer
+          cmd = (await textInput("  Enter command:")) || "shell";
+        } else {
+          const num = parseInt(trimmed, 10);
+          if (!isNaN(num) && num >= 1 && num <= availableTools.length) {
+            cmd = availableTools[num - 1]!.cmd;
+          } else {
+            cmd = trimmed; // free-form \u2192 goes through validateBuilderCommand as before
+          }
+        }
         // Clear the preview before validation (while cursor math is still accurate),
         // so any warning output from validateBuilderCommand appears on a clean screen.
         // FE-M5 (#389): prevents stacked duplicate previews after validation errors.

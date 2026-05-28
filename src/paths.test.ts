@@ -4,7 +4,6 @@ import {
   STATUS_DIR,
   SNAPSHOTS_DIR,
   LAYOUTS_DIR,
-  LOGS_DIR,
   TRUST_FILE,
 } from "./paths.js";
 
@@ -29,11 +28,6 @@ describe("paths constants", () => {
     expect(LAYOUTS_DIR).toContain("summon");
   });
 
-  it("LOGS_DIR is a string containing summon", () => {
-    expect(typeof LOGS_DIR).toBe("string");
-    expect(LOGS_DIR).toContain("summon");
-  });
-
   it("TRUST_FILE is a string containing summon", () => {
     expect(typeof TRUST_FILE).toBe("string");
     expect(TRUST_FILE).toContain("summon");
@@ -49,10 +43,6 @@ describe("paths constants", () => {
 
   it("LAYOUTS_DIR is nested under CONFIG_DIR", () => {
     expect(LAYOUTS_DIR.startsWith(CONFIG_DIR)).toBe(true);
-  });
-
-  it("LOGS_DIR is nested under CONFIG_DIR", () => {
-    expect(LOGS_DIR.startsWith(CONFIG_DIR)).toBe(true);
   });
 
   it("TRUST_FILE is nested under CONFIG_DIR", () => {
