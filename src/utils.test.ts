@@ -29,7 +29,7 @@ vi.mock("node:readline", () => ({
 }));
 
 // Import after mocks
-const { SAFE_COMMAND_RE, GHOSTTY_PATHS, GHOSTTY_APP_NAME, SUMMON_WORKSPACE_ENV, resolveCommand, promptUser, getErrorMessage, exitWithUsageHint, checkAccessibility, openAccessibilitySettings, isAccessibilityError, isGhosttyInstalled, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT, PromptCancelled, isDebug, debugLog, getLogDir, supportsColor, confirm, gitSafeEnv } = await import("./utils.js");
+const { SAFE_COMMAND_RE, GHOSTTY_PATHS, GHOSTTY_APP_NAME, SUMMON_WORKSPACE_ENV, resolveCommand, promptUser, getErrorMessage, exitWithUsageHint, checkAccessibility, openAccessibilitySettings, isAccessibilityError, isGhosttyInstalled, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT, ACCESSIBILITY_REQUIRED_MSG, PromptCancelled, isDebug, debugLog, supportsColor, confirm, gitSafeEnv } = await import("./utils.js");
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -394,8 +394,12 @@ describe("accessibility constants", () => {
     expect(ACCESSIBILITY_SETTINGS_PATH).toContain("Accessibility");
   });
 
-  it("ACCESSIBILITY_ENABLE_HINT mentions terminal app", () => {
-    expect(ACCESSIBILITY_ENABLE_HINT).toContain("terminal app");
+  it("ACCESSIBILITY_ENABLE_HINT names Ghostty specifically", () => {
+    expect(ACCESSIBILITY_ENABLE_HINT).toContain("Ghostty");
+  });
+
+  it("ACCESSIBILITY_REQUIRED_MSG names Ghostty specifically", () => {
+    expect(ACCESSIBILITY_REQUIRED_MSG).toContain("Ghostty");
   });
 });
 
@@ -469,18 +473,6 @@ describe("debugLog", () => {
     expect(output).toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
     writeSpy.mockRestore();
     delete process.env["SUMMON_DEBUG"];
-  });
-});
-
-describe("getLogDir", () => {
-  it("returns a path ending in logs/", () => {
-    const dir = getLogDir();
-    expect(dir).toMatch(/logs[/\\]?$/);
-  });
-
-  it("returns a path inside ~/.config/summon/", () => {
-    const dir = getLogDir();
-    expect(dir).toContain(".config/summon");
   });
 });
 
@@ -636,8 +628,10 @@ describe("PromptCancelled", () => {
 
 describe("confirm", () => {
   let originalStdin: typeof process.stdin;
+  let stdoutWriteSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
+    stdoutWriteSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     originalStdin = process.stdin;
     // Replace process.stdin with a mock that supports raw mode
     const mockStdin = {
@@ -655,6 +649,7 @@ describe("confirm", () => {
   });
 
   afterEach(() => {
+    stdoutWriteSpy.mockRestore();
     Object.defineProperty(process, "stdin", { value: originalStdin, writable: true, configurable: true });
     vi.clearAllMocks();
   });
@@ -668,6 +663,9 @@ describe("confirm", () => {
   it("returns true for 'y' input", async () => {
     simulateKeypress("y");
     expect(await confirm("Continue?")).toBe(true);
+    const output = stdoutWriteSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("");
+    expect(output).toContain("Continue?");
+    expect(output).toContain("[y/N]");
   });
 
   it("returns true for 'Y' input", async () => {

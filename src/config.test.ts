@@ -6,7 +6,6 @@ import {
   listProjects,
   setConfig,
   removeConfig,
-  getConfig,
   listConfig,
   readKVFile,
   readKVFromString,
@@ -59,6 +58,19 @@ vi.mock("node:fs", () => {
       store.set(path, data);
       // Bump mtime on write so cache is invalidated
       mtimes.set(path, (mtimes.get(path) ?? 1000) + 1);
+    }),
+    renameSync: vi.fn((src: string, dest: string) => {
+      // Atomic rename: move src content to dest, remove src
+      const data = store.get(src);
+      if (data === undefined) throw new Error(`ENOENT: no such file '${src}'`);
+      store.set(dest, data);
+      store.delete(src);
+      // Transfer mtime from src to dest
+      const mtime = mtimes.get(src);
+      if (mtime !== undefined) {
+        mtimes.set(dest, mtime);
+        mtimes.delete(src);
+      }
     }),
     readdirSync: vi.fn((path: string) => {
       const prefix = path.endsWith("/") ? path : path + "/";
@@ -147,11 +159,11 @@ describe("project CRUD", () => {
 describe("machine config", () => {
   it("sets and retrieves a config value", () => {
     setConfig("editor", "vim");
-    expect(getConfig("editor")).toBe("vim");
+    expect(listConfig().get("editor")).toBe("vim");
   });
 
   it("returns undefined for unset key", () => {
-    expect(getConfig("nonexistent")).toBeUndefined();
+    expect(listConfig().get("nonexistent")).toBeUndefined();
   });
 
   it("lists all config values", () => {
@@ -164,20 +176,20 @@ describe("machine config", () => {
 
   it("handles values containing '=' characters", () => {
     setConfig("cmd", "FOO=bar baz");
-    expect(getConfig("cmd")).toBe("FOO=bar baz");
+    expect(listConfig().get("cmd")).toBe("FOO=bar baz");
   });
 
   it("overwrites existing config value", () => {
     setConfig("editor", "vim");
     setConfig("editor", "nano");
-    expect(getConfig("editor")).toBe("nano");
+    expect(listConfig().get("editor")).toBe("nano");
   });
 
   it("removes a config key", () => {
     setConfig("editor", "vim");
     const result = removeConfig("editor");
     expect(result).toBe(true);
-    expect(getConfig("editor")).toBeUndefined();
+    expect(listConfig().get("editor")).toBeUndefined();
   });
 
   it("returns false when removing non-existent config key", () => {
@@ -269,7 +281,6 @@ describe("ensureConfig caching (#25)", () => {
     mkdirSpy.mockClear();
 
     // Multiple config operations that each call readKV → ensureConfig
-    getConfig("editor");
     listConfig();
     listProjects();
     getProject("foo");
@@ -282,11 +293,11 @@ describe("ensureConfig caching (#25)", () => {
     const mkdirSpy = fs.mkdirSync as ReturnType<typeof vi.fn>;
     mkdirSpy.mockClear();
 
-    getConfig("editor");
+    listConfig();
     expect(mkdirSpy).toHaveBeenCalledTimes(1);
 
     resetConfigCache();
-    getConfig("editor");
+    listConfig();
     expect(mkdirSpy).toHaveBeenCalledTimes(2);
   });
 });
@@ -343,7 +354,7 @@ describe("file permissions (#47)", () => {
     const mkdirSpy = fs.mkdirSync as ReturnType<typeof vi.fn>;
     mkdirSpy.mockClear();
 
-    getConfig("editor");
+    listConfig();
 
     expect(mkdirSpy).toHaveBeenCalledWith(
       expect.any(String),
@@ -356,7 +367,7 @@ describe("file permissions (#47)", () => {
     const writeSpy = fs.writeFileSync as ReturnType<typeof vi.fn>;
     writeSpy.mockClear();
 
-    getConfig("editor");
+    listConfig();
 
     // Both initial file writes (projects + config) should include mode 0o600
     const initWrites = writeSpy.mock.calls.filter(
@@ -385,7 +396,7 @@ describe("file permissions (#47)", () => {
 describe("writeKV newline sanitization (#26)", () => {
   it("strips newlines from config values", () => {
     setConfig("key", "value\ninjected=evil");
-    expect(getConfig("key")).toBe("valueinjected=evil");
+    expect(listConfig().get("key")).toBe("valueinjected=evil");
   });
 
   it("rejects config keys containing newlines (BE-M2 #376)", () => {
@@ -395,7 +406,7 @@ describe("writeKV newline sanitization (#26)", () => {
 
   it("strips carriage returns from values", () => {
     setConfig("key", "value\r\nwith-cr");
-    expect(getConfig("key")).toBe("valuewith-cr");
+    expect(listConfig().get("key")).toBe("valuewith-cr");
   });
 
   it("rejects project names with newlines (BE-B4 validation)", () => {
@@ -478,7 +489,7 @@ describe("BOOLEAN_KEYS includes clean", () => {
 describe("ensureConfig initial content", () => {
   it("creates empty config file on first run", async () => {
     const store = await getStore();
-    getConfig("editor"); // triggers ensureConfig
+    listConfig(); // triggers ensureConfig
     const configPath = [...store.keys()].find((k) => k.endsWith("/config"));
     expect(configPath).toBeDefined();
     expect(store.get(configPath!)).toBe("");
@@ -725,7 +736,7 @@ describe("setConfig key validation (BE-M2 #376)", () => {
 
   it("accepts normal keys", () => {
     expect(() => setConfig("editor", "vim")).not.toThrow();
-    expect(getConfig("editor")).toBe("vim");
+    expect(listConfig().get("editor")).toBe("vim");
   });
 });
 
@@ -876,5 +887,99 @@ describe("readCustomLayout uses mtime cache (#402 AR-M3)", () => {
     mtimes.set(`${LAYOUTS_DIR}/mywork`, 2000); // bump mtime
     readCustomLayout("mywork"); // should re-read
     expect(readFileSpy).toHaveBeenCalled();
+  });
+});
+
+// BE-M3 #492: atomic write for config — writeKV must use tmp+rename
+describe("writeKV atomic write (BE-M3 #492)", () => {
+  it("writes to a .tmp file before the final path", async () => {
+    const fs = await import("node:fs");
+    const writeSpy = fs.writeFileSync as ReturnType<typeof vi.fn>;
+
+    setConfig("editor", "vim");
+
+    // Find writes that went to a .tmp path
+    const tmpWrites = writeSpy.mock.calls.filter(
+      (c: unknown[]) => typeof c[0] === "string" && String(c[0]).endsWith(".tmp"),
+    );
+    expect(tmpWrites.length).toBeGreaterThan(0);
+  });
+});
+
+// BE-L1 #494: config comment preservation — setConfig must not destroy hand-authored comments
+describe("config comment preservation (BE-L1 #494)", () => {
+  it("preserves a comment line at the top of the config file after setConfig", async () => {
+    const store = await getStore();
+    const { CONFIG_DIR } = await import("./config.js");
+    const configPath = `${CONFIG_DIR}/config`;
+    // Pre-populate config file with a comment line
+    store.set(configPath, "# My hand-authored comment\neditor=vim\n");
+    resetConfigCache();
+
+    setConfig("editor", "nano");
+
+    const written = store.get(configPath)!;
+    expect(written).toContain("# My hand-authored comment");
+  });
+
+  it("preserves multiple comment lines after setConfig", async () => {
+    const store = await getStore();
+    const { CONFIG_DIR } = await import("./config.js");
+    const configPath = `${CONFIG_DIR}/config`;
+    store.set(configPath, "# First comment\n# Second comment\neditor=vim\npanes=2\n");
+    resetConfigCache();
+
+    setConfig("panes", "4");
+
+    const written = store.get(configPath)!;
+    expect(written).toContain("# First comment");
+    expect(written).toContain("# Second comment");
+  });
+
+  it("preserves inline-adjacent comment before a key after setConfig modifies another key", async () => {
+    const store = await getStore();
+    const { CONFIG_DIR } = await import("./config.js");
+    const configPath = `${CONFIG_DIR}/config`;
+    // comment is above 'panes', editor is modified
+    store.set(configPath, "editor=vim\n# panes setting\npanes=2\n");
+    resetConfigCache();
+
+    setConfig("editor", "nano");
+
+    const written = store.get(configPath)!;
+    expect(written).toContain("# panes setting");
+  });
+
+  it("does not duplicate comment lines on multiple writes", async () => {
+    const store = await getStore();
+    const { CONFIG_DIR } = await import("./config.js");
+    const configPath = `${CONFIG_DIR}/config`;
+    store.set(configPath, "# My comment\neditor=vim\n");
+    resetConfigCache();
+
+    setConfig("editor", "nano");
+    resetConfigCache();
+    setConfig("editor", "emacs");
+
+    const written = store.get(configPath)!;
+    const commentCount = (written.match(/# My comment/g) ?? []).length;
+    expect(commentCount).toBe(1);
+  });
+
+  it("drops comments for keys that have been removed", async () => {
+    const store = await getStore();
+    const { CONFIG_DIR } = await import("./config.js");
+    const configPath = `${CONFIG_DIR}/config`;
+    store.set(configPath, "editor=vim\n# sidebar setting\nsidebar=lazygit\n");
+    resetConfigCache();
+
+    removeConfig("sidebar");
+
+    const written = store.get(configPath)!;
+    // comment associated with removed key should not remain (or at minimum, no orphan comment)
+    // The simplest acceptable behavior: comments at top of file are preserved;
+    // key-adjacent comments for deleted keys may be dropped.
+    // We test the key is gone.
+    expect(written).not.toContain("sidebar=");
   });
 });

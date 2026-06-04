@@ -123,7 +123,7 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 | `summon config` | Show current machine configuration |
 | `summon open` | Select and launch a registered project interactively (always opens a new workspace) |
 | `summon export [path]` | Export resolved config as a `.summon` file |
-| `summon doctor [--fix]` | Check Ghostty config for recommended settings (--fix auto-adds missing) |
+| `summon doctor [--fix] [--verbose]` | Check Ghostty config for recommended settings (--fix auto-adds missing; --verbose adds diagnostic info) |
 | `summon freeze <name>` | Save current resolved config as a reusable custom layout |
 | `summon keybindings [--vim]` | Generate Ghostty key table config for pane navigation |
 | `summon layout <action>` | Manage custom layouts (create, save, list, show, delete, edit) |

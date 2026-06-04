@@ -10,15 +10,15 @@ export async function handleSetupCommand(): Promise<void> {
 export async function handleCompletionsCommand({ args }: CommandContext): Promise<void> {
   const [shell] = args;
   if (!shell) {
-    exitWithUsageHint("Usage: summon completions <shell>\nSupported shells: zsh, bash");
+    exitWithUsageHint("Usage: summon completions <shell>\nSupported shells: zsh, bash, fish");
   }
 
-  if (shell !== "zsh" && shell !== "bash") {
-    exitWithUsageHint(`Error: Unsupported shell: ${shell}\nSupported shells: zsh, bash`);
+  if (shell !== "zsh" && shell !== "bash" && shell !== "fish") {
+    exitWithUsageHint(`Error: Unsupported shell: ${shell}\nSupported shells: zsh, bash, fish`);
   }
 
-  const { generateZshCompletion, generateBashCompletion } = await import("../completions.js");
-  console.log(shell === "zsh" ? generateZshCompletion() : generateBashCompletion());
+  const { generateZshCompletion, generateBashCompletion, generateFishCompletion } = await import("../completions.js");
+  console.log(shell === "zsh" ? generateZshCompletion() : shell === "bash" ? generateBashCompletion() : generateFishCompletion());
 }
 
 export async function handleKeybindingsCommand({ values, overrides }: CommandContext): Promise<void> {

@@ -1,10 +1,23 @@
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, writeFileSync, renameSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
 /** Regex for safe command names — only letters, digits, hyphens, dots, underscores, plus signs. */
 export const SAFE_COMMAND_RE = /^[a-zA-Z0-9_][a-zA-Z0-9_.+-]*$/;
+
+/**
+ * Write `content` to `path` atomically: first write to `${path}.tmp`, then
+ * rename (which is atomic on POSIX) to the final path. This prevents a crash
+ * mid-write from leaving a truncated or corrupt file.
+ *
+ * Accepts the same optional options as `writeFileSync` (mode, encoding, etc.).
+ */
+export function atomicWrite(path: string, content: string, options?: Parameters<typeof writeFileSync>[2]): void {
+  const tmpPath = `${path}.tmp`;
+  writeFileSync(tmpPath, content, options);
+  renameSync(tmpPath, path);
+}
 
 /** @internal — exported for testing only */
 export const GHOSTTY_PATHS = [
@@ -102,11 +115,11 @@ export function resolveCommand(cmd: string): string | null {
 /** User-facing path to the Accessibility settings pane. */
 export const ACCESSIBILITY_SETTINGS_PATH = "System Settings > Privacy & Security > Accessibility";
 
-/** Hint telling users which app to enable for accessibility. */
-export const ACCESSIBILITY_ENABLE_HINT = "Enable your terminal app (e.g. Ghostty, Terminal, iTerm2) in the list.";
+/** Hint telling users to find and enable Ghostty in the Accessibility list. */
+export const ACCESSIBILITY_ENABLE_HINT = "Find Ghostty in the list and enable it.";
 
-/** Explanation of why accessibility is needed. */
-export const ACCESSIBILITY_REQUIRED_MSG = "Your terminal app needs Accessibility permission to use System Events.";
+/** Explanation of why Ghostty needs Accessibility permission. */
+export const ACCESSIBILITY_REQUIRED_MSG = "Ghostty needs Accessibility permission to control panes via System Events.";
 
 /**
  * Check whether an osascript error is an Accessibility permission denial.
@@ -192,16 +205,6 @@ export function supportsColor(): boolean {
   if (process.env["FORCE_COLOR"] === "1") return true;
   if (process.env["FORCE_COLOR"] === "0") return false;
   return !!process.stdout.isTTY;
-}
-
-/**
- * Returns the path to the summon debug log directory (~/.config/summon/logs/).
- * Creates the directory if it does not already exist.
- */
-export function getLogDir(): string {
-  const dir = join(homedir(), ".config", "summon", "logs");
-  mkdirSync(dir, { recursive: true });
-  return dir;
 }
 
 /**

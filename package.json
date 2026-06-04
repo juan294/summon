@@ -1,6 +1,6 @@
 {
   "name": "summon-ws",
-  "version": "1.5.2",
+  "version": "1.6.0",
   "description": "Launch configurable multi-pane Ghostty workspaces with one command",
   "type": "module",
   "packageManager": "pnpm@10.29.2",
@@ -18,7 +18,8 @@
     "lint": "eslint src/",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "pnpm build && vitest run --coverage",
+    "pretest:coverage": "pnpm build",
+    "test:coverage": "vitest run --coverage",
     "test:e2e": "SUMMON_E2E=1 vitest run src/e2e",
     "prepublishOnly": "pnpm run build",
     "prepare": "husky"
@@ -44,7 +45,8 @@
     "url": "https://github.com/juan294/summon/issues"
   },
   "files": [
-    "dist"
+    "dist/**/*.js",
+    "dist/**/*.cjs"
   ],
   "publishConfig": {
     "access": "public"
@@ -74,7 +76,7 @@
     "tsup": "^8.0.0",
     "typescript": "^6.0.2",
     "typescript-eslint": "^8.58.2",
-    "vite": "8.0.10",
+    "vite": "8.0.13",
     "vitest": "^4.1.5"
   }
 }

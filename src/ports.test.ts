@@ -10,6 +10,7 @@ vi.mock("./config.js", async (importOriginal) => {
   return {
     ...original,
     listProjects: vi.fn().mockReturnValue([]),
+    readKVFile: vi.fn(original.readKVFile),
   };
 });
 
@@ -17,13 +18,21 @@ vi.mock("./status.js", () => ({
   readAllStatuses: vi.fn(() => []),
 }));
 
+vi.mock("./trust.js", () => ({
+  isTrusted: vi.fn(() => true),
+}));
+
 const { detectProjectPorts, detectAllPorts } = await import("./ports.js");
 
-const { listProjects } = await import("./config.js") as unknown as {
+const { listProjects, readKVFile } = await import("./config.js") as unknown as {
   listProjects: ReturnType<typeof vi.fn>;
+  readKVFile: ReturnType<typeof vi.fn>;
 };
 const { readAllStatuses } = await import("./status.js") as unknown as {
   readAllStatuses: ReturnType<typeof vi.fn>;
+};
+const { isTrusted } = await import("./trust.js") as unknown as {
+  isTrusted: ReturnType<typeof vi.fn>;
 };
 
 const TEST_DIR = join(tmpdir(), `summon-ports-test-${process.pid}`);
@@ -38,6 +47,8 @@ beforeEach(() => {
   mkdirSync(TEST_DIR, { recursive: true });
   listProjects.mockReturnValue([]);
   readAllStatuses.mockReturnValue([]);
+  isTrusted.mockReturnValue(true);
+  readKVFile.mockClear();
 });
 
 afterEach(() => {
@@ -198,6 +209,23 @@ describe("detectProjectPorts", () => {
 
     const ports = await detectProjectPorts("proj-nan", dir, "active");
     expect(ports).toEqual([]);
+  });
+
+  it("skips .summon read when isTrusted returns false (#472: trust gate in ports pipeline)", async () => {
+    const dir = projectDir("proj-untrusted");
+    writeFileSync(join(dir, ".summon"), "env.PORT=9999\n");
+
+    // Project directory is not trusted
+    isTrusted.mockReturnValue(false);
+
+    const ports = await detectProjectPorts("proj-untrusted", dir, "active");
+
+    // Port from .summon must not appear — readKVFile should not have been called for .summon
+    expect(ports.some((p) => p.port === 9999)).toBe(false);
+    const summonCalls = readKVFile.mock.calls.filter(
+      (args: unknown[]) => typeof args[0] === "string" && (args[0] as string).endsWith(".summon"),
+    );
+    expect(summonCalls).toHaveLength(0);
   });
 
   it("collects ports from multiple scripts in package.json", async () => {

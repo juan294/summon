@@ -1,8 +1,8 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, unlinkSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import { execFileSync } from "node:child_process";
 import { SNAPSHOTS_DIR } from "./paths.js";
-import { gitSafeEnv } from "./utils.js";
+import { gitSafeEnv, supportsColor, debugLog, atomicWrite } from "./utils.js";
 
 // --- Types ---
 
@@ -73,7 +73,7 @@ export function saveSnapshot(project: string, directory: string, layout: string)
   };
 
   mkdirSync(SNAPSHOTS_DIR, { recursive: true, mode: 0o700 });
-  writeFileSync(snapshotPath(project), JSON.stringify(snapshot, null, 2) + "\n", { mode: 0o600 });
+  atomicWrite(snapshotPath(project), JSON.stringify(snapshot, null, 2) + "\n", { mode: 0o600 });
   return snapshot;
 }
 
@@ -95,10 +95,17 @@ export function readSnapshot(project: string): ContextSnapshot | null {
     return null;
   }
 
-  if (
-    typeof data !== "object" || data === null ||
-    (data as ContextSnapshot).version !== 1
-  ) {
+  if (typeof data !== "object" || data === null) {
+    return null;
+  }
+
+  const version = (data as Record<string, unknown>)["version"];
+  if (typeof version === "number" && version > 1) {
+    // BE-M2 #491: gracefully handle future schema versions — warn and return null
+    debugLog(`readSnapshot: unrecognised future schema version ${version}; returning null`);
+    return null;
+  }
+  if (version !== 1) {
     return null;
   }
 
@@ -138,9 +145,8 @@ export function formatTimeSince(isoTimestamp: string): string {
 }
 
 export function formatRestorationBanner(snapshot: ContextSnapshot): string {
-  const useColor = !!(process.stdout.isTTY && !process.env.NO_COLOR);
-  const dim = (s: string) => useColor ? `\x1b[2m${s}\x1b[0m` : s;
-  const green = (s: string) => useColor ? `\x1b[32m${s}\x1b[0m` : s;
+  const dim = (s: string) => supportsColor() ? `\x1b[2m${s}\x1b[0m` : s;
+  const green = (s: string) => supportsColor() ? `\x1b[32m${s}\x1b[0m` : s;
 
   const timeSince = formatTimeSince(snapshot.timestamp);
   const shortDate = new Date(snapshot.timestamp).toLocaleDateString("en-US", {

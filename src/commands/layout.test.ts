@@ -36,10 +36,14 @@ vi.mock("../layout.js", () => ({
   isPresetName: (...args: unknown[]) => mockIsPresetName(...args),
 }));
 
-vi.mock("../utils.js", () => ({
-  SAFE_COMMAND_RE: /^[A-Za-z0-9._-]+$/,
-  exitWithUsageHint: (message?: string) => mockExitWithUsageHint(message),
-}));
+vi.mock("../utils.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../utils.js")>();
+  return {
+    ...actual,
+    SAFE_COMMAND_RE: /^[A-Za-z0-9._-]+$/,
+    exitWithUsageHint: (message?: string) => mockExitWithUsageHint(message),
+  };
+});
 
 vi.mock("../tree.js", () => ({
   parseTreeDSL: (tree: string) => mockParseTreeDSL(tree),
@@ -124,7 +128,8 @@ describe("handleLayoutCommand", () => {
 
     await handleLayoutCommand(makeContext({ args: ["list"] }));
 
-    expect(logSpy).toHaveBeenCalledWith("No custom layouts saved. Use: summon layout save <name>");
+    expect(logSpy).toHaveBeenCalledWith("No custom layouts found.");
+    expect(logSpy).toHaveBeenCalledWith("Run `summon layout save <name>` to create one.");
   });
 
   it("renders previews and config details when listing layouts", async () => {

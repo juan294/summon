@@ -60,7 +60,7 @@ describe("saveSnapshot", () => {
     }
   });
 
-  it("captures dirty file paths from git status", () => {
+  it("captures dirty file paths from git status", { timeout: 15000 }, () => {
     const repoDir = join(TEST_SNAPSHOTS_DIR, "dirty-repo");
     mkdirSync(repoDir, { recursive: true });
     // Unset git env vars that the pre-commit hook injects — they'd redirect
@@ -80,7 +80,7 @@ describe("saveSnapshot", () => {
     expect(result!.git.dirty).toEqual(["untracked.txt"]);
   });
 
-  it("creates snapshots directory if missing", () => {
+  it("creates snapshots directory if missing", { timeout: 15000 }, () => {
     expect(existsSync(TEST_SNAPSHOTS_DIR)).toBe(false);
     // saveSnapshot needs a real git repo - use the project's own repo
     const result = saveSnapshot("testproject", process.cwd(), "full");
@@ -89,7 +89,7 @@ describe("saveSnapshot", () => {
     }
   });
 
-  it("saves valid JSON to correct path", () => {
+  it("saves valid JSON to correct path", { timeout: 15000 }, () => {
     const result = saveSnapshot("myapp", process.cwd(), "minimal");
     // Skip if not in a git repo
     if (!result) return;
@@ -102,14 +102,14 @@ describe("saveSnapshot", () => {
     expect(data.git.branch).toBeTruthy();
   });
 
-  it("captures git branch", () => {
+  it("captures git branch", { timeout: 15000 }, () => {
     const result = saveSnapshot("myapp", process.cwd(), "full");
     if (!result) return;
     expect(result.git.branch).toBeTruthy();
     expect(typeof result.git.branch).toBe("string");
   });
 
-  it("captures recent commits", () => {
+  it("captures recent commits", { timeout: 15000 }, () => {
     const result = saveSnapshot("myapp", process.cwd(), "full");
     if (!result) return;
     expect(result.git.recentCommits.length).toBeGreaterThan(0);

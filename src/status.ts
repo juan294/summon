@@ -1,8 +1,8 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, unlinkSync, readdirSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import { execFileSync } from "node:child_process";
 import { STATUS_DIR } from "./paths.js";
-import { gitSafeEnv } from "./utils.js";
+import { gitSafeEnv, debugLog, atomicWrite } from "./utils.js";
 
 // --- Types ---
 
@@ -67,7 +67,7 @@ function pidFilePath(projectName: string): string {
  */
 export function writeStatus(status: WorkspaceStatus): void {
   mkdirSync(STATUS_DIR, { recursive: true, mode: 0o700 });
-  writeFileSync(statusFilePath(status.project), JSON.stringify(status, null, 2) + "\n", { mode: 0o600 });
+  atomicWrite(statusFilePath(status.project), JSON.stringify(status, null, 2) + "\n", { mode: 0o600 });
 }
 
 export function clearStatus(projectName: string): void {
@@ -117,6 +117,11 @@ export function parseWorkspaceStatus(raw: unknown): WorkspaceStatus | null {
 
   const d = raw as Record<string, unknown>;
 
+  // BE-M2 #491: gracefully handle future schema versions — warn and return null
+  if (typeof d["version"] === "number" && d["version"] > 1) {
+    debugLog(`parseWorkspaceStatus: unrecognised future schema version ${d["version"]}; returning null`);
+    return null;
+  }
   if (d["version"] !== 1) return null;
   if (d["source"] !== "summon") return null;
   if (typeof d["project"] !== "string") return null;

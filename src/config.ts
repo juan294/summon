@@ -3,6 +3,7 @@ import { join, resolve, sep } from "node:path";
 import { isPresetName } from "./layout.js";
 import { CONFIG_DIR, LAYOUTS_DIR } from "./paths.js";
 import { PROJECT_NAME_RE as STRICT_PROJECT_NAME_RE } from "./validation.js";
+import { atomicWrite } from "./utils.js";
 
 // Re-export path constants for backward compatibility
 export { CONFIG_DIR, LAYOUTS_DIR, STATUS_DIR, SNAPSHOTS_DIR } from "./paths.js";
@@ -24,6 +25,7 @@ function ensureConfig(): void {
 export function resetConfigCache(): void {
   configEnsured = false;
   fileCache.clear();
+  commentStore.clear();
 }
 
 /**
@@ -32,6 +34,7 @@ export function resetConfigCache(): void {
  */
 export function clearKVCache(): void {
   fileCache.clear();
+  commentStore.clear();
 }
 
 /**
@@ -42,6 +45,7 @@ export function clearProjectCache(): void {
   // Projects are stored in fileCache keyed by PROJECTS_FILE path.
   // Clearing the entire KV cache also covers the project registry.
   fileCache.clear();
+  commentStore.clear();
 }
 
 /**
@@ -60,6 +64,14 @@ interface CacheEntry {
 }
 
 const fileCache = new Map<string, CacheEntry>();
+
+/**
+ * Comment line storage: maps file path → array of { line: string, beforeKey: string | null }.
+ * `beforeKey` is the key of the KV pair that immediately follows the comment block,
+ * or null if the comment appears at the end of the file (or there are no keys after it).
+ * This is used by writeKV to re-insert comments in their original positions (BE-L1 #494).
+ */
+const commentStore = new Map<string, Array<{ line: string; beforeKey: string | null }>>();
 
 // --- Per-project config ---
 
@@ -92,6 +104,39 @@ export function readKVFromString(content: string): Map<string, string> {
   return map;
 }
 
+/**
+ * Parse a KV content string and extract comment lines with their associated key.
+ * Returns an array of { line, beforeKey } entries for use by writeKV.
+ * @internal
+ */
+function parseCommentsFromString(content: string): Array<{ line: string; beforeKey: string | null }> {
+  const comments: Array<{ line: string; beforeKey: string | null }> = [];
+  const normalized = content.trim().replace(/\r\n?/g, "\n");
+  if (!normalized) return comments;
+
+  const lines = normalized.split("\n");
+  // We need to find, for each comment line, the key of the next KV line after it.
+  // Collect pending comment lines and flush them when we see a KV line.
+  const pending: string[] = [];
+  for (const line of lines) {
+    if (line.trimStart().startsWith("#")) {
+      pending.push(line);
+    } else {
+      const idx = line.indexOf("=");
+      const key = idx !== -1 ? line.slice(0, idx).trim() : null;
+      for (const commentLine of pending) {
+        comments.push({ line: commentLine, beforeKey: key });
+      }
+      pending.length = 0;
+    }
+  }
+  // Comments at the end of the file (no following KV line)
+  for (const commentLine of pending) {
+    comments.push({ line: commentLine, beforeKey: null });
+  }
+  return comments;
+}
+
 export function readKVFile(path: string): Map<string, string> {
   let content: string;
   try {
@@ -100,6 +145,8 @@ export function readKVFile(path: string): Map<string, string> {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return new Map<string, string>();
     throw err;
   }
+  // Capture comment lines for this file so writeKV can restore them (BE-L1 #494)
+  commentStore.set(path, parseCommentsFromString(content));
   return readKVFromString(content);
 }
 
@@ -136,10 +183,56 @@ function formatKVLines(map: Map<string, string>): string {
   return lines.join("\n") + "\n";
 }
 
+/**
+ * Format KV lines with comment lines re-inserted at their original positions (BE-L1 #494).
+ * Comments are associated with the key they precede; if that key no longer exists in `map`,
+ * comments associated with a null key (end-of-file) are kept at the end.
+ * Comments for deleted keys are dropped.
+ */
+function formatKVLinesWithComments(
+  map: Map<string, string>,
+  comments: Array<{ line: string; beforeKey: string | null }>,
+): string {
+  const result: string[] = [];
+
+  // Index comments by the key they precede
+  const byKey = new Map<string | null, string[]>();
+  for (const { line, beforeKey } of comments) {
+    const existing = byKey.get(beforeKey) ?? [];
+    existing.push(line);
+    byKey.set(beforeKey, existing);
+  }
+
+  for (const [k, v] of map.entries()) {
+    const commentsBeforeKey = byKey.get(k);
+    if (commentsBeforeKey) {
+      result.push(...commentsBeforeKey);
+      byKey.delete(k);
+    }
+    result.push(`${k.replace(/[\n\r]/g, "")}=${v.replace(/[\n\r]/g, "")}`);
+  }
+
+  // Append any remaining comments that were at the end of file (beforeKey=null)
+  // or that were for keys no longer present (we drop those — only null-keyed ones remain)
+  const trailing = byKey.get(null);
+  if (trailing) {
+    result.push(...trailing);
+  }
+
+  return result.join("\n") + "\n";
+}
+
 function writeKV(file: string, map: Map<string, string>): void {
-  writeFileSync(file, formatKVLines(map), { mode: 0o600 });
+  const comments = commentStore.get(file) ?? [];
+  const content = comments.length > 0
+    ? formatKVLinesWithComments(map, comments)
+    : formatKVLines(map);
+  // Atomic write: write to .tmp then rename (BE-M3 #492)
+  atomicWrite(file, content, { mode: 0o600 });
   // Invalidate cache after write so subsequent reads see fresh data
   fileCache.delete(file);
+  // Update comment store to reflect what was actually written
+  commentStore.set(file, parseCommentsFromString(content));
 }
 
 // --- Projects ---
@@ -188,11 +281,6 @@ export function removeConfig(key: string): boolean {
   const existed = config.delete(key);
   if (existed) writeKV(CONFIG_FILE, config);
   return existed;
-}
-
-/** @internal — exported for testing only */
-export function getConfig(key: string): string | undefined {
-  return readKV(CONFIG_FILE).get(key);
 }
 
 export function listConfig(): Map<string, string> {

@@ -7,6 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-06-04
+
+### Added
+
+- **Fish shell completions** — `summon completions fish` is now fully wired through the completions dispatcher. Fish users get the same project-name, layout, and config-key completions as zsh/bash.
+- **`summon doctor --verbose`** — prints version, Node.js version, config directory, Ghostty binary path, and trust DB summary alongside the usual health checks.
+- **Ghostty-specific accessibility messages** — the setup wizard and doctor now show Ghostty-tailored guidance for granting Automation and Accessibility permissions instead of generic macOS instructions.
+- **Layout builder quick-pick** — the template gallery can now be navigated by typing a number directly at the quick-pick prompt in addition to scrolling.
+- **Diagnostic info via `SUMMON_DEBUG`** — `SUMMON_DEBUG=1` now emits richer diagnostic output including config resolution trace and trust-check results.
+
+### Fixed
+
+- **Trust: symlink normalization** — `assertTrusted` now resolves symlinks before hashing, so projects accessed via symlinked paths trust-check the canonical real path (#471).
+- **Trust: `.summon` reads in `ports`** — `ports.ts` now verifies trust before reading any `.summon` file; untrusted files are silently skipped (#472).
+- **Performance: lazy launcher graph** — the full launcher graph (launcher, script, tree, etc.) is now loaded via dynamic `import()`. Normal subcommands (`list`, `status`, `doctor`, etc.) no longer pay the startup cost of loading the entire launch subsystem (#473).
+- **UX: `summon open` cancel affordance** — the open picker now shows `(0 to cancel)` and exits cleanly when `0` is entered instead of re-prompting on out-of-range input (#475).
+- **UX: post-wizard auto-launch** — after completing the first-run setup wizard, summon now continues to launch the target workspace instead of exiting (#476).
+- **UI: unified color detection** — `supportsColor()` is now a single canonical implementation checked at call time; the three divergent inline copies have been removed (#477).
+- **UI: canonical glyph vocabulary** — `✓`, `⚠`, `✗`, `·`, `•` exported from `ui/symbols.ts` and used consistently across all commands; mixed glyph sets replaced (#478, #479).
+- **UI: TUI help color legend** — the `?` overlay in `summon status` now includes "Colors: yellow = active  dim = stopped" (#481).
+- **UX: wizard back-navigation** — step 1 no longer shows a misleading "press b to go back" hint; Editor and Sidebar steps now correctly support `b` back-navigation (#482, #483).
+- **UX: confirm prompt polarity** — dangerous command prompt changed from `[y/N/s]` to `[Y/n/s]` so pressing Enter accepts (matches the rest of the CLI) (#484).
+- **Security: shell-escape lint gate expanded** — the static analysis test now covers `sendCommand(…)` and `setInitialInput(…)` helper calls in addition to raw template literals (#485).
+- **CI: sourcemaps excluded from npm tarball** — source maps are no longer published; package size reduced from ~613 KB to ~156 KB (#488).
+- **CI: tarball guard hardened** — the release workflow now verifies `dist/index.js` + at least one `chunk-*.js` exist in the tarball (#489).
+- **CI: OIDC trusted publisher** — removed the now-redundant `NODE_AUTH_TOKEN`; `npm publish --provenance` authenticates via the OIDC trusted publisher already registered on npmjs.com (#490).
+- **Backend: atomic file writes** — `status.json`, `snapshot.json`, `trust.json`, and config files are now written to a temp file then renamed (POSIX-atomic), preventing torn writes on crash (#491, #492).
+- **Backend: forward-compatible schema readers** — `readWorkspaceStatus` and `readSnapshot` return `null` for records with `version > 1` instead of hard-rejecting with an error (#491).
+- **Backend: corrupt trust DB warning** — `loadTrustDb` now emits a `SUMMON_DEBUG` warning on corrupt JSON instead of silently swallowing the error (#493).
+- **Backend: config comment preservation** — inline comments in `.summon` and machine config files are preserved across `setConfig` / `writeKV` calls (#494).
+- **Backend: trust fail-closed** — `assertTrusted` now rethrows non-ENOENT IO errors (e.g. permission denied) instead of silently bypassing the trust gate (#495).
+- **Backend: `clean` prelude scoped** — `emitClosePrelude` now targets only the active workspace window, not all open Ghostty panes (#496).
+- **UX: CJK/emoji widths in layout previews** — characters in the double-width Unicode ranges (CJK, Hangul, emoji) now occupy two terminal columns in layout diagrams (#505).
+- **UX: terminal-width wrapping** — `--help` output, the help/ports table, and layout previews now wrap at the current terminal width instead of overflowing (#506, #507).
+- **UX: TUI launch failure recovery** — a launch error inside `summon status` now shows an in-TUI error overlay and resumes the dashboard instead of dropping back to the shell (#508).
+- **UX: consistent empty states** — `summon open`, `summon list`, and `summon status` all show the same actionable "No projects found — run `summon add …`" message (#509).
+- **UX: pane-layout legend in `--help`** — the built-in layout preset diagrams are now included in `summon --help` output (#510).
+- **UX: clean Ctrl+C exit** — `PromptCancelled` is caught at the top level so Ctrl+C prints nothing instead of a Node.js stack trace.
+- **UX: `doctor --fix` stale-read** — `--fix` now re-reads the Ghostty config after writing, so checks pass immediately after applying a fix.
+
+### Infrastructure
+
+- Release smoke tests now cover Node 20.19.0 (minimum floor) and Node 24 (latest), in addition to Node 22 (#502).
+- `pnpm build` added to the Husky pre-commit hook so the build is verified before every commit (#503).
+
 ## [1.5.2] - 2026-05-19
 
 ### Fixed
@@ -632,7 +677,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CodeQL security scanning
 - Dependabot for npm and GitHub Actions
 
-[Unreleased]: https://github.com/juan294/summon/compare/v1.5.0...develop
+[Unreleased]: https://github.com/juan294/summon/compare/v1.6.0...develop
+[1.6.0]: https://github.com/juan294/summon/compare/v1.5.2...v1.6.0
+[1.5.2]: https://github.com/juan294/summon/compare/v1.5.1...v1.5.2
+[1.5.1]: https://github.com/juan294/summon/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/juan294/summon/compare/v1.4.2...v1.5.0
 [1.4.2]: https://github.com/juan294/summon/compare/v1.4.1...v1.4.2
 [1.4.1]: https://github.com/juan294/summon/compare/v1.4.0...v1.4.1
