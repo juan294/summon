@@ -481,6 +481,7 @@ export async function numberedSelect(
   options: SelectOption[],
   promptText: string,
   defaultIdx?: number,
+  showBackHint = true,
 ): Promise<number | typeof WIZARD_BACK> {
   const printOptions = (): void => {
     for (let i = 0; i < options.length; i++) {
@@ -495,16 +496,22 @@ export async function numberedSelect(
   printOptions();
 
   // #434 UX-M7: Back hint shown below options so users know they can press 0/b to go back.
+  // #482 UX-H3: Suppressed at step 1 where there is no previous step.
   const BACK_HINT = dim("  (press 0 or b to go back)");
-  console.log(BACK_HINT);
+  if (showBackHint) {
+    console.log(BACK_HINT);
+  }
 
   const ask = async (isRetry = false): Promise<number | typeof WIZARD_BACK> => {
     if (isRetry) {
-      // #412 FE-M6: On retry we need to move up past: options, back hint (1 line),
-      // the previous prompt+answer line (1 line), and the error message line (1 line) = options.length + 3.
-      process.stdout.write(ansiLineStart() + ansiUp(options.length + 3) + ansiClearDown());
+      // #412 FE-M6: On retry we need to move up past: options, back hint (1 line if shown),
+      // the previous prompt+answer line (1 line), and the error message line (1 line).
+      const hintLines = showBackHint ? 1 : 0;
+      process.stdout.write(ansiLineStart() + ansiUp(options.length + 2 + hintLines) + ansiClearDown());
       printOptions();
-      console.log(BACK_HINT);
+      if (showBackHint) {
+        console.log(BACK_HINT);
+      }
     }
 
     const trimmed = await promptUser(promptText);
@@ -694,10 +701,12 @@ export async function selectLayout(): Promise<string | typeof WIZARD_BACK> {
   // Default to "pair" (index 1)
   const defaultIdx = presetNames.indexOf("pair");
   const totalCount = options.length;
+  // #482 UX-H3: suppress back hint at step 1 (Layout is the first wizard step; there is no previous step).
   const idx = await numberedSelect(
     options,
     `  Select [1-${totalCount}] (default: ${defaultIdx + 1}): `,
     defaultIdx,
+    false,
   );
 
   if (idx === WIZARD_BACK) return WIZARD_BACK;
@@ -734,7 +743,7 @@ export async function selectLayout(): Promise<string | typeof WIZARD_BACK> {
 export async function selectToolFromCatalog(
   catalog: readonly ToolEntry[],
   sectionTitle: string,
-): Promise<string> {
+): Promise<string | typeof WIZARD_BACK> {
   printSection(sectionTitle);
   const detected = detectTools(catalog);
   const available = detected.filter((t) => t.available);
@@ -771,7 +780,7 @@ export async function selectToolFromCatalog(
   // Display only available tools
   printToolList();
 
-  const askTool = async (isRetry = false): Promise<string> => {
+  const askTool = async (isRetry = false): Promise<string | typeof WIZARD_BACK> => {
     if (isRetry) {
       // Move cursor back to start of tool list, clear, and reprint
       process.stdout.write(ansiLineStart() + ansiUp(toolListHeight) + ansiClearDown());
@@ -781,6 +790,10 @@ export async function selectToolFromCatalog(
     const trimmed = (await promptUser(`  Select (default: 1): `)).toLowerCase();
     if (trimmed === "") {
       return available[0]!.cmd;
+    }
+    // #483 UX-M1: back navigation support in tool selection steps
+    if (trimmed === "b" || trimmed === "back" || trimmed === "0") {
+      return WIZARD_BACK;
     }
     if (trimmed === "c") {
       return askCustom();
@@ -800,11 +813,11 @@ export async function selectToolFromCatalog(
   return askTool();
 }
 
-async function selectEditor(): Promise<string> {
+async function selectEditor(): Promise<string | typeof WIZARD_BACK> {
   return selectToolFromCatalog(EDITOR_CATALOG, "Editor");
 }
 
-async function selectSidebar(): Promise<string> {
+async function selectSidebar(): Promise<string | typeof WIZARD_BACK> {
   return selectToolFromCatalog(SIDEBAR_CATALOG, "Sidebar");
 }
 
@@ -1093,7 +1106,13 @@ export async function runSetup(): Promise<void> {
 
     if (currentStep === WizardStep.Editor) {
       debugLog(`wizard step: editor`);
-      editor = await selectEditor();
+      const editorResult = await selectEditor();
+      // #483 UX-M1: back navigation support in editor step
+      if (editorResult === WIZARD_BACK) {
+        goBack();
+        continue;
+      }
+      editor = editorResult;
       history.push(WizardStep.Editor);
       currentStep = WizardStep.Sidebar;
       continue;
@@ -1101,7 +1120,13 @@ export async function runSetup(): Promise<void> {
 
     if (currentStep === WizardStep.Sidebar) {
       debugLog(`wizard step: sidebar`);
-      sidebar = await selectSidebar();
+      const sidebarResult = await selectSidebar();
+      // #483 UX-M1: back navigation support in sidebar step
+      if (sidebarResult === WIZARD_BACK) {
+        goBack();
+        continue;
+      }
+      sidebar = sidebarResult;
       history.push(WizardStep.Sidebar);
       if (layout === "minimal") {
         console.log(dim("  Minimal layout has no shell pane."));

