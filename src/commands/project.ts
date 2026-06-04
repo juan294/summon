@@ -65,7 +65,8 @@ export async function handleRemoveCommand({ args }: CommandContext): Promise<voi
 export async function handleListCommand(): Promise<void> {
   const projects = listProjects();
   if (projects.size === 0) {
-    console.log("No projects registered. Use: summon add <name> <path>");
+    console.log("No projects found.");
+    console.log("Run `summon add <name> <path>` to register your first project.");
     return;
   }
 
@@ -80,7 +81,8 @@ export async function handleOpenCommand({ overrides }: CommandContext): Promise<
 
   const rows = loadProjectRows();
   if (rows.length === 0) {
-    console.error("Error: No projects registered. Use: summon add <name> <path>");
+    console.error("No projects found.");
+    console.error("Run `summon add <name> <path>` to register your first project.");
     process.exit(1);
   }
 

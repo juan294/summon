@@ -5,6 +5,7 @@ import {
   renderTemplateGallery,
   centerLabel,
   visibleLength,
+  getDisplayWidth,
 } from "./layout-preview.js";
 
 // Box-drawing character constants for assertions
@@ -53,7 +54,6 @@ describe("renderLayoutPreview", () => {
     expect(result).toContain("b");
     expect(result).toContain("c");
     expect(result).toContain("d");
-    // Cross character ┼ appears when separator lines span multiple columns with splits
     // At minimum a row separator exists
     expect(result).toContain("─"); // ─ (horizontal separator line)
   });
@@ -182,6 +182,79 @@ describe("centerLabel", () => {
   it("produces output of exactly the requested width", () => {
     for (const width of [6, 10, 14, 20]) {
       expect(centerLabel("x", width).length).toBe(width);
+    }
+  });
+});
+
+// --- FE-M1: getDisplayWidth for CJK/emoji ---
+
+describe("getDisplayWidth (FE-M1 #505)", () => {
+  it("ASCII character is width 1", () => {
+    expect(getDisplayWidth("a")).toBe(1);
+  });
+
+  it("CJK character (あ, U+3042) is width 2", () => {
+    expect(getDisplayWidth("あ")).toBe(2);
+  });
+
+  it("CJK character (中, U+4E2D) is width 2", () => {
+    expect(getDisplayWidth("中")).toBe(2);
+  });
+
+  it("Hangul character (한, U+D55C) is width 2", () => {
+    expect(getDisplayWidth("한")).toBe(2);
+  });
+
+  it("CJK Compatibility (U+F900 range) is width 2", () => {
+    expect(getDisplayWidth("豈")).toBe(2);
+  });
+
+  it("CJK Unified Extension A (U+3400) is width 2", () => {
+    expect(getDisplayWidth("㐀")).toBe(2);
+  });
+
+  it("wide emoji (🌟, U+1F31F) is width 2", () => {
+    expect(getDisplayWidth("🌟")).toBe(2);
+  });
+
+  it("mixed string counts display widths correctly", () => {
+    // "hello" (5) + "あ" (2) = 7
+    expect(getDisplayWidth("helloあ")).toBe(7);
+  });
+
+  it("empty string is width 0", () => {
+    expect(getDisplayWidth("")).toBe(0);
+  });
+
+  it("pure ASCII string matches character count", () => {
+    expect(getDisplayWidth("editor")).toBe(6);
+  });
+});
+
+// --- FE-M4: PreviewRenderer maxWidth clamping ---
+
+describe("renderLayoutPreview maxWidth (FE-M4 #507)", () => {
+  it("with maxWidth=40, no line exceeds 40 characters", () => {
+    const grid = [["editor", "terminal"], ["sidebar"]];
+    const result = renderLayoutPreview(grid, 40);
+    for (const line of result.split("\n")) {
+      expect(line.length).toBeLessThanOrEqual(40);
+    }
+  });
+
+  it("without maxWidth, renders normally", () => {
+    const grid = [["editor"], ["sidebar"]];
+    const result = renderLayoutPreview(grid);
+    expect(result).toContain("editor");
+    expect(result).toContain("sidebar");
+  });
+
+  it("with very narrow maxWidth=20, still renders some output", () => {
+    const grid = [["editor"]];
+    const result = renderLayoutPreview(grid, 20);
+    expect(result.length).toBeGreaterThan(0);
+    for (const line of result.split("\n")) {
+      expect(line.length).toBeLessThanOrEqual(20);
     }
   });
 });

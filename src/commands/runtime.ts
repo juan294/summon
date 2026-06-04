@@ -82,23 +82,31 @@ export async function handleBriefingCommand(): Promise<void> {
 
 export async function handlePortsCommand(): Promise<void> {
   const { detectAllPorts } = await import("../ports.js");
-  const { green, dim, yellow } = await import("../ui/ansi.js");
+  const { green, dim, yellow, truncateLine } = await import("../ui/ansi.js");
   const { assignments, conflicts } = await detectAllPorts();
 
   if (assignments.length === 0) {
-    console.log("No port assignments detected across registered projects.");
+    console.log("No port assignments detected.");
+    console.log("Run `summon add <name> <path>` to register a project.");
     return;
   }
 
+  const termWidth = Math.min(process.stdout.columns || 80, 120);
+  // Fixed columns: "  " + port(6) + " " + project(16) + " " + source(18) + " " + dot(1) + " " + state
+  const FIXED_W = 2 + 6 + 1 + 16 + 1 + 18 + 1 + 1 + 1 + 6; // ~53 chars before conflict
+  const conflictWidth = Math.max(0, termWidth - FIXED_W);
+
   console.log("  PORT   PROJECT          SOURCE             STATE");
-  console.log("  " + dim("─".repeat(60)));
+  console.log("  " + dim("─".repeat(Math.min(60, termWidth - 2))));
   for (const assignment of assignments) {
     const portStr = String(assignment.port).padEnd(6);
-    const projectStr = assignment.project.padEnd(16);
-    const sourceStr = assignment.source.padEnd(18);
+    const projectStr = truncateLine(assignment.project, 16).padEnd(16);
+    const sourceStr = truncateLine(assignment.source, 18).padEnd(18);
     const dot = assignment.state === "active" ? green("●") : dim("○");
     const stateStr = assignment.state === "active" ? green("active") : dim(assignment.state);
-    const conflict = conflicts.has(assignment.port) ? yellow(" ← conflict") : "";
+    const conflict = conflicts.has(assignment.port)
+      ? truncateLine(yellow(" ← conflict"), conflictWidth)
+      : "";
     console.log(`  ${portStr} ${projectStr} ${sourceStr} ${dot} ${stateStr}${conflict}`);
   }
 
@@ -108,6 +116,7 @@ export async function handlePortsCommand(): Promise<void> {
 
   console.log();
   for (const [port, projects] of conflicts) {
-    console.log(yellow(`  ⚠ Port ${port} used by: ${projects.join(", ")}`));
+    const msg = `  ⚠ Port ${port} used by: ${projects.join(", ")}`;
+    console.log(yellow(truncateLine(msg, termWidth)));
   }
 }

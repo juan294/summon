@@ -91,7 +91,8 @@ export class PreviewRenderer {
    * Subsequent calls: moves cursor up, clears, redraws.
    */
   draw(grid: string[][]): void {
-    const preview = renderLayoutPreview(grid);
+    const maxWidth = Math.max(20, (process.stdout.columns || 84) - 4);
+    const preview = renderLayoutPreview(grid, maxWidth);
     const lines = preview.split("\n");
 
     if (this.active) {

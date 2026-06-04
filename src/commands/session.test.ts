@@ -121,7 +121,8 @@ describe("session list", () => {
 
     await handleSessionCommand(makeContext({ args: ["list"] }));
 
-    expect(logSpy).toHaveBeenCalledWith("No saved sessions.");
+    expect(logSpy).toHaveBeenCalledWith("No sessions found.");
+    expect(logSpy).toHaveBeenCalledWith("Run `summon session add <name> <project> [...]` to create one.");
     logSpy.mockRestore();
   });
 });
@@ -345,7 +346,7 @@ describe("session launch with no name and no --all", () => {
 
     const allErrors = errorSpy.mock.calls.map((c) => c[0] as string).join("\n");
     expect(allErrors).toContain("Usage:");
-    expect(allErrors).toContain("No saved sessions");
+    expect(allErrors).toContain("No sessions found");
     expect(mockLaunch).not.toHaveBeenCalled();
     mockExit.mockRestore();
     errorSpy.mockRestore();

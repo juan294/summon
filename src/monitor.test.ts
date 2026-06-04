@@ -314,7 +314,7 @@ describe("renderScreen", () => {
 
   it("shows empty state message when there are no projects", () => {
     const screen = renderScreen([], 0, 80, 24);
-    expect(screen).toContain("No projects registered");
+    expect(screen).toContain("No projects found");
     expect(screen).toContain("summon add");
   });
 
@@ -695,10 +695,8 @@ describe("printStatusOnce", () => {
 
   it("prints empty message when no projects", () => {
     printStatusOnce();
-    expect(console.log).toHaveBeenCalledWith("No workspace sessions recorded yet.");
-    expect(console.log).toHaveBeenCalledWith(
-      "Launch a workspace with 'summon <project>' to start tracking.",
-    );
+    expect(console.log).toHaveBeenCalledWith("No workspaces found.");
+    expect(console.log).toHaveBeenCalledWith("Run `summon <project>` to launch a workspace.");
   });
 
   it("prints status rows when projects exist", () => {
@@ -1019,8 +1017,8 @@ describe.skipIf(nodeMajor < 20)("runMonitor", () => {
     expect(feedbackIdx).toBeLessThan(exitIdx);
   });
 
-  it("exits when launching the selected project fails", async () => {
-    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+  it("UX-M5: does NOT exit on launch failure — shows in-TUI error and continues (replaces old exit test)", async () => {
+    // Old behavior: exit(1) on failure. New behavior: show error in TUI, allow user to continue.
     const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => undefined as never);
     listProjects.mockReturnValue([["myapp", "/tmp/myapp"]]);
     readAllStatuses.mockReturnValue([
@@ -1030,21 +1028,20 @@ describe.skipIf(nodeMajor < 20)("runMonitor", () => {
     mockLaunch.mockRejectedValueOnce(new Error("launch failed"));
 
     const monitorPromise = runMonitor();
-    process.stdin.emit("data", Buffer.from("\r"));
-    await monitorPromise;
+    process.stdin.emit("data", Buffer.from("\r"));  // trigger launch (fails)
     await vi.dynamicImportSettled();
+    // After dynamic import settles, dismiss error overlay and quit
+    process.stdin.emit("data", Buffer.from(" "));   // dismiss error screen
+    // After dismissing, onKeypress is re-registered; quit via 'q'
+    process.stdin.emit("data", Buffer.from("q"));
+    await monitorPromise;
 
-    expect(exitSpy).toHaveBeenCalledWith(1);
-    const stderrOutput = stderrSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("");
-    expect(stderrOutput).toContain("Launch failed:");
-    expect(stderrOutput).toContain("launch failed");
+    // Must NOT have called exit(1) — error is handled in-TUI
+    expect(exitSpy).not.toHaveBeenCalledWith(1);
     exitSpy.mockRestore();
-    stderrSpy.mockRestore();
   });
 
-  it("prints error message when launch fails", async () => {
-    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
-    vi.spyOn(process, "exit").mockImplementation(() => undefined as never);
+  it("UX-M5: shows error in stdout (not stderr) when launch fails", async () => {
     listProjects.mockReturnValue([["myapp", "/tmp/myapp"]]);
     readAllStatuses.mockReturnValue([
       makeResolvedStatus({ project: "myapp", state: "active", uptime: 60_000 }),
@@ -1053,14 +1050,15 @@ describe.skipIf(nodeMajor < 20)("runMonitor", () => {
     mockLaunch.mockRejectedValueOnce(new Error("osascript error"));
 
     const monitorPromise = runMonitor();
-    process.stdin.emit("data", Buffer.from("\r"));
-    await monitorPromise;
+    process.stdin.emit("data", Buffer.from("\r"));  // trigger launch (fails)
     await vi.dynamicImportSettled();
+    process.stdin.emit("data", Buffer.from(" "));   // dismiss error screen
+    process.stdin.emit("data", Buffer.from("q"));   // quit TUI
+    await monitorPromise;
 
-    const stderrOutput = stderrSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("");
-    expect(stderrOutput).toContain("Launch failed:");
-    expect(stderrOutput).toContain("osascript error");
-    stderrSpy.mockRestore();
+    const output = writeSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("");
+    expect(output).toContain("Launch failed");
+    expect(output).toContain("osascript error");
   });
 
   it("shows ? help overlay and dismisses on any key", async () => {
@@ -1105,5 +1103,31 @@ describe.skipIf(nodeMajor < 20)("runMonitor", () => {
     expect(output).toContain("refresh");
     expect(output).toContain("quit");
     expect(output).toContain("Press any key to dismiss");
+  });
+
+  it("UX-M5 #508: launch error shows in-TUI error message instead of crashing", async () => {
+    // When a launch fails, the TUI should show an error message in-place and let user continue
+    listProjects.mockReturnValue([["myapp", "/tmp/myapp"]]);
+    readAllStatuses.mockReturnValue([
+      makeResolvedStatus({ project: "myapp", state: "active", uptime: 60_000 }),
+    ]);
+    getGitBranch.mockReturnValue("main");
+    mockLaunch.mockRejectedValueOnce(new Error("osascript: execution failed"));
+
+    const monitorPromise = runMonitor();
+    process.stdin.emit("data", Buffer.from("\r"));  // trigger launch (will fail)
+    await vi.dynamicImportSettled();
+    // Dismiss the error overlay
+    process.stdin.emit("data", Buffer.from(" "));   // dismiss error screen
+    // onKeypress is re-registered after dismissal — quit normally
+    process.stdin.emit("data", Buffer.from("q"));
+    await monitorPromise;
+
+    const output = writeSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("");
+    // Error message must appear in TUI stdout (not just stderr)
+    expect(output).toContain("Launch failed");
+    expect(output).toContain("osascript: execution failed");
+    // Dashboard should still be accessible — summon status header should be in output
+    expect(output).toContain("summon status");
   });
 });
