@@ -34,9 +34,15 @@ vi.mock("../launcher.js", () => ({
   launch: (...args: unknown[]) => mockLaunch(...args),
 }));
 
+// PromptCancelled must be exported from the utils mock because project.ts uses instanceof.
+class MockPromptCancelled extends Error {
+  constructor(msg = "Cancelled") { super(msg); this.name = "PromptCancelled"; }
+}
+
 vi.mock("../utils.js", () => ({
   promptUser: (...args: unknown[]) => mockPromptUser(...args),
   exitWithUsageHint: (message?: string) => mockExitWithUsageHint(message),
+  PromptCancelled: MockPromptCancelled,
 }));
 
 vi.mock("../monitor.js", () => ({
@@ -254,6 +260,43 @@ describe("handleOpenCommand", () => {
       false,
     );
     expect(logSpy).toHaveBeenCalled();
+  });
+
+  // UX-M2 (#475): selecting 0 cancels without launching
+  it("exits 0 with 'Cancelled.' message when user selects 0", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+    mockLoadProjectRows.mockReturnValue([
+      { name: "api", directory: "/tmp/api", state: "active", uptime: "1h", gitBranch: "main" },
+    ]);
+    mockPromptUser.mockResolvedValueOnce("0");
+
+    await expect(handleOpenCommand(makeContext())).rejects.toThrow("exit:0");
+    const allLogs = logSpy.mock.calls.map((c) => c[0] as string).join("\n");
+    expect(allLogs).toContain("Cancelled.");
+    logSpy.mockRestore();
+    exitSpy.mockRestore();
+  });
+
+  // UX-M2 (#475): prompt text includes "(0 to cancel)"
+  it("includes '(0 to cancel)' in the prompt text", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+    mockLoadProjectRows.mockReturnValue([
+      { name: "api", directory: "/tmp/api", state: "active", uptime: "1h", gitBranch: "main" },
+    ]);
+    mockPromptUser.mockResolvedValueOnce("0");
+
+    await expect(handleOpenCommand(makeContext())).rejects.toThrow("exit:0");
+    // The prompt passed to promptUser must include "(0 to cancel)"
+    const promptArg = mockPromptUser.mock.calls[0]?.[0] as string;
+    expect(promptArg).toContain("0 to cancel");
+    logSpy.mockRestore();
+    exitSpy.mockRestore();
   });
 
   it("shows interactive mode hint after the project list", async () => {
