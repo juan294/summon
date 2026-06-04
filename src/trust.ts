@@ -125,11 +125,15 @@ export function trustProject(dir: string): void {
  *
  * Use this variant when the file content has already been read from disk,
  * to avoid a TOCTOU race between hashing and parsing (BE-B2 #357).
+ *
+ * Normalizes `targetDir` via `realpathSync` so that symlinked paths (e.g.
+ * macOS /tmp → /private/tmp) resolve to the same key used by `trustProject`.
  */
 export function assertTrustedContent(targetDir: string, content: string): void {
+  const normalizedDir = (() => { try { return realpathSync(targetDir); } catch { return resolve(targetDir); } })();
   const hash = hashContent(content);
   const db = loadTrustDb();
-  if (db[targetDir] === hash) return;
+  if (db[normalizedDir] === hash) return;
 
   throw new SummonError(
     `This project has a .summon file.\nRun 'summon trust .' to allow it, or use --no-project-config to skip it.`,

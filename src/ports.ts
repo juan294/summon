@@ -2,6 +2,7 @@ import { existsSync, readFileSync, promises as fsPromises } from "node:fs";
 import { join } from "node:path";
 import { readKVFile, listProjects } from "./config.js";
 import { readAllStatuses } from "./status.js";
+import { isTrusted } from "./trust.js";
 
 export interface PortAssignment {
   port: number;
@@ -48,9 +49,9 @@ export async function detectProjectPorts(
   const assignments: PortAssignment[] = [];
   const seenPorts = new Set<number>();
 
-  // 1. Read .summon env vars
+  // 1. Read .summon env vars (only if the project directory is trusted)
   const summonFile = join(projectDir, ".summon");
-  if (existsSync(summonFile)) {
+  if (existsSync(summonFile) && isTrusted(projectDir)) {
     const config = readKVFile(summonFile);
     for (const envKey of PORT_ENV_KEYS) {
       const val = config.get(`env.${envKey}`);

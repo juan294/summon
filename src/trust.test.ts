@@ -451,6 +451,28 @@ describe("assertTrustedContent", () => {
 
     expect(() => assertTrustedContent("/some/dir", content)).toThrow(/summon trust \./);
   });
+
+  it("resolves symlinked targetDir to realpath before lookup (#471: /tmp -> /private/tmp)", () => {
+    // Simulate: trustProject stored the key as the real path "/private/tmp/myproject"
+    // but assertTrustedContent is called with the symlinked path "/tmp/myproject"
+    const content = "editor = vim\n";
+    const hash = sha256(content);
+    const realPath = "/private/tmp/myproject";
+    const symlinkPath = "/tmp/myproject";
+
+    // realpathSync resolves symlinkPath -> realPath
+    mockRealpathSync.mockImplementation((p: string) => {
+      if (p === symlinkPath) return realPath;
+      return p;
+    });
+
+    // Trust database has the real path as key
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue(JSON.stringify({ [realPath]: hash }));
+
+    // This should NOT throw: symlinked path should normalize to realPath for lookup
+    expect(() => assertTrustedContent(symlinkPath, content)).not.toThrow();
+  });
 });
 
 describe("assertTrusted fail-closed", () => {
