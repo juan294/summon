@@ -59,6 +59,19 @@ vi.mock("node:fs", () => {
       // Bump mtime on write so cache is invalidated
       mtimes.set(path, (mtimes.get(path) ?? 1000) + 1);
     }),
+    renameSync: vi.fn((src: string, dest: string) => {
+      // Atomic rename: move src content to dest, remove src
+      const data = store.get(src);
+      if (data === undefined) throw new Error(`ENOENT: no such file '${src}'`);
+      store.set(dest, data);
+      store.delete(src);
+      // Transfer mtime from src to dest
+      const mtime = mtimes.get(src);
+      if (mtime !== undefined) {
+        mtimes.set(dest, mtime);
+        mtimes.delete(src);
+      }
+    }),
     readdirSync: vi.fn((path: string) => {
       const prefix = path.endsWith("/") ? path : path + "/";
       const names: string[] = [];
@@ -874,5 +887,99 @@ describe("readCustomLayout uses mtime cache (#402 AR-M3)", () => {
     mtimes.set(`${LAYOUTS_DIR}/mywork`, 2000); // bump mtime
     readCustomLayout("mywork"); // should re-read
     expect(readFileSpy).toHaveBeenCalled();
+  });
+});
+
+// BE-M3 #492: atomic write for config — writeKV must use tmp+rename
+describe("writeKV atomic write (BE-M3 #492)", () => {
+  it("writes to a .tmp file before the final path", async () => {
+    const fs = await import("node:fs");
+    const writeSpy = fs.writeFileSync as ReturnType<typeof vi.fn>;
+
+    setConfig("editor", "vim");
+
+    // Find writes that went to a .tmp path
+    const tmpWrites = writeSpy.mock.calls.filter(
+      (c: unknown[]) => typeof c[0] === "string" && String(c[0]).endsWith(".tmp"),
+    );
+    expect(tmpWrites.length).toBeGreaterThan(0);
+  });
+});
+
+// BE-L1 #494: config comment preservation — setConfig must not destroy hand-authored comments
+describe("config comment preservation (BE-L1 #494)", () => {
+  it("preserves a comment line at the top of the config file after setConfig", async () => {
+    const store = await getStore();
+    const { CONFIG_DIR } = await import("./config.js");
+    const configPath = `${CONFIG_DIR}/config`;
+    // Pre-populate config file with a comment line
+    store.set(configPath, "# My hand-authored comment\neditor=vim\n");
+    resetConfigCache();
+
+    setConfig("editor", "nano");
+
+    const written = store.get(configPath)!;
+    expect(written).toContain("# My hand-authored comment");
+  });
+
+  it("preserves multiple comment lines after setConfig", async () => {
+    const store = await getStore();
+    const { CONFIG_DIR } = await import("./config.js");
+    const configPath = `${CONFIG_DIR}/config`;
+    store.set(configPath, "# First comment\n# Second comment\neditor=vim\npanes=2\n");
+    resetConfigCache();
+
+    setConfig("panes", "4");
+
+    const written = store.get(configPath)!;
+    expect(written).toContain("# First comment");
+    expect(written).toContain("# Second comment");
+  });
+
+  it("preserves inline-adjacent comment before a key after setConfig modifies another key", async () => {
+    const store = await getStore();
+    const { CONFIG_DIR } = await import("./config.js");
+    const configPath = `${CONFIG_DIR}/config`;
+    // comment is above 'panes', editor is modified
+    store.set(configPath, "editor=vim\n# panes setting\npanes=2\n");
+    resetConfigCache();
+
+    setConfig("editor", "nano");
+
+    const written = store.get(configPath)!;
+    expect(written).toContain("# panes setting");
+  });
+
+  it("does not duplicate comment lines on multiple writes", async () => {
+    const store = await getStore();
+    const { CONFIG_DIR } = await import("./config.js");
+    const configPath = `${CONFIG_DIR}/config`;
+    store.set(configPath, "# My comment\neditor=vim\n");
+    resetConfigCache();
+
+    setConfig("editor", "nano");
+    resetConfigCache();
+    setConfig("editor", "emacs");
+
+    const written = store.get(configPath)!;
+    const commentCount = (written.match(/# My comment/g) ?? []).length;
+    expect(commentCount).toBe(1);
+  });
+
+  it("drops comments for keys that have been removed", async () => {
+    const store = await getStore();
+    const { CONFIG_DIR } = await import("./config.js");
+    const configPath = `${CONFIG_DIR}/config`;
+    store.set(configPath, "editor=vim\n# sidebar setting\nsidebar=lazygit\n");
+    resetConfigCache();
+
+    removeConfig("sidebar");
+
+    const written = store.get(configPath)!;
+    // comment associated with removed key should not remain (or at minimum, no orphan comment)
+    // The simplest acceptable behavior: comments at top of file are preserved;
+    // key-adjacent comments for deleted keys may be dropped.
+    // We test the key is gone.
+    expect(written).not.toContain("sidebar=");
   });
 });

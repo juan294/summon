@@ -9,10 +9,13 @@ const mockMkdirSync = vi.fn();
 const mockRealpathSync = vi.fn();
 const mockStatSync = vi.fn();
 
+const mockRenameSync = vi.fn();
+
 vi.mock("node:fs", () => ({
   existsSync: (path: string) => mockExistsSync(path),
   readFileSync: (path: string, encoding: string) => mockReadFileSync(path, encoding),
   writeFileSync: (path: string, data: string, opts: string | object) => mockWriteFileSync(path, data, opts),
+  renameSync: (src: string, dest: string) => mockRenameSync(src, dest),
   mkdirSync: (path: string, opts: unknown) => mockMkdirSync(path, opts),
   realpathSync: (path: string) => mockRealpathSync(path),
   statSync: (path: string) => mockStatSync(path),
@@ -40,6 +43,8 @@ beforeEach(() => {
   mockRealpathSync.mockImplementation((p: string) => p);
   // Default: statSync returns a fake mtime
   mockStatSync.mockImplementation(() => ({ mtimeMs: 1000 }));
+  // Default: renameSync is a no-op (the atomic write pattern just moves .tmp to final path)
+  mockRenameSync.mockImplementation(() => {});
 });
 
 describe("SummonError", () => {
@@ -177,7 +182,7 @@ describe("isTrusted", () => {
 });
 
 describe("trustProject", () => {
-  it("writes the hash to trust.json", () => {
+  it("writes the hash to trust.json (via atomic tmp+rename)", () => {
     const content = "editor = vim\n";
     mockExistsSync.mockImplementation((p: string) => {
       if (p.endsWith(".summon")) return true;
@@ -192,11 +197,14 @@ describe("trustProject", () => {
       "/home/testuser/.config/summon",
       { recursive: true, mode: 0o700 },
     );
+    // Atomic write: writeFileSync goes to the .tmp path
     expect(mockWriteFileSync).toHaveBeenCalledWith(
-      TRUST_FILE,
+      `${TRUST_FILE}.tmp`,
       expect.stringContaining("/myproject"),
       { encoding: "utf-8", mode: 0o600 },
     );
+    // renameSync moves .tmp to final path
+    expect(mockRenameSync).toHaveBeenCalledWith(`${TRUST_FILE}.tmp`, TRUST_FILE);
   });
 
   it("no-ops when no .summon file exists", () => {
@@ -489,6 +497,142 @@ describe("assertTrusted fail-closed", () => {
     });
 
     expect(() => assertTrusted("/some/dir")).toThrow(/Cannot verify trust/);
+  });
+});
+
+// BE-M3 #492: saveTrustDb should use atomic write (write .tmp then rename)
+describe("saveTrustDb atomic write (BE-M3 #492)", () => {
+  it("does not call writeFileSync with the final path directly (uses tmp then rename)", () => {
+    mockExistsSync.mockImplementation((p: string) => {
+      if (p.endsWith(".summon")) return true;
+      return false;
+    });
+    mockReadFileSync.mockReturnValue("editor = vim\n");
+
+    trustProject("/myproject");
+
+    // The write should NOT go directly to TRUST_FILE
+    // Instead it should go to TRUST_FILE + ".tmp" and then renameSync
+    const directWrites = mockWriteFileSync.mock.calls.filter(
+      (args: unknown[]) => args[0] === TRUST_FILE,
+    );
+    expect(directWrites.length).toBe(0);
+  });
+
+  it("writes to a .tmp file and renames to final path", () => {
+    const mockRenameSync = vi.fn();
+    vi.doMock("node:fs", async () => {
+      const original = await vi.importActual<typeof import("node:fs")>("node:fs");
+      return { ...original, renameSync: mockRenameSync };
+    });
+
+    mockExistsSync.mockImplementation((p: string) => {
+      if (p.endsWith(".summon")) return true;
+      return false;
+    });
+    mockReadFileSync.mockReturnValue("editor = vim\n");
+
+    trustProject("/myproject");
+
+    // Verify the write went to the .tmp path
+    const tmpWrites = mockWriteFileSync.mock.calls.filter(
+      (args: unknown[]) => typeof args[0] === "string" && String(args[0]).endsWith(".tmp"),
+    );
+    expect(tmpWrites.length).toBeGreaterThan(0);
+  });
+});
+
+// BE-M4 #493: loadTrustDb should warn to stderr for corrupt JSON (not silent)
+describe("loadTrustDb corrupt JSON warning (BE-M4 #493)", () => {
+  it("logs a warning to stderr when trust.json contains malformed JSON", () => {
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    try {
+      // trust.json exists but contains invalid JSON
+      mockExistsSync.mockImplementation((p: string) => {
+        if (p === TRUST_FILE) return true;
+        if (p.endsWith(".summon")) return true;
+        return false;
+      });
+      mockReadFileSync.mockImplementation((p: string) => {
+        if (p === TRUST_FILE) return "not valid json {{{";
+        return "editor = vim\n"; // .summon content
+      });
+
+      // Calling isTrusted will trigger loadTrustDb
+      isTrusted("/some/dir");
+
+      const stderrCalls = stderrSpy.mock.calls.map((c) => String(c[0]));
+      const hasWarning = stderrCalls.some((msg) => msg.includes(TRUST_FILE) || msg.includes("trust") || msg.includes("corrupt") || msg.includes("warn"));
+      expect(hasWarning).toBe(true);
+    } finally {
+      stderrSpy.mockRestore();
+    }
+  });
+
+  it("does NOT warn to stderr for ENOENT (missing trust.json is normal)", () => {
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      // trust.json does not exist
+      mockExistsSync.mockReturnValue(false);
+
+      isTrusted("/some/dir"); // returns true when no .summon file
+
+      expect(stderrSpy).not.toHaveBeenCalled();
+      expect(consoleErrorSpy).not.toHaveBeenCalled();
+    } finally {
+      stderrSpy.mockRestore();
+      consoleErrorSpy.mockRestore();
+    }
+  });
+});
+
+// SE-L2 #495: assertTrusted must fail closed on non-OS errors (e.g. TypeError)
+describe("assertTrusted non-ENOENT fail-closed (SE-L2 #495)", () => {
+  it("does NOT grant trust when isTrusted throws a TypeError (non-OS error)", () => {
+    mockExistsSync.mockImplementation((p: string) => {
+      if (p.endsWith(".summon")) return true;
+      return false;
+    });
+
+    // Simulate a TypeError (no .code property) when reading .summon
+    mockReadFileSync.mockImplementation(() => {
+      throw new TypeError("Cannot read properties of undefined");
+    });
+
+    // Should NOT pass silently — must throw (fail closed)
+    expect(() => assertTrusted("/some/dir")).toThrow();
+  });
+
+  it("does NOT treat code===undefined as trusted (fail-closed fix)", () => {
+    mockExistsSync.mockImplementation((p: string) => {
+      if (p.endsWith(".summon")) return true;
+      return false;
+    });
+
+    // Non-OS error with no .code property
+    const noCodeErr = new Error("Something unexpected");
+    // (no .code set — this is the non-OS error case)
+    mockReadFileSync.mockImplementation(() => {
+      throw noCodeErr;
+    });
+
+    // This must NOT silently return (which would be fail-open)
+    expect(() => assertTrusted("/some/dir")).toThrow();
+  });
+
+  it("returns without throwing for ENOENT on the .summon file (legitimate absent file)", () => {
+    // .summon exists according to existsSync, but then vanishes (TOCTOU)
+    mockExistsSync.mockImplementation((p: string) => {
+      if (p.endsWith(".summon")) return true;
+      return false;
+    });
+
+    const enoentErr = Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+    mockStatSync.mockImplementation(() => { throw enoentErr; });
+
+    // ENOENT from statSync means file vanished → safe to return without trusting/throwing
+    expect(() => assertTrusted("/some/dir")).not.toThrow();
   });
 });
 

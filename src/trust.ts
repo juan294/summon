@@ -9,9 +9,10 @@
  */
 
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, writeFileSync, mkdirSync, realpathSync, statSync } from "node:fs";
+import { existsSync, readFileSync, mkdirSync, realpathSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { homedir } from "node:os";
+import { atomicWrite } from "./utils.js";
 
 /** Error thrown when a .summon file exists but is not trusted. */
 export class SummonError extends Error {
@@ -43,16 +44,26 @@ function loadTrustDb(): Record<string, string> {
     if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
       return parsed as Record<string, string>;
     }
+    // Wrong shape (e.g. an array) — warn and return empty
+    process.stderr.write(
+      `summon: warning: trust database at ${TRUST_FILE} has unexpected shape; treating as empty.\n`,
+    );
     return {};
-  } catch {
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") return {}; // vanished between existsSync and readFileSync — normal
+    // Corrupt JSON or permission denied — warn and return empty (BE-M4)
+    process.stderr.write(
+      `summon: warning: could not read trust database at ${TRUST_FILE}: ${(err as Error).message ?? String(err)}\n`,
+    );
     return {};
   }
 }
 
-/** Save the trust database atomically. */
+/** Save the trust database atomically (BE-M3). */
 function saveTrustDb(db: Record<string, string>): void {
   mkdirSync(CONFIG_DIR, { recursive: true, mode: 0o700 });
-  writeFileSync(TRUST_FILE, JSON.stringify(db, null, 2) + "\n", { encoding: "utf-8", mode: 0o600 });
+  atomicWrite(TRUST_FILE, JSON.stringify(db, null, 2) + "\n", { encoding: "utf-8", mode: 0o600 });
 }
 
 /**
@@ -159,7 +170,8 @@ export function assertTrusted(targetDir: string, opts?: { skip?: boolean }): voi
     trusted = isTrusted(targetDir);
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
-    if (code === undefined || code === "ENOENT") return; // no .summon file or non-OS error → nothing to check
+    if (code === "ENOENT") return; // file vanished between existsSync and read → nothing to check
+    // All other errors (non-OS errors like TypeError, or OS errors like EACCES) → fail closed
     throw new Error(
       "Cannot verify trust for this project; run 'summon trust .' to re-establish",
       { cause: err },

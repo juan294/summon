@@ -1,10 +1,23 @@
-import { existsSync } from "node:fs";
+import { existsSync, writeFileSync, renameSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
 /** Regex for safe command names — only letters, digits, hyphens, dots, underscores, plus signs. */
 export const SAFE_COMMAND_RE = /^[a-zA-Z0-9_][a-zA-Z0-9_.+-]*$/;
+
+/**
+ * Write `content` to `path` atomically: first write to `${path}.tmp`, then
+ * rename (which is atomic on POSIX) to the final path. This prevents a crash
+ * mid-write from leaving a truncated or corrupt file.
+ *
+ * Accepts the same optional options as `writeFileSync` (mode, encoding, etc.).
+ */
+export function atomicWrite(path: string, content: string, options?: Parameters<typeof writeFileSync>[2]): void {
+  const tmpPath = `${path}.tmp`;
+  writeFileSync(tmpPath, content, options);
+  renameSync(tmpPath, path);
+}
 
 /** @internal — exported for testing only */
 export const GHOSTTY_PATHS = [
