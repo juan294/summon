@@ -51,8 +51,8 @@ function loadTrustDb(): Record<string, string> {
 
 /** Save the trust database atomically. */
 function saveTrustDb(db: Record<string, string>): void {
-  mkdirSync(CONFIG_DIR, { recursive: true });
-  writeFileSync(TRUST_FILE, JSON.stringify(db, null, 2) + "\n", "utf-8");
+  mkdirSync(CONFIG_DIR, { recursive: true, mode: 0o700 });
+  writeFileSync(TRUST_FILE, JSON.stringify(db, null, 2) + "\n", { encoding: "utf-8", mode: 0o600 });
 }
 
 /**

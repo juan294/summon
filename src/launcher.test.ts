@@ -13,7 +13,6 @@ const mockReadKVFile = vi.fn((_path: string) => new Map<string, string>());
 const mockReadCustomLayout = vi.fn((_name: string): Map<string, string> | null => null);
 const mockIsCustomLayout = vi.fn((_name: string) => false);
 vi.mock("./config.js", () => ({
-  getConfig: vi.fn(),
   listConfig: vi.fn(() => new Map<string, string>()),
   listProjects: vi.fn(() => new Map<string, string>()),
   readKVFile: (path: string) => mockReadKVFile(path),
@@ -94,7 +93,7 @@ vi.mock("./script.js", () => ({
 
 // Import after mocks are set up
 const { launch, resolveConfig, optsToConfigMap, focusWorkspace, resolveProjectName, probePaneCount, decideCleanRestoredPanes, closeWorkspaceWindow } = await import("./launcher.js");
-const { getConfig, listConfig, listProjects } = await import("./config.js");
+const { listConfig, listProjects } = await import("./config.js");
 const { existsSync } = await import("node:fs");
 
 let savedSummonWorkspace: string | undefined;
@@ -1012,8 +1011,6 @@ describe("config read caching (#31)", () => {
 
     // listConfig should be called exactly once
     expect(listConfig).toHaveBeenCalledTimes(1);
-    // getConfig should NOT be called at all (replaced by listConfig)
-    expect(getConfig).not.toHaveBeenCalled();
   });
 
   it("correctly resolves values from cached config", () => {

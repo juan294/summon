@@ -18,7 +18,8 @@ import {
 } from "../layout.js";
 import { resolveConfig, optsToConfigMap } from "../launcher.js";
 import { ENV_KEY_RE, validateFloatFlag, validateIntFlag } from "../validation.js";
-import { SAFE_COMMAND_RE, exitWithUsageHint } from "../utils.js";
+import { exitWithUsageHint } from "../utils.js";
+import { isValidPreset } from "../starship.js";
 import type { CommandContext } from "./types.js";
 import { validateLayoutNameOrExit, validateLayoutOrExit } from "./layout-support.js";
 
@@ -56,7 +57,7 @@ export async function handleSetCommand({ args }: CommandContext): Promise<void> 
   if (key === "font-size" && value !== undefined) {
     validateFloatFlag("font-size", value);
   }
-  if (key === "starship-preset" && value !== undefined && !SAFE_COMMAND_RE.test(value)) {
+  if (key === "starship-preset" && value !== undefined && !isValidPreset(value)) {
     console.error(`Error: invalid starship preset name "${value}".`);
     process.exit(1);
   }
