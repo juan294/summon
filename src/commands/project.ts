@@ -1,15 +1,15 @@
 import { existsSync } from "node:fs";
-import { resolve } from "node:path";
-import { homedir } from "node:os";
 import {
   addProject,
   removeProject,
-  getProject,
   listProjects,
 } from "../config.js";
 import { focusWorkspace, launch } from "../launcher.js";
 import { promptUser, exitWithUsageHint, PromptCancelled } from "../utils.js";
 import { validateProjectNameOrExit } from "../validation.js";
+// PE-H1 (#473): Re-export from new leaf module for backward compatibility with callers.
+export { resolveTargetDirectory, expandHome } from "../cli/resolve-target.js";
+import { expandHome } from "../cli/resolve-target.js";
 import type { CommandContext } from "./types.js";
 
 // Output helpers for consistent prefixes (UX-H5)
@@ -19,10 +19,6 @@ const sym = {
   err: "✗",
   info: "→",
 } as const;
-
-function expandHome(path: string): string {
-  return resolve(path.replace(/^~/, homedir()));
-}
 
 /** Compute column widths from actual data lengths (UX-H6). */
 function computeColumnWidths(rows: { name: string }[]): { nameWidth: number } {
@@ -105,14 +101,21 @@ export async function handleOpenCommand({ overrides }: CommandContext): Promise<
   while (selectedRow === undefined) {
     let answer: string;
     try {
-      answer = await promptUser(`Select [1-${rows.length}]: `);
+      // UX-M2 (#475): Include cancel affordance in prompt.
+      answer = await promptUser(`Select [1-${rows.length}] (0 to cancel): `);
     } catch (err) {
       if (err instanceof PromptCancelled) {
         process.exit(130);
       }
       throw err;
     }
-    const index = parseInt(answer, 10) - 1;
+    const num = parseInt(answer, 10);
+    // UX-M2 (#475): 0 cancels immediately.
+    if (num === 0) {
+      console.log("Cancelled.");
+      process.exit(0);
+    }
+    const index = num - 1;
     if (Number.isNaN(index) || index < 0 || index >= rows.length) {
       console.error(`Invalid selection. Enter a number between 1 and ${rows.length}.`);
       continue;
@@ -129,24 +132,3 @@ export async function handleOpenCommand({ overrides }: CommandContext): Promise<
   await launch(selectedRow.directory, overrides);
 }
 
-export function resolveTargetDirectory(target: string): string {
-  if (target === "." || target === "..") {
-    return resolve(target);
-  }
-  if (target.startsWith("/") || target.startsWith("~")) {
-    return expandHome(target);
-  }
-  if (target.startsWith("./") || target.startsWith("../") || target.includes("/")) {
-    return resolve(target);
-  }
-
-  const projectPath = getProject(target);
-  if (!projectPath) {
-    console.error(`Error: "${target}" is not a known command or registered project. Try: summon --help`);
-    console.error(`To register as a project: summon add ${target} /path/to/project`);
-    console.error("Or see available:         summon list");
-    process.exit(1);
-  }
-
-  return projectPath;
-}

@@ -1,5 +1,4 @@
 import { isFirstRun } from "./config.js";
-import { launch } from "./launcher.js";
 import { SummonError } from "./trust.js";
 import { PromptCancelled } from "./utils.js";
 import {
@@ -9,7 +8,8 @@ import {
   showHelp,
   showSubcommandHelp,
 } from "./cli/parse.js";
-import { resolveTargetDirectory } from "./commands/project.js";
+// PE-H1 (#473): Import from leaf module to avoid eagerly loading the launch graph.
+import { resolveTargetDirectory } from "./cli/resolve-target.js";
 import type { CommandHandler } from "./commands/types.js";
 
 // PE-H2 (#369): Lazy-import registry — handlers are only loaded when the subcommand is used.
@@ -83,6 +83,23 @@ try {
       console.log("Press Ctrl+C at any time to skip setup. Re-run later with: summon setup");
       const { runSetup } = await import("./setup.js");
       await runSetup();
+      // UX-M3 (#476): After wizard completes (returns normally), continue with the original
+      // launch intent when the user was targeting a directory. Cancellation (Ctrl+C) exits
+      // inside runSetup itself, so this code only runs on successful completion.
+      if (isDirectoryTarget && parsed.subcommand !== undefined) {
+        const overrides = buildOverrides(parsed.values);
+        const targetDir = resolveTargetDirectory(parsed.subcommand);
+        const { launch } = await import("./launcher.js");
+        try {
+          await launch(targetDir, overrides);
+        } catch (err) {
+          if (err instanceof SummonError) {
+            console.error(err.message);
+            process.exit(1);
+          }
+          throw err;
+        }
+      }
       process.exit(0);
     }
   }
@@ -119,6 +136,8 @@ try {
     // Not a known subcommand — treat as a workspace target (path or registered project name).
     // resolveTargetDirectory handles path resolution, project registry lookup, and error reporting.
     const targetDir = resolveTargetDirectory(parsed.subcommand);
+    // PE-M1 (#474): Dynamically import launch only when needed, not at startup.
+    const { launch } = await import("./launcher.js");
     try {
       await launch(targetDir, overrides);
     } catch (err) {
