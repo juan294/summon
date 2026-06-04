@@ -79,21 +79,10 @@ jobs:
         # Validates generated AppleScript syntax via osacompile (no Ghostty needed)
         run: SUMMON_E2E=1 pnpm test:e2e
 
-      # TODO: Complete OIDC migration (#490)
-      # Current state: NODE_AUTH_TOKEN (NPM_TOKEN secret) is the active publish credential.
-      # id-token: write is declared above but OIDC trusted publishing is NOT yet active.
-      # DO NOT remove NODE_AUTH_TOKEN until OIDC is fully registered — it will break publishing.
-      #
-      # Manual steps required to complete the migration:
-      #   1. Register juan294/summon + release.yml as trusted publisher on npmjs.com:
-      #      https://www.npmjs.com/package/summon-ws -> Settings -> Publishing -> Add trusted publisher
-      #   2. Remove NODE_AUTH_TOKEN line below (OIDC token via --provenance handles auth automatically)
-      #   3. Revoke the NPM_TOKEN secret from GitHub Settings -> Secrets -> Actions
-      # Until then, scope NPM_TOKEN to publish-only automation token (single package)
       - name: Publish
         run: npm publish summon-ws-*.tgz --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        # OIDC trusted publisher registered on npmjs.com (juan294/summon + release.yml).
+        # No NPM_TOKEN needed — GitHub Actions OIDC token handles auth via --provenance.
 
   # Validate the published tarball on Node 20.19 (minimum) and 24 (latest).
   # Node 22 is already smoke-tested inside the publish job above.
