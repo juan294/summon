@@ -1,1 +1,4 @@
-pnpm run typecheck && pnpm run lint && pnpm run test
+# Build is included to match the CLAUDE.md contract:
+#   "All commits must pass pnpm typecheck && pnpm lint && pnpm build && pnpm test"
+# This catches build-only breaks that typecheck alone won't surface.
+pnpm run typecheck && pnpm run lint && pnpm run build && pnpm run test

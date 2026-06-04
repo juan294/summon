@@ -35,6 +35,7 @@ export type ParsedValues = {
   once?: boolean;
   "dry-run"?: boolean;
   all?: boolean;
+  verbose?: boolean;
 };
 
 export type ParsedCli = {
@@ -255,13 +256,14 @@ Generate a structured morning report across all registered projects.
 Shows overnight commits, dirty files, workspace status, and a prioritized
 recommendation for where to start.`,
 
-  doctor: `Usage: summon doctor [--fix]
+  doctor: `Usage: summon doctor [--fix] [--verbose]
 
 Check your Ghostty configuration for recommended settings.
 Exits with code 2 if issues are found.
 
 Options:
-  --fix  Auto-add missing recommended settings (backs up config first)`,
+  --fix      Auto-add missing recommended settings (backs up config first)
+  --verbose  Show resolved config paths, version info, and trust database details`,
 
   export: `Usage: summon export [path]
 
@@ -367,6 +369,7 @@ const parseOpts = {
     once: { type: "boolean" },
     "dry-run": { type: "boolean", short: "n" },
     all: { type: "boolean" },
+    verbose: { type: "boolean" },
   },
 } as const;
 
