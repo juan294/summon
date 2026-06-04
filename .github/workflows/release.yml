@@ -81,8 +81,10 @@ jobs:
 
       - name: Publish
         run: npm publish summon-ws-*.tgz --provenance --access public
-        # OIDC trusted publisher registered on npmjs.com (juan294/summon + release.yml).
-        # No NPM_TOKEN needed — GitHub Actions OIDC token handles auth via --provenance.
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        # OIDC trusted publisher on npmjs.com (juan294/summon + release.yml) provides
+        # provenance attestation; NPM_TOKEN still required for registry PUT auth.
 
   # Validate the published tarball on Node 20.19 (minimum) and 24 (latest).
   # Node 22 is already smoke-tested inside the publish job above.
