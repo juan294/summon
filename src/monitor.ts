@@ -419,6 +419,9 @@ export async function runMonitor(): Promise<void> {
           `  ${cyan("?")}          ${dim("show this help")}`,
           `  ${cyan("q / Ctrl+C")} ${dim("quit")}`,
           "",
+          `  ${bold("Colors:")}`,
+          `  ${dim("yellow = active  dim = stopped")}`,
+          "",
           `  ${dim("Press any key to dismiss...")}`,
         ];
         process.stdout.write(CLEAR_SCREEN + helpLines.join("\n"));

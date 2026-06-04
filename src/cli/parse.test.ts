@@ -18,10 +18,14 @@ vi.mock("../validation.js", () => ({
   validateFloatFlag: (...args: unknown[]) => mockValidateFloatFlag(...args),
 }));
 
-vi.mock("../utils.js", () => ({
-  getErrorMessage: (error: unknown) => error instanceof Error ? error.message : String(error),
-  exitWithUsageHint: (message?: string) => mockExitWithUsageHint(message),
-}));
+vi.mock("../utils.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../utils.js")>();
+  return {
+    ...actual,
+    getErrorMessage: (error: unknown) => error instanceof Error ? error.message : String(error),
+    exitWithUsageHint: (message?: string) => mockExitWithUsageHint(message),
+  };
+});
 
 vi.mock("../config.js", () => ({
   VALID_KEYS: [

@@ -1070,6 +1070,18 @@ describe.skipIf(nodeMajor < 20)("runMonitor", () => {
     expect(output).toContain("Key bindings");
   });
 
+  it("#481 FE-L1: help overlay contains color legend with yellow and active", async () => {
+    const monitorPromise = runMonitor();
+    process.stdin.emit("data", Buffer.from("?"));
+    process.stdin.emit("data", Buffer.from(" "));
+    process.stdin.emit("data", Buffer.from("q"));
+    await monitorPromise;
+
+    const output = writeSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("");
+    expect(output).toContain("yellow");
+    expect(output).toContain("active");
+  });
+
   it("#413 FE-M7: help overlay uses bold/dim/cyan helpers (no raw ANSI in help text strings)", async () => {
     // The help overlay must use bold()/dim()/cyan() helpers, not raw \x1b[ escape sequences
     // embedded literally in string literals. We verify the structural content is present:

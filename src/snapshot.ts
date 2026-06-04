@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from "
 import { join, resolve, sep } from "node:path";
 import { execFileSync } from "node:child_process";
 import { SNAPSHOTS_DIR } from "./paths.js";
-import { gitSafeEnv } from "./utils.js";
+import { gitSafeEnv, supportsColor } from "./utils.js";
 
 // --- Types ---
 
@@ -138,9 +138,8 @@ export function formatTimeSince(isoTimestamp: string): string {
 }
 
 export function formatRestorationBanner(snapshot: ContextSnapshot): string {
-  const useColor = !!(process.stdout.isTTY && !process.env.NO_COLOR);
-  const dim = (s: string) => useColor ? `\x1b[2m${s}\x1b[0m` : s;
-  const green = (s: string) => useColor ? `\x1b[32m${s}\x1b[0m` : s;
+  const dim = (s: string) => supportsColor() ? `\x1b[2m${s}\x1b[0m` : s;
+  const green = (s: string) => supportsColor() ? `\x1b[32m${s}\x1b[0m` : s;
 
   const timeSince = formatTimeSince(snapshot.timestamp);
   const shortDate = new Date(snapshot.timestamp).toLocaleDateString("en-US", {

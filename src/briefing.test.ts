@@ -657,6 +657,19 @@ describe("cache max age (BE-M18)", () => {
   });
 });
 
+// --- #479: warning glyph in dirty file output ---
+
+describe("formatProjectBriefing dirty file glyph (#479)", () => {
+  beforeEach(() => {
+    vi.stubEnv("NO_COLOR", "1");
+  });
+
+  it("prefixes dirty file warning with ⚠ glyph (color-independent signal)", () => {
+    const output = formatProjectBriefing(makeBriefing({ dirtyFiles: ["src/index.ts"] }));
+    expect(output).toContain("⚠");
+  });
+});
+
 // --- runBriefing ---
 
 describe("runBriefing", () => {

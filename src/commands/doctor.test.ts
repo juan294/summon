@@ -29,13 +29,17 @@ vi.mock("../config.js", () => ({
   listProjects: (...args: unknown[]) => mockListProjects(...args),
 }));
 
-vi.mock("../utils.js", () => ({
-  checkAccessibility: (...args: unknown[]) => mockCheckAccessibility(...args),
-  resolveCommand: (...args: unknown[]) => mockResolveCommand(...args),
-  ACCESSIBILITY_REQUIRED_MSG: "Accessibility is required.",
-  ACCESSIBILITY_SETTINGS_PATH: "System Settings > Privacy & Security > Accessibility",
-  ACCESSIBILITY_ENABLE_HINT: "Enable Ghostty in the accessibility list.",
-}));
+vi.mock("../utils.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../utils.js")>();
+  return {
+    ...actual,
+    checkAccessibility: (...args: unknown[]) => mockCheckAccessibility(...args),
+    resolveCommand: (...args: unknown[]) => mockResolveCommand(...args),
+    ACCESSIBILITY_REQUIRED_MSG: "Accessibility is required.",
+    ACCESSIBILITY_SETTINGS_PATH: "System Settings > Privacy & Security > Accessibility",
+    ACCESSIBILITY_ENABLE_HINT: "Enable Ghostty in the accessibility list.",
+  };
+});
 
 vi.mock("../command-spec.js", () => ({
   commandExecutable: (...args: unknown[]) => mockCommandExecutable(...args),
@@ -87,9 +91,9 @@ describe("handleDoctorCommand", () => {
 
     await handleDoctorCommand(makeContext());
 
-    expect(logSpy).toHaveBeenCalledWith('  ✔ PASS  editor command "nvim" found at /usr/bin/nvim');
-    expect(logSpy).toHaveBeenCalledWith('  ✔ PASS  sidebar command "lazygit" found at /usr/bin/nvim');
-    expect(logSpy).toHaveBeenCalledWith("  ✔ PASS  No port conflicts (2 projects checked)");
+    expect(logSpy).toHaveBeenCalledWith('  ✓ PASS  editor command "nvim" found at /usr/bin/nvim');
+    expect(logSpy).toHaveBeenCalledWith('  ✓ PASS  sidebar command "lazygit" found at /usr/bin/nvim');
+    expect(logSpy).toHaveBeenCalledWith("  ✓ PASS  No port conflicts (2 projects checked)");
     // Issue count summary shows "All checks passed" when clean
     const allOutput = logSpy.mock.calls.flat().join("\n");
     expect(allOutput).toMatch(/✓ \d+\/\d+ checks passed\./);
@@ -150,7 +154,7 @@ describe("handleDoctorCommand", () => {
     mockResolveCommand.mockReturnValue(null);
 
     await expect(handleDoctorCommand(makeContext())).rejects.toThrow("exit:2");
-    expect(logSpy).toHaveBeenCalledWith('  ✖ FAIL  editor command "missing-editor" not found in PATH');
+    expect(logSpy).toHaveBeenCalledWith('  ✗ FAIL  editor command "missing-editor" not found in PATH');
     expect(logSpy).toHaveBeenCalledWith('    Install "missing-editor" or change with: summon set editor <command>');
     // Issue count shown in summary
     const allOutput = logSpy.mock.calls.flat().join("\n");
@@ -171,7 +175,7 @@ describe("handleDoctorCommand", () => {
 
     await expect(handleDoctorCommand(makeContext())).rejects.toThrow("exit:2");
 
-    expect(logSpy).toHaveBeenCalledWith('  ✖ FAIL  editor command "   " not found in PATH');
+    expect(logSpy).toHaveBeenCalledWith('  ✗ FAIL  editor command "   " not found in PATH');
     expect(logSpy).toHaveBeenCalledWith('    Install "   " or change with: summon set editor <command>');
   });
 
