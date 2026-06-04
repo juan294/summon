@@ -75,6 +75,11 @@ vi.mock("./layout-support.js", () => ({
   validateLayoutOrExit: (...args: unknown[]) => mockValidateLayoutOrExit(...args),
 }));
 
+const mockIsValidPreset = vi.fn((name: string) => /^[A-Za-z0-9._-]+$/.test(name));
+vi.mock("../starship.js", () => ({
+  isValidPreset: (name: string) => mockIsValidPreset(name),
+}));
+
 const {
   handleConfigCommand,
   handleExportCommand,
@@ -152,6 +157,17 @@ describe("handleSetCommand", () => {
     expect(mockValidateFloatFlag).toHaveBeenCalledWith("font-size", "14.5");
     expect(errorSpy).toHaveBeenCalledWith('Error: auto-resize must be "true" or "false", got "maybe".');
     expect(errorSpy).toHaveBeenCalledWith('Error: invalid starship preset name "bad preset".');
+  });
+
+  it("rejects unknown starship preset when isValidPreset returns false", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+    mockIsValidPreset.mockReturnValueOnce(false);
+
+    await expect(handleSetCommand(makeContext({ args: ["starship-preset", "unknown-preset"] }))).rejects.toThrow("exit:1");
+    expect(errorSpy).toHaveBeenCalledWith('Error: invalid starship preset name "unknown-preset".');
   });
 
   it("rejects empty command values for command-like keys", async () => {

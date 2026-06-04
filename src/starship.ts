@@ -50,10 +50,15 @@ export function listStarshipPresets(): string[] {
   }
 }
 
-/** @internal — exported for testing only */
+/** Validate a Starship preset name. Rejects unsafe characters always; rejects
+ * names absent from the preset list when starship is installed. When starship
+ * is not installed the preset list is unavailable, so only the character check
+ * applies.
+ */
 export function isValidPreset(name: string): boolean {
   if (!SAFE_COMMAND_RE.test(name)) return false;
-  return listStarshipPresets().includes(name);
+  const presets = listStarshipPresets();
+  return presets.length === 0 || presets.includes(name);
 }
 
 /**

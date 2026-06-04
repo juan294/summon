@@ -101,9 +101,9 @@ describe("isValidPreset", () => {
     expect(isValidPreset("foo;rm -rf")).toBe(false);
   });
 
-  it("returns false when starship not installed", () => {
+  it("returns true for safe name when starship not installed (preset list unavailable)", () => {
     mockResolveCommand.mockReturnValue(null);
-    expect(isValidPreset("tokyo-night")).toBe(false);
+    expect(isValidPreset("tokyo-night")).toBe(true);
   });
 });
 

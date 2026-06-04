@@ -6,7 +6,6 @@ import {
   listProjects,
   setConfig,
   removeConfig,
-  getConfig,
   listConfig,
   readKVFile,
   readKVFromString,
@@ -147,11 +146,11 @@ describe("project CRUD", () => {
 describe("machine config", () => {
   it("sets and retrieves a config value", () => {
     setConfig("editor", "vim");
-    expect(getConfig("editor")).toBe("vim");
+    expect(listConfig().get("editor")).toBe("vim");
   });
 
   it("returns undefined for unset key", () => {
-    expect(getConfig("nonexistent")).toBeUndefined();
+    expect(listConfig().get("nonexistent")).toBeUndefined();
   });
 
   it("lists all config values", () => {
@@ -164,20 +163,20 @@ describe("machine config", () => {
 
   it("handles values containing '=' characters", () => {
     setConfig("cmd", "FOO=bar baz");
-    expect(getConfig("cmd")).toBe("FOO=bar baz");
+    expect(listConfig().get("cmd")).toBe("FOO=bar baz");
   });
 
   it("overwrites existing config value", () => {
     setConfig("editor", "vim");
     setConfig("editor", "nano");
-    expect(getConfig("editor")).toBe("nano");
+    expect(listConfig().get("editor")).toBe("nano");
   });
 
   it("removes a config key", () => {
     setConfig("editor", "vim");
     const result = removeConfig("editor");
     expect(result).toBe(true);
-    expect(getConfig("editor")).toBeUndefined();
+    expect(listConfig().get("editor")).toBeUndefined();
   });
 
   it("returns false when removing non-existent config key", () => {
@@ -269,7 +268,6 @@ describe("ensureConfig caching (#25)", () => {
     mkdirSpy.mockClear();
 
     // Multiple config operations that each call readKV → ensureConfig
-    getConfig("editor");
     listConfig();
     listProjects();
     getProject("foo");
@@ -282,11 +280,11 @@ describe("ensureConfig caching (#25)", () => {
     const mkdirSpy = fs.mkdirSync as ReturnType<typeof vi.fn>;
     mkdirSpy.mockClear();
 
-    getConfig("editor");
+    listConfig();
     expect(mkdirSpy).toHaveBeenCalledTimes(1);
 
     resetConfigCache();
-    getConfig("editor");
+    listConfig();
     expect(mkdirSpy).toHaveBeenCalledTimes(2);
   });
 });
@@ -343,7 +341,7 @@ describe("file permissions (#47)", () => {
     const mkdirSpy = fs.mkdirSync as ReturnType<typeof vi.fn>;
     mkdirSpy.mockClear();
 
-    getConfig("editor");
+    listConfig();
 
     expect(mkdirSpy).toHaveBeenCalledWith(
       expect.any(String),
@@ -356,7 +354,7 @@ describe("file permissions (#47)", () => {
     const writeSpy = fs.writeFileSync as ReturnType<typeof vi.fn>;
     writeSpy.mockClear();
 
-    getConfig("editor");
+    listConfig();
 
     // Both initial file writes (projects + config) should include mode 0o600
     const initWrites = writeSpy.mock.calls.filter(
@@ -385,7 +383,7 @@ describe("file permissions (#47)", () => {
 describe("writeKV newline sanitization (#26)", () => {
   it("strips newlines from config values", () => {
     setConfig("key", "value\ninjected=evil");
-    expect(getConfig("key")).toBe("valueinjected=evil");
+    expect(listConfig().get("key")).toBe("valueinjected=evil");
   });
 
   it("rejects config keys containing newlines (BE-M2 #376)", () => {
@@ -395,7 +393,7 @@ describe("writeKV newline sanitization (#26)", () => {
 
   it("strips carriage returns from values", () => {
     setConfig("key", "value\r\nwith-cr");
-    expect(getConfig("key")).toBe("valuewith-cr");
+    expect(listConfig().get("key")).toBe("valuewith-cr");
   });
 
   it("rejects project names with newlines (BE-B4 validation)", () => {
@@ -478,7 +476,7 @@ describe("BOOLEAN_KEYS includes clean", () => {
 describe("ensureConfig initial content", () => {
   it("creates empty config file on first run", async () => {
     const store = await getStore();
-    getConfig("editor"); // triggers ensureConfig
+    listConfig(); // triggers ensureConfig
     const configPath = [...store.keys()].find((k) => k.endsWith("/config"));
     expect(configPath).toBeDefined();
     expect(store.get(configPath!)).toBe("");
@@ -725,7 +723,7 @@ describe("setConfig key validation (BE-M2 #376)", () => {
 
   it("accepts normal keys", () => {
     expect(() => setConfig("editor", "vim")).not.toThrow();
-    expect(getConfig("editor")).toBe("vim");
+    expect(listConfig().get("editor")).toBe("vim");
   });
 });
 

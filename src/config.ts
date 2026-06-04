@@ -190,11 +190,6 @@ export function removeConfig(key: string): boolean {
   return existed;
 }
 
-/** @internal — exported for testing only */
-export function getConfig(key: string): string | undefined {
-  return readKV(CONFIG_FILE).get(key);
-}
-
 export function listConfig(): Map<string, string> {
   const config = readKV(CONFIG_FILE);
   for (const key of config.keys()) {

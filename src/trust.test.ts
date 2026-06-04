@@ -12,7 +12,7 @@ const mockStatSync = vi.fn();
 vi.mock("node:fs", () => ({
   existsSync: (path: string) => mockExistsSync(path),
   readFileSync: (path: string, encoding: string) => mockReadFileSync(path, encoding),
-  writeFileSync: (path: string, data: string, encoding: string) => mockWriteFileSync(path, data, encoding),
+  writeFileSync: (path: string, data: string, opts: string | object) => mockWriteFileSync(path, data, opts),
   mkdirSync: (path: string, opts: unknown) => mockMkdirSync(path, opts),
   realpathSync: (path: string) => mockRealpathSync(path),
   statSync: (path: string) => mockStatSync(path),
@@ -190,12 +190,12 @@ describe("trustProject", () => {
 
     expect(mockMkdirSync).toHaveBeenCalledWith(
       "/home/testuser/.config/summon",
-      { recursive: true },
+      { recursive: true, mode: 0o700 },
     );
     expect(mockWriteFileSync).toHaveBeenCalledWith(
       TRUST_FILE,
       expect.stringContaining("/myproject"),
-      "utf-8",
+      { encoding: "utf-8", mode: 0o600 },
     );
   });
 
