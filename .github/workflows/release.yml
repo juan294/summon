@@ -58,7 +58,11 @@ jobs:
           npm pack
           TARBALL=$(ls summon-ws-*.tgz)
           echo "Tarball: $TARBALL"
-          tar tzf "$TARBALL" | grep -E "(index\.js|bin)" || (echo "ERROR: Missing expected files in tarball" && exit 1)
+          FILE_COUNT=$(tar tzf "$TARBALL" | grep -E "package/dist/(index\.js|chunk-)" | wc -l | tr -d ' ')
+          echo "Matched dist files: $FILE_COUNT"
+          if [ "$FILE_COUNT" -lt 2 ]; then
+            echo "ERROR: Expected package/dist/index.js + at least one chunk-*.js in tarball (got $FILE_COUNT)" && exit 1
+          fi
           npm install -g "$TARBALL"
           summon --version
           summon --help
@@ -67,16 +71,17 @@ jobs:
         # Validates generated AppleScript syntax via osacompile (no Ghostty needed)
         run: SUMMON_E2E=1 pnpm test:e2e
 
-      # TODO: OIDC — migrate away from long-lived NPM_TOKEN
+      # TODO: Complete OIDC migration (#490)
       # Current state: NODE_AUTH_TOKEN (NPM_TOKEN secret) is the active publish credential.
       # id-token: write is declared above but OIDC trusted publishing is NOT yet active.
+      # DO NOT remove NODE_AUTH_TOKEN until OIDC is fully registered — it will break publishing.
       #
-      # To complete the migration:
-      #   1. Go to https://www.npmjs.com/package/summon-ws -> Settings -> Publishing
-      #   2. Add a trusted publisher: GitHub Actions, repo juan294/summon, workflow release.yml
-      #   3. Once configured, remove NODE_AUTH_TOKEN from the Publish step below.
-      #      The --provenance flag will then use the OIDC token automatically.
-      #   4. Revoke the NPM_TOKEN secret from GitHub Settings -> Secrets.
+      # Manual steps required to complete the migration:
+      #   1. Register juan294/summon + release.yml as trusted publisher on npmjs.com:
+      #      https://www.npmjs.com/package/summon-ws -> Settings -> Publishing -> Add trusted publisher
+      #   2. Remove NODE_AUTH_TOKEN line below (OIDC token via --provenance handles auth automatically)
+      #   3. Revoke the NPM_TOKEN secret from GitHub Settings -> Secrets -> Actions
+      # Until then, scope NPM_TOKEN to publish-only automation token (single package)
       - name: Publish
         run: npm publish summon-ws-*.tgz --provenance --access public
         env:
