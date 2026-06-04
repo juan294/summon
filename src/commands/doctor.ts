@@ -4,13 +4,15 @@ import { listConfig, listProjects } from "../config.js";
 import {
   checkAccessibility,
   resolveCommand,
+  GHOSTTY_PATHS,
   ACCESSIBILITY_REQUIRED_MSG,
   ACCESSIBILITY_SETTINGS_PATH,
   ACCESSIBILITY_ENABLE_HINT,
 } from "../utils.js";
 import { commandExecutable } from "../command-spec.js";
-import { green, red, yellow, bold } from "../ui/ansi.js";
+import { green, red, yellow, bold, dim } from "../ui/ansi.js";
 import { sym } from "../ui/symbols.js";
+import { CONFIG_DIR, TRUST_FILE } from "../paths.js";
 import type { CommandContext } from "./types.js";
 
 const PASS = green(`${sym.ok} PASS`);
@@ -26,6 +28,7 @@ export async function handleDoctorCommand({ values }: CommandContext): Promise<v
   } = await import("node:fs");
 
   const fixFlag = values.fix;
+  const verboseFlag = values.verbose;
 
   // Track pass/fail counts for summary (UX-M4, UX-M5, UX-M9)
   let totalIssues = 0;
@@ -182,6 +185,48 @@ export async function handleDoctorCommand({ values }: CommandContext): Promise<v
     const fixablePart = autoFixable > 0 ? ` (${autoFixable} auto-fixable with --fix)` : "";
     console.log(yellow(bold(`${passedChecks}/${totalChecks} checks passed — ${failedChecks} failed${fixablePart}.`)));
     console.log(`  Run 'summon doctor --fix' to apply fixes, or 'summon setup' to reconfigure.`);
+  }
+
+  // Verbose diagnostic section (#504 DO-S1)
+  // Gives users full diagnostic context without needing SUMMON_DEBUG=1.
+  if (verboseFlag) {
+    console.log();
+    console.log(bold("Diagnostic info:"));
+    console.log();
+
+    // Summon version
+    console.log(`  Summon version:  ${__VERSION__}`);
+
+    // Node.js version
+    console.log(`  Node.js version: ${process.version}`);
+
+    // Config directory
+    console.log(`  Config dir:      ${CONFIG_DIR}`);
+
+    // Ghostty paths and accessibility
+    const ghosttyFound = GHOSTTY_PATHS.find((p) => existsSync(p));
+    if (ghosttyFound) {
+      console.log(`  Ghostty path:    ${ghosttyFound} ${dim("(found)")}`);
+    } else {
+      console.log(`  Ghostty path:    ${GHOSTTY_PATHS.join(", ")} ${dim("(not found)")}`);
+    }
+
+    // Trust DB
+    let trustedCount = 0;
+    if (existsSync(TRUST_FILE)) {
+      try {
+        const raw = readFileSync(TRUST_FILE, "utf-8");
+        const parsed: unknown = JSON.parse(raw);
+        if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+          trustedCount = Object.keys(parsed as Record<string, string>).length;
+        }
+      } catch {
+        // ignore parse errors — count stays 0
+      }
+    }
+    console.log(`  Trust DB:        ${TRUST_FILE}`);
+    console.log(`  Trusted projects: ${trustedCount} project${trustedCount === 1 ? "" : "s"}`);
+    console.log();
   }
 
   const issuesRemain = appliedFixes ? !accessOk : !allGood;
