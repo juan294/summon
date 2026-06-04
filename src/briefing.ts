@@ -3,6 +3,7 @@ import { listProjects } from "./config.js";
 import { readAllStatuses, getGitBranch } from "./status.js";
 import type { ResolvedStatus } from "./status.js";
 import { bold, dim, green, yellow, cyan } from "./ui/ansi.js";
+import { sym } from "./ui/symbols.js";
 import { gitSafeEnv } from "./utils.js";
 
 // --- Types ---
@@ -191,7 +192,7 @@ export function formatProjectBriefing(project: ProjectBriefing): string {
 
   if (project.dirtyFiles.length > 0) {
     const count = project.dirtyFiles.length;
-    lines.push(`  \u251C\u2500 ${yellow(`${count} modified file${count !== 1 ? "s" : ""} (uncommitted)`)}`);
+    lines.push(`  \u251C\u2500 ${yellow(`${sym.warn} ${count} modified file${count !== 1 ? "s" : ""} (uncommitted)`)}`);
   } else {
     lines.push(`  \u251C\u2500 Clean working tree`);
   }
@@ -233,7 +234,7 @@ export function formatBriefingSummary(summary: BriefingSummary): string {
   lines.push(`  ${sep}`);
   lines.push(`  ${summary.totalProjects} projects \u00B7 ${summary.activeCount} active \u00B7 ${summary.totalOvernightCommits} overnight commits`);
   if (summary.allClean) {
-    lines.push(`  ${green("✔")} All projects clean`);
+    lines.push(`  ${green(sym.ok)} All projects clean`);
   }
   if (summary.recommendation) {
     lines.push(`\n  Start with: ${bold(summary.recommendation)}`);

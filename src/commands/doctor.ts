@@ -10,10 +10,11 @@ import {
 } from "../utils.js";
 import { commandExecutable } from "../command-spec.js";
 import { green, red, yellow, bold } from "../ui/ansi.js";
+import { sym } from "../ui/symbols.js";
 import type { CommandContext } from "./types.js";
 
-const PASS = green("✔ PASS");
-const FAIL = red("✖ FAIL");
+const PASS = green(`${sym.ok} PASS`);
+const FAIL = red(`${sym.fail} FAIL`);
 
 export async function handleDoctorCommand({ values }: CommandContext): Promise<void> {
   const {
@@ -175,7 +176,7 @@ export async function handleDoctorCommand({ values }: CommandContext): Promise<v
 
   // Pass/fail summary (UX-M4, UX-M9)
   if (totalIssues === 0) {
-    console.log(green(`✓ ${passedChecks}/${totalChecks} checks passed.`));
+    console.log(green(`${sym.ok} ${passedChecks}/${totalChecks} checks passed.`));
   } else {
     const failedChecks = totalChecks - passedChecks;
     const fixablePart = autoFixable > 0 ? ` (${autoFixable} auto-fixable with --fix)` : "";
