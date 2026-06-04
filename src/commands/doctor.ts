@@ -42,7 +42,7 @@ export async function handleDoctorCommand({ values }: CommandContext): Promise<v
     console.log();
   }
 
-  const configContent = existsSync(ghosttyConfigPath)
+  let configContent = existsSync(ghosttyConfigPath)
     ? readFileSync(ghosttyConfigPath, "utf-8")
     : "";
 
@@ -62,6 +62,28 @@ export async function handleDoctorCommand({ values }: CommandContext): Promise<v
       regex: /^\s*shell-integration\s*=/m,
     },
   ];
+
+  // Apply --fix before running checks so the check loop sees updated content
+  let appliedFixes = false;
+  if (fixFlag) {
+    const toApply = checks.filter(c => !c.regex.test(configContent));
+    if (toApply.length > 0) {
+      const ghosttyDir = join(homedir(), ".config", "ghostty");
+      mkdirSync(ghosttyDir, { recursive: true });
+      if (existsSync(ghosttyConfigPath)) {
+        const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+        const backup = `${ghosttyConfigPath}.bak.${timestamp}`;
+        copyFileSync(ghosttyConfigPath, backup);
+        console.log(`  Backed up ${ghosttyConfigPath} → ${backup}`);
+      }
+      const additions = toApply.map(s => `${s.key} = ${s.recommended}`).join("\n");
+      appendFileSync(ghosttyConfigPath, "\n# Added by summon doctor --fix\n" + additions + "\n");
+      console.log(`  Added ${toApply.length} setting(s) to ${ghosttyConfigPath}`);
+      console.log();
+      configContent = readFileSync(ghosttyConfigPath, "utf-8");
+      appliedFixes = true;
+    }
+  }
 
   let allGood = true;
   const missingSettings: Array<{ key: string; recommended: string }> = [];
@@ -85,22 +107,6 @@ export async function handleDoctorCommand({ values }: CommandContext): Promise<v
       }
       console.log();
     }
-  }
-
-  if (fixFlag && missingSettings.length > 0) {
-    const ghosttyDir = join(homedir(), ".config", "ghostty");
-    mkdirSync(ghosttyDir, { recursive: true });
-
-    if (existsSync(ghosttyConfigPath)) {
-      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-      const backup = `${ghosttyConfigPath}.bak.${timestamp}`;
-      copyFileSync(ghosttyConfigPath, backup);
-      console.log(`  Backed up ${ghosttyConfigPath} → ${backup}`);
-    }
-
-    const additions = missingSettings.map((setting) => `${setting.key} = ${setting.recommended}`).join("\n");
-    appendFileSync(ghosttyConfigPath, "\n# Added by summon doctor --fix\n" + additions + "\n");
-    console.log(`  Added ${missingSettings.length} setting(s) to ${ghosttyConfigPath}`);
   }
 
   console.log();
@@ -177,8 +183,7 @@ export async function handleDoctorCommand({ values }: CommandContext): Promise<v
     console.log(`  Run 'summon doctor --fix' to apply fixes, or 'summon setup' to reconfigure.`);
   }
 
-  const configFixed = fixFlag && missingSettings.length > 0;
-  const issuesRemain = configFixed ? !accessOk : !allGood;
+  const issuesRemain = appliedFixes ? !accessOk : !allGood;
   if (issuesRemain) {
     console.error("Exit code 2: issues were found. See above for details.");
     process.exit(2);

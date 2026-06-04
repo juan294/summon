@@ -1,6 +1,7 @@
 import { isFirstRun } from "./config.js";
 import { launch } from "./launcher.js";
 import { SummonError } from "./trust.js";
+import { PromptCancelled } from "./utils.js";
 import {
   buildOverrides,
   hasSubcommandHelp,
@@ -74,56 +75,63 @@ if (parsed.values.all && parsed.subcommand && parsed.subcommand !== "session") {
   );
 }
 
-// UX-H3 (#372): First-run wizard fires when no subcommand was supplied OR when targeting a directory.
-if (isFirstRun() && process.stdin.isTTY) {
-  const isDirectoryTarget = parsed.subcommand !== undefined && !(parsed.subcommand in registry);
-  if (parsed.subcommand === undefined || isDirectoryTarget) {
-    console.log("Press Ctrl+C at any time to skip setup. Re-run later with: summon setup");
-    const { runSetup } = await import("./setup.js");
-    await runSetup();
-    process.exit(0);
-  }
-}
-
-if (!parsed.subcommand) {
-  // UX-S1 (#315): Show quick-start hint for returning users in TTY
-  // UX-L1 (#425): Include setup and --help in the hint so users know where to start
-  const isTTY = process.stdin.isTTY || process.env["SUMMON_FORCE_TTY"] === "1";
-  if (isTTY) {
-    console.log(
-      "Usage: summon <path>           Launch a workspace\n" +
-        "       summon setup            Configure summon for the first time\n" +
-        "       summon --help           Full help",
-    );
-    process.exit(0);
-  }
-  showHelp();
-  process.exit(0);
-}
-
-const overrides = buildOverrides(parsed.values);
-const handlerFactory = registry[parsed.subcommand];
-
-if (handlerFactory) {
-  const handler = await handlerFactory();
-  await handler({
-    parsed,
-    values: parsed.values,
-    subcommand: parsed.subcommand,
-    args: parsed.args,
-    overrides,
-  });
-} else {
-  // Not a known subcommand — treat as a workspace target (path or registered project name).
-  // resolveTargetDirectory handles path resolution, project registry lookup, and error reporting.
-  const targetDir = resolveTargetDirectory(parsed.subcommand);
-  try {
-    await launch(targetDir, overrides);
-  } catch (err) {
-    if (err instanceof SummonError) {
-      console.error(err.message);
-      process.exit(1);
+try {
+  // UX-H3 (#372): First-run wizard fires when no subcommand was supplied OR when targeting a directory.
+  if (isFirstRun() && process.stdin.isTTY) {
+    const isDirectoryTarget = parsed.subcommand !== undefined && !(parsed.subcommand in registry);
+    if (parsed.subcommand === undefined || isDirectoryTarget) {
+      console.log("Press Ctrl+C at any time to skip setup. Re-run later with: summon setup");
+      const { runSetup } = await import("./setup.js");
+      await runSetup();
+      process.exit(0);
     }
-    throw err;
   }
+
+  if (!parsed.subcommand) {
+    // UX-S1 (#315): Show quick-start hint for returning users in TTY
+    // UX-L1 (#425): Include setup and --help in the hint so users know where to start
+    const isTTY = process.stdin.isTTY || process.env["SUMMON_FORCE_TTY"] === "1";
+    if (isTTY) {
+      console.log(
+        "Usage: summon <path>           Launch a workspace\n" +
+          "       summon setup            Configure summon for the first time\n" +
+          "       summon --help           Full help",
+      );
+      process.exit(0);
+    }
+    showHelp();
+    process.exit(0);
+  }
+
+  const overrides = buildOverrides(parsed.values);
+  const handlerFactory = registry[parsed.subcommand];
+
+  if (handlerFactory) {
+    const handler = await handlerFactory();
+    await handler({
+      parsed,
+      values: parsed.values,
+      subcommand: parsed.subcommand,
+      args: parsed.args,
+      overrides,
+    });
+  } else {
+    // Not a known subcommand — treat as a workspace target (path or registered project name).
+    // resolveTargetDirectory handles path resolution, project registry lookup, and error reporting.
+    const targetDir = resolveTargetDirectory(parsed.subcommand);
+    try {
+      await launch(targetDir, overrides);
+    } catch (err) {
+      if (err instanceof SummonError) {
+        console.error(err.message);
+        process.exit(1);
+      }
+      throw err;
+    }
+  }
+} catch (err) {
+  if (err instanceof PromptCancelled) {
+    process.exit(1);
+  }
+  throw err;
 }
