@@ -952,14 +952,27 @@ describe("generateAppleScript", () => {
       expect(script).not.toContain("close last terminal");
     });
 
-    it("emits close-prelude BEFORE new-window keystroke", () => {
+    it("omits close-prelude when newWindow=true to avoid closing unrelated windows (BE-L2 #496)", () => {
+      // When --new-window is used, summon opens a brand-new Ghostty window via Cmd+N.
+      // Running the close prelude would close panes in the PREVIOUS front window, which
+      // belongs to an unrelated session. The fix: never emit the close prelude when
+      // newWindow=true — there are no stale panes to clean in a fresh window.
       const plan = planLayout({ cleanRestoredPanes: true, newWindow: true });
       const script = generateAppleScript(plan, "/tmp");
-      const closeIdx = script.indexOf("close last terminal");
-      const cmdNIdx = script.indexOf('keystroke "n" using command down');
-      expect(closeIdx).toBeGreaterThan(-1);
-      expect(cmdNIdx).toBeGreaterThan(-1);
-      expect(closeIdx).toBeLessThan(cmdNIdx);
+      expect(script).not.toContain("close last terminal");
+      expect(script).not.toContain("Clear restored panes");
+      // New-window keystroke should still be present
+      expect(script).toContain('keystroke "n" using command down');
+    });
+
+    it("still emits close-prelude when cleanRestoredPanes=true and newWindow=false (default)", () => {
+      // In the default mode (no --new-window), summon reuses the front tab.
+      // Closing stale panes is safe because the front tab IS the target.
+      const plan = planLayout({ cleanRestoredPanes: true, newWindow: false });
+      const script = generateAppleScript(plan, "/tmp");
+      expect(script).toContain("-- Clear restored panes from previous Ghostty session");
+      expect(script).toContain("set targetTab to selected tab of front window");
+      expect(script).toContain("close last terminal of targetTab");
     });
   });
 
@@ -1533,6 +1546,17 @@ describe("generateTreeAppleScript", () => {
       const plan = makePlan(singlePane, { cleanRestoredPanes: false });
       const script = generateTreeAppleScript(plan, "/tmp/project");
       expect(script).not.toContain("close last terminal");
+    });
+
+    it("omits close-prelude in tree generator when newWindow=true even if cleanRestoredPanes=true (BE-L2 #496)", () => {
+      // --new-window opens a fresh Ghostty window; there are no stale panes to clean.
+      // Running the prelude would close panes in the previous (unrelated) front window.
+      const plan = makePlan(singlePane, { cleanRestoredPanes: true, newWindow: true });
+      const script = generateTreeAppleScript(plan, "/tmp/project");
+      expect(script).not.toContain("close last terminal");
+      expect(script).not.toContain("Clear restored panes");
+      // New-window keystroke should still appear
+      expect(script).toContain('keystroke "n" using command down');
     });
 
     it("buildTreePlan defaults cleanRestoredPanes to false", () => {

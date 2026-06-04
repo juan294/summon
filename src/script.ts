@@ -85,7 +85,32 @@ function buildEnvVarsList(
   return allEnvVars;
 }
 
-/** Emit unified cleanup trap: on-stop → snapshot → marker removal. */
+/**
+ * Emit unified cleanup trap: on-stop → snapshot → marker removal.
+ *
+ * SE-L1: on-stop execution context
+ *
+ * The on-stop command is inlined into a shell EXIT/HUP trap that runs inside the
+ * root Ghostty pane (the terminal itself), not in the Node.js launcher process.
+ *
+ * Execution scope:
+ *   - **cwd**: the project directory (options.targetDir), set via `cd` before the
+ *     editor command in emitRootPaneCommand. The trap inherits that working directory.
+ *   - **environment**: the user's login shell environment as started by Ghostty, plus
+ *     any env vars set via surface configuration (SUMMON_WORKSPACE, STARSHIP_CONFIG,
+ *     user-defined env.* keys). The trap inherits the full pane environment.
+ *   - **trust**: the on-stop command is sourced from a .summon file that has already
+ *     passed the trust gate (assertTrustedContent) before launch(). Additionally,
+ *     confirmDangerousCommands() warns the user if the value contains shell metacharacters.
+ *     The command is NOT passed through shellQuote — it is inlined as a trusted shell
+ *     fragment, which is required so it can use shell features (pipes, redirects, etc.).
+ *     escapeAppleScript() is applied at the outer boundary (sendCommand) to keep the
+ *     AppleScript string safe.
+ *   - **stdout/stderr**: redirected to $HOME/.config/summon/logs/cleanup-<project>.log.
+ *     The command's output is NOT shown in the terminal.
+ *
+ * // SE-L1: on-stop runs in the project directory with the user's login environment
+ */
 function emitCleanupTrap(
   { sendCommand }: ScriptBuilder,
   rootPaneVar: string,
@@ -265,9 +290,19 @@ function paneVar(name: string): string {
   return `pane_${name.replace(/-/g, "_")}`;
 }
 
-/** Close all panes in the selected tab except the first, clearing restored session panes. */
-function emitClosePrelude(sb: ScriptBuilder, cleanRestoredPanes: boolean): void {
-  if (!cleanRestoredPanes) return;
+/**
+ * Close all panes in the selected tab except the first, clearing restored session panes.
+ *
+ * BE-L2 #496: The prelude is scoped to `selected tab of front window`, which is the tab
+ * summon will reuse in default mode (no --new-window). When --new-window is set, summon
+ * opens a fresh Ghostty window via Cmd+N — there are no stale panes to clean in a new
+ * window, and running the prelude would incorrectly close panes in the PREVIOUS front
+ * window (an unrelated session). The `newWindow` guard below prevents this.
+ */
+function emitClosePrelude(sb: ScriptBuilder, cleanRestoredPanes: boolean, newWindow?: boolean): void {
+  // Skip when disabled or when --new-window is active (fresh window has no stale panes,
+  // and running would close panes in the previous unrelated front window — BE-L2 #496).
+  if (!cleanRestoredPanes || newWindow) return;
   const { add, blank } = sb;
   add(1, "-- Clear restored panes from previous Ghostty session");
   add(1, "set targetTab to selected tab of front window");
@@ -490,7 +525,7 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, starshi
   const allEnvVars = buildEnvVarsList(starshipConfigPath, envVars, projectName);
 
   emitSurfaceConfig(sb, targetDir, plan.fontSize, allEnvVars);
-  emitClosePrelude(sb, plan.cleanRestoredPanes);
+  emitClosePrelude(sb, plan.cleanRestoredPanes, plan.newWindow);
   if (plan.newTab) {
     emitNewTab(sb);
     sb.add(1, "set paneRoot to terminal 1 of selected tab of front window");
@@ -565,7 +600,7 @@ export function generateTreeAppleScript(
   const rootPaneVar = paneVar(rootLeaf.name);
 
   emitSurfaceConfig(sb, targetDir, plan.fontSize, allEnvVars);
-  emitClosePrelude(sb, plan.cleanRestoredPanes);
+  emitClosePrelude(sb, plan.cleanRestoredPanes, plan.newWindow);
   if (plan.newTab) {
     emitNewTab(sb);
     sb.add(1, `set ${rootPaneVar} to terminal 1 of selected tab of front window`);
