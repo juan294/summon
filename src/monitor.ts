@@ -1,7 +1,7 @@
 import { readAllStatuses, getGitBranch } from "./status.js";
 import type { ResolvedStatus } from "./status.js";
 import { listProjects } from "./config.js";
-import { bold, dim, green, yellow, cyan, invert } from "./ui/ansi.js";
+import { bold, dim, green, red, yellow, cyan, invert } from "./ui/ansi.js";
 
 // --- Types ---
 
@@ -129,8 +129,8 @@ export function renderScreen(rows: ProjectRow[], selectedIndex: number, width: n
   let renderedRows: string[];
   if (rows.length === 0) {
     renderedRows = [
-      "  No projects registered.",
-      "  Run 'summon add <name> <path>' to get started.",
+      "  No projects found.",
+      "  Run `summon add <name> <path>` to get started.",
     ];
   } else {
     renderedRows = visibleRows.map((row, i) =>
@@ -268,8 +268,8 @@ export function loadProjectRows(): ProjectRow[] {
 export function printStatusOnce(): void {
   const rows = loadProjectRows();
   if (rows.length === 0) {
-    console.log("No workspace sessions recorded yet.");
-    console.log("Launch a workspace with 'summon <project>' to start tracking.");
+    console.log("No workspaces found.");
+    console.log("Run `summon <project>` to launch a workspace.");
     return;
   }
 
@@ -445,11 +445,36 @@ export async function runMonitor(): Promise<void> {
             process.stdout.write(`Opening ${selected.name}...\n`);
             cleanup();
             import("./launcher.js").then(async ({ launch }) => {
+              let launchError: Error | null = null;
               await launch(selected.directory).catch((err: Error) => {
-                process.stderr.write(`Launch failed: ${err.message}\n`);
-                process.exit(1);
+                launchError = err;
               });
-              resolve();
+              if (launchError !== null) {
+                // Re-enter TUI and show the error in-place so the user can continue
+                process.stdout.write(ENTER_ALT_SCREEN + HIDE_CURSOR);
+                if (process.stdin.isTTY) {
+                  process.stdin.setRawMode(true);
+                }
+                process.stdin.resume();
+                const errDisplay = [
+                  "",
+                  `  ${bold("Launch failed:")}`,
+                  `  ${red((launchError as Error).message)}`,
+                  "",
+                  `  ${dim("Press any key to continue...")}`,
+                ];
+                process.stdout.write(CLEAR_SCREEN + errDisplay.join("\n"));
+                // Wait for any key, then resume the TUI
+                const dismissError = (_dismissData: Buffer): void => {
+                  process.stdin.off("data", dismissError);
+                  render(true);
+                  refreshTimer = setInterval(refresh, REFRESH_INTERVAL_MS);
+                  process.stdin.on("data", onKeypress);
+                };
+                process.stdin.once("data", dismissError);
+              } else {
+                resolve();
+              }
             });
           }
         }

@@ -128,7 +128,8 @@ describe("handleLayoutCommand", () => {
 
     await handleLayoutCommand(makeContext({ args: ["list"] }));
 
-    expect(logSpy).toHaveBeenCalledWith("No custom layouts saved. Use: summon layout save <name>");
+    expect(logSpy).toHaveBeenCalledWith("No custom layouts found.");
+    expect(logSpy).toHaveBeenCalledWith("Run `summon layout save <name>` to create one.");
   });
 
   it("renders previews and config details when listing layouts", async () => {

@@ -371,7 +371,7 @@ describe("CLI integration", () => {
       // list should show empty projects in isolated env
       const result = run("list");
       expect(result.status).toBe(0);
-      expect(result.stdout).toContain("No projects registered");
+      expect(result.stdout).toContain("No projects found");
     });
   });
 
@@ -781,7 +781,7 @@ describe("CLI integration", () => {
     it("shows error when no projects registered", () => {
       const result = run("open");
       expect(result.status).toBe(1);
-      expect(result.stderr).toContain("No projects registered");
+      expect(result.stderr).toContain("No projects found");
     });
 
     it("summon open --help shows usage", () => {
@@ -1009,7 +1009,7 @@ describe("CLI integration", () => {
     it("summon layout list works with no custom layouts", () => {
       const result = run("layout", "list");
       expect(result.status).toBe(0);
-      expect(result.stdout).toContain("No custom layouts");
+      expect(result.stdout).toContain("No custom layouts found");
     });
 
     it("summon layout save creates a custom layout", () => {
@@ -1523,7 +1523,7 @@ describe("CLI integration", () => {
       run("layout", "delete", "exist200");
     });
 
-    it("no projects registered (open) has Error: prefix", () => {
+    it("no projects (open) exits 1 with actionable message on stderr", () => {
       const freshHome = mkdtempSync(join(tmpdir(), "summon-200-open-"));
       const result = spawnSync("node", ["dist/index.js", "open"], {
         encoding: "utf-8",
@@ -1533,7 +1533,7 @@ describe("CLI integration", () => {
       });
       rmSync(freshHome, { recursive: true, force: true });
       expect(result.status).toBe(1);
-      expect(result.stderr).toMatch(/^Error:/m);
+      expect(result.stderr).toContain("No projects found");
     });
   });
 

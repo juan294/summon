@@ -43,6 +43,7 @@ vi.mock("../ui/ansi.js", () => ({
   green: (value: string) => mockGreen(value),
   dim: (value: string) => mockDim(value),
   yellow: (value: string) => mockYellow(value),
+  truncateLine: (value: string, _width: number) => value,
 }));
 
 const {
@@ -236,7 +237,8 @@ describe("handlePortsCommand", () => {
 
     await handlePortsCommand();
 
-    expect(logSpy).toHaveBeenCalledWith("No port assignments detected across registered projects.");
+    expect(logSpy).toHaveBeenCalledWith("No port assignments detected.");
+    expect(logSpy).toHaveBeenCalledWith("Run `summon add <name> <path>` to register a project.");
   });
 
   it("prints a colorized status table and conflict warnings", async () => {
