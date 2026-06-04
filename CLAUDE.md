@@ -54,6 +54,7 @@ src/
   globals.d.ts          Build-time constants (__VERSION__)
   cli/
     parse.ts            CLI argument parsing extracted from index.ts (parseCli, buildOverrides, showHelp)
+    resolve-target.ts   Resolves launch target directory from name/path/. (resolveTargetDirectory, expandHome)
   commands/
     config.ts           handleConfigCommand, handleExportCommand, handleFreezeCommand, handleSetCommand
     doctor.ts           handleDoctorCommand
@@ -68,6 +69,7 @@ src/
   ui/
     ansi.ts             ANSI color/style helpers extracted from setup.ts (bold, dim, green, yellow, cyan, etc.)
     layout-preview.ts   Layout preview renderer for the setup wizard
+    symbols.ts          Canonical glyph vocabulary (sym.ok, sym.warn, sym.fail, sym.info, sym.bullet)
   *.test.ts             Co-located unit tests
 ```
 
