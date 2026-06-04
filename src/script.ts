@@ -120,7 +120,10 @@ function emitCleanupTrap(
   parts.push(`rm -f ${markerPath} ${pidPath} 2>/dev/null`);
 
   const body = parts.join("; ");
-  sendCommand(rootPaneVar, `__summon_cleanup() { ${body}; }; trap '__summon_cleanup' EXIT HUP`);
+  // body: paths/names pre-escaped via shellDoubleQuote; onStop is a trusted shell command
+  // fragment (not a value) — quoting it would break execution. escapeAppleScript applied
+  // by sendCommand at the outer boundary.
+  sendCommand(rootPaneVar, `__summon_cleanup() { ${body}; }; trap '__summon_cleanup' EXIT HUP`); // lint-allow-escape: pre-escaped parts; onStop is trusted command fragment from validated config
 }
 
 function emitRootPanePidBootstrap(
@@ -131,7 +134,7 @@ function emitRootPanePidBootstrap(
   const statusDir = '"$HOME/.config/summon/status"';
   const pidPath    = `"$HOME/.config/summon/status/${shellDoubleQuote(projectName)}.pid"`;
   const markerPath = `"$HOME/.config/summon/status/${shellDoubleQuote(projectName)}.active"`;
-  sendCommand(rootPaneVar, `mkdir -p ${statusDir} && printf '%s\\n' "$$" > ${pidPath} && : > ${markerPath}`);
+  sendCommand(rootPaneVar, `mkdir -p ${statusDir} && printf '%s\\n' "$$" > ${pidPath} && : > ${markerPath}`); // lint-allow-escape: statusDir is constant; pidPath/markerPath pre-escaped via shellDoubleQuote above
 }
 
 /** Emit surface configuration block: working directory, font size, env vars. */
