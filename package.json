@@ -45,7 +45,8 @@
     "url": "https://github.com/juan294/summon/issues"
   },
   "files": [
-    "dist"
+    "dist/**/*.js",
+    "dist/**/*.cjs"
   ],
   "publishConfig": {
     "access": "public"
