@@ -1020,6 +1020,7 @@ describe.skipIf(nodeMajor < 20)("runMonitor", () => {
   });
 
   it("exits when launching the selected project fails", async () => {
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => undefined as never);
     listProjects.mockReturnValue([["myapp", "/tmp/myapp"]]);
     readAllStatuses.mockReturnValue([
@@ -1034,7 +1035,11 @@ describe.skipIf(nodeMajor < 20)("runMonitor", () => {
     await vi.dynamicImportSettled();
 
     expect(exitSpy).toHaveBeenCalledWith(1);
+    const stderrOutput = stderrSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("");
+    expect(stderrOutput).toContain("Launch failed:");
+    expect(stderrOutput).toContain("launch failed");
     exitSpy.mockRestore();
+    stderrSpy.mockRestore();
   });
 
   it("prints error message when launch fails", async () => {
