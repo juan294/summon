@@ -16,6 +16,8 @@ Technical reference for contributors.
 | `commands/runtime.ts` | `handleStatusCommand`, `handleSnapshotCommand`, `handleBriefingCommand`, `handlePortsCommand` | yes | monitor, snapshot, briefing, ports, utils |
 | `commands/setup.ts` | `handleCompletionsCommand`, `handleKeybindingsCommand`, `handleSetupCommand` | yes | completions, keybindings, setup |
 | `commands/types.ts` | `CommandHandler` and `CommandContext` interfaces | **pure** | none |
+| `cli/resolve-target.ts` | Resolves the launch target directory from a project name, path, or `.` — `resolveTargetDirectory`, `expandHome` | **pure** | config, node:path, node:os |
+| `ui/symbols.ts` | Canonical glyph vocabulary — `sym.ok`, `sym.warn`, `sym.fail`, `sym.info`, `sym.bullet` | **pure** | none |
 | `launcher.ts` | Orchestrator — config resolution, script execution via osascript, rollback on failure | yes | config, layout, script, tree, utils, validation, starship, status, launch-guards, trust, paths |
 | `launch-guards.ts` | Pre-launch safety checks — `ensureGhostty`, `ensureAccessibility`, `confirmDangerousCommands` (extracted from launcher.ts) | yes | utils, command-spec |
 | `config.ts` | Config file read/write (`~/.config/summon/` and `.summon`), first-run detection, mtime-memoized reads | yes | paths |
@@ -52,6 +54,7 @@ graph TD
     index --> config[config.ts]
     index --> launcher[launcher.ts]
     index --> utils[utils.ts]
+    index --> resolvetarget[cli/resolve-target.ts]
 
     cliparse --> layout[layout.ts]
     cliparse --> validation[validation.ts]
@@ -68,6 +71,8 @@ graph TD
     cmds --> snapshot[snapshot.ts]
     cmds --> briefing[briefing.ts]
     cmds --> ports[ports.ts]
+    cmds --> resolvetarget
+    cmds --> uisymbols[ui/symbols.ts]
     cmds -.->|dynamic| completions[completions.ts]
     cmds -.->|dynamic| keybindings[keybindings.ts]
     cmds -.->|dynamic| setup[setup.ts]
@@ -105,10 +110,12 @@ graph TD
     briefing --> config
     briefing --> status
     briefing --> uiansi
+    briefing --> uisymbols
 
     monitor --> status
     monitor --> config
     monitor --> uiansi
+    monitor --> uisymbols
 
     tree --> layout
     starship --> config
@@ -182,6 +189,10 @@ graph TD
     uiansi -.- ansi_fns["bold, dim, green, yellow,
     cyan, magenta, brightCyan,
     colorSwatch, hexToRgb"]
+    uisymbols -.- sym_fns["sym (ok, warn, fail,
+    info, bullet)"]
+    resolvetarget -.- rt_fns["resolveTargetDirectory,
+    expandHome"]
     completions -.- comp_fns["generateZshCompletion,
     generateBashCompletion,
     generateFishCompletion"]
@@ -221,6 +232,8 @@ graph TD
     style monitor_fns fill:none,stroke-dasharray:5
     style ports_fns fill:none,stroke-dasharray:5
     style snapshot_fns fill:none,stroke-dasharray:5
+    style sym_fns fill:none,stroke-dasharray:5
+    style rt_fns fill:none,stroke-dasharray:5
 ```
 
 `layout.ts`, `script.ts`, `tree.ts`, `shell-escape.ts`, `command-spec.ts`, `setup-gallery.ts`, `ui/ansi.ts`, `completions.ts`, and `validation.ts` are pure modules with no side effects. `utils.ts` and `paths.ts` only use Node stdlib. `config.ts` depends on `paths.ts` for directory constants and uses mtime-based memoization to avoid redundant disk reads within a single invocation. `starship.ts` handles Starship binary detection (cached), preset listing, and TOML config file generation — it depends on `config.ts` and `utils.ts`.
@@ -415,13 +428,7 @@ Editors and sidebar tools are defined as `ToolEntry[]` catalogs in `setup.ts`. E
 
 ### Color Support
 
-ANSI colors are controlled by the `useColor` flag, computed at module load:
-
-```typescript
-const useColor = !!(process.stdout.isTTY && !process.env.NO_COLOR);
-```
-
-All color functions (`bold`, `dim`, `green`, `yellow`, `cyan`) pass through when `useColor` is false, per the [no-color.org](https://no-color.org/) convention.
+ANSI colors are controlled by `supportsColor()` from `utils.ts`, called at invocation time inside each color helper. All color functions (`bold`, `dim`, `green`, `yellow`, `cyan`) pass through when `supportsColor()` returns false, per the [no-color.org](https://no-color.org/) convention. Evaluating at call time (not module load) ensures the check reflects the actual output stream for the current invocation.
 
 ### Code Splitting
 

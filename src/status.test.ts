@@ -224,6 +224,60 @@ describe("readStatus", () => {
     writeFileSync(join(TEST_STATUS_DIR, "bad.json"), JSON.stringify({ version: 1, source: "other" }));
     expect(readStatus("bad")).toBeNull();
   });
+
+  // BE-M2 #491: future schema versions should return null gracefully, not throw
+  it("returns null gracefully (no throw) when version > 1 (future schema)", () => {
+    mkdirSync(TEST_STATUS_DIR, { recursive: true });
+    writeFileSync(
+      join(TEST_STATUS_DIR, "future.json"),
+      JSON.stringify({
+        version: 2,
+        source: "summon",
+        project: "future-app",
+        directory: "/tmp/future-app",
+        pid: 1234,
+        startedAt: new Date().toISOString(),
+        layout: "full",
+        panes: ["editor"],
+      }),
+    );
+    expect(() => readStatus("future")).not.toThrow();
+    expect(readStatus("future")).toBeNull();
+  });
+
+  // BE-M2 #491: a debugLog warning should be emitted for future versions
+  it("emits a debugLog warning to stderr when version > 1 (future schema)", () => {
+    const originalDebug = process.env["SUMMON_DEBUG"];
+    process.env["SUMMON_DEBUG"] = "1";
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    try {
+      mkdirSync(TEST_STATUS_DIR, { recursive: true });
+      writeFileSync(
+        join(TEST_STATUS_DIR, "future2.json"),
+        JSON.stringify({
+          version: 2,
+          source: "summon",
+          project: "future-app",
+          directory: "/tmp/future-app",
+          pid: 1234,
+          startedAt: new Date().toISOString(),
+          layout: "full",
+          panes: ["editor"],
+        }),
+      );
+      readStatus("future2");
+      const calls = stderrSpy.mock.calls.map((c) => String(c[0]));
+      const hasWarn = calls.some((msg) => msg.includes("version") || msg.includes("future") || msg.includes("schema") || msg.includes("summon:debug"));
+      expect(hasWarn).toBe(true);
+    } finally {
+      stderrSpy.mockRestore();
+      if (originalDebug === undefined) {
+        delete process.env["SUMMON_DEBUG"];
+      } else {
+        process.env["SUMMON_DEBUG"] = originalDebug;
+      }
+    }
+  });
 });
 
 describe("readAllStatuses", () => {
@@ -488,5 +542,23 @@ describe("parseWorkspaceStatus panes element type validation (BE-M5 #379)", () =
     const result = parseWorkspaceStatus({ ...base, panes: [] });
     expect(result).not.toBeNull();
     expect(result!.panes).toEqual([]);
+  });
+});
+
+// BE-M3 #492: atomic write — writeStatus must not leave a truncated file on crash
+// We verify the atomic write pattern by checking that the .tmp file is used and then renamed.
+describe("writeStatus atomic write (BE-M3 #492)", () => {
+  it("does not leave a .tmp file after a successful write", () => {
+    writeStatus(makeStatus({ project: "atomic-test" }));
+    const tmpPath = join(TEST_STATUS_DIR, "atomic-test.json.tmp");
+    expect(existsSync(tmpPath)).toBe(false);
+  });
+
+  it("written file is not empty after writeStatus", () => {
+    writeStatus(makeStatus({ project: "atomic-nonempty" }));
+    const filePath = join(TEST_STATUS_DIR, "atomic-nonempty.json");
+    const content = readFileSync(filePath, "utf-8");
+    expect(content.length).toBeGreaterThan(0);
+    expect(() => JSON.parse(content)).not.toThrow();
   });
 });

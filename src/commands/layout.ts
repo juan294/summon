@@ -68,7 +68,8 @@ export async function handleLayoutCommand({ args }: CommandContext): Promise<voi
       }
 
       if (layouts.length === 0) {
-        console.log("No custom layouts saved. Use: summon layout save <name>");
+        console.log("No custom layouts found.");
+        console.log("Run `summon layout save <name>` to create one.");
         return;
       }
 

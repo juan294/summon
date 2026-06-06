@@ -51,7 +51,8 @@ async function cmdLaunch(ctx: CommandContext, name: string | undefined): Promise
   if (all) {
     const registry = listProjects();
     if (registry.size === 0) {
-      console.error("Error: No projects registered. Use: summon add <name> <path>");
+      console.error("No projects found.");
+      console.error("Run `summon add <name> <path>` to register your first project.");
       process.exit(1);
     }
     projects = Array.from(registry.keys());
@@ -66,7 +67,8 @@ async function cmdLaunch(ctx: CommandContext, name: string | undefined): Promise
           console.error(`  ${s}`);
         }
       } else {
-        console.error("\nNo saved sessions. Use: summon session add <name> <project> [...]");
+        console.error("\nNo sessions found.");
+        console.error("Run `summon session add <name> <project> [...]` to create one.");
       }
       process.exit(1);
     }
@@ -204,7 +206,8 @@ async function cmdRemove(rest: string[]): Promise<void> {
 async function cmdList(): Promise<void> {
   const sessions = listSessions();
   if (sessions.length === 0) {
-    console.log("No saved sessions.");
+    console.log("No sessions found.");
+    console.log("Run `summon session add <name> <project> [...]` to create one.");
     return;
   }
   console.log("Saved sessions:");

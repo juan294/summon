@@ -12,6 +12,12 @@ const mockResolveCommand = vi.fn();
 const mockCommandExecutable = vi.fn();
 const mockDetectAllPorts = vi.fn();
 
+// __VERSION__ is injected by tsup at build time; define it for tests
+Object.defineProperty(globalThis, "__VERSION__", {
+  value: "0.0.0-test",
+  configurable: true,
+});
+
 vi.mock("node:fs", () => ({
   existsSync: (...args: unknown[]) => mockExistsSync(...args),
   readFileSync: (...args: unknown[]) => mockReadFileSync(...args),
@@ -29,13 +35,17 @@ vi.mock("../config.js", () => ({
   listProjects: (...args: unknown[]) => mockListProjects(...args),
 }));
 
-vi.mock("../utils.js", () => ({
-  checkAccessibility: (...args: unknown[]) => mockCheckAccessibility(...args),
-  resolveCommand: (...args: unknown[]) => mockResolveCommand(...args),
-  ACCESSIBILITY_REQUIRED_MSG: "Accessibility is required.",
-  ACCESSIBILITY_SETTINGS_PATH: "System Settings > Privacy & Security > Accessibility",
-  ACCESSIBILITY_ENABLE_HINT: "Enable Ghostty in the accessibility list.",
-}));
+vi.mock("../utils.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../utils.js")>();
+  return {
+    ...actual,
+    checkAccessibility: (...args: unknown[]) => mockCheckAccessibility(...args),
+    resolveCommand: (...args: unknown[]) => mockResolveCommand(...args),
+    ACCESSIBILITY_REQUIRED_MSG: "Accessibility is required.",
+    ACCESSIBILITY_SETTINGS_PATH: "System Settings > Privacy & Security > Accessibility",
+    ACCESSIBILITY_ENABLE_HINT: "Enable Ghostty in the accessibility list.",
+  };
+});
 
 vi.mock("../command-spec.js", () => ({
   commandExecutable: (...args: unknown[]) => mockCommandExecutable(...args),
@@ -87,9 +97,9 @@ describe("handleDoctorCommand", () => {
 
     await handleDoctorCommand(makeContext());
 
-    expect(logSpy).toHaveBeenCalledWith('  ✔ PASS  editor command "nvim" found at /usr/bin/nvim');
-    expect(logSpy).toHaveBeenCalledWith('  ✔ PASS  sidebar command "lazygit" found at /usr/bin/nvim');
-    expect(logSpy).toHaveBeenCalledWith("  ✔ PASS  No port conflicts (2 projects checked)");
+    expect(logSpy).toHaveBeenCalledWith('  ✓ PASS  editor command "nvim" found at /usr/bin/nvim');
+    expect(logSpy).toHaveBeenCalledWith('  ✓ PASS  sidebar command "lazygit" found at /usr/bin/nvim');
+    expect(logSpy).toHaveBeenCalledWith("  ✓ PASS  No port conflicts (2 projects checked)");
     // Issue count summary shows "All checks passed" when clean
     const allOutput = logSpy.mock.calls.flat().join("\n");
     expect(allOutput).toMatch(/✓ \d+\/\d+ checks passed\./);
@@ -150,7 +160,7 @@ describe("handleDoctorCommand", () => {
     mockResolveCommand.mockReturnValue(null);
 
     await expect(handleDoctorCommand(makeContext())).rejects.toThrow("exit:2");
-    expect(logSpy).toHaveBeenCalledWith('  ✖ FAIL  editor command "missing-editor" not found in PATH');
+    expect(logSpy).toHaveBeenCalledWith('  ✗ FAIL  editor command "missing-editor" not found in PATH');
     expect(logSpy).toHaveBeenCalledWith('    Install "missing-editor" or change with: summon set editor <command>');
     // Issue count shown in summary
     const allOutput = logSpy.mock.calls.flat().join("\n");
@@ -171,7 +181,7 @@ describe("handleDoctorCommand", () => {
 
     await expect(handleDoctorCommand(makeContext())).rejects.toThrow("exit:2");
 
-    expect(logSpy).toHaveBeenCalledWith('  ✖ FAIL  editor command "   " not found in PATH');
+    expect(logSpy).toHaveBeenCalledWith('  ✗ FAIL  editor command "   " not found in PATH');
     expect(logSpy).toHaveBeenCalledWith('    Install "   " or change with: summon set editor <command>');
   });
 
@@ -274,5 +284,90 @@ describe("handleDoctorCommand", () => {
     const output = logSpy.mock.calls.flat().join("\n");
     // Should hint at summon setup when accessibility fails
     expect(output).toMatch(/summon setup|fix/i);
+  });
+
+  // #504 DO-S1: --verbose flag exposes diagnostic info without SUMMON_DEBUG
+  describe("--verbose flag", () => {
+    it("shows the summon version when --verbose is passed", async () => {
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      mockExistsSync.mockReturnValue(true);
+      mockReadFileSync.mockReturnValue(
+        "notify-on-command-finish = unfocused\nshell-integration = detect\n",
+      );
+
+      await handleDoctorCommand(makeContext({ values: { verbose: true } }));
+
+      const output = logSpy.mock.calls.flat().join("\n");
+      expect(output).toMatch(/summon.*version|version.*summon/i);
+    });
+
+    it("shows the Node.js version when --verbose is passed", async () => {
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      mockExistsSync.mockReturnValue(true);
+      mockReadFileSync.mockReturnValue(
+        "notify-on-command-finish = unfocused\nshell-integration = detect\n",
+      );
+
+      await handleDoctorCommand(makeContext({ values: { verbose: true } }));
+
+      const output = logSpy.mock.calls.flat().join("\n");
+      expect(output).toMatch(/node(\.js)?.*v?\d+\.\d+/i);
+    });
+
+    it("shows the config directory path when --verbose is passed", async () => {
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      mockExistsSync.mockReturnValue(true);
+      mockReadFileSync.mockReturnValue(
+        "notify-on-command-finish = unfocused\nshell-integration = detect\n",
+      );
+
+      await handleDoctorCommand(makeContext({ values: { verbose: true } }));
+
+      const output = logSpy.mock.calls.flat().join("\n");
+      // Should show something about the config path (contains "summon" in the path)
+      expect(output).toMatch(/config.*summon|summon.*config/i);
+    });
+
+    it("shows Ghostty path accessibility when --verbose is passed", async () => {
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      mockExistsSync.mockReturnValue(true);
+      mockReadFileSync.mockReturnValue(
+        "notify-on-command-finish = unfocused\nshell-integration = detect\n",
+      );
+
+      await handleDoctorCommand(makeContext({ values: { verbose: true } }));
+
+      const output = logSpy.mock.calls.flat().join("\n");
+      expect(output).toMatch(/ghostty.*path|path.*ghostty/i);
+    });
+
+    it("shows trust DB path and trusted project count when --verbose is passed", async () => {
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      mockExistsSync.mockReturnValue(true);
+      mockReadFileSync.mockReturnValue(
+        "notify-on-command-finish = unfocused\nshell-integration = detect\n",
+      );
+
+      await handleDoctorCommand(makeContext({ values: { verbose: true } }));
+
+      const output = logSpy.mock.calls.flat().join("\n");
+      expect(output).toMatch(/trust/i);
+      // Should show a count of trusted projects (a number)
+      expect(output).toMatch(/\d+ (project|trusted)/i);
+    });
+
+    it("does NOT show verbose diagnostic section when --verbose is not passed", async () => {
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      mockExistsSync.mockReturnValue(true);
+      mockReadFileSync.mockReturnValue(
+        "notify-on-command-finish = unfocused\nshell-integration = detect\n",
+      );
+
+      await handleDoctorCommand(makeContext());
+
+      const output = logSpy.mock.calls.flat().join("\n");
+      // Verbose section header should be absent in non-verbose mode
+      expect(output).not.toMatch(/diagnostic info|system info/i);
+    });
   });
 });

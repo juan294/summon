@@ -6,7 +6,7 @@ CLI tool that launches configurable multi-pane Ghostty workspaces using AppleScr
 
 ## Stack
 
-TypeScript 6 · Node >= 20.19 · pnpm · tsup · Vitest · ESLint · zero runtime deps · macOS only
+TypeScript 6 · Node >= 20.19 · pnpm@10.29.2 · tsup · Vitest 4 · ESLint · zero runtime deps · macOS only
 
 Contributors need Node >=20.19. DevDeps use current stable majors (TS 6, Vitest 4, Vite 8) — ensure your toolchain is up to date before contributing.
 
@@ -44,7 +44,8 @@ src/
   starship.ts           Starship detection, preset listing, TOML config caching
   keybindings.ts        Ghostty key table config generator (pure function)
   completions.ts        Shell completion script generator (bash, zsh, fish)
-  paths.ts              Canonical path constants (CONFIG_DIR, STATUS_DIR, SNAPSHOTS_DIR, LAYOUTS_DIR, LOGS_DIR, TRUST_FILE)
+  sessions.ts           Named session save/restore — persist and replay workspace configs (SESSIONS_DIR)
+  paths.ts              Canonical path constants (CONFIG_DIR, STATUS_DIR, SNAPSHOTS_DIR, LAYOUTS_DIR, SESSIONS_DIR, TRUST_FILE)
   shell-escape.ts       AppleScript/shell escape primitives (escapeAppleScript, shellQuote, shellDoubleQuote)
   command-spec.ts       Command string analysis (analyzeCommand, commandHasShellMeta, commandExecutable)
   trust.ts              .summon file trust management — SHA-256 allowlist (assertTrusted, trustProject, isTrusted)
@@ -53,6 +54,7 @@ src/
   globals.d.ts          Build-time constants (__VERSION__)
   cli/
     parse.ts            CLI argument parsing extracted from index.ts (parseCli, buildOverrides, showHelp)
+    resolve-target.ts   Resolves launch target directory from name/path/. (resolveTargetDirectory, expandHome)
   commands/
     config.ts           handleConfigCommand, handleExportCommand, handleFreezeCommand, handleSetCommand
     doctor.ts           handleDoctorCommand
@@ -60,11 +62,14 @@ src/
     layout-support.ts   validateLayoutOrExit, validateLayoutNameOrExit, layoutNotFoundOrExit (shared helpers)
     project.ts          handleAddCommand, handleListCommand, handleOpenCommand, handleRemoveCommand
     runtime.ts          handleStatusCommand, handleSnapshotCommand, handleBriefingCommand, handlePortsCommand
+    session.ts          handleSessionCommand — named session save/restore subcommand handler
     setup.ts            handleCompletionsCommand, handleKeybindingsCommand, handleSetupCommand
+    trust.ts            handleTrustCommand — .summon file trust subcommand handler
     types.ts            CommandHandler and CommandContext interfaces
   ui/
     ansi.ts             ANSI color/style helpers extracted from setup.ts (bold, dim, green, yellow, cyan, etc.)
     layout-preview.ts   Layout preview renderer for the setup wizard
+    symbols.ts          Canonical glyph vocabulary (sym.ok, sym.warn, sym.fail, sym.info, sym.bullet)
   *.test.ts             Co-located unit tests
 ```
 

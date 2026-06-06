@@ -1,5 +1,48 @@
 import { dim } from "./ansi.js";
 
+/**
+ * Returns the display width of a string in a fixed-width terminal font.
+ * CJK characters and emoji (wide characters) count as 2 columns; all others count as 1.
+ * Handles multi-codepoint characters via codePointAt iteration.
+ *
+ * Wide Unicode ranges: CJK Radicals / Hangul / Hiragana / Katakana / CJK Unified /
+ * Yi / Hangul Syllables / CJK Compatibility Ideographs / CJK Compatibility Forms /
+ * Halfwidth/Fullwidth Forms / Emoji & Misc Symbols (U+1F300+).
+ *
+ * @internal — exported for testing only
+ */
+export function getDisplayWidth(s: string): number {
+  let width = 0;
+  for (let i = 0; i < s.length; ) {
+    const cp = s.codePointAt(i);
+    if (cp === undefined) break;
+    // Advance by surrogate pair (code points > 0xFFFF occupy 2 UTF-16 code units)
+    i += cp > 0xffff ? 2 : 1;
+    if (isWideCodePoint(cp)) {
+      width += 2;
+    } else {
+      width += 1;
+    }
+  }
+  return width;
+}
+
+function isWideCodePoint(cp: number): boolean {
+  return (
+    (cp >= 0x1100 && cp <= 0x115f) ||   // Hangul Jamo
+    (cp >= 0x2e80 && cp <= 0x303f) ||   // CJK Radicals Supplement … CJK Symbols
+    (cp >= 0x3040 && cp <= 0x33bf) ||   // Hiragana, Katakana, Bopomofo, Hangul Compat, Kanbun, Bopomofo Ext, CJK Unified Ext
+    (cp >= 0x3400 && cp <= 0x4dbf) ||   // CJK Unified Ideographs Extension A
+    (cp >= 0x4e00 && cp <= 0x9fff) ||   // CJK Unified Ideographs
+    (cp >= 0xa000 && cp <= 0xabff) ||   // Yi Syllables, Yi Radicals, Lisu, Vai, ...
+    (cp >= 0xac00 && cp <= 0xd7af) ||   // Hangul Syllables
+    (cp >= 0xf900 && cp <= 0xfaff) ||   // CJK Compatibility Ideographs
+    (cp >= 0xfe10 && cp <= 0xfe6f) ||   // CJK Compatibility Forms, Small Form Variants
+    (cp >= 0xff00 && cp <= 0xffef) ||   // Halfwidth and Fullwidth Forms
+    (cp >= 0x1f300 && cp <= 0x1ffff)    // Emoji, Misc Symbols, etc.
+  );
+}
+
 const BOX = {
   topLeft:     "\u250c",
   topRight:    "\u2510",
@@ -81,14 +124,18 @@ export function centerLabel(text: string, width: number): string {
 
 export function renderLayoutPreview(
   grid: string[][],
+  maxWidth = 80,
 ): string {
   const COL_WIDTH = 14;
   const PANE_HEIGHT = 3;
   const colCount = grid.length;
   const maxRows = Math.max(...grid.map((col) => col.length));
 
+  const clamp = (line: string): string =>
+    maxWidth > 0 && line.length > maxWidth ? line.slice(0, maxWidth) : line;
+
   const lines: string[] = [];
-  lines.push(boxTopBorder(colCount, COL_WIDTH));
+  lines.push(clamp(boxTopBorder(colCount, COL_WIDTH)));
 
   for (let row = 0; row < maxRows; row++) {
     for (let lineInPane = 0; lineInPane < PANE_HEIGHT; lineInPane++) {
@@ -104,15 +151,15 @@ export function renderLayoutPreview(
         }
       }
       rowStr += BOX.vertical;
-      lines.push(rowStr);
+      lines.push(clamp(rowStr));
     }
 
     if (row < maxRows - 1) {
-      lines.push(boxRowSeparator(colCount, COL_WIDTH, (c) => row + 1 < grid[c]!.length));
+      lines.push(clamp(boxRowSeparator(colCount, COL_WIDTH, (c) => row + 1 < grid[c]!.length)));
     }
   }
 
-  lines.push(boxBottomBorder(colCount, COL_WIDTH));
+  lines.push(clamp(boxBottomBorder(colCount, COL_WIDTH)));
   return lines.join("\n");
 }
 

@@ -58,26 +58,56 @@ jobs:
           npm pack
           TARBALL=$(ls summon-ws-*.tgz)
           echo "Tarball: $TARBALL"
-          tar tzf "$TARBALL" | grep -E "(index\.js|bin)" || (echo "ERROR: Missing expected files in tarball" && exit 1)
+          FILE_COUNT=$(tar tzf "$TARBALL" | grep -E "package/dist/(index\.js|chunk-)" | wc -l | tr -d ' ')
+          echo "Matched dist files: $FILE_COUNT"
+          if [ "$FILE_COUNT" -lt 2 ]; then
+            echo "ERROR: Expected package/dist/index.js + at least one chunk-*.js in tarball (got $FILE_COUNT)" && exit 1
+          fi
+          # Node 22 smoke (pre-publish, using local tarball)
           npm install -g "$TARBALL"
           summon --version
           summon --help
+
+      - name: Upload tarball artifact for multi-node smoke test
+        uses: actions/upload-artifact@v4
+        with:
+          name: summon-tarball
+          path: summon-ws-*.tgz
+          retention-days: 1
 
       - name: AppleScript E2E smoke test
         # Validates generated AppleScript syntax via osacompile (no Ghostty needed)
         run: SUMMON_E2E=1 pnpm test:e2e
 
-      # TODO: OIDC — migrate away from long-lived NPM_TOKEN
-      # Current state: NODE_AUTH_TOKEN (NPM_TOKEN secret) is the active publish credential.
-      # id-token: write is declared above but OIDC trusted publishing is NOT yet active.
-      #
-      # To complete the migration:
-      #   1. Go to https://www.npmjs.com/package/summon-ws -> Settings -> Publishing
-      #   2. Add a trusted publisher: GitHub Actions, repo juan294/summon, workflow release.yml
-      #   3. Once configured, remove NODE_AUTH_TOKEN from the Publish step below.
-      #      The --provenance flag will then use the OIDC token automatically.
-      #   4. Revoke the NPM_TOKEN secret from GitHub Settings -> Secrets.
       - name: Publish
         run: npm publish summon-ws-*.tgz --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        # OIDC trusted publisher on npmjs.com (juan294/summon + release.yml) provides
+        # provenance attestation; NPM_TOKEN still required for registry PUT auth.
+
+  # Validate the published tarball on Node 20.19 (minimum) and 24 (latest).
+  # Node 22 is already smoke-tested inside the publish job above.
+  # Runs after publish so the matrix doesn't gate the release itself.
+  smoke-matrix:
+    needs: publish
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        node-version: ['20.19.0', '24']
+    steps:
+      - name: Download tarball artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: summon-tarball
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Global install smoke test (Node ${{ matrix.node-version }})
+        run: |
+          TARBALL=$(ls summon-ws-*.tgz)
+          npm install -g "$TARBALL"
+          summon --version
+          summon --help

@@ -628,8 +628,10 @@ describe("PromptCancelled", () => {
 
 describe("confirm", () => {
   let originalStdin: typeof process.stdin;
+  let stdoutWriteSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
+    stdoutWriteSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     originalStdin = process.stdin;
     // Replace process.stdin with a mock that supports raw mode
     const mockStdin = {
@@ -647,6 +649,7 @@ describe("confirm", () => {
   });
 
   afterEach(() => {
+    stdoutWriteSpy.mockRestore();
     Object.defineProperty(process, "stdin", { value: originalStdin, writable: true, configurable: true });
     vi.clearAllMocks();
   });
@@ -660,6 +663,9 @@ describe("confirm", () => {
   it("returns true for 'y' input", async () => {
     simulateKeypress("y");
     expect(await confirm("Continue?")).toBe(true);
+    const output = stdoutWriteSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("");
+    expect(output).toContain("Continue?");
+    expect(output).toContain("[y/N]");
   });
 
   it("returns true for 'Y' input", async () => {
