@@ -4,16 +4,19 @@ import { listConfig, listProjects } from "../config.js";
 import {
   checkAccessibility,
   resolveCommand,
+  GHOSTTY_PATHS,
   ACCESSIBILITY_REQUIRED_MSG,
   ACCESSIBILITY_SETTINGS_PATH,
   ACCESSIBILITY_ENABLE_HINT,
 } from "../utils.js";
 import { commandExecutable } from "../command-spec.js";
-import { green, red, yellow, bold } from "../ui/ansi.js";
+import { green, red, yellow, bold, dim } from "../ui/ansi.js";
+import { sym } from "../ui/symbols.js";
+import { CONFIG_DIR, TRUST_FILE } from "../paths.js";
 import type { CommandContext } from "./types.js";
 
-const PASS = green("✔ PASS");
-const FAIL = red("✖ FAIL");
+const PASS = green(`${sym.ok} PASS`);
+const FAIL = red(`${sym.fail} FAIL`);
 
 export async function handleDoctorCommand({ values }: CommandContext): Promise<void> {
   const {
@@ -25,6 +28,7 @@ export async function handleDoctorCommand({ values }: CommandContext): Promise<v
   } = await import("node:fs");
 
   const fixFlag = values.fix;
+  const verboseFlag = values.verbose;
 
   // Track pass/fail counts for summary (UX-M4, UX-M5, UX-M9)
   let totalIssues = 0;
@@ -42,7 +46,7 @@ export async function handleDoctorCommand({ values }: CommandContext): Promise<v
     console.log();
   }
 
-  const configContent = existsSync(ghosttyConfigPath)
+  let configContent = existsSync(ghosttyConfigPath)
     ? readFileSync(ghosttyConfigPath, "utf-8")
     : "";
 
@@ -62,6 +66,28 @@ export async function handleDoctorCommand({ values }: CommandContext): Promise<v
       regex: /^\s*shell-integration\s*=/m,
     },
   ];
+
+  // Apply --fix before running checks so the check loop sees updated content
+  let appliedFixes = false;
+  if (fixFlag) {
+    const toApply = checks.filter(c => !c.regex.test(configContent));
+    if (toApply.length > 0) {
+      const ghosttyDir = join(homedir(), ".config", "ghostty");
+      mkdirSync(ghosttyDir, { recursive: true });
+      if (existsSync(ghosttyConfigPath)) {
+        const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+        const backup = `${ghosttyConfigPath}.bak.${timestamp}`;
+        copyFileSync(ghosttyConfigPath, backup);
+        console.log(`  Backed up ${ghosttyConfigPath} → ${backup}`);
+      }
+      const additions = toApply.map(s => `${s.key} = ${s.recommended}`).join("\n");
+      appendFileSync(ghosttyConfigPath, "\n# Added by summon doctor --fix\n" + additions + "\n");
+      console.log(`  Added ${toApply.length} setting(s) to ${ghosttyConfigPath}`);
+      console.log();
+      configContent = readFileSync(ghosttyConfigPath, "utf-8");
+      appliedFixes = true;
+    }
+  }
 
   let allGood = true;
   const missingSettings: Array<{ key: string; recommended: string }> = [];
@@ -85,22 +111,6 @@ export async function handleDoctorCommand({ values }: CommandContext): Promise<v
       }
       console.log();
     }
-  }
-
-  if (fixFlag && missingSettings.length > 0) {
-    const ghosttyDir = join(homedir(), ".config", "ghostty");
-    mkdirSync(ghosttyDir, { recursive: true });
-
-    if (existsSync(ghosttyConfigPath)) {
-      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-      const backup = `${ghosttyConfigPath}.bak.${timestamp}`;
-      copyFileSync(ghosttyConfigPath, backup);
-      console.log(`  Backed up ${ghosttyConfigPath} → ${backup}`);
-    }
-
-    const additions = missingSettings.map((setting) => `${setting.key} = ${setting.recommended}`).join("\n");
-    appendFileSync(ghosttyConfigPath, "\n# Added by summon doctor --fix\n" + additions + "\n");
-    console.log(`  Added ${missingSettings.length} setting(s) to ${ghosttyConfigPath}`);
   }
 
   console.log();
@@ -169,7 +179,7 @@ export async function handleDoctorCommand({ values }: CommandContext): Promise<v
 
   // Pass/fail summary (UX-M4, UX-M9)
   if (totalIssues === 0) {
-    console.log(green(`✓ ${passedChecks}/${totalChecks} checks passed.`));
+    console.log(green(`${sym.ok} ${passedChecks}/${totalChecks} checks passed.`));
   } else {
     const failedChecks = totalChecks - passedChecks;
     const fixablePart = autoFixable > 0 ? ` (${autoFixable} auto-fixable with --fix)` : "";
@@ -177,8 +187,49 @@ export async function handleDoctorCommand({ values }: CommandContext): Promise<v
     console.log(`  Run 'summon doctor --fix' to apply fixes, or 'summon setup' to reconfigure.`);
   }
 
-  const configFixed = fixFlag && missingSettings.length > 0;
-  const issuesRemain = configFixed ? !accessOk : !allGood;
+  // Verbose diagnostic section (#504 DO-S1)
+  // Gives users full diagnostic context without needing SUMMON_DEBUG=1.
+  if (verboseFlag) {
+    console.log();
+    console.log(bold("Diagnostic info:"));
+    console.log();
+
+    // Summon version
+    console.log(`  Summon version:  ${__VERSION__}`);
+
+    // Node.js version
+    console.log(`  Node.js version: ${process.version}`);
+
+    // Config directory
+    console.log(`  Config dir:      ${CONFIG_DIR}`);
+
+    // Ghostty paths and accessibility
+    const ghosttyFound = GHOSTTY_PATHS.find((p) => existsSync(p));
+    if (ghosttyFound) {
+      console.log(`  Ghostty path:    ${ghosttyFound} ${dim("(found)")}`);
+    } else {
+      console.log(`  Ghostty path:    ${GHOSTTY_PATHS.join(", ")} ${dim("(not found)")}`);
+    }
+
+    // Trust DB
+    let trustedCount = 0;
+    if (existsSync(TRUST_FILE)) {
+      try {
+        const raw = readFileSync(TRUST_FILE, "utf-8");
+        const parsed: unknown = JSON.parse(raw);
+        if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+          trustedCount = Object.keys(parsed as Record<string, string>).length;
+        }
+      } catch {
+        // ignore parse errors — count stays 0
+      }
+    }
+    console.log(`  Trust DB:        ${TRUST_FILE}`);
+    console.log(`  Trusted projects: ${trustedCount} project${trustedCount === 1 ? "" : "s"}`);
+    console.log();
+  }
+
+  const issuesRemain = appliedFixes ? !accessOk : !allGood;
   if (issuesRemain) {
     console.error("Exit code 2: issues were found. See above for details.");
     process.exit(2);

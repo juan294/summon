@@ -186,7 +186,7 @@ Machine config:
 
 ### `summon open`
 
-Interactively select and launch a registered project. Lists all projects and prompts you to pick one by number. Any CLI flags passed are forwarded to the launch.
+Interactively select and launch a registered project. Lists all projects and prompts you to pick one by number. Any CLI flags passed are forwarded to the launch. Enter `0` to cancel and exit without launching.
 
 ```bash
 summon open
@@ -202,7 +202,7 @@ summon export                    # print to stdout
 summon export .summon            # write to file
 ```
 
-### `summon doctor [--fix]`
+### `summon doctor [--fix] [--verbose]`
 
 Check your Ghostty config for recommended settings and macOS Accessibility permission. Reports on:
 
@@ -214,9 +214,12 @@ Exits with code 2 if any issues are found, 0 when all clear.
 
 With `--fix`, automatically adds missing Ghostty settings to `~/.config/ghostty/config` (backs up the config with a timestamp first).
 
+With `--verbose`, prints additional diagnostic info: summon version, Node.js version, config directory path, detected Ghostty binary path, and trust DB summary.
+
 ```bash
 summon doctor              # check for issues
 summon doctor --fix        # auto-fix missing Ghostty settings
+summon doctor --verbose    # include diagnostic info in output
 ```
 
 ### `summon freeze <name>`

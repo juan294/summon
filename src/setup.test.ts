@@ -277,6 +277,17 @@ describe("numberedSelect", () => {
     logSpy.mockRestore();
   });
 
+  // #482 UX-H3: back hint suppressed when showBackHint=false
+  it("does not show back hint when showBackHint is false (#482)", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("1"));
+    const options = [{ label: "A", value: "a" }, { label: "B", value: "b" }];
+    await numberedSelect(options, "Pick: ", undefined, false);
+    const allOutput = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(allOutput.some((s) => s.includes("press 0") && s.includes("go back"))).toBe(false);
+    logSpy.mockRestore();
+  });
+
   // #434 UX-M7: "0" also triggers back
   it("returns WIZARD_BACK when user enters '0' (#434)", async () => {
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("0"));
@@ -599,6 +610,16 @@ describe("selectLayout", () => {
     logSpy.mockRestore();
   });
 
+  // #482 UX-H3: no back hint at step 1 (selectLayout is the first wizard step)
+  it("does not show back hint at first wizard step — selectLayout (#482)", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("1"));
+    await selectLayout();
+    const allOutput = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(allOutput.some((s) => s.includes("press 0") && s.includes("go back"))).toBe(false);
+    logSpy.mockRestore();
+  });
+
   // #427 UX-L3: legend for pane label shorthands
   it("shows pane label legend after layout preview (#427)", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
@@ -768,6 +789,29 @@ describe("selectToolFromCatalog", () => {
     ).toBe(false);
     // Custom command option should always be present
     expect(allOutput.some((s) => s.includes("Custom command"))).toBe(true);
+    logSpy.mockRestore();
+  });
+
+  // #483 UX-M1: back navigation in selectToolFromCatalog (used by editor/sidebar steps)
+  it("returns WIZARD_BACK when user enters 'b' (#483)", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("b"));
+    const result = await selectToolFromCatalog(
+      [{ cmd: "vim", name: "Vim", desc: "Editor" }],
+      "Editor",
+    );
+    expect(result).toBe(WIZARD_BACK);
+    logSpy.mockRestore();
+  });
+
+  it("returns WIZARD_BACK when user enters '0' (#483)", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("0"));
+    const result = await selectToolFromCatalog(
+      [{ cmd: "vim", name: "Vim", desc: "Editor" }],
+      "Editor",
+    );
+    expect(result).toBe(WIZARD_BACK);
     logSpy.mockRestore();
   });
 });

@@ -18,10 +18,14 @@ vi.mock("../validation.js", () => ({
   validateFloatFlag: (...args: unknown[]) => mockValidateFloatFlag(...args),
 }));
 
-vi.mock("../utils.js", () => ({
-  getErrorMessage: (error: unknown) => error instanceof Error ? error.message : String(error),
-  exitWithUsageHint: (message?: string) => mockExitWithUsageHint(message),
-}));
+vi.mock("../utils.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../utils.js")>();
+  return {
+    ...actual,
+    getErrorMessage: (error: unknown) => error instanceof Error ? error.message : String(error),
+    exitWithUsageHint: (message?: string) => mockExitWithUsageHint(message),
+  };
+});
 
 vi.mock("../config.js", () => ({
   VALID_KEYS: [
@@ -45,6 +49,16 @@ vi.mock("../config.js", () => ({
 
 vi.mock("../commands/layout-support.js", () => ({
   validateLayoutOrExit: (...args: unknown[]) => mockValidateLayoutOrExit(...args),
+}));
+
+vi.mock("../setup-gallery.js", () => ({
+  LAYOUT_INFO: {
+    minimal: { desc: "Single editor + sidebar", diagram: "" },
+    pair: { desc: "Two editors + sidebar + shell", diagram: "" },
+    full: { desc: "Three editors + sidebar + shell", diagram: "" },
+    cli: { desc: "Single editor + sidebar + shell", diagram: "" },
+    btop: { desc: "Editor + system monitor + sidebar + shell", diagram: "" },
+  },
 }));
 
 Object.defineProperty(globalThis, "__VERSION__", {
@@ -343,6 +357,50 @@ describe("session in help text (UX-M6 #433)", () => {
 
   it("has subcommand help for 'session'", () => {
     expect(hasSubcommandHelp("session")).toBe(true);
+  });
+});
+
+// --- UX-M7: --help lists layout names with descriptions ---
+
+describe("layouts section in --help (UX-M7 #510)", () => {
+  it("contains a 'Layouts:' section in help output", () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    showHelp();
+
+    const output = logSpy.mock.calls.map(c => c[0]).join("\n");
+    expect(output).toContain("Layouts:");
+    logSpy.mockRestore();
+  });
+
+  it("lists built-in layout names with one-line descriptions", () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    showHelp();
+
+    const output = logSpy.mock.calls.map(c => c[0]).join("\n");
+    // Should contain layout names that match LAYOUT_INFO keys
+    expect(output).toContain("minimal");
+    expect(output).toContain("pair");
+    expect(output).toContain("full");
+    expect(output).toContain("cli");
+    expect(output).toContain("btop");
+    logSpy.mockRestore();
+  });
+
+  it("layouts section includes one-line descriptions from LAYOUT_INFO", () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    showHelp();
+
+    const output = logSpy.mock.calls.map(c => c[0]).join("\n");
+    // LAYOUT_INFO has desc values — at least one should appear
+    const hasDesc = output.includes("Single editor") ||
+      output.includes("Two editors") ||
+      output.includes("Three editors") ||
+      output.includes("sidebar");
+    expect(hasDesc).toBe(true);
+    logSpy.mockRestore();
   });
 });
 
