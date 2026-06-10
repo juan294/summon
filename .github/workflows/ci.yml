@@ -61,12 +61,10 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pnpm-
       - run: pnpm install --frozen-lockfile
-      - name: Create stub Ghostty.app to satisfy existsSync guard
-        # The test skips when /Applications/Ghostty.app does not exist.
-        # The test body only calls osacompile (built into macOS), not Ghostty itself.
-        # A stub app bundle lets the guard pass without installing Ghostty.
-        run: sudo mkdir -p /Applications/Ghostty.app
       - name: Run AppleScript syntax E2E tests
+        # Test skips automatically when /Applications/Ghostty.app is absent (ghosttyInstalled guard).
+        # osacompile requires Ghostty's scripting dictionary — cannot compile Ghostty AppleScript headlessly.
+        # SUMMON_E2E=1 wires the test into CI so it runs on machines with Ghostty installed.
         run: pnpm vitest run src/e2e/applescript-syntax.test.ts
         env:
           SUMMON_E2E: "1"
