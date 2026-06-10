@@ -460,11 +460,40 @@ graph TD
 
 Key commands used:
 - `new surface configuration` -- create config with working directory, command, etc.
-- `new window with configuration` -- create window
+- System Events `keystroke "n" using command down` -- create window (Cmd+N; Ghostty's `new window with configuration` verb is not used)
 - `split <terminal> direction <dir> with configuration` -- create split
 - `input text "<cmd>" to <terminal>` -- send command text
 - `send key "enter" to <terminal>` -- press enter
 - `focus <terminal>` -- focus a pane
+
+### Verified Keystroke Pattern (new-tab and new-window)
+
+New tabs (`--new-tab`) and new windows (`--new-window`) are created via System
+Events keystrokes (Cmd+T / Cmd+N). Both use an anchored, poll-verified pattern
+implemented by `emitVerifiedKeystroke` in `script.ts`:
+
+1. **Anchor** — for new-tab, `set summonWin to front window` captures the target
+   window before the keystroke. For new-window, `set summonWindowsBefore` captures
+   `count of windows` as a baseline.
+2. **Baseline** — `count of tabs of summonWin` (new-tab) or `count of windows`
+   (new-window) is read inside a `try` block. If the query throws (future
+   compatibility fallback), the value stays `-1` and the block degrades to a
+   single keystroke + fixed delay.
+3. **Retry loop** — up to `KEYSTROKE_ATTEMPTS` (2) times: set `frontmost to
+   true`, settle for `KEYSTROKE_SETTLE_DELAY` (0.15s), send the keystroke, then
+   poll up to `TAB_POLL_ATTEMPTS` (12) × `TAB_POLL_INTERVAL` (0.05s) ≈ 0.6s for
+   the count to increase.
+4. **Sentinel error** — if all attempts fail, the script raises
+   `error "summon-newtab-failed"` or `error "summon-newwindow-failed"`.
+5. **Error mapping** — `executeScript` in `launcher.ts` catches these sentinels
+   before the rollback step: `summon-newtab-failed` maps to `TabOpenError`
+   (recoverable — `session --all` skips and continues); `summon-newwindow-failed`
+   maps to a plain `Error`. Neither triggers `closeWorkspaceWindow()` because no
+   new surface was created.
+
+`count of tabs` was empirically validated as a working Ghostty AppleScript query
+(2026-06-10). Worst case: 2 × (0.15 + 0.6) ≈ 1.5s, only when a keystroke is
+actually dropped; the typical path takes one settle delay + one poll.
 
 ### No tmux, No Session Persistence
 
