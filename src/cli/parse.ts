@@ -6,7 +6,6 @@ import { getErrorMessage, exitWithUsageHint } from "../utils.js";
 import { VALID_KEYS } from "../config.js";
 import { validateLayoutOrExit } from "../commands/layout-support.js";
 import { bold, cyan, dim } from "../ui/ansi.js";
-import { LAYOUT_INFO } from "../setup-gallery.js";
 
 export type ParsedValues = {
   help?: boolean;
@@ -56,25 +55,53 @@ function visibleLen(s: string): number {
 function wrapHelpLine(s: string, maxVisible: number): string {
   if (maxVisible <= 0) return "";
   if (visibleLen(s) <= maxVisible) return s;
-  // Truncate at the last safe visible character boundary
-  let visible = 0;
-  let i = 0;
-  while (i < s.length && visible < maxVisible - 1) {
-    if (s[i] === "\x1b") {
-      // Skip the full ANSI sequence
-      const end = s.indexOf("m", i);
-      if (end !== -1) {
-        i = end + 1;
-        continue;
+
+  // Find the indent of the description column by scanning the plain text:
+  // lines look like "  --flag <arg>          Description text"
+  // We find the position where the description starts (after the leading spaces +
+  // flag + padding) so the continuation line aligns there.
+  const plain = s.replace(ANSI_STRIP_RE, "");
+  // Detect the description column: find the last run of 2+ spaces after non-space content
+  const descColMatch = plain.match(/^(\s*\S.*?\s{2,})/);
+  const descCol = descColMatch ? descColMatch[1]!.length : 0;
+  const indent = " ".repeat(descCol);
+
+  const lines: string[] = [];
+  let remaining = s;
+
+  while (visibleLen(remaining) > maxVisible) {
+    // Find split point at maxVisible visible chars
+    let visible = 0;
+    let i = 0;
+    let lastSpaceI = -1;
+
+    while (i < remaining.length && visible < maxVisible) {
+      if (remaining[i] === "\x1b") {
+        // Skip ANSI escape sequence
+        const end = remaining.indexOf("m", i);
+        if (end !== -1) {
+          i = end + 1;
+          continue;
+        }
       }
+      if (remaining[i] === " ") {
+        lastSpaceI = i;
+      }
+      visible++;
+      i++;
     }
-    visible++;
-    i++;
+
+    // Split at last space if found, otherwise hard-break at i
+    const splitAt = lastSpaceI !== -1 ? lastSpaceI : i;
+    lines.push(remaining.slice(0, splitAt));
+    remaining = indent + remaining.slice(splitAt).trimStart();
   }
-  return s.slice(0, i) + "…";
+
+  lines.push(remaining);
+  return lines.join("\n");
 }
 
-function buildHelp(): string {
+async function buildHelp(): Promise<string> {
   // When stdout is not a TTY (e.g. piped), use a generous default so help text is not truncated
   const termWidth = Math.min(process.stdout.columns || 120, 120);
   const h = (s: string) => bold(cyan(s));
@@ -83,7 +110,9 @@ function buildHelp(): string {
   // Wrap a line to fit within terminal width, accounting for ANSI codes
   const wrap = (s: string): string => wrapHelpLine(s, termWidth);
 
-  // Build named-layout descriptions from LAYOUT_INFO (UX-M7 #510)
+  // PE-L1 (#553): lazy-import setup-gallery only when help is actually requested
+  // FE-L2 (#552): build layout lines dynamically from LAYOUT_INFO (removes hardcoded duplicate block)
+  const { LAYOUT_INFO } = await import("../setup-gallery.js");
   const layoutLines = Object.entries(LAYOUT_INFO).map(([name, info]) => {
     const nameCol = name.padEnd(14);
     return wrap(`  ${nameCol}${info.desc}`);
@@ -183,13 +212,6 @@ function buildHelp(): string {
     bold("Config-only keys") + note(" (no CLI flag):"),
     wrap(`  on-stop         Command to run when workspace exits (available as config key only)`),
     wrap(`  env.<KEY>       Environment variable passed to all panes (e.g. env.PORT=3000)`),
-    "",
-    bold("Layout presets:"),
-    wrap(`  minimal       1 editor pane, no shell`),
-    wrap(`  full          3 editor panes + shell`),
-    wrap(`  pair          2 editor panes + shell`),
-    wrap(`  cli           1 editor pane + shell`),
-    wrap(`  btop          editor + btop + shell + sidebar`),
     "",
     bold("Layouts:"),
     ...layoutLines,
@@ -471,6 +493,9 @@ export function parseCli(argv: string[]): ParsedCli {
   if (values["clean"] && values["no-clean"]) {
     exitWithUsageHint("Error: --clean and --no-clean are mutually exclusive");
   }
+  if (values["new-window"] && values["new-tab"]) {
+    exitWithUsageHint("Error: --new-window and --new-tab are mutually exclusive");
+  }
 
   const [subcommand, ...args] = positionals;
   return { values, positionals, subcommand, args };
@@ -502,8 +527,8 @@ export function buildOverrides(values: ParsedValues): CLIOverrides {
   return overrides;
 }
 
-export function showHelp(): void {
-  console.log(buildHelp());
+export async function showHelp(): Promise<void> {
+  console.log(await buildHelp());
 }
 
 export function hasSubcommandHelp(subcommand: string): boolean {

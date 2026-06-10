@@ -283,6 +283,73 @@ describe("session launch — skip untrusted projects and continue", () => {
 
 });
 
+describe("session launch — skip tab-open failures and continue", () => {
+  it("skips a project whose tab failed to open and continues with the rest", async () => {
+    const { TabOpenError } = await import("../errors.js");
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    mockListProjects.mockReturnValue(
+      new Map([
+        ["api", "/tmp/api"],
+        ["web", "/tmp/web"],
+        ["worker", "/tmp/worker"],
+      ]),
+    );
+    mockGetProject.mockImplementation((name: string) => {
+      const map: Record<string, string> = { api: "/tmp/api", web: "/tmp/web", worker: "/tmp/worker" };
+      return map[name];
+    });
+    // Second project fails with TabOpenError; first and third succeed.
+    mockLaunch
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new TabOpenError("Ghostty did not open a new tab."))
+      .mockResolvedValueOnce(undefined);
+
+    await handleSessionCommand(makeContext({ values: { all: true }, args: [] }));
+
+    // All three were attempted; the failed one was skipped, not fatal.
+    expect(mockLaunch).toHaveBeenCalledTimes(3);
+    const allWarns = warnSpy.mock.calls.map((c) => c[0] as string).join("\n");
+    expect(allWarns).toContain("web");
+    expect(allWarns.toLowerCase()).toContain("tab failed");
+    const allLogs = logSpy.mock.calls.map((c) => c[0] as string).join("\n");
+    expect(allLogs).toContain("Session complete");
+    expect(allLogs).toContain("failed (tab did not open)");
+
+    logSpy.mockRestore();
+    warnSpy.mockRestore();
+    errorSpy.mockRestore();
+  });
+
+  it("non-TabOpenError rejections still abort with process.exit(1)", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const mockExit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error("process.exit:" + code);
+    }) as never);
+
+    mockListProjects.mockReturnValue(new Map([["api", "/tmp/api"], ["web", "/tmp/web"]]));
+    mockGetProject.mockImplementation((name: string) => {
+      const map: Record<string, string> = { api: "/tmp/api", web: "/tmp/web" };
+      return map[name];
+    });
+    mockLaunch
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("osascript failed"));
+
+    await expect(
+      handleSessionCommand(makeContext({ values: { all: true }, args: [] })),
+    ).rejects.toThrow("process.exit:1");
+
+    expect(mockLaunch).toHaveBeenCalledTimes(2);
+    mockExit.mockRestore();
+    errorSpy.mockRestore();
+    logSpy.mockRestore();
+  });
+});
+
 describe("session launch --new-window <name>", () => {
   it("first call has new-window: 'true' and no new-tab; second call has new-tab: 'true' and no new-window key", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
@@ -437,6 +504,24 @@ describe("session remove", () => {
 
     mockExit.mockRestore();
   });
+
+  it("rejects invalid session name in remove without calling deleteSession (#532 BE-M2)", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const mockExit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error("process.exit:" + code);
+    }) as never);
+    mockIsValidSessionName.mockReturnValue(false);
+
+    await expect(
+      handleSessionCommand(makeContext({ args: ["remove", "../../evil"] })),
+    ).rejects.toThrow("process.exit:1");
+
+    expect(mockDeleteSession).not.toHaveBeenCalled();
+    const allErrors = errorSpy.mock.calls.map((c) => c[0] as string).join("\n");
+    expect(allErrors).toMatch(/invalid|not found/i);
+    mockExit.mockRestore();
+    errorSpy.mockRestore();
+  });
 });
 
 describe("session show — not found", () => {
@@ -468,6 +553,24 @@ describe("session show — not found", () => {
     ).rejects.toThrow("process.exit");
 
     mockExit.mockRestore();
+  });
+
+  it("rejects invalid session name in show without calling readSession (#532 BE-M2)", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const mockExit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error("process.exit:" + code);
+    }) as never);
+    mockIsValidSessionName.mockReturnValue(false);
+
+    await expect(
+      handleSessionCommand(makeContext({ args: ["show", "../../evil"] })),
+    ).rejects.toThrow("process.exit:1");
+
+    expect(mockReadSession).not.toHaveBeenCalled();
+    const allErrors = errorSpy.mock.calls.map((c) => c[0] as string).join("\n");
+    expect(allErrors).toMatch(/invalid|not found/i);
+    mockExit.mockRestore();
+    errorSpy.mockRestore();
   });
 });
 

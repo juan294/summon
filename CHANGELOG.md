@@ -5,7 +5,50 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.7.0] - 2026-06-10
+
+### Added
+
+- Fish shell completions: `summon completions fish` is now fully supported alongside zsh and bash. Add `summon completions fish | source` to `~/.config/fish/config.fish`.
+- zsh completions now include `--no-project-config` flag and path-completion for the `trust` subcommand.
+- Progress line `"Launching <target>…"` is now printed to stderr before the workspace opens, so the terminal no longer appears to hang during a multi-second launch.
+- Exit codes are now documented in the user manual: 0 (success), 1 (usage/config error), 2 (pre-launch guard failure), 130 (cancelled). Unexpected errors hint at `SUMMON_DEBUG=1` for full diagnostics.
+
+### Changed
+
+- **Dangerous-command confirmation now defaults to no.** Pressing Enter at the `Continue? [y/N/s(kip pane)]` prompt aborts the launch. Previously, Enter accepted the command (default yes). Any scripts or workflows that relied on enter-to-confirm must now send explicit `y`.
+- Doctor diagnostics and launcher progress messages are now written to stderr. Stdout is reserved for machine-readable output (`export`, `status --once`). Pipelines like `summon export > .summon` are no longer polluted with human-facing chatter.
+- Empty-state "no projects registered" messages unified across `list`, `open`, `status`, and the TUI monitor.
+- Error message prefixes standardized to `summon: error:` across all commands.
+- `on-start` command string is no longer echoed to stdout at launch; it is written to the debug log only when `SUMMON_DEBUG=1` is set.
+
+### Fixed
+
+- `summon session --all` no longer silently builds a project's workspace on top of the previous project's tab. New-tab and new-window creation now anchor the target window, verify the tab/window actually opened (retrying a dropped keystroke up to 2 times and polling for up to 0.6s per attempt), and a project whose tab cannot be opened is reported and skipped instead of disappearing. A 200ms inter-launch delay is added between projects to reduce cross-process keystroke contention.
+- `--new-window` and `--new-tab` are now caught as conflicting flags at parse time and produce a clean usage error instead of an unhandled stack trace from deep inside the layout engine.
+- `atomicWrite` now uses a `pid + randomBytes(6)` temp-file suffix instead of a fixed `.tmp` suffix, eliminating a concurrent-write race that could corrupt `trust.json` during `session --all`.
+- Config values containing ` # ` (inline comment syntax) are no longer silently truncated on read. `on-start = build # release` now round-trips correctly.
+- Snapshot and session commands now validate input at parse time. Path-traversal inputs (e.g. `../etc/passwd`) produce a clean error instead of an uncaught stack trace.
+- Monitor help overlay color legend corrected: green = active, yellow = active >4h, dim = stopped. The previous legend was factually wrong.
+- Monitor table columns and `truncateLine` in `ui/ansi.ts` are now display-width-aware for CJK characters and emoji. Wide characters no longer break table alignment.
+- `--new-tab` is restored to the main `--help` Options list. Help text now wraps gracefully on narrow terminals instead of truncating with `…`.
+- Symbol vocabulary (`✓` / `⚠`) unified: `project.ts`, `setup.ts`, and `snapshot.ts` now use the canonical glyphs from `ui/symbols.ts` instead of hardcoded alternatives.
+- `snapshot.ts` color helpers deduplicated — `dim`/`green` now imported from `ui/ansi.ts`.
+- `secondaryEditor` now round-trips through config: `freeze` no longer silently drops it.
+- Module-global `scriptCache` removed from `script.ts` — `generateAppleScript` is now a pure stateless function (the cache never hit in production).
+- `trust.ts` now imports `TRUST_FILE` and `CONFIG_DIR` from `paths.ts` instead of re-deriving them, preventing silent drift if the config directory is ever relocated.
+- Cleanup log directory (`~/.config/summon/logs/`) is now created with `mode: 0o700`, matching the permissions of other summon state directories.
+- `colorSwatch` in `ui/ansi.ts` returns a 256-color block on non-truecolor terminals so the Starship preset picker renders correctly on common terminal emulators.
+- Layout presets in `--help` deduplicated: the hardcoded "Layout presets:" block is removed; only the single `LAYOUT_INFO`-generated "Layouts:" block remains.
+- `PreviewRenderer` in the setup wizard now computes physical row counts (wrap-aware) for cursor-up redraws, preventing smeared output on narrow terminals.
+- Setup wizard grid builder now documents Shift+Tab reverse navigation in the on-screen hints.
+
+### Internal
+
+- Publish workflow: added idempotency guard — a rerun after a transient failure skips the `npm publish` step if the version is already live, allowing the smoke-matrix to complete cleanly.
+- npm tarball verification now asserts `README.md` and `LICENSE` are present in the published package.
+- CHANGELOG/version/tag consistency check moved to the first step of the publish job (before `pnpm install`) to fail fast on mismatches.
+- Added `SUMMON_E2E=1` job to CI that runs the AppleScript syntax E2E suite on `macos-latest`.
 
 ## [1.6.0] - 2026-06-04
 
@@ -677,7 +720,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CodeQL security scanning
 - Dependabot for npm and GitHub Actions
 
-[Unreleased]: https://github.com/juan294/summon/compare/v1.6.0...develop
+[Unreleased]: https://github.com/juan294/summon/compare/v1.7.0...develop
+[1.7.0]: https://github.com/juan294/summon/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/juan294/summon/compare/v1.5.2...v1.6.0
 [1.5.2]: https://github.com/juan294/summon/compare/v1.5.1...v1.5.2
 [1.5.1]: https://github.com/juan294/summon/compare/v1.5.0...v1.5.1

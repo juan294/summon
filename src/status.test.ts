@@ -13,7 +13,7 @@ vi.mock("./paths.js", () => ({
   CONFIG_DIR: join(tmpdir(), `summon-config-test-${process.pid}`),
 }));
 
-const { writeStatus, clearStatus, readStatus, readAllStatuses, isWorkspaceActive, cleanStaleStatuses, getGitBranch, parseWorkspaceStatus } = await import("./status.js");
+const { writeStatus, clearStatus, readStatus, readAllStatuses, getGitBranch, parseWorkspaceStatus } = await import("./status.js");
 import type { WorkspaceStatus } from "./status.js";
 
 function makeStatus(overrides?: Partial<WorkspaceStatus>): WorkspaceStatus {
@@ -108,24 +108,6 @@ describe("clearStatus", () => {
   });
 });
 
-describe("isWorkspaceActive", () => {
-  it("returns true when marker and live pid exist", () => {
-    writeStatus(makeStatus({ project: "myapp" }));
-    // Simulate shell bootstrap
-    writeFileSync(join(TEST_STATUS_DIR, "myapp.active"), "");
-    writeFileSync(join(TEST_STATUS_DIR, "myapp.pid"), String(process.pid));
-    expect(isWorkspaceActive("myapp")).toBe(true);
-  });
-
-  it("returns false when marker missing", () => {
-    expect(isWorkspaceActive("nonexistent")).toBe(false);
-  });
-
-  it("rejects path traversal in project name", () => {
-    expect(() => isWorkspaceActive("../../etc/evil")).toThrow("Invalid status path");
-  });
-});
-
 describe("readStatus", () => {
   it("returns null for missing project", () => {
     expect(readStatus("nonexistent")).toBeNull();
@@ -182,8 +164,7 @@ describe("readStatus", () => {
     const result = readStatus("myapp");
     expect(result).not.toBeNull();
     expect(result!.state).toBe("stopped");
-    // readStatus is now pure: it does NOT delete stale artifacts (BE-H6)
-    // GC is the responsibility of cleanStaleStatuses()
+    // readStatus is pure: it does NOT delete stale artifacts (BE-H6)
   });
 
   it("treats marker with dead pid as stopped (BE-H6: no filesystem side effects)", () => {
@@ -193,7 +174,7 @@ describe("readStatus", () => {
     const result = readStatus("myapp");
     expect(result).not.toBeNull();
     expect(result!.state).toBe("stopped");
-    // readStatus is now pure: artifacts remain; cleanStaleStatuses() would remove them
+    // readStatus is pure: artifacts remain; it does not GC them (BE-H6)
   });
 
   it("calculates uptime for active workspaces", () => {
@@ -345,55 +326,11 @@ describe("readAllStatuses", () => {
   });
 });
 
-describe("cleanStaleStatuses", () => {
-  it("returns zero when the status directory does not exist", () => {
-    expect(cleanStaleStatuses()).toBe(0);
-  });
-
-  it("removes stopped status files", () => {
-    writeStatus(makeStatus({ project: "stale" }));
-    writeFileSync(join(TEST_STATUS_DIR, "stale.pid"), "999999");
-    const removed = cleanStaleStatuses();
-    expect(removed).toBe(1);
-    expect(existsSync(join(TEST_STATUS_DIR, "stale.json"))).toBe(false);
-  });
-
-  it("preserves active status files", () => {
-    writeStatus(makeStatus({ project: "alive" }));
-    writeFileSync(join(TEST_STATUS_DIR, "alive.pid"), String(process.pid));
-    writeFileSync(join(TEST_STATUS_DIR, "alive.active"), "");
-    const removed = cleanStaleStatuses();
-    expect(removed).toBe(0);
-    expect(existsSync(join(TEST_STATUS_DIR, "alive.json"))).toBe(true);
-  });
-
-  it("returns count of removed files", () => {
-    writeStatus(makeStatus({ project: "stale1" }));
-    writeStatus(makeStatus({ project: "stale2" }));
-    writeStatus(makeStatus({ project: "alive" }));
-    writeFileSync(join(TEST_STATUS_DIR, "stale1.pid"), "999999");
-    writeFileSync(join(TEST_STATUS_DIR, "stale2.pid"), "999999");
-    writeFileSync(join(TEST_STATUS_DIR, "alive.pid"), String(process.pid));
-    writeFileSync(join(TEST_STATUS_DIR, "alive.active"), "");
-    const removed = cleanStaleStatuses();
-    expect(removed).toBe(2);
-  });
-
-  it("skips unreadable or invalid status files", () => {
-    mkdirSync(TEST_STATUS_DIR, { recursive: true });
-    writeFileSync(join(TEST_STATUS_DIR, "bad.json"), "not json");
-
-    expect(cleanStaleStatuses()).toBe(0);
-    expect(existsSync(join(TEST_STATUS_DIR, "bad.json"))).toBe(true);
-  });
-});
-
 describe("readStatus purity (BE-H6)", () => {
-  it("does not delete stale artifacts when called — GC is caller's responsibility", () => {
+  it("does not delete stale artifacts when called", () => {
     writeStatus(makeStatus({ project: "stale-check" }));
     writeFileSync(join(TEST_STATUS_DIR, "stale-check.active"), "");
     writeFileSync(join(TEST_STATUS_DIR, "stale-check.pid"), "999999");
-    // readStatus should not delete artifacts (that's cleanStaleStatuses's job)
     readStatus("stale-check");
     // artifacts may or may not exist — but readStatus must not throw, and must
     // return a result. The key contract: readStatus is pure read.

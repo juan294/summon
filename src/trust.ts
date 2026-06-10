@@ -11,8 +11,8 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, mkdirSync, realpathSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { homedir } from "node:os";
 import { atomicWrite } from "./utils.js";
+import { TRUST_FILE, CONFIG_DIR } from "./paths.js";
 
 /** Error thrown when a .summon file exists but is not trusted. */
 export class SummonError extends Error {
@@ -22,18 +22,12 @@ export class SummonError extends Error {
   }
 }
 
-/** Path to the trust database. */
-const TRUST_FILE = join(homedir(), ".config", "summon", "trust.json");
-
 /** Mtime-based cache: avoid rehashing on every launch when the file hasn't changed. */
 const trustCache = new Map<string, { mtimeMs: number; trusted: boolean }>();
 
 export function clearTrustCache(): void {
   trustCache.clear();
 }
-
-/** Path to the summon config directory. */
-const CONFIG_DIR = join(homedir(), ".config", "summon");
 
 /** Load the trust database. Returns empty object if not found or invalid. */
 function loadTrustDb(): Record<string, string> {

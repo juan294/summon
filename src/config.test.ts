@@ -753,9 +753,14 @@ describe("readKVFromString (BE-B2, BE-M1 #357 #375)", () => {
     expect(map.size).toBe(1);
   });
 
-  it("strips inline comments after ' # '", () => {
-    const map = readKVFromString("editor=vim # my editor\n");
-    expect(map.get("editor")).toBe("vim");
+  it("preserves ' # ' in values — does not strip as inline comment (#533 BE-M3)", () => {
+    const map = readKVFromString("on-start=build # release\n");
+    expect(map.get("on-start")).toBe("build # release");
+  });
+
+  it("round-trips a value containing ' # ' without truncation (#533 BE-M3)", () => {
+    setConfig("on-start", "build # release");
+    expect(listConfig().get("on-start")).toBe("build # release");
   });
 
   it("does not strip # without surrounding spaces", () => {

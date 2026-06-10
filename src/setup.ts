@@ -5,7 +5,8 @@ export { LAYOUT_INFO, GRID_TEMPLATES };
 import { SAFE_COMMAND_RE, resolveCommand as resolveCommandPath, promptUser, checkAccessibility, openAccessibilitySettings, isGhosttyInstalled, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT, debugLog } from "./utils.js";
 import { isStarshipInstalled, listStarshipPresets } from "./starship.js";
 import { bold, dim, green, yellow, cyan, magenta, brightCyan, colorSwatch } from "./ui/ansi.js";
-import { renderLayoutPreview, renderTemplateGallery } from "./ui/layout-preview.js";
+import { renderLayoutPreview, renderTemplateGallery, getDisplayWidth } from "./ui/layout-preview.js";
+import { sym } from "./ui/symbols.js";
 import { commandExecutable, replaceCommandExecutable } from "./command-spec.js";
 
 // ---------------------------------------------------------------------------
@@ -77,7 +78,15 @@ export class PreviewRenderer {
   /** Print a line and track it for cursor math. */
   log(msg: string = ""): void {
     console.log(msg);
-    this.linesSince++;
+    // FE-M4 (#548): count physical rows, not just logical lines.
+    // A line wider than the terminal wraps and occupies multiple physical rows.
+    const cols = process.stdout.columns || 80;
+    const safeWidth = cols > 0 ? cols : 80;
+    // Strip ANSI escape sequences before measuring display width
+    // eslint-disable-next-line no-control-regex
+    const visible = msg.replace(/\x1b\[[0-9;]*m/g, "");
+    const displayW = getDisplayWidth(visible);
+    this.linesSince += Math.max(1, Math.ceil(displayW / safeWidth));
   }
 
   /** Account for a promptUser() call (prompt + user answer = 1 line). */
@@ -263,6 +272,7 @@ export function renderGridBuilderHints(state: GridBuilderState): string {
     "[↓] add pane",
     canRemovePane ? "[↑] remove pane" : dim("[↑] remove pane"),
     "[Tab] move focus",
+    "[Shift+Tab] move focus back",
     "[Enter] done",
     "[Esc] cancel",
   ];
@@ -969,19 +979,19 @@ function printValidation(validation: ValidationResult): void {
   printSection("Checking tools");
 
   if (validation.ghosttyFound) {
-    console.log(`  ${green("✓")} Ghostty    found`);
+    console.log(`  ${green(sym.ok)} Ghostty    found`);
   } else {
     console.log(
-      `  ${yellow("!")} Ghostty    not found — install from https://ghostty.org`,
+      `  ${yellow(sym.warn)} Ghostty    not found — install from https://ghostty.org`,
     );
   }
 
   if (validation.warnings.length === 0) {
-    console.log(`  ${green("✓")} All selected tools are available`);
+    console.log(`  ${green(sym.ok)} All selected tools are available`);
   } else {
     for (const w of validation.warnings) {
       const hint = w.installHint ? ` — install with: ${w.installHint}` : "";
-      console.log(`  ${yellow("!")} ${w.cmd.padEnd(10)} not found${hint}`);
+      console.log(`  ${yellow(sym.warn)} ${w.cmd.padEnd(10)} not found${hint}`);
     }
     console.log();
     console.log(dim("  Some tools are missing. Install them later or"));
@@ -998,13 +1008,13 @@ export async function checkAndRecoverAccessibility(): Promise<boolean> {
   const granted = checkAccessibility();
 
   if (granted) {
-    console.log(`  ${green("✓")} Accessibility permission granted`);
+    console.log(`  ${green(sym.ok)} Accessibility permission granted`);
     console.log();
     return true;
   }
 
   // Not granted — show warning and offer recovery
-  console.log(`  ${yellow("!")} Accessibility permission not granted`);
+  console.log(`  ${yellow(sym.warn)} Accessibility permission not granted`);
   console.log();
   console.log(dim("  Summon uses System Events to control Ghostty panes."));
   console.log(dim(`  Grant accessibility access to Ghostty in ${ACCESSIBILITY_SETTINGS_PATH}.`));
@@ -1020,11 +1030,11 @@ export async function checkAndRecoverAccessibility(): Promise<boolean> {
     await promptUser("  Press Enter after granting access...");
     const rechecked = checkAccessibility();
     if (rechecked) {
-      console.log(`  ${green("✓")} Accessibility permission granted!`);
+      console.log(`  ${green(sym.ok)} Accessibility permission granted!`);
       console.log();
       return true;
     }
-    console.log(`  ${yellow("!")} Still not detected — you can grant it later.`);
+    console.log(`  ${yellow(sym.warn)} Still not detected — you can grant it later.`);
     console.log(dim("  Summon will work once Ghostty has Accessibility access."));
     console.log();
     return false;

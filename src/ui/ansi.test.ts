@@ -97,6 +97,26 @@ describe("ansi helpers", () => {
     expect(ansi.green("ok")).toBe("ok");
   });
 
+  // FE-L1 (#551): colorSwatch must return a non-empty string when COLORTERM is not set
+  // so that Starship preset picker padding stays correct on common terminals
+  it("colorSwatch returns non-empty 256-color fallback when COLORTERM is not truecolor", async () => {
+    Object.defineProperty(process.stdout, "isTTY", { value: true, configurable: true });
+    // No COLORTERM set (deleted in beforeEach)
+    const ansi = await loadAnsiModule();
+
+    const result = ansi.colorSwatch(["#336699"]);
+    expect(result).not.toBe("");
+    // Should be exactly 1 visible character wide per color entry (▉)
+    // The visible character must be present
+    expect(result).toContain("▉");
+  });
+
+  it("colorSwatch returns empty string when color is disabled (no isTTY, no FORCE_COLOR)", async () => {
+    // isTTY=false (set in beforeEach), no FORCE_COLOR — color is disabled entirely
+    const ansi = await loadAnsiModule();
+    expect(ansi.colorSwatch(["#336699"])).toBe("");
+  });
+
   it("truncateLine returns string unchanged when within width", async () => {
     const ansi = await loadAnsiModule();
     expect(ansi.truncateLine("hello world", 20)).toBe("hello world");
@@ -107,5 +127,33 @@ describe("ansi helpers", () => {
     const result = ansi.truncateLine("a very long line here", 10);
     expect(result.length).toBeLessThanOrEqual(10);
     expect(result.endsWith("…")).toBe(true);
+  });
+
+  // Wide character tests for truncateLine (#537)
+  it("truncateLine: wide chars (CJK) fit exactly at display width — no truncation", async () => {
+    const ansi = await loadAnsiModule();
+    // "日本語" = display width 6
+    const result = ansi.truncateLine("日本語", 6);
+    expect(result).toBe("日本語");
+  });
+
+  it("truncateLine: wide chars (CJK) truncated when display width exceeds maxWidth", async () => {
+    const ansi = await loadAnsiModule();
+    // "日本語abc" = 6 + 3 = 9 display cols; truncate to 5: "日本…" = 4 + 1 = 5
+    const result = ansi.truncateLine("日本語abc", 5);
+    expect(result).toBe("日本…");
+  });
+
+  it("truncateLine: emoji truncated correctly", async () => {
+    const ansi = await loadAnsiModule();
+    // "🚀🚀🚀" = display width 6; truncate to 5: "🚀🚀…" = 4 + 1 = 5
+    const result = ansi.truncateLine("🚀🚀🚀", 5);
+    expect(result).toBe("🚀🚀…");
+  });
+
+  it("truncateLine: ASCII strings still behave correctly after refactor", async () => {
+    const ansi = await loadAnsiModule();
+    expect(ansi.truncateLine("abcde", 5)).toBe("abcde");
+    expect(ansi.truncateLine("abcdef", 5)).toBe("abcd…");
   });
 });

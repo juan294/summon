@@ -95,10 +95,7 @@ export function readKVFromString(content: string): Map<string, string> {
       continue;
     }
     const key = line.slice(0, idx).trim();
-    const rawValue = line.slice(idx + 1).trim();
-    // Strip inline comments: remove everything after " # " (space-hash-space)
-    const commentIdx = rawValue.indexOf(" # ");
-    const value = commentIdx !== -1 ? rawValue.slice(0, commentIdx).trim() : rawValue;
+    const value = line.slice(idx + 1).trim();
     map.set(key, value);
   }
   return map;
@@ -293,7 +290,7 @@ export function listConfig(): Map<string, string> {
   return config;
 }
 
-export const VALID_KEYS = ["editor", "sidebar", "panes", "editor-size", "shell", "layout", "auto-resize", "starship-preset", "new-window", "new-tab", "fullscreen", "maximize", "float", "font-size", "on-start", "on-stop", "clean"];
+export const VALID_KEYS = ["editor", "sidebar", "secondary-editor", "panes", "editor-size", "shell", "layout", "auto-resize", "starship-preset", "new-window", "new-tab", "fullscreen", "maximize", "float", "font-size", "on-start", "on-stop", "clean"];
 
 /** Set of all known config keys — used to warn on unknown/misspelled keys. */
 export const KNOWN_CONFIG_KEYS = new Set(VALID_KEYS);

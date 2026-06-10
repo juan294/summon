@@ -11,14 +11,7 @@ import { validateProjectNameOrExit } from "../validation.js";
 export { resolveTargetDirectory, expandHome } from "../cli/resolve-target.js";
 import { expandHome } from "../cli/resolve-target.js";
 import type { CommandContext } from "./types.js";
-
-// Output helpers for consistent prefixes (UX-H5)
-const sym = {
-  ok: "✓",
-  warn: "!",
-  err: "✗",
-  info: "→",
-} as const;
+import { sym } from "../ui/symbols.js";
 
 /** Compute column widths from actual data lengths (UX-H6). */
 function computeColumnWidths(rows: { name: string }[]): { nameWidth: number } {
@@ -57,7 +50,7 @@ export async function handleRemoveCommand({ args }: CommandContext): Promise<voi
     return;
   }
 
-  console.error(`Error: Project not found: ${name}`);
+  console.error(`summon: error: Project not found: ${name}`);
   console.error("Run 'summon list' to see registered projects.");
   process.exit(1);
 }
@@ -65,8 +58,7 @@ export async function handleRemoveCommand({ args }: CommandContext): Promise<voi
 export async function handleListCommand(): Promise<void> {
   const projects = listProjects();
   if (projects.size === 0) {
-    console.log("No projects found.");
-    console.log("Run `summon add <name> <path>` to register your first project.");
+    console.log("No projects registered. Run `summon add <name> <path>` or `summon setup` to get started.");
     return;
   }
 
@@ -81,8 +73,7 @@ export async function handleOpenCommand({ overrides }: CommandContext): Promise<
 
   const rows = loadProjectRows();
   if (rows.length === 0) {
-    console.error("No projects found.");
-    console.error("Run `summon add <name> <path>` to register your first project.");
+    console.error("No projects registered. Run `summon add <name> <path>` or `summon setup` to get started.");
     process.exit(1);
   }
 

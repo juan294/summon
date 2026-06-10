@@ -1,6 +1,6 @@
 {
   "name": "summon-ws",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "description": "Launch configurable multi-pane Ghostty workspaces with one command",
   "type": "module",
   "packageManager": "pnpm@10.29.2",
@@ -46,7 +46,9 @@
   },
   "files": [
     "dist/**/*.js",
-    "dist/**/*.cjs"
+    "dist/**/*.cjs",
+    "README.md",
+    "LICENSE"
   ],
   "publishConfig": {
     "access": "public"
@@ -69,14 +71,14 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@types/node": "^25.6.0",
-    "@vitest/coverage-v8": "^4.1.5",
-    "eslint": "^10.2.0",
+    "@types/node": "^25.9.2",
+    "@vitest/coverage-v8": "^4.1.8",
+    "eslint": "^10.4.1",
     "husky": "^9.1.7",
     "tsup": "^8.0.0",
     "typescript": "^6.0.2",
-    "typescript-eslint": "^8.58.2",
-    "vite": "8.0.13",
-    "vitest": "^4.1.5"
+    "typescript-eslint": "^8.60.1",
+    "vite": "8.0.16",
+    "vitest": "^4.1.8"
   }
 }

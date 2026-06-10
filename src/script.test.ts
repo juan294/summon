@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeEach } from "vitest";
-import { generateAppleScript, generateTreeAppleScript, generateFocusScript, clearScriptCache } from "./script.js";
+import { describe, it, expect } from "vitest";
+import { generateAppleScript, generateTreeAppleScript, generateFocusScript } from "./script.js";
+import * as scriptModule from "./script.js";
 import { planLayout, getPreset } from "./layout.js";
 import { collectLeaves, buildTreePlan } from "./tree.js";
 import type { TreeLayoutPlan, LayoutNode } from "./tree.js";
@@ -764,6 +765,14 @@ describe("generateAppleScript", () => {
         expect(script).toContain("set win to front window");
         expect(script).not.toContain('keystroke "n" using command down');
       });
+
+      it("verifies new-window creation via count of windows", () => {
+        const plan = planLayout({ newWindow: true });
+        const script = generateAppleScript(plan, "/tmp/test");
+        expect(script).toContain("count of windows");
+        expect(script).toContain('error "summon-newwindow-failed"');
+        expect(script).toContain("set win to front window");
+      });
     });
 
     describe("new-tab flag", () => {
@@ -771,7 +780,24 @@ describe("generateAppleScript", () => {
         const plan = planLayout({ newTab: true });
         const script = generateAppleScript(plan, "/tmp/test");
         expect(script).toContain('keystroke "t" using command down');
-        expect(script).toContain("set paneRoot to terminal 1 of selected tab of front window");
+        expect(script).toContain("set paneRoot to terminal 1 of selected tab of summonWin");
+      });
+
+      it("anchors new-tab to summonWin and verifies tab count", () => {
+        const plan = planLayout({ newTab: true });
+        const script = generateAppleScript(plan, "/tmp/test");
+        expect(script).toContain("set summonWin to front window");
+        expect(script).toContain("count of tabs of summonWin");
+        expect(script).toContain('error "summon-newtab-failed"');
+        expect(script).toContain("set frontmost to true");
+        expect(script.match(/error "summon-newtab-failed"/g)).toHaveLength(1);
+      });
+
+      it("does not emit summonWin anchor when newTab=false (default regression guard)", () => {
+        const plan = planLayout();
+        const script = generateAppleScript(plan, "/tmp/test");
+        expect(script).not.toContain("set summonWin to front window");
+        expect(script).not.toContain('error "summon-newtab-failed"');
       });
 
       it("does not emit Cmd+N when newTab=true", () => {
@@ -1176,35 +1202,42 @@ describe("generateTreeAppleScript", () => {
     expect(script).not.toContain("make new window");
   });
 
-  it("new tab mode emits Cmd+T keystroke", () => {
-    const plan = makePlan(
-      { type: "pane", name: "editor", command: "claude" },
-      { newTab: true },
+  describe("new-tab flag (tree generator)", () => {
+    const newTabScript = generateTreeAppleScript(
+      makePlan({ type: "pane", name: "editor", command: "claude" }, { newTab: true }),
+      "/tmp/project",
     );
-    const script = generateTreeAppleScript(plan, "/tmp/project");
 
-    expect(script).toContain('keystroke "t" using command down');
-    expect(script).toContain("set pane_editor to terminal 1 of selected tab of front window");
+    it("emits Cmd+T keystroke", () => {
+      expect(newTabScript).toContain('keystroke "t" using command down');
+      expect(newTabScript).toContain("set pane_editor to terminal 1 of selected tab of summonWin");
+    });
+
+    it("anchors to summonWin and verifies tab count", () => {
+      expect(newTabScript).toContain("set summonWin to front window");
+      expect(newTabScript).toContain("count of tabs of summonWin");
+      expect(newTabScript).toContain('error "summon-newtab-failed"');
+    });
+
+    it("does not emit Cmd+N", () => {
+      expect(newTabScript).not.toContain('keystroke "n" using command down');
+    });
+
+    it("does not bind root pane via selected tab of win", () => {
+      expect(newTabScript).not.toContain("set pane_editor to terminal 1 of selected tab of win");
+    });
   });
 
-  it("new tab mode does not emit Cmd+N", () => {
+  it("new window mode verifies creation via count of windows (tree generator)", () => {
     const plan = makePlan(
       { type: "pane", name: "editor", command: "claude" },
-      { newTab: true },
+      { newWindow: true },
     );
     const script = generateTreeAppleScript(plan, "/tmp/project");
 
-    expect(script).not.toContain('keystroke "n" using command down');
-  });
-
-  it("new tab mode does not bind root pane via selected tab of win", () => {
-    const plan = makePlan(
-      { type: "pane", name: "editor", command: "claude" },
-      { newTab: true },
-    );
-    const script = generateTreeAppleScript(plan, "/tmp/project");
-
-    expect(script).not.toContain("set pane_editor to terminal 1 of selected tab of win");
+    expect(script).toContain("count of windows");
+    expect(script).toContain('error "summon-newwindow-failed"');
+    expect(script).toContain("set win to front window");
   });
 
   it("new tab mode does not emit Cmd+T when newTab=false (regression guard)", () => {
@@ -1842,12 +1875,12 @@ describe("escapeAppleScript — fuzz / property tests (SE-S1)", () => {
   });
 });
 
-describe("PE-M1: generateAppleScript memoization (#416)", () => {
-  beforeEach(() => {
-    clearScriptCache();
+describe("AR-M2: generateAppleScript is pure stateless (no cache)", () => {
+  it("clearScriptCache is NOT exported (AR-M2 #544)", () => {
+    expect((scriptModule as Record<string, unknown>)["clearScriptCache"]).toBeUndefined();
   });
 
-  it("returns identical output for identical inputs", () => {
+  it("returns identical output for identical inputs (deterministic)", () => {
     const plan = planLayout();
     const r1 = generateAppleScript(plan, "/tmp/project");
     const r2 = generateAppleScript(plan, "/tmp/project");
@@ -1859,13 +1892,5 @@ describe("PE-M1: generateAppleScript memoization (#416)", () => {
     const r1 = generateAppleScript(plan, "/tmp/project-a");
     const r2 = generateAppleScript(plan, "/tmp/project-b");
     expect(r1).not.toBe(r2);
-  });
-
-  it("clearScriptCache forces regeneration on next call", () => {
-    const plan = planLayout();
-    const r1 = generateAppleScript(plan, "/tmp/project");
-    clearScriptCache();
-    const r2 = generateAppleScript(plan, "/tmp/project");
-    expect(r1).toBe(r2); // same output (deterministic), just regenerated
   });
 });

@@ -159,6 +159,43 @@ describe("truncate", () => {
     expect(result).toBe("abcd…");
     expect(result.length).toBe(5);
   });
+
+  // Wide character (CJK/emoji) tests — display width aware (#537)
+  it("wide chars (CJK): treats each CJK char as 2 columns", () => {
+    // "日本語" = 3 CJK chars = display width 6
+    // truncate("日本語", 6) should return "日本語" unchanged (fits exactly)
+    const result = truncate("日本語", 6);
+    expect(result).toBe("日本語");
+  });
+
+  it("wide chars (CJK): truncates when display width exceeds maxLen", () => {
+    // "日本語app" = 3 CJK (width 6) + 3 ASCII (width 3) = display width 9
+    // truncate to 5 cols: must fit in 5 display cols including ellipsis (4 cols + "…")
+    const result = truncate("日本語app", 5);
+    // Result display width must be <= 5
+    // "日本…" = 2 CJK (4) + ellipsis (1) = 5 — correct
+    expect(result).toBe("日本…");
+  });
+
+  it("wide chars (emoji): emoji truncated to fit display width", () => {
+    // "🚀🚀🚀" each emoji is width 2, so display width = 6
+    // truncate to 4 cols: "🚀…" = 2 + 1 = 3 cols, or "🚀🚀" is exactly 4 = fits (no truncation needed? width 4)
+    // "🚀🚀" display width 4 fits in maxLen 4 — no truncation
+    const result = truncate("🚀🚀", 4);
+    expect(result).toBe("🚀🚀");
+  });
+
+  it("wide chars (emoji): truncates with ellipsis at correct display column", () => {
+    // "🚀🚀🚀" display width 6, maxLen 5: must truncate
+    // "🚀🚀" = 4 cols + "…" = 5 cols total
+    const result = truncate("🚀🚀🚀", 5);
+    expect(result).toBe("🚀🚀…");
+  });
+
+  it("wide chars: ASCII strings still work correctly after refactor", () => {
+    expect(truncate("abcde", 5)).toBe("abcde");
+    expect(truncate("abcdef", 5)).toBe("abcd…");
+  });
 });
 
 describe("renderRow", () => {
@@ -314,7 +351,7 @@ describe("renderScreen", () => {
 
   it("shows empty state message when there are no projects", () => {
     const screen = renderScreen([], 0, 80, 24);
-    expect(screen).toContain("No projects found");
+    expect(screen).toContain("No projects registered.");
     expect(screen).toContain("summon add");
   });
 
@@ -695,8 +732,10 @@ describe("printStatusOnce", () => {
 
   it("prints empty message when no projects", () => {
     printStatusOnce();
-    expect(console.log).toHaveBeenCalledWith("No workspaces found.");
-    expect(console.log).toHaveBeenCalledWith("Run `summon <project>` to launch a workspace.");
+    const output = vi.mocked(console.log).mock.calls.flat().join("\n");
+    expect(output).toContain("No projects registered.");
+    expect(output).toContain("summon add <name> <path>");
+    expect(output).toContain("summon setup");
   });
 
   it("prints status rows when projects exist", () => {
@@ -1085,6 +1124,24 @@ describe.skipIf(nodeMajor < 20)("runMonitor", () => {
     expect(output).toContain("active");
   });
 
+  it("#529 #538 UX-H2/FE-M2: help overlay legend accurately reflects stateColor() — green=active, yellow=active>4h, dim=stopped", async () => {
+    // stateColor() maps: active->green, active-long->yellow, stopped/unknown->dim
+    // The legend MUST match these mappings, not say "yellow = active"
+    const monitorPromise = runMonitor();
+    process.stdin.emit("data", Buffer.from("?"));
+    process.stdin.emit("data", Buffer.from(" "));
+    process.stdin.emit("data", Buffer.from("q"));
+    await monitorPromise;
+
+    const output = writeSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("");
+    // Must mention green for active state
+    expect(output).toContain("green");
+    // Must associate yellow with the >4h qualifier (active-long), not plain active
+    expect(output).toMatch(/yellow.*4h|yellow.*long/);
+    // Must mention dim for stopped
+    expect(output).toContain("dim");
+  });
+
   it("#413 FE-M7: help overlay uses bold/dim/cyan helpers (no raw ANSI in help text strings)", async () => {
     // The help overlay must use bold()/dim()/cyan() helpers, not raw \x1b[ escape sequences
     // embedded literally in string literals. We verify the structural content is present:
@@ -1129,5 +1186,30 @@ describe.skipIf(nodeMajor < 20)("runMonitor", () => {
     expect(output).toContain("osascript: execution failed");
     // Dashboard should still be accessible — summon status header should be in output
     expect(output).toContain("summon status");
+  });
+});
+
+describe("UX-M4 (#558): printStatusOnce uses standard empty-state message", () => {
+  beforeEach(() => {
+    listProjects.mockReturnValue([]);
+    readAllStatuses.mockReturnValue([]);
+    vi.spyOn(console, "log").mockImplementation(() => {});
+  });
+
+  it("shows the standard empty-state message including 'summon add' and 'summon setup'", () => {
+    printStatusOnce();
+    const output = vi.mocked(console.log).mock.calls.flat().join("\n");
+    expect(output).toContain("No projects registered.");
+    expect(output).toContain("summon add <name> <path>");
+    expect(output).toContain("summon setup");
+  });
+});
+
+describe("UX-M4 (#558): renderScreen uses standard empty-state message", () => {
+  it("renderScreen empty-state contains 'No projects registered.'", () => {
+    const screen = renderScreen([], 0, 80, 24);
+    expect(screen).toContain("No projects registered.");
+    expect(screen).toContain("summon add <name> <path>");
+    expect(screen).toContain("summon setup");
   });
 });

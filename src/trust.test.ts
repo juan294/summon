@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createHash } from "node:crypto";
+import { TRUST_FILE as PATH_TRUST_FILE, CONFIG_DIR as PATH_CONFIG_DIR } from "./paths.js";
 
 // Mock node:fs
 const mockExistsSync = vi.fn();
@@ -197,14 +198,15 @@ describe("trustProject", () => {
       "/home/testuser/.config/summon",
       { recursive: true, mode: 0o700 },
     );
-    // Atomic write: writeFileSync goes to the .tmp path
+    // Atomic write: writeFileSync goes to a unique temp path (pid + random hex suffix)
     expect(mockWriteFileSync).toHaveBeenCalledWith(
-      `${TRUST_FILE}.tmp`,
+      expect.stringMatching(new RegExp(`^${TRUST_FILE.replace(/\//g, "\\/")}\\.[0-9]+\\.[0-9a-f]+\\.tmp$`)),
       expect.stringContaining("/myproject"),
       { encoding: "utf-8", mode: 0o600 },
     );
-    // renameSync moves .tmp to final path
-    expect(mockRenameSync).toHaveBeenCalledWith(`${TRUST_FILE}.tmp`, TRUST_FILE);
+    // renameSync moves the unique temp path to the final path
+    const writtenTmpPath = (mockWriteFileSync.mock.calls[0] as [string, ...unknown[]])[0];
+    expect(mockRenameSync).toHaveBeenCalledWith(writtenTmpPath, TRUST_FILE);
   });
 
   it("no-ops when no .summon file exists", () => {
@@ -678,5 +680,88 @@ describe("handleTrustCommand", () => {
 
     expect(mockWriteFileSync).toHaveBeenCalled();
     logSpy.mockRestore();
+  });
+});
+
+// BE-L1 #545: trust.ts must import TRUST_FILE and CONFIG_DIR from paths.ts
+// The canonical constants in paths.ts must resolve to the same value as what trust.ts uses.
+describe("BE-L1 #545: TRUST_FILE and CONFIG_DIR match paths.ts exports", () => {
+  it("TRUST_FILE used by trust.ts matches the canonical export from paths.ts", () => {
+    // paths.ts is the single source of truth for path constants.
+    // The path mocked in the test (TRUST_FILE constant) must equal what paths.ts exports.
+    // Since vi.mock("node:os") sets homedir() -> "/home/testuser", both should resolve
+    // to the same value when paths.ts also uses homedir() at module load time.
+    // This test locks in that trust.ts imports from paths.ts (not a local re-derivation).
+    expect(TRUST_FILE).toBe(PATH_TRUST_FILE);
+  });
+
+  it("CONFIG_DIR used by trust.ts (via saveTrustDb mkdirSync) matches paths.ts export", () => {
+    // When trustProject runs, mkdirSync is called with CONFIG_DIR.
+    // If trust.ts imports CONFIG_DIR from paths.ts, this will equal PATH_CONFIG_DIR.
+    mockExistsSync.mockImplementation((p: string) => {
+      if (p.endsWith(".summon")) return true;
+      return false;
+    });
+    mockReadFileSync.mockReturnValue("editor = vim\n");
+
+    trustProject("/myproject");
+
+    expect(mockMkdirSync).toHaveBeenCalledWith(
+      PATH_CONFIG_DIR,
+      expect.objectContaining({ recursive: true }),
+    );
+  });
+});
+
+// SE-L1 #556: corrupt/unreadable trust.json must return false (fail-closed)
+describe("SE-L1 #556: corrupt trust.json fail-closed invariant", () => {
+  it("isTrusted returns false when trust.json contains invalid JSON (fail-closed)", () => {
+    mockExistsSync.mockImplementation((p: string) => {
+      if (p.endsWith(".summon")) return true;
+      if (p === TRUST_FILE) return true;
+      return false;
+    });
+    mockReadFileSync.mockImplementation((p: string) => {
+      if (p === TRUST_FILE) return "not-valid-json{{{";
+      return "editor = vim\n"; // .summon content
+    });
+
+    // Corrupt trust.json must never grant trust — must return false
+    expect(isTrusted("/some/dir")).toBe(false);
+  });
+
+  it("isTrusted returns false when trust.json is an empty object {} (no entry for path)", () => {
+    const content = "editor = vim\n";
+    // Simulate a previously-trusted path: the DB is now empty (e.g. after a reset or corruption)
+    mockExistsSync.mockImplementation((p: string) => {
+      if (p.endsWith(".summon")) return true;
+      if (p === TRUST_FILE) return true;
+      return false;
+    });
+    mockReadFileSync.mockImplementation((p: string) => {
+      if (p === TRUST_FILE) return JSON.stringify({}); // empty — no entries
+      return content;
+    });
+
+    // File has a .summon, but there is no entry in the DB — must be blocked (fail-closed)
+    expect(isTrusted("/previously/trusted/dir")).toBe(false);
+  });
+
+  it("isTrusted returns false when trust.json is valid JSON but contains a different path's hash", () => {
+    const content = "editor = vim\n";
+    const hash = sha256(content);
+    // DB has the hash under a DIFFERENT directory key
+    mockExistsSync.mockImplementation((p: string) => {
+      if (p.endsWith(".summon")) return true;
+      if (p === TRUST_FILE) return true;
+      return false;
+    });
+    mockReadFileSync.mockImplementation((p: string) => {
+      if (p === TRUST_FILE) return JSON.stringify({ "/other/dir": hash });
+      return content;
+    });
+
+    // Our target dir is NOT in the DB — must be blocked
+    expect(isTrusted("/our/dir")).toBe(false);
   });
 });

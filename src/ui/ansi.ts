@@ -1,4 +1,5 @@
 import { supportsColor } from "../utils.js";
+import { getDisplayWidth } from "./layout-preview.js";
 
 function wrap(code: string, s: string): string {
   return supportsColor() ? `\x1b[${code}m${s}\x1b[0m` : s;
@@ -55,18 +56,70 @@ function trueColorFg(hex: string): string {
   return `\x1b[38;2;${r};${g};${b}m`;
 }
 
+/** Convert an 8-bit RGB channel value (0–255) to the nearest index in the 0–5 cube axis. */
+function rgbTo6(v: number): number {
+  return Math.round((v / 255) * 5);
+}
+
+/** Approximate an RGB color as a 256-color palette index (16–231 color cube). */
+function rgbTo256(r: number, g: number, b: number): number {
+  return 16 + 36 * rgbTo6(r) + 6 * rgbTo6(g) + rgbTo6(b);
+}
+
 /** @internal — exported for testing only */
 export function colorSwatch(colors: string[]): string {
-  if (!supportsColor() || process.env.COLORTERM !== "truecolor" && process.env.COLORTERM !== "24bit") return "";
-  return colors.map((hex) => `${trueColorFg(hex)}██\x1b[0m`).join("");
+  if (!supportsColor()) return "";
+  const isTrueColor = process.env.COLORTERM === "truecolor" || process.env.COLORTERM === "24bit";
+  if (isTrueColor) {
+    return colors.map((hex) => `${trueColorFg(hex)}██\x1b[0m`).join("");
+  }
+  // 256-color fallback: approximate each hex color in the 6×6×6 color cube
+  return colors.map((hex) => {
+    const [r, g, b] = hexToRgb(hex);
+    const idx = rgbTo256(r, g, b);
+    return `\x1b[38;5;${idx}m▉\x1b[0m`;
+  }).join("");
 }
 
 /**
- * Truncate a string to at most `width` characters, appending an ellipsis if truncated.
- * The returned string is always <= width characters (by codepoint count).
+ * Truncate a string to at most `width` display columns, appending an ellipsis if truncated.
+ * Wide characters (CJK, emoji) count as 2 columns; all others count as 1.
+ * The returned string always fits within `width` display columns.
  */
 export function truncateLine(s: string, width: number): string {
   if (width <= 0) return "";
-  if (s.length <= width) return s;
-  return s.slice(0, width - 1) + "…";
+  if (getDisplayWidth(s) <= width) return s;
+  // Walk codepoints, accumulating display width; stop when adding next char would exceed (width - 1)
+  const ellipsisWidth = 1; // "…" is 1 display column
+  const budget = width - ellipsisWidth;
+  let accWidth = 0;
+  let i = 0;
+  let cutAt = 0;
+  while (i < s.length) {
+    const cp = s.codePointAt(i);
+    if (cp === undefined) break;
+    const step = cp > 0xffff ? 2 : 1;
+    const charWidth = isWideCodePoint(cp) ? 2 : 1;
+    if (accWidth + charWidth > budget) break;
+    accWidth += charWidth;
+    cutAt = i + step;
+    i += step;
+  }
+  return s.slice(0, cutAt) + "…";
+}
+
+function isWideCodePoint(cp: number): boolean {
+  return (
+    (cp >= 0x1100 && cp <= 0x115f) ||
+    (cp >= 0x2e80 && cp <= 0x303f) ||
+    (cp >= 0x3040 && cp <= 0x33bf) ||
+    (cp >= 0x3400 && cp <= 0x4dbf) ||
+    (cp >= 0x4e00 && cp <= 0x9fff) ||
+    (cp >= 0xa000 && cp <= 0xabff) ||
+    (cp >= 0xac00 && cp <= 0xd7af) ||
+    (cp >= 0xf900 && cp <= 0xfaff) ||
+    (cp >= 0xfe10 && cp <= 0xfe6f) ||
+    (cp >= 0xff00 && cp <= 0xffef) ||
+    (cp >= 0x1f300 && cp <= 0x1ffff)
+  );
 }

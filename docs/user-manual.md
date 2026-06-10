@@ -331,7 +331,7 @@ summon session daily
 summon session --all
 ```
 
-The first project lands in the currently selected tab; each subsequent project opens a new tab via Ghostty's `make new tab` API. Launch is sequential and aborts on the first error — already-opened tabs are not closed.
+The first project lands in the currently selected tab; each subsequent project opens a new tab via a verified Cmd+T keystroke (System Events), retried and confirmed against Ghostty's tab count before panes are built. A project whose tab cannot be opened is reported and skipped, and the session continues with the remaining projects. Launch is otherwise sequential; a hard error (osascript failure, missing directory) aborts the session.
 
 CLI flags on `summon session` (e.g. `--starship-preset`, `--layout`) apply to every project unless overridden by that project's `.summon` file. Passing `--new-window` opens the first project in a new window; the remaining projects open as tabs in that window.
 
@@ -921,6 +921,23 @@ All files use `key=value` format, one entry per line.
 | `STARSHIP_CONFIG` | Set automatically by summon when `starship-preset` is configured. Points each workspace to a cached preset TOML file. Do not set manually. |
 | `SUMMON_WORKSPACE` | Set to `1` in all panes inside a summon workspace. Used to detect nested launches — if you run `summon` inside an existing workspace, you'll see a warning prompt suggesting `--new-window` instead. |
 | `SUMMON_DEBUG` | Set to `1` to enable debug output. Each message is timestamped and written to stderr, and also appended to a log file in `~/.config/summon/logs/`. Useful for diagnosing launch issues or AppleScript failures. |
+
+## Exit Codes
+
+| Code | Meaning |
+|---|---|
+| `0` | Success |
+| `1` | Usage error or configuration error (bad flag, invalid value, unknown project, etc.) |
+| `2` | Pre-launch guard failure (Ghostty not found, Accessibility permission denied, etc.) |
+| `130` | User cancelled — Ctrl+C or `n` at a confirmation prompt (128 + SIGINT) |
+
+If you see an unexpected error, re-run with `SUMMON_DEBUG=1` for full diagnostics:
+
+```bash
+SUMMON_DEBUG=1 summon .
+```
+
+Debug output is timestamped and written to both stderr and `~/.config/summon/logs/`.
 
 ## Troubleshooting
 

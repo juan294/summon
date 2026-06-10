@@ -334,6 +334,35 @@ describe("trust subcommand in completions (FE-H2 #359)", () => {
   });
 });
 
+describe("fish in completions subcommand suggestions (FE-H2 #527)", () => {
+  test("zsh completions subcommand suggests fish as a shell target", () => {
+    const result = generateZshCompletion();
+    expect(result).toMatch(/completions\)[\s\S]*?compadd\b.*\bfish\b/);
+  });
+
+  test("bash completions subcommand suggests fish as a shell target", () => {
+    const result = generateBashCompletion();
+    expect(result).toMatch(/completions\)[\s\S]*?compgen\s+-W\s+"[^"]*\bfish\b/);
+  });
+});
+
+describe("missing flag completions in zsh (FE-M3 #539)", () => {
+  test("zsh _arguments block includes --new-tab", () => {
+    const result = generateZshCompletion();
+    expect(result).toContain("--new-tab[");
+  });
+
+  test("zsh _arguments block includes --no-project-config", () => {
+    const result = generateZshCompletion();
+    expect(result).toContain("--no-project-config[");
+  });
+
+  test("zsh trust completion offers directory path completion", () => {
+    const result = generateZshCompletion();
+    expect(result).toMatch(/trust\)[\s\S]*?_directories/);
+  });
+});
+
 describe("layout list --names for completions (FE-M4 #388)", () => {
   test("bash completions use 'summon layout list --names' for layout presets", () => {
     const result = generateBashCompletion();

@@ -2,6 +2,7 @@ import { existsSync, writeFileSync, renameSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { randomBytes } from "node:crypto";
 
 /** Regex for safe command names — only letters, digits, hyphens, dots, underscores, plus signs. */
 export const SAFE_COMMAND_RE = /^[a-zA-Z0-9_][a-zA-Z0-9_.+-]*$/;
@@ -14,7 +15,7 @@ export const SAFE_COMMAND_RE = /^[a-zA-Z0-9_][a-zA-Z0-9_.+-]*$/;
  * Accepts the same optional options as `writeFileSync` (mode, encoding, etc.).
  */
 export function atomicWrite(path: string, content: string, options?: Parameters<typeof writeFileSync>[2]): void {
-  const tmpPath = `${path}.tmp`;
+  const tmpPath = `${path}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
   writeFileSync(tmpPath, content, options);
   renameSync(tmpPath, path);
 }

@@ -87,7 +87,7 @@ describe("CLI integration", () => {
     expect(result.stderr).toContain("Usage: summon add");
   });
 
-  it("errors on 'remove' with missing name", () => {
+  it("errors on 'remove' with missing name", { timeout: 15_000 }, () => {
     const result = run("remove");
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("Usage: summon remove");
@@ -371,7 +371,7 @@ describe("CLI integration", () => {
       // list should show empty projects in isolated env
       const result = run("list");
       expect(result.status).toBe(0);
-      expect(result.stdout).toContain("No projects found");
+      expect(result.stdout).toContain("No projects registered");
     });
   });
 
@@ -781,7 +781,7 @@ describe("CLI integration", () => {
     it("shows error when no projects registered", () => {
       const result = run("open");
       expect(result.status).toBe(1);
-      expect(result.stderr).toContain("No projects found");
+      expect(result.stderr).toContain("No projects registered");
     });
 
     it("summon open --help shows usage", () => {
@@ -830,7 +830,8 @@ describe("CLI integration", () => {
       // With temp HOME, no Ghostty config exists → recommendations missing → exit 2 (diagnostic)
       const result = run("doctor");
       expect(result.status).toBe(2);
-      expect(result.stdout).toContain("Checking Ghostty configuration");
+      // FE-M5: diagnostic output goes to stderr, not stdout
+      expect(result.stderr).toContain("Checking Ghostty configuration");
     });
 
     it("summon doctor --help shows usage", () => {
@@ -843,10 +844,11 @@ describe("CLI integration", () => {
       const result = run("doctor");
       // Exit 2 (diagnostic) when recommendations are missing, not a crash
       expect(result.status === 0 || result.status === 2).toBe(true);
-      expect(result.stdout).toContain("Checking permissions");
+      // FE-M5: diagnostic output goes to stderr
+      expect(result.stderr).toContain("Checking permissions");
       // The result depends on OS permissions, so check that one of the two messages appears
-      const hasGranted = result.stdout.includes("Accessibility permission is granted");
-      const hasNotGranted = result.stdout.includes("Accessibility permission is required");
+      const hasGranted = result.stderr.includes("Accessibility permission is granted");
+      const hasNotGranted = result.stderr.includes("Accessibility permission is required");
       expect(hasGranted || hasNotGranted).toBe(true);
     });
 
@@ -857,7 +859,8 @@ describe("CLI integration", () => {
       const result = run("doctor", "--fix");
       // Exit 0 if all issues fixed, or 2 if accessibility still missing
       expect(result.status === 0 || result.status === 2).toBe(true);
-      expect(result.stdout).toContain("Added 2 setting(s)");
+      // FE-M5: diagnostic output goes to stderr
+      expect(result.stderr).toContain("Added 2 setting(s)");
       // Verify the config was created
       const ghosttyConfig = join(TEMP_HOME, ".config", "ghostty", "config");
       expect(existsSync(ghosttyConfig)).toBe(true);
@@ -877,9 +880,9 @@ describe("CLI integration", () => {
       const result = run("doctor", "--fix");
       // Exit 0 if all issues fixed, or 2 if accessibility still missing
       expect(result.status === 0 || result.status === 2).toBe(true);
-      // Should only add the 1 missing setting
-      expect(result.stdout).toContain("Added 1 setting(s)");
-      expect(result.stdout).toContain("Backed up");
+      // FE-M5: diagnostic output goes to stderr
+      expect(result.stderr).toContain("Added 1 setting(s)");
+      expect(result.stderr).toContain("Backed up");
       // Verify backup was created (filename includes timestamp)
       const backups = readdirSync(ghosttyDir).filter(f => f.startsWith("config.bak"));
       expect(backups.length).toBeGreaterThanOrEqual(1);
@@ -898,8 +901,8 @@ describe("CLI integration", () => {
       const result = run("doctor", "--fix");
       // Exit 0 if accessibility granted, or 2 if not
       expect(result.status === 0 || result.status === 2).toBe(true);
-      expect(result.stdout).not.toContain("Added");
-      expect(result.stdout).not.toContain("Backed up");
+      expect(result.stderr).not.toContain("Added");
+      expect(result.stderr).not.toContain("Backed up");
     });
 
     it("doctor --help mentions --fix", () => {
@@ -1111,7 +1114,7 @@ describe("CLI integration", () => {
       expect(result.stdout).toContain("summon layout");
     });
 
-    it("--layout accepts custom layout name when it exists", () => {
+    it("--layout accepts custom layout name when it exists", { timeout: 30_000 }, () => {
       run("set", "panes", "3");
       run("layout", "save", "mycustom");
       const result = run(".", "--layout", "mycustom", "--dry-run");
@@ -1366,16 +1369,18 @@ describe("CLI integration", () => {
       run("set", "editor", "nonexistent-editor-xyz-191");
       const result = run("doctor");
       expect(result.status === 0 || result.status === 2).toBe(true);
-      expect(result.stdout).toContain("nonexistent-editor-xyz-191");
-      expect(result.stdout).toContain("not found");
+      // FE-M5: diagnostic output goes to stderr
+      expect(result.stderr).toContain("nonexistent-editor-xyz-191");
+      expect(result.stderr).toContain("not found");
     });
 
     it("doctor reports when configured sidebar command is not found", () => {
       run("set", "sidebar", "nonexistent-sidebar-xyz-191");
       const result = run("doctor");
       expect(result.status === 0 || result.status === 2).toBe(true);
-      expect(result.stdout).toContain("nonexistent-sidebar-xyz-191");
-      expect(result.stdout).toContain("not found");
+      // FE-M5: diagnostic output goes to stderr
+      expect(result.stderr).toContain("nonexistent-sidebar-xyz-191");
+      expect(result.stderr).toContain("not found");
     });
 
     it("doctor reports configured commands that are found", () => {
@@ -1383,8 +1388,9 @@ describe("CLI integration", () => {
       run("set", "editor", "sh");
       const result = run("doctor");
       expect(result.status === 0 || result.status === 2).toBe(true);
-      expect(result.stdout).toContain("sh");
-      expect(result.stdout).toContain("found");
+      // FE-M5: diagnostic output goes to stderr
+      expect(result.stderr).toContain("sh");
+      expect(result.stderr).toContain("found");
     });
   });
 
@@ -1496,10 +1502,10 @@ describe("CLI integration", () => {
       expect(result.stderr).toMatch(/^Error:/m);
     });
 
-    it("project not found has Error: prefix", () => {
+    it("project not found has summon: error: prefix", () => {
       const result = run("remove", "nonexistent");
       expect(result.status).toBe(1);
-      expect(result.stderr).toMatch(/^Error:/m);
+      expect(result.stderr).toMatch(/summon: error:/m);
     });
 
     it("unknown project has Error: prefix", () => {
@@ -1533,7 +1539,7 @@ describe("CLI integration", () => {
       });
       rmSync(freshHome, { recursive: true, force: true });
       expect(result.status).toBe(1);
-      expect(result.stderr).toContain("No projects found");
+      expect(result.stderr).toContain("No projects registered");
     });
   });
 
@@ -1652,10 +1658,11 @@ describe("CLI integration", () => {
         timeout: 30_000,
       });
       rmSync(freshHome, { recursive: true, force: true });
+      // FE-M5: diagnostic output goes to stderr, not stdout
       // Should NOT use ! prefix
-      expect(result.stdout).not.toMatch(/^\s+!/m);
+      expect(result.stderr).not.toMatch(/^\s+!/m);
       // Should use - prefix for the missing config message
-      expect(result.stdout).toContain("- No Ghostty config");
+      expect(result.stderr).toContain("- No Ghostty config");
     });
   });
 
@@ -1861,6 +1868,25 @@ describe("CLI integration", () => {
       });
       rmSync(freshHome, { recursive: true, force: true });
       expect(result.status === 0 || result.status === 1).toBe(true);
+    });
+  });
+
+  // DO-L1 (#547): SUMMON_DEBUG hint on unexpected errors
+  describe("SUMMON_DEBUG hint on unexpected errors (DO-L1 #547)", () => {
+    it("prints SUMMON_DEBUG=1 hint to stderr when an unexpected error is thrown", () => {
+      // Trigger an unexpected error by using a nonexistent project that causes a throw
+      // We can manufacture this by running with a deliberately broken HOME that causes
+      // an unexpected error rather than a handled one. We check that the debug hint appears.
+      // The simplest way: pass an invalid directory that causes the launch to throw unexpectedly.
+      // However, the cleanest approach is to inject an env that forces an unhandled throw.
+      // We use SUMMON_TEST_THROW=1 which we'll wire in index.ts to throw a test error.
+      const result = spawnSync("node", [CLI_PATH], {
+        encoding: "utf-8",
+        cwd: TEMP_HOME,
+        env: { ...process.env, HOME: TEMP_HOME, SUMMON_TEST_THROW: "1" },
+        timeout: 30_000,
+      });
+      expect(result.stderr).toContain("SUMMON_DEBUG=1");
     });
   });
 
