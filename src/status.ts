@@ -81,10 +81,6 @@ export function clearStatus(projectName: string): void {
 
 // --- Read ---
 
-export function isWorkspaceActive(projectName: string): boolean {
-  return readStatus(projectName)?.state === "active";
-}
-
 function readShellPid(projectName: string): number | null {
   try {
     const raw = readFileSync(pidFilePath(projectName), "utf-8").trim();
@@ -210,23 +206,3 @@ export function getGitBranch(directory: string): string | null {
   }
 }
 
-export function cleanStaleStatuses(): number {
-  if (!existsSync(STATUS_DIR)) return 0;
-
-  const projects = readdirSync(STATUS_DIR)
-    .filter((file) => file.endsWith(".json"))
-    .map((file) => file.replace(/\.json$/, ""));
-
-  let removed = 0;
-
-  for (const project of projects) {
-    const status = readStatus(project);
-    if (!status) continue;
-    if (status.state === "stopped") {
-      clearStatus(status.project);
-      removed++;
-    }
-  }
-
-  return removed;
-}
