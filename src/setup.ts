@@ -6,6 +6,7 @@ import { SAFE_COMMAND_RE, resolveCommand as resolveCommandPath, promptUser, chec
 import { isStarshipInstalled, listStarshipPresets } from "./starship.js";
 import { bold, dim, green, yellow, cyan, magenta, brightCyan, colorSwatch } from "./ui/ansi.js";
 import { renderLayoutPreview, renderTemplateGallery } from "./ui/layout-preview.js";
+import { sym } from "./ui/symbols.js";
 import { commandExecutable, replaceCommandExecutable } from "./command-spec.js";
 
 // ---------------------------------------------------------------------------
@@ -969,19 +970,19 @@ function printValidation(validation: ValidationResult): void {
   printSection("Checking tools");
 
   if (validation.ghosttyFound) {
-    console.log(`  ${green("✓")} Ghostty    found`);
+    console.log(`  ${green(sym.ok)} Ghostty    found`);
   } else {
     console.log(
-      `  ${yellow("!")} Ghostty    not found — install from https://ghostty.org`,
+      `  ${yellow(sym.warn)} Ghostty    not found — install from https://ghostty.org`,
     );
   }
 
   if (validation.warnings.length === 0) {
-    console.log(`  ${green("✓")} All selected tools are available`);
+    console.log(`  ${green(sym.ok)} All selected tools are available`);
   } else {
     for (const w of validation.warnings) {
       const hint = w.installHint ? ` — install with: ${w.installHint}` : "";
-      console.log(`  ${yellow("!")} ${w.cmd.padEnd(10)} not found${hint}`);
+      console.log(`  ${yellow(sym.warn)} ${w.cmd.padEnd(10)} not found${hint}`);
     }
     console.log();
     console.log(dim("  Some tools are missing. Install them later or"));
@@ -998,13 +999,13 @@ export async function checkAndRecoverAccessibility(): Promise<boolean> {
   const granted = checkAccessibility();
 
   if (granted) {
-    console.log(`  ${green("✓")} Accessibility permission granted`);
+    console.log(`  ${green(sym.ok)} Accessibility permission granted`);
     console.log();
     return true;
   }
 
   // Not granted — show warning and offer recovery
-  console.log(`  ${yellow("!")} Accessibility permission not granted`);
+  console.log(`  ${yellow(sym.warn)} Accessibility permission not granted`);
   console.log();
   console.log(dim("  Summon uses System Events to control Ghostty panes."));
   console.log(dim(`  Grant accessibility access to Ghostty in ${ACCESSIBILITY_SETTINGS_PATH}.`));
@@ -1020,11 +1021,11 @@ export async function checkAndRecoverAccessibility(): Promise<boolean> {
     await promptUser("  Press Enter after granting access...");
     const rechecked = checkAccessibility();
     if (rechecked) {
-      console.log(`  ${green("✓")} Accessibility permission granted!`);
+      console.log(`  ${green(sym.ok)} Accessibility permission granted!`);
       console.log();
       return true;
     }
-    console.log(`  ${yellow("!")} Still not detected — you can grant it later.`);
+    console.log(`  ${yellow(sym.warn)} Still not detected — you can grant it later.`);
     console.log(dim("  Summon will work once Ghostty has Accessibility access."));
     console.log();
     return false;

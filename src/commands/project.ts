@@ -11,14 +11,7 @@ import { validateProjectNameOrExit } from "../validation.js";
 export { resolveTargetDirectory, expandHome } from "../cli/resolve-target.js";
 import { expandHome } from "../cli/resolve-target.js";
 import type { CommandContext } from "./types.js";
-
-// Output helpers for consistent prefixes (UX-H5)
-const sym = {
-  ok: "✓",
-  warn: "!",
-  err: "✗",
-  info: "→",
-} as const;
+import { sym } from "../ui/symbols.js";
 
 /** Compute column widths from actual data lengths (UX-H6). */
 function computeColumnWidths(rows: { name: string }[]): { nameWidth: number } {
