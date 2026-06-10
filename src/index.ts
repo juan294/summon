@@ -56,7 +56,7 @@ if (parsed.values.help) {
     console.error(`Error: Unknown command: ${parsed.subcommand}. Run 'summon --help' to see available commands.`);
     process.exit(1);
   }
-  showHelp();
+  await showHelp();
   process.exit(0);
 }
 
@@ -76,6 +76,11 @@ if (parsed.values.all && parsed.subcommand && parsed.subcommand !== "session") {
 }
 
 try {
+  // DO-L1 (#547): Test hook — throw a synthetic unhandled error to verify the debug hint is printed.
+  if (process.env["SUMMON_TEST_THROW"] === "1") {
+    throw new Error("Synthetic test error (SUMMON_TEST_THROW)");
+  }
+
   // UX-H3 (#372): First-run wizard fires when no subcommand was supplied OR when targeting a directory.
   if (isFirstRun() && process.stdin.isTTY) {
     const isDirectoryTarget = parsed.subcommand !== undefined && !(parsed.subcommand in registry);
@@ -116,7 +121,7 @@ try {
       );
       process.exit(0);
     }
-    showHelp();
+    await showHelp();
     process.exit(0);
   }
 
@@ -152,5 +157,7 @@ try {
   if (err instanceof PromptCancelled) {
     process.exit(1);
   }
+  // DO-L1 (#547): Surface the debug flag hint so users know how to get full diagnostics.
+  console.error("Re-run with SUMMON_DEBUG=1 for full details.");
   throw err;
 }

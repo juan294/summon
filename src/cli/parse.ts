@@ -6,7 +6,6 @@ import { getErrorMessage, exitWithUsageHint } from "../utils.js";
 import { VALID_KEYS } from "../config.js";
 import { validateLayoutOrExit } from "../commands/layout-support.js";
 import { bold, cyan, dim } from "../ui/ansi.js";
-import { LAYOUT_INFO } from "../setup-gallery.js";
 
 export type ParsedValues = {
   help?: boolean;
@@ -102,7 +101,7 @@ function wrapHelpLine(s: string, maxVisible: number): string {
   return lines.join("\n");
 }
 
-function buildHelp(): string {
+async function buildHelp(): Promise<string> {
   // When stdout is not a TTY (e.g. piped), use a generous default so help text is not truncated
   const termWidth = Math.min(process.stdout.columns || 120, 120);
   const h = (s: string) => bold(cyan(s));
@@ -111,7 +110,9 @@ function buildHelp(): string {
   // Wrap a line to fit within terminal width, accounting for ANSI codes
   const wrap = (s: string): string => wrapHelpLine(s, termWidth);
 
-  // Build named-layout descriptions from LAYOUT_INFO (UX-M7 #510)
+  // PE-L1 (#553): lazy-import setup-gallery only when help is actually requested
+  // FE-L2 (#552): build layout lines dynamically from LAYOUT_INFO (removes hardcoded duplicate block)
+  const { LAYOUT_INFO } = await import("../setup-gallery.js");
   const layoutLines = Object.entries(LAYOUT_INFO).map(([name, info]) => {
     const nameCol = name.padEnd(14);
     return wrap(`  ${nameCol}${info.desc}`);
@@ -211,13 +212,6 @@ function buildHelp(): string {
     bold("Config-only keys") + note(" (no CLI flag):"),
     wrap(`  on-stop         Command to run when workspace exits (available as config key only)`),
     wrap(`  env.<KEY>       Environment variable passed to all panes (e.g. env.PORT=3000)`),
-    "",
-    bold("Layout presets:"),
-    wrap(`  minimal       1 editor pane, no shell`),
-    wrap(`  full          3 editor panes + shell`),
-    wrap(`  pair          2 editor panes + shell`),
-    wrap(`  cli           1 editor pane + shell`),
-    wrap(`  btop          editor + btop + shell + sidebar`),
     "",
     bold("Layouts:"),
     ...layoutLines,
@@ -533,8 +527,8 @@ export function buildOverrides(values: ParsedValues): CLIOverrides {
   return overrides;
 }
 
-export function showHelp(): void {
-  console.log(buildHelp());
+export async function showHelp(): Promise<void> {
+  console.log(await buildHelp());
 }
 
 export function hasSubcommandHelp(subcommand: string): boolean {
