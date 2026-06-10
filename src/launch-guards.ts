@@ -111,15 +111,17 @@ export async function confirmDangerousCommands(
 
   for (const [key, value] of dangerous) {
     const answer = await promptLower(
-      `  ${key} = ${value}\nContinue? [Y/n/s(kip pane)] `,
+      `  ${key} = ${value}\nContinue? [y/N/s(kip pane)] `,
     );
     if (answer === "s" || answer === "skip") {
       skipped.add(key);
-    } else if (answer === "n" || answer === "no") {
+    } else if (answer === "y" || answer === "yes") {
+      // explicit yes → proceed
+    } else {
+      // Empty Enter, "n", "no", or anything else → abort (N is the default)
       console.error("Aborted.");
       process.exit(1);
     }
-    // Empty or "y"/"yes" → proceed (Y is the default, aligns with wizard convention)
   }
 
   const confirmed = commands.filter(([key]) => !skipped.has(key));
