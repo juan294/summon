@@ -27,6 +27,7 @@ import { isStarshipInstalled, ensurePresetConfig, getPresetConfigPath } from "./
 // command-spec is a pure utility module with no imports from this file.
 // Dependency direction: launcher -> command-spec (one-way, no circular risk).
 import { commandExecutable, replaceCommandExecutable } from "./command-spec.js";
+import { TabOpenError } from "./errors.js";
 
 /** Convert resolved layout options to a key-value config map suitable for saving as a custom layout. */
 export function optsToConfigMap(opts: Partial<LayoutOptions>): Map<string, string> {
@@ -133,6 +134,18 @@ function executeScript(script: string): void {
 
     const message = getErrorMessage(err);
     console.error(`Failed to execute workspace script: ${message}`);
+
+    // A verified keystroke failure means NO new tab/window was created — the existing
+    // front window is intact, so DO NOT run the rollback that would close it.
+    if (message.includes("summon-newtab-failed")) {
+      console.error("Ghostty did not open a new tab after multiple attempts.");
+      throw new TabOpenError("Ghostty did not open a new tab.", { cause: err });
+    }
+    if (message.includes("summon-newwindow-failed")) {
+      const m = "Ghostty did not open a new window after multiple attempts.";
+      console.error(m);
+      throw new Error(m, { cause: err });
+    }
 
     // Best-effort rollback: the AppleScript may have opened a window before failing.
     // Attempt to close it so the user is not left with a stale empty window (BE-S26 #322).
