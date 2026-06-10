@@ -13,6 +13,16 @@ vi.mock("./paths.js", () => ({
   TRUST_FILE: "/tmp/test-summon/trust.json",
 }));
 
+// Mock node:path so we can spy on resolve for the traversal-guard test
+vi.mock("node:path", async () => {
+  const real = await vi.importActual<typeof import("node:path")>("node:path");
+  return {
+    ...real,
+    resolve: vi.fn((...args: string[]) => real.resolve(...args)),
+    join: vi.fn((...args: string[]) => real.join(...args)),
+  };
+});
+
 // Mock the filesystem
 vi.mock("node:fs", () => {
   const store = new Map<string, string>();
@@ -65,6 +75,9 @@ const { __store: store, __dirs: dirs } = fs as unknown as {
   __store: Map<string, string>;
   __dirs: Set<string>;
 };
+
+// Import mocked path.resolve so traversal-guard tests can override it
+import { resolve as pathResolve } from "node:path";
 
 import {
   isValidSessionName,
@@ -216,5 +229,57 @@ describe("writeSession validation", () => {
       "projA\n",
       expect.objectContaining({ mode: 0o600 })
     );
+  });
+});
+
+// QA-L2 #555: Traversal rejection — second guard in sessionPath (lines 16-18 of sessions.ts)
+// The regex already blocks slashes and "..", but the path-resolution guard is defense-in-depth.
+// We force resolve() to return a path outside SESSIONS_DIR to exercise that branch.
+describe("sessionPath traversal guard (QA-L2 #555)", () => {
+  it("throws 'Invalid session path' when resolve() escapes SESSIONS_DIR", () => {
+    // Override resolve for the call made inside sessionPath to simulate a traversal escape.
+    // The mocked node:path wraps the real module with a vi.fn, so mockReturnValueOnce only
+    // affects the next call — which is the resolve(join(SESSIONS_DIR, name)) call inside
+    // sessionPath(). SESSIONS_DIR_RESOLVED was already computed at module init using the real
+    // resolve, so the guard comparison still works correctly.
+    vi.mocked(pathResolve).mockReturnValueOnce("/etc/passwd");
+
+    expect(() => sessionPath("validname")).toThrow("Invalid session path");
+  });
+
+  it("does NOT throw for a legitimately valid session name", () => {
+    // Sanity-check: ensure the mock override is scoped (mockReturnValueOnce is consumed).
+    // A real valid name must still resolve inside the sessions dir and not throw.
+    expect(() => sessionPath("validname")).not.toThrow();
+  });
+});
+
+// QA-L2 #555: readSession non-ENOENT rethrow (lines 32-34 of sessions.ts)
+// When readFileSync throws something other than ENOENT (e.g. EACCES permission denied),
+// readSession must rethrow — it must not swallow the error or return null.
+describe("readSession non-ENOENT rethrow (QA-L2 #555)", () => {
+  it("rethrows EACCES permission denied error", () => {
+    const permError = Object.assign(new Error("EACCES: permission denied"), { code: "EACCES" });
+    vi.mocked(fs.readFileSync).mockImplementationOnce(() => {
+      throw permError;
+    });
+
+    expect(() => readSession("mysession")).toThrow(permError);
+  });
+
+  it("rethrows a generic Error with no .code property", () => {
+    const genericError = new Error("Unexpected I/O failure");
+    vi.mocked(fs.readFileSync).mockImplementationOnce(() => {
+      throw genericError;
+    });
+
+    expect(() => readSession("mysession")).toThrow(genericError);
+  });
+
+  it("still returns null for a genuine ENOENT (regression guard)", () => {
+    // Ensure the ENOENT swallow is unaffected by the non-ENOENT rethrow branch.
+    // The default mock readFileSync already throws ENOENT for missing keys, so this
+    // verifies the happy-path ENOENT branch still returns null.
+    expect(readSession("doesnotexist")).toBeNull();
   });
 });
