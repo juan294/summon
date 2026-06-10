@@ -19,7 +19,7 @@ import type { WorkspaceStatus } from "./status.js";
 import { generateAppleScript, generateTreeAppleScript, generateFocusScript } from "./script.js";
 import { parseTreeDSL, extractPaneDefinitions, extractPaneCwds, resolveTreeCommands as resolveTreeCmds, buildTreePlan, findPaneByName } from "./tree.js";
 import type { LayoutNode } from "./tree.js";
-import { resolveCommand as resolveCommandPath, getErrorMessage, SUMMON_WORKSPACE_ENV, promptUser, ACCESSIBILITY_SETTINGS_PATH } from "./utils.js";
+import { resolveCommand as resolveCommandPath, getErrorMessage, SUMMON_WORKSPACE_ENV, promptUser, ACCESSIBILITY_SETTINGS_PATH, isDebug } from "./utils.js";
 import { ensureGhostty, ensureAccessibility, printAccessibilityHint, confirmDangerousCommands, isAccessibilityError } from "./launch-guards.js";
 import { assertTrusted, assertTrustedContent } from "./trust.js";
 import { parseIntInRange, parsePositiveFloat, ENV_KEY_RE, PROJECT_NAME_RE, sanitizeProjectName } from "./validation.js";
@@ -34,6 +34,7 @@ export function optsToConfigMap(opts: Partial<LayoutOptions>): Map<string, strin
   const entries = new Map<string, string>();
   if (opts.editor) entries.set("editor", opts.editor);
   if (opts.sidebarCommand) entries.set("sidebar", opts.sidebarCommand);
+  if (opts.secondaryEditor) entries.set("secondary-editor", opts.secondaryEditor);
   if (opts.editorPanes !== undefined) entries.set("panes", String(opts.editorPanes));
   if (opts.editorSize !== undefined) entries.set("editor-size", String(opts.editorSize));
   if (opts.shell !== undefined) entries.set("shell", opts.shell);
@@ -120,11 +121,12 @@ end tell`;
   }
 }
 
-function executeScript(script: string): void {
-  console.log("Summoning workspace...");
+function executeScript(script: string, targetLabel?: string): void {
+  // FE-M5/UX-M6: progress messages go to stderr so pipelines (e.g. summon export > .summon) are not polluted.
+  process.stderr.write(`Launching ${targetLabel ?? "workspace"}…\n`);
   try {
     execFileSync("osascript", [], { input: script, encoding: "utf-8", timeout: 30_000 });
-    console.log("✓ Workspace summoned.");
+    process.stderr.write("✓ Workspace ready.\n");
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
     if (code === "ETIMEDOUT") {
@@ -133,7 +135,7 @@ function executeScript(script: string): void {
     }
 
     const message = getErrorMessage(err);
-    console.error(`Failed to execute workspace script: ${message}`);
+    console.error(`summon: error: failed to execute workspace script: ${message}`);
 
     // A verified keystroke failure means NO new tab/window was created — the existing
     // front window is intact, so DO NOT run the rollback that would close it.
@@ -394,6 +396,7 @@ function resolveLayoutBase(
     // Traditional custom layout (no tree= key)
     if (customData.has("editor")) base.editor = customData.get("editor");
     if (customData.has("sidebar")) base.sidebarCommand = customData.get("sidebar");
+    if (customData.has("secondary-editor")) base.secondaryEditor = customData.get("secondary-editor");
     if (customData.has("panes")) {
       const p = parseIntInRange(customData.get("panes")!, PANES_MIN);
       if (p.ok) {
@@ -429,6 +432,7 @@ function layerConfigValues(
 
   const editor = pick(cliOverrides.editor, "editor");
   const sidebar = pick(cliOverrides.sidebar, "sidebar");
+  const secondaryEditor = pick(undefined, "secondary-editor");
   const panes = pick(cliOverrides.panes, "panes");
   const editorSize = pick(cliOverrides["editor-size"], "editor-size");
   const shell = pick(cliOverrides.shell, "shell");
@@ -437,6 +441,7 @@ function layerConfigValues(
   const result: Partial<LayoutOptions> = { ...base };
   if (editor !== undefined) result.editor = editor;
   if (sidebar !== undefined) result.sidebarCommand = sidebar;
+  if (secondaryEditor !== undefined) result.secondaryEditor = secondaryEditor;
   if (panes !== undefined) {
     const parsed = parseIntInRange(panes, PANES_MIN);
     if (parsed.ok) {
@@ -623,7 +628,14 @@ export function decideCleanRestoredPanes(
  * 4. The feature is documented in `--help` so users understand the behavior.
  */
 function executeOnStart(onStart: string, targetDir: string): void {
-  console.log(`Running on-start: ${onStart}`);
+  // SE-L3: suppress the on-start command echo to prevent sensitive commands from
+  // leaking to stdout in non-debug mode. Gate behind SUMMON_DEBUG for diagnostics.
+  // Note: on-start/on-stop hooks inherit the full launcher environment by design
+  // (intentional, matching shell exec behavior). This is a known difference from
+  // pane env (which is scrubbed by ENV_DENYLIST_PREFIXES/ENV_DENYLIST_EXACT above).
+  if (isDebug()) {
+    process.stderr.write(`[debug] Running on-start: ${onStart}\n`);
+  }
   try {
     execSync(onStart, { cwd: targetDir, encoding: "utf-8", stdio: "inherit" });
   } catch (err) {
@@ -701,7 +713,7 @@ async function launchTreeLayout(
 
   const starshipConfigPath = resolveStarship();
   const script = generateTreeAppleScript(treePlan, targetDir, starshipConfigPath, hasEnvVars ? envVars : undefined, projectName, onStop);
-  executeScript(script);
+  executeScript(script, projectName);
   return treePlan.leaves;
 }
 
@@ -754,13 +766,13 @@ async function launchTraditionalLayout(
 
   const starshipConfigPath = resolveStarship();
   const script = generateAppleScript(plan, targetDir, starshipConfigPath, hasEnvVars ? envVars : undefined, projectName, onStop);
-  executeScript(script);
+  executeScript(script, projectName);
   return paneNames;
 }
 
 export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Promise<void> {
   if (!existsSync(targetDir)) {
-    const msg = `Directory not found: ${targetDir}`;
+    const msg = `summon: error: Directory not found: ${targetDir}`;
     console.error(msg);
     throw new Error(msg);
   }

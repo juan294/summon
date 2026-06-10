@@ -351,7 +351,7 @@ describe("renderScreen", () => {
 
   it("shows empty state message when there are no projects", () => {
     const screen = renderScreen([], 0, 80, 24);
-    expect(screen).toContain("No projects found");
+    expect(screen).toContain("No projects registered.");
     expect(screen).toContain("summon add");
   });
 
@@ -732,8 +732,10 @@ describe("printStatusOnce", () => {
 
   it("prints empty message when no projects", () => {
     printStatusOnce();
-    expect(console.log).toHaveBeenCalledWith("No workspaces found.");
-    expect(console.log).toHaveBeenCalledWith("Run `summon <project>` to launch a workspace.");
+    const output = vi.mocked(console.log).mock.calls.flat().join("\n");
+    expect(output).toContain("No projects registered.");
+    expect(output).toContain("summon add <name> <path>");
+    expect(output).toContain("summon setup");
   });
 
   it("prints status rows when projects exist", () => {
@@ -1184,5 +1186,30 @@ describe.skipIf(nodeMajor < 20)("runMonitor", () => {
     expect(output).toContain("osascript: execution failed");
     // Dashboard should still be accessible — summon status header should be in output
     expect(output).toContain("summon status");
+  });
+});
+
+describe("UX-M4 (#558): printStatusOnce uses standard empty-state message", () => {
+  beforeEach(() => {
+    listProjects.mockReturnValue([]);
+    readAllStatuses.mockReturnValue([]);
+    vi.spyOn(console, "log").mockImplementation(() => {});
+  });
+
+  it("shows the standard empty-state message including 'summon add' and 'summon setup'", () => {
+    printStatusOnce();
+    const output = vi.mocked(console.log).mock.calls.flat().join("\n");
+    expect(output).toContain("No projects registered.");
+    expect(output).toContain("summon add <name> <path>");
+    expect(output).toContain("summon setup");
+  });
+});
+
+describe("UX-M4 (#558): renderScreen uses standard empty-state message", () => {
+  it("renderScreen empty-state contains 'No projects registered.'", () => {
+    const screen = renderScreen([], 0, 80, 24);
+    expect(screen).toContain("No projects registered.");
+    expect(screen).toContain("summon add <name> <path>");
+    expect(screen).toContain("summon setup");
   });
 });

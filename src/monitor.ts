@@ -171,8 +171,7 @@ export function renderScreen(rows: ProjectRow[], selectedIndex: number, width: n
   let renderedRows: string[];
   if (rows.length === 0) {
     renderedRows = [
-      "  No projects found.",
-      "  Run `summon add <name> <path>` to get started.",
+      "  No projects registered. Run `summon add <name> <path>` or `summon setup` to get started.",
     ];
   } else {
     renderedRows = visibleRows.map((row, i) =>
@@ -310,8 +309,7 @@ export function loadProjectRows(): ProjectRow[] {
 export function printStatusOnce(): void {
   const rows = loadProjectRows();
   if (rows.length === 0) {
-    console.log("No workspaces found.");
-    console.log("Run `summon <project>` to launch a workspace.");
+    console.log("No projects registered. Run `summon add <name> <path>` or `summon setup` to get started.");
     return;
   }
 

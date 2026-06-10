@@ -221,7 +221,7 @@ describe("handleRemoveCommand", () => {
     mockRemoveProject.mockReturnValue(false);
 
     await expect(handleRemoveCommand(makeContext({ args: ["missing"] }))).rejects.toThrow("exit:1");
-    expect(errorSpy).toHaveBeenCalledWith("Error: Project not found: missing");
+    expect(errorSpy).toHaveBeenCalledWith("summon: error: Project not found: missing");
     expect(errorSpy).toHaveBeenCalledWith("Run 'summon list' to see registered projects.");
     expect(exitSpy).toHaveBeenCalledWith(1);
   });
@@ -233,8 +233,10 @@ describe("handleListCommand", () => {
 
     await handleListCommand();
 
-    expect(logSpy).toHaveBeenCalledWith("No projects found.");
-    expect(logSpy).toHaveBeenCalledWith("Run `summon add <name> <path>` to register your first project.");
+    const output = logSpy.mock.calls.flat().join("\n");
+    expect(output).toContain("No projects registered.");
+    expect(output).toContain("summon add <name> <path>");
+    expect(output).toContain("summon setup");
   });
 
   it("prints all registered projects", async () => {
@@ -261,8 +263,10 @@ describe("handleOpenCommand", () => {
     mockLoadProjectRows.mockReturnValue([]);
 
     await expect(handleOpenCommand(makeContext())).rejects.toThrow("exit:1");
-    expect(errorSpy).toHaveBeenCalledWith("No projects found.");
-    expect(errorSpy).toHaveBeenCalledWith("Run `summon add <name> <path>` to register your first project.");
+    const output = errorSpy.mock.calls.flat().join("\n");
+    expect(output).toContain("No projects registered.");
+    expect(output).toContain("summon add <name> <path>");
+    expect(output).toContain("summon setup");
   });
 
   it("re-prompts invalid selections and focuses active workspaces", async () => {
@@ -412,9 +416,9 @@ describe("#411 FE-L1: consistent error formatting", () => {
     mockLoadProjectRows.mockReturnValue([]);
 
     await expect(handleOpenCommand(makeContext())).rejects.toThrow("exit:1");
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("No projects found"));
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("No projects registered"));
     const stdoutCalls = stdoutSpy.mock.calls.map((c) => String(c[0])).join("\n");
-    expect(stdoutCalls).not.toContain("No projects found");
+    expect(stdoutCalls).not.toContain("No projects registered");
 
     errorSpy.mockRestore();
     stdoutSpy.mockRestore();
@@ -467,5 +471,51 @@ describe("resolveTargetDirectory", () => {
     expect(errorSpy).toHaveBeenCalledWith(`Error: "missing" is not a known command or registered project. Try: summon --help`);
     expect(errorSpy).toHaveBeenCalledWith("To register as a project: summon add missing /path/to/project");
     expect(errorSpy).toHaveBeenCalledWith("Or see available:         summon list");
+  });
+});
+
+describe("UX-M4 (#558): empty-state messages are standardized", () => {
+  it("handleListCommand uses the standard empty-state message", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockListProjects.mockReturnValue(new Map());
+
+    await handleListCommand();
+
+    const output = logSpy.mock.calls.flat().join("\n");
+    expect(output).toContain("No projects registered.");
+    expect(output).toContain("summon add <name> <path>");
+    expect(output).toContain("summon setup");
+    logSpy.mockRestore();
+  });
+
+  it("handleOpenCommand uses the standard empty-state message", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+    mockLoadProjectRows.mockReturnValue([]);
+
+    await expect(handleOpenCommand(makeContext())).rejects.toThrow("exit:1");
+
+    const output = errorSpy.mock.calls.flat().join("\n");
+    expect(output).toContain("No projects registered.");
+    expect(output).toContain("summon add <name> <path>");
+    expect(output).toContain("summon setup");
+    errorSpy.mockRestore();
+  });
+});
+
+describe("UX-M5 (#559): error prefixes use 'summon: error:' style", () => {
+  it("handleRemoveCommand uses 'summon: error:' prefix for project not found", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+    mockRemoveProject.mockReturnValue(false);
+
+    await expect(handleRemoveCommand(makeContext({ args: ["missing"] }))).rejects.toThrow("exit:1");
+    const errorMessages = errorSpy.mock.calls.flat().map(String);
+    expect(errorMessages.some(m => m.includes("summon: error:"))).toBe(true);
+    errorSpy.mockRestore();
   });
 });

@@ -36,14 +36,16 @@ export async function handleDoctorCommand({ values }: CommandContext): Promise<v
   let totalChecks = 0;
   let passedChecks = 0;
 
-  console.log("Checking Ghostty configuration...\n");
+  // FE-M5: diagnostic output goes to stderr so pipelines (e.g. summon export > .summon)
+  // are not contaminated. Machine-consumable data (exit codes) stay on stdout.
+  console.error("Checking Ghostty configuration...\n");
 
   const ghosttyConfigPath = join(homedir(), ".config", "ghostty", "config");
 
   if (!existsSync(ghosttyConfigPath)) {
-    console.log("  - No Ghostty config file found at ~/.config/ghostty/config");
-    console.log("    Create one to customize your terminal experience.");
-    console.log();
+    console.error("  - No Ghostty config file found at ~/.config/ghostty/config");
+    console.error("    Create one to customize your terminal experience.");
+    console.error();
   }
 
   let configContent = existsSync(ghosttyConfigPath)
@@ -78,12 +80,12 @@ export async function handleDoctorCommand({ values }: CommandContext): Promise<v
         const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
         const backup = `${ghosttyConfigPath}.bak.${timestamp}`;
         copyFileSync(ghosttyConfigPath, backup);
-        console.log(`  Backed up ${ghosttyConfigPath} → ${backup}`);
+        console.error(`  Backed up ${ghosttyConfigPath} → ${backup}`);
       }
       const additions = toApply.map(s => `${s.key} = ${s.recommended}`).join("\n");
       appendFileSync(ghosttyConfigPath, "\n# Added by summon doctor --fix\n" + additions + "\n");
-      console.log(`  Added ${toApply.length} setting(s) to ${ghosttyConfigPath}`);
-      console.log();
+      console.error(`  Added ${toApply.length} setting(s) to ${ghosttyConfigPath}`);
+      console.error();
       configContent = readFileSync(ghosttyConfigPath, "utf-8");
       appliedFixes = true;
     }
@@ -97,38 +99,38 @@ export async function handleDoctorCommand({ values }: CommandContext): Promise<v
     totalChecks++;
     if (isSet) {
       passedChecks++;
-      console.log(`  ${PASS}  ${check.name} (${check.key}) is configured`);
+      console.error(`  ${PASS}  ${check.name} (${check.key}) is configured`);
     } else {
       allGood = false;
       totalIssues++;
       autoFixable++;
       missingSettings.push({ key: check.key, recommended: check.recommended });
-      console.log(`  ${FAIL}  ${check.name}`);
+      console.error(`  ${FAIL}  ${check.name}`);
       if (!fixFlag) {
-        console.log("    Add to ~/.config/ghostty/config:");
-        console.log(`    ${check.key} = ${check.recommended}`);
-        console.log(`    ${check.reason}`);
+        console.error("    Add to ~/.config/ghostty/config:");
+        console.error(`    ${check.key} = ${check.recommended}`);
+        console.error(`    ${check.reason}`);
       }
-      console.log();
+      console.error();
     }
   }
 
-  console.log();
-  console.log("Checking permissions...\n");
+  console.error();
+  console.error("Checking permissions...\n");
 
   const accessOk = checkAccessibility();
   totalChecks++;
   if (accessOk) {
     passedChecks++;
-    console.log(`  ${PASS}  Accessibility permission is granted`);
+    console.error(`  ${PASS}  Accessibility permission is granted`);
   } else {
     allGood = false;
     totalIssues++;
-    console.log(`  ${FAIL}  Accessibility permission is required`);
-    console.log(`    ${ACCESSIBILITY_REQUIRED_MSG}`);
-    console.log(`    ${ACCESSIBILITY_SETTINGS_PATH}`);
-    console.log(`    ${ACCESSIBILITY_ENABLE_HINT}`);
-    console.log();
+    console.error(`  ${FAIL}  Accessibility permission is required`);
+    console.error(`    ${ACCESSIBILITY_REQUIRED_MSG}`);
+    console.error(`    ${ACCESSIBILITY_SETTINGS_PATH}`);
+    console.error(`    ${ACCESSIBILITY_ENABLE_HINT}`);
+    console.error();
   }
 
   const userConfig = listConfig();
@@ -139,8 +141,8 @@ export async function handleDoctorCommand({ values }: CommandContext): Promise<v
   if (sidebarCmd) commandChecks.push({ key: "sidebar", cmd: sidebarCmd });
 
   if (commandChecks.length > 0) {
-    console.log();
-    console.log("Checking configured commands...\n");
+    console.error();
+    console.error("Checking configured commands...\n");
 
     for (const { key, cmd } of commandChecks) {
       const binary = commandExecutable(cmd);
@@ -148,67 +150,67 @@ export async function handleDoctorCommand({ values }: CommandContext): Promise<v
       totalChecks++;
       if (found) {
         passedChecks++;
-        console.log(`  ${PASS}  ${key} command "${binary}" found at ${found}`);
+        console.error(`  ${PASS}  ${key} command "${binary}" found at ${found}`);
       } else {
         allGood = false;
         totalIssues++;
-        console.log(`  ${FAIL}  ${key} command "${binary ?? cmd}" not found in PATH`);
-        console.log(`    Install "${binary ?? cmd}" or change with: summon set ${key} <command>`);
-        console.log();
+        console.error(`  ${FAIL}  ${key} command "${binary ?? cmd}" not found in PATH`);
+        console.error(`    Install "${binary ?? cmd}" or change with: summon set ${key} <command>`);
+        console.error();
       }
     }
   }
 
-  console.log();
-  console.log("Checking port conflicts...\n");
+  console.error();
+  console.error("Checking port conflicts...\n");
   const { detectAllPorts } = await import("../ports.js");
   const { conflicts } = await detectAllPorts();
   totalChecks++;
   if (conflicts.size === 0) {
     passedChecks++;
-    console.log(`  ${PASS}  No port conflicts (${listProjects().size} projects checked)`);
+    console.error(`  ${PASS}  No port conflicts (${listProjects().size} projects checked)`);
   } else {
     allGood = false;
     for (const [port, projects] of conflicts) {
       totalIssues++;
-      console.log(`  ${FAIL}  Port conflict: port ${port} used by ${projects.join(", ")}`);
+      console.error(`  ${FAIL}  Port conflict: port ${port} used by ${projects.join(", ")}`);
     }
   }
 
-  console.log();
+  console.error();
 
   // Pass/fail summary (UX-M4, UX-M9)
   if (totalIssues === 0) {
-    console.log(green(`${sym.ok} ${passedChecks}/${totalChecks} checks passed.`));
+    console.error(green(`${sym.ok} ${passedChecks}/${totalChecks} checks passed.`));
   } else {
     const failedChecks = totalChecks - passedChecks;
     const fixablePart = autoFixable > 0 ? ` (${autoFixable} auto-fixable with --fix)` : "";
-    console.log(yellow(bold(`${passedChecks}/${totalChecks} checks passed — ${failedChecks} failed${fixablePart}.`)));
-    console.log(`  Run 'summon doctor --fix' to apply fixes, or 'summon setup' to reconfigure.`);
+    console.error(yellow(bold(`${passedChecks}/${totalChecks} checks passed — ${failedChecks} failed${fixablePart}.`)));
+    console.error(`  Run 'summon doctor --fix' to apply fixes, or 'summon setup' to reconfigure.`);
   }
 
   // Verbose diagnostic section (#504 DO-S1)
   // Gives users full diagnostic context without needing SUMMON_DEBUG=1.
   if (verboseFlag) {
-    console.log();
-    console.log(bold("Diagnostic info:"));
-    console.log();
+    console.error();
+    console.error(bold("Diagnostic info:"));
+    console.error();
 
     // Summon version
-    console.log(`  Summon version:  ${__VERSION__}`);
+    console.error(`  Summon version:  ${__VERSION__}`);
 
     // Node.js version
-    console.log(`  Node.js version: ${process.version}`);
+    console.error(`  Node.js version: ${process.version}`);
 
     // Config directory
-    console.log(`  Config dir:      ${CONFIG_DIR}`);
+    console.error(`  Config dir:      ${CONFIG_DIR}`);
 
     // Ghostty paths and accessibility
     const ghosttyFound = GHOSTTY_PATHS.find((p) => existsSync(p));
     if (ghosttyFound) {
-      console.log(`  Ghostty path:    ${ghosttyFound} ${dim("(found)")}`);
+      console.error(`  Ghostty path:    ${ghosttyFound} ${dim("(found)")}`);
     } else {
-      console.log(`  Ghostty path:    ${GHOSTTY_PATHS.join(", ")} ${dim("(not found)")}`);
+      console.error(`  Ghostty path:    ${GHOSTTY_PATHS.join(", ")} ${dim("(not found)")}`);
     }
 
     // Trust DB
@@ -224,9 +226,9 @@ export async function handleDoctorCommand({ values }: CommandContext): Promise<v
         // ignore parse errors — count stays 0
       }
     }
-    console.log(`  Trust DB:        ${TRUST_FILE}`);
-    console.log(`  Trusted projects: ${trustedCount} project${trustedCount === 1 ? "" : "s"}`);
-    console.log();
+    console.error(`  Trust DB:        ${TRUST_FILE}`);
+    console.error(`  Trusted projects: ${trustedCount} project${trustedCount === 1 ? "" : "s"}`);
+    console.error();
   }
 
   const issuesRemain = appliedFixes ? !accessOk : !allGood;
