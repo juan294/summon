@@ -922,6 +922,23 @@ All files use `key=value` format, one entry per line.
 | `SUMMON_WORKSPACE` | Set to `1` in all panes inside a summon workspace. Used to detect nested launches — if you run `summon` inside an existing workspace, you'll see a warning prompt suggesting `--new-window` instead. |
 | `SUMMON_DEBUG` | Set to `1` to enable debug output. Each message is timestamped and written to stderr, and also appended to a log file in `~/.config/summon/logs/`. Useful for diagnosing launch issues or AppleScript failures. |
 
+## Exit Codes
+
+| Code | Meaning |
+|---|---|
+| `0` | Success |
+| `1` | Usage error or configuration error (bad flag, invalid value, unknown project, etc.) |
+| `2` | Pre-launch guard failure (Ghostty not found, Accessibility permission denied, etc.) |
+| `130` | User cancelled — Ctrl+C or `n` at a confirmation prompt (128 + SIGINT) |
+
+If you see an unexpected error, re-run with `SUMMON_DEBUG=1` for full diagnostics:
+
+```bash
+SUMMON_DEBUG=1 summon .
+```
+
+Debug output is timestamped and written to both stderr and `~/.config/summon/logs/`.
+
 ## Troubleshooting
 
 ### Ghostty not found

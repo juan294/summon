@@ -1864,6 +1864,25 @@ describe("CLI integration", () => {
     });
   });
 
+  // DO-L1 (#547): SUMMON_DEBUG hint on unexpected errors
+  describe("SUMMON_DEBUG hint on unexpected errors (DO-L1 #547)", () => {
+    it("prints SUMMON_DEBUG=1 hint to stderr when an unexpected error is thrown", () => {
+      // Trigger an unexpected error by using a nonexistent project that causes a throw
+      // We can manufacture this by running with a deliberately broken HOME that causes
+      // an unexpected error rather than a handled one. We check that the debug hint appears.
+      // The simplest way: pass an invalid directory that causes the launch to throw unexpectedly.
+      // However, the cleanest approach is to inject an env that forces an unhandled throw.
+      // We use SUMMON_TEST_THROW=1 which we'll wire in index.ts to throw a test error.
+      const result = spawnSync("node", [CLI_PATH], {
+        encoding: "utf-8",
+        cwd: TEMP_HOME,
+        env: { ...process.env, HOME: TEMP_HOME, SUMMON_TEST_THROW: "1" },
+        timeout: 30_000,
+      });
+      expect(result.stderr).toContain("SUMMON_DEBUG=1");
+    });
+  });
+
   // Trust subcommand wiring
   describe("trust subcommand (#WU-1)", () => {
     it("exits 1 with informative error when trust.ts is not yet available", () => {

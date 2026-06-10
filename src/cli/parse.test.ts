@@ -227,18 +227,21 @@ describe("buildOverrides", () => {
 });
 
 describe("help output", () => {
-  it("shows full help text", () => {
+  it("shows full help text", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    showHelp();
+    await showHelp();
 
-    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("Layout presets:"));
+    // FE-L2 (#552): after fix, the dynamic "Layouts:" section replaces the hardcoded "Layout presets:" block
+    const output = logSpy.mock.calls.map(c => c[0]).join("\n");
+    expect(output).toContain("Layouts:");
+    logSpy.mockRestore();
   });
 
-  it("contains hierarchical section headers (UX-H2)", () => {
+  it("contains hierarchical section headers (UX-H2)", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    showHelp();
+    await showHelp();
 
     const output = logSpy.mock.calls.map(c => c[0]).join("\n");
     expect(output).toContain("LAUNCH");
@@ -247,20 +250,20 @@ describe("help output", () => {
     expect(output).toContain("Run 'summon <command> --help'");
   });
 
-  it("contains config-only keys section (UX-H1)", () => {
+  it("contains config-only keys section (UX-H1)", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    showHelp();
+    await showHelp();
 
     const output = logSpy.mock.calls.map(c => c[0]).join("\n");
     expect(output).toContain("Config-only keys (no CLI flag)");
     expect(output).toContain("on-stop");
   });
 
-  it("mentions tree DSL in layout section (FE-M7)", () => {
+  it("mentions tree DSL in layout section (FE-M7)", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    showHelp();
+    await showHelp();
 
     const output = logSpy.mock.calls.map(c => c[0]).join("\n");
     expect(output).toContain("tree DSL");
@@ -284,10 +287,10 @@ describe("help output", () => {
 // --- UX-H1 + FE-H2: trust in help text ---
 
 describe("trust command in help and subcommand help", () => {
-  it("includes 'trust' in the main help text (FE-H2 #359)", () => {
+  it("includes 'trust' in the main help text (FE-H2 #359)", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    showHelp();
+    await showHelp();
 
     const output = logSpy.mock.calls.map(c => c[0]).join("\n");
     expect(output).toContain("trust");
@@ -345,10 +348,10 @@ describe("fish completions in subcommand help (UX-M8 #397)", () => {
 // --- UX-L1: help text mentions session prominently ---
 
 describe("session in help text (UX-M6 #433)", () => {
-  it("mentions 'session' in the main help text", () => {
+  it("mentions 'session' in the main help text", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    showHelp();
+    await showHelp();
 
     const output = logSpy.mock.calls.map(c => c[0]).join("\n");
     expect(output).toContain("session");
@@ -363,20 +366,20 @@ describe("session in help text (UX-M6 #433)", () => {
 // --- UX-M7: --help lists layout names with descriptions ---
 
 describe("layouts section in --help (UX-M7 #510)", () => {
-  it("contains a 'Layouts:' section in help output", () => {
+  it("contains a 'Layouts:' section in help output", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    showHelp();
+    await showHelp();
 
     const output = logSpy.mock.calls.map(c => c[0]).join("\n");
     expect(output).toContain("Layouts:");
     logSpy.mockRestore();
   });
 
-  it("lists built-in layout names with one-line descriptions", () => {
+  it("lists built-in layout names with one-line descriptions", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    showHelp();
+    await showHelp();
 
     const output = logSpy.mock.calls.map(c => c[0]).join("\n");
     // Should contain layout names that match LAYOUT_INFO keys
@@ -388,10 +391,10 @@ describe("layouts section in --help (UX-M7 #510)", () => {
     logSpy.mockRestore();
   });
 
-  it("layouts section includes one-line descriptions from LAYOUT_INFO", () => {
+  it("layouts section includes one-line descriptions from LAYOUT_INFO", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    showHelp();
+    await showHelp();
 
     const output = logSpy.mock.calls.map(c => c[0]).join("\n");
     // LAYOUT_INFO has desc values — at least one should appear
@@ -407,10 +410,10 @@ describe("layouts section in --help (UX-M7 #510)", () => {
 // --- UX-M2: unknown command error includes help suggestion ---
 
 describe("unknown command error includes help suggestion (UX-M2 #430)", () => {
-  it("showHelp output passes basic sanity — at least contains 'Usage'", () => {
+  it("showHelp output passes basic sanity — at least contains 'Usage'", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    showHelp();
+    await showHelp();
 
     const output = logSpy.mock.calls.map(c => c[0]).join("\n");
     expect(output).toContain("Usage");
@@ -439,13 +442,13 @@ describe("--new-window and --new-tab conflict (AR-H1 #525)", () => {
 // --- UX-M2: wrapHelpLine wraps on narrow terminals (#541) ---
 
 describe("wrapHelpLine wraps on narrow terminals (UX-M2 #541)", () => {
-  it("help output produced on a narrow terminal wraps the description instead of truncating with ellipsis", () => {
+  it("help output produced on a narrow terminal wraps the description instead of truncating with ellipsis", async () => {
     // Simulate a narrow terminal by mocking process.stdout.columns
     const origColumns = process.stdout.columns;
     Object.defineProperty(process.stdout, "columns", { value: 60, configurable: true });
 
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-    showHelp();
+    await showHelp();
     const output = logSpy.mock.calls.map(c => c[0]).join("\n");
 
     // Restore
@@ -458,12 +461,12 @@ describe("wrapHelpLine wraps on narrow terminals (UX-M2 #541)", () => {
     expect(truncatedLines).toHaveLength(0);
   });
 
-  it("help output on a wide terminal keeps lines on a single line (no unnecessary wrapping)", () => {
+  it("help output on a wide terminal keeps lines on a single line (no unnecessary wrapping)", async () => {
     const origColumns = process.stdout.columns;
     Object.defineProperty(process.stdout, "columns", { value: 200, configurable: true });
 
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-    showHelp();
+    await showHelp();
     const output = logSpy.mock.calls.map(c => c[0]).join("\n");
 
     Object.defineProperty(process.stdout, "columns", { value: origColumns, configurable: true });
@@ -478,13 +481,42 @@ describe("wrapHelpLine wraps on narrow terminals (UX-M2 #541)", () => {
 // --- UX-M3: --new-tab appears in main --help Options list (#542) ---
 
 describe("--new-tab in main help Options list (UX-M3 #542)", () => {
-  it("includes --new-tab in the Options section of the main help output", () => {
+  it("includes --new-tab in the Options section of the main help output", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    showHelp();
+    await showHelp();
 
     const output = logSpy.mock.calls.map(c => c[0]).join("\n");
     expect(output).toContain("--new-tab");
+    logSpy.mockRestore();
+  });
+});
+
+// --- FE-L2 (#552): layout presets not duplicated in help ---
+
+describe("layout presets not duplicated in help (FE-L2 #552)", () => {
+  it("does not contain a hardcoded 'Layout presets:' block separate from the dynamic Layouts section", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await showHelp();
+
+    const output = logSpy.mock.calls.map(c => c[0]).join("\n");
+    // After fix: hardcoded "Layout presets:" block is removed; only dynamic "Layouts:" section exists
+    expect(output).not.toContain("Layout presets:");
+    logSpy.mockRestore();
+  });
+
+  it("'Layouts:' section header appears exactly once (no duplicate section)", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await showHelp();
+
+    const output = logSpy.mock.calls.map(c => c[0]).join("\n");
+    // Strip ANSI codes to count section headers accurately
+    // eslint-disable-next-line no-control-regex
+    const plain = output.replace(/\x1b\[[0-9;]*m/g, "");
+    const layoutsSectionCount = (plain.match(/^Layouts:$/gm) ?? []).length;
+    expect(layoutsSectionCount).toBe(1);
     logSpy.mockRestore();
   });
 });
