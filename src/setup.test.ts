@@ -2717,6 +2717,36 @@ describe("PreviewRenderer", () => {
     const upCount = parseInt(match![1]!, 10);
     expect(upCount).toBe(firstDrawLogCount + 3);
   });
+
+  // FE-M4 (#548): log() must count physical rows (wrapping) not just logical lines
+  it("log() counts physical rows when a line wraps on a narrow terminal", () => {
+    const origColumns = process.stdout.columns;
+    Object.defineProperty(process.stdout, "columns", { value: 20, configurable: true });
+
+    try {
+      const renderer = new PreviewRenderer();
+      renderer.draw([["?"]]);
+
+      const firstDrawLogCount = logSpy.mock.calls.length;
+
+      // A line 40 chars wide wraps into ceil(40/20) = 2 physical rows on a 20-col terminal
+      const wideMsg = "a".repeat(40);
+      renderer.log(wideMsg);
+
+      stdoutSpy.mockClear();
+      renderer.draw([["nvim"]]);
+
+      const stdoutCalls = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+      const upSequence = stdoutCalls.find((c: string) => c.includes("A"));
+      // eslint-disable-next-line no-control-regex
+      const match = upSequence!.match(/\x1b\[(\d+)A/);
+      const upCount = parseInt(match![1]!, 10);
+      // 1 wide line wraps to 2 physical rows → total = firstDrawLogCount + 2
+      expect(upCount).toBe(firstDrawLogCount + 2);
+    } finally {
+      Object.defineProperty(process.stdout, "columns", { value: origColumns, configurable: true });
+    }
+  });
 });
 
 describe("runLayoutBuilder — in-place preview", () => {
@@ -3111,6 +3141,13 @@ describe("renderGridBuilderHints", () => {
     const state = createGridState();
     const hints = renderGridBuilderHints(state);
     expect(hints).toContain("[Tab] move focus");
+  });
+
+  // FE-M6 (#550): Shift+Tab reverse navigation must be documented in hints
+  it("includes [Shift+Tab] move focus back hint", () => {
+    const state = createGridState();
+    const hints = renderGridBuilderHints(state);
+    expect(hints).toContain("[Shift+Tab] move focus back");
   });
 });
 
