@@ -16,6 +16,15 @@ const RESIZE_SETTLE_DELAY = 0.2;
 /** Delay after creating a new window. */
 const NEW_WINDOW_DELAY = 0.5;
 
+/** Max Cmd+T / Cmd+N attempts before giving up. */
+const KEYSTROKE_ATTEMPTS = 2;
+/** Pause after `set frontmost to true`, before sending the keystroke. */
+const KEYSTROKE_SETTLE_DELAY = 0.15;
+/** Poll iterations waiting for the tab/window count to increase (per attempt). */
+const TAB_POLL_ATTEMPTS = 12;
+/** Delay between count polls. */
+const TAB_POLL_INTERVAL = 0.05;
+
 /** Editor size at which auto-resize is a no-op (50% = equal split already). */
 const AUTO_RESIZE_THRESHOLD = 50;
 
@@ -314,6 +323,55 @@ function emitClosePrelude(sb: ScriptBuilder, cleanRestoredPanes: boolean, newWin
 }
 
 /**
+ * Emit a verified keystroke pattern: snapshot a count, send Cmd+key with retries,
+ * poll for the count to increase, raise an error sentinel if all attempts fail.
+ * When the count query throws (future Ghostty incompatibility), degrades to a
+ * single keystroke + fixed delay rather than aborting.
+ */
+function emitVerifiedKeystroke(
+  sb: ScriptBuilder,
+  key: "n" | "t",
+  beforeVar: string,
+  openedVar: string,
+  countExpr: string,
+  errorSentinel: string,
+): void {
+  const { add } = sb;
+  add(1, `set ${beforeVar} to -1`);
+  add(1, "try");
+  add(2, `set ${beforeVar} to ${countExpr}`);
+  add(1, "end try");
+  add(1, `set ${openedVar} to false`);
+  add(1, `repeat ${KEYSTROKE_ATTEMPTS} times`);
+  add(2, 'tell application "System Events"');
+  add(3, `tell process "${GHOSTTY_APP_NAME}" to set frontmost to true`);
+  add(2, "end tell");
+  add(2, `delay ${KEYSTROKE_SETTLE_DELAY}`);
+  add(2, 'tell application "System Events"');
+  add(3, `tell process "${GHOSTTY_APP_NAME}"`);
+  add(4, `keystroke "${key}" using command down`);
+  add(3, "end tell");
+  add(2, "end tell");
+  add(2, `if ${beforeVar} is equal to -1 then`);
+  add(3, `delay ${NEW_WINDOW_DELAY}`);
+  add(3, `set ${openedVar} to true`);
+  add(3, "exit repeat");
+  add(2, "end if");
+  add(2, `repeat ${TAB_POLL_ATTEMPTS} times`);
+  add(3, `delay ${TAB_POLL_INTERVAL}`);
+  add(3, `if (${countExpr}) > ${beforeVar} then`);
+  add(4, `set ${openedVar} to true`);
+  add(4, "exit repeat");
+  add(3, "end if");
+  add(2, "end repeat");
+  add(2, `if ${openedVar} then exit repeat`);
+  add(1, "end repeat");
+  add(1, `if not ${openedVar} then`);
+  add(2, `error "${errorSentinel}"`);
+  add(1, "end if");
+}
+
+/**
  * Emit AppleScript to create or reference the front window.
  * Uses System Events keystroke (Cmd+N) for new windows in all modes.
  */
@@ -321,16 +379,14 @@ function emitNewWindow(
   sb: ScriptBuilder,
   newWindow: boolean,
 ): void {
-  const { add } = sb;
   if (newWindow) {
-    add(1, 'tell application "System Events"');
-    add(2, `tell process "${GHOSTTY_APP_NAME}"`);
-    add(3, 'keystroke "n" using command down');
-    add(2, "end tell");
-    add(1, "end tell");
-    add(1, `delay ${NEW_WINDOW_DELAY}`);
+    emitVerifiedKeystroke(
+      sb, "n",
+      "summonWindowsBefore", "summonWindowOpened",
+      "count of windows", "summon-newwindow-failed",
+    );
   }
-  add(1, "set win to front window");
+  sb.add(1, "set win to front window");
 }
 
 /**
@@ -343,12 +399,13 @@ function emitNewWindow(
  */
 function emitNewTab(sb: ScriptBuilder): void {
   const { add } = sb;
-  add(1, 'tell application "System Events"');
-  add(2, `tell process "${GHOSTTY_APP_NAME}"`);
-  add(3, 'keystroke "t" using command down');
-  add(2, "end tell");
-  add(1, "end tell");
-  add(1, `delay ${NEW_WINDOW_DELAY}`);
+  add(1, "-- Open a new tab (anchored to the front window + verified)");
+  add(1, "set summonWin to front window");
+  emitVerifiedKeystroke(
+    sb, "t",
+    "summonTabsBefore", "summonTabOpened",
+    "count of tabs of summonWin", "summon-newtab-failed",
+  );
 }
 
 /** Emit right column pane splits (first right pane + additional editors + optional shell). */
@@ -528,7 +585,7 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, starshi
   emitClosePrelude(sb, plan.cleanRestoredPanes, plan.newWindow);
   if (plan.newTab) {
     emitNewTab(sb);
-    sb.add(1, "set paneRoot to terminal 1 of selected tab of front window");
+    sb.add(1, "set paneRoot to terminal 1 of selected tab of summonWin");
   } else {
     emitNewWindow(sb, plan.newWindow);
     sb.add(1, "set paneRoot to terminal 1 of selected tab of win");
@@ -603,7 +660,7 @@ export function generateTreeAppleScript(
   emitClosePrelude(sb, plan.cleanRestoredPanes, plan.newWindow);
   if (plan.newTab) {
     emitNewTab(sb);
-    sb.add(1, `set ${rootPaneVar} to terminal 1 of selected tab of front window`);
+    sb.add(1, `set ${rootPaneVar} to terminal 1 of selected tab of summonWin`);
   } else {
     emitNewWindow(sb, plan.newWindow);
     sb.add(1, `set ${rootPaneVar} to terminal 1 of selected tab of win`);
