@@ -108,4 +108,32 @@ describe("ansi helpers", () => {
     expect(result.length).toBeLessThanOrEqual(10);
     expect(result.endsWith("…")).toBe(true);
   });
+
+  // Wide character tests for truncateLine (#537)
+  it("truncateLine: wide chars (CJK) fit exactly at display width — no truncation", async () => {
+    const ansi = await loadAnsiModule();
+    // "日本語" = display width 6
+    const result = ansi.truncateLine("日本語", 6);
+    expect(result).toBe("日本語");
+  });
+
+  it("truncateLine: wide chars (CJK) truncated when display width exceeds maxWidth", async () => {
+    const ansi = await loadAnsiModule();
+    // "日本語abc" = 6 + 3 = 9 display cols; truncate to 5: "日本…" = 4 + 1 = 5
+    const result = ansi.truncateLine("日本語abc", 5);
+    expect(result).toBe("日本…");
+  });
+
+  it("truncateLine: emoji truncated correctly", async () => {
+    const ansi = await loadAnsiModule();
+    // "🚀🚀🚀" = display width 6; truncate to 5: "🚀🚀…" = 4 + 1 = 5
+    const result = ansi.truncateLine("🚀🚀🚀", 5);
+    expect(result).toBe("🚀🚀…");
+  });
+
+  it("truncateLine: ASCII strings still behave correctly after refactor", async () => {
+    const ansi = await loadAnsiModule();
+    expect(ansi.truncateLine("abcde", 5)).toBe("abcde");
+    expect(ansi.truncateLine("abcdef", 5)).toBe("abcd…");
+  });
 });
