@@ -8,10 +8,15 @@ import {
   isValidSessionName,
 } from "../sessions.js";
 import { SummonError } from "../trust.js";
+import { TabOpenError } from "../errors.js";
 import { exitWithUsageHint, getErrorMessage } from "../utils.js";
 import type { CommandContext } from "./types.js";
 
 const RESERVED = new Set(["add", "remove", "list", "show", "all"]);
+
+/** Pause between per-project launches in a multi-project session, to reduce
+ *  cross-process keystroke contention when Ghostty is creating tabs rapidly. */
+const INTER_LAUNCH_DELAY_MS = 200;
 
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
 
@@ -104,6 +109,7 @@ async function cmdLaunch(ctx: CommandContext, name: string | undefined): Promise
   const total = projects.length;
   const launched: string[] = [];
   const skippedUntrusted: string[] = [];
+  const failedTab: string[] = [];
   // Treat first-launch placement the same regardless of whether earlier
   // projects were skipped: the first *successful* launch opens the window,
   // every subsequent one opens a new tab.
@@ -123,14 +129,18 @@ async function cmdLaunch(ctx: CommandContext, name: string | undefined): Promise
       launched.push(proj);
       openedFirst = true;
     } catch (err) {
-      // Trust failures are recoverable for a multi-project session: warn,
-      // tell the user how to fix it, and continue with the remaining projects.
-      // Any other failure (osascript error, missing directory, etc.) aborts
-      // the whole session — those are not safely retryable per-project.
+      // Trust failures are recoverable: warn, tell user how to fix, continue.
       if (err instanceof SummonError) {
         console.warn(`[${i + 1}/${total}] Skipped ${proj} — untrusted .summon file.`);
         console.warn(`  Run 'summon trust ${dir}' to allow it, then re-run.`);
         skippedUntrusted.push(proj);
+        continue;
+      }
+      // Tab-open failures are recoverable: the existing window is intact,
+      // warn and continue so remaining projects still get their tabs.
+      if (err instanceof TabOpenError) {
+        console.warn(`[${i + 1}/${total}] ${proj}: tab failed to open — continuing.`);
+        failedTab.push(proj);
         continue;
       }
       console.error(`Error launching ${proj}: ${getErrorMessage(err)}`);
@@ -139,15 +149,19 @@ async function cmdLaunch(ctx: CommandContext, name: string | undefined): Promise
       }
       process.exit(1);
     }
+    if (i < total - 1) {
+      await new Promise((r) => setTimeout(r, INTER_LAUNCH_DELAY_MS));
+    }
   }
 
-  if (skippedUntrusted.length > 0) {
-    console.log(
-      `✓ Session complete: ${launched.length} launched, ${skippedUntrusted.length} skipped (untrusted): ${skippedUntrusted.join(", ")}`,
-    );
-  } else {
-    console.log(`✓ Session complete: ${total} project(s) launched.`);
+  const parts = [`${launched.length} launched`];
+  if (failedTab.length > 0) {
+    parts.push(`${failedTab.length} failed (tab did not open): ${failedTab.join(", ")}`);
   }
+  if (skippedUntrusted.length > 0) {
+    parts.push(`${skippedUntrusted.length} skipped (untrusted): ${skippedUntrusted.join(", ")}`);
+  }
+  console.log(`✓ Session complete: ${parts.join(", ")}.`);
 }
 
 async function cmdAdd(rest: string[], _ctx: CommandContext): Promise<void> {

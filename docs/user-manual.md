@@ -331,7 +331,7 @@ summon session daily
 summon session --all
 ```
 
-The first project lands in the currently selected tab; each subsequent project opens a new tab via Ghostty's `make new tab` API. Launch is sequential and aborts on the first error — already-opened tabs are not closed.
+The first project lands in the currently selected tab; each subsequent project opens a new tab via a verified Cmd+T keystroke (System Events), retried and confirmed against Ghostty's tab count before panes are built. A project whose tab cannot be opened is reported and skipped, and the session continues with the remaining projects. Launch is otherwise sequential; a hard error (osascript failure, missing directory) aborts the session.
 
 CLI flags on `summon session` (e.g. `--starship-preset`, `--layout`) apply to every project unless overridden by that project's `.summon` file. Passing `--new-window` opens the first project in a new window; the remaining projects open as tabs in that window.
 

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `summon session --all` no longer silently builds a project's workspace on top of the previous project's tab. New-tab and new-window creation now anchor the target window, verify the tab/window actually opened (retrying a dropped keystroke up to 2 times and polling for up to 0.6s per attempt), and a project whose tab cannot be opened is reported and skipped instead of disappearing. A 200ms inter-launch delay is added between projects to reduce cross-process keystroke contention.
+
 ## [1.6.0] - 2026-06-04
 
 ### Added

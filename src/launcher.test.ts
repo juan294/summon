@@ -95,6 +95,7 @@ vi.mock("./script.js", () => ({
 const { launch, resolveConfig, optsToConfigMap, focusWorkspace, resolveProjectName, probePaneCount, decideCleanRestoredPanes, closeWorkspaceWindow } = await import("./launcher.js");
 const { listConfig, listProjects } = await import("./config.js");
 const { existsSync } = await import("node:fs");
+const { TabOpenError } = await import("./errors.js");
 
 let savedSummonWorkspace: string | undefined;
 
@@ -3574,6 +3575,60 @@ describe("rollback on executeScript failure (BE-S26 #322)", () => {
 
     // Should not throw
     expect(() => closeWorkspaceWindow()).not.toThrow();
+  });
+});
+
+// ─── Keystroke-failure sentinel detection in executeScript ───────────────────
+
+describe("keystroke-failure detection in executeScript", () => {
+  function makeOsascriptMock(sentinel: string) {
+    let mainExecuted = false;
+    let rollbackAttempted = false;
+    const impl = (bin: string, _args?: string[], opts?: Record<string, unknown>) => {
+      if (bin === "osascript") {
+        const input = opts?.input as string | undefined;
+        if (input?.includes("close front window")) {
+          rollbackAttempted = true;
+          return "";
+        }
+        if (input && !mainExecuted) {
+          mainExecuted = true;
+          throw new Error(`execution error: ${sentinel} (-1728)`);
+        }
+        return "";
+      }
+      if (bin === "/usr/bin/which") return "/usr/bin/stub\n";
+      return "";
+    };
+    return { impl, getRollback: () => rollbackAttempted };
+  }
+
+  it("throws TabOpenError and skips rollback when osascript reports summon-newtab-failed", async () => {
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+    const { impl, getRollback } = makeOsascriptMock("summon-newtab-failed");
+    mockExecFileSync.mockImplementation(impl);
+
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(launch("/tmp/workspace")).rejects.toBeInstanceOf(TabOpenError);
+    expect(getRollback()).toBe(false);
+
+    errorSpy.mockRestore();
+  });
+
+  it("throws a plain Error and skips rollback when osascript reports summon-newwindow-failed", async () => {
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+    const { impl, getRollback } = makeOsascriptMock("summon-newwindow-failed");
+    mockExecFileSync.mockImplementation(impl);
+
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const rejection = launch("/tmp/workspace");
+    await expect(rejection).rejects.toThrow("Ghostty did not open a new window");
+    await expect(rejection).rejects.not.toBeInstanceOf(TabOpenError);
+    expect(getRollback()).toBe(false);
+
+    errorSpy.mockRestore();
   });
 });
 
