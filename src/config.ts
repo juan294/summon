@@ -95,10 +95,7 @@ export function readKVFromString(content: string): Map<string, string> {
       continue;
     }
     const key = line.slice(0, idx).trim();
-    const rawValue = line.slice(idx + 1).trim();
-    // Strip inline comments: remove everything after " # " (space-hash-space)
-    const commentIdx = rawValue.indexOf(" # ");
-    const value = commentIdx !== -1 ? rawValue.slice(0, commentIdx).trim() : rawValue;
+    const value = line.slice(idx + 1).trim();
     map.set(key, value);
   }
   return map;

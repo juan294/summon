@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 import { exitWithUsageHint } from "../utils.js";
+import { validateProjectNameOrExit } from "../validation.js";
 import type { CommandContext } from "./types.js";
 
 export async function handleStatusCommand({ values }: CommandContext): Promise<void> {
@@ -39,6 +40,7 @@ export async function handleSnapshotCommand({ args }: CommandContext): Promise<v
       if (!project) {
         project = resolve(dir).split("/").pop() || "unknown";
       }
+      validateProjectNameOrExit(project, "snapshot project name");
       const result = saveSnapshot(project, dir, layout);
       console.log(result ? `Snapshot saved for ${project}` : `No git repo found in ${dir}`);
       return;
@@ -48,6 +50,7 @@ export async function handleSnapshotCommand({ args }: CommandContext): Promise<v
       if (!project) {
         exitWithUsageHint("Usage: summon snapshot show <project>");
       }
+      validateProjectNameOrExit(project, "snapshot project name");
       const snapshot = readSnapshot(project);
       console.log(snapshot ? formatRestorationBanner(snapshot) : `No snapshot found for ${project}`);
       return;
@@ -57,6 +60,7 @@ export async function handleSnapshotCommand({ args }: CommandContext): Promise<v
       if (!project) {
         exitWithUsageHint("Usage: summon snapshot clear <project>");
       }
+      validateProjectNameOrExit(project, "snapshot project name");
       console.log(clearSnapshot(project) ? `Snapshot cleared for ${project}` : `No snapshot found for ${project}`);
       return;
     }
