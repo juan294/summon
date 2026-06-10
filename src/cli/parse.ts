@@ -56,22 +56,50 @@ function visibleLen(s: string): number {
 function wrapHelpLine(s: string, maxVisible: number): string {
   if (maxVisible <= 0) return "";
   if (visibleLen(s) <= maxVisible) return s;
-  // Truncate at the last safe visible character boundary
-  let visible = 0;
-  let i = 0;
-  while (i < s.length && visible < maxVisible - 1) {
-    if (s[i] === "\x1b") {
-      // Skip the full ANSI sequence
-      const end = s.indexOf("m", i);
-      if (end !== -1) {
-        i = end + 1;
-        continue;
+
+  // Find the indent of the description column by scanning the plain text:
+  // lines look like "  --flag <arg>          Description text"
+  // We find the position where the description starts (after the leading spaces +
+  // flag + padding) so the continuation line aligns there.
+  const plain = s.replace(ANSI_STRIP_RE, "");
+  // Detect the description column: find the last run of 2+ spaces after non-space content
+  const descColMatch = plain.match(/^(\s*\S.*?\s{2,})/);
+  const descCol = descColMatch ? descColMatch[1]!.length : 0;
+  const indent = " ".repeat(descCol);
+
+  const lines: string[] = [];
+  let remaining = s;
+
+  while (visibleLen(remaining) > maxVisible) {
+    // Find split point at maxVisible visible chars
+    let visible = 0;
+    let i = 0;
+    let lastSpaceI = -1;
+
+    while (i < remaining.length && visible < maxVisible) {
+      if (remaining[i] === "\x1b") {
+        // Skip ANSI escape sequence
+        const end = remaining.indexOf("m", i);
+        if (end !== -1) {
+          i = end + 1;
+          continue;
+        }
       }
+      if (remaining[i] === " ") {
+        lastSpaceI = i;
+      }
+      visible++;
+      i++;
     }
-    visible++;
-    i++;
+
+    // Split at last space if found, otherwise hard-break at i
+    const splitAt = lastSpaceI !== -1 ? lastSpaceI : i;
+    lines.push(remaining.slice(0, splitAt));
+    remaining = indent + remaining.slice(splitAt).trimStart();
   }
-  return s.slice(0, i) + "…";
+
+  lines.push(remaining);
+  return lines.join("\n");
 }
 
 function buildHelp(): string {
@@ -470,6 +498,9 @@ export function parseCli(argv: string[]): ParsedCli {
   }
   if (values["clean"] && values["no-clean"]) {
     exitWithUsageHint("Error: --clean and --no-clean are mutually exclusive");
+  }
+  if (values["new-window"] && values["new-tab"]) {
+    exitWithUsageHint("Error: --new-window and --new-tab are mutually exclusive");
   }
 
   const [subcommand, ...args] = positionals;

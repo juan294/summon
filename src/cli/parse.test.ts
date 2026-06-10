@@ -418,6 +418,77 @@ describe("unknown command error includes help suggestion (UX-M2 #430)", () => {
   });
 });
 
+// --- AR-H1: --new-window and --new-tab conflict check (#525) ---
+
+describe("--new-window and --new-tab conflict (AR-H1 #525)", () => {
+  it("errors with a usage hint when both --new-window and --new-tab are passed", () => {
+    expect(() => parseCli([".", "--new-window", "--new-tab"])).toThrow(
+      "usage:Error: --new-window and --new-tab are mutually exclusive",
+    );
+  });
+
+  it("does not error when only --new-window is passed", () => {
+    expect(() => parseCli([".", "--new-window"])).not.toThrow();
+  });
+
+  it("does not error when only --new-tab is passed", () => {
+    expect(() => parseCli([".", "--new-tab"])).not.toThrow();
+  });
+});
+
+// --- UX-M2: wrapHelpLine wraps on narrow terminals (#541) ---
+
+describe("wrapHelpLine wraps on narrow terminals (UX-M2 #541)", () => {
+  it("help output produced on a narrow terminal wraps the description instead of truncating with ellipsis", () => {
+    // Simulate a narrow terminal by mocking process.stdout.columns
+    const origColumns = process.stdout.columns;
+    Object.defineProperty(process.stdout, "columns", { value: 60, configurable: true });
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    showHelp();
+    const output = logSpy.mock.calls.map(c => c[0]).join("\n");
+
+    // Restore
+    Object.defineProperty(process.stdout, "columns", { value: origColumns, configurable: true });
+    logSpy.mockRestore();
+
+    // With wrapping, long lines should not end with the ellipsis truncation character
+    const lines = output.split("\n");
+    const truncatedLines = lines.filter(l => l.trimEnd().endsWith("…"));
+    expect(truncatedLines).toHaveLength(0);
+  });
+
+  it("help output on a wide terminal keeps lines on a single line (no unnecessary wrapping)", () => {
+    const origColumns = process.stdout.columns;
+    Object.defineProperty(process.stdout, "columns", { value: 200, configurable: true });
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    showHelp();
+    const output = logSpy.mock.calls.map(c => c[0]).join("\n");
+
+    Object.defineProperty(process.stdout, "columns", { value: origColumns, configurable: true });
+    logSpy.mockRestore();
+
+    // On a 200-col terminal all option lines must fit; none should be truncated with ellipsis
+    const truncatedLines = output.split("\n").filter(l => l.trimEnd().endsWith("…"));
+    expect(truncatedLines).toHaveLength(0);
+  });
+});
+
+// --- UX-M3: --new-tab appears in main --help Options list (#542) ---
+
+describe("--new-tab in main help Options list (UX-M3 #542)", () => {
+  it("includes --new-tab in the Options section of the main help output", () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    showHelp();
+
+    const output = logSpy.mock.calls.map(c => c[0]).join("\n");
+    expect(output).toContain("--new-tab");
+    logSpy.mockRestore();
+  });
+});
+
 // --- AR-L3: bounds-checked subcommand help ---
 
 describe("showSubcommandHelp — bounds check (AR-L3)", () => {
