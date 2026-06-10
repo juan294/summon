@@ -2,7 +2,8 @@ import { existsSync, mkdirSync, readFileSync, unlinkSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import { execFileSync } from "node:child_process";
 import { SNAPSHOTS_DIR } from "./paths.js";
-import { gitSafeEnv, supportsColor, debugLog, atomicWrite } from "./utils.js";
+import { gitSafeEnv, debugLog, atomicWrite } from "./utils.js";
+import { dim, green } from "./ui/ansi.js";
 
 // --- Types ---
 
@@ -145,9 +146,6 @@ export function formatTimeSince(isoTimestamp: string): string {
 }
 
 export function formatRestorationBanner(snapshot: ContextSnapshot): string {
-  const dim = (s: string) => supportsColor() ? `\x1b[2m${s}\x1b[0m` : s;
-  const green = (s: string) => supportsColor() ? `\x1b[32m${s}\x1b[0m` : s;
-
   const timeSince = formatTimeSince(snapshot.timestamp);
   const shortDate = new Date(snapshot.timestamp).toLocaleDateString("en-US", {
     month: "short",

@@ -146,6 +146,57 @@ describe("handleAddCommand", () => {
   });
 });
 
+describe("FE-H1/UX-H3 (#526,#530): canonical glyph vocabulary", () => {
+  it("uses ⚠ (not !) as warn glyph in warn message to console.warn", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockExistsSync.mockReturnValue(false);
+
+    await handleAddCommand(makeContext({ args: ["demo", "~/code/demo"] }));
+
+    const warnMsg = warnSpy.mock.calls.map(c => c[0] as string).join("\n");
+    expect(warnMsg).toContain("⚠");
+    expect(warnMsg).not.toMatch(/^!/m);
+    warnSpy.mockRestore();
+    logSpy.mockRestore();
+  });
+
+  it("uses ✓ (not a plain letter) as ok glyph in success log", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockExistsSync.mockReturnValue(true);
+
+    await handleAddCommand(makeContext({ args: ["demo", "/tmp/x"] }));
+
+    const logMsg = logSpy.mock.calls.map(c => c[0] as string).join("\n");
+    expect(logMsg).toContain("✓");
+    logSpy.mockRestore();
+  });
+
+  it("uses ✓ (not a plain letter) as ok glyph in remove success log", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockRemoveProject.mockReturnValue(true);
+
+    await handleRemoveCommand(makeContext({ args: ["demo"] }));
+
+    const logMsg = logSpy.mock.calls.map(c => c[0] as string).join("\n");
+    expect(logMsg).toContain("✓");
+    logSpy.mockRestore();
+  });
+
+  it("uses ⚠ (not !) as warn glyph in path-missing log message", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockExistsSync.mockReturnValue(false);
+
+    await handleAddCommand(makeContext({ args: ["demo", "/tmp/missing"] }));
+
+    const logMsg = logSpy.mock.calls.map(c => c[0] as string).join("\n");
+    expect(logMsg).toContain("⚠");
+    warnSpy.mockRestore();
+    logSpy.mockRestore();
+  });
+});
+
 describe("handleRemoveCommand", () => {
   it("requires a project name", async () => {
     await expect(handleRemoveCommand(makeContext())).rejects.toThrow(

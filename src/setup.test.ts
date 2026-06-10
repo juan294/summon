@@ -1130,6 +1130,89 @@ describe("printValidation", () => {
 
 });
 
+describe("UX-H3 (#530): canonical glyph vocabulary in setup wizard", () => {
+  it("uses ✓ (sym.ok) not a plain letter when accessibility is granted", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockExecFileSync.mockReturnValue("/usr/bin/stub\n");
+
+    await checkAndRecoverAccessibility();
+
+    const allOutput = logSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("\n");
+    expect(allOutput).toContain("✓");
+    expect(allOutput).not.toMatch(/^\s*v\s/m); // not a plain 'v'
+    logSpy.mockRestore();
+  });
+
+  it("uses ⚠ (sym.warn) not '!' when accessibility is not granted", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockExecFileSync.mockImplementation((bin: string) => {
+      if (bin === "osascript") throw new Error("assistive access (-1719)");
+      return "/usr/bin/stub\n";
+    });
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      if (_q.includes("[Y/n]")) cb("n");
+      else cb("");
+    });
+
+    await checkAndRecoverAccessibility();
+
+    const allOutput = logSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("\n");
+    expect(allOutput).toContain("⚠");
+    // The old code used '!' — verify we no longer emit bare '!'
+    const lines = allOutput.split("\n");
+    expect(lines.some((l) => l.trimStart().startsWith("!"))).toBe(false);
+    logSpy.mockRestore();
+  });
+
+  it("uses ✓ (sym.ok) not '!' in printValidation when Ghostty is found", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockExecFileSync.mockReturnValue("/usr/bin/stub\n");
+    mockExistsSync.mockReturnValue(true); // Ghostty found
+
+    const origIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", { value: true, writable: true });
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      if (_q.includes("[Y/n]")) cb("y");
+      else cb("1");
+    });
+
+    await runSetup();
+
+    const ghosttyLines = logSpy.mock.calls
+      .map((c: unknown[]) => String(c[0]))
+      .filter((s) => s.includes("Ghostty") && s.includes("found") && !s.includes("not found"));
+    expect(ghosttyLines.some((l) => l.includes("✓"))).toBe(true);
+    expect(ghosttyLines.some((l) => l.trimStart().startsWith("!"))).toBe(false);
+
+    Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, writable: true });
+    logSpy.mockRestore();
+  });
+
+  it("uses ⚠ (sym.warn) not '!' in printValidation when Ghostty is NOT found", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockExecFileSync.mockReturnValue("/usr/bin/stub\n");
+    mockExistsSync.mockReturnValue(false); // Ghostty NOT found
+
+    const origIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", { value: true, writable: true });
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      if (_q.includes("[Y/n]")) cb("y");
+      else cb("1");
+    });
+
+    await runSetup();
+
+    const ghosttyLines = logSpy.mock.calls
+      .map((c: unknown[]) => String(c[0]))
+      .filter((s) => s.includes("Ghostty") && s.includes("not found"));
+    expect(ghosttyLines.some((l) => l.includes("⚠"))).toBe(true);
+    expect(ghosttyLines.some((l) => l.trimStart().startsWith("!"))).toBe(false);
+
+    Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, writable: true });
+    logSpy.mockRestore();
+  });
+});
+
 describe("checkAndRecoverAccessibility", () => {
   it("returns true when accessibility is already granted", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
