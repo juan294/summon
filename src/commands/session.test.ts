@@ -504,6 +504,24 @@ describe("session remove", () => {
 
     mockExit.mockRestore();
   });
+
+  it("rejects invalid session name in remove without calling deleteSession (#532 BE-M2)", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const mockExit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error("process.exit:" + code);
+    }) as never);
+    mockIsValidSessionName.mockReturnValue(false);
+
+    await expect(
+      handleSessionCommand(makeContext({ args: ["remove", "../../evil"] })),
+    ).rejects.toThrow("process.exit:1");
+
+    expect(mockDeleteSession).not.toHaveBeenCalled();
+    const allErrors = errorSpy.mock.calls.map((c) => c[0] as string).join("\n");
+    expect(allErrors).toMatch(/invalid|not found/i);
+    mockExit.mockRestore();
+    errorSpy.mockRestore();
+  });
 });
 
 describe("session show — not found", () => {
@@ -535,6 +553,24 @@ describe("session show — not found", () => {
     ).rejects.toThrow("process.exit");
 
     mockExit.mockRestore();
+  });
+
+  it("rejects invalid session name in show without calling readSession (#532 BE-M2)", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const mockExit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error("process.exit:" + code);
+    }) as never);
+    mockIsValidSessionName.mockReturnValue(false);
+
+    await expect(
+      handleSessionCommand(makeContext({ args: ["show", "../../evil"] })),
+    ).rejects.toThrow("process.exit:1");
+
+    expect(mockReadSession).not.toHaveBeenCalled();
+    const allErrors = errorSpy.mock.calls.map((c) => c[0] as string).join("\n");
+    expect(allErrors).toMatch(/invalid|not found/i);
+    mockExit.mockRestore();
+    errorSpy.mockRestore();
   });
 });
 

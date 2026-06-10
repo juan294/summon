@@ -3,6 +3,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mockExitWithUsageHint = vi.fn((message?: string) => {
   throw new Error(`usage:${message ?? ""}`);
 });
+const mockValidateProjectNameOrExit = vi.fn((name: string, _label?: string) => {
+  // Simulate the real behavior: reject traversal/invalid names
+  if (!/^[a-zA-Z0-9_][a-zA-Z0-9_.-]{0,63}$/.test(name)) {
+    throw new Error(`usage:Error: project name must start with a letter, digit, or underscore. Got: "${name}".`);
+  }
+});
 const mockRunMonitor = vi.fn();
 const mockPrintStatusOnce = vi.fn();
 const mockSaveSnapshot = vi.fn();
@@ -17,6 +23,10 @@ const mockYellow = vi.fn((value: string) => `[yellow:${value}]`);
 
 vi.mock("../utils.js", () => ({
   exitWithUsageHint: (message?: string) => mockExitWithUsageHint(message),
+}));
+
+vi.mock("../validation.js", () => ({
+  validateProjectNameOrExit: (name: string, label?: string) => mockValidateProjectNameOrExit(name, label),
 }));
 
 vi.mock("../monitor.js", () => ({
@@ -219,6 +229,27 @@ describe("handleSnapshotCommand", () => {
     expect(usageMessage).toMatch(/save \[name\]/);
     expect(usageMessage).toMatch(/show \[name\]/);
     expect(usageMessage).toMatch(/clear \[name\]/);
+  });
+
+  it("rejects path-traversal project name in snapshot show (#531 BE-M1)", async () => {
+    await expect(
+      handleSnapshotCommand(makeContext({ args: ["show", "../../etc/passwd"] })),
+    ).rejects.toThrow(/usage:/);
+    expect(mockReadSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("rejects path-traversal project name in snapshot clear (#531 BE-M1)", async () => {
+    await expect(
+      handleSnapshotCommand(makeContext({ args: ["clear", "../evil"] })),
+    ).rejects.toThrow(/usage:/);
+    expect(mockClearSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("rejects path-traversal project name in snapshot save (#531 BE-M1)", async () => {
+    await expect(
+      handleSnapshotCommand(makeContext({ args: ["save", "../etc/passwd"] })),
+    ).rejects.toThrow(/usage:/);
+    expect(mockSaveSnapshot).not.toHaveBeenCalled();
   });
 });
 

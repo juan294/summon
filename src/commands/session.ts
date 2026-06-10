@@ -207,6 +207,11 @@ async function cmdRemove(rest: string[]): Promise<void> {
     exitWithUsageHint("Usage: summon session remove <name>");
   }
 
+  if (!isValidSessionName(name)) {
+    console.error(`Error: Invalid session name: "${name}". Names must start with a letter and contain only letters, digits, hyphens, and underscores.`);
+    process.exit(1);
+  }
+
   const removed = deleteSession(name);
   if (!removed) {
     console.error(`Error: Session not found: ${name}`);
@@ -235,6 +240,11 @@ async function cmdShow(rest: string[]): Promise<void> {
 
   if (!name) {
     exitWithUsageHint("Usage: summon session show <name>");
+  }
+
+  if (!isValidSessionName(name)) {
+    console.error(`Error: Invalid session name: "${name}". Names must start with a letter and contain only letters, digits, hyphens, and underscores.`);
+    process.exit(1);
   }
 
   const projects = readSession(name);
