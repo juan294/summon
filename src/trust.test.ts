@@ -197,14 +197,15 @@ describe("trustProject", () => {
       "/home/testuser/.config/summon",
       { recursive: true, mode: 0o700 },
     );
-    // Atomic write: writeFileSync goes to the .tmp path
+    // Atomic write: writeFileSync goes to a unique temp path (pid + random hex suffix)
     expect(mockWriteFileSync).toHaveBeenCalledWith(
-      `${TRUST_FILE}.tmp`,
+      expect.stringMatching(new RegExp(`^${TRUST_FILE.replace(/\//g, "\\/")}\\.[0-9]+\\.[0-9a-f]+\\.tmp$`)),
       expect.stringContaining("/myproject"),
       { encoding: "utf-8", mode: 0o600 },
     );
-    // renameSync moves .tmp to final path
-    expect(mockRenameSync).toHaveBeenCalledWith(`${TRUST_FILE}.tmp`, TRUST_FILE);
+    // renameSync moves the unique temp path to the final path
+    const writtenTmpPath = (mockWriteFileSync.mock.calls[0] as [string, ...unknown[]])[0];
+    expect(mockRenameSync).toHaveBeenCalledWith(writtenTmpPath, TRUST_FILE);
   });
 
   it("no-ops when no .summon file exists", () => {
