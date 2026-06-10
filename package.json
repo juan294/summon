@@ -46,7 +46,9 @@
   },
   "files": [
     "dist/**/*.js",
-    "dist/**/*.cjs"
+    "dist/**/*.cjs",
+    "README.md",
+    "LICENSE"
   ],
   "publishConfig": {
     "access": "public"

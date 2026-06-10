@@ -18,6 +18,20 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Verify version matches tag
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "ERROR: package.json version ($PKG_VERSION) does not match tag ($TAG_VERSION)"
+            exit 1
+          fi
+          if ! grep -q "## \[$PKG_VERSION\]" CHANGELOG.md; then
+            echo "ERROR: CHANGELOG.md missing entry for version $PKG_VERSION"
+            exit 1
+          fi
+
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: '22' # LTS — update in lockstep with ci.yml matrix
@@ -35,19 +49,6 @@ jobs:
             ${{ runner.os }}-pnpm-
       - run: pnpm install --frozen-lockfile
 
-      - name: Verify version matches tag
-        run: |
-          PKG_VERSION=$(node -p "require('./package.json').version")
-          TAG_VERSION="${GITHUB_REF_NAME#v}"
-          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
-            echo "ERROR: package.json version ($PKG_VERSION) does not match tag ($TAG_VERSION)"
-            exit 1
-          fi
-          if ! grep -q "## \[$PKG_VERSION\]" CHANGELOG.md; then
-            echo "ERROR: CHANGELOG.md missing entry for version $PKG_VERSION"
-            exit 1
-          fi
-
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm test
@@ -62,6 +63,12 @@ jobs:
           echo "Matched dist files: $FILE_COUNT"
           if [ "$FILE_COUNT" -lt 2 ]; then
             echo "ERROR: Expected package/dist/index.js + at least one chunk-*.js in tarball (got $FILE_COUNT)" && exit 1
+          fi
+          if ! tar tzf "$TARBALL" | grep -q "^package/README\.md$"; then
+            echo "ERROR: README.md missing from tarball" && exit 1
+          fi
+          if ! tar tzf "$TARBALL" | grep -q "^package/LICENSE$"; then
+            echo "ERROR: LICENSE missing from tarball" && exit 1
           fi
           # Node 22 smoke (pre-publish, using local tarball)
           npm install -g "$TARBALL"
@@ -79,7 +86,16 @@ jobs:
         # Validates generated AppleScript syntax via osacompile (no Ghostty needed)
         run: SUMMON_E2E=1 pnpm test:e2e
 
+      - name: Check if version already published
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          if npm view summon-ws@$PKG_VERSION version 2>/dev/null | grep -q "$PKG_VERSION"; then
+            echo "Version $PKG_VERSION already published, skipping"
+            echo "ALREADY_PUBLISHED=true" >> $GITHUB_ENV
+          fi
+
       - name: Publish
+        if: env.ALREADY_PUBLISHED != 'true'
         run: npm publish summon-ws-*.tgz --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
