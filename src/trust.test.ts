@@ -280,7 +280,7 @@ describe("assertTrusted", () => {
     });
     mockReadFileSync.mockReturnValue("editor = vim\n");
 
-    expect(() => assertTrusted("/some/dir")).toThrow(/summon trust \./);
+    expect(() => assertTrusted("/some/dir")).toThrow(/summon trust \/some\/dir/);
   });
 
   it("throws with message mentioning --no-project-config", () => {
@@ -459,7 +459,7 @@ describe("assertTrustedContent", () => {
     mockExistsSync.mockReturnValue(true);
     mockReadFileSync.mockReturnValue(JSON.stringify({ "/some/dir": "wronghash" }));
 
-    expect(() => assertTrustedContent("/some/dir", content)).toThrow(/summon trust \./);
+    expect(() => assertTrustedContent("/some/dir", content)).toThrow(/summon trust \/some\/dir/);
   });
 
   it("resolves symlinked targetDir to realpath before lookup (#471: /tmp -> /private/tmp)", () => {
