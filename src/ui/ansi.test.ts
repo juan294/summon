@@ -97,6 +97,26 @@ describe("ansi helpers", () => {
     expect(ansi.green("ok")).toBe("ok");
   });
 
+  // FE-L1 (#551): colorSwatch must return a non-empty string when COLORTERM is not set
+  // so that Starship preset picker padding stays correct on common terminals
+  it("colorSwatch returns non-empty 256-color fallback when COLORTERM is not truecolor", async () => {
+    Object.defineProperty(process.stdout, "isTTY", { value: true, configurable: true });
+    // No COLORTERM set (deleted in beforeEach)
+    const ansi = await loadAnsiModule();
+
+    const result = ansi.colorSwatch(["#336699"]);
+    expect(result).not.toBe("");
+    // Should be exactly 1 visible character wide per color entry (▉)
+    // The visible character must be present
+    expect(result).toContain("▉");
+  });
+
+  it("colorSwatch returns empty string when color is disabled (no isTTY, no FORCE_COLOR)", async () => {
+    // isTTY=false (set in beforeEach), no FORCE_COLOR — color is disabled entirely
+    const ansi = await loadAnsiModule();
+    expect(ansi.colorSwatch(["#336699"])).toBe("");
+  });
+
   it("truncateLine returns string unchanged when within width", async () => {
     const ansi = await loadAnsiModule();
     expect(ansi.truncateLine("hello world", 20)).toBe("hello world");

@@ -56,10 +56,29 @@ function trueColorFg(hex: string): string {
   return `\x1b[38;2;${r};${g};${b}m`;
 }
 
+/** Convert an 8-bit RGB channel value (0–255) to the nearest index in the 0–5 cube axis. */
+function rgbTo6(v: number): number {
+  return Math.round((v / 255) * 5);
+}
+
+/** Approximate an RGB color as a 256-color palette index (16–231 color cube). */
+function rgbTo256(r: number, g: number, b: number): number {
+  return 16 + 36 * rgbTo6(r) + 6 * rgbTo6(g) + rgbTo6(b);
+}
+
 /** @internal — exported for testing only */
 export function colorSwatch(colors: string[]): string {
-  if (!supportsColor() || process.env.COLORTERM !== "truecolor" && process.env.COLORTERM !== "24bit") return "";
-  return colors.map((hex) => `${trueColorFg(hex)}██\x1b[0m`).join("");
+  if (!supportsColor()) return "";
+  const isTrueColor = process.env.COLORTERM === "truecolor" || process.env.COLORTERM === "24bit";
+  if (isTrueColor) {
+    return colors.map((hex) => `${trueColorFg(hex)}██\x1b[0m`).join("");
+  }
+  // 256-color fallback: approximate each hex color in the 6×6×6 color cube
+  return colors.map((hex) => {
+    const [r, g, b] = hexToRgb(hex);
+    const idx = rgbTo256(r, g, b);
+    return `\x1b[38;5;${idx}m▉\x1b[0m`;
+  }).join("");
 }
 
 /**
