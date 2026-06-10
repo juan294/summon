@@ -65,6 +65,7 @@ _summon() {
     '--on-start[Run command before workspace creation]:command:' \\
     '--new-window[Open in new Ghostty window]' \\
     '--new-tab[Open in a new Ghostty tab]' \\
+    '--no-project-config[Skip loading project-level config file]' \\
     '--fullscreen[Start in fullscreen mode]' \\
     '--maximize[Start maximized]' \\
     '--float[Float window on top]' \\
@@ -112,7 +113,7 @@ _summon() {
           ;;
         completions)
           if (( CURRENT == 2 )); then
-            compadd zsh bash
+            compadd zsh bash fish
           fi
           ;;
         doctor)
@@ -140,6 +141,9 @@ _summon() {
           ;;
         export)
           _files
+          ;;
+        trust)
+          _directories
           ;;
         layout)
           if (( CURRENT == 2 )); then
@@ -218,7 +222,7 @@ export function generateBashCompletion(): string {
       COMPREPLY=($(compgen -W "$sp" -- "$cur"))
       return ;;
     completions)
-      COMPREPLY=($(compgen -W "zsh bash" -- "$cur"))
+      COMPREPLY=($(compgen -W "zsh bash fish" -- "$cur"))
       return ;;
   esac
 
