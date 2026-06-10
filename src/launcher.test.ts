@@ -2435,16 +2435,20 @@ describe("custom tree layout integration (Phase 4)", () => {
 });
 
 describe("launch feedback (#144)", () => {
-  it("prints a feedback message to stdout on successful non-dry-run launch", async () => {
+  it("prints a feedback message to stderr on successful non-dry-run launch (FE-M5 #549)", async () => {
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
-    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
     await launch("/tmp/workspace");
 
-    const logMessages = logSpy.mock.calls.map((c) => c[0] as string);
-    const feedbackMsg = logMessages.find((m) => m.toLowerCase().includes("summon"));
-    expect(feedbackMsg).toBeDefined();
-    logSpy.mockRestore();
+    const stderrMessages = [
+      ...stderrSpy.mock.calls.map(c => String(c[0])),
+      ...errorSpy.mock.calls.flat().map(String),
+    ].join("\n");
+    expect(stderrMessages.toLowerCase()).toMatch(/launch|workspace|summon/i);
+    stderrSpy.mockRestore();
+    errorSpy.mockRestore();
   });
 
   it("does NOT print launch feedback in dry-run mode", async () => {
@@ -3150,24 +3154,29 @@ describe("R19: on-start failure includes error message (#190)", () => {
   });
 });
 
-describe("R24: on-start status message uses stdout (#190)", () => {
-  it("prints on-start status message to stdout (console.log) not stderr", async () => {
+describe("SE-L3/R24: on-start command is not echoed (#190, #557)", () => {
+  it("does NOT print on-start command string to stdout or stderr in normal mode", async () => {
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     await launch("/tmp/workspace", { "on-start": "echo setup" });
 
-    // The "Running on-start: ..." message should go to stdout (console.log)
-    const logMessages = logSpy.mock.calls.map((c) => c[0] as string);
-    expect(logMessages.some((m) => m.includes("Running on-start:"))).toBe(true);
-
-    // And NOT to stderr (console.warn)
-    const warnMessages = warnSpy.mock.calls.map((c) => c[0] as string);
-    expect(warnMessages.every((m) => !m.includes("Running on-start:"))).toBe(true);
+    // "Running on-start: ..." should NOT appear anywhere in normal mode (SE-L3 #557)
+    const allOutput = [
+      ...logSpy.mock.calls.flat(),
+      ...warnSpy.mock.calls.flat(),
+      ...errorSpy.mock.calls.flat(),
+      ...stderrSpy.mock.calls.map(c => String(c[0])),
+    ].map(String).join("\n");
+    expect(allOutput).not.toContain("Running on-start:");
 
     warnSpy.mockRestore();
     logSpy.mockRestore();
+    errorSpy.mockRestore();
+    stderrSpy.mockRestore();
   });
 });
 
@@ -3493,20 +3502,23 @@ describe("AR-M1: process.exit -> thrown errors in launcher (#306)", () => {
 });
 
 describe("UX-M3: success message after launch (#312)", () => {
-  it("prints a success message to stdout after a successful workspace launch", async () => {
+  it("prints a success message to stderr after a successful workspace launch (FE-M5 #549)", async () => {
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
-    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     await launch("/tmp/workspace");
 
-    const logMessages = logSpy.mock.calls.map((c) => String(c[0]));
-    const successMsg = logMessages.find(
-      (m) => m.includes("summon") || m.includes("Workspace") || m.includes("workspace") || m.includes("ready"),
-    );
+    const stderrMessages = [
+      ...stderrSpy.mock.calls.map(c => String(c[0])),
+      ...errorSpy.mock.calls.flat().map(String),
+    ].join("\n");
+    const successMsg = stderrMessages.match(/summon|workspace|ready/i);
     expect(successMsg).toBeDefined();
 
-    logSpy.mockRestore();
+    stderrSpy.mockRestore();
+    errorSpy.mockRestore();
     warnSpy.mockRestore();
   });
 
@@ -3765,6 +3777,72 @@ describe("QA-M3: security gate branches (trust + dangerous command skip)", () =>
     } finally {
       Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, configurable: true });
       warnSpy.mockRestore();
+    }
+  });
+});
+
+describe("AR-M1: secondary-editor round-trips through optsToConfigMap (#543)", () => {
+  it("optsToConfigMap includes secondary-editor when set", () => {
+    const map = optsToConfigMap({ secondaryEditor: "btop" });
+    expect(map.get("secondary-editor")).toBe("btop");
+  });
+
+  it("optsToConfigMap omits secondary-editor when not set", () => {
+    const map = optsToConfigMap({});
+    expect(map.has("secondary-editor")).toBe(false);
+  });
+
+  it("resolveConfig reads secondary-editor from project config into opts", () => {
+    mockReadKVFile.mockReturnValue(new Map([
+      ["secondary-editor", "btop"],
+    ]));
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+
+    const { opts } = resolveConfig("/tmp/workspace", {});
+    expect(opts.secondaryEditor).toBe("btop");
+  });
+});
+
+describe("FE-M5/UX-M6: progress messages go to stderr, not stdout (#549, #560)", () => {
+  it("executeScript writes 'Launching' to stderr before osascript", async () => {
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await launch("/tmp/workspace");
+
+    const allStderr = [
+      ...stderrSpy.mock.calls.map(c => String(c[0])),
+      ...errorSpy.mock.calls.flat().map(String),
+    ].join("\n");
+    expect(allStderr.toLowerCase()).toMatch(/launch|summon/i);
+    // Progress must NOT appear on stdout (no console.log calls with launch-related text)
+    const allStdout = logSpy.mock.calls.flat().map(String).join("\n");
+    expect(allStdout).not.toMatch(/summoning workspace/i);
+
+    stderrSpy.mockRestore();
+    logSpy.mockRestore();
+    errorSpy.mockRestore();
+  });
+});
+
+describe("SE-L3: on-start command is not echoed to stdout (#557)", () => {
+  it("on-start is executed without printing command string to stdout", async () => {
+    const origIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+    mockReadKVFile.mockReturnValue(new Map([["on-start", "echo hello"]]));
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    try {
+      await launch("/tmp/workspace");
+      const allLogs = logSpy.mock.calls.flat().map(String).join("\n");
+      // The command string itself should not appear in stdout
+      expect(allLogs).not.toContain("Running on-start:");
+    } finally {
+      Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, configurable: true });
+      logSpy.mockRestore();
     }
   });
 });

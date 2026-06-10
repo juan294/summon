@@ -128,9 +128,11 @@ function emitCleanupTrap(
 ): void {
   const parts: string[] = [];
 
-  // Ensure log directory exists for cleanup error logging
+  // Ensure log directory exists for cleanup error logging.
+  // SE-L3: mode 700 restricts access to the log directory to the owning user only,
+  // consistent with STATUS_DIR/SNAPSHOTS_DIR which are also created with 0o700.
   const logDir = `"$HOME/.config/summon/logs"`;
-  parts.push(`mkdir -p ${logDir}`);
+  parts.push(`mkdir -p -m 700 ${logDir}`);
 
   if (options?.onStop) {
     // Inline the on-stop command directly (no eval wrapper).
@@ -560,20 +562,14 @@ export function generateFocusScript(tabTitle: string): string {
 // projectName, onStop). Any new option must be plumbed through both functions. Consider
 // extracting shared option handling into a common helper to reduce duplication.
 
-/** Memoization cache for generateAppleScript — keyed by JSON fingerprint of all inputs. */
-const scriptCache = new Map<string, string>();
-
-export function clearScriptCache(): void {
-  scriptCache.clear();
-}
-
 /**
  * Generate AppleScript for a traditional (LayoutPlan) workspace.
+ *
+ * This is a pure stateless function — no memoization cache (AR-M2 #544).
+ * The cache was removed because it never hit in production (one script per process)
+ * and created divergence with generateTreeAppleScript which had no cache.
  */
 export function generateAppleScript(plan: LayoutPlan, targetDir: string, starshipConfigPath?: string | null, envVars?: Record<string, string>, projectName?: string, onStop?: string): string {
-  const cacheKey = JSON.stringify({ plan, targetDir, starshipConfigPath, envVars, projectName, onStop });
-  const cached = scriptCache.get(cacheKey);
-  if (cached !== undefined) return cached;
   const lines: string[] = [];
   const titles: Array<[string, string]> = [];
   const interactiveShellPanes: string[] = [];
@@ -635,9 +631,7 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, starshi
   emitWindowState(sb, "paneRoot", plan);
 
   sb.add(0, "end tell");
-  const result = lines.join("\n");
-  scriptCache.set(cacheKey, result);
-  return result;
+  return lines.join("\n");
 }
 
 export function generateTreeAppleScript(

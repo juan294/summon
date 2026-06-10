@@ -290,7 +290,7 @@ export function listConfig(): Map<string, string> {
   return config;
 }
 
-export const VALID_KEYS = ["editor", "sidebar", "panes", "editor-size", "shell", "layout", "auto-resize", "starship-preset", "new-window", "new-tab", "fullscreen", "maximize", "float", "font-size", "on-start", "on-stop", "clean"];
+export const VALID_KEYS = ["editor", "sidebar", "secondary-editor", "panes", "editor-size", "shell", "layout", "auto-resize", "starship-preset", "new-window", "new-tab", "fullscreen", "maximize", "float", "font-size", "on-start", "on-stop", "clean"];
 
 /** Set of all known config keys — used to warn on unknown/misspelled keys. */
 export const KNOWN_CONFIG_KEYS = new Set(VALID_KEYS);

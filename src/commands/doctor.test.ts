@@ -85,7 +85,7 @@ beforeEach(() => {
 
 describe("handleDoctorCommand", () => {
   it("reports a clean setup when everything is configured", async () => {
-    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     mockExistsSync.mockReturnValue(true);
     mockReadFileSync.mockReturnValue(
       "notify-on-command-finish = unfocused\nshell-integration = detect\n",
@@ -97,11 +97,11 @@ describe("handleDoctorCommand", () => {
 
     await handleDoctorCommand(makeContext());
 
-    expect(logSpy).toHaveBeenCalledWith('  ✓ PASS  editor command "nvim" found at /usr/bin/nvim');
-    expect(logSpy).toHaveBeenCalledWith('  ✓ PASS  sidebar command "lazygit" found at /usr/bin/nvim');
-    expect(logSpy).toHaveBeenCalledWith("  ✓ PASS  No port conflicts (2 projects checked)");
+    expect(errorSpy).toHaveBeenCalledWith('  ✓ PASS  editor command "nvim" found at /usr/bin/nvim');
+    expect(errorSpy).toHaveBeenCalledWith('  ✓ PASS  sidebar command "lazygit" found at /usr/bin/nvim');
+    expect(errorSpy).toHaveBeenCalledWith("  ✓ PASS  No port conflicts (2 projects checked)");
     // Issue count summary shows "All checks passed" when clean
-    const allOutput = logSpy.mock.calls.flat().join("\n");
+    const allOutput = errorSpy.mock.calls.flat().join("\n");
     expect(allOutput).toMatch(/✓ \d+\/\d+ checks passed\./);
   });
 
@@ -118,7 +118,7 @@ describe("handleDoctorCommand", () => {
   });
 
   it("backs up and appends missing settings in --fix mode", async () => {
-    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     mockExistsSync.mockImplementation((path: string) =>
       path === "/Users/tester/.config/ghostty/config"
     );
@@ -134,7 +134,7 @@ describe("handleDoctorCommand", () => {
       "/Users/tester/.config/ghostty/config",
       expect.stringContaining("# Added by summon doctor --fix"),
     );
-    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("Added 2 setting(s) to /Users/tester/.config/ghostty/config"));
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("Added 2 setting(s) to /Users/tester/.config/ghostty/config"));
   });
 
   it("does not create a backup in --fix mode when the Ghostty config file is missing", async () => {
@@ -148,7 +148,7 @@ describe("handleDoctorCommand", () => {
   });
 
   it("reports missing configured commands", async () => {
-    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error(`exit:${code}`);
     }) as never);
@@ -160,15 +160,15 @@ describe("handleDoctorCommand", () => {
     mockResolveCommand.mockReturnValue(null);
 
     await expect(handleDoctorCommand(makeContext())).rejects.toThrow("exit:2");
-    expect(logSpy).toHaveBeenCalledWith('  ✗ FAIL  editor command "missing-editor" not found in PATH');
-    expect(logSpy).toHaveBeenCalledWith('    Install "missing-editor" or change with: summon set editor <command>');
+    expect(errorSpy).toHaveBeenCalledWith('  ✗ FAIL  editor command "missing-editor" not found in PATH');
+    expect(errorSpy).toHaveBeenCalledWith('    Install "missing-editor" or change with: summon set editor <command>');
     // Issue count shown in summary
-    const allOutput = logSpy.mock.calls.flat().join("\n");
+    const allOutput = errorSpy.mock.calls.flat().join("\n");
     expect(allOutput).toMatch(/\d+\/\d+ checks passed/);
   });
 
   it("uses the full configured command when no executable can be parsed", async () => {
-    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error(`exit:${code}`);
     }) as never);
@@ -181,12 +181,12 @@ describe("handleDoctorCommand", () => {
 
     await expect(handleDoctorCommand(makeContext())).rejects.toThrow("exit:2");
 
-    expect(logSpy).toHaveBeenCalledWith('  ✗ FAIL  editor command "   " not found in PATH');
-    expect(logSpy).toHaveBeenCalledWith('    Install "   " or change with: summon set editor <command>');
+    expect(errorSpy).toHaveBeenCalledWith('  ✗ FAIL  editor command "   " not found in PATH');
+    expect(errorSpy).toHaveBeenCalledWith('    Install "   " or change with: summon set editor <command>');
   });
 
   it("shows '✓ N/N checks passed.' when there are no issues", async () => {
-    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     mockExistsSync.mockReturnValue(true);
     mockReadFileSync.mockReturnValue(
       "notify-on-command-finish = unfocused\nshell-integration = detect\n",
@@ -194,12 +194,12 @@ describe("handleDoctorCommand", () => {
 
     await handleDoctorCommand(makeContext());
 
-    const output = logSpy.mock.calls.flat().join("\n");
+    const output = errorSpy.mock.calls.flat().join("\n");
     expect(output).toMatch(/✓ \d+\/\d+ checks passed\./);
   });
 
   it("prints issue count summary when issues are found", async () => {
-    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error(`exit:${code}`);
     }) as never);
@@ -207,12 +207,12 @@ describe("handleDoctorCommand", () => {
 
     await expect(handleDoctorCommand(makeContext())).rejects.toThrow("exit:2");
 
-    const output = logSpy.mock.calls.flat().join("\n");
+    const output = errorSpy.mock.calls.flat().join("\n");
     expect(output).toMatch(/\d+\/\d+ checks passed/);
   });
 
   it("prints auto-fixable count in issue summary", async () => {
-    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error(`exit:${code}`);
     }) as never);
@@ -221,14 +221,14 @@ describe("handleDoctorCommand", () => {
 
     await expect(handleDoctorCommand(makeContext())).rejects.toThrow("exit:2");
 
-    const output = logSpy.mock.calls.flat().join("\n");
+    const output = errorSpy.mock.calls.flat().join("\n");
     expect(output).toMatch(/auto-fixable/);
     expect(output).toContain("summon doctor --fix");
   });
 
   // #432 UX-M5: visual pass/fail indicators instead of raw booleans
   it("shows a visual PASS indicator for passing checks, not the literal string 'true'", async () => {
-    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     mockExistsSync.mockReturnValue(true);
     mockReadFileSync.mockReturnValue(
       "notify-on-command-finish = unfocused\nshell-integration = detect\n",
@@ -236,14 +236,14 @@ describe("handleDoctorCommand", () => {
 
     await handleDoctorCommand(makeContext());
 
-    const output = logSpy.mock.calls.flat().join("\n");
+    const output = errorSpy.mock.calls.flat().join("\n");
     expect(output).not.toContain("true");
     // Should contain a pass symbol (✔ or ✓ or PASS)
     expect(output).toMatch(/PASS|✔|✓/);
   });
 
   it("shows a visual FAIL indicator for failing checks, not the literal string 'false'", async () => {
-    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error(`exit:${code}`);
     }) as never);
@@ -251,7 +251,7 @@ describe("handleDoctorCommand", () => {
 
     await expect(handleDoctorCommand(makeContext())).rejects.toThrow("exit:2");
 
-    const output = logSpy.mock.calls.flat().join("\n");
+    const output = errorSpy.mock.calls.flat().join("\n");
     expect(output).not.toContain("false");
     // Should contain a fail symbol (✖ or ✗ or FAIL)
     expect(output).toMatch(/FAIL|✖|✗/);
@@ -259,7 +259,7 @@ describe("handleDoctorCommand", () => {
 
   // #435 UX-M9: summary count of passed/failed checks
   it("shows a passed/total summary count at the end of output", async () => {
-    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     mockExistsSync.mockReturnValue(true);
     mockReadFileSync.mockReturnValue(
       "notify-on-command-finish = unfocused\nshell-integration = detect\n",
@@ -267,13 +267,13 @@ describe("handleDoctorCommand", () => {
 
     await handleDoctorCommand(makeContext());
 
-    const output = logSpy.mock.calls.flat().join("\n");
+    const output = errorSpy.mock.calls.flat().join("\n");
     // Should show something like "4/4 checks passed" or "All 4 checks passed"
     expect(output).toMatch(/\d+\/\d+ checks passed|\d+ checks passed|all.*checks passed/i);
   });
 
   it("shows a next-steps hint when checks fail", async () => {
-    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error(`exit:${code}`);
     }) as never);
@@ -281,7 +281,7 @@ describe("handleDoctorCommand", () => {
 
     await expect(handleDoctorCommand(makeContext())).rejects.toThrow("exit:2");
 
-    const output = logSpy.mock.calls.flat().join("\n");
+    const output = errorSpy.mock.calls.flat().join("\n");
     // Should hint at summon setup when accessibility fails
     expect(output).toMatch(/summon setup|fix/i);
   });
@@ -289,7 +289,7 @@ describe("handleDoctorCommand", () => {
   // #504 DO-S1: --verbose flag exposes diagnostic info without SUMMON_DEBUG
   describe("--verbose flag", () => {
     it("shows the summon version when --verbose is passed", async () => {
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
       mockExistsSync.mockReturnValue(true);
       mockReadFileSync.mockReturnValue(
         "notify-on-command-finish = unfocused\nshell-integration = detect\n",
@@ -297,12 +297,12 @@ describe("handleDoctorCommand", () => {
 
       await handleDoctorCommand(makeContext({ values: { verbose: true } }));
 
-      const output = logSpy.mock.calls.flat().join("\n");
+      const output = errorSpy.mock.calls.flat().join("\n");
       expect(output).toMatch(/summon.*version|version.*summon/i);
     });
 
     it("shows the Node.js version when --verbose is passed", async () => {
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
       mockExistsSync.mockReturnValue(true);
       mockReadFileSync.mockReturnValue(
         "notify-on-command-finish = unfocused\nshell-integration = detect\n",
@@ -310,12 +310,12 @@ describe("handleDoctorCommand", () => {
 
       await handleDoctorCommand(makeContext({ values: { verbose: true } }));
 
-      const output = logSpy.mock.calls.flat().join("\n");
+      const output = errorSpy.mock.calls.flat().join("\n");
       expect(output).toMatch(/node(\.js)?.*v?\d+\.\d+/i);
     });
 
     it("shows the config directory path when --verbose is passed", async () => {
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
       mockExistsSync.mockReturnValue(true);
       mockReadFileSync.mockReturnValue(
         "notify-on-command-finish = unfocused\nshell-integration = detect\n",
@@ -323,13 +323,13 @@ describe("handleDoctorCommand", () => {
 
       await handleDoctorCommand(makeContext({ values: { verbose: true } }));
 
-      const output = logSpy.mock.calls.flat().join("\n");
+      const output = errorSpy.mock.calls.flat().join("\n");
       // Should show something about the config path (contains "summon" in the path)
       expect(output).toMatch(/config.*summon|summon.*config/i);
     });
 
     it("shows Ghostty path accessibility when --verbose is passed", async () => {
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
       mockExistsSync.mockReturnValue(true);
       mockReadFileSync.mockReturnValue(
         "notify-on-command-finish = unfocused\nshell-integration = detect\n",
@@ -337,12 +337,12 @@ describe("handleDoctorCommand", () => {
 
       await handleDoctorCommand(makeContext({ values: { verbose: true } }));
 
-      const output = logSpy.mock.calls.flat().join("\n");
+      const output = errorSpy.mock.calls.flat().join("\n");
       expect(output).toMatch(/ghostty.*path|path.*ghostty/i);
     });
 
     it("shows trust DB path and trusted project count when --verbose is passed", async () => {
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
       mockExistsSync.mockReturnValue(true);
       mockReadFileSync.mockReturnValue(
         "notify-on-command-finish = unfocused\nshell-integration = detect\n",
@@ -350,14 +350,14 @@ describe("handleDoctorCommand", () => {
 
       await handleDoctorCommand(makeContext({ values: { verbose: true } }));
 
-      const output = logSpy.mock.calls.flat().join("\n");
+      const output = errorSpy.mock.calls.flat().join("\n");
       expect(output).toMatch(/trust/i);
       // Should show a count of trusted projects (a number)
       expect(output).toMatch(/\d+ (project|trusted)/i);
     });
 
     it("does NOT show verbose diagnostic section when --verbose is not passed", async () => {
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
       mockExistsSync.mockReturnValue(true);
       mockReadFileSync.mockReturnValue(
         "notify-on-command-finish = unfocused\nshell-integration = detect\n",
@@ -365,9 +365,38 @@ describe("handleDoctorCommand", () => {
 
       await handleDoctorCommand(makeContext());
 
-      const output = logSpy.mock.calls.flat().join("\n");
+      const output = errorSpy.mock.calls.flat().join("\n");
       // Verbose section header should be absent in non-verbose mode
       expect(output).not.toMatch(/diagnostic info|system info/i);
     });
+  });
+});
+
+describe("FE-M5 (#549): doctor diagnostic output goes to stderr", () => {
+  it("diagnostic report does not contaminate stdout", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+    mockExistsSync.mockReturnValue(false);
+
+    // Doctor exits 2 when issues are found — catch it
+    try {
+      await handleDoctorCommand(makeContext());
+    } catch {
+      // expected: exit:2 thrown by mocked process.exit
+    }
+
+    // The main diagnostic check output (PASS/FAIL lines) must go to stderr, not stdout
+    const stdoutOutput = logSpy.mock.calls.flat().join("\n");
+    const stderrOutput = errorSpy.mock.calls.flat().join("\n");
+    // The "Checking Ghostty configuration..." banner goes to stderr
+    expect(stderrOutput).toMatch(/checking/i);
+    // stdout should not contain diagnostic header lines
+    expect(stdoutOutput).not.toMatch(/^Checking /m);
+    logSpy.mockRestore();
+    errorSpy.mockRestore();
+    exitSpy.mockRestore();
   });
 });
