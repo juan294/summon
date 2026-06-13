@@ -49,3 +49,6 @@ MANUAL_TESTBED.md
 *.pem
 *.key
 credentials*.json
+
+# Stray osacompile output from AppleScript syntax tests
+*.scpt
