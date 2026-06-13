@@ -1,4 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, test, vi, beforeEach } from "vitest";
+import { VALID_KEYS } from "./config.js";
 import {
   addProject,
   removeProject,
@@ -986,5 +987,11 @@ describe("config comment preservation (BE-L1 #494)", () => {
     // key-adjacent comments for deleted keys may be dropped.
     // We test the key is gone.
     expect(written).not.toContain("sidebar=");
+  });
+});
+
+describe("FE-M2 (#583) — VALID_KEYS parity", () => {
+  test("VALID_KEYS includes secondary-editor", () => {
+    expect(VALID_KEYS).toContain("secondary-editor");
   });
 });

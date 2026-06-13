@@ -66,6 +66,7 @@ _summon() {
     '--new-window[Open in new Ghostty window]' \\
     '--new-tab[Open in a new Ghostty tab]' \\
     '--no-project-config[Skip loading project-level config file]' \\
+    '--verbose[Show verbose output (e.g. resolved config paths)]' \\
     '--fullscreen[Start in fullscreen mode]' \\
     '--maximize[Start maximized]' \\
     '--float[Float window on top]' \\
@@ -311,6 +312,7 @@ complete -F _summon summon
 export function generateFishCompletion(): string {
   const customLayouts = listCustomLayouts();
   const allLayouts = [...getPresetNames(), ...customLayouts];
+  const configKeys = VALID_KEYS.join(" ");
 
   const subcommands: Array<[string, string]> = [
     ["add", "Register a project"],
@@ -363,10 +365,14 @@ complete -c summon -l font-size -d 'Font size in points'
 complete -c summon -l on-start -d 'Run command before workspace creation'
 complete -c summon -l new-window -d 'Open in new Ghostty window'
 complete -c summon -l new-tab -d 'Open in a new Ghostty tab'
+complete -c summon -l no-project-config -d 'Skip loading project-level config file'
 complete -c summon -l fullscreen -d 'Start in fullscreen mode'
 complete -c summon -l maximize -d 'Start maximized'
 complete -c summon -l float -d 'Float window on top'
 complete -c summon -l dry-run -s n -d 'Print AppleScript without executing'
+complete -c summon -l verbose -d 'Show verbose output (e.g. resolved config paths)'
+complete -c summon -n '__fish_seen_subcommand_from status' -l once -d 'Print status table once and exit'
+complete -c summon -n '__fish_seen_subcommand_from set' -n '__fish_is_nth_token 2' -a '${configKeys}' -d 'Config key'
 complete -c summon -n '__fish_seen_subcommand_from session' -n 'not __fish_seen_subcommand_from add remove list show' -a 'add remove list show' -d 'Session action'
 complete -c summon -n '__fish_seen_subcommand_from session' -l all -d 'Launch every registered project'
 `;

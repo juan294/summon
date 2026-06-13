@@ -150,6 +150,7 @@ async function buildHelp(): Promise<string> {
     "",
     bold("Config keys:") + note(" (set via 'summon set <key> <value>' or in .summon file)"),
     wrap(`  editor          Command for coding panes (set during setup)`),
+    wrap(`  secondary-editor  Alternate editor command for secondary panes`),
     wrap(`  sidebar         Command for sidebar pane (default: lazygit)`),
     wrap(`  panes           Number of editor panes (default: 2)`),
     wrap(`  editor-size     Width % for editor grid (default: 75)`),
