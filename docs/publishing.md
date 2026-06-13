@@ -6,8 +6,22 @@ Publishing checklist and workflow. First published as v0.7.0 on 2026-03-14.
 
 Code splitting is enabled in `tsup.config.ts`. The `dist/` directory now produces
 multiple chunk files (e.g. `index.js`, `chunk-*.js`) rather than a single monolith.
-All chunks are required at runtime — the `files: ["dist"]` field in `package.json`
-already ensures the full `dist/` directory is included in the published tarball.
+All chunks are required at runtime.
+
+The `files` field in `package.json` uses explicit globs:
+
+```json
+"files": [
+  "dist/**/*.js",
+  "dist/**/*.cjs",
+  "README.md",
+  "LICENSE"
+]
+```
+
+Sourcemaps (`.js.map`, `.cjs.map`) are intentionally excluded from the tarball to
+keep the published package small. The full source is available in the GitHub
+repository for debugging purposes.
 
 When verifying a tarball with `tar tzf summon-ws-<version>.tgz`, expect to see
 `package/dist/index.js` plus one or more `package/dist/chunk-*.js` files.
@@ -16,7 +30,7 @@ When verifying a tarball with `tar tzf summon-ws-<version>.tgz`, expect to see
 
 - [x] Package name `summon-ws` chosen (npm)
 - [x] `bin` entry for `summon`
-- [x] `files: ["dist"]` limits published contents
+- [x] `files` glob limits published contents to JS chunks + README + LICENSE (sourcemaps excluded)
 - [x] `engines: { "node": ">=20.19" }`
 - [x] `os: ["darwin"]` enforces macOS-only
 - [x] `prepublishOnly` runs `pnpm run build`
@@ -37,7 +51,19 @@ After running, also update CHANGELOG.md (Step 0 above).
 
 ## Publishing a New Version
 
-### 0. Prepare CHANGELOG.md
+### Canonical Flow: GitHub Release (primary)
+
+The `.github/workflows/release.yml` workflow is the **canonical publish path**.
+It runs on GitHub Release publication, performs full typecheck/lint/test/build,
+validates the tarball contents (index.js + chunk files + README + LICENSE), runs
+AppleScript E2E smoke tests, publishes with `--provenance` via OIDC trusted
+publishing, and then validates the published tarball across Node 20.19 and 24.
+
+**Always use this path for production releases.**
+
+Steps:
+
+#### 0. Prepare CHANGELOG.md
 
 Promote the `[Unreleased]` section to the new version number and add today's date:
 
@@ -50,14 +76,14 @@ Verify the package version matches the intended release:
 node -p "require('./package.json').version"
 ```
 
-### 1. Pre-Publish Verification
+#### 1. Pre-Release Verification (local)
 ```bash
 pnpm pack
 # Inspect the tarball contents:
 tar tzf summon-ws-<version>.tgz
 # Should contain: package/dist/index.js, package/dist/chunk-*.js,
 #                 package/package.json, package/README.md, package/LICENSE
-# Should NOT contain: docs/, src/, node_modules/
+# Should NOT contain: docs/, src/, node_modules/, *.map files
 
 # Install globally from the tarball:
 npm i -g ./summon-ws-<version>.tgz
@@ -74,17 +100,39 @@ npm uninstall -g summon-ws
 rm summon-ws-<version>.tgz
 ```
 
-### 3. Real Ghostty Test
+#### 2. Real Ghostty Test
 - [ ] Test on a Mac with Ghostty 1.3.1+
 - [ ] Verify AppleScript permission prompt appears and works
 - [ ] Verify all presets create correct layouts
 - [ ] Verify commands run in correct panes
 
-### 4. Version Strategy
+#### 3. Version Strategy
 - Follow semver: breaking changes = major, features = minor, fixes = patch
 - The project is stable (1.x). Minor releases add features, patch releases fix bugs.
 
-### 5. Publish
+#### 4. Create GitHub Release
+- [ ] Merge the release PR to `main`
+- [ ] Create an annotated tag: `git tag -a v<version> -m "v<version>"`
+- [ ] Push the tag: `git push origin v<version>`
+- [ ] Create a GitHub Release from the tag — this triggers `release.yml`
+
+#### 5. Post-Publish Verification
+```bash
+# Install from npm:
+npm i -g summon-ws
+summon --version
+summon --help
+summon .
+```
+
+---
+
+### Emergency Fallback: Manual `npm publish`
+
+> **Warning:** Manual publishing loses `--provenance`. The published package will
+> have no OIDC provenance attestation, which weakens supply-chain verification.
+> Only use this path if the GitHub Actions release workflow is unavailable.
+
 ```bash
 # Dry run first:
 npm publish --dry-run
@@ -95,20 +143,6 @@ npm publish
 # Verify it's live:
 npm info summon-ws
 ```
-
-### 6. Post-Publish Verification
-```bash
-# Install from npm:
-npm i -g summon-ws
-summon --version
-summon --help
-summon .
-```
-
-### 7. GitHub Release
-- [ ] Tag the commit: `git tag v<version>`
-- [ ] Push the tag: `git push origin v<version>`
-- [ ] Create a GitHub release from the tag
 
 ## Rollback
 
