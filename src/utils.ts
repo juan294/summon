@@ -1,4 +1,4 @@
-import { existsSync, writeFileSync, renameSync } from "node:fs";
+import { existsSync, writeFileSync, renameSync, unlinkSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { homedir } from "node:os";
@@ -18,7 +18,13 @@ export const SAFE_COMMAND_RE = /^[a-zA-Z0-9_][a-zA-Z0-9_.+-]*$/;
 export function atomicWrite(path: string, content: string, options?: Parameters<typeof writeFileSync>[2]): void {
   const tmpPath = `${path}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
   writeFileSync(tmpPath, content, options);
-  renameSync(tmpPath, path);
+  try {
+    renameSync(tmpPath, path);
+  } catch (err) {
+    // BE-M4 #605: clean up orphaned temp file on rename failure (best-effort)
+    try { unlinkSync(tmpPath); } catch { /* ignore cleanup errors */ }
+    throw err;
+  }
 }
 
 /** @internal — exported for testing only */
@@ -181,13 +187,92 @@ export function openAccessibilitySettings(): void {
 }
 
 /**
+ * AR-M1 #603: Shared async git helper used by status.ts, briefing.ts.
+ * Runs `git -C <dir> <args>` and returns trimmed stdout.
+ * Throws on non-zero exit (callers catch and map to null / []).
+ *
+ * `_gitExecFileAsync` is lazily initialized on first call so that test files
+ * that partially mock node:child_process (only execFileSync) do not fail at
+ * module load time. Once initialized, the same function is reused for all calls
+ * to preserve micro-task ordering in concurrent invocations.
+ * Call `resetGitOutputCache()` in tests to force re-initialization.
+ */
+type ExecFileAsyncFn = (
+  cmd: string,
+  args: string[],
+  opts: { encoding: BufferEncoding; timeout: number; env: NodeJS.ProcessEnv },
+) => Promise<{ stdout: string; stderr: string }>;
+
+let _gitExecFileAsync: ExecFileAsyncFn | undefined;
+// Singleton init promise — prevents concurrent callers from each running the
+// dynamic imports independently and introducing micro-task ordering differences.
+let _gitExecFileAsyncInitPromise: Promise<ExecFileAsyncFn> | undefined;
+
+async function getGitExecFileAsync(): Promise<ExecFileAsyncFn> {
+  if (_gitExecFileAsync !== undefined) return _gitExecFileAsync;
+  if (_gitExecFileAsyncInitPromise === undefined) {
+    _gitExecFileAsyncInitPromise = (async () => {
+      const { execFile } = await import("node:child_process");
+      const { promisify } = await import("node:util");
+      _gitExecFileAsync = promisify(execFile) as ExecFileAsyncFn;
+      return _gitExecFileAsync;
+    })();
+  }
+  return _gitExecFileAsyncInitPromise;
+}
+
+export async function gitOutput(dir: string, args: string[]): Promise<string> {
+  const execFileAsync = await getGitExecFileAsync();
+  const { stdout } = await execFileAsync("git", ["-C", dir, ...args], {
+    encoding: "utf-8",
+    timeout: 5000,
+    env: gitSafeEnv(),
+  });
+  return stdout.trim();
+}
+
+/** @internal — exported for testing only (AR-M1 #603) */
+export function resetGitOutputCache(): void {
+  _gitExecFileAsync = undefined;
+  _gitExecFileAsyncInitPromise = undefined;
+}
+
+/**
+ * AR-M1 #603: Shared sync git helper used by snapshot.ts.
+ * Runs `git -C <dir> <args>` synchronously and returns trimmed stdout.
+ * Throws on non-zero exit (callers catch and map to null / []).
+ */
+export function gitOutputSync(dir: string, args: string[]): string {
+  return execFileSync("git", ["-C", dir, ...args], {
+    encoding: "utf-8",
+    timeout: 5000,
+    stdio: ["ignore", "pipe", "ignore"],
+    env: gitSafeEnv(),
+  }).trim();
+}
+
+/**
  * Returns process.env with git context variables removed.
  * Prevents an inherited GIT_DIR/GIT_WORK_TREE (e.g. from a pre-commit hook)
  * from overriding the -C flag and making every directory appear as the current repo.
+ *
+ * PE-M2 #608: the cleaned env is computed once (lazy) and memoized — rest-spreading
+ * process.env on every git call was wasteful. Call `resetGitSafeEnvCache()` in tests
+ * to force recomputation after replacing process.env.
  */
+let _gitSafeEnvCache: NodeJS.ProcessEnv | undefined;
+
 export function gitSafeEnv(): NodeJS.ProcessEnv {
-  const { GIT_DIR: _gd, GIT_WORK_TREE: _gwt, GIT_INDEX_FILE: _gif, ...clean } = process.env;
-  return clean;
+  if (_gitSafeEnvCache === undefined) {
+    const { GIT_DIR: _gd, GIT_WORK_TREE: _gwt, GIT_INDEX_FILE: _gif, ...clean } = process.env;
+    _gitSafeEnvCache = clean;
+  }
+  return _gitSafeEnvCache;
+}
+
+/** @internal — exported for testing only (PE-M2 #608) */
+export function resetGitSafeEnvCache(): void {
+  _gitSafeEnvCache = undefined;
 }
 
 /**

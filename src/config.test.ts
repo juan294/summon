@@ -519,6 +519,30 @@ describe("custom layouts", () => {
     expect(result).toEqual(["alpha", "mid", "zeta"]);
   });
 
+  // BE-M4 #605: orphaned .tmp and dotfiles must not appear in layout list
+  it("listCustomLayouts filters out .tmp files (BE-M4 #605)", async () => {
+    const store = await getStore();
+    const dirs = await getDirs();
+    dirs.add(LAYOUTS_DIR);
+    store.set(`${LAYOUTS_DIR}/alpha`, "panes=2\n");
+    store.set(`${LAYOUTS_DIR}/alpha.12345.abc123.tmp`, "panes=2\n");
+    const result = listCustomLayouts();
+    expect(result).toEqual(["alpha"]);
+    expect(result).not.toContain("alpha.12345.abc123.tmp");
+  });
+
+  it("listCustomLayouts filters out dotfiles (BE-M4 #605)", async () => {
+    const store = await getStore();
+    const dirs = await getDirs();
+    dirs.add(LAYOUTS_DIR);
+    store.set(`${LAYOUTS_DIR}/alpha`, "panes=2\n");
+    store.set(`${LAYOUTS_DIR}/.DS_Store`, "");
+    store.set(`${LAYOUTS_DIR}/.hidden`, "");
+    const result = listCustomLayouts();
+    expect(result).toEqual(["alpha"]);
+    expect(result.some(n => n.startsWith("."))).toBe(false);
+  });
+
   it("saveCustomLayout creates file with correct content", async () => {
     const store = await getStore();
     const entries = new Map([["panes", "3"], ["editor", "vim"]]);
