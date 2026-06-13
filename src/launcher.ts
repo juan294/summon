@@ -262,6 +262,17 @@ const ENV_DENYLIST_EXACT = new Set([
   "PROMPT_COMMAND",
   "CDPATH",
   "IFS",
+  // SE-M2 (#609): command-carrying vars — these execute a subprocess when a tool reads
+  // them (e.g. git spawning $GIT_SSH_COMMAND, pagers honouring $PAGER, editors via $EDITOR).
+  // Values are correctly escaped for injection, but allowing them lets a trusted .summon
+  // author swap out the subprocess invoked inside the workspace pane.
+  "GIT_SSH_COMMAND",
+  "GIT_EXTERNAL_DIFF",
+  "GIT_PAGER",
+  "PAGER",
+  "EDITOR",
+  "VISUAL",
+  "GIT_EDITOR",
 ]);
 
 function isDenylisted(envKey: string): boolean {

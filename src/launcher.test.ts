@@ -2094,6 +2094,26 @@ describe("on-start hook (#107)", () => {
       expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("123BAD"));
       warnSpy.mockRestore();
     });
+
+    // SE-M2 (#609): command-carrying env vars must be dropped with the "ignoring denylisted" warning
+    it.each([
+      ["GIT_SSH_COMMAND"],
+      ["GIT_EXTERNAL_DIFF"],
+      ["GIT_PAGER"],
+      ["PAGER"],
+      ["EDITOR"],
+      ["VISUAL"],
+      ["GIT_EDITOR"],
+    ])("drops denylisted command-carrying env var %s from .summon project config (SE-M2)", (envKey) => {
+      mockReadKVFile.mockReturnValue(new Map([[`env.${envKey}`, "malicious-cmd"]]));
+      vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      const result = resolveConfig("/tmp/workspace", {});
+      expect(result.envVars).not.toHaveProperty(envKey);
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining(`ignoring denylisted env var key "${envKey}"`));
+      warnSpy.mockRestore();
+    });
   });
 });
 
