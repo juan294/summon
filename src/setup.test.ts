@@ -2718,6 +2718,45 @@ describe("PreviewRenderer", () => {
     expect(upCount).toBe(firstDrawLogCount + 3);
   });
 
+  // FE-L2 (#612): mid-render resize must not corrupt cursor math
+  it("cursor math stays consistent when terminal width changes between construction and log()", () => {
+    const origColumns = process.stdout.columns;
+    // Start at 80 columns — renderer snapshots this width at construction
+    Object.defineProperty(process.stdout, "columns", { value: 80, configurable: true });
+
+    try {
+      const renderer = new PreviewRenderer();
+      renderer.draw([["?"]]);
+      const firstDrawLogCount = logSpy.mock.calls.length;
+
+      // Simulate terminal resize to 20 columns AFTER first draw but BEFORE log()
+      Object.defineProperty(process.stdout, "columns", { value: 20, configurable: true });
+
+      // Log a 40-char message.
+      // At snapshotted 80 cols: ceil(40/80) = 1 physical row.
+      // At the new live 20 cols (wrong): ceil(40/20) = 2 physical rows.
+      const wideMsg = "a".repeat(40);
+      renderer.log(wideMsg);
+
+      stdoutSpy.mockClear();
+      renderer.draw([["nvim"]]);
+
+      // Cursor math must reflect the snapshotted 80-col width.
+      // Correct upCount = firstDrawLogCount (preview height at 80 cols) + 1 (wideMsg at 80 cols).
+      // Buggy upCount would be firstDrawLogCount + 2 (wideMsg counted at live 20 cols).
+      const stdoutCalls = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+      // eslint-disable-next-line no-control-regex
+      const upSequence = stdoutCalls.find((c: string) => /\x1b\[\d+A/.test(c));
+      // eslint-disable-next-line no-control-regex
+      const match = upSequence!.match(/\x1b\[(\d+)A/);
+      const upCount = parseInt(match![1]!, 10);
+      // Must be +1 (80-col snapshot), not +2 (live 20-col post-resize)
+      expect(upCount).toBe(firstDrawLogCount + 1);
+    } finally {
+      Object.defineProperty(process.stdout, "columns", { value: origColumns, configurable: true });
+    }
+  });
+
   // FE-M4 (#548): log() must count physical rows (wrapping) not just logical lines
   it("log() counts physical rows when a line wraps on a narrow terminal", () => {
     const origColumns = process.stdout.columns;

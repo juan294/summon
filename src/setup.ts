@@ -69,24 +69,35 @@ export function ansiSyncEnd(): string {
  * Manages an in-place preview region on the terminal.
  * Tracks how many lines were rendered and how many lines were printed after
  * the preview, so it can move the cursor back and redraw.
+ *
+ * FE-L2 (#612): The terminal width is snapshotted once at construction time and
+ * used for all log() wrapping calculations and draw() preview rendering for the
+ * lifetime of the renderer. This ensures consistent cursor math even if the
+ * terminal is resized mid-wizard.
  */
 export class PreviewRenderer {
   private lastHeight = 0;
   private linesSince = 0;
   private active = false;
+  /** Snapshotted terminal width at construction time (FE-L2). */
+  private readonly snapshotWidth: number;
+
+  constructor() {
+    const cols = process.stdout.columns || 80;
+    this.snapshotWidth = cols > 0 ? cols : 80;
+  }
 
   /** Print a line and track it for cursor math. */
   log(msg: string = ""): void {
     console.log(msg);
     // FE-M4 (#548): count physical rows, not just logical lines.
     // A line wider than the terminal wraps and occupies multiple physical rows.
-    const cols = process.stdout.columns || 80;
-    const safeWidth = cols > 0 ? cols : 80;
+    // FE-L2 (#612): use snapshotted width so log() and draw() stay consistent.
     // Strip ANSI escape sequences before measuring display width
     // eslint-disable-next-line no-control-regex
     const visible = msg.replace(/\x1b\[[0-9;]*m/g, "");
     const displayW = getDisplayWidth(visible);
-    this.linesSince += Math.max(1, Math.ceil(displayW / safeWidth));
+    this.linesSince += Math.max(1, Math.ceil(displayW / this.snapshotWidth));
   }
 
   /** Account for a promptUser() call (prompt + user answer = 1 line). */
@@ -100,7 +111,9 @@ export class PreviewRenderer {
    * Subsequent calls: moves cursor up, clears, redraws.
    */
   draw(grid: string[][]): void {
-    const maxWidth = Math.max(20, (process.stdout.columns || 84) - 4);
+    // FE-L2 (#612): use snapshotted width so preview dimensions are stable
+    // across the renderer's lifetime even if the terminal is resized.
+    const maxWidth = Math.max(20, this.snapshotWidth - 4);
     const preview = renderLayoutPreview(grid, maxWidth);
     const lines = preview.split("\n");
 
