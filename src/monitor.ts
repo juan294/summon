@@ -164,6 +164,11 @@ export function renderFooter(width: number): string {
 }
 
 export function renderScreen(rows: ProjectRow[], selectedIndex: number, width: number, height: number, scrollStart = 0): string {
+  // UX-L1 (#616): when terminal is too narrow, render a guard message instead of a clamped grid
+  if (width < MIN_COLS) {
+    return `Terminal too narrow \u2014 widen to \u2265${MIN_COLS} cols`;
+  }
+
   const activeCount = rows.filter(r => r.state === "active" || r.state === "active-long").length;
   const header = renderHeader(activeCount, rows.length, width);
   const separator = dim("\u2500".repeat(width));
@@ -189,7 +194,11 @@ export function renderScreen(rows: ProjectRow[], selectedIndex: number, width: n
     renderedRows.push("");
   }
 
-  const lines = [header, separator, ...renderedRows, separator, footer];
+  // FE-M3 (#611): append EL (erase-to-end-of-line) to each content row so that
+  // CURSOR_HOME repaints never leave trailing characters from previously-longer lines.
+  const clearedRows = renderedRows.map(r => `${r}\x1b[0K`);
+
+  const lines = [header, separator, ...clearedRows, separator, footer];
   return lines.join("\n");
 }
 
@@ -471,12 +480,11 @@ export async function runMonitor(): Promise<void> {
           `  ${cyan("?")}          ${dim("show this help")}`,
           `  ${cyan("q / Ctrl+C")} ${dim("quit")}`,
           "",
+          // UX-H2 (#599) + UX-L1 (#616): glyph markers so the legend is readable
+          // under NO_COLOR; "active*" matches the row label for long-running workspaces.
           `  ${bold("State legend:")}`,
-          // UX-H2 (#599): use non-color markers so legend is readable under NO_COLOR;
-          // "active*" matches the row label for long-running workspaces.
-          `  ${dim("● active         green = running")}`,
-          `  ${dim("● active*        yellow = running >4h (active-long)")}`,
-          `  ${dim("○ stopped/dim    dim = stopped or unknown")}`,
+          `  ${green("●")} ${dim("active")}   ${yellow("●")} ${dim("active* (running >4h)")}   ${dim("○ stopped/unknown")}`,
+          `  ${dim("color: green = active, yellow = running >4h, dim = stopped")}`,
           "",
           `  ${dim("Press any key to dismiss...")}`,
         ];
