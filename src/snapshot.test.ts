@@ -173,6 +173,34 @@ describe("readSnapshot", () => {
     expect(readSnapshot("bad")).toBeNull();
   });
 
+  // BE-M5 #606: unconditional stderr warning for future schema versions
+  it("emits stderr warning unconditionally when version > 1 (BE-M5 #606)", () => {
+    mkdirSync(TEST_SNAPSHOTS_DIR, { recursive: true });
+    writeFileSync(
+      join(TEST_SNAPSHOTS_DIR, "future-snap.json"),
+      JSON.stringify({
+        version: 2,
+        project: "future-snap",
+        directory: process.cwd(),
+        timestamp: new Date().toISOString(),
+        layout: "full",
+        git: { branch: "main", dirty: [], recentCommits: [] },
+      }),
+    );
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    try {
+      const result = readSnapshot("future-snap");
+      expect(result).toBeNull();
+      const calls = stderrSpy.mock.calls.map((c) => String(c[0]));
+      const hasWarn = calls.some((msg) =>
+        msg.includes("upgrade") || msg.includes("newer") || msg.includes("future-snap")
+      );
+      expect(hasWarn).toBe(true);
+    } finally {
+      stderrSpy.mockRestore();
+    }
+  });
+
   it("rejects path traversal in project name", () => {
     expect(() => readSnapshot("../../etc/evil")).toThrow("Invalid snapshot path");
   });
