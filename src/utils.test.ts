@@ -859,6 +859,61 @@ describe("runPool", () => {
     // All indices must be present (order may vary for concurrent runs)
     expect(indices.sort()).toEqual([0, 1, 2]);
   });
+
+  // ---------------------------------------------------------------------------
+  // QA-M1 (#597) — rejection contract: runPool rejects on the first failing task.
+  // Callers that need per-item resilience must catch inside fn (all four
+  // consumers in briefing/ports/monitor/snapshot already do this).
+  // ---------------------------------------------------------------------------
+
+  it("rejects when a middle item's fn rejects (propagates first rejection)", async () => {
+    const boom = new Error("task-2 exploded");
+    const items = [1, 2, 3];
+    const promise = runPool(items, 3, async (x) => {
+      if (x === 2) throw boom;
+      return x;
+    });
+    await expect(promise).rejects.toThrow("task-2 exploded");
+    await expect(promise).rejects.toBe(boom);
+  });
+
+  it("rejects when the first item's fn rejects", async () => {
+    const items = ["a", "b", "c"];
+    await expect(
+      runPool(items, 2, async (x) => {
+        if (x === "a") throw new Error("first-item-error");
+        return x;
+      }),
+    ).rejects.toThrow("first-item-error");
+  });
+
+  it("rejects when the last item's fn rejects", async () => {
+    const items = [10, 20, 30];
+    await expect(
+      runPool(items, 1, async (x) => {
+        if (x === 30) throw new Error("last-item-error");
+        return x;
+      }),
+    ).rejects.toThrow("last-item-error");
+  });
+
+  it("preserves order and respects concurrency cap on all-success runs (unaffected by rejection logic)", async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const limit = 2;
+    const items = [1, 2, 3, 4, 5, 6];
+
+    const results = await runPool(items, limit, async (x) => {
+      inFlight++;
+      if (inFlight > maxInFlight) maxInFlight = inFlight;
+      await Promise.resolve();
+      inFlight--;
+      return x * 100;
+    });
+
+    expect(results).toEqual([100, 200, 300, 400, 500, 600]);
+    expect(maxInFlight).toBeLessThanOrEqual(limit);
+  });
 });
 
 describe("ioConcurrency", () => {

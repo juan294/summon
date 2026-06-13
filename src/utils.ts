@@ -212,6 +212,12 @@ export function supportsColor(): boolean {
 /**
  * Bounded-concurrency map that preserves input order.
  * Runs at most `limit` concurrent async tasks. `limit` must be >= 1.
+ *
+ * **Rejection contract:** if any `fn(item)` rejects, `runPool` rejects with
+ * that error and remaining in-flight results are discarded. This mirrors
+ * `Promise.all` semantics. Callers that need per-item resilience (e.g.
+ * briefing, ports, monitor) must catch inside `fn` rather than relying on
+ * `runPool` to swallow errors.
  */
 export async function runPool<T, R>(
   items: readonly T[],
