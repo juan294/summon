@@ -1,10 +1,13 @@
-import { execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { listProjects } from "./config.js";
 import { readAllStatuses, getGitBranch } from "./status.js";
 import type { ResolvedStatus } from "./status.js";
 import { bold, dim, green, yellow, cyan } from "./ui/ansi.js";
 import { sym } from "./ui/symbols.js";
-import { gitSafeEnv } from "./utils.js";
+import { gitSafeEnv, runPool, gitConcurrency } from "./utils.js";
+
+const execFileAsync = promisify(execFile);
 
 // --- Types ---
 
@@ -56,42 +59,48 @@ export function resetGitDataCache(): void {
   gitDataCache.clear();
 }
 
-export function collectGitData(directory: string): GitData {
+async function gitLog(directory: string): Promise<CommitSummary[]> {
+  try {
+    const { stdout } = await execFileAsync(
+      "git",
+      ["-C", directory, "log", "--format=%H|%s|%an", "--since=yesterday 00:00"],
+      { encoding: "utf-8", timeout: 5000, env: gitSafeEnv() },
+    );
+    const raw = stdout.trim();
+    if (!raw) return [];
+    return raw.split("\n").map(line => {
+      const [hash = "", subject = "", author = ""] = line.split("|");
+      return { hash, subject, author, isAgent: isAgentCommit(author, subject) };
+    });
+  } catch {
+    return [];
+  }
+}
+
+async function gitStatus(directory: string): Promise<string[]> {
+  try {
+    const { stdout } = await execFileAsync(
+      "git",
+      ["-C", directory, "status", "--porcelain"],
+      { encoding: "utf-8", timeout: 5000, env: gitSafeEnv() },
+    );
+    const raw = stdout.trim();
+    if (!raw) return [];
+    return raw.split("\n").map(l => l.slice(3).trim());
+  } catch {
+    return [];
+  }
+}
+
+export async function collectGitData(directory: string): Promise<GitData> {
   const cached = gitDataCache.get(directory);
   if (cached && Date.now() - cached.timestamp <= MAX_CACHE_AGE_MS) return cached.data;
 
-  const branch = getGitBranch(directory);
-
-  let commits: CommitSummary[] = [];
-  try {
-    const raw = execFileSync("git", ["-C", directory, "log", "--format=%H|%s|%an", "--since=yesterday 00:00"], {
-      encoding: "utf-8",
-      timeout: 5000,
-      stdio: ["ignore", "pipe", "ignore"],
-      env: gitSafeEnv(),
-    }).trim();
-    if (raw) {
-      commits = raw.split("\n").map(line => {
-        const [hash = "", subject = "", author = ""] = line.split("|");
-        return { hash, subject, author, isAgent: isAgentCommit(author, subject) };
-      });
-    }
-  } catch {
-    /* not a git repo or git error */
-  }
-
-  let dirty: string[] = [];
-  try {
-    const raw = execFileSync("git", ["-C", directory, "status", "--porcelain"], {
-      encoding: "utf-8",
-      timeout: 5000,
-      stdio: ["ignore", "pipe", "ignore"],
-      env: gitSafeEnv(),
-    }).trim();
-    if (raw) dirty = raw.split("\n").map(l => l.slice(3).trim());
-  } catch {
-    /* ignore */
-  }
+  const [branch, commits, dirty] = await Promise.all([
+    getGitBranch(directory),
+    gitLog(directory),
+    gitStatus(directory),
+  ]);
 
   const result: GitData = { branch, commits, dirty };
   gitDataCache.set(directory, { data: result, timestamp: Date.now() });
@@ -127,24 +136,21 @@ export async function collectBriefingData(): Promise<{ projects: ProjectBriefing
   const statusMap = new Map<string, ResolvedStatus>();
   for (const s of statuses) statusMap.set(s.project, s);
 
-  const projects = await Promise.all(
-    [...registeredProjects]
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(async ([name, directory]) => {
-        const status = statusMap.get(name);
-        const gitData = collectGitData(directory);
-        return {
-          name,
-          directory,
-          state: status?.state ?? "unknown",
-          uptime: status?.uptime ?? null,
-          gitBranch: gitData.branch,
-          overnightCommits: gitData.commits,
-          dirtyFiles: gitData.dirty,
-          lastSession: null, // Phase 5 integration point
-        } satisfies ProjectBriefing;
-      }),
-  );
+  const sortedProjects = [...registeredProjects].sort(([a], [b]) => a.localeCompare(b));
+  const projects = await runPool(sortedProjects, gitConcurrency(), async ([name, directory]) => {
+    const status = statusMap.get(name);
+    const gitData = await collectGitData(directory);
+    return {
+      name,
+      directory,
+      state: status?.state ?? "unknown",
+      uptime: status?.uptime ?? null,
+      gitBranch: gitData.branch,
+      overnightCommits: gitData.commits,
+      dirtyFiles: gitData.dirty,
+      lastSession: null, // Phase 5 integration point
+    } satisfies ProjectBriefing;
+  });
 
   const activeCount = projects.filter(p => p.state === "active").length;
   const totalOvernightCommits = projects.reduce((sum, p) => sum + p.overnightCommits.length, 0);

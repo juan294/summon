@@ -3,6 +3,7 @@ import type { ResolvedStatus } from "./status.js";
 import { listProjects } from "./config.js";
 import { bold, dim, green, red, yellow, cyan, invert } from "./ui/ansi.js";
 import { getDisplayWidth } from "./ui/layout-preview.js";
+import { runPool, gitConcurrency } from "./utils.js";
 
 // --- Types ---
 
@@ -224,19 +225,15 @@ export async function prefetchGitBranches(rows: ProjectRow[], onUpdate: () => vo
 
   toFetch.forEach((r) => gitBranchFetching.add(r.directory));
 
-  await Promise.all(
-    toFetch.map(async (r) => {
-      // Wrap in a resolved promise to yield the event loop before the blocking git call
-      await Promise.resolve();
-      const branch = getGitBranch(r.directory);
-      if (branch) {
-        gitBranchCache.set(r.directory, { value: branch, timestamp: Date.now() });
-      } else {
-        gitBranchCache.delete(r.directory);
-      }
-      gitBranchFetching.delete(r.directory);
-    }),
-  );
+  await runPool(toFetch, gitConcurrency(), async (r) => {
+    const branch = await getGitBranch(r.directory);
+    if (branch) {
+      gitBranchCache.set(r.directory, { value: branch, timestamp: Date.now() });
+    } else {
+      gitBranchCache.delete(r.directory);
+    }
+    gitBranchFetching.delete(r.directory);
+  });
 
   onUpdate();
 }

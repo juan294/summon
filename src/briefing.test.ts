@@ -12,9 +12,69 @@ vi.mock("./status.js", async (importOriginal) => {
     getGitBranch: vi.fn().mockReturnValue(null),
   };
 });
+// briefing.ts uses execFileAsync = promisify(execFile).
+// Node's real execFile has util.promisify.custom that resolves { stdout, stderr }.
+// Our mock must replicate this: we attach [util.promisify.custom] to a proxy function
+// whose behavior is controlled by a queue, so that promisify(execFile) produces a
+// function that resolves with { stdout, stderr } on each call.
+//
+// The shim below mirrors the mockReturnValue / mockReturnValueOnce / mockImplementation
+// surface used by existing test code.
+
+import { promisify as _promisify } from "node:util";
+
+let _mockExecFileDefault: string | Error = "";
+const _mockExecFileQueue: Array<string | Error> = [];
+// Override fn: when set, used instead of queue/default
+let _mockExecFileOverride: (() => void) | null = null;
+
+// This is the actual async impl captured by promisify.custom.
+// It delegates to queue/default/override, so it remains live even after
+// promisify(execFile) has been called in briefing.ts.
+// Recorded calls from _execFileCustomImpl — used to verify call arguments in tests
+const _execFileCustomCalls: unknown[][] = [];
+
+const _execFileCustomImpl = async (...args: unknown[]): Promise<{ stdout: string; stderr: string }> => {
+  _execFileCustomCalls.push(args);
+  if (_mockExecFileOverride !== null) {
+    _mockExecFileOverride();
+    return { stdout: "", stderr: "" };
+  }
+  const val = _mockExecFileQueue.length > 0 ? _mockExecFileQueue.shift()! : _mockExecFileDefault;
+  if (val instanceof Error) {
+    throw val;
+  }
+  return { stdout: val, stderr: "" };
+};
+
+const mockExecFile = vi.fn();
+(mockExecFile as unknown as Record<symbol, unknown>)[_promisify.custom] = _execFileCustomImpl;
+
+// Compatibility shim: mirrors vi.fn()'s mockReturnValue / mockReturnValueOnce / mockImplementation.
+const execFileSync = {
+  mockReturnValue(val: string) {
+    _mockExecFileDefault = val;
+    _mockExecFileQueue.length = 0;
+    _mockExecFileOverride = null;
+  },
+  mockReturnValueOnce(val: string) {
+    _mockExecFileQueue.push(val);
+    _mockExecFileOverride = null;
+    return execFileSync; // chainable
+  },
+  mockImplementation(impl: () => unknown) {
+    _mockExecFileQueue.length = 0;
+    _mockExecFileOverride = impl as () => void;
+  },
+  get mock() { return mockExecFile.mock; },
+};
+
 vi.mock("node:child_process", async (importOriginal) => {
   const original = await importOriginal<typeof import("node:child_process")>();
-  return { ...original, execFileSync: vi.fn().mockReturnValue("") };
+  return {
+    ...original,
+    execFile: mockExecFile,
+  };
 });
 
 const {
@@ -38,9 +98,9 @@ const { readAllStatuses, getGitBranch } = await import("./status.js") as unknown
   readAllStatuses: ReturnType<typeof vi.fn>;
   getGitBranch: ReturnType<typeof vi.fn>;
 };
-const { execFileSync } = await import("node:child_process") as unknown as {
-  execFileSync: ReturnType<typeof vi.fn>;
-};
+// execFileSync is defined above as a shim wrapping mockExecFile (execFile callback mock).
+// It exposes mockReturnValue / mockReturnValueOnce / mockImplementation / mock
+// for backward-compatible test usage.
 
 // --- Test helpers ---
 
@@ -571,13 +631,15 @@ describe("collectGitData gitSafeEnv", () => {
     execFileSync.mockReturnValue("");
   });
 
-  it("passes gitSafeEnv as env option to execFileSync calls", () => {
+  it("passes gitSafeEnv as env option to execFile calls", async () => {
     getGitBranch.mockReturnValue("main");
     execFileSync.mockReturnValue("");
     vi.stubEnv("GIT_DIR", "/some/bad/git/dir");
-    collectGitData("/tmp/env-test");
-    expect(execFileSync.mock.calls.length).toBeGreaterThan(0);
-    for (const call of execFileSync.mock.calls) {
+    _execFileCustomCalls.length = 0; // reset call log
+    await collectGitData("/tmp/env-test");
+    // execFileAsync calls go through _execFileCustomImpl (via promisify.custom)
+    expect(_execFileCustomCalls.length).toBeGreaterThan(0);
+    for (const call of _execFileCustomCalls) {
       const opts = call[2] as Record<string, unknown>;
       expect(opts).toBeDefined();
       expect(opts).toHaveProperty("env");

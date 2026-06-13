@@ -421,21 +421,21 @@ describe("parseWorkspaceStatus type guard (BE-M19)", () => {
 });
 
 describe("getGitBranch", () => {
-  it("returns branch name for git repo", () => {
+  it("returns branch name for git repo", async () => {
     // This test runs inside the summon repo itself
-    const branch = getGitBranch(process.cwd());
+    const branch = await getGitBranch(process.cwd());
     expect(branch).not.toBeNull();
     expect(typeof branch).toBe("string");
     expect(branch!.length).toBeGreaterThan(0);
   });
 
-  it("returns null for non-git directory", () => {
-    const branch = getGitBranch(tmpdir());
+  it("returns null for non-git directory", async () => {
+    const branch = await getGitBranch(tmpdir());
     expect(branch).toBeNull();
   });
 
-  it("returns null for nonexistent directory", () => {
-    const branch = getGitBranch("/nonexistent/directory/that/does/not/exist");
+  it("returns null for nonexistent directory", async () => {
+    const branch = await getGitBranch("/nonexistent/directory/that/does/not/exist");
     expect(branch).toBeNull();
   });
 });
