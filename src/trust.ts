@@ -136,6 +136,13 @@ export function trustProject(dir: string): void {
  *
  * Normalizes `targetDir` via `realpathSync` so that symlinked paths (e.g.
  * macOS /tmp → /private/tmp) resolve to the same key used by `trustProject`.
+ *
+ * INVARIANT (SE-L3 #610): All launch-ACTING callers — those that execute commands
+ * from a .summon file — MUST use assertTrustedContent with the exact bytes they
+ * parsed (read-once, hash, compare). This ensures the bytes that were hashed are
+ * the same bytes that will be acted upon, eliminating any TOCTOU window between
+ * the trust check and command execution. assertTrusted re-reads the file from
+ * disk and is NOT safe for acting callers.
  */
 export function assertTrustedContent(targetDir: string, content: string): void {
   const normalizedDir = (() => { try { return realpathSync(targetDir); } catch { return resolve(targetDir); } })();
@@ -154,6 +161,13 @@ export function assertTrustedContent(targetDir: string, content: string): void {
  *
  * Call this early in the launch flow, before any project config values
  * are acted upon.
+ *
+ * INVARIANT (SE-L3 #610): assertTrusted is intended ONLY for read-only or
+ * non-acting callers (e.g. status checks, informational displays). It re-reads
+ * the .summon file from disk internally and is NOT TOCTOU-safe for callers that
+ * will execute commands derived from that file. Any caller that will act on the
+ * contents of .summon MUST use assertTrustedContent instead, passing the exact
+ * bytes it already read and intends to parse.
  */
 export function assertTrusted(targetDir: string, opts?: { skip?: boolean }): void {
   if (opts?.skip) return;

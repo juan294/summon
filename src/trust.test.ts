@@ -485,6 +485,39 @@ describe("assertTrustedContent", () => {
   });
 });
 
+// SE-L3 #610: assertTrusted and assertTrustedContent must agree for a trusted file.
+// This consistency test guards against the two entrypoints diverging in their trust decision.
+describe("SE-L3 #610: assertTrusted and assertTrustedContent consistency", () => {
+  it("both functions pass (do not throw) for a trusted file", () => {
+    const content = "editor = vim\nsidebar = lazygit\n";
+    const hash = sha256(content);
+
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockImplementation((p: string) => {
+      if (p.endsWith(".summon")) return content;
+      return JSON.stringify({ "/some/dir": hash });
+    });
+
+    // assertTrustedContent: receives the pre-read content bytes
+    expect(() => assertTrustedContent("/some/dir", content)).not.toThrow();
+    // assertTrusted: re-reads from disk internally (mocked to return same content)
+    expect(() => assertTrusted("/some/dir")).not.toThrow();
+  });
+
+  it("both functions throw for an untrusted file (hash mismatch)", () => {
+    const content = "editor = vim\n";
+
+    mockExistsSync.mockImplementation((p: string) => {
+      if (p.endsWith(".summon")) return true;
+      return false; // trust.json absent → untrusted
+    });
+    mockReadFileSync.mockReturnValue(content);
+
+    expect(() => assertTrustedContent("/some/dir", content)).toThrow(SummonError);
+    expect(() => assertTrusted("/some/dir")).toThrow(SummonError);
+  });
+});
+
 describe("assertTrusted fail-closed", () => {
   it("throws when isTrusted throws a non-ENOENT error (e.g. EACCES on .summon file)", () => {
     mockExistsSync.mockImplementation((p: string) => {
