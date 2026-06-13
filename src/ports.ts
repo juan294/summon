@@ -3,6 +3,10 @@ import { join } from "node:path";
 import { readKVFile, listProjects } from "./config.js";
 import { readAllStatuses } from "./status.js";
 import { isTrusted } from "./trust.js";
+import { runPool, ioConcurrency } from "./utils.js";
+
+// Computed once at module load (this module is lazy-loaded, off the cold-start path).
+const IO_CONCURRENCY = ioConcurrency();
 
 export interface PortAssignment {
   port: number;
@@ -124,10 +128,8 @@ export async function detectAllPorts(): Promise<{
     readAllStatuses().map((status) => [status.project, status.state]),
   );
 
-  const perProject = await Promise.all(
-    [...projects].map(([name, dir]) =>
-      detectProjectPorts(name, dir, statusMap.get(name) ?? "unknown"),
-    ),
+  const perProject = await runPool([...projects], IO_CONCURRENCY, ([name, dir]) =>
+    detectProjectPorts(name, dir, statusMap.get(name) ?? "unknown"),
   );
   const allAssignments: PortAssignment[] = perProject.flat();
 

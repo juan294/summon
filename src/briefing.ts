@@ -5,9 +5,12 @@ import { readAllStatuses, getGitBranch } from "./status.js";
 import type { ResolvedStatus } from "./status.js";
 import { bold, dim, green, yellow, cyan } from "./ui/ansi.js";
 import { sym } from "./ui/symbols.js";
-import { gitSafeEnv, runPool, gitConcurrency } from "./utils.js";
+import { gitSafeEnv, runPool, ioConcurrency } from "./utils.js";
 
 const execFileAsync = promisify(execFile);
+
+// Computed once at module load (this module is lazy-loaded, off the cold-start path).
+const IO_CONCURRENCY = ioConcurrency();
 
 // --- Types ---
 
@@ -59,37 +62,32 @@ export function resetGitDataCache(): void {
   gitDataCache.clear();
 }
 
-async function gitLog(directory: string): Promise<CommitSummary[]> {
+/** Run `git -C <dir> <args>` and return trimmed stdout split into lines (empty on any error). */
+async function gitLines(directory: string, args: string[]): Promise<string[]> {
   try {
     const { stdout } = await execFileAsync(
       "git",
-      ["-C", directory, "log", "--format=%H|%s|%an", "--since=yesterday 00:00"],
+      ["-C", directory, ...args],
       { encoding: "utf-8", timeout: 5000, env: gitSafeEnv() },
     );
     const raw = stdout.trim();
-    if (!raw) return [];
-    return raw.split("\n").map(line => {
-      const [hash = "", subject = "", author = ""] = line.split("|");
-      return { hash, subject, author, isAgent: isAgentCommit(author, subject) };
-    });
+    return raw ? raw.split("\n") : [];
   } catch {
     return [];
   }
 }
 
+async function gitLog(directory: string): Promise<CommitSummary[]> {
+  const lines = await gitLines(directory, ["log", "--format=%H|%s|%an", "--since=yesterday 00:00"]);
+  return lines.map(line => {
+    const [hash = "", subject = "", author = ""] = line.split("|");
+    return { hash, subject, author, isAgent: isAgentCommit(author, subject) };
+  });
+}
+
 async function gitStatus(directory: string): Promise<string[]> {
-  try {
-    const { stdout } = await execFileAsync(
-      "git",
-      ["-C", directory, "status", "--porcelain"],
-      { encoding: "utf-8", timeout: 5000, env: gitSafeEnv() },
-    );
-    const raw = stdout.trim();
-    if (!raw) return [];
-    return raw.split("\n").map(l => l.slice(3).trim());
-  } catch {
-    return [];
-  }
+  const lines = await gitLines(directory, ["status", "--porcelain"]);
+  return lines.map(l => l.slice(3).trim());
 }
 
 export async function collectGitData(directory: string): Promise<GitData> {
@@ -137,7 +135,7 @@ export async function collectBriefingData(): Promise<{ projects: ProjectBriefing
   for (const s of statuses) statusMap.set(s.project, s);
 
   const sortedProjects = [...registeredProjects].sort(([a], [b]) => a.localeCompare(b));
-  const projects = await runPool(sortedProjects, gitConcurrency(), async ([name, directory]) => {
+  const projects = await runPool(sortedProjects, IO_CONCURRENCY, async ([name, directory]) => {
     const status = statusMap.get(name);
     const gitData = await collectGitData(directory);
     return {

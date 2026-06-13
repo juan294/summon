@@ -3,7 +3,10 @@ import type { ResolvedStatus } from "./status.js";
 import { listProjects } from "./config.js";
 import { bold, dim, green, red, yellow, cyan, invert } from "./ui/ansi.js";
 import { getDisplayWidth } from "./ui/layout-preview.js";
-import { runPool, gitConcurrency } from "./utils.js";
+import { runPool, ioConcurrency } from "./utils.js";
+
+// Computed once at module load — avoids an os syscall on every 3s refresh tick.
+const IO_CONCURRENCY = ioConcurrency();
 
 // --- Types ---
 
@@ -225,7 +228,7 @@ export async function prefetchGitBranches(rows: ProjectRow[], onUpdate: () => vo
 
   toFetch.forEach((r) => gitBranchFetching.add(r.directory));
 
-  await runPool(toFetch, gitConcurrency(), async (r) => {
+  await runPool(toFetch, IO_CONCURRENCY, async (r) => {
     const branch = await getGitBranch(r.directory);
     if (branch) {
       gitBranchCache.set(r.directory, { value: branch, timestamp: Date.now() });

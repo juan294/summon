@@ -798,7 +798,7 @@ describe("confirm", () => {
 // runPool
 // ---------------------------------------------------------------------------
 
-const { runPool, gitConcurrency } = await import("./utils.js");
+const { runPool, ioConcurrency } = await import("./utils.js");
 
 describe("runPool", () => {
   it("returns empty array for empty input", async () => {
@@ -861,9 +861,9 @@ describe("runPool", () => {
   });
 });
 
-describe("gitConcurrency", () => {
+describe("ioConcurrency", () => {
   it("returns a number between 2 and 8 inclusive", () => {
-    const c = gitConcurrency();
+    const c = ioConcurrency();
     expect(typeof c).toBe("number");
     expect(c).toBeGreaterThanOrEqual(2);
     expect(c).toBeLessThanOrEqual(8);

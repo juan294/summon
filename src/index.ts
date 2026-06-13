@@ -127,7 +127,7 @@ try {
       );
       process.exit(0);
     }
-    // PE-P1: Dynamically import help module — only loaded on the --help path.
+    // PE-P1: Lazy help module — fallback full help for no subcommand on a non-TTY stdout.
     const { showHelp } = await import("./cli/help.js");
     await showHelp();
     process.exit(0);

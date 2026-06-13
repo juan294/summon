@@ -218,9 +218,10 @@ export async function runPool<T, R>(
   limit: number,
   fn: (item: T, index: number) => Promise<R>,
 ): Promise<R[]> {
+  if (items.length === 0) return [];
   const results = new Array<R>(items.length);
   let next = 0;
-  const n = Math.max(1, Math.min(limit, items.length || 1));
+  const n = Math.max(1, Math.min(limit, items.length));
   async function worker() {
     while (next < items.length) {
       const i = next++;
@@ -232,14 +233,12 @@ export async function runPool<T, R>(
 }
 
 /**
- * Default concurrency cap for git operations.
- * Parallel on big machines, gentle on small ones.
+ * Default concurrency cap for parallel I/O fan-out (git subprocesses, fs scans).
+ * Parallel on big machines, gentle on small ones. `os.availableParallelism` is
+ * always present on the supported Node range (>=20.19).
  */
-export function gitConcurrency(): number {
-  const cores = typeof os.availableParallelism === "function"
-    ? os.availableParallelism()
-    : os.cpus().length;
-  return Math.max(2, Math.min(8, cores));
+export function ioConcurrency(): number {
+  return Math.max(2, Math.min(8, os.availableParallelism()));
 }
 
 /**
