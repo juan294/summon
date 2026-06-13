@@ -141,7 +141,7 @@ export function assertTrustedContent(targetDir: string, content: string): void {
   if (db[normalizedDir] === hash) return;
 
   throw new SummonError(
-    `This project has a .summon file.\nRun 'summon trust .' to allow it, or use --no-project-config to skip it.`,
+    `This project has a .summon file.\nRun 'summon trust ${normalizedDir}' to allow it, or use --no-project-config to skip it.`,
   );
 }
 
@@ -154,6 +154,7 @@ export function assertTrustedContent(targetDir: string, content: string): void {
  */
 export function assertTrusted(targetDir: string, opts?: { skip?: boolean }): void {
   if (opts?.skip) return;
+  const normalizedDir = (() => { try { return realpathSync(targetDir); } catch { return resolve(targetDir); } })();
   const summonPath = join(targetDir, ".summon");
   if (!existsSync(summonPath)) return;
   // If we can't determine the hash (e.g., permission error), skip the check
@@ -167,14 +168,14 @@ export function assertTrusted(targetDir: string, opts?: { skip?: boolean }): voi
     if (code === "ENOENT") return; // file vanished between existsSync and read → nothing to check
     // All other errors (non-OS errors like TypeError, or OS errors like EACCES) → fail closed
     throw new Error(
-      "Cannot verify trust for this project; run 'summon trust .' to re-establish",
+      `Cannot verify trust for this project; run 'summon trust ${normalizedDir}' to re-establish`,
       { cause: err },
     );
   }
   if (trusted) return;
 
   throw new SummonError(
-    `This project has a .summon file.\nRun 'summon trust .' to allow it, or use --no-project-config to skip it.`,
+    `This project has a .summon file.\nRun 'summon trust ${normalizedDir}' to allow it, or use --no-project-config to skip it.`,
   );
 }
 
