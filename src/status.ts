@@ -1,8 +1,11 @@
 import { existsSync, mkdirSync, readFileSync, unlinkSync, readdirSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
-import { execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { STATUS_DIR } from "./paths.js";
 import { gitSafeEnv, debugLog, atomicWrite } from "./utils.js";
+
+const execFileAsync = promisify(execFile);
 
 // --- Types ---
 
@@ -192,15 +195,14 @@ export function readAllStatuses(): ResolvedStatus[] {
 
 // --- Git ---
 
-export function getGitBranch(directory: string): string | null {
+export async function getGitBranch(directory: string): Promise<string | null> {
   try {
-    const result = execFileSync("git", ["-C", directory, "rev-parse", "--abbrev-ref", "HEAD"], {
-      encoding: "utf-8",
-      timeout: 5000,
-      stdio: ["ignore", "pipe", "ignore"],
-      env: gitSafeEnv(),
-    });
-    return result.trim() || null;
+    const { stdout } = await execFileAsync(
+      "git",
+      ["-C", directory, "rev-parse", "--abbrev-ref", "HEAD"],
+      { encoding: "utf-8", timeout: 5000, env: gitSafeEnv() },
+    );
+    return stdout.trim() || null;
   } catch {
     return null;
   }
