@@ -1218,3 +1218,92 @@ describe("UX-M4 (#558): renderScreen uses standard empty-state message", () => {
     expect(screen).toContain("summon setup");
   });
 });
+
+// --- New regression tests for PASS 1 findings ---
+
+describe("UX-H2 (#599): active-long has a non-color distinguishing marker", () => {
+  it("stateDot: active-long renders a filled dot (●) same as active", () => {
+    expect(stateDot("active-long")).toBe("●");
+  });
+
+  it("renderRow: active-long row contains 'active*' label (non-color marker)", () => {
+    const row = makeRow({ state: "active-long" });
+    const result = renderRow(row, 80, false);
+    expect(result).toContain("active*");
+  });
+
+  it("renderRow: active-long label differs from plain active label without relying on color", () => {
+    const activeLongRow = makeRow({ state: "active-long" });
+    const activeRow = makeRow({ state: "active" });
+    // Strip ANSI codes and compare plain text
+    // eslint-disable-next-line no-control-regex
+    const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");
+    const longText = stripAnsi(renderRow(activeLongRow, 80, false));
+    const activeText = stripAnsi(renderRow(activeRow, 80, false));
+    expect(longText).not.toBe(activeText);
+  });
+});
+
+describe.skipIf(parseInt(process.versions.node.split(".")[0]!, 10) < 20)(
+  "FE-B1 (#580): help overlay dismiss repaints dashboard",
+  () => {
+    let writeSpy: ReturnType<typeof vi.spyOn>;
+    let resumeSpy: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      listProjects.mockReturnValue([]);
+      readAllStatuses.mockReturnValue([]);
+      getGitBranch.mockReturnValue(null);
+      vi.useFakeTimers();
+      writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+      resumeSpy = vi.spyOn(process.stdin, "resume").mockImplementation(() => process.stdin);
+      Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
+      Object.defineProperty(process.stdin, "isRaw", { value: false, configurable: true });
+      Object.defineProperty(process.stdin, "setRawMode", {
+        value: vi.fn(() => process.stdin),
+        configurable: true,
+      });
+    });
+
+    afterEach(() => {
+      writeSpy.mockRestore();
+      resumeSpy.mockRestore();
+      process.stdin.removeAllListeners("data");
+      process.removeAllListeners("SIGWINCH");
+      vi.useRealTimers();
+    });
+
+    it("FE-B1: after ? overlay dismiss, a new dashboard write occurs (prevFrame invalidated)", async () => {
+      const monitorPromise = runMonitor();
+      const writesBefore = writeSpy.mock.calls.length;
+      process.stdin.emit("data", Buffer.from("?"));
+      // count writes after ? opened overlay
+      const writesAfterOpen = writeSpy.mock.calls.length;
+      expect(writesAfterOpen).toBeGreaterThan(writesBefore); // overlay was written
+
+      // dismiss help — should trigger a repaint
+      process.stdin.emit("data", Buffer.from(" "));
+      const writesAfterDismiss = writeSpy.mock.calls.length;
+      expect(writesAfterDismiss).toBeGreaterThan(writesAfterOpen); // repaint occurred
+
+      process.stdin.emit("data", Buffer.from("q"));
+      await monitorPromise;
+    });
+
+    it("FE-B2: pressing q to dismiss ? help does NOT quit the monitor", async () => {
+      let resolved = false;
+      const monitorPromise = runMonitor().then(() => { resolved = true; });
+      process.stdin.emit("data", Buffer.from("?"));
+      // q to dismiss the help overlay — should not quit
+      process.stdin.emit("data", Buffer.from("q"));
+      // give a tick for any async processing
+      await Promise.resolve();
+      // monitor must still be running (not resolved yet)
+      expect(resolved).toBe(false);
+      // Now properly quit
+      process.stdin.emit("data", Buffer.from("q"));
+      await monitorPromise;
+      expect(resolved).toBe(true);
+    });
+  },
+);

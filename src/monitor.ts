@@ -2,7 +2,7 @@ import { readAllStatuses, getGitBranch } from "./status.js";
 import type { ResolvedStatus } from "./status.js";
 import { listProjects } from "./config.js";
 import { bold, dim, green, red, yellow, cyan, invert } from "./ui/ansi.js";
-import { getDisplayWidth } from "./ui/layout-preview.js";
+import { getDisplayWidth } from "./ui/width.js";
 import { runPool, ioConcurrency } from "./utils.js";
 
 // Computed once at module load — avoids an os syscall on every 3s refresh tick.
@@ -126,7 +126,8 @@ export function renderRow(row: ProjectRow, width: number, selected: boolean): st
   const colorFn = stateColor(row.state);
   const dot = colorFn(stateDot(row.state));
   const name = displayPadEnd(truncate(row.name, NAME_WIDTH), NAME_WIDTH);
-  const stateText = row.state === "active-long" ? "active" : row.state;
+  // UX-H2 (#599): active-long gets "active*" label so it is distinguishable without color
+  const stateText = row.state === "active-long" ? "active*" : row.state;
   const stateLabel = colorFn(stateText);
   // Pad the visible text, not the ANSI-wrapped version
   const statePad = " ".repeat(Math.max(0, STATE_WIDTH - stateText.length));
@@ -470,17 +471,28 @@ export async function runMonitor(): Promise<void> {
           `  ${cyan("?")}          ${dim("show this help")}`,
           `  ${cyan("q / Ctrl+C")} ${dim("quit")}`,
           "",
-          `  ${bold("Colors:")}`,
-          `  ${dim("green = active   yellow = active >4h   dim = stopped")}`,
+          `  ${bold("State legend:")}`,
+          // UX-H2 (#599): use non-color markers so legend is readable under NO_COLOR;
+          // "active*" matches the row label for long-running workspaces.
+          `  ${dim("● active         green = running")}`,
+          `  ${dim("● active*        yellow = running >4h (active-long)")}`,
+          `  ${dim("○ stopped/dim    dim = stopped or unknown")}`,
           "",
           `  ${dim("Press any key to dismiss...")}`,
         ];
+        // FE-B1 (#580): invalidate prevFrame so dismiss causes a repaint even when
+        // the screen hasn't changed — the overlay itself wrote directly to stdout.
+        prevFrame = null;
+        // FE-B2 (#581): detach the persistent keypress handler before registering the
+        // dismisser so the dismiss key is NOT also handled by onKeypress (double-fire).
+        process.stdin.off("data", onKeypress);
         process.stdout.write(CLEAR_SCREEN + helpLines.join("\n"));
 
         // Wait for any key to dismiss
-        const dismissHelp = (dismissData: Buffer): void => {
-          void dismissData;
+        const dismissHelp = (_dismissData: Buffer): void => {
           process.stdin.off("data", dismissHelp);
+          // Re-attach the main keypress handler, then repaint.
+          process.stdin.on("data", onKeypress);
           render();
         };
         process.stdin.once("data", dismissHelp);
@@ -514,12 +526,18 @@ export async function runMonitor(): Promise<void> {
                   "",
                   `  ${dim("Press any key to continue...")}`,
                 ];
+                // FE-B1 (#580): invalidate prevFrame so render() after dismiss writes
+                // the dashboard even if the screen content hasn't changed.
+                prevFrame = null;
                 process.stdout.write(CLEAR_SCREEN + errDisplay.join("\n"));
                 // Wait for any key, then resume the TUI
+                // FE-M1 (#582): re-register SIGWINCH and the timer so resize events work
+                // after a launch-error re-entry (cleanup() removed them).
                 const dismissError = (_dismissData: Buffer): void => {
                   process.stdin.off("data", dismissError);
                   render(true);
                   refreshTimer = setInterval(refresh, REFRESH_INTERVAL_MS);
+                  process.on("SIGWINCH", onResize);
                   process.stdin.on("data", onKeypress);
                 };
                 process.stdin.once("data", dismissError);
