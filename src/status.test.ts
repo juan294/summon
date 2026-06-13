@@ -13,7 +13,7 @@ vi.mock("./paths.js", () => ({
   CONFIG_DIR: join(tmpdir(), `summon-config-test-${process.pid}`),
 }));
 
-const { writeStatus, clearStatus, readStatus, readAllStatuses, resetReadAllStatusesCache, getGitBranch, parseWorkspaceStatus } = await import("./status.js");
+const { writeStatus, clearStatus, readStatus, readAllStatuses, getGitBranch, parseWorkspaceStatus } = await import("./status.js");
 import type { WorkspaceStatus } from "./status.js";
 
 function makeStatus(overrides?: Partial<WorkspaceStatus>): WorkspaceStatus {
@@ -291,12 +291,6 @@ describe("readStatus", () => {
   });
 });
 
-// Reset cache between tests that write new files — ensures dir mtime changes
-// are detected and cache is clean for isolation
-beforeEach(() => {
-  resetReadAllStatusesCache?.();
-});
-
 describe("readAllStatuses", () => {
   it("returns empty array when no status files", () => {
     expect(readAllStatuses()).toEqual([]);
@@ -364,31 +358,17 @@ describe("readAllStatuses", () => {
   // PE-M1 #607: repeated calls with unchanged dir mtime return same results
   it("returns same results on repeated calls without disk change (PE-M1 #607)", () => {
     writeStatus(makeStatus({ project: "cached" }));
-    resetReadAllStatusesCache();
     const first = readAllStatuses();
     const second = readAllStatuses();
     expect(second).toEqual(first);
     expect(second.length).toBe(first.length);
   });
 
-  // PE-M1 #607: resetReadAllStatusesCache is exported and clears the cache
-  it("resetReadAllStatusesCache causes fresh read on next call", () => {
-    writeStatus(makeStatus({ project: "cache-reset-test" }));
-    const first = readAllStatuses();
-    expect(first).toHaveLength(1);
-    resetReadAllStatusesCache();
-    // Without writing a new file, the result should still be equivalent (cache cleared, re-read same dir)
-    const second = readAllStatuses();
-    expect(second).toHaveLength(1);
-    expect(second[0]!.project).toBe("cache-reset-test");
-  });
-
-  // PE-M1 #607: .tmp and dotfiles must not appear in readAllStatuses
+  // BE-M4 #605: .tmp and dotfiles must not appear in readAllStatuses
   it("does not include .tmp files in readAllStatuses (BE-M4 #605 + PE-M1)", () => {
     writeStatus(makeStatus({ project: "real-project" }));
     writeFileSync(join(TEST_STATUS_DIR, "real-project.json.tmp"), JSON.stringify(makeStatus({ project: "real-project" })));
     writeFileSync(join(TEST_STATUS_DIR, ".hidden.json"), JSON.stringify(makeStatus({ project: "hidden" })));
-    resetReadAllStatusesCache();
     const results = readAllStatuses();
     // Only "real-project" should appear — .tmp and dotfile json must be excluded
     expect(results.map(r => r.project)).toEqual(["real-project"]);

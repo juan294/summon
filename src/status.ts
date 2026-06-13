@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, unlinkSync, readdirSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, unlinkSync, readdirSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import { STATUS_DIR } from "./paths.js";
 import { debugLog, atomicWrite, gitOutput } from "./utils.js";
@@ -173,41 +173,13 @@ export function readStatus(projectName: string): ResolvedStatus | null {
 }
 
 // PE-M1 #607: short-TTL in-process memo keyed by STATUS_DIR mtime.
-// Mirrors the mtime-cache pattern from config.ts. We cache the result and
-// invalidate when the dir's mtime changes (file additions/removals change the
-// dir mtime on POSIX). For in-place content changes, the per-file readStatus
-// reads still apply — so this cache is safe at the directory-listing level.
-//
-// Trade-off: a file added between two reads within the same mtime tick would
-// not be seen until the dir mtime advances. We accept this: the monitor's
-// tick rate (≥1 s) is well above the fs granularity, and the conservative
-// choice of no TTL beyond mtime change keeps memory use minimal.
-
-interface ReadAllStatusesCache {
-  dirMtime: number;
-  result: ResolvedStatus[];
-}
-let _readAllStatusesCache: ReadAllStatusesCache | undefined;
-
-/** @internal — exported for testing only (PE-M1 #607) */
-export function resetReadAllStatusesCache(): void {
-  _readAllStatusesCache = undefined;
-}
-
+// NOTE (PE-M1 #607): a dir-mtime memo was prototyped here but reverted — the
+// monitor's only repeat caller relies on liveness (isPidAlive), and a process
+// dying without a file change does not advance the dir mtime, so a cache would
+// surface stale "active" rows. Re-reads are cheap; correctness wins. #607 stays
+// open for a future bounded-TTL design that doesn't compromise liveness.
 export function readAllStatuses(): ResolvedStatus[] {
   if (!existsSync(STATUS_DIR)) return [];
-
-  // Validate cache against current dir mtime
-  let dirMtime: number;
-  try {
-    dirMtime = statSync(STATUS_DIR).mtimeMs;
-  } catch {
-    return [];
-  }
-
-  if (_readAllStatusesCache !== undefined && _readAllStatusesCache.dirMtime === dirMtime) {
-    return _readAllStatusesCache.result;
-  }
 
   // BE-M4 #605: filter out .tmp and dotfiles so orphans never appear as phantom entries
   const files = readdirSync(STATUS_DIR).filter(
@@ -222,14 +194,11 @@ export function readAllStatuses(): ResolvedStatus[] {
   }
 
   // Sort: active first (newest first), then stopped (newest first)
-  const result = statuses.sort((a, b) => {
+  return statuses.sort((a, b) => {
     if (a.state === "active" && b.state !== "active") return -1;
     if (a.state !== "active" && b.state === "active") return 1;
     return Date.parse(b.startedAt) - Date.parse(a.startedAt);
   });
-
-  _readAllStatusesCache = { dirMtime, result };
-  return result;
 }
 
 // --- Git ---
