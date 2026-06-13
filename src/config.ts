@@ -326,7 +326,10 @@ export function layoutPath(name: string): string {
 
 export function listCustomLayouts(): string[] {
   if (!existsSync(LAYOUTS_DIR)) return [];
-  return readdirSync(LAYOUTS_DIR).sort();
+  // BE-M4 #605: filter out orphaned .tmp files and dotfiles so they never appear as phantom entries
+  return readdirSync(LAYOUTS_DIR)
+    .filter(f => !f.startsWith(".") && !f.endsWith(".tmp"))
+    .sort();
 }
 
 export function readCustomLayout(name: string): Map<string, string> | null {
