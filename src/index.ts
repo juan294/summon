@@ -1,4 +1,7 @@
-// PE-P1: Single-token --version/-v fast path: bypass parseCli + eager import graph entirely.
+// PE-P1: Single-token --version/-v fast path: skips parseCli execution and first-run/dispatch
+// logic. NOTE: ESM evaluates all static imports at module load regardless of this guard, so the
+// fast path does NOT bypass the static import graph — that benefit is sub-millisecond. The real
+// win here is avoiding parseCli overhead and first-run checks for the common --version query.
 const __argv = process.argv.slice(2);
 if (__argv.length === 1 && (__argv[0] === "--version" || __argv[0] === "-v")) {
   console.log(__VERSION__);
