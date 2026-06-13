@@ -9,7 +9,7 @@ import {
 } from "../sessions.js";
 import { SummonError } from "../trust.js";
 import { TabOpenError } from "../errors.js";
-import { exitWithUsageHint, getErrorMessage } from "../utils.js";
+import { exitWithUsageHint, getErrorMessage, supportsColor } from "../utils.js";
 import { sym } from "../ui/symbols.js";
 import type { CommandContext } from "./types.js";
 
@@ -21,8 +21,20 @@ const INTER_LAUNCH_DELAY_MS = 200;
 
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
 
+/** Returns true when the spinner should run in static (non-animating) mode.
+ *  Static mode applies when NO_COLOR is set (https://no-color.org/),
+ *  SUMMON_NO_SPINNER is set, or stdout is not a TTY. */
+function isStaticSpinner(): boolean {
+  if (!process.stdout.isTTY) return true;
+  if (process.env["SUMMON_NO_SPINNER"] !== undefined) return true;
+  return !supportsColor(); // covers NO_COLOR and FORCE_COLOR=0
+}
+
 async function runWithSpinner<T>(label: string, fn: () => Promise<T>): Promise<T> {
-  if (!process.stdout.isTTY) return fn();
+  if (isStaticSpinner()) {
+    process.stdout.write(`${label}\n`);
+    return fn();
+  }
   let frame = 0;
   const timer = setInterval(() => {
     process.stdout.write(`\r${SPINNER_FRAMES[frame++ % SPINNER_FRAMES.length]} ${label}`);
