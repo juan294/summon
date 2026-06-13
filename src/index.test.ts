@@ -45,6 +45,20 @@ describe("CLI integration", () => {
     expect(result.stdout.trim()).toMatch(/^\d+\.\d+\.\d+$/);
   });
 
+  // PE-P1: -v fast path (single-token bypass before parseCli)
+  it("prints version with -v and exits 0 (PE-P1 fast path)", () => {
+    const result = run("-v");
+    expect(result.status).toBe(0);
+    expect(result.stdout.trim()).toMatch(/^\d+\.\d+\.\d+$/);
+  });
+
+  it("--version and -v print identical output (PE-P1 fast path matches general path)", () => {
+    const versionResult = run("--version");
+    const shortResult = run("-v");
+    expect(shortResult.status).toBe(0);
+    expect(shortResult.stdout.trim()).toBe(versionResult.stdout.trim());
+  });
+
   describe("no-args shows full help", () => {
     it("prints full help to stdout with no arguments", () => {
       const result = run();

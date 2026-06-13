@@ -1,12 +1,16 @@
+// PE-P1: Single-token --version/-v fast path: bypass parseCli + eager import graph entirely.
+const __argv = process.argv.slice(2);
+if (__argv.length === 1 && (__argv[0] === "--version" || __argv[0] === "-v")) {
+  console.log(__VERSION__);
+  process.exit(0);
+}
+
 import { isFirstRun } from "./config.js";
 import { SummonError } from "./trust.js";
 import { PromptCancelled } from "./utils.js";
 import {
   buildOverrides,
-  hasSubcommandHelp,
   parseCli,
-  showHelp,
-  showSubcommandHelp,
 } from "./cli/parse.js";
 // PE-H1 (#473): Import from leaf module to avoid eagerly loading the launch graph.
 import { resolveTargetDirectory } from "./cli/resolve-target.js";
@@ -47,6 +51,8 @@ if (parsed.values.version) {
 }
 
 if (parsed.values.help) {
+  // PE-P1: Dynamically import help module — only loaded on the --help path.
+  const { showHelp, hasSubcommandHelp, showSubcommandHelp } = await import("./cli/help.js");
   if (parsed.subcommand && hasSubcommandHelp(parsed.subcommand)) {
     showSubcommandHelp(parsed.subcommand);
     process.exit(0);
@@ -121,6 +127,8 @@ try {
       );
       process.exit(0);
     }
+    // PE-P1: Lazy help module — fallback full help for no subcommand on a non-TTY stdout.
+    const { showHelp } = await import("./cli/help.js");
     await showHelp();
     process.exit(0);
   }

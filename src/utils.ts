@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { randomBytes } from "node:crypto";
+import os from "node:os";
 
 /** Regex for safe command names — only letters, digits, hyphens, dots, underscores, plus signs. */
 export const SAFE_COMMAND_RE = /^[a-zA-Z0-9_][a-zA-Z0-9_.+-]*$/;
@@ -206,6 +207,38 @@ export function supportsColor(): boolean {
   if (process.env["FORCE_COLOR"] === "1") return true;
   if (process.env["FORCE_COLOR"] === "0") return false;
   return !!process.stdout.isTTY;
+}
+
+/**
+ * Bounded-concurrency map that preserves input order.
+ * Runs at most `limit` concurrent async tasks. `limit` must be >= 1.
+ */
+export async function runPool<T, R>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  if (items.length === 0) return [];
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const n = Math.max(1, Math.min(limit, items.length));
+  async function worker() {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i]!, i);
+    }
+  }
+  await Promise.all(Array.from({ length: n }, worker));
+  return results;
+}
+
+/**
+ * Default concurrency cap for parallel I/O fan-out (git subprocesses, fs scans).
+ * Parallel on big machines, gentle on small ones. `os.availableParallelism` is
+ * always present on the supported Node range (>=20.19).
+ */
+export function ioConcurrency(): number {
+  return Math.max(2, Math.min(8, os.availableParallelism()));
 }
 
 /**

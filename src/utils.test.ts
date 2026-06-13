@@ -793,3 +793,79 @@ describe("confirm", () => {
     await expect(confirm("Continue?")).rejects.toBeInstanceOf(PromptCancelled);
   });
 });
+
+// ---------------------------------------------------------------------------
+// runPool
+// ---------------------------------------------------------------------------
+
+const { runPool, ioConcurrency } = await import("./utils.js");
+
+describe("runPool", () => {
+  it("returns empty array for empty input", async () => {
+    const results = await runPool([], 4, async (x: number) => x * 2);
+    expect(results).toEqual([]);
+  });
+
+  it("preserves input order in output", async () => {
+    const items = [1, 2, 3, 4, 5];
+    const results = await runPool(items, 2, async (x) => x * 10);
+    expect(results).toEqual([10, 20, 30, 40, 50]);
+  });
+
+  it("propagates results correctly for each item", async () => {
+    const items = ["a", "b", "c"];
+    const results = await runPool(items, 3, async (x) => x.toUpperCase());
+    expect(results).toEqual(["A", "B", "C"]);
+  });
+
+  it("never exceeds limit concurrent tasks", async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const limit = 3;
+    const items = Array.from({ length: 10 }, (_, i) => i);
+
+    await runPool(items, limit, async (_item) => {
+      inFlight++;
+      if (inFlight > maxInFlight) maxInFlight = inFlight;
+      // Yield to allow other tasks to start if the pool allows it
+      await Promise.resolve();
+      inFlight--;
+    });
+
+    expect(maxInFlight).toBeLessThanOrEqual(limit);
+  });
+
+  it("handles limit=1 (serial execution)", async () => {
+    const order: number[] = [];
+    const items = [1, 2, 3];
+    await runPool(items, 1, async (x) => {
+      order.push(x);
+    });
+    expect(order).toEqual([1, 2, 3]);
+  });
+
+  it("handles limit larger than items (all run concurrently)", async () => {
+    const items = [1, 2, 3];
+    const results = await runPool(items, 100, async (x) => x + 1);
+    expect(results).toEqual([2, 3, 4]);
+  });
+
+  it("passes index as second argument to fn", async () => {
+    const items = ["x", "y", "z"];
+    const indices: number[] = [];
+    await runPool(items, 2, async (_item, idx) => {
+      indices.push(idx);
+    });
+    // All indices must be present (order may vary for concurrent runs)
+    expect(indices.sort()).toEqual([0, 1, 2]);
+  });
+});
+
+describe("ioConcurrency", () => {
+  it("returns a number between 2 and 8 inclusive", () => {
+    const c = ioConcurrency();
+    expect(typeof c).toBe("number");
+    expect(c).toBeGreaterThanOrEqual(2);
+    expect(c).toBeLessThanOrEqual(8);
+  });
+});

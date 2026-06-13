@@ -909,6 +909,11 @@ describe.skipIf(nodeMajor < 20)("runMonitor", () => {
     const CURSOR_HOME = "\x1b[H";
 
     const monitorPromise = runMonitor();
+    // Change the content so the next refresh produces a different frame and actually
+    // writes (idle ticks with identical frames are skipped by the frame-level diff).
+    readAllStatuses.mockReturnValue([
+      makeResolvedStatus({ project: "myapp", state: "active", uptime: 5_000_000 }),
+    ]);
     // Trigger a second render via timer
     vi.advanceTimersByTime(3100);
     process.stdin.emit("data", Buffer.from("q"));
