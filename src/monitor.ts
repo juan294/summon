@@ -329,6 +329,8 @@ export async function runMonitor(): Promise<void> {
   let selectedIndex = 0;
   let scrollStart = 0;
   let refreshTimer: ReturnType<typeof setInterval> | null = null;
+  // Last frame written, for frame-level skip (avoids re-writing an unchanged screen).
+  let prevFrame: string | null = null;
 
   const getWidth = () => Math.max(MIN_COLS, process.stdout.columns || 80);
   const getHeight = () => process.stdout.rows || 24;
@@ -345,8 +347,23 @@ export async function runMonitor(): Promise<void> {
   function render(fullClear = false): void {
     updateScroll();
     const screen = renderScreen(rows, selectedIndex, getWidth(), getHeight(), scrollStart);
+    // Skip the write when nothing changed (common on idle 3s ticks) — identical end state.
+    if (!fullClear && screen === prevFrame) return;
     const prefix = fullClear ? CLEAR_SCREEN : CURSOR_HOME;
     process.stdout.write(prefix + screen);
+    prevFrame = screen;
+  }
+
+  // Patch freshly-fetched git branches into the existing rows from cache, avoiding a
+  // second full readAllStatuses scan per refresh. The only thing prefetch surfaces is
+  // the branch of active rows; status/uptime are picked up by the next refresh tick.
+  function applyCachedBranches(): void {
+    for (const row of rows) {
+      if (row.state === "active" || row.state === "active-long") {
+        const cached = getCachedGitBranch(row.directory);
+        if (cached) row.gitBranch = cached;
+      }
+    }
   }
 
   function refresh(): void {
@@ -358,10 +375,7 @@ export async function runMonitor(): Promise<void> {
     render(false);
     // Kick off async git branch fetches without blocking the render loop
     void prefetchGitBranches(rows, () => {
-      rows = loadProjectRows();
-      if (selectedIndex >= rows.length) {
-        selectedIndex = Math.max(0, rows.length - 1);
-      }
+      applyCachedBranches();
       render(false);
     });
   }
@@ -402,10 +416,7 @@ export async function runMonitor(): Promise<void> {
   render(true);
   // Initial async branch fetch so the "…" placeholders are filled quickly
   void prefetchGitBranches(rows, () => {
-    rows = loadProjectRows();
-    if (selectedIndex >= rows.length) {
-      selectedIndex = Math.max(0, rows.length - 1);
-    }
+    applyCachedBranches();
     render(false);
   });
 
