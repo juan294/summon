@@ -635,9 +635,10 @@ describe("session launch — partial failure shows already-launched list", () =>
 });
 
 describe("session launch — spinner", () => {
-  it("does not write to stdout when not a TTY", async () => {
+  it("non-TTY static mode: prints label once, no animation interval (#615)", async () => {
     const writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const setIntervalSpy = vi.spyOn(globalThis, "setInterval");
     Object.defineProperty(process.stdout, "isTTY", { value: false, configurable: true });
 
     mockReadSession.mockReturnValue(["api"]);
@@ -646,10 +647,76 @@ describe("session launch — spinner", () => {
 
     await handleSessionCommand(makeContext({ args: ["mysession"] }));
 
-    expect(writeSpy).not.toHaveBeenCalled();
+    // No animation interval should have been started
+    expect(setIntervalSpy).not.toHaveBeenCalled();
+    // Label is printed once as a plain line
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join("");
+    expect(allWrites).toContain("Summoning api");
 
     writeSpy.mockRestore();
     logSpy.mockRestore();
+    setIntervalSpy.mockRestore();
     Object.defineProperty(process.stdout, "isTTY", { value: undefined, configurable: true });
+  });
+
+  it("static mode: NO_COLOR set — prints label once, no setInterval animation (#615)", async () => {
+    const writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const setIntervalSpy = vi.spyOn(globalThis, "setInterval");
+    // Simulate a TTY so the isTTY guard doesn't short-circuit
+    Object.defineProperty(process.stdout, "isTTY", { value: true, configurable: true });
+    const origNoColor = process.env["NO_COLOR"];
+    process.env["NO_COLOR"] = "1";
+
+    mockReadSession.mockReturnValue(["api"]);
+    mockGetProject.mockReturnValue("/tmp/api");
+    mockLaunch.mockResolvedValue(undefined);
+
+    await handleSessionCommand(makeContext({ args: ["mysession"] }));
+
+    // No animation interval should have been started
+    expect(setIntervalSpy).not.toHaveBeenCalled();
+    // The label should have been printed to stderr or stdout exactly once (static line)
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join("");
+    expect(allWrites).toContain("Summoning api");
+
+    writeSpy.mockRestore();
+    logSpy.mockRestore();
+    setIntervalSpy.mockRestore();
+    Object.defineProperty(process.stdout, "isTTY", { value: undefined, configurable: true });
+    if (origNoColor === undefined) {
+      delete process.env["NO_COLOR"];
+    } else {
+      process.env["NO_COLOR"] = origNoColor;
+    }
+  });
+
+  it("static mode: SUMMON_NO_SPINNER set — prints label once, no setInterval animation (#615)", async () => {
+    const writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const setIntervalSpy = vi.spyOn(globalThis, "setInterval");
+    Object.defineProperty(process.stdout, "isTTY", { value: true, configurable: true });
+    const origNoSpinner = process.env["SUMMON_NO_SPINNER"];
+    process.env["SUMMON_NO_SPINNER"] = "1";
+
+    mockReadSession.mockReturnValue(["api"]);
+    mockGetProject.mockReturnValue("/tmp/api");
+    mockLaunch.mockResolvedValue(undefined);
+
+    await handleSessionCommand(makeContext({ args: ["mysession"] }));
+
+    expect(setIntervalSpy).not.toHaveBeenCalled();
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join("");
+    expect(allWrites).toContain("Summoning api");
+
+    writeSpy.mockRestore();
+    logSpy.mockRestore();
+    setIntervalSpy.mockRestore();
+    Object.defineProperty(process.stdout, "isTTY", { value: undefined, configurable: true });
+    if (origNoSpinner === undefined) {
+      delete process.env["SUMMON_NO_SPINNER"];
+    } else {
+      process.env["SUMMON_NO_SPINNER"] = origNoSpinner;
+    }
   });
 });
