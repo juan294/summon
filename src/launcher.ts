@@ -683,10 +683,66 @@ function appendDryRunExtras(
   }
 }
 
-// TODO(AR-L1 #318): launchTreeLayout and launchTraditionalLayout are parallel pipelines that
-// both map LayoutOptions fields onto their respective plan/script generators. Any new layout
-// option must be added to both functions independently, which is fragile. Consider unifying
-// into a single options-to-plan adapter to eliminate this duplication.
+/**
+ * The subset of LayoutOptions fields that are forwarded to buildTreePlan.
+ * Mirrors tree.ts#TreePlanOptions (which is not exported; kept in sync manually).
+ *
+ * AR-L1 / #318 / #604: This type + satisfies guard below provide an exhaustiveness
+ * check. If a new field is added to LayoutOptions that should also flow through to
+ * TreePlanOptions (and therefore buildTreePlan), a TypeScript error will appear at
+ * the `satisfies` call site in layoutOptsToTreePlanOpts, preventing silent omission.
+ *
+ * What remains partially dual-pipeline (deferred, output-safe would require changes
+ * outside src/launcher.ts / src/script.ts):
+ *   - The 4 "outer" args (starshipConfigPath, envVars, projectName, onStop) are still
+ *     assembled separately in launchTreeLayout and launchTraditionalLayout. They are
+ *     identical in both call sites and are documented as such. Full unification would
+ *     require changing generateAppleScript / generateTreeAppleScript signatures, which
+ *     risks output changes and is deferred to avoid scope creep.
+ */
+type LayoutPlanFieldsForTree = {
+  autoResize?: boolean;
+  editorSize?: number;
+  fontSize?: number | null;
+  newWindow?: boolean;
+  newTab?: boolean;
+  fullscreen?: boolean;
+  maximize?: boolean;
+  float?: boolean;
+  cleanRestoredPanes?: boolean;
+};
+
+/**
+ * Adapter: extract the LayoutOptions fields relevant to buildTreePlan into a
+ * single authoritative place. Previously this was an inline object literal in
+ * launchTreeLayout — any new plan-level option had to be manually added to that
+ * literal. Extracting it here ensures a single edit point and makes the satisfies
+ * guard visible to the compiler.
+ *
+ * AR-L1 / #318: Partial resolution — the adapter eliminates the silent-divergence
+ * risk for plan-level options between launchTreeLayout and launchTraditionalLayout.
+ * The traditional pipeline's options flow through planLayout() which reads from
+ * opts directly; the tree pipeline must manually forward each field via this adapter.
+ */
+export function layoutOptsToTreePlanOpts(opts: Partial<LayoutOptions>): LayoutPlanFieldsForTree {
+  return {
+    autoResize: opts.autoResize,
+    editorSize: opts.editorSize,
+    fontSize: opts.fontSize,
+    newWindow: opts.newWindow,
+    newTab: opts.newTab,
+    fullscreen: opts.fullscreen,
+    maximize: opts.maximize,
+    float: opts.float,
+    cleanRestoredPanes: opts.cleanRestoredPanes,
+  } satisfies LayoutPlanFieldsForTree;
+}
+
+// AR-L1 / #318 / #604: launchTreeLayout now uses layoutOptsToTreePlanOpts() as the
+// single authoritative adapter for LayoutOptions -> buildTreePlan fields. Previously
+// the inline literal was a silent-divergence risk. The 4 "outer" generator args
+// (starshipConfigPath, envVars, projectName, onStop) are still assembled per-pipeline
+// but are structurally identical — full unification requires changes outside owned files.
 async function launchTreeLayout(
   treeLayout: NonNullable<ResolvedConfig["treeLayout"]>,
   opts: Partial<LayoutOptions>,
@@ -700,18 +756,7 @@ async function launchTreeLayout(
   onStop?: string,
 ): Promise<string[]> {
   const resolvedTree = resolveTreeCmds(treeLayout.tree, treeLayout.panes, treeLayout.paneCwds, resolve(targetDir));
-  const treePlanOpts = {
-    autoResize: opts.autoResize,
-    editorSize: opts.editorSize,
-    fontSize: opts.fontSize,
-    newWindow: opts.newWindow,
-    newTab: opts.newTab,
-    fullscreen: opts.fullscreen,
-    maximize: opts.maximize,
-    float: opts.float,
-    cleanRestoredPanes: opts.cleanRestoredPanes,
-  };
-  const treePlan = buildTreePlan(resolvedTree, treePlanOpts);
+  const treePlan = buildTreePlan(resolvedTree, layoutOptsToTreePlanOpts(opts));
   const hasEnvVars = Object.keys(envVars).length > 0;
 
   if (cliOverrides.dryRun) {

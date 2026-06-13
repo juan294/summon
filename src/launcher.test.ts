@@ -92,7 +92,7 @@ vi.mock("./script.js", () => ({
 }));
 
 // Import after mocks are set up
-const { launch, resolveConfig, optsToConfigMap, focusWorkspace, resolveProjectName, probePaneCount, decideCleanRestoredPanes, closeWorkspaceWindow } = await import("./launcher.js");
+const { launch, resolveConfig, optsToConfigMap, focusWorkspace, resolveProjectName, probePaneCount, decideCleanRestoredPanes, closeWorkspaceWindow, layoutOptsToTreePlanOpts } = await import("./launcher.js");
 const { listConfig, listProjects } = await import("./config.js");
 const { existsSync } = await import("node:fs");
 const { TabOpenError } = await import("./errors.js");
@@ -3899,6 +3899,159 @@ describe("FE-M5/UX-M6: progress messages go to stderr, not stdout (#549, #560)",
     stderrSpy.mockRestore();
     logSpy.mockRestore();
     errorSpy.mockRestore();
+  });
+});
+
+describe("AR-L1 #318 #604: layoutOptsToTreePlanOpts adapter — all LayoutOptions plan fields flow through to TreeLayoutPlan", () => {
+  // This is a contract test: every LayoutOptions field that TreePlanOptions supports
+  // must be correctly forwarded by the adapter in launchTreeLayout. If a new shared
+  // field is added to LayoutOptions without being wired in, this test catches it.
+  function setupTreeLayout() {
+    mockIsCustomLayout.mockReturnValue(true);
+    mockReadCustomLayout.mockReturnValue(
+      new Map([
+        ["tree", "editor | shell"],
+        ["pane.editor", "vim"],
+        ["pane.shell", "bash"],
+        ["new-window", "true"],
+        ["fullscreen", "true"],
+        ["maximize", "true"],
+        ["float", "true"],
+        ["editor-size", "80"],
+        ["font-size", "16"],
+        ["auto-resize", "false"],
+      ]),
+    );
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+    mockReadKVFile.mockReturnValue(new Map([["layout", "mywork"]]));
+  }
+
+  it("fullscreen flag is forwarded from LayoutOptions to TreeLayoutPlan", async () => {
+    setupTreeLayout();
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    await launch("/tmp/workspace", { dryRun: true });
+    const plan = mockGenerateTreeAppleScript.mock.calls[0]![0] as Record<string, unknown>;
+    expect(plan["fullscreen"]).toBe(true);
+    logSpy.mockRestore();
+  });
+
+  it("maximize flag is forwarded from LayoutOptions to TreeLayoutPlan", async () => {
+    setupTreeLayout();
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    await launch("/tmp/workspace", { dryRun: true });
+    const plan = mockGenerateTreeAppleScript.mock.calls[0]![0] as Record<string, unknown>;
+    expect(plan["maximize"]).toBe(true);
+    logSpy.mockRestore();
+  });
+
+  it("float flag is forwarded from LayoutOptions to TreeLayoutPlan", async () => {
+    setupTreeLayout();
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    await launch("/tmp/workspace", { dryRun: true });
+    const plan = mockGenerateTreeAppleScript.mock.calls[0]![0] as Record<string, unknown>;
+    expect(plan["float"]).toBe(true);
+    logSpy.mockRestore();
+  });
+
+  it("editorSize is forwarded from LayoutOptions to TreeLayoutPlan", async () => {
+    setupTreeLayout();
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    await launch("/tmp/workspace", { dryRun: true });
+    const plan = mockGenerateTreeAppleScript.mock.calls[0]![0] as Record<string, unknown>;
+    expect(plan["editorSize"]).toBe(80);
+    logSpy.mockRestore();
+  });
+
+  it("fontSize is forwarded from LayoutOptions to TreeLayoutPlan", async () => {
+    setupTreeLayout();
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    await launch("/tmp/workspace", { dryRun: true });
+    const plan = mockGenerateTreeAppleScript.mock.calls[0]![0] as Record<string, unknown>;
+    expect(plan["fontSize"]).toBe(16);
+    logSpy.mockRestore();
+  });
+
+  it("autoResize=false is forwarded from LayoutOptions to TreeLayoutPlan", async () => {
+    setupTreeLayout();
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    await launch("/tmp/workspace", { dryRun: true });
+    const plan = mockGenerateTreeAppleScript.mock.calls[0]![0] as Record<string, unknown>;
+    expect(plan["autoResize"]).toBe(false);
+    logSpy.mockRestore();
+  });
+
+  it("newWindow flag is forwarded from LayoutOptions to TreeLayoutPlan", async () => {
+    setupTreeLayout();
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    await launch("/tmp/workspace", { dryRun: true });
+    const plan = mockGenerateTreeAppleScript.mock.calls[0]![0] as Record<string, unknown>;
+    expect(plan["newWindow"]).toBe(true);
+    logSpy.mockRestore();
+  });
+
+  it("cleanRestoredPanes flag is forwarded from LayoutOptions to TreeLayoutPlan (with --clean)", async () => {
+    mockIsCustomLayout.mockReturnValue(true);
+    mockReadCustomLayout.mockReturnValue(
+      new Map([
+        ["tree", "editor | shell"],
+        ["pane.editor", "vim"],
+        ["pane.shell", "bash"],
+      ]),
+    );
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+    mockReadKVFile.mockReturnValue(new Map([["layout", "mywork"]]));
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    await launch("/tmp/workspace", { dryRun: true, clean: "true" });
+    const plan = mockGenerateTreeAppleScript.mock.calls[0]![0] as Record<string, unknown>;
+    expect(plan["cleanRestoredPanes"]).toBe(true);
+    logSpy.mockRestore();
+  });
+});
+
+describe("AR-L1 #318: layoutOptsToTreePlanOpts adapter unit tests", () => {
+  it("maps all 9 LayoutOptions plan fields when all are set", () => {
+    const opts = {
+      autoResize: false,
+      editorSize: 80,
+      fontSize: 14 as number | null,
+      newWindow: true,
+      newTab: false,
+      fullscreen: true,
+      maximize: false,
+      float: true,
+      cleanRestoredPanes: true,
+    };
+    const result = layoutOptsToTreePlanOpts(opts);
+    expect(result).toEqual(opts);
+  });
+
+  it("passes undefined through for unset fields", () => {
+    const result = layoutOptsToTreePlanOpts({});
+    expect(result.autoResize).toBeUndefined();
+    expect(result.editorSize).toBeUndefined();
+    expect(result.fontSize).toBeUndefined();
+    expect(result.newWindow).toBeUndefined();
+    expect(result.newTab).toBeUndefined();
+    expect(result.fullscreen).toBeUndefined();
+    expect(result.maximize).toBeUndefined();
+    expect(result.float).toBeUndefined();
+    expect(result.cleanRestoredPanes).toBeUndefined();
+  });
+
+  it("does not forward LayoutOptions-only fields (editor, editorPanes, sidebarCommand, shell, secondaryEditor)", () => {
+    const result = layoutOptsToTreePlanOpts({
+      editor: "vim",
+      editorPanes: 3,
+      sidebarCommand: "lazygit",
+      shell: "true",
+      secondaryEditor: "btop",
+    });
+    // None of these fields should appear in the result
+    expect(Object.keys(result)).not.toContain("editor");
+    expect(Object.keys(result)).not.toContain("editorPanes");
+    expect(Object.keys(result)).not.toContain("sidebarCommand");
+    expect(Object.keys(result)).not.toContain("shell");
+    expect(Object.keys(result)).not.toContain("secondaryEditor");
   });
 });
 
