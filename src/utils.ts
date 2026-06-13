@@ -77,6 +77,21 @@ export async function promptUser(question: string): Promise<string> {
 }
 
 /**
+ * Format a user-facing error message with a consistent branded prefix.
+ * Output: "summon: error: <msg>" — with red ✗ prefix when colors are supported.
+ * Use this for all user-facing errors to ensure a uniform presentation.
+ *
+ * UX-H1 (#598): centralises the error prefix so callers don't embed it inline.
+ */
+export function formatUserError(msg: string): string {
+  if (supportsColor()) {
+    // red ✗ (U+2717) + "summon: error:" prefix in bold-red
+    return `\x1b[31m✗ summon: error:\x1b[0m ${msg}`;
+  }
+  return `summon: error: ${msg}`;
+}
+
+/**
  * Print an error message followed by a usage hint, then exit with code 1.
  * Consolidates the repeated `console.error(msg); console.error("Run 'summon --help'..."); process.exit(1)` pattern.
  * When called without a message, only the usage hint is printed before exiting.

@@ -9,4 +9,7 @@ export const sym = {
   fail: "✗",   // U+2717 — failure
   info: "·",   // middle dot — informational
   bullet: "•", // U+2022 — list item
+  // UX-M2 (#601): workspace state dots — shared across monitor, ports, briefing, sessions
+  dotFilled: "●", // U+25CF — active / running workspace
+  dotEmpty:  "○", // U+25CB — stopped / unknown workspace
 } as const;

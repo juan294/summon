@@ -123,7 +123,8 @@ end tell`;
 
 function executeScript(script: string, targetLabel?: string): void {
   // FE-M5/UX-M6: progress messages go to stderr so pipelines (e.g. summon export > .summon) are not polluted.
-  process.stderr.write(`Launching ${targetLabel ?? "workspace"}…\n`);
+  // UX-M1 (#600): subtle summoning voice on the main launch progress line.
+  process.stderr.write(`Summoning ${targetLabel ?? "workspace"}…\n`);
   try {
     execFileSync("osascript", [], { input: script, encoding: "utf-8", timeout: 30_000 });
     process.stderr.write("✓ Workspace ready.\n");

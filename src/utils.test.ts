@@ -37,7 +37,7 @@ vi.mock("node:readline", () => ({
 }));
 
 // Import after mocks
-const { SAFE_COMMAND_RE, GHOSTTY_PATHS, GHOSTTY_APP_NAME, SUMMON_WORKSPACE_ENV, resolveCommand, promptUser, getErrorMessage, exitWithUsageHint, checkAccessibility, openAccessibilitySettings, isAccessibilityError, isGhosttyInstalled, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT, ACCESSIBILITY_REQUIRED_MSG, PromptCancelled, isDebug, debugLog, supportsColor, confirm, gitSafeEnv, atomicWrite } = await import("./utils.js");
+const { SAFE_COMMAND_RE, GHOSTTY_PATHS, GHOSTTY_APP_NAME, SUMMON_WORKSPACE_ENV, resolveCommand, promptUser, getErrorMessage, exitWithUsageHint, formatUserError, checkAccessibility, openAccessibilitySettings, isAccessibilityError, isGhosttyInstalled, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT, ACCESSIBILITY_REQUIRED_MSG, PromptCancelled, isDebug, debugLog, supportsColor, confirm, gitSafeEnv, atomicWrite } = await import("./utils.js");
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -294,6 +294,48 @@ describe("promptUser", () => {
     );
     const result = await promptUser("Input: ");
     expect(result).toBe("");
+  });
+});
+
+// UX-H1 (#598): formatUserError — consistent branded error prefix
+describe("formatUserError", () => {
+  const originalEnv = process.env;
+
+  afterEach(() => {
+    process.env = originalEnv;
+  });
+
+  it("includes 'summon: error:' prefix in no-color mode", () => {
+    process.env = { ...originalEnv, NO_COLOR: "1" };
+    delete (process.env as Record<string, string | undefined>)["FORCE_COLOR"];
+    const result = formatUserError("something went wrong");
+    expect(result).toContain("summon: error:");
+    expect(result).toContain("something went wrong");
+  });
+
+  it("does not include raw ANSI codes in no-color mode", () => {
+    process.env = { ...originalEnv, NO_COLOR: "1" };
+    delete (process.env as Record<string, string | undefined>)["FORCE_COLOR"];
+    const result = formatUserError("msg");
+    // eslint-disable-next-line no-control-regex
+    expect(result).not.toMatch(/\x1b\[/);
+  });
+
+  it("includes ANSI codes in color mode", () => {
+    process.env = { ...originalEnv, FORCE_COLOR: "1" };
+    delete (process.env as Record<string, string | undefined>)["NO_COLOR"];
+    const result = formatUserError("msg");
+    // eslint-disable-next-line no-control-regex
+    expect(result).toMatch(/\x1b\[/);
+    expect(result).toContain("summon: error:");
+    expect(result).toContain("msg");
+  });
+
+  it("always ends with the supplied message", () => {
+    const msg = "directory not found";
+    process.env = { ...originalEnv, NO_COLOR: "1" };
+    delete (process.env as Record<string, string | undefined>)["FORCE_COLOR"];
+    expect(formatUserError(msg)).toMatch(new RegExp(`${msg}$`));
   });
 });
 

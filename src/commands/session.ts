@@ -10,6 +10,7 @@ import {
 import { SummonError } from "../trust.js";
 import { TabOpenError } from "../errors.js";
 import { exitWithUsageHint, getErrorMessage } from "../utils.js";
+import { sym } from "../ui/symbols.js";
 import type { CommandContext } from "./types.js";
 
 const RESERVED = new Set(["add", "remove", "list", "show", "all"]);
@@ -161,7 +162,7 @@ async function cmdLaunch(ctx: CommandContext, name: string | undefined): Promise
   if (skippedUntrusted.length > 0) {
     parts.push(`${skippedUntrusted.length} skipped (untrusted): ${skippedUntrusted.join(", ")}`);
   }
-  console.log(`✓ Session complete: ${parts.join(", ")}.`);
+  console.log(`${sym.ok} Session complete: ${parts.join(", ")}.`);
 }
 
 async function cmdAdd(rest: string[], _ctx: CommandContext): Promise<void> {
@@ -197,7 +198,7 @@ async function cmdAdd(rest: string[], _ctx: CommandContext): Promise<void> {
   }
 
   writeSession(name, projectArgs);
-  console.log(`✓ Session saved: ${name} (${projectArgs.length} project(s): ${projectArgs.join(", ")})`);
+  console.log(`${sym.ok} Session saved: ${name} (${projectArgs.length} project(s): ${projectArgs.join(", ")})`);
 }
 
 async function cmdRemove(rest: string[]): Promise<void> {
@@ -219,7 +220,7 @@ async function cmdRemove(rest: string[]): Promise<void> {
     process.exit(1);
   }
 
-  console.log(`✓ Removed session: ${name}`);
+  console.log(`${sym.ok} Removed session: ${name}`);
 }
 
 async function cmdList(): Promise<void> {
