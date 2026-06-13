@@ -1,8 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, unlinkSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
-import { execFileSync } from "node:child_process";
 import { SNAPSHOTS_DIR } from "./paths.js";
-import { gitSafeEnv, debugLog, atomicWrite } from "./utils.js";
+import { debugLog, atomicWrite, gitOutputSync } from "./utils.js";
 import { dim, green } from "./ui/ansi.js";
 
 // --- Types ---
@@ -30,14 +29,13 @@ function snapshotPath(project: string): string {
   return filePath;
 }
 
+/**
+ * AR-M1 #603: delegates to shared gitOutputSync helper in utils.ts.
+ * Returns null on any error (callers expect null for non-git directories).
+ */
 function gitCommand(dir: string, args: string[]): string | null {
   try {
-    return execFileSync("git", ["-C", dir, ...args], {
-      encoding: "utf-8",
-      timeout: 5000,
-      stdio: ["ignore", "pipe", "ignore"],
-      env: gitSafeEnv(),
-    }).trim();
+    return gitOutputSync(dir, args);
   } catch {
     return null;
   }
@@ -119,6 +117,11 @@ export function parseContextSnapshot(raw: unknown): ContextSnapshot | null {
 
   // BE-M2 #491: gracefully handle future schema versions — warn and return null
   if (typeof d["version"] === "number" && d["version"] > 1) {
+    // BE-M5 #606: surface an unconditional stderr warning so users on an older
+    // summon understand why a newer snapshot is invisible (not just a debug log).
+    const snapProject = d["project"];
+    const file = typeof snapProject === "string" ? `${snapProject}.json` : "snapshot file";
+    process.stderr.write(`summon: warning: ${file} was written by a newer summon; upgrade to read it\n`);
     debugLog(`parseContextSnapshot: unrecognised future schema version ${d["version"]}; returning null`);
     return null;
   }

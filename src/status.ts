@@ -1,11 +1,7 @@
-import { existsSync, mkdirSync, readFileSync, unlinkSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, unlinkSync, readdirSync, statSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { STATUS_DIR } from "./paths.js";
-import { gitSafeEnv, debugLog, atomicWrite } from "./utils.js";
-
-const execFileAsync = promisify(execFile);
+import { debugLog, atomicWrite, gitOutput } from "./utils.js";
 
 // --- Types ---
 
@@ -117,7 +113,10 @@ export function parseWorkspaceStatus(raw: unknown): WorkspaceStatus | null {
   const d = raw as Record<string, unknown>;
 
   // BE-M2 #491: gracefully handle future schema versions — warn and return null
+  // BE-M5 #606: emit an unconditional stderr warning so users know to upgrade
   if (typeof d["version"] === "number" && d["version"] > 1) {
+    const file = typeof d["project"] === "string" ? `${d["project"]}.json` : "status file";
+    process.stderr.write(`summon: warning: ${file} was written by a newer summon; upgrade to read it\n`);
     debugLog(`parseWorkspaceStatus: unrecognised future schema version ${d["version"]}; returning null`);
     return null;
   }
@@ -173,10 +172,47 @@ export function readStatus(projectName: string): ResolvedStatus | null {
   };
 }
 
+// PE-M1 #607: short-TTL in-process memo keyed by STATUS_DIR mtime.
+// Mirrors the mtime-cache pattern from config.ts. We cache the result and
+// invalidate when the dir's mtime changes (file additions/removals change the
+// dir mtime on POSIX). For in-place content changes, the per-file readStatus
+// reads still apply — so this cache is safe at the directory-listing level.
+//
+// Trade-off: a file added between two reads within the same mtime tick would
+// not be seen until the dir mtime advances. We accept this: the monitor's
+// tick rate (≥1 s) is well above the fs granularity, and the conservative
+// choice of no TTL beyond mtime change keeps memory use minimal.
+
+interface ReadAllStatusesCache {
+  dirMtime: number;
+  result: ResolvedStatus[];
+}
+let _readAllStatusesCache: ReadAllStatusesCache | undefined;
+
+/** @internal — exported for testing only (PE-M1 #607) */
+export function resetReadAllStatusesCache(): void {
+  _readAllStatusesCache = undefined;
+}
+
 export function readAllStatuses(): ResolvedStatus[] {
   if (!existsSync(STATUS_DIR)) return [];
 
-  const files = readdirSync(STATUS_DIR).filter(f => f.endsWith(".json"));
+  // Validate cache against current dir mtime
+  let dirMtime: number;
+  try {
+    dirMtime = statSync(STATUS_DIR).mtimeMs;
+  } catch {
+    return [];
+  }
+
+  if (_readAllStatusesCache !== undefined && _readAllStatusesCache.dirMtime === dirMtime) {
+    return _readAllStatusesCache.result;
+  }
+
+  // BE-M4 #605: filter out .tmp and dotfiles so orphans never appear as phantom entries
+  const files = readdirSync(STATUS_DIR).filter(
+    f => f.endsWith(".json") && !f.startsWith(".") && !f.endsWith(".tmp")
+  );
   const statuses: ResolvedStatus[] = [];
 
   for (const file of files) {
@@ -186,23 +222,22 @@ export function readAllStatuses(): ResolvedStatus[] {
   }
 
   // Sort: active first (newest first), then stopped (newest first)
-  return statuses.sort((a, b) => {
+  const result = statuses.sort((a, b) => {
     if (a.state === "active" && b.state !== "active") return -1;
     if (a.state !== "active" && b.state === "active") return 1;
     return Date.parse(b.startedAt) - Date.parse(a.startedAt);
   });
+
+  _readAllStatusesCache = { dirMtime, result };
+  return result;
 }
 
 // --- Git ---
 
 export async function getGitBranch(directory: string): Promise<string | null> {
+  // AR-M1 #603: use shared gitOutput helper from utils.ts
   try {
-    const { stdout } = await execFileAsync(
-      "git",
-      ["-C", directory, "rev-parse", "--abbrev-ref", "HEAD"],
-      { encoding: "utf-8", timeout: 5000, env: gitSafeEnv() },
-    );
-    return stdout.trim() || null;
+    return (await gitOutput(directory, ["rev-parse", "--abbrev-ref", "HEAD"])) || null;
   } catch {
     return null;
   }

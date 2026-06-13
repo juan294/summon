@@ -1,13 +1,9 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { listProjects } from "./config.js";
 import { readAllStatuses, getGitBranch } from "./status.js";
 import type { ResolvedStatus } from "./status.js";
 import { bold, dim, green, yellow, cyan } from "./ui/ansi.js";
 import { sym } from "./ui/symbols.js";
-import { gitSafeEnv, runPool, ioConcurrency } from "./utils.js";
-
-const execFileAsync = promisify(execFile);
+import { gitOutput, runPool, ioConcurrency } from "./utils.js";
 
 // Computed once at module load (this module is lazy-loaded, off the cold-start path).
 const IO_CONCURRENCY = ioConcurrency();
@@ -62,15 +58,13 @@ export function resetGitDataCache(): void {
   gitDataCache.clear();
 }
 
-/** Run `git -C <dir> <args>` and return trimmed stdout split into lines (empty on any error). */
+/**
+ * Run `git -C <dir> <args>` and return trimmed stdout split into lines (empty on any error).
+ * AR-M1 #603: delegates to shared gitOutput helper in utils.ts.
+ */
 async function gitLines(directory: string, args: string[]): Promise<string[]> {
   try {
-    const { stdout } = await execFileAsync(
-      "git",
-      ["-C", directory, ...args],
-      { encoding: "utf-8", timeout: 5000, env: gitSafeEnv() },
-    );
-    const raw = stdout.trim();
+    const raw = await gitOutput(directory, args);
     return raw ? raw.split("\n") : [];
   } catch {
     return [];
