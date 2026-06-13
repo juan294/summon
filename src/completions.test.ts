@@ -428,3 +428,31 @@ describe("custom layout completions", () => {
     expect(bash).toContain("summon layout list");
   });
 });
+
+describe("FE-M2 (#583) — CLI_FLAGS parity across shells", () => {
+  test("CLI_FLAGS includes --no-project-config", () => {
+    expect(CLI_FLAGS).toContain("--no-project-config");
+  });
+
+  test("bash completion offers every flag in CLI_FLAGS", () => {
+    const bash = generateBashCompletion();
+    for (const flag of CLI_FLAGS) {
+      expect(bash, `bash completion missing: ${flag}`).toContain(flag);
+    }
+  });
+
+  test("fish completion offers --no-project-config", () => {
+    const fish = generateFishCompletion();
+    expect(fish).toContain("no-project-config");
+  });
+
+  test("fish completion offers --verbose", () => {
+    const fish = generateFishCompletion();
+    expect(fish).toContain("verbose");
+  });
+
+  test("fish completion offers --once (status flag)", () => {
+    const fish = generateFishCompletion();
+    expect(fish).toContain("once");
+  });
+});

@@ -303,7 +303,7 @@ export const CLI_FLAGS = [
   "--editor-size", "--sidebar", "--shell", "--auto-resize",
   "--no-auto-resize", "--starship-preset", "--dry-run",
   "--env", "--new-window", "--new-tab", "--fullscreen", "--maximize", "--float", "--font-size", "--on-start", "--once",
-  "--clean", "--no-clean",
+  "--clean", "--no-clean", "--no-project-config", "--verbose",
   "-h", "-v", "-l", "-e", "-p", "-s", "-n",
 ];
 
