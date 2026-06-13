@@ -172,7 +172,8 @@ export async function collectBriefingData(): Promise<{ projects: ProjectBriefing
 
 export function formatProjectBriefing(project: ProjectBriefing): string {
   const lines: string[] = [];
-  const dot = project.state === "active" ? green("\u25CF") : dim("\u25CB");
+  // UX-M2 (#601): use canonical sym glyphs so dots are consistent with ports/monitor outputs.
+  const dot = project.state === "active" ? green(sym.dotFilled) : dim(sym.dotEmpty);
   const stateLabel = project.state === "active" ? green("active") : dim(project.state);
 
   lines.push(`  ${dot} ${bold(project.name)}${" ".repeat(Math.max(1, 40 - project.name.length))}${stateLabel}`);

@@ -87,7 +87,10 @@ export function hashSummonFile(dir: string): string | null {
  */
 export function isTrusted(dir: string): boolean {
   const normalizedDir = (() => { try { return realpathSync(dir); } catch { return resolve(dir); } })();
-  const summonPath = join(dir, ".summon");
+  // BE-H1 (#590): use normalizedDir (realpath) for all fs operations so that symlinked
+  // paths (e.g. macOS /tmp → /private/tmp) stat and read the same file that was hashed
+  // and keyed when the project was trusted via trustProject().
+  const summonPath = join(normalizedDir, ".summon");
 
   if (!existsSync(summonPath)) return true; // no .summon file → trusted by default
 

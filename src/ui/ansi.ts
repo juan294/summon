@@ -1,5 +1,5 @@
 import { supportsColor } from "../utils.js";
-import { getDisplayWidth } from "./layout-preview.js";
+import { getDisplayWidth } from "./width.js";
 
 function wrap(code: string, s: string): string {
   return supportsColor() ? `\x1b[${code}m${s}\x1b[0m` : s;

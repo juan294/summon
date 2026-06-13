@@ -1,47 +1,7 @@
 import { dim } from "./ansi.js";
-
-/**
- * Returns the display width of a string in a fixed-width terminal font.
- * CJK characters and emoji (wide characters) count as 2 columns; all others count as 1.
- * Handles multi-codepoint characters via codePointAt iteration.
- *
- * Wide Unicode ranges: CJK Radicals / Hangul / Hiragana / Katakana / CJK Unified /
- * Yi / Hangul Syllables / CJK Compatibility Ideographs / CJK Compatibility Forms /
- * Halfwidth/Fullwidth Forms / Emoji & Misc Symbols (U+1F300+).
- *
- * @internal — exported for testing only
- */
-export function getDisplayWidth(s: string): number {
-  let width = 0;
-  for (let i = 0; i < s.length; ) {
-    const cp = s.codePointAt(i);
-    if (cp === undefined) break;
-    // Advance by surrogate pair (code points > 0xFFFF occupy 2 UTF-16 code units)
-    i += cp > 0xffff ? 2 : 1;
-    if (isWideCodePoint(cp)) {
-      width += 2;
-    } else {
-      width += 1;
-    }
-  }
-  return width;
-}
-
-function isWideCodePoint(cp: number): boolean {
-  return (
-    (cp >= 0x1100 && cp <= 0x115f) ||   // Hangul Jamo
-    (cp >= 0x2e80 && cp <= 0x303f) ||   // CJK Radicals Supplement … CJK Symbols
-    (cp >= 0x3040 && cp <= 0x33bf) ||   // Hiragana, Katakana, Bopomofo, Hangul Compat, Kanbun, Bopomofo Ext, CJK Unified Ext
-    (cp >= 0x3400 && cp <= 0x4dbf) ||   // CJK Unified Ideographs Extension A
-    (cp >= 0x4e00 && cp <= 0x9fff) ||   // CJK Unified Ideographs
-    (cp >= 0xa000 && cp <= 0xabff) ||   // Yi Syllables, Yi Radicals, Lisu, Vai, ...
-    (cp >= 0xac00 && cp <= 0xd7af) ||   // Hangul Syllables
-    (cp >= 0xf900 && cp <= 0xfaff) ||   // CJK Compatibility Ideographs
-    (cp >= 0xfe10 && cp <= 0xfe6f) ||   // CJK Compatibility Forms, Small Form Variants
-    (cp >= 0xff00 && cp <= 0xffef) ||   // Halfwidth and Fullwidth Forms
-    (cp >= 0x1f300 && cp <= 0x1ffff)    // Emoji, Misc Symbols, etc.
-  );
-}
+// AR-M2 (#589): import width primitive from the leaf module to break the cycle
+// (ansi.ts → layout-preview.ts → ansi.ts was circular; now both import from width.ts).
+export { getDisplayWidth } from "./width.js";
 
 const BOX = {
   topLeft:     "\u250c",
