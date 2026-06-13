@@ -68,11 +68,14 @@ Object.defineProperty(globalThis, "__VERSION__", {
 
 const {
   buildOverrides,
-  hasSubcommandHelp,
   parseCli,
+} = await import("./parse.js");
+
+const {
+  hasSubcommandHelp,
   showHelp,
   showSubcommandHelp,
-} = await import("./parse.js");
+} = await import("./help.js");
 
 beforeEach(() => {
   vi.clearAllMocks();
