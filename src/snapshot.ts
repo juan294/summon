@@ -96,27 +96,55 @@ export function readSnapshot(project: string): ContextSnapshot | null {
     return null;
   }
 
-  if (typeof data !== "object" || data === null) {
-    return null;
-  }
+  const snapshot = parseContextSnapshot(data);
+  if (snapshot === null) return null;
 
-  const version = (data as Record<string, unknown>)["version"];
-  if (typeof version === "number" && version > 1) {
-    // BE-M2 #491: gracefully handle future schema versions — warn and return null
-    debugLog(`readSnapshot: unrecognised future schema version ${version}; returning null`);
-    return null;
-  }
-  if (version !== 1) {
-    return null;
-  }
-
-  const snapshot = data as ContextSnapshot;
   if (!existsSync(snapshot.directory)) {
     console.warn("Snapshot: project directory no longer exists: " + snapshot.directory);
     return null;
   }
 
   return snapshot;
+}
+
+/**
+ * Validates raw JSON parsed from a snapshot file. Returns a typed ContextSnapshot
+ * if all required fields have correct types, or null if the shape is invalid.
+ * Mirrors the rigor of parseWorkspaceStatus in status.ts (BE-M1 #592).
+ */
+export function parseContextSnapshot(raw: unknown): ContextSnapshot | null {
+  if (typeof raw !== "object" || raw === null) return null;
+
+  const d = raw as Record<string, unknown>;
+
+  // BE-M2 #491: gracefully handle future schema versions — warn and return null
+  if (typeof d["version"] === "number" && d["version"] > 1) {
+    debugLog(`parseContextSnapshot: unrecognised future schema version ${d["version"]}; returning null`);
+    return null;
+  }
+  if (d["version"] !== 1) return null;
+
+  if (typeof d["project"] !== "string") return null;
+  if (typeof d["directory"] !== "string") return null;
+  if (typeof d["layout"] !== "string") return null;
+
+  // git must be a non-null object
+  if (typeof d["git"] !== "object" || d["git"] === null) return null;
+
+  const git = d["git"] as Record<string, unknown>;
+
+  // branch must be a string or null (detached HEAD)
+  if (typeof git["branch"] !== "string" && git["branch"] !== null) return null;
+
+  // dirty must be an array of strings
+  if (!Array.isArray(git["dirty"])) return null;
+  if (!(git["dirty"] as unknown[]).every((x) => typeof x === "string")) return null;
+
+  // recentCommits must be an array of strings
+  if (!Array.isArray(git["recentCommits"])) return null;
+  if (!(git["recentCommits"] as unknown[]).every((x) => typeof x === "string")) return null;
+
+  return raw as ContextSnapshot;
 }
 
 export function clearSnapshot(project: string): boolean {
