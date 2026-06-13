@@ -713,6 +713,47 @@ describe("BE-L1 #545: TRUST_FILE and CONFIG_DIR match paths.ts exports", () => {
   });
 });
 
+// BE-H1 (#590): isTrusted path normalization — .summon path must use realpath not raw dir
+describe("BE-H1 (#590): isTrusted uses normalizedDir for .summon path (symlink consistency)", () => {
+  it("isTrusted reads .summon via the realpath, not the symlink path", () => {
+    const symlinkDir = "/tmp/myproject";
+    const realDir = "/private/tmp/myproject";
+    const content = "editor = vim\n";
+    const hash = sha256(content);
+
+    // realpathSync maps symlink → real
+    mockRealpathSync.mockImplementation((p: string) => {
+      if (p === symlinkDir) return realDir;
+      return p;
+    });
+
+    // Track which paths existsSync and readFileSync are called with
+    const existsPaths: string[] = [];
+    const readPaths: string[] = [];
+
+    mockExistsSync.mockImplementation((p: string) => {
+      existsPaths.push(p);
+      return p.endsWith(".summon") || p === `${realDir}/.summon`;
+    });
+
+    mockReadFileSync.mockImplementation((p: string) => {
+      readPaths.push(p);
+      if (p.endsWith(".summon")) return content;
+      return JSON.stringify({ [realDir]: hash });
+    });
+
+    isTrusted(symlinkDir);
+
+    // All .summon reads must use the realpath, NOT the symlink path
+    const summonExistsCalls = existsPaths.filter(p => p.includes(".summon"));
+    const summonReadCalls = readPaths.filter(p => p.includes(".summon"));
+    for (const p of [...summonExistsCalls, ...summonReadCalls]) {
+      expect(p.startsWith(realDir)).toBe(true);
+      expect(p.startsWith(symlinkDir)).toBe(false);
+    }
+  });
+});
+
 // SE-L1 #556: corrupt/unreadable trust.json must return false (fail-closed)
 describe("SE-L1 #556: corrupt trust.json fail-closed invariant", () => {
   it("isTrusted returns false when trust.json contains invalid JSON (fail-closed)", () => {

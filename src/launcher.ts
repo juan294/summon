@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { basename, join, resolve, sep } from "node:path";
 import { execFileSync, execSync } from "node:child_process";
 import {
   planLayout,
@@ -519,6 +519,18 @@ export function resolveConfig(targetDir: string, cliOverrides: CLIOverrides, sum
   if (mergedTreeLayout) {
     const projectCwds = extractPaneCwds(project);
     if (projectCwds.size > 0) {
+      // BE-M2 (#593): validate cwd containment at ingestion so that a malicious .summon
+      // file cannot inject an out-of-project path before resolveTreeCommands runs.
+      const normalizedTarget = resolve(targetDir);
+      const prefix = normalizedTarget.endsWith(sep) ? normalizedTarget : normalizedTarget + sep;
+      for (const [_paneName, cwd] of projectCwds) {
+        const resolved = resolve(normalizedTarget, cwd);
+        if (resolved !== normalizedTarget && !resolved.startsWith(prefix)) {
+          throw new Error(
+            `Tree DSL: pane cwd '${cwd}' resolves outside project directory '${normalizedTarget}'. Use a path within the project.`,
+          );
+        }
+      }
       const merged = new Map(mergedTreeLayout.paneCwds ?? []);
       for (const [k, v] of projectCwds) merged.set(k, v);
       mergedTreeLayout = { ...mergedTreeLayout, paneCwds: merged };
@@ -640,9 +652,12 @@ function executeOnStart(onStart: string, targetDir: string): void {
   try {
     execSync(onStart, { cwd: targetDir, encoding: "utf-8", stdio: "inherit" });
   } catch (err) {
+    // BE-M3 (#594): non-zero exit is non-fatal — warn and continue the launch.
+    // A hard abort (e.g. for SIGINT/SIGKILL) is unlikely from a hook and would be
+    // surfaced via the stderr inherited above; treating all failures as warnings
+    // allows pre-flight checks to fail gracefully without killing the workspace.
     const message = `on-start command failed: ${onStart} — ${getErrorMessage(err)}`;
-    console.error(message);
-    throw new Error(message, { cause: err });
+    console.warn(message);
   }
 }
 
@@ -872,6 +887,13 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
 
   if (effectiveOnStart && !cliOverrides?.dryRun) {
     executeOnStart(effectiveOnStart, targetDir);
+  }
+
+  // SE-M1 (#595): surface on-stop command at launch time so users know it will run on exit.
+  // on-stop is embedded in the AppleScript's EXIT trap and runs silently; a launch-time notice
+  // makes the hook visible without requiring users to inspect the generated script.
+  if (onStop && !cliOverrides?.dryRun) {
+    process.stderr.write(`Note: on-stop will run on workspace exit: ${onStop}\n`);
   }
 
   // Cache resolved command paths so the same binary is only looked up once

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, promises as fsPromises } from "node:fs";
+import { existsSync, readFileSync, statSync, promises as fsPromises } from "node:fs";
 import { join } from "node:path";
 import { readKVFile, listProjects } from "./config.js";
 import { readAllStatuses } from "./status.js";
@@ -46,7 +46,9 @@ const FRAMEWORK_DEFAULTS: ReadonlyArray<{ pattern: string; port: number; name: s
 ];
 
 // Hoisted regex for port flag parsing — /g flag makes it stateful; reset lastIndex before each use.
-const PORT_FLAG_RE = /(?:-p|--port)[=\s]+(\d+)/g;
+// BE-H2 (#591): capture the full non-whitespace token so that "3000abc" is captured as-is
+// and rejected by the strict /^\d+$/ check below (not silently truncated to 3000).
+const PORT_FLAG_RE = /(?:-p|--port)[=\s]+(\S+)/g;
 
 // Extensions to probe when detecting framework config files.
 const EXTENSIONS = [".js", ".mjs", ".ts", ".cjs"];
@@ -79,24 +81,30 @@ export async function detectProjectPorts(
   const pkgPath = join(projectDir, "package.json");
   if (existsSync(pkgPath)) {
     try {
-      const pkg = JSON.parse(readFileSync(pkgPath, "utf-8")) as {
-        scripts?: Record<string, string>;
-      };
-      const scripts = pkg.scripts ?? {};
-      for (const script of Object.values(scripts)) {
-        if (!isDevServerScript(script)) continue;
-        PORT_FLAG_RE.lastIndex = 0; // reset stateful /g regex before each reuse
-        let match;
-        while ((match = PORT_FLAG_RE.exec(script)) !== null) {
-          const port = parseInt(match[1]!, 10);
-          if (port > 0 && !seenPorts.has(port)) {
-            seenPorts.add(port);
-            assignments.push({ port, project: projectName, source: "package.json", state });
+      // BE-H2 (#591): skip files larger than 1MB to prevent DoS via oversized package.json
+      const pkgStat = statSync(pkgPath);
+      if (pkgStat.size <= 1_048_576) {
+        const pkg = JSON.parse(readFileSync(pkgPath, "utf-8")) as {
+          scripts?: Record<string, string>;
+        };
+        const scripts = pkg.scripts ?? {};
+        for (const script of Object.values(scripts)) {
+          if (!isDevServerScript(script)) continue;
+          PORT_FLAG_RE.lastIndex = 0; // reset stateful /g regex before each reuse
+          let match;
+          while ((match = PORT_FLAG_RE.exec(script)) !== null) {
+            // BE-H2 (#591): strict all-digit check — parseInt("3000abc") === 3000 (wrong)
+            if (!/^\d+$/.test(match[1]!)) continue;
+            const port = parseInt(match[1]!, 10);
+            if (port > 0 && !seenPorts.has(port)) {
+              seenPorts.add(port);
+              assignments.push({ port, project: projectName, source: "package.json", state });
+            }
           }
         }
       }
     } catch {
-      /* invalid JSON, skip */
+      /* stat/read/parse failure, skip */
     }
   }
 

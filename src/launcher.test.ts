@@ -1826,19 +1826,24 @@ describe("on-start hook (#107)", () => {
       logSpy.mockRestore();
     });
 
-    it("aborts launch if on-start command fails", async () => {
+    // BE-M3 (#594): on-start failure must warn and continue (not abort the launch)
+    it("warns when on-start command fails but continues launch", async () => {
       vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
       mockExecSync.mockImplementation((cmd: string) => {
-        if (cmd === "false") throw new Error("Command failed");
+        if (cmd === "false") throw new Error("Command failed: exit code 1");
         return "";
       });
       const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
       const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-      await expect(launch("/tmp/workspace", { "on-start": "false" })).rejects.toThrow("on-start command failed");
-      expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("on-start command failed: false"));
+      // Must NOT throw — launch should continue even when on-start fails
+      await expect(launch("/tmp/workspace", { "on-start": "false" })).resolves.toBeUndefined();
+      // Must warn about the failure
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("on-start command failed"));
 
       logSpy.mockRestore();
+      warnSpy.mockRestore();
       errorSpy.mockRestore();
     });
 
@@ -2933,6 +2938,50 @@ describe("tree layout + project CWD merge (#185)", () => {
   });
 });
 
+describe("BE-M2 (#593): cwd containment validated at ingestion in resolveConfig", () => {
+  it("throws when project .summon pane cwd escapes targetDir via path traversal", () => {
+    mockIsCustomLayout.mockReturnValue(true);
+    mockReadCustomLayout.mockReturnValue(
+      new Map([
+        ["tree", "editor | sidebar"],
+        ["pane.editor", "vim"],
+        ["pane.sidebar", "lazygit"],
+      ]),
+    );
+    // .summon file tries to escape targetDir via ../../
+    mockReadKVFile.mockReturnValue(
+      new Map([
+        ["layout", "mywork"],
+        ["pane.editor.cwd", "../../etc"],
+      ]),
+    );
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+
+    expect(() => resolveConfig("/tmp/workspace", {})).toThrow(/outside project directory/);
+  });
+
+  it("allows project .summon pane cwd that is a subdirectory of targetDir", () => {
+    mockIsCustomLayout.mockReturnValue(true);
+    mockReadCustomLayout.mockReturnValue(
+      new Map([
+        ["tree", "editor | sidebar"],
+        ["pane.editor", "vim"],
+        ["pane.sidebar", "lazygit"],
+      ]),
+    );
+    mockReadKVFile.mockReturnValue(
+      new Map([
+        ["layout", "mywork"],
+        ["pane.editor.cwd", "src"],
+      ]),
+    );
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+
+    const result = resolveConfig("/tmp/workspace", {});
+    expect(result.treeLayout!.paneCwds!.get("editor")).toBe("src");
+  });
+});
+
 describe("W1: tree pane.* commands metacharacter check (#190)", () => {
   let origIsTTY: boolean | undefined;
 
@@ -3131,7 +3180,8 @@ describe("W9: ensureCommand install prompt defaults to No (#190)", () => {
 });
 
 describe("R19: on-start failure includes error message (#190)", () => {
-  it("includes the underlying error message when on-start fails", async () => {
+  // BE-M3 (#594): on-start failure is now non-fatal — warns and continues launch.
+  it("includes the underlying error message in the warning when on-start fails", async () => {
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
     mockExecSync.mockImplementation((cmd: string) => {
       if (cmd === "broken-command") throw new Error("command not found: broken-command");
@@ -3141,10 +3191,11 @@ describe("R19: on-start failure includes error message (#190)", () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    await expect(launch("/tmp/workspace", { "on-start": "broken-command" })).rejects.toThrow("on-start command failed");
+    // Launch continues (does not reject) — failure is non-fatal
+    await expect(launch("/tmp/workspace", { "on-start": "broken-command" })).resolves.toBeUndefined();
 
-    const errorMessages = errorSpy.mock.calls.map((c) => c[0] as string);
-    const failMsg = errorMessages.find((m) => m.includes("on-start command failed"));
+    const warnMessages = warnSpy.mock.calls.map((c) => c[0] as string);
+    const failMsg = warnMessages.find((m) => m.includes("on-start command failed"));
     expect(failMsg).toBeDefined();
     expect(failMsg).toContain("command not found: broken-command");
 
@@ -3486,17 +3537,21 @@ describe("AR-M1: process.exit -> thrown errors in launcher (#306)", () => {
     await expect(launch("/tmp/workspace")).rejects.toThrow("Ghostty.app not found");
   });
 
-  it("executeOnStart throws an Error instead of calling process.exit when on-start fails", async () => {
+  // BE-M3 (#594): on-start failure is now non-fatal — warns and continues launch.
+  it("warns (not throws) when on-start fails, and launch still completes", async () => {
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
     mockExecSync.mockImplementation((cmd: string) => {
       if (cmd === "bad-command") throw new Error("not found");
       return "";
     });
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    // Should reject with on-start error message
-    await expect(launch("/tmp/workspace", { "on-start": "bad-command" })).rejects.toThrow("on-start command failed");
+    // Should NOT throw — warn and continue
+    await expect(launch("/tmp/workspace", { "on-start": "bad-command" })).resolves.toBeUndefined();
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("on-start command failed"));
 
+    warnSpy.mockRestore();
     errorSpy.mockRestore();
   });
 });
@@ -3844,5 +3899,47 @@ describe("SE-L3: on-start command is not echoed to stdout (#557)", () => {
       Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, configurable: true });
       logSpy.mockRestore();
     }
+  });
+});
+
+describe("SE-M1 (#595): on-stop command surfaced at launch time", () => {
+  it("prints an informational notice to stderr when on-stop is configured", async () => {
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+    mockReadKVFile.mockReturnValue(new Map([["on-stop", "git stash"]]));
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await launch("/tmp/workspace");
+
+    const allStderr = stderrSpy.mock.calls.map(c => String(c[0])).join("\n");
+    // The notice must mention on-stop and the command
+    expect(allStderr).toMatch(/on-stop/i);
+    expect(allStderr).toContain("git stash");
+
+    stderrSpy.mockRestore();
+    logSpy.mockRestore();
+    errorSpy.mockRestore();
+    warnSpy.mockRestore();
+  });
+
+  it("does not print on-stop notice when on-stop is not configured", async () => {
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+    mockReadKVFile.mockReturnValue(new Map());
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await launch("/tmp/workspace");
+
+    const allStderr = stderrSpy.mock.calls.map(c => String(c[0])).join("\n");
+    expect(allStderr).not.toMatch(/on-stop/i);
+
+    stderrSpy.mockRestore();
+    logSpy.mockRestore();
+    errorSpy.mockRestore();
+    warnSpy.mockRestore();
   });
 });

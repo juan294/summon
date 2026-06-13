@@ -440,6 +440,35 @@ describe("detectAllPorts", () => {
     expect(ports).toEqual([]);
   });
 
+  // BE-H2 (#591): strict numeric port parsing — "3000abc" must be rejected
+  it("BE-H2: rejects port value '3000abc' (parseInt non-strict) from package.json", async () => {
+    const dir = projectDir("proj-nonstrictport");
+    writeFileSync(
+      join(dir, "package.json"),
+      JSON.stringify({
+        scripts: { dev: "vite --port 3000abc" },
+      }),
+    );
+    const ports = await detectProjectPorts("proj-nonstrictport", dir, "active");
+    // "3000abc" must NOT produce port 3000 (strict numeric validation required)
+    expect(ports.some((p) => p.port === 3000)).toBe(false);
+  });
+
+  // BE-H2 (#591): package.json size cap — files over 1MB must be skipped
+  it("BE-H2: skips package.json files larger than 1MB", async () => {
+    const dir = projectDir("proj-bigpkg");
+    // Create a large package.json with a valid port in scripts (should be skipped due to size)
+    const bigContent = JSON.stringify({
+      scripts: { dev: "vite --port 7777" },
+      padding: "x".repeat(1_100_000),
+    });
+    writeFileSync(join(dir, "package.json"), bigContent);
+
+    const ports = await detectProjectPorts("proj-bigpkg", dir, "active");
+    // File is over 1MB so it should be skipped — port 7777 must NOT appear
+    expect(ports.some((p) => p.port === 7777)).toBe(false);
+  });
+
   it("handles mix of conflicting and unique ports", async () => {
     const dirA = projectDir("proj-a");
     const dirB = projectDir("proj-b");
