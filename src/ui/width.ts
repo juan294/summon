@@ -56,3 +56,31 @@ export function getDisplayWidth(s: string): number {
   }
   return width;
 }
+
+/**
+ * Truncate a string to at most `maxLen` display columns, appending "…" if truncated.
+ * Wide characters (CJK, emoji) count as 2 display columns; all others count as 1.
+ * The returned string always fits within `maxLen` display columns.
+ *
+ * This is the single canonical implementation shared by monitor.ts and ui/ansi.ts.
+ */
+export function truncate(str: string, maxLen: number): string {
+  if (maxLen <= 0) return "";
+  if (getDisplayWidth(str) <= maxLen) return str;
+  // Reserve 1 column for the ellipsis "…"
+  const budget = maxLen - 1;
+  let accWidth = 0;
+  let i = 0;
+  let cutAt = 0;
+  while (i < str.length) {
+    const cp = str.codePointAt(i);
+    if (cp === undefined) break;
+    const step = cp > 0xffff ? 2 : 1;
+    const charWidth = isWideCodePoint(cp) ? 2 : 1;
+    if (accWidth + charWidth > budget) break;
+    accWidth += charWidth;
+    cutAt = i + step;
+    i += step;
+  }
+  return str.slice(0, cutAt) + "…";
+}

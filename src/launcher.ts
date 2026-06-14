@@ -19,7 +19,7 @@ import type { WorkspaceStatus } from "./status.js";
 import { generateAppleScript, generateTreeAppleScript, generateFocusScript } from "./script.js";
 import { parseTreeDSL, extractPaneDefinitions, extractPaneCwds, resolveTreeCommands as resolveTreeCmds, buildTreePlan, findPaneByName } from "./tree.js";
 import type { LayoutNode, TreePlanOptions } from "./tree.js";
-import { resolveCommand as resolveCommandPath, getErrorMessage, SUMMON_WORKSPACE_ENV, promptUser, ACCESSIBILITY_SETTINGS_PATH, isDebug } from "./utils.js";
+import { resolveCommand as resolveCommandPath, getErrorMessage, SUMMON_WORKSPACE_ENV, promptUser, ACCESSIBILITY_SETTINGS_PATH, isDebug, supportsColor } from "./utils.js";
 import { ensureGhostty, ensureAccessibility, printAccessibilityHint, confirmDangerousCommands, isAccessibilityError } from "./launch-guards.js";
 import { assertTrusted, assertTrustedContent } from "./trust.js";
 import { parseIntInRange, parsePositiveFloat, ENV_KEY_RE, PROJECT_NAME_RE, sanitizeProjectName } from "./validation.js";
@@ -121,56 +121,93 @@ end tell`;
   }
 }
 
-function executeScript(script: string, targetLabel?: string): void {
-  // FE-M5/UX-M6: progress messages go to stderr so pipelines (e.g. summon export > .summon) are not polluted.
-  // UX-M1 (#600): subtle summoning voice on the main launch progress line.
-  process.stderr.write(`Summoning ${targetLabel ?? "workspace"}…\n`);
-  try {
-    execFileSync("osascript", [], { input: script, encoding: "utf-8", timeout: 30_000 });
-    process.stderr.write("✓ Workspace ready.\n");
-  } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code;
-    if (code === "ETIMEDOUT") {
-      console.error("Ghostty did not respond within 30 seconds. Is Ghostty running?");
-      throw new Error("Ghostty did not respond within 30 seconds. Is Ghostty running?", { cause: err });
-    }
+// --- Spinner helpers (UX-L2 #519) ---
 
-    const message = getErrorMessage(err);
-    console.error(`summon: error: failed to execute workspace script: ${message}`);
+const LAUNCH_SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
 
-    // A verified keystroke failure means NO new tab/window was created — the existing
-    // front window is intact, so DO NOT run the rollback that would close it.
-    if (message.includes("summon-newtab-failed")) {
-      console.error("Ghostty did not open a new tab after multiple attempts.");
-      throw new TabOpenError("Ghostty did not open a new tab.", { cause: err });
-    }
-    if (message.includes("summon-newwindow-failed")) {
-      const m = "Ghostty did not open a new window after multiple attempts.";
-      console.error(m);
-      throw new Error(m, { cause: err });
-    }
+/** Returns true when the spinner should run in static (non-animating) mode.
+ *  Static: NO_COLOR set, SUMMON_NO_SPINNER set, or stdout is not a TTY. */
+export function isStaticLaunchSpinner(): boolean {
+  if (!process.stdout.isTTY) return true;
+  if (process.env["SUMMON_NO_SPINNER"] !== undefined) return true;
+  return !supportsColor();
+}
 
-    // Best-effort rollback: the AppleScript may have opened a window before failing.
-    // Attempt to close it so the user is not left with a stale empty window (BE-S26 #322).
-    // Skip rollback for accessibility errors — osascript couldn't run at all,
-    // so no window was created (BE-M3 #377).
-    if (!isAccessibilityError(message)) {
-      closeWorkspaceWindow();
-    }
-
-    if (isAccessibilityError(message)) {
-      console.error();
-      printAccessibilityHint();
-    } else {
-      console.error();
-      console.error("Is Ghostty running? Also check:");
-      console.error(`  - ${ACCESSIBILITY_SETTINGS_PATH}`);
-      console.error("  - System Settings > Privacy & Security > Automation");
-      console.error();
-      console.error("Tip: Run 'summon doctor' to diagnose issues.");
-    }
-    throw new Error(`Failed to execute workspace script: ${message}`, { cause: err });
+/**
+ * Run `fn` (a synchronous block) with a brief spinner on stdout.
+ * In static mode (non-TTY or NO_COLOR), writes a single labelled line to stdout then runs fn.
+ * In TTY mode, writes an initial spinner frame, runs fn (which may block), then clears.
+ * The label is also written to stderr so pipeline consumers still get progress feedback.
+ */
+export function withLaunchSpinner(label: string, fn: () => void): void {
+  // FE-M5/UX-M6: keep stderr progress so pipelines are not polluted
+  process.stderr.write(`${label}\n`);
+  if (isStaticLaunchSpinner()) {
+    // Static mode: one labelled line to stdout (matches session.ts spinner convention)
+    process.stdout.write(`${label}\n`);
+    fn();
+    return;
   }
+  // Write initial spinner frame to stdout for interactive TTY
+  process.stdout.write(`${LAUNCH_SPINNER_FRAMES[0]} ${label}`);
+  try {
+    fn();
+  } finally {
+    // Clear the spinner line
+    process.stdout.write("\r\x1b[K");
+  }
+}
+
+function executeScript(script: string, targetLabel?: string): void {
+  const label = `Summoning ${targetLabel ?? "workspace"}…`;
+  withLaunchSpinner(label, () => {
+    try {
+      execFileSync("osascript", [], { input: script, encoding: "utf-8", timeout: 30_000 });
+      process.stderr.write("✓ Workspace ready.\n");
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === "ETIMEDOUT") {
+        console.error("Ghostty did not respond within 30 seconds. Is Ghostty running?");
+        throw new Error("Ghostty did not respond within 30 seconds. Is Ghostty running?", { cause: err });
+      }
+
+      const message = getErrorMessage(err);
+      console.error(`summon: error: failed to execute workspace script: ${message}`);
+
+      // A verified keystroke failure means NO new tab/window was created — the existing
+      // front window is intact, so DO NOT run the rollback that would close it.
+      if (message.includes("summon-newtab-failed")) {
+        console.error("Ghostty did not open a new tab after multiple attempts.");
+        throw new TabOpenError("Ghostty did not open a new tab.", { cause: err });
+      }
+      if (message.includes("summon-newwindow-failed")) {
+        const m = "Ghostty did not open a new window after multiple attempts.";
+        console.error(m);
+        throw new Error(m, { cause: err });
+      }
+
+      // Best-effort rollback: the AppleScript may have opened a window before failing.
+      // Attempt to close it so the user is not left with a stale empty window (BE-S26 #322).
+      // Skip rollback for accessibility errors — osascript couldn't run at all,
+      // so no window was created (BE-M3 #377).
+      if (!isAccessibilityError(message)) {
+        closeWorkspaceWindow();
+      }
+
+      if (isAccessibilityError(message)) {
+        console.error();
+        printAccessibilityHint();
+      } else {
+        console.error();
+        console.error("Is Ghostty running? Also check:");
+        console.error(`  - ${ACCESSIBILITY_SETTINGS_PATH}`);
+        console.error("  - System Settings > Privacy & Security > Automation");
+        console.error();
+        console.error("Tip: Run 'summon doctor' to diagnose issues.");
+      }
+      throw new Error(`Failed to execute workspace script: ${message}`, { cause: err });
+    }
+  });
 }
 
 
