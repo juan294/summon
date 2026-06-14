@@ -29,24 +29,16 @@ export function resetConfigCache(): void {
 }
 
 /**
- * Clear the KV file cache, forcing the next read to re-stat and re-read from disk.
+ * Alias for resetConfigCache — kept for backward compatibility (#512 AR-L2).
  * @internal — exported for testing only (#403 BE-L1)
  */
-export function clearKVCache(): void {
-  fileCache.clear();
-  commentStore.clear();
-}
+export const clearKVCache: () => void = resetConfigCache;
 
 /**
- * Clear the project registry cache, forcing the next project lookup to re-read from disk.
+ * Alias for resetConfigCache — kept for backward compatibility (#512 AR-L2).
  * @internal — exported for testing only (#404 BE-L3)
  */
-export function clearProjectCache(): void {
-  // Projects are stored in fileCache keyed by PROJECTS_FILE path.
-  // Clearing the entire KV cache also covers the project registry.
-  fileCache.clear();
-  commentStore.clear();
-}
+export const clearProjectCache: () => void = resetConfigCache;
 
 /**
  * Check if this is a first-run scenario (config file does not exist yet).
@@ -80,23 +72,35 @@ const commentStore = new Map<string, Array<{ line: string; beforeKey: string | n
  * Same parsing logic as readKVFile but operates on a pre-read string.
  * Use this when the file content has already been read (e.g. for TOCTOU prevention).
  */
+const MAX_MALFORMED_WARNINGS = 5;
+
 export function readKVFromString(content: string): Map<string, string> {
   const map = new Map<string, string>();
   const trimmed = content.trim();
   if (!trimmed) return map;
+  let warnCount = 0;
+  let skippedCount = 0;
   for (const line of trimmed.replace(/\r\n?/g, "\n").split("\n")) {
     if (line.trimStart().startsWith("#")) continue;
     const idx = line.indexOf("=");
     if (idx === -1) {
       const trimmedLine = line.trim();
       if (trimmedLine.length > 0) {
-        process.stderr.write("summon: warning: ignored malformed config line: " + trimmedLine + "\n");
+        if (warnCount < MAX_MALFORMED_WARNINGS) {
+          process.stderr.write("summon: warning: ignored malformed config line: " + trimmedLine + "\n");
+          warnCount++;
+        } else {
+          skippedCount++;
+        }
       }
       continue;
     }
     const key = line.slice(0, idx).trim();
     const value = line.slice(idx + 1).trim();
     map.set(key, value);
+  }
+  if (skippedCount > 0) {
+    process.stderr.write("summon: warning: " + skippedCount + " additional malformed config line(s) suppressed\n");
   }
   return map;
 }
@@ -134,9 +138,18 @@ function parseCommentsFromString(content: string): Array<{ line: string; beforeK
   return comments;
 }
 
+const MAX_CONFIG_FILE_BYTES = 1_048_576; // 1 MiB
+
 export function readKVFile(path: string): Map<string, string> {
   let content: string;
   try {
+    const stat = statSync(path);
+    if (stat.size > MAX_CONFIG_FILE_BYTES) {
+      process.stderr.write(
+        `summon: warning: config file too large (${stat.size} bytes), skipping: ${path}\n`,
+      );
+      return new Map<string, string>();
+    }
     content = readFileSync(path, "utf-8");
   } catch (err: unknown) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return new Map<string, string>();
@@ -342,7 +355,7 @@ export function readCustomLayout(name: string): Map<string, string> | null {
 
 export function saveCustomLayout(name: string, entries: Map<string, string>): void {
   mkdirSync(LAYOUTS_DIR, { recursive: true, mode: 0o700 });
-  writeFileSync(layoutPath(name), formatKVLines(entries), { mode: 0o600 });
+  atomicWrite(layoutPath(name), formatKVLines(entries), { mode: 0o600 });
 }
 
 export function deleteCustomLayout(name: string): boolean {
