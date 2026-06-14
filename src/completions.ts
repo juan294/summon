@@ -1,34 +1,165 @@
 import { VALID_KEYS, CLI_FLAGS, BOOLEAN_KEYS, listCustomLayouts } from "./config.js";
 import { getPresetNames } from "./layout.js";
 
+// ---------------------------------------------------------------------------
+// Declarative source-of-truth for subcommands and flags (#444 FE-S2)
+// ---------------------------------------------------------------------------
+
+/** Single subcommand descriptor used by all three shell generators. */
+interface SubcommandSpec {
+  name: string;
+  desc: string;
+}
+
+/** Argument style for a flag that takes a value. */
+type FlagArgKind =
+  | "preset"        // layout preset (dynamic from summon layout list)
+  | "starship"      // starship preset (dynamic from starship CLI)
+  | "shell-toggle"  // "true" or "false"
+  | "value"         // arbitrary value (no completion)
+  | "number"        // numeric value
+  | "command";      // command string
+
+/** Single flag descriptor used by all three shell generators. */
+interface FlagSpec {
+  long: string;               // e.g. "layout" (without --)
+  short?: string;             // e.g. "l" (without -)
+  desc: string;
+  arg?: FlagArgKind;          // if present, flag takes an argument
+  repeatable?: boolean;       // e.g. --env can be specified multiple times
+}
+
+/**
+ * Canonical subcommand list.
+ * Changing this table automatically updates bash, zsh, and fish.
+ */
+const SUBCOMMAND_SPECS: SubcommandSpec[] = [
+  { name: "add",          desc: "Register a project" },
+  { name: "remove",       desc: "Remove a project" },
+  { name: "list",         desc: "List registered projects" },
+  { name: "set",          desc: "Set a config value" },
+  { name: "config",       desc: "Show current config" },
+  { name: "setup",        desc: "Interactive setup wizard" },
+  { name: "completions",  desc: "Generate shell completions" },
+  { name: "doctor",       desc: "Check Ghostty config" },
+  { name: "open",         desc: "Select and launch a project" },
+  { name: "status",       desc: "Show workspace status across all projects" },
+  { name: "switch",       desc: "Switch to an active project" },
+  { name: "snapshot",     desc: "Manage context snapshots" },
+  { name: "briefing",     desc: "Morning briefing across all projects" },
+  { name: "ports",        desc: "Show port assignments across projects" },
+  { name: "export",       desc: "Export config as .summon file" },
+  { name: "freeze",       desc: "Save current config as a reusable layout" },
+  { name: "keybindings",  desc: "Generate Ghostty key table for navigation" },
+  { name: "layout",       desc: "Manage custom layouts" },
+  { name: "session",      desc: "Launch a saved multi-project session" },
+  { name: "trust",        desc: "Trust the .summon file in a directory" },
+];
+
+/**
+ * Canonical flag list.
+ * Long names must match the entries in CLI_FLAGS (from config.ts).
+ * All three shell generators derive their flag completions from this table.
+ */
+const FLAG_SPECS: FlagSpec[] = [
+  { long: "help",              short: "h", desc: "Show help" },
+  { long: "version",           short: "v", desc: "Show version" },
+  { long: "layout",            short: "l", desc: "Layout preset or tree DSL", arg: "preset" },
+  { long: "editor",            short: "e", desc: "Editor command",            arg: "command" },
+  { long: "panes",             short: "p", desc: "Number of editor panes",    arg: "number" },
+  { long: "editor-size",                   desc: "Editor width %",            arg: "number" },
+  { long: "sidebar",           short: "s", desc: "Sidebar command",           arg: "command" },
+  { long: "shell",                         desc: "Shell pane (true, false, or command)", arg: "shell-toggle" },
+  { long: "auto-resize",                   desc: "Enable auto-resize" },
+  { long: "no-auto-resize",                desc: "Disable auto-resize" },
+  { long: "clean",                         desc: "Auto-close stale panes from prior session" },
+  { long: "no-clean",                      desc: "Skip auto-close of restored panes" },
+  { long: "starship-preset",               desc: "Starship prompt preset name", arg: "starship" },
+  { long: "env",                           desc: "Set environment variable (KEY=VALUE)", arg: "value", repeatable: true },
+  { long: "font-size",                     desc: "Font size in points",        arg: "number" },
+  { long: "on-start",                      desc: "Run command before workspace creation", arg: "command" },
+  { long: "new-window",                    desc: "Open in new Ghostty window" },
+  { long: "new-tab",                       desc: "Open in a new Ghostty tab" },
+  { long: "no-project-config",             desc: "Skip loading project-level config file" },
+  { long: "fullscreen",                    desc: "Start in fullscreen mode" },
+  { long: "maximize",                      desc: "Start maximized" },
+  { long: "float",                         desc: "Float window on top" },
+  { long: "dry-run",           short: "n", desc: "Print AppleScript without executing" },
+  { long: "verbose",                       desc: "Show verbose output (e.g. resolved config paths)" },
+  // --once is a subcommand flag (status), included in CLI_FLAGS for bash completion
+  { long: "once",                          desc: "Print status table once and exit" },
+];
+
+// Verify at module load that FLAG_SPECS covers all CLI_FLAGS entries.
+// This is a development-time consistency guard — if CLI_FLAGS gains a new entry,
+// FLAG_SPECS must be updated too (and vice versa).
+/* istanbul ignore next */
+if (process.env["NODE_ENV"] !== "test") {
+  const specLongs = new Set(FLAG_SPECS.map(f => `--${f.long}`));
+  const specShorts = new Set(FLAG_SPECS.filter(f => f.short).map(f => `-${f.short}`));
+  for (const flag of CLI_FLAGS) {
+    if (!specLongs.has(flag) && !specShorts.has(flag)) {
+      process.stderr.write(
+        `summon completions: FLAG_SPECS is missing entry for CLI_FLAGS "${flag}" — update FLAG_SPECS in completions.ts\n`,
+      );
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Shell-specific generators
+// ---------------------------------------------------------------------------
+
 export function generateZshCompletion(): string {
   const configKeys = VALID_KEYS.join(" ");
   const booleanKeyCheck = [...BOOLEAN_KEYS].map(k => `"\\$\{words[2]}" == "${k}"`).join(" || ");
+
+  // Build subcommand list from SUBCOMMAND_SPECS
+  const subcommandLines = SUBCOMMAND_SPECS
+    .map(s => `    '${s.name}:${s.desc}'`)
+    .join("\n");
+
+  // Build _arguments flag entries from FLAG_SPECS.
+  // Flags with a short form use zsh brace-alternation: '(-s --long)'{-s,--long}'[desc]'
+  const argLines = FLAG_SPECS.map(f => {
+    const long = `--${f.long}`;
+
+    if (f.arg === "preset") {
+      if (f.short) {
+        return `    '(-${f.short} ${long})'{-${f.short},${long}}'[${f.desc}]:preset:->layout_preset' \\`;
+      }
+      return `    '${long}[${f.desc}]:preset:->layout_preset' \\`;
+    }
+    if (f.arg === "starship") {
+      return `    '${long}[${f.desc}]:preset:->starship_preset' \\`;
+    }
+    if (f.arg === "shell-toggle") {
+      return `    '${long}[${f.desc}]:value:(true false)' \\`;
+    }
+    if (f.arg === "value") {
+      const rep = f.repeatable ? "*" : "";
+      return `    '${rep}${long}[${f.desc}]:var:' \\`;
+    }
+    if (f.arg === "command" || f.arg === "number") {
+      const argLabel = f.arg === "number" ? "count" : "command";
+      if (f.short) {
+        return `    '(-${f.short} ${long})'{-${f.short},${long}}'[${f.desc}]:${argLabel}:' \\`;
+      }
+      return `    '${long}[${f.desc}]:${argLabel}:' \\`;
+    }
+
+    // Boolean flags (no argument)
+    if (f.short) {
+      return `    '(-${f.short} ${long})'{-${f.short},${long}}'[${f.desc}]' \\`;
+    }
+    return `    '${long}[${f.desc}]' \\`;
+  }).join("\n");
 
   return `#compdef summon
 
 _summon() {
   local -a subcommands=(
-    'add:Register a project'
-    'remove:Remove a project'
-    'list:List registered projects'
-    'set:Set a config value'
-    'config:Show current config'
-    'setup:Interactive setup wizard'
-    'completions:Generate shell completions'
-    'doctor:Check Ghostty config'
-    'open:Select and launch a project'
-    'status:Show workspace status across all projects'
-    'switch:Switch to an active project'
-    'snapshot:Manage context snapshots'
-    'briefing:Morning briefing across all projects'
-    'ports:Show port assignments across projects'
-    'export:Export config as .summon file'
-    'freeze:Save current config as a reusable layout'
-    'keybindings:Generate Ghostty key table for navigation'
-    'layout:Manage custom layouts'
-    'session:Launch a saved multi-project session'
-    'trust:Trust the .summon file in a directory'
+${subcommandLines}
   )
 
   local -a config_keys=(${configKeys})
@@ -47,30 +178,7 @@ _summon() {
   fi
 
   _arguments -C \\
-    '(-h --help)'{-h,--help}'[Show help]' \\
-    '(-v --version)'{-v,--version}'[Show version]' \\
-    '(-l --layout)'{-l,--layout}'[Layout preset]:preset:->layout_preset' \\
-    '(-e --editor)'{-e,--editor}'[Editor command]:command:' \\
-    '(-p --panes)'{-p,--panes}'[Editor panes]:count:' \\
-    '--editor-size[Editor width %]:percent:' \\
-    '(-s --sidebar)'{-s,--sidebar}'[Sidebar command]:command:' \\
-    '--shell[Shell pane]:value:(true false)' \\
-    '--auto-resize[Enable auto-resize]' \\
-    '--no-auto-resize[Disable auto-resize]' \\
-    '--clean[Auto-close stale panes from prior session]' \\
-    '--no-clean[Skip auto-close of restored panes]' \\
-    '--starship-preset[Starship preset]:preset:->starship_preset' \\
-    '*--env[Set environment variable]:var:' \\
-    '--font-size[Font size in points]:size:' \\
-    '--on-start[Run command before workspace creation]:command:' \\
-    '--new-window[Open in new Ghostty window]' \\
-    '--new-tab[Open in a new Ghostty tab]' \\
-    '--no-project-config[Skip loading project-level config file]' \\
-    '--verbose[Show verbose output (e.g. resolved config paths)]' \\
-    '--fullscreen[Start in fullscreen mode]' \\
-    '--maximize[Start maximized]' \\
-    '--float[Float window on top]' \\
-    '(-n --dry-run)'{-n,--dry-run}'[Dry run]' \\
+${argLines}
     '1: :->cmd' \\
     '*::arg:->args'
 
@@ -183,6 +291,9 @@ export function generateBashCompletion(): string {
   const flagsList = CLI_FLAGS.join(" ");
   const booleanKeyCheck = [...BOOLEAN_KEYS].map(k => `"\\$\{words[2]}" == "${k}"`).join(" || ");
 
+  // Build subcommand string from SUBCOMMAND_SPECS
+  const subcommandList = SUBCOMMAND_SPECS.map(s => s.name).join(" ");
+
   return `_summon() {
   local cur prev words cword
   if type _init_completion &>/dev/null; then
@@ -193,7 +304,7 @@ export function generateBashCompletion(): string {
     local prev="\${COMP_WORDS[COMP_CWORD-1]}"
   fi
 
-  local subcommands="add remove list set config setup completions doctor open status switch snapshot briefing ports export freeze keybindings layout session trust"
+  local subcommands="${subcommandList}"
   local config_keys="${configKeys}"
   local layout_presets
   layout_presets=$(summon layout list --names 2>/dev/null)
@@ -314,31 +425,20 @@ export function generateFishCompletion(): string {
   const allLayouts = [...getPresetNames(), ...customLayouts];
   const configKeys = VALID_KEYS.join(" ");
 
-  const subcommands: Array<[string, string]> = [
-    ["add", "Register a project"],
-    ["remove", "Remove a project"],
-    ["list", "List registered projects"],
-    ["set", "Set a config value"],
-    ["config", "Show current config"],
-    ["setup", "Interactive setup wizard"],
-    ["completions", "Generate shell completions"],
-    ["doctor", "Check Ghostty config"],
-    ["open", "Select and launch a project"],
-    ["status", "Show workspace status across all projects"],
-    ["switch", "Switch to an active project"],
-    ["snapshot", "Manage context snapshots"],
-    ["briefing", "Morning briefing across all projects"],
-    ["ports", "Show port assignments across projects"],
-    ["export", "Export config as .summon file"],
-    ["freeze", "Save current config as a reusable layout"],
-    ["keybindings", "Generate Ghostty key table for navigation"],
-    ["layout", "Manage custom layouts"],
-    ["session", "Launch a saved multi-project session"],
-    ["trust", "Trust the .summon file in a directory"],
-  ];
+  // Build subcommand completion lines from SUBCOMMAND_SPECS
+  const subcommandLines = SUBCOMMAND_SPECS
+    .map(s => `complete -c summon -n '__fish_use_subcommand' -a '${s.name}' -d '${s.desc}'`)
+    .join("\n");
 
-  const subcommandLines = subcommands
-    .map(([name, desc]) => `complete -c summon -n '__fish_use_subcommand' -a '${name}' -d '${desc}'`)
+  // Build flag completion lines from FLAG_SPECS
+  // --once is a status-specific flag — rendered with subcommand guard, not as a global flag.
+  // --layout is rendered separately with preset values appended, so skip it here.
+  const globalFlagLines = FLAG_SPECS
+    .filter(f => f.long !== "once" && f.long !== "layout")
+    .map(f => {
+      const short = f.short ? ` -s ${f.short}` : "";
+      return `complete -c summon -l ${f.long}${short} -d '${f.desc}'`;
+    })
     .join("\n");
 
   const layoutPresets = allLayouts.join(" ");
@@ -347,30 +447,8 @@ export function generateFishCompletion(): string {
 # Setup: eval (summon completions fish | psub)
 complete -c summon -f
 ${subcommandLines}
-complete -c summon -l help -s h -d 'Show help'
-complete -c summon -l version -s v -d 'Show version'
+${globalFlagLines}
 complete -c summon -l layout -s l -d 'Layout preset or tree DSL' -a '${layoutPresets}'
-complete -c summon -l editor -s e -d 'Editor command'
-complete -c summon -l panes -s p -d 'Number of editor panes'
-complete -c summon -l editor-size -d 'Editor width %'
-complete -c summon -l sidebar -s s -d 'Sidebar command'
-complete -c summon -l shell -d 'Shell pane (true, false, or command)'
-complete -c summon -l auto-resize -d 'Enable auto-resize'
-complete -c summon -l no-auto-resize -d 'Disable auto-resize'
-complete -c summon -l clean -d 'Auto-close stale panes from prior session'
-complete -c summon -l no-clean -d 'Skip auto-close of restored panes'
-complete -c summon -l starship-preset -d 'Starship prompt preset name'
-complete -c summon -l env -d 'Set environment variable (KEY=VALUE)'
-complete -c summon -l font-size -d 'Font size in points'
-complete -c summon -l on-start -d 'Run command before workspace creation'
-complete -c summon -l new-window -d 'Open in new Ghostty window'
-complete -c summon -l new-tab -d 'Open in a new Ghostty tab'
-complete -c summon -l no-project-config -d 'Skip loading project-level config file'
-complete -c summon -l fullscreen -d 'Start in fullscreen mode'
-complete -c summon -l maximize -d 'Start maximized'
-complete -c summon -l float -d 'Float window on top'
-complete -c summon -l dry-run -s n -d 'Print AppleScript without executing'
-complete -c summon -l verbose -d 'Show verbose output (e.g. resolved config paths)'
 complete -c summon -n '__fish_seen_subcommand_from status' -l once -d 'Print status table once and exit'
 complete -c summon -n '__fish_seen_subcommand_from set' -n '__fish_is_nth_token 2' -a '${configKeys}' -d 'Config key'
 complete -c summon -n '__fish_seen_subcommand_from session' -n 'not __fish_seen_subcommand_from add remove list show' -a 'add remove list show' -d 'Session action'
