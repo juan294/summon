@@ -1106,4 +1106,102 @@ describe("gitOutputSync (AR-M1 #603)", () => {
     mockExecFileSync.mockImplementationOnce(() => { throw new Error("fatal: not a git repo"); });
     expect(() => gitOutputSync("/not/a/repo", ["rev-parse", "HEAD"])).toThrow("fatal: not a git repo");
   });
+
+  // BE-L3 #619: killSignal: "SIGKILL" so a git that ignores SIGTERM on timeout is force-reaped
+  it("passes killSignal SIGKILL to execFileSync (BE-L3 #619)", () => {
+    mockExecFileSync.mockReturnValueOnce("abc\n");
+    gitOutputSync("/my/repo", ["log", "--oneline"]);
+    expect(mockExecFileSync).toHaveBeenCalledWith(
+      "git",
+      expect.any(Array),
+      expect.objectContaining({ killSignal: "SIGKILL" }),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SE-L4 #574: atomicWrite default mode 0o600
+// ---------------------------------------------------------------------------
+
+describe("atomicWrite default mode (SE-L4 #574)", () => {
+  let realFs: typeof import("node:fs");
+
+  beforeAll(async () => {
+    realFs = await vi.importActual<typeof import("node:fs")>("node:fs");
+  });
+
+  const testDir2 = join(tmpdir(), `summon-atomicWrite-mode-test-${process.pid}`);
+
+  beforeEach(() => {
+    realFs.mkdirSync(testDir2, { recursive: true });
+  });
+
+  afterEach(() => {
+    // Clean up all files in the test dir
+    try {
+      for (const f of realFs.readdirSync(testDir2)) {
+        try { realFs.unlinkSync(join(testDir2, f)); } catch { /* ok */ }
+      }
+    } catch { /* ok */ }
+  });
+
+  it("produces a file with mode 0o600 when no options are passed (SE-L4 #574)", () => {
+    const targetPath = join(testDir2, `mode-default-${Date.now()}.json`);
+    atomicWrite(targetPath, "{}");
+    const stat = realFs.statSync(targetPath);
+    // Mask off the file-type bits (keep only the permission bits)
+    const perms = stat.mode & 0o777;
+    expect(perms).toBe(0o600);
+  });
+
+  it("produces a file with mode 0o600 when options is explicitly undefined (SE-L4 #574)", () => {
+    const targetPath = join(testDir2, `mode-undefined-${Date.now()}.json`);
+    atomicWrite(targetPath, "{}", undefined);
+    const stat = realFs.statSync(targetPath);
+    const perms = stat.mode & 0o777;
+    expect(perms).toBe(0o600);
+  });
+
+  it("honours an explicit mode when provided (SE-L4 #574)", () => {
+    const targetPath = join(testDir2, `mode-explicit-${Date.now()}.json`);
+    atomicWrite(targetPath, "{}", { mode: 0o644 });
+    const stat = realFs.statSync(targetPath);
+    const perms = stat.mode & 0o777;
+    expect(perms).toBe(0o644);
+  });
+
+  it("honours a numeric mode passed directly (SE-L4 #574)", () => {
+    const targetPath = join(testDir2, `mode-numeric-${Date.now()}.json`);
+    // writeFileSync accepts a numeric mode in the options object shape too
+    atomicWrite(targetPath, "{}", { mode: 0o600 });
+    const stat = realFs.statSync(targetPath);
+    const perms = stat.mode & 0o777;
+    expect(perms).toBe(0o600);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// BE-L3 #619: gitOutput killSignal SIGKILL
+// ---------------------------------------------------------------------------
+
+describe("gitOutput killSignal (BE-L3 #619)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockExecFileSync.mockImplementation(() => "/usr/bin/stub\n");
+    mockExecFileAsync.reset();
+    resetGitOutputCache();
+  });
+
+  it("passes killSignal SIGKILL in options to execFile (BE-L3 #619)", async () => {
+    let capturedOpts: Record<string, unknown> | null = null;
+    const origImpl = _mockExecFileAsyncImpl;
+    _mockExecFileAsyncImpl = async (...args: unknown[]) => {
+      capturedOpts = args[2] as Record<string, unknown>;
+      return { stdout: "abc\n", stderr: "" };
+    };
+    await gitOutput("/my/repo", ["log", "--oneline"]);
+    _mockExecFileAsyncImpl = origImpl;
+    expect(capturedOpts).not.toBeNull();
+    expect(capturedOpts!["killSignal"]).toBe("SIGKILL");
+  });
 });
