@@ -4,12 +4,16 @@ import { isPresetName } from "./layout.js";
 import { CONFIG_DIR, LAYOUTS_DIR } from "./paths.js";
 import { PROJECT_NAME_RE as STRICT_PROJECT_NAME_RE } from "./validation.js";
 import { atomicWrite } from "./utils.js";
+import { getCachedKV, putCachedKV, invalidateCachedKV, resetPersistentCache } from "./cache.js";
 
 // Re-export path constants for backward compatibility
 export { CONFIG_DIR, LAYOUTS_DIR, STATUS_DIR, SNAPSHOTS_DIR } from "./paths.js";
 
 const PROJECTS_FILE = join(CONFIG_DIR, "projects");
 const CONFIG_FILE = join(CONFIG_DIR, "config");
+
+/** Files eligible for the persistent cross-invocation cache (machine config + registry). */
+const PERSISTENT_CACHE_PATHS = new Set([CONFIG_FILE, PROJECTS_FILE]);
 
 let configEnsured = false;
 
@@ -26,6 +30,7 @@ export function resetConfigCache(): void {
   configEnsured = false;
   fileCache.clear();
   commentStore.clear();
+  resetPersistentCache();
 }
 
 /**
@@ -162,21 +167,41 @@ export function readKVFile(path: string): Map<string, string> {
 
 function readKVCached(file: string): Map<string, string> {
   let mtime: number;
+  let size: number;
   try {
-    mtime = statSync(file).mtimeMs;
+    const st = statSync(file);
+    mtime = st.mtimeMs;
+    size = st.size;
   } catch {
     // File doesn't exist — bypass cache, let readKVFile handle it
     fileCache.delete(file);
     return readKVFile(file);
   }
 
+  // Check in-process cache first (fastest)
   const cached = fileCache.get(file);
   if (cached !== undefined && cached.mtime === mtime) {
     return cached.data;
   }
 
+  // Check persistent cross-invocation cache for eligible files (#516 / #330)
+  if (PERSISTENT_CACHE_PATHS.has(file)) {
+    const persisted = getCachedKV(file, mtime, size);
+    if (persisted !== null) {
+      // Populate in-process cache so repeated reads in this invocation are free
+      fileCache.set(file, { mtime, data: persisted });
+      return persisted;
+    }
+  }
+
   const data = readKVFile(file);
   fileCache.set(file, { mtime, data });
+
+  // Populate persistent cache for eligible files
+  if (PERSISTENT_CACHE_PATHS.has(file)) {
+    putCachedKV(file, data, mtime, size);
+  }
+
   return data;
 }
 
@@ -239,8 +264,9 @@ function writeKV(file: string, map: Map<string, string>): void {
     : formatKVLines(map);
   // Atomic write: write to .tmp then rename (BE-M3 #492)
   atomicWrite(file, content, { mode: 0o600 });
-  // Invalidate cache after write so subsequent reads see fresh data
+  // Invalidate caches after write so subsequent reads see fresh data
   fileCache.delete(file);
+  invalidateCachedKV(file);
   // Update comment store to reflect what was actually written
   commentStore.set(file, parseCommentsFromString(content));
 }

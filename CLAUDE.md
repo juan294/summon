@@ -183,7 +183,7 @@ primary injection defense. See src/shell-escape.ts for the escape functions it p
 ## Known Architectural Debt
 
 - **PE-S1**: `setup.ts` compiles to ~20KB chunk. Further code splitting (lazy imports for gallery/builder) could reduce cold-start cost. Tracked in #329.
-- **PE-S2**: Config reads are now mtime-memoized within a single invocation (implemented in WU-E). A persistent cross-invocation cache (e.g., `~/.config/summon/cache.json` surviving between CLI runs) would further reduce cold-start disk I/O. Tracked in #330.
+- **PE-S2**: Implemented in #516/#330. A persistent cross-invocation cache at `~/.config/summon/cache.json` keyed on absolute path + mtimeMs + size accelerates machine config and project registry reads across CLI invocations. Opt-out: `SUMMON_NO_CACHE=1`.
 
 ## Schema Migrations
 
