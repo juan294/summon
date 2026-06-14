@@ -136,7 +136,17 @@ export function parseWorkspaceStatus(raw: unknown): WorkspaceStatus | null {
     ? rawPanes as string[]
     : [];
 
-  return { ...(raw as WorkspaceStatus), panes: validPanes };
+  // BE-L3 #514: reconstruct explicitly from validated fields — no unknown keys leak through
+  return {
+    project: d["project"] as string,
+    directory: d["directory"] as string,
+    pid: d["pid"] as number,
+    startedAt: d["startedAt"] as string,
+    layout: d["layout"] as string,
+    panes: validPanes,
+    source: "summon",
+    version: 1,
+  };
 }
 
 export function readStatus(projectName: string): ResolvedStatus | null {
@@ -172,14 +182,40 @@ export function readStatus(projectName: string): ResolvedStatus | null {
   };
 }
 
-// PE-M1 #607: short-TTL in-process memo keyed by STATUS_DIR mtime.
-// NOTE (PE-M1 #607): a dir-mtime memo was prototyped here but reverted — the
-// monitor's only repeat caller relies on liveness (isPidAlive), and a process
-// dying without a file change does not advance the dir mtime, so a cache would
-// surface stale "active" rows. Re-reads are cheap; correctness wins. #607 stays
-// open for a future bounded-TTL design that doesn't compromise liveness.
+// PE-M1 #607 / PE-L3 #570: bounded-TTL in-process cache for readAllStatuses.
+// TTL is intentionally short (1000ms) so the monitor's 3-second refresh loop
+// still re-checks isPidAlive for any process that died between ticks WITHOUT a
+// file-system change. The previous dir-mtime cache was reverted because directory
+// mtime does not advance on process death — a process dying silently would remain
+// "active" indefinitely. A wall-clock TTL avoids that flaw while still coalescing
+// bursts of calls within the same render cycle. After TTL, a full re-scan runs.
+const READ_ALL_STATUSES_TTL_MS = 1000;
+
+interface StatusCache {
+  result: ResolvedStatus[];
+  cachedAt: number;
+}
+
+let _statusCache: StatusCache | null = null;
+
+/** Clear the readAllStatuses cache. Exposed for tests; also useful for CLI commands
+ *  that need a fresh read immediately after a write. */
+export function resetReadAllStatusesCache(): void {
+  _statusCache = null;
+}
+
 export function readAllStatuses(): ResolvedStatus[] {
-  if (!existsSync(STATUS_DIR)) return [];
+  const now = Date.now();
+
+  // Return cached result if within TTL
+  if (_statusCache !== null && now - _statusCache.cachedAt < READ_ALL_STATUSES_TTL_MS) {
+    return _statusCache.result;
+  }
+
+  if (!existsSync(STATUS_DIR)) {
+    _statusCache = { result: [], cachedAt: now };
+    return _statusCache.result;
+  }
 
   // BE-M4 #605: filter out .tmp and dotfiles so orphans never appear as phantom entries
   const files = readdirSync(STATUS_DIR).filter(
@@ -194,11 +230,14 @@ export function readAllStatuses(): ResolvedStatus[] {
   }
 
   // Sort: active first (newest first), then stopped (newest first)
-  return statuses.sort((a, b) => {
+  const result = statuses.sort((a, b) => {
     if (a.state === "active" && b.state !== "active") return -1;
     if (a.state !== "active" && b.state === "active") return 1;
     return Date.parse(b.startedAt) - Date.parse(a.startedAt);
   });
+
+  _statusCache = { result, cachedAt: now };
+  return result;
 }
 
 // --- Git ---

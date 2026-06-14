@@ -13,7 +13,7 @@ vi.mock("./paths.js", () => ({
   CONFIG_DIR: join(tmpdir(), `summon-config-test-${process.pid}`),
 }));
 
-const { writeStatus, clearStatus, readStatus, readAllStatuses, getGitBranch, parseWorkspaceStatus } = await import("./status.js");
+const { writeStatus, clearStatus, readStatus, readAllStatuses, getGitBranch, parseWorkspaceStatus, resetReadAllStatusesCache } = await import("./status.js");
 import type { WorkspaceStatus } from "./status.js";
 
 function makeStatus(overrides?: Partial<WorkspaceStatus>): WorkspaceStatus {
@@ -32,10 +32,12 @@ function makeStatus(overrides?: Partial<WorkspaceStatus>): WorkspaceStatus {
 
 beforeEach(() => {
   rmSync(TEST_STATUS_DIR, { recursive: true, force: true });
+  resetReadAllStatusesCache();
 });
 
 afterEach(() => {
   rmSync(TEST_STATUS_DIR, { recursive: true, force: true });
+  resetReadAllStatusesCache();
 });
 
 describe("writeStatus", () => {
@@ -546,5 +548,119 @@ describe("writeStatus atomic write (BE-M3 #492)", () => {
     const content = readFileSync(filePath, "utf-8");
     expect(content.length).toBeGreaterThan(0);
     expect(() => JSON.parse(content)).not.toThrow();
+  });
+});
+
+// BE-L3 #514: parseWorkspaceStatus must not leak unknown keys via spread
+describe("parseWorkspaceStatus explicit field reconstruction (#514 BE-L3)", () => {
+  it("does not include unknown extra keys from raw input on the result", () => {
+    const raw = {
+      version: 1 as const,
+      source: "summon" as const,
+      project: "testapp",
+      directory: "/tmp/testapp",
+      pid: 1234,
+      startedAt: new Date().toISOString(),
+      layout: "full",
+      panes: ["editor"],
+      // extra keys that should NOT appear on the result
+      unexpectedField: "should-not-leak",
+      anotherBadKey: 42,
+    };
+    const result = parseWorkspaceStatus(raw);
+    expect(result).not.toBeNull();
+    expect(result!.project).toBe("testapp");
+    expect(result!.panes).toEqual(["editor"]);
+    // Unknown keys must not be present on the reconstructed object
+    expect("unexpectedField" in result!).toBe(false);
+    expect("anotherBadKey" in result!).toBe(false);
+  });
+
+  it("preserves all valid fields exactly", () => {
+    const startedAt = new Date().toISOString();
+    const raw = {
+      version: 1 as const,
+      source: "summon" as const,
+      project: "myapp",
+      directory: "/home/user/myapp",
+      pid: 5678,
+      startedAt,
+      layout: "triple",
+      panes: ["alpha", "beta", "gamma"],
+    };
+    const result = parseWorkspaceStatus(raw);
+    expect(result).not.toBeNull();
+    expect(result!.project).toBe("myapp");
+    expect(result!.directory).toBe("/home/user/myapp");
+    expect(result!.pid).toBe(5678);
+    expect(result!.startedAt).toBe(startedAt);
+    expect(result!.layout).toBe("triple");
+    expect(result!.panes).toEqual(["alpha", "beta", "gamma"]);
+    expect(result!.source).toBe("summon");
+    expect(result!.version).toBe(1);
+  });
+});
+
+// PE-M1 #607 / PE-L3 #570: bounded-TTL cache for readAllStatuses
+describe("readAllStatuses TTL cache (PE-M1 #607, PE-L3 #570)", () => {
+  it("hits cache on second call within TTL: new file written between calls is not visible", () => {
+    resetReadAllStatusesCache();
+    writeStatus(makeStatus({ project: "first-proj" }));
+
+    const first = readAllStatuses();
+    expect(first).toHaveLength(1);
+
+    // Write a second file — within TTL, the cache should still return the old snapshot
+    writeStatus(makeStatus({ project: "second-proj" }));
+    const second = readAllStatuses();
+
+    // Still 1 because the cache has not expired
+    expect(second).toHaveLength(1);
+    expect(second).toEqual(first);
+  });
+
+  it("re-scans after TTL elapses and detects a newly dead pid", () => {
+    vi.useFakeTimers();
+    resetReadAllStatusesCache();
+
+    writeStatus(makeStatus({ project: "dying-app" }));
+    writeFileSync(join(TEST_STATUS_DIR, "dying-app.pid"), String(process.pid));
+    writeFileSync(join(TEST_STATUS_DIR, "dying-app.active"), "");
+
+    // First call: should see "active" (pid is alive)
+    const first = readAllStatuses();
+    expect(first[0]!.state).toBe("active");
+
+    // Simulate pid death: remove the .active marker (as if shell bootstrap cleanup ran)
+    rmSync(join(TEST_STATUS_DIR, "dying-app.active"), { force: true });
+
+    // Still within TTL: second call should return cached "active"
+    const withinTTL = readAllStatuses();
+    expect(withinTTL[0]!.state).toBe("active");
+
+    // Advance past TTL (1001ms > 1000ms TTL)
+    vi.advanceTimersByTime(1001);
+
+    // Third call: cache expired, re-scan detects stopped
+    const afterTTL = readAllStatuses();
+    expect(afterTTL[0]!.state).toBe("stopped");
+
+    vi.useRealTimers();
+  });
+
+  it("resetReadAllStatusesCache clears the cache so next call re-scans immediately", () => {
+    resetReadAllStatusesCache();
+    writeStatus(makeStatus({ project: "reset-proj" }));
+
+    const first = readAllStatuses();
+    expect(first).toHaveLength(1);
+
+    // Write a second file, then reset the cache
+    writeStatus(makeStatus({ project: "reset-proj-2" }));
+    resetReadAllStatusesCache();
+
+    // After reset, the new file should be visible immediately
+    const second = readAllStatuses();
+    expect(second).toHaveLength(2);
   });
 });
