@@ -5,6 +5,58 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0] - 2026-06-14
+
+### Added
+
+- **Persistent cross-invocation config cache.** A `~/.config/summon/cache.json` file now caches machine config and the project registry across CLI invocations. Entries are keyed by absolute path + `mtimeMs` + `size`, so any external edit is a cache miss and is re-read; the cache is written atomically (mode `0o600`) and silently ignored if corrupt. Set `SUMMON_NO_CACHE=1` to disable it entirely. (#516, #330)
+- **`summon doctor --verbose`** prints a full diagnostic context — summon version, Node.js version, config directory, Ghostty path, accessibility status, and the trust database path with trusted-project count — without needing `SUMMON_DEBUG=1`. (#502)
+- **`summon ports` positive confirmation.** When ports are detected and none conflict, `summon ports` now prints `✓ No port conflicts` instead of returning silently. (#442)
+- **Recoverable session tab failures.** A new `TabOpenError` lets `summon session --all` warn and continue with the remaining projects when Ghostty fails to open a tab for one project, instead of aborting the entire run. (#518)
+- **`--no-project-config` and `trust <path>` in zsh completions**, and **`fish` completions fully wired** through the dispatcher (`summon completions fish` now emits a valid script; bash/zsh suggestions list `fish` as a target). (#444, #527, #539)
+- **Layout-builder numbered quick-pick.** The pane-command prompt in `summon layout create` lists detected tools by number — type `1`, `2`, … to pick without retyping; `c` opens free-text; Enter defaults to `shell`.
+- **`summon open` cancel.** Entering `0` at the open picker prints `Cancelled.` and exits 0. (#475)
+- **First-run setup continues to launch.** After the first-run wizard completes, `summon <directory>` proceeds to open the workspace without a second invocation. (#476)
+- **Setup wizard back-navigation** on the Editor and Sidebar steps (`b`/`0`), with the misleading back hint removed from step 1. (#482, #483)
+- **`--vim`/`--fix` misuse warnings**, `switch` shown as an alias of `open` in `--help`, and a `Docs & more` repo link in the help footer. (#621, #452, #518)
+
+### Changed
+
+- **Dangerous-command confirmation now defaults to _no_.** The shell-metacharacter prompt changed from `[Y/n/s]` to `[y/N/s]`; pressing Enter without typing now **aborts** the launch instead of proceeding. Scripts that relied on enter-to-confirm must now send an explicit `y`. (#528)
+- **`on-start` failure is non-fatal.** A failing `--on-start` command now warns and continues launching the workspace instead of aborting, so pre-flight checks can fail gracefully. (#594)
+- **`--new-window` and `--new-tab` are mutually exclusive** — passing both now produces a clean usage error at parse time. (#525)
+- **Unified error output.** All user-facing errors now flow through a single writer emitting a consistent `summon: error: <msg>` prefix (red `✗` when color is enabled), replacing the previous mix of `Error:` / bare / inconsistent prefixes. (#568, #598, #600, #601, #602)
+- **Trust errors include the real project path.** Untrusted `.summon` errors now print `Run 'summon trust <resolved-path>'` instead of `summon trust .`, which is correct when launching a project by name from another directory. (#590)
+- **`env.*` config keys no longer warn.** `summon config` no longer prints `unknown config key: env.API_URL` for valid `env.*` entries; conversely, invalid `env.*` key names in machine config now emit a warning instead of being silently dropped. (#618)
+- **Verified new-tab/new-window creation.** The generated AppleScript now snapshots the tab/window count, retries the `Cmd+T`/`Cmd+N` keystroke up to N times, and raises a named error if it never takes effect — eliminating the silent wrong-tab binding when Ghostty drops a keystroke. `session --all` also adds a 200ms inter-launch delay. (#543, #544, #518)
+- **Config robustness.** Hand-authored `# comment` lines are preserved across writes; inline `# note` text in values is no longer stripped (values round-trip verbatim); malformed-line warnings are capped at 5 with a suppressed-count summary; config files over 1 MiB are skipped with a warning. (#494, #533, #620)
+- **Snapshot/session names are validated** against path traversal before any filesystem access, and reserved names are rejected cleanly. (#531, #532)
+- **Atomic writes hardened.** Temp files use a unique `<pid>.<rand>.tmp` suffix (no concurrent-write races during `session --all`) and default to mode `0o600`. (#524, #574)
+- **Status monitor accessibility.** Long-running workspaces (>4h) show `active*` so they are distinguishable without color; the help-overlay legend shows glyph markers alongside colors; a too-narrow terminal shows a `widen to ≥N cols` hint instead of a broken grid. (#599, #616)
+- **Spinners degrade gracefully.** Launch and `session` spinners print a single static label under `NO_COLOR`, `SUMMON_NO_SPINNER`, or a non-TTY stdout instead of animating. (#615, #519)
+- **Wider `.summon` env denylist.** Command-carrying variables (`GIT_SSH_COMMAND`, `GIT_EXTERNAL_DIFF`, `GIT_PAGER`, `PAGER`, `EDITOR`, `VISUAL`, `GIT_EDITOR`) are now denylisted, and a pane `cwd` that escapes the project directory is rejected at config-resolution time. (#609, #593)
+- **CJK/wide-character-safe truncation** in `status`, `ports`, and `briefing` columns (Japanese/Chinese/Korean names and emoji no longer break alignment). (#505)
+- **Cleaner interrupts and `doctor --fix`.** Ctrl+C during any wizard exits cleanly instead of printing a stack trace, and `doctor --fix` now reflects applied settings within the same invocation.
+- **`--clean` prelude is skipped for `--new-window`**, so opening a new window no longer closes panes in an unrelated existing session. (#496)
+
+### Fixed
+
+- **Liveness-safe status cache.** The status-directory cache was replaced with a 1000ms wall-clock TTL, so a process that dies without touching the status directory is no longer reported "active" indefinitely. (#607, #570)
+- **Trust symlink normalization.** `isTrusted`/`assertTrusted`/`assertTrustedContent` now resolve real paths, fixing macOS `/tmp` → `/private/tmp` mismatches that forced spurious re-trusting. (#471, #590)
+- **Trust fails closed** on non-`ENOENT` read errors and warns (with path + reason) on a corrupt `trust.json` instead of silently treating projects as untrusted. (#493, #495)
+- **Stricter port parsing.** Malformed ports like `3000abc` are rejected instead of being silently truncated, and oversized `package.json` files are skipped during port detection. (#591)
+- **Phantom entries filtered.** Orphaned `.tmp` files and dotfiles (e.g. `.DS_Store`) no longer appear in `layout list`, `session list`, or `status`; failed renames clean up their temp file. (#605)
+- **Newer-schema warnings** for status and snapshot files are now printed to stderr instead of the record being silently dropped. (#606, #514)
+- **Setup wizard fixes:** 256-color `colorSwatch` fallback, corrected monitor color legend, restored overlay terminal state, and preview width snapshotted at construction so a mid-wizard resize no longer scrambles output. (#550, #529, #580, #581, #582, #589, #612)
+
+### Performance
+
+- **Zero-import `--version` / `--help` fast path.** A pre-import guard handles single-token `--version`/`-v` before any module loads; `--help` skips config, trust, and utils. Only subcommand/launch paths load the full import graph. (#569)
+- **Bounded-pool git collection.** `status`, `briefing`, and `monitor` collect git data via a work-stealing concurrency limiter (`runPool`, `IO_CONCURRENCY`) instead of unbounded `Promise.all` or serial loops. (#603, #617)
+- **Fewer syscalls in `ports`.** Framework-config detection replaced up to 24 `fs.access()` probes per project with a single `readdir`. (#442)
+- **Monitor render efficiency.** The refresh loop skips the terminal write when a frame is identical to the previous one, and reuses prefetched git branches instead of triggering a second status rescan.
+- **Force-reaped git timeouts.** `gitOutput`/`gitOutputSync` use `killSignal: "SIGKILL"` so a git process that ignores `SIGTERM` is still cleaned up at the 5s timeout. (#619)
+
 ## [1.7.0] - 2026-06-10
 
 ### Added
@@ -49,6 +101,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - npm tarball verification now asserts `README.md` and `LICENSE` are present in the published package.
 - CHANGELOG/version/tag consistency check moved to the first step of the publish job (before `pnpm install`) to fail fast on mismatches.
 - Added `SUMMON_E2E=1` job to CI that runs the AppleScript syntax E2E suite on `macos-latest`.
+
+### Fixed
+
+- `summon session --all` no longer silently builds a project's workspace on top of the previous project's tab. New-tab and new-window creation now anchor the target window, verify the tab/window actually opened (retrying a dropped keystroke up to 2 times and polling for up to 0.6s per attempt), and a project whose tab cannot be opened is reported and skipped instead of disappearing. A 200ms inter-launch delay is added between projects to reduce cross-process keystroke contention.
 
 ## [1.6.0] - 2026-06-04
 
@@ -720,7 +776,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CodeQL security scanning
 - Dependabot for npm and GitHub Actions
 
-[Unreleased]: https://github.com/juan294/summon/compare/v1.7.0...develop
+[Unreleased]: https://github.com/juan294/summon/compare/v1.8.0...develop
+[1.8.0]: https://github.com/juan294/summon/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/juan294/summon/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/juan294/summon/compare/v1.5.2...v1.6.0
 [1.5.2]: https://github.com/juan294/summon/compare/v1.5.1...v1.5.2

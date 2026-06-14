@@ -21,7 +21,10 @@ export function sessionPath(name: string): string {
 
 export function listSessions(): string[] {
   if (!existsSync(SESSIONS_DIR)) return [];
-  return readdirSync(SESSIONS_DIR).sort();
+  // BE-M4 #605: filter out orphaned .tmp files and dotfiles so they never appear as phantom entries
+  return readdirSync(SESSIONS_DIR)
+    .filter(f => !f.startsWith(".") && !f.endsWith(".tmp"))
+    .sort();
 }
 
 export function readSession(name: string): string[] | null {

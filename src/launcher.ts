@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { basename, join, resolve, sep } from "node:path";
 import { execFileSync, execSync } from "node:child_process";
 import {
   planLayout,
@@ -18,8 +18,9 @@ import { writeStatus } from "./status.js";
 import type { WorkspaceStatus } from "./status.js";
 import { generateAppleScript, generateTreeAppleScript, generateFocusScript } from "./script.js";
 import { parseTreeDSL, extractPaneDefinitions, extractPaneCwds, resolveTreeCommands as resolveTreeCmds, buildTreePlan, findPaneByName } from "./tree.js";
-import type { LayoutNode } from "./tree.js";
-import { resolveCommand as resolveCommandPath, getErrorMessage, SUMMON_WORKSPACE_ENV, promptUser, ACCESSIBILITY_SETTINGS_PATH, isDebug } from "./utils.js";
+import type { LayoutNode, TreePlanOptions } from "./tree.js";
+import { resolveCommand as resolveCommandPath, getErrorMessage, SUMMON_WORKSPACE_ENV, promptUser, ACCESSIBILITY_SETTINGS_PATH, isDebug, supportsColor } from "./utils.js";
+import { fail, err } from "./ui/output.js";
 import { ensureGhostty, ensureAccessibility, printAccessibilityHint, confirmDangerousCommands, isAccessibilityError } from "./launch-guards.js";
 import { assertTrusted, assertTrustedContent } from "./trust.js";
 import { parseIntInRange, parsePositiveFloat, ENV_KEY_RE, PROJECT_NAME_RE, sanitizeProjectName } from "./validation.js";
@@ -121,55 +122,93 @@ end tell`;
   }
 }
 
-function executeScript(script: string, targetLabel?: string): void {
-  // FE-M5/UX-M6: progress messages go to stderr so pipelines (e.g. summon export > .summon) are not polluted.
-  process.stderr.write(`Launching ${targetLabel ?? "workspace"}…\n`);
-  try {
-    execFileSync("osascript", [], { input: script, encoding: "utf-8", timeout: 30_000 });
-    process.stderr.write("✓ Workspace ready.\n");
-  } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code;
-    if (code === "ETIMEDOUT") {
-      console.error("Ghostty did not respond within 30 seconds. Is Ghostty running?");
-      throw new Error("Ghostty did not respond within 30 seconds. Is Ghostty running?", { cause: err });
-    }
+// --- Spinner helpers (UX-L2 #519) ---
 
-    const message = getErrorMessage(err);
-    console.error(`summon: error: failed to execute workspace script: ${message}`);
+const LAUNCH_SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
 
-    // A verified keystroke failure means NO new tab/window was created — the existing
-    // front window is intact, so DO NOT run the rollback that would close it.
-    if (message.includes("summon-newtab-failed")) {
-      console.error("Ghostty did not open a new tab after multiple attempts.");
-      throw new TabOpenError("Ghostty did not open a new tab.", { cause: err });
-    }
-    if (message.includes("summon-newwindow-failed")) {
-      const m = "Ghostty did not open a new window after multiple attempts.";
-      console.error(m);
-      throw new Error(m, { cause: err });
-    }
+/** Returns true when the spinner should run in static (non-animating) mode.
+ *  Static: NO_COLOR set, SUMMON_NO_SPINNER set, or stdout is not a TTY. */
+export function isStaticLaunchSpinner(): boolean {
+  if (!process.stdout.isTTY) return true;
+  if (process.env["SUMMON_NO_SPINNER"] !== undefined) return true;
+  return !supportsColor();
+}
 
-    // Best-effort rollback: the AppleScript may have opened a window before failing.
-    // Attempt to close it so the user is not left with a stale empty window (BE-S26 #322).
-    // Skip rollback for accessibility errors — osascript couldn't run at all,
-    // so no window was created (BE-M3 #377).
-    if (!isAccessibilityError(message)) {
-      closeWorkspaceWindow();
-    }
-
-    if (isAccessibilityError(message)) {
-      console.error();
-      printAccessibilityHint();
-    } else {
-      console.error();
-      console.error("Is Ghostty running? Also check:");
-      console.error(`  - ${ACCESSIBILITY_SETTINGS_PATH}`);
-      console.error("  - System Settings > Privacy & Security > Automation");
-      console.error();
-      console.error("Tip: Run 'summon doctor' to diagnose issues.");
-    }
-    throw new Error(`Failed to execute workspace script: ${message}`, { cause: err });
+/**
+ * Run `fn` (a synchronous block) with a brief spinner on stdout.
+ * In static mode (non-TTY or NO_COLOR), writes a single labelled line to stdout then runs fn.
+ * In TTY mode, writes an initial spinner frame, runs fn (which may block), then clears.
+ * The label is also written to stderr so pipeline consumers still get progress feedback.
+ */
+export function withLaunchSpinner(label: string, fn: () => void): void {
+  // FE-M5/UX-M6: keep stderr progress so pipelines are not polluted
+  process.stderr.write(`${label}\n`);
+  if (isStaticLaunchSpinner()) {
+    // Static mode: one labelled line to stdout (matches session.ts spinner convention)
+    process.stdout.write(`${label}\n`);
+    fn();
+    return;
   }
+  // Write initial spinner frame to stdout for interactive TTY
+  process.stdout.write(`${LAUNCH_SPINNER_FRAMES[0]} ${label}`);
+  try {
+    fn();
+  } finally {
+    // Clear the spinner line
+    process.stdout.write("\r\x1b[K");
+  }
+}
+
+function executeScript(script: string, targetLabel?: string): void {
+  const label = `Summoning ${targetLabel ?? "workspace"}…`;
+  withLaunchSpinner(label, () => {
+    try {
+      execFileSync("osascript", [], { input: script, encoding: "utf-8", timeout: 30_000 });
+      process.stderr.write("✓ Workspace ready.\n");
+    } catch (caught) {
+      const code = (caught as NodeJS.ErrnoException).code;
+      if (code === "ETIMEDOUT") {
+        err("Ghostty did not respond within 30 seconds. Is Ghostty running?");
+        throw new Error("Ghostty did not respond within 30 seconds. Is Ghostty running?", { cause: caught });
+      }
+
+      const message = getErrorMessage(caught);
+      fail(`failed to execute workspace script: ${message}`);
+
+      // A verified keystroke failure means NO new tab/window was created — the existing
+      // front window is intact, so DO NOT run the rollback that would close it.
+      if (message.includes("summon-newtab-failed")) {
+        err("Ghostty did not open a new tab after multiple attempts.");
+        throw new TabOpenError("Ghostty did not open a new tab.", { cause: caught });
+      }
+      if (message.includes("summon-newwindow-failed")) {
+        const m = "Ghostty did not open a new window after multiple attempts.";
+        err(m);
+        throw new Error(m, { cause: caught });
+      }
+
+      // Best-effort rollback: the AppleScript may have opened a window before failing.
+      // Attempt to close it so the user is not left with a stale empty window (BE-S26 #322).
+      // Skip rollback for accessibility errors — osascript couldn't run at all,
+      // so no window was created (BE-M3 #377).
+      if (!isAccessibilityError(message)) {
+        closeWorkspaceWindow();
+      }
+
+      if (isAccessibilityError(message)) {
+        err("");
+        printAccessibilityHint();
+      } else {
+        err("");
+        err("Is Ghostty running? Also check:");
+        err(`  - ${ACCESSIBILITY_SETTINGS_PATH}`);
+        err("  - System Settings > Privacy & Security > Automation");
+        err("");
+        err("Tip: Run 'summon doctor' to diagnose issues.");
+      }
+      throw new Error(`Failed to execute workspace script: ${message}`, { cause: caught });
+    }
+  });
 }
 
 
@@ -194,12 +233,8 @@ async function ensureCommand(cmd: string, configKey: string): Promise<string> {
   const installCmd = getInstall ? getInstall() : null;
 
   if (!installCmd) {
-    console.error(
-      `\`${cmd}\` is required but not installed, and no known install method was found.`,
-    );
-    console.error(
-      `Please install \`${cmd}\` manually or change your config with: summon set ${configKey} <command>`,
-    );
+    fail(`\`${cmd}\` is required but not installed, and no known install method was found.`);
+    err(`Please install \`${cmd}\` manually or change your config with: summon set ${configKey} <command>`);
     throw new Error(`\`${cmd}\` is required but not installed.`);
   }
 
@@ -218,15 +253,13 @@ async function ensureCommand(cmd: string, configKey: string): Promise<string> {
   try {
     execFileSync(installBin, installArgs, { stdio: "inherit" });
   } catch {
-    console.error(
-      `Failed to install \`${cmd}\`. Please install it manually and try again.`,
-    );
+    fail(`Failed to install \`${cmd}\`. Please install it manually and try again.`);
     throw new Error(`Failed to install \`${cmd}\`.`);
   }
 
   const postInstallPath = resolveCommandPath(cmd);
   if (!postInstallPath) {
-    console.error(`\`${cmd}\` still not found after install. Please check your PATH.`);
+    fail(`\`${cmd}\` still not found after install. Please check your PATH.`);
     throw new Error(`\`${cmd}\` still not found after install.`);
   }
 
@@ -261,6 +294,17 @@ const ENV_DENYLIST_EXACT = new Set([
   "PROMPT_COMMAND",
   "CDPATH",
   "IFS",
+  // SE-M2 (#609): command-carrying vars — these execute a subprocess when a tool reads
+  // them (e.g. git spawning $GIT_SSH_COMMAND, pagers honouring $PAGER, editors via $EDITOR).
+  // Values are correctly escaped for injection, but allowing them lets a trusted .summon
+  // author swap out the subprocess invoked inside the workspace pane.
+  "GIT_SSH_COMMAND",
+  "GIT_EXTERNAL_DIFF",
+  "GIT_PAGER",
+  "PAGER",
+  "EDITOR",
+  "VISUAL",
+  "GIT_EDITOR",
 ]);
 
 function isDenylisted(envKey: string): boolean {
@@ -283,6 +327,9 @@ function collectEnvVars(
         console.warn(`Warning: ignoring denylisted env var key "${envKey}" from machine config.`);
       } else if (ENV_KEY_RE.test(envKey)) {
         envVars[envKey] = value;
+      } else {
+        // BE-L2 (#618): warn on invalid keys for parity with .summon and --env sources.
+        console.warn(`Warning: ignoring invalid env var key "${envKey}" from machine config.`);
       }
     }
   }
@@ -518,6 +565,18 @@ export function resolveConfig(targetDir: string, cliOverrides: CLIOverrides, sum
   if (mergedTreeLayout) {
     const projectCwds = extractPaneCwds(project);
     if (projectCwds.size > 0) {
+      // BE-M2 (#593): validate cwd containment at ingestion so that a malicious .summon
+      // file cannot inject an out-of-project path before resolveTreeCommands runs.
+      const normalizedTarget = resolve(targetDir);
+      const prefix = normalizedTarget.endsWith(sep) ? normalizedTarget : normalizedTarget + sep;
+      for (const [_paneName, cwd] of projectCwds) {
+        const resolved = resolve(normalizedTarget, cwd);
+        if (resolved !== normalizedTarget && !resolved.startsWith(prefix)) {
+          throw new Error(
+            `Tree DSL: pane cwd '${cwd}' resolves outside project directory '${normalizedTarget}'. Use a path within the project.`,
+          );
+        }
+      }
       const merged = new Map(mergedTreeLayout.paneCwds ?? []);
       for (const [k, v] of projectCwds) merged.set(k, v);
       mergedTreeLayout = { ...mergedTreeLayout, paneCwds: merged };
@@ -639,9 +698,12 @@ function executeOnStart(onStart: string, targetDir: string): void {
   try {
     execSync(onStart, { cwd: targetDir, encoding: "utf-8", stdio: "inherit" });
   } catch (err) {
+    // BE-M3 (#594): non-zero exit is non-fatal — warn and continue the launch.
+    // A hard abort (e.g. for SIGINT/SIGKILL) is unlikely from a hook and would be
+    // surfaced via the stderr inherited above; treating all failures as warnings
+    // allows pre-flight checks to fail gracefully without killing the workspace.
     const message = `on-start command failed: ${onStart} — ${getErrorMessage(err)}`;
-    console.error(message);
-    throw new Error(message, { cause: err });
+    console.warn(message);
   }
 }
 
@@ -656,10 +718,36 @@ function appendDryRunExtras(
   }
 }
 
-// TODO(AR-L1 #318): launchTreeLayout and launchTraditionalLayout are parallel pipelines that
-// both map LayoutOptions fields onto their respective plan/script generators. Any new layout
-// option must be added to both functions independently, which is fragile. Consider unifying
-// into a single options-to-plan adapter to eliminate this duplication.
+/**
+ * Adapter: extract the LayoutOptions fields relevant to buildTreePlan into a
+ * single authoritative place. Previously this was an inline object literal in
+ * launchTreeLayout — any new plan-level option had to be manually added to that
+ * literal. Extracting it here ensures a single edit point and makes the satisfies
+ * guard visible to the compiler.
+ *
+ * #604 / #437 / #450 (closes AR-L1 #318): TreePlanOptions is now exported from
+ * tree.ts — this adapter uses it directly instead of a hand-mirrored local type.
+ * The `satisfies` guard provides compile-time exhaustiveness: if a new field is
+ * added to TreePlanOptions without updating this adapter, tsc will fail here.
+ *
+ * The 4 "outer" script generator args (starshipConfigPath, envVars, projectName,
+ * onStop) are assembled identically in both launchTreeLayout and launchTraditionalLayout
+ * but kept per-pipeline — merging them would require changing generateAppleScript /
+ * generateTreeAppleScript signatures and risks output changes.
+ */
+export function layoutOptsToTreePlanOpts(opts: Partial<LayoutOptions>): TreePlanOptions {
+  return {
+    autoResize: opts.autoResize,
+    editorSize: opts.editorSize,
+    fontSize: opts.fontSize,
+    newWindow: opts.newWindow,
+    newTab: opts.newTab,
+    fullscreen: opts.fullscreen,
+    maximize: opts.maximize,
+    float: opts.float,
+    cleanRestoredPanes: opts.cleanRestoredPanes,
+  } satisfies TreePlanOptions;
+}
 async function launchTreeLayout(
   treeLayout: NonNullable<ResolvedConfig["treeLayout"]>,
   opts: Partial<LayoutOptions>,
@@ -673,18 +761,7 @@ async function launchTreeLayout(
   onStop?: string,
 ): Promise<string[]> {
   const resolvedTree = resolveTreeCmds(treeLayout.tree, treeLayout.panes, treeLayout.paneCwds, resolve(targetDir));
-  const treePlanOpts = {
-    autoResize: opts.autoResize,
-    editorSize: opts.editorSize,
-    fontSize: opts.fontSize,
-    newWindow: opts.newWindow,
-    newTab: opts.newTab,
-    fullscreen: opts.fullscreen,
-    maximize: opts.maximize,
-    float: opts.float,
-    cleanRestoredPanes: opts.cleanRestoredPanes,
-  };
-  const treePlan = buildTreePlan(resolvedTree, treePlanOpts);
+  const treePlan = buildTreePlan(resolvedTree, layoutOptsToTreePlanOpts(opts));
   const hasEnvVars = Object.keys(envVars).length > 0;
 
   if (cliOverrides.dryRun) {
@@ -772,8 +849,8 @@ async function launchTraditionalLayout(
 
 export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Promise<void> {
   if (!existsSync(targetDir)) {
-    const msg = `summon: error: Directory not found: ${targetDir}`;
-    console.error(msg);
+    const msg = `Directory not found: ${targetDir}`;
+    fail(msg);
     throw new Error(msg);
   }
 
@@ -817,7 +894,7 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
       config = resolveConfig(targetDir, cliOverrides ?? {});
     } else {
       const msg = "No editor configured. Run `summon setup` interactively or use: summon set editor <command>";
-      console.error(msg);
+      fail(msg);
       throw new Error(msg);
     }
   }
@@ -871,6 +948,13 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
 
   if (effectiveOnStart && !cliOverrides?.dryRun) {
     executeOnStart(effectiveOnStart, targetDir);
+  }
+
+  // SE-M1 (#595): surface on-stop command at launch time so users know it will run on exit.
+  // on-stop is embedded in the AppleScript's EXIT trap and runs silently; a launch-time notice
+  // makes the hook visible without requiring users to inspect the generated script.
+  if (onStop && !cliOverrides?.dryRun) {
+    process.stderr.write(`Note: on-stop will run on workspace exit: ${onStop}\n`);
   }
 
   // Cache resolved command paths so the same binary is only looked up once

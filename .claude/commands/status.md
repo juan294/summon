@@ -1,5 +1,7 @@
 Quick project status check. Output a concise orientation and stop.
 
+Model tier: **haiku** — Haiku 4.5 session (mechanical read-and-summarize).
+
 Run these commands and present the results in a compact summary:
 
 1. `git branch --show-current` — current branch

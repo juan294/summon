@@ -10,6 +10,7 @@ import {
 } from "../config.js";
 import { isPresetName } from "../layout.js";
 import { SAFE_COMMAND_RE, exitWithUsageHint } from "../utils.js";
+import { fail, err } from "../ui/output.js";
 import { parseTreeDSL } from "../tree.js";
 import { renderLayoutPreview } from "../ui/layout-preview.js";
 import { bold, cyan } from "../ui/ansi.js";
@@ -127,7 +128,7 @@ export async function handleLayoutCommand({ args }: CommandContext): Promise<voi
         exitWithUsageHint("Usage: summon layout show <name>");
       }
       if (isPresetName(layoutName)) {
-        console.error(`Error: "${layoutName}" is a built-in preset, not a custom layout. Run 'summon --help' to see preset descriptions.`);
+        fail(`"${layoutName}" is a built-in preset, not a custom layout. Run 'summon --help' to see preset descriptions.`);
         process.exit(1);
       }
       validateLayoutNameOrExit(layoutName);
@@ -167,23 +168,23 @@ export async function handleLayoutCommand({ args }: CommandContext): Promise<voi
       }
       const editorCmd = process.env.EDITOR || "vi";
       if (!SAFE_COMMAND_RE.test(editorCmd)) {
-        console.error(`Error: unsafe EDITOR value "${editorCmd}".`);
-        console.error("EDITOR must be a simple command name (e.g. vim, nano, code).");
-        console.error("Set a valid editor: export EDITOR=vim");
+        fail(`unsafe EDITOR value "${editorCmd}".`);
+        err("EDITOR must be a simple command name (e.g. vim, nano, code).");
+        err("Set a valid editor: export EDITOR=vim");
         process.exit(1);
       }
       const filePath = join(LAYOUTS_DIR, layoutName);
       try {
         execFileSync(editorCmd, [filePath], { stdio: "inherit" });
       } catch {
-        console.error(`Failed to open editor: ${editorCmd}`);
-        console.error("Check your EDITOR environment variable or ensure the editor is installed.");
+        err(`Failed to open editor: ${editorCmd}`);
+        err("Check your EDITOR environment variable or ensure the editor is installed.");
         process.exit(1);
       }
       return;
     }
 
     default:
-      exitWithUsageHint(`Error: Unknown layout action: ${action}\nUsage: summon layout <create|save|list|show|delete|edit> [name]`);
+      exitWithUsageHint(`Unknown layout action: ${action}\nUsage: summon layout <create|save|list|show|delete|edit> [name]`);
   }
 }

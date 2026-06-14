@@ -9,7 +9,9 @@ import {
 } from "../sessions.js";
 import { SummonError } from "../trust.js";
 import { TabOpenError } from "../errors.js";
-import { exitWithUsageHint, getErrorMessage } from "../utils.js";
+import { exitWithUsageHint, getErrorMessage, supportsColor } from "../utils.js";
+import { sym } from "../ui/symbols.js";
+import { fail, err } from "../ui/output.js";
 import type { CommandContext } from "./types.js";
 
 const RESERVED = new Set(["add", "remove", "list", "show", "all"]);
@@ -20,8 +22,20 @@ const INTER_LAUNCH_DELAY_MS = 200;
 
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
 
+/** Returns true when the spinner should run in static (non-animating) mode.
+ *  Static mode applies when NO_COLOR is set (https://no-color.org/),
+ *  SUMMON_NO_SPINNER is set, or stdout is not a TTY. */
+function isStaticSpinner(): boolean {
+  if (!process.stdout.isTTY) return true;
+  if (process.env["SUMMON_NO_SPINNER"] !== undefined) return true;
+  return !supportsColor(); // covers NO_COLOR and FORCE_COLOR=0
+}
+
 async function runWithSpinner<T>(label: string, fn: () => Promise<T>): Promise<T> {
-  if (!process.stdout.isTTY) return fn();
+  if (isStaticSpinner()) {
+    process.stdout.write(`${label}\n`);
+    return fn();
+  }
   let frame = 0;
   const timer = setInterval(() => {
     process.stdout.write(`\r${SPINNER_FRAMES[frame++ % SPINNER_FRAMES.length]} ${label}`);
@@ -56,37 +70,37 @@ async function cmdLaunch(ctx: CommandContext, name: string | undefined): Promise
   if (all) {
     const registry = listProjects();
     if (registry.size === 0) {
-      console.error("No projects found.");
-      console.error("Run `summon add <name> <path>` to register your first project.");
+      fail("No projects found.");
+      err("Run `summon add <name> <path>` to register your first project.");
       process.exit(1);
     }
     projects = Array.from(registry.keys());
   } else {
     if (!name) {
-      console.error("Usage: summon session <name>");
-      console.error("       summon session --all");
+      err("Usage: summon session <name>");
+      err("       summon session --all");
       const sessions = listSessions();
       if (sessions.length > 0) {
-        console.error("\nSaved sessions:");
+        err("\nSaved sessions:");
         for (const s of sessions) {
-          console.error(`  ${s}`);
+          err(`  ${s}`);
         }
       } else {
-        console.error("\nNo sessions found.");
-        console.error("Run `summon session add <name> <project> [...]` to create one.");
+        err("\nNo sessions found.");
+        err("Run `summon session add <name> <project> [...]` to create one.");
       }
       process.exit(1);
     }
 
     const sessionProjects = readSession(name);
     if (sessionProjects === null) {
-      console.error(`Error: Session not found: ${name}`);
-      console.error("Run 'summon session list' to see saved sessions.");
+      fail(`Session not found: ${name}`);
+      err("Run 'summon session list' to see saved sessions.");
       process.exit(1);
     }
 
     if (sessionProjects.length === 0) {
-      console.error(`Error: Session is empty: ${name}`);
+      fail(`Session is empty: ${name}`);
       process.exit(1);
     }
 
@@ -101,8 +115,8 @@ async function cmdLaunch(ctx: CommandContext, name: string | undefined): Promise
     }
   }
   if (missing.length > 0) {
-    console.error(`Error: Unknown project(s): ${missing.join(", ")}`);
-    console.error("Register them with: summon add <name> <path>");
+    fail(`Unknown project(s): ${missing.join(", ")}`);
+    err("Register them with: summon add <name> <path>");
     process.exit(1);
   }
 
@@ -128,9 +142,9 @@ async function cmdLaunch(ctx: CommandContext, name: string | undefined): Promise
       console.log(`[${i + 1}/${total}] Launched ${proj}`);
       launched.push(proj);
       openedFirst = true;
-    } catch (err) {
+    } catch (caught) {
       // Trust failures are recoverable: warn, tell user how to fix, continue.
-      if (err instanceof SummonError) {
+      if (caught instanceof SummonError) {
         console.warn(`[${i + 1}/${total}] Skipped ${proj} — untrusted .summon file.`);
         console.warn(`  Run 'summon trust ${dir}' to allow it, then re-run.`);
         skippedUntrusted.push(proj);
@@ -138,14 +152,14 @@ async function cmdLaunch(ctx: CommandContext, name: string | undefined): Promise
       }
       // Tab-open failures are recoverable: the existing window is intact,
       // warn and continue so remaining projects still get their tabs.
-      if (err instanceof TabOpenError) {
+      if (caught instanceof TabOpenError) {
         console.warn(`[${i + 1}/${total}] ${proj}: tab failed to open — continuing.`);
         failedTab.push(proj);
         continue;
       }
-      console.error(`Error launching ${proj}: ${getErrorMessage(err)}`);
+      fail(`launching ${proj}: ${getErrorMessage(caught)}`);
       if (launched.length > 0) {
-        console.error(`Already launched: ${launched.join(", ")}`);
+        err(`Already launched: ${launched.join(", ")}`);
       }
       process.exit(1);
     }
@@ -161,7 +175,7 @@ async function cmdLaunch(ctx: CommandContext, name: string | undefined): Promise
   if (skippedUntrusted.length > 0) {
     parts.push(`${skippedUntrusted.length} skipped (untrusted): ${skippedUntrusted.join(", ")}`);
   }
-  console.log(`✓ Session complete: ${parts.join(", ")}.`);
+  console.log(`${sym.ok} Session complete: ${parts.join(", ")}.`);
 }
 
 async function cmdAdd(rest: string[], _ctx: CommandContext): Promise<void> {
@@ -172,14 +186,14 @@ async function cmdAdd(rest: string[], _ctx: CommandContext): Promise<void> {
   }
 
   if (RESERVED.has(name)) {
-    console.error(`Error: "${name}" is a reserved session name. Choose a different name.`);
-    console.error(`Reserved names: ${Array.from(RESERVED).join(", ")}`);
+    fail(`"${name}" is a reserved session name. Choose a different name.`);
+    err(`Reserved names: ${Array.from(RESERVED).join(", ")}`);
     process.exit(1);
   }
 
   if (!isValidSessionName(name)) {
-    console.error(
-      `Error: Invalid session name: "${name}". Names must start with a letter and contain only letters, digits, hyphens, and underscores.`,
+    fail(
+      `Invalid session name: "${name}". Names must start with a letter and contain only letters, digits, hyphens, and underscores.`,
     );
     process.exit(1);
   }
@@ -191,13 +205,13 @@ async function cmdAdd(rest: string[], _ctx: CommandContext): Promise<void> {
     }
   }
   if (missing.length > 0) {
-    console.error(`Error: Unknown project(s): ${missing.join(", ")}`);
-    console.error("Register them with: summon add <name> <path>");
+    fail(`Unknown project(s): ${missing.join(", ")}`);
+    err("Register them with: summon add <name> <path>");
     process.exit(1);
   }
 
   writeSession(name, projectArgs);
-  console.log(`✓ Session saved: ${name} (${projectArgs.length} project(s): ${projectArgs.join(", ")})`);
+  console.log(`${sym.ok} Session saved: ${name} (${projectArgs.length} project(s): ${projectArgs.join(", ")})`);
 }
 
 async function cmdRemove(rest: string[]): Promise<void> {
@@ -208,18 +222,18 @@ async function cmdRemove(rest: string[]): Promise<void> {
   }
 
   if (!isValidSessionName(name)) {
-    console.error(`Error: Invalid session name: "${name}". Names must start with a letter and contain only letters, digits, hyphens, and underscores.`);
+    fail(`Invalid session name: "${name}". Names must start with a letter and contain only letters, digits, hyphens, and underscores.`);
     process.exit(1);
   }
 
   const removed = deleteSession(name);
   if (!removed) {
-    console.error(`Error: Session not found: ${name}`);
-    console.error("Run 'summon session list' to see saved sessions.");
+    fail(`Session not found: ${name}`);
+    err("Run 'summon session list' to see saved sessions.");
     process.exit(1);
   }
 
-  console.log(`✓ Removed session: ${name}`);
+  console.log(`${sym.ok} Removed session: ${name}`);
 }
 
 async function cmdList(): Promise<void> {
@@ -243,14 +257,14 @@ async function cmdShow(rest: string[]): Promise<void> {
   }
 
   if (!isValidSessionName(name)) {
-    console.error(`Error: Invalid session name: "${name}". Names must start with a letter and contain only letters, digits, hyphens, and underscores.`);
+    fail(`Invalid session name: "${name}". Names must start with a letter and contain only letters, digits, hyphens, and underscores.`);
     process.exit(1);
   }
 
   const projects = readSession(name);
   if (projects === null) {
-    console.error(`Error: Session not found: ${name}`);
-    console.error("Run 'summon session list' to see saved sessions.");
+    fail(`Session not found: ${name}`);
+    err("Run 'summon session list' to see saved sessions.");
     process.exit(1);
   }
 

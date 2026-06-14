@@ -16,7 +16,7 @@ export const PROJECT_NAME_RE = /^[a-zA-Z0-9_][a-zA-Z0-9_.-]{0,63}$/;
 export function validateProjectNameOrExit(name: string, label = "project name"): void {
   if (!PROJECT_NAME_RE.test(name)) {
     exitWithUsageHint(
-      `Error: ${label} must start with a letter, digit, or underscore,`
+      `${label} must start with a letter, digit, or underscore,`
       + ` contain only letters, digits, and "_.-", and be 1-64 chars.`
       + ` Got: "${name}".`,
     );
@@ -85,7 +85,7 @@ export function validateIntFlag(
     const rangeDesc = max !== undefined
       ? `an integer between ${min}-${max}`
       : "a positive integer";
-    exitWithUsageHint(`Error: --${flagName} must be ${rangeDesc}, got "${value}".`);
+    exitWithUsageHint(`--${flagName} must be ${rangeDesc}, got "${value}".`);
   }
   return result.value;
 }
@@ -101,7 +101,7 @@ export function validateFloatFlag(
 ): number {
   const result = parsePositiveFloat(value);
   if (!result.ok) {
-    exitWithUsageHint(`Error: --${flagName} must be a positive number, got "${value}".`);
+    exitWithUsageHint(`--${flagName} must be a positive number, got "${value}".`);
   }
   return result.value;
 }

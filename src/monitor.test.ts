@@ -770,11 +770,9 @@ describe("printStatusOnce", () => {
   });
 });
 
-// TUI tests hang on Node 18 CI due to stdin event loop interaction.
-// The TUI is inherently environment-dependent (manual-test territory per CLAUDE.md).
-const nodeMajor = parseInt(process.versions.node.split(".")[0]!, 10);
-
-describe.skipIf(nodeMajor < 20)("runMonitor", () => {
+// TUI tests require Node >= 20.19 (project minimum). Since the project enforces
+// Node >= 20.19 in package.json engines, this suite always runs on supported toolchains.
+describe("runMonitor", () => {
   let writeSpy: ReturnType<typeof vi.spyOn>;
   let resumeSpy: ReturnType<typeof vi.spyOn>;
 
@@ -909,6 +907,11 @@ describe.skipIf(nodeMajor < 20)("runMonitor", () => {
     const CURSOR_HOME = "\x1b[H";
 
     const monitorPromise = runMonitor();
+    // Change the content so the next refresh produces a different frame and actually
+    // writes (idle ticks with identical frames are skipped by the frame-level diff).
+    readAllStatuses.mockReturnValue([
+      makeResolvedStatus({ project: "myapp", state: "active", uptime: 5_000_000 }),
+    ]);
     // Trigger a second render via timer
     vi.advanceTimersByTime(3100);
     process.stdin.emit("data", Buffer.from("q"));
@@ -1211,5 +1214,225 @@ describe("UX-M4 (#558): renderScreen uses standard empty-state message", () => {
     expect(screen).toContain("No projects registered.");
     expect(screen).toContain("summon add <name> <path>");
     expect(screen).toContain("summon setup");
+  });
+});
+
+// --- New regression tests for PASS 1 findings ---
+
+describe("UX-H2 (#599): active-long has a non-color distinguishing marker", () => {
+  it("stateDot: active-long renders a filled dot (●) same as active", () => {
+    expect(stateDot("active-long")).toBe("●");
+  });
+
+  it("renderRow: active-long row contains 'active*' label (non-color marker)", () => {
+    const row = makeRow({ state: "active-long" });
+    const result = renderRow(row, 80, false);
+    expect(result).toContain("active*");
+  });
+
+  it("renderRow: active-long label differs from plain active label without relying on color", () => {
+    const activeLongRow = makeRow({ state: "active-long" });
+    const activeRow = makeRow({ state: "active" });
+    // Strip ANSI codes and compare plain text
+    // eslint-disable-next-line no-control-regex
+    const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");
+    const longText = stripAnsi(renderRow(activeLongRow, 80, false));
+    const activeText = stripAnsi(renderRow(activeRow, 80, false));
+    expect(longText).not.toBe(activeText);
+  });
+});
+
+describe.skipIf(parseInt(process.versions.node.split(".")[0]!, 10) < 20)(
+  "FE-B1 (#580): help overlay dismiss repaints dashboard",
+  () => {
+    let writeSpy: ReturnType<typeof vi.spyOn>;
+    let resumeSpy: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      listProjects.mockReturnValue([]);
+      readAllStatuses.mockReturnValue([]);
+      getGitBranch.mockReturnValue(null);
+      vi.useFakeTimers();
+      writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+      resumeSpy = vi.spyOn(process.stdin, "resume").mockImplementation(() => process.stdin);
+      Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
+      Object.defineProperty(process.stdin, "isRaw", { value: false, configurable: true });
+      Object.defineProperty(process.stdin, "setRawMode", {
+        value: vi.fn(() => process.stdin),
+        configurable: true,
+      });
+    });
+
+    afterEach(() => {
+      writeSpy.mockRestore();
+      resumeSpy.mockRestore();
+      process.stdin.removeAllListeners("data");
+      process.removeAllListeners("SIGWINCH");
+      vi.useRealTimers();
+    });
+
+    it("FE-B1: after ? overlay dismiss, a new dashboard write occurs (prevFrame invalidated)", async () => {
+      const monitorPromise = runMonitor();
+      const writesBefore = writeSpy.mock.calls.length;
+      process.stdin.emit("data", Buffer.from("?"));
+      // count writes after ? opened overlay
+      const writesAfterOpen = writeSpy.mock.calls.length;
+      expect(writesAfterOpen).toBeGreaterThan(writesBefore); // overlay was written
+
+      // dismiss help — should trigger a repaint
+      process.stdin.emit("data", Buffer.from(" "));
+      const writesAfterDismiss = writeSpy.mock.calls.length;
+      expect(writesAfterDismiss).toBeGreaterThan(writesAfterOpen); // repaint occurred
+
+      process.stdin.emit("data", Buffer.from("q"));
+      await monitorPromise;
+    });
+
+    it("FE-B2: pressing q to dismiss ? help does NOT quit the monitor", async () => {
+      let resolved = false;
+      const monitorPromise = runMonitor().then(() => { resolved = true; });
+      process.stdin.emit("data", Buffer.from("?"));
+      // q to dismiss the help overlay — should not quit
+      process.stdin.emit("data", Buffer.from("q"));
+      // give a tick for any async processing
+      await Promise.resolve();
+      // monitor must still be running (not resolved yet)
+      expect(resolved).toBe(false);
+      // Now properly quit
+      process.stdin.emit("data", Buffer.from("q"));
+      await monitorPromise;
+      expect(resolved).toBe(true);
+    });
+  },
+);
+// --- FE-M3 (#611): renderScreen appends \x1b[0K to each row to erase trailing glyphs ---
+
+describe("FE-M3 (#611): renderScreen clears to end-of-line on each row", () => {
+  it("each content row ends with EL (erase-to-end-of-line) sequence", () => {
+    const rows = [makeRow({ name: "myapp", state: "active" })];
+    const screen = renderScreen(rows, 0, 80, 10);
+    const lines = screen.split("\n");
+    // Lines: header, separator, row0..rowN, separator, footer
+    // The content rows (between the two separators) must end with \x1b[0K
+    const separatorChar = "─";
+    const EL = "\x1b[0K";
+    let inContent = false;
+    let firstSepSeen = false;
+    for (const line of lines) {
+      const isSep = line.includes(separatorChar) && !line.includes("myapp");
+      if (isSep && !firstSepSeen) { firstSepSeen = true; inContent = true; continue; }
+      if (isSep && firstSepSeen) { inContent = false; continue; }
+      if (inContent) {
+        expect(line.endsWith(EL)).toBe(true);
+      }
+    }
+  });
+
+  it("no-ghost: a row that shrinks after a repaint does not leave trailing characters", () => {
+    // Simulate a long row rendered first, then a shorter row rendered at the same screen position.
+    // After the fix, the shorter row must end with \x1b[0K which erases trailing chars.
+    const longRow = makeRow({ name: "myapp", gitBranch: "feature/very-long-branch-name-that-is-long" });
+    const shortRow = makeRow({ name: "myapp", gitBranch: "main" });
+
+    const screenLong = renderScreen([longRow], 0, 80, 10);
+    const screenShort = renderScreen([shortRow], 0, 80, 10);
+
+    // Both screens' content rows must end with \x1b[0K so a CURSOR_HOME repaint is clean
+    const EL = "\x1b[0K";
+    const contentRowLong = screenLong.split("\n").find(l => l.includes("myapp"));
+    const contentRowShort = screenShort.split("\n").find(l => l.includes("myapp"));
+    expect(contentRowLong?.endsWith(EL)).toBe(true);
+    expect(contentRowShort?.endsWith(EL)).toBe(true);
+  });
+});
+
+// --- UX-L1 (#616): legend improvements and narrow terminal guard ---
+
+describe("UX-L1 (#616): help overlay legend shows glyph/label mapping", () => {
+  // Node >= 20.19 is the project minimum — no skipIf guard needed (QA-L2 policy)
+  let writeSpy2: ReturnType<typeof vi.spyOn>;
+  let resumeSpy2: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    listProjects.mockReturnValue([]);
+    readAllStatuses.mockReturnValue([]);
+    getGitBranch.mockReturnValue(null);
+    mockLaunch.mockResolvedValue(undefined);
+    vi.useFakeTimers();
+    writeSpy2 = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    resumeSpy2 = vi.spyOn(process.stdin, "resume").mockImplementation(() => process.stdin);
+    Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
+    Object.defineProperty(process.stdin, "isRaw", { value: false, configurable: true });
+    Object.defineProperty(process.stdin, "setRawMode", {
+      value: vi.fn(() => process.stdin),
+      configurable: true,
+    });
+  });
+
+  afterEach(() => {
+    writeSpy2.mockRestore();
+    resumeSpy2.mockRestore();
+    process.stdin.removeAllListeners("data");
+    process.removeAllListeners("SIGWINCH");
+    vi.useRealTimers();
+  });
+
+  it("help overlay shows ● glyph mapped to 'active' label", async () => {
+    const monitorPromise = runMonitor();
+    process.stdin.emit("data", Buffer.from("?"));
+    process.stdin.emit("data", Buffer.from(" "));
+    process.stdin.emit("data", Buffer.from("q"));
+    await monitorPromise;
+
+    const output = writeSpy2.mock.calls.map((c: unknown[]) => String(c[0])).join("");
+    expect(output).toContain("●");
+    expect(output).toMatch(/●.*active/s);
+  });
+
+  it("help overlay shows ○ glyph mapped to 'stopped' label", async () => {
+    const monitorPromise = runMonitor();
+    process.stdin.emit("data", Buffer.from("?"));
+    process.stdin.emit("data", Buffer.from(" "));
+    process.stdin.emit("data", Buffer.from("q"));
+    await monitorPromise;
+
+    const output = writeSpy2.mock.calls.map((c: unknown[]) => String(c[0])).join("");
+    expect(output).toContain("○");
+    expect(output).toMatch(/○.*stopped/s);
+  });
+
+  it("help overlay shows active* label for long-running (>4h)", async () => {
+    const monitorPromise = runMonitor();
+    process.stdin.emit("data", Buffer.from("?"));
+    process.stdin.emit("data", Buffer.from(" "));
+    process.stdin.emit("data", Buffer.from("q"));
+    await monitorPromise;
+
+    const output = writeSpy2.mock.calls.map((c: unknown[]) => String(c[0])).join("");
+    // Must mention active* or active-long for the >4h case
+    expect(output).toMatch(/active\*|active-long|active >4h/);
+  });
+});
+
+describe("UX-L1 (#616): narrow terminal renders single-line guard message", () => {
+  it("renderScreen returns narrow guard message when width < MIN_COLS (60)", () => {
+    const rows = [makeRow()];
+    const screen = renderScreen(rows, 0, 40, 24);
+    expect(screen).toContain("Terminal too narrow");
+    expect(screen).toContain("60");
+  });
+
+  it("renderScreen renders normally at exactly MIN_COLS (60)", () => {
+    const rows = [makeRow()];
+    const screen = renderScreen(rows, 0, 60, 24);
+    expect(screen).toContain("summon status");
+    expect(screen).not.toContain("Terminal too narrow");
+  });
+
+  it("renderScreen renders normally at width above MIN_COLS", () => {
+    const rows = [makeRow()];
+    const screen = renderScreen(rows, 0, 80, 24);
+    expect(screen).toContain("summon status");
+    expect(screen).not.toContain("Terminal too narrow");
   });
 });

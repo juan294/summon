@@ -2,11 +2,47 @@ import { describe, it, expect, vi, beforeEach, afterEach, beforeAll } from "vite
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-// Mock child_process before importing utils
+// Mock child_process before importing utils.
+// AR-M1 #603: include execFile (with promisify.custom so that promisify(execFile)
+// returns an async function that yields {stdout, stderr}) so gitOutput's dynamic
+// import works in this test file.
+import { promisify as _utilPromisify } from "node:util";
 const mockExecFileSync = vi.fn();
-vi.mock("node:child_process", () => ({
-  execFileSync: (...args: unknown[]) => mockExecFileSync(...args),
-}));
+
+// Async implementation that powers the execFile mock (via promisify.custom).
+// Returns {stdout, stderr} to match the real execFile promisified signature.
+type ExecFileCbResult = { stdout: string; stderr: string };
+let _mockExecFileAsyncImpl: (...args: unknown[]) => Promise<ExecFileCbResult> = async () => ({ stdout: "", stderr: "" });
+const mockExecFile = vi.fn();
+(mockExecFile as unknown as Record<symbol, unknown>)[_utilPromisify.custom] =
+  async (...args: unknown[]): Promise<ExecFileCbResult> => _mockExecFileAsyncImpl(...args);
+
+// Helpers to control the async execFile mock behavior in tests
+const mockExecFileAsync = {
+  mockResolveOnce(stdout: string) {
+    const origImpl = _mockExecFileAsyncImpl;
+    let used = false;
+    _mockExecFileAsyncImpl = async (...args: unknown[]) => {
+      if (!used) { used = true; _mockExecFileAsyncImpl = origImpl; return { stdout, stderr: "" }; }
+      return origImpl(...args);
+    };
+  },
+  mockReject(err: Error) {
+    _mockExecFileAsyncImpl = async () => { throw err; };
+  },
+  reset() {
+    _mockExecFileAsyncImpl = async () => ({ stdout: "", stderr: "" });
+  },
+};
+
+vi.mock("node:child_process", async (importOriginal) => {
+  const real = await importOriginal<typeof import("node:child_process")>();
+  return {
+    ...real,
+    execFileSync: (...args: unknown[]) => mockExecFileSync(...args),
+    execFile: mockExecFile,
+  };
+});
 
 // Mock node:fs for isGhosttyInstalled tests.
 // writeFileSync and renameSync are passed through to the real implementations
@@ -37,7 +73,7 @@ vi.mock("node:readline", () => ({
 }));
 
 // Import after mocks
-const { SAFE_COMMAND_RE, GHOSTTY_PATHS, GHOSTTY_APP_NAME, SUMMON_WORKSPACE_ENV, resolveCommand, promptUser, getErrorMessage, exitWithUsageHint, checkAccessibility, openAccessibilitySettings, isAccessibilityError, isGhosttyInstalled, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT, ACCESSIBILITY_REQUIRED_MSG, PromptCancelled, isDebug, debugLog, supportsColor, confirm, gitSafeEnv, atomicWrite } = await import("./utils.js");
+const { SAFE_COMMAND_RE, GHOSTTY_PATHS, GHOSTTY_APP_NAME, SUMMON_WORKSPACE_ENV, resolveCommand, promptUser, getErrorMessage, exitWithUsageHint, formatUserError, checkAccessibility, openAccessibilitySettings, isAccessibilityError, isGhosttyInstalled, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT, ACCESSIBILITY_REQUIRED_MSG, PromptCancelled, isDebug, debugLog, supportsColor, confirm, gitSafeEnv, resetGitSafeEnvCache, atomicWrite, resetGitOutputCache } = await import("./utils.js");
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -297,44 +333,89 @@ describe("promptUser", () => {
   });
 });
 
+// UX-H1 (#598): formatUserError — consistent branded error prefix
+describe("formatUserError", () => {
+  const originalEnv = process.env;
+
+  afterEach(() => {
+    process.env = originalEnv;
+  });
+
+  it("includes 'summon: error:' prefix in no-color mode", () => {
+    process.env = { ...originalEnv, NO_COLOR: "1" };
+    delete (process.env as Record<string, string | undefined>)["FORCE_COLOR"];
+    const result = formatUserError("something went wrong");
+    expect(result).toContain("summon: error:");
+    expect(result).toContain("something went wrong");
+  });
+
+  it("does not include raw ANSI codes in no-color mode", () => {
+    process.env = { ...originalEnv, NO_COLOR: "1" };
+    delete (process.env as Record<string, string | undefined>)["FORCE_COLOR"];
+    const result = formatUserError("msg");
+    // eslint-disable-next-line no-control-regex
+    expect(result).not.toMatch(/\x1b\[/);
+  });
+
+  it("includes ANSI codes in color mode", () => {
+    process.env = { ...originalEnv, FORCE_COLOR: "1" };
+    delete (process.env as Record<string, string | undefined>)["NO_COLOR"];
+    const result = formatUserError("msg");
+    // eslint-disable-next-line no-control-regex
+    expect(result).toMatch(/\x1b\[/);
+    expect(result).toContain("summon: error:");
+    expect(result).toContain("msg");
+  });
+
+  it("always ends with the supplied message", () => {
+    const msg = "directory not found";
+    process.env = { ...originalEnv, NO_COLOR: "1" };
+    delete (process.env as Record<string, string | undefined>)["FORCE_COLOR"];
+    expect(formatUserError(msg)).toMatch(new RegExp(`${msg}$`));
+  });
+});
+
 describe("exitWithUsageHint", () => {
-  it("prints message and usage hint when message is provided", () => {
+  it("prints branded message and usage hint to stderr when message is provided", () => {
+    process.env = { ...process.env, NO_COLOR: "1" };
     const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => { throw new Error("exit"); });
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     expect(() => exitWithUsageHint("Bad flag")).toThrow("exit");
-    expect(errorSpy).toHaveBeenCalledWith("Bad flag");
-    expect(errorSpy).toHaveBeenCalledWith("Run 'summon --help' for usage information.");
+    // message is formatted with the branded prefix (#598)
+    expect(writeSpy).toHaveBeenCalledWith("summon: error: Bad flag\n");
+    expect(writeSpy).toHaveBeenCalledWith("Run 'summon --help' for usage information.\n");
     expect(exitSpy).toHaveBeenCalledWith(1);
 
     exitSpy.mockRestore();
-    errorSpy.mockRestore();
+    writeSpy.mockRestore();
+    delete (process.env as Record<string, string | undefined>)["NO_COLOR"];
   });
 
   it("prints only usage hint when no message is provided", () => {
     const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => { throw new Error("exit"); });
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     expect(() => exitWithUsageHint()).toThrow("exit");
-    expect(errorSpy).toHaveBeenCalledTimes(1);
-    expect(errorSpy).toHaveBeenCalledWith("Run 'summon --help' for usage information.");
+    expect(writeSpy).toHaveBeenCalledTimes(1);
+    expect(writeSpy).toHaveBeenCalledWith("Run 'summon --help' for usage information.\n");
     expect(exitSpy).toHaveBeenCalledWith(1);
 
     exitSpy.mockRestore();
-    errorSpy.mockRestore();
+    writeSpy.mockRestore();
   });
 
   it("prints only usage hint when message is empty string", () => {
     const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => { throw new Error("exit"); });
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     expect(() => exitWithUsageHint("")).toThrow("exit");
     // Empty string is falsy, so only the usage hint is printed
-    expect(errorSpy).toHaveBeenCalledTimes(1);
-    expect(errorSpy).toHaveBeenCalledWith("Run 'summon --help' for usage information.");
+    expect(writeSpy).toHaveBeenCalledTimes(1);
+    expect(writeSpy).toHaveBeenCalledWith("Run 'summon --help' for usage information.\n");
 
     exitSpy.mockRestore();
-    errorSpy.mockRestore();
+    writeSpy.mockRestore();
   });
 });
 
@@ -566,10 +647,12 @@ describe("gitSafeEnv", () => {
 
   beforeEach(() => {
     process.env = { ...originalEnv };
+    resetGitSafeEnvCache(); // PE-M2: reset memoized cache so each test gets a fresh env snapshot
   });
 
   afterEach(() => {
     process.env = originalEnv;
+    resetGitSafeEnvCache();
   });
 
   it("returns an object (the cleaned env)", () => {
@@ -617,6 +700,21 @@ describe("gitSafeEnv", () => {
     // process.env should still have GIT_DIR — we only stripped from the returned copy
     expect(process.env["GIT_DIR"]).toBe("/some/.git");
   });
+
+  // PE-M2 #608: memoization — same object returned on repeated calls
+  it("returns the same object reference on repeated calls (memoized)", () => {
+    const first = gitSafeEnv();
+    const second = gitSafeEnv();
+    expect(first).toBe(second); // strict reference equality
+  });
+
+  it("resetGitSafeEnvCache causes next call to recompute", () => {
+    const before = gitSafeEnv();
+    resetGitSafeEnvCache();
+    const after = gitSafeEnv();
+    // After reset, a new object is created (different reference)
+    expect(after).not.toBe(before);
+  });
 });
 
 describe("PromptCancelled", () => {
@@ -660,6 +758,27 @@ describe("atomicWrite", () => {
     try { realFs.unlinkSync(targetPath); } catch { /* ok if already removed */ }
     // Remove any leftover fixed-suffix .tmp file (should not exist with the fix)
     try { realFs.unlinkSync(`${targetPath}.tmp`); } catch { /* ok */ }
+  });
+
+  // BE-M4 #605: cleanup orphaned .tmp on rename failure
+  it("removes temp file when renameSync fails (BE-M4 #605)", async () => {
+    const fsMock = await import("node:fs");
+    const origRenameSync = realFs.renameSync;
+    let capturedTmpPath: string | null = null;
+
+    const renameSpy = vi.spyOn(fsMock, "renameSync").mockImplementationOnce((src) => {
+      capturedTmpPath = src as string;
+      throw new Error("EXDEV: cross-device rename");
+    });
+
+    expect(() => atomicWrite(targetPath, "should-fail")).toThrow("EXDEV");
+
+    renameSpy.mockRestore();
+    void origRenameSync; // keep reference
+
+    // The orphaned tmp file must have been cleaned up by atomicWrite's catch block
+    expect(capturedTmpPath).not.toBeNull();
+    expect(realFs.existsSync(capturedTmpPath!)).toBe(false);
   });
 
   it("writes content to the target path", () => {
@@ -791,5 +910,317 @@ describe("confirm", () => {
   it("throws PromptCancelled for Ctrl+C", async () => {
     simulateKeypress("\x03");
     await expect(confirm("Continue?")).rejects.toBeInstanceOf(PromptCancelled);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runPool
+// ---------------------------------------------------------------------------
+
+const { runPool, ioConcurrency, IO_CONCURRENCY, gitOutput, gitOutputSync } = await import("./utils.js");
+
+describe("runPool", () => {
+  it("returns empty array for empty input", async () => {
+    const results = await runPool([], 4, async (x: number) => x * 2);
+    expect(results).toEqual([]);
+  });
+
+  it("preserves input order in output", async () => {
+    const items = [1, 2, 3, 4, 5];
+    const results = await runPool(items, 2, async (x) => x * 10);
+    expect(results).toEqual([10, 20, 30, 40, 50]);
+  });
+
+  it("propagates results correctly for each item", async () => {
+    const items = ["a", "b", "c"];
+    const results = await runPool(items, 3, async (x) => x.toUpperCase());
+    expect(results).toEqual(["A", "B", "C"]);
+  });
+
+  it("never exceeds limit concurrent tasks", async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const limit = 3;
+    const items = Array.from({ length: 10 }, (_, i) => i);
+
+    await runPool(items, limit, async (_item) => {
+      inFlight++;
+      if (inFlight > maxInFlight) maxInFlight = inFlight;
+      // Yield to allow other tasks to start if the pool allows it
+      await Promise.resolve();
+      inFlight--;
+    });
+
+    expect(maxInFlight).toBeLessThanOrEqual(limit);
+  });
+
+  it("handles limit=1 (serial execution)", async () => {
+    const order: number[] = [];
+    const items = [1, 2, 3];
+    await runPool(items, 1, async (x) => {
+      order.push(x);
+    });
+    expect(order).toEqual([1, 2, 3]);
+  });
+
+  it("handles limit larger than items (all run concurrently)", async () => {
+    const items = [1, 2, 3];
+    const results = await runPool(items, 100, async (x) => x + 1);
+    expect(results).toEqual([2, 3, 4]);
+  });
+
+  it("passes index as second argument to fn", async () => {
+    const items = ["x", "y", "z"];
+    const indices: number[] = [];
+    await runPool(items, 2, async (_item, idx) => {
+      indices.push(idx);
+    });
+    // All indices must be present (order may vary for concurrent runs)
+    expect(indices.sort()).toEqual([0, 1, 2]);
+  });
+
+  // ---------------------------------------------------------------------------
+  // QA-M1 (#597) — rejection contract: runPool rejects on the first failing task.
+  // Callers that need per-item resilience must catch inside fn (all four
+  // consumers in briefing/ports/monitor/snapshot already do this).
+  // ---------------------------------------------------------------------------
+
+  it("rejects when a middle item's fn rejects (propagates first rejection)", async () => {
+    const boom = new Error("task-2 exploded");
+    const items = [1, 2, 3];
+    const promise = runPool(items, 3, async (x) => {
+      if (x === 2) throw boom;
+      return x;
+    });
+    await expect(promise).rejects.toThrow("task-2 exploded");
+    await expect(promise).rejects.toBe(boom);
+  });
+
+  it("rejects when the first item's fn rejects", async () => {
+    const items = ["a", "b", "c"];
+    await expect(
+      runPool(items, 2, async (x) => {
+        if (x === "a") throw new Error("first-item-error");
+        return x;
+      }),
+    ).rejects.toThrow("first-item-error");
+  });
+
+  it("rejects when the last item's fn rejects", async () => {
+    const items = [10, 20, 30];
+    await expect(
+      runPool(items, 1, async (x) => {
+        if (x === 30) throw new Error("last-item-error");
+        return x;
+      }),
+    ).rejects.toThrow("last-item-error");
+  });
+
+  it("preserves order and respects concurrency cap on all-success runs (unaffected by rejection logic)", async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const limit = 2;
+    const items = [1, 2, 3, 4, 5, 6];
+
+    const results = await runPool(items, limit, async (x) => {
+      inFlight++;
+      if (inFlight > maxInFlight) maxInFlight = inFlight;
+      await Promise.resolve();
+      inFlight--;
+      return x * 100;
+    });
+
+    expect(results).toEqual([100, 200, 300, 400, 500, 600]);
+    expect(maxInFlight).toBeLessThanOrEqual(limit);
+  });
+});
+
+describe("ioConcurrency", () => {
+  it("returns a number between 2 and 8 inclusive", () => {
+    const c = ioConcurrency();
+    expect(typeof c).toBe("number");
+    expect(c).toBeGreaterThanOrEqual(2);
+    expect(c).toBeLessThanOrEqual(8);
+  });
+});
+
+// AR-L2 (#617): IO_CONCURRENCY — shared computed constant
+describe("IO_CONCURRENCY", () => {
+  it("is a number between 2 and 8 inclusive", () => {
+    expect(typeof IO_CONCURRENCY).toBe("number");
+    expect(IO_CONCURRENCY).toBeGreaterThanOrEqual(2);
+    expect(IO_CONCURRENCY).toBeLessThanOrEqual(8);
+  });
+
+  it("equals the value returned by ioConcurrency() (single shared computation)", () => {
+    // Both the exported constant and the function must agree: the constant is
+    // computed exactly once via ioConcurrency(), so any call to ioConcurrency()
+    // must return the same numeric value as IO_CONCURRENCY.
+    expect(IO_CONCURRENCY).toBe(ioConcurrency());
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AR-M1 #603: gitOutput / gitOutputSync shared helpers
+// ---------------------------------------------------------------------------
+
+// gitOutput dynamically imports execFile (lazily cached); the mock is set up above with promisify.custom.
+describe("gitOutput (AR-M1 #603)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockExecFileSync.mockImplementation(() => "/usr/bin/stub\n");
+    mockExecFileAsync.reset();
+    resetGitOutputCache(); // force re-initialization with current mock
+  });
+
+  it("resolves with trimmed stdout from execFile", async () => {
+    mockExecFileAsync.mockResolveOnce("  develop\n");
+    const result = await gitOutput("/some/dir", ["rev-parse", "--abbrev-ref", "HEAD"]);
+    expect(result).toBe("develop");
+  });
+
+  it("rejects when execFile throws (non-git directory)", async () => {
+    mockExecFileAsync.mockReject(new Error("fatal: not a git repo"));
+    await expect(gitOutput("/not/a/repo", ["rev-parse", "HEAD"])).rejects.toThrow("fatal: not a git repo");
+  });
+
+  it("passes git -C <dir> <args> and timeout+encoding to execFile", async () => {
+    // Verify the call is made with the right args by capturing via the mock
+    let capturedArgs: unknown[] | null = null;
+    const origImpl = _mockExecFileAsyncImpl;
+    _mockExecFileAsyncImpl = async (...args: unknown[]) => {
+      capturedArgs = args;
+      return { stdout: "main\n", stderr: "" };
+    };
+    await gitOutput("/my/repo", ["log", "--oneline"]);
+    _mockExecFileAsyncImpl = origImpl;
+    expect(capturedArgs).not.toBeNull();
+    // The promisify.custom receives the same args as promisified fn: (cmd, args, opts)
+    expect(capturedArgs![0]).toBe("git");
+    expect(capturedArgs![1]).toEqual(["-C", "/my/repo", "log", "--oneline"]);
+    expect((capturedArgs![2] as Record<string, unknown>)["timeout"]).toBe(5000);
+    expect((capturedArgs![2] as Record<string, unknown>)["encoding"]).toBe("utf-8");
+  });
+});
+
+describe("gitOutputSync (AR-M1 #603)", () => {
+  // execFileSync is mocked at the top of this file; default mock returns "/usr/bin/stub\n"
+  it("returns trimmed stdout (no trailing newline)", () => {
+    mockExecFileSync.mockReturnValueOnce("  develop\n");
+    const result = gitOutputSync("/some/dir", ["rev-parse", "--abbrev-ref", "HEAD"]);
+    expect(result).toBe("develop");
+  });
+
+  it("passes git -C <dir> <args> to execFileSync with gitSafeEnv", () => {
+    mockExecFileSync.mockReturnValueOnce("main\n");
+    gitOutputSync("/my/repo", ["status", "--porcelain"]);
+    expect(mockExecFileSync).toHaveBeenCalledWith(
+      "git",
+      ["-C", "/my/repo", "status", "--porcelain"],
+      expect.objectContaining({ encoding: "utf-8", timeout: 5000 }),
+    );
+  });
+
+  it("throws on non-zero exit (propagates execFileSync error)", () => {
+    mockExecFileSync.mockImplementationOnce(() => { throw new Error("fatal: not a git repo"); });
+    expect(() => gitOutputSync("/not/a/repo", ["rev-parse", "HEAD"])).toThrow("fatal: not a git repo");
+  });
+
+  // BE-L3 #619: killSignal: "SIGKILL" so a git that ignores SIGTERM on timeout is force-reaped
+  it("passes killSignal SIGKILL to execFileSync (BE-L3 #619)", () => {
+    mockExecFileSync.mockReturnValueOnce("abc\n");
+    gitOutputSync("/my/repo", ["log", "--oneline"]);
+    expect(mockExecFileSync).toHaveBeenCalledWith(
+      "git",
+      expect.any(Array),
+      expect.objectContaining({ killSignal: "SIGKILL" }),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SE-L4 #574: atomicWrite default mode 0o600
+// ---------------------------------------------------------------------------
+
+describe("atomicWrite default mode (SE-L4 #574)", () => {
+  let realFs: typeof import("node:fs");
+
+  beforeAll(async () => {
+    realFs = await vi.importActual<typeof import("node:fs")>("node:fs");
+  });
+
+  const testDir2 = join(tmpdir(), `summon-atomicWrite-mode-test-${process.pid}`);
+
+  beforeEach(() => {
+    realFs.mkdirSync(testDir2, { recursive: true });
+  });
+
+  afterEach(() => {
+    // Clean up all files in the test dir
+    try {
+      for (const f of realFs.readdirSync(testDir2)) {
+        try { realFs.unlinkSync(join(testDir2, f)); } catch { /* ok */ }
+      }
+    } catch { /* ok */ }
+  });
+
+  it("produces a file with mode 0o600 when no options are passed (SE-L4 #574)", () => {
+    const targetPath = join(testDir2, `mode-default-${Date.now()}.json`);
+    atomicWrite(targetPath, "{}");
+    const stat = realFs.statSync(targetPath);
+    // Mask off the file-type bits (keep only the permission bits)
+    const perms = stat.mode & 0o777;
+    expect(perms).toBe(0o600);
+  });
+
+  it("produces a file with mode 0o600 when options is explicitly undefined (SE-L4 #574)", () => {
+    const targetPath = join(testDir2, `mode-undefined-${Date.now()}.json`);
+    atomicWrite(targetPath, "{}", undefined);
+    const stat = realFs.statSync(targetPath);
+    const perms = stat.mode & 0o777;
+    expect(perms).toBe(0o600);
+  });
+
+  it("honours an explicit mode when provided (SE-L4 #574)", () => {
+    const targetPath = join(testDir2, `mode-explicit-${Date.now()}.json`);
+    atomicWrite(targetPath, "{}", { mode: 0o644 });
+    const stat = realFs.statSync(targetPath);
+    const perms = stat.mode & 0o777;
+    expect(perms).toBe(0o644);
+  });
+
+  it("honours a numeric mode passed directly (SE-L4 #574)", () => {
+    const targetPath = join(testDir2, `mode-numeric-${Date.now()}.json`);
+    // writeFileSync accepts a numeric mode in the options object shape too
+    atomicWrite(targetPath, "{}", { mode: 0o600 });
+    const stat = realFs.statSync(targetPath);
+    const perms = stat.mode & 0o777;
+    expect(perms).toBe(0o600);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// BE-L3 #619: gitOutput killSignal SIGKILL
+// ---------------------------------------------------------------------------
+
+describe("gitOutput killSignal (BE-L3 #619)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockExecFileSync.mockImplementation(() => "/usr/bin/stub\n");
+    mockExecFileAsync.reset();
+    resetGitOutputCache();
+  });
+
+  it("passes killSignal SIGKILL in options to execFile (BE-L3 #619)", async () => {
+    let capturedOpts: Record<string, unknown> | null = null;
+    const origImpl = _mockExecFileAsyncImpl;
+    _mockExecFileAsyncImpl = async (...args: unknown[]) => {
+      capturedOpts = args[2] as Record<string, unknown>;
+      return { stdout: "abc\n", stderr: "" };
+    };
+    await gitOutput("/my/repo", ["log", "--oneline"]);
+    _mockExecFileAsyncImpl = origImpl;
+    expect(capturedOpts).not.toBeNull();
+    expect(capturedOpts!["killSignal"]).toBe("SIGKILL");
   });
 });

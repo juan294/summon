@@ -28,7 +28,8 @@ pnpm test:coverage    # run tests with v8 coverage
 ```
 src/
   index.ts              CLI entry point — dispatch registry (thin, ~134 lines)
-  config.ts             Config file read/write (~/.config/summon/); re-exports path constants
+  config.ts             Config file read/write (~/.config/summon/); re-exports path constants; layered over cache.ts
+  cache.ts              Persistent cross-invocation read-through cache (~/.config/summon/cache.json); opt-out via SUMMON_NO_CACHE
   layout.ts             Layout calculation (pure function)
   tree.ts               Tree DSL parser, layout node model, plan builder (pure function)
   script.ts             AppleScript generator (pure function — builds script string)
@@ -48,12 +49,14 @@ src/
   paths.ts              Canonical path constants (CONFIG_DIR, STATUS_DIR, SNAPSHOTS_DIR, LAYOUTS_DIR, SESSIONS_DIR, TRUST_FILE)
   shell-escape.ts       AppleScript/shell escape primitives (escapeAppleScript, shellQuote, shellDoubleQuote)
   command-spec.ts       Command string analysis (analyzeCommand, commandHasShellMeta, commandExecutable)
+  errors.ts             Named error classes (TabOpenError — recoverable new-tab failure for session --all)
   trust.ts              .summon file trust management — SHA-256 allowlist (assertTrusted, trustProject, isTrusted)
   utils.ts              Shared utilities (SAFE_COMMAND_RE, GHOSTTY_PATHS, resolveCommand, promptUser, getErrorMessage, isDebug, debugLog, gitSafeEnv, confirm, supportsColor)
   validation.ts         Input validation helpers (parseIntInRange, parsePositiveFloat, validateProjectNameOrExit)
   globals.d.ts          Build-time constants (__VERSION__)
   cli/
-    parse.ts            CLI argument parsing extracted from index.ts (parseCli, buildOverrides, showHelp)
+    parse.ts            CLI argument parsing extracted from index.ts (parseCli, buildOverrides)
+    help.ts             Help text, lazily imported on --help path (showHelp, hasSubcommandHelp, showSubcommandHelp)
     resolve-target.ts   Resolves launch target directory from name/path/. (resolveTargetDirectory, expandHome)
   commands/
     config.ts           handleConfigCommand, handleExportCommand, handleFreezeCommand, handleSetCommand
@@ -68,6 +71,8 @@ src/
     types.ts            CommandHandler and CommandContext interfaces
   ui/
     ansi.ts             ANSI color/style helpers extracted from setup.ts (bold, dim, green, yellow, cyan, etc.)
+    output.ts           Single user-facing output writer (out, err, fail — unified "summon: error:" prefix)
+    width.ts            Display-width primitives for CJK/emoji-safe truncation (isWideCodePoint, getDisplayWidth, truncate)
     layout-preview.ts   Layout preview renderer for the setup wizard
     symbols.ts          Canonical glyph vocabulary (sym.ok, sym.warn, sym.fail, sym.info, sym.bullet)
   *.test.ts             Co-located unit tests
@@ -182,9 +187,8 @@ primary injection defense. See src/shell-escape.ts for the escape functions it p
 
 ## Known Architectural Debt
 
-- **AR-L1**: Two parallel layout pipelines in `launcher.ts` and `script.ts` duplicate options mapping (`launchTreeLayout`/`launchTraditionalLayout` and `generateTreeAppleScript`/`generateAppleScript`). Any new layout option must be threaded through both pipelines independently. Tracked in #318.
 - **PE-S1**: `setup.ts` compiles to ~20KB chunk. Further code splitting (lazy imports for gallery/builder) could reduce cold-start cost. Tracked in #329.
-- **PE-S2**: Config reads are now mtime-memoized within a single invocation (implemented in WU-E). A persistent cross-invocation cache (e.g., `~/.config/summon/cache.json` surviving between CLI runs) would further reduce cold-start disk I/O. Tracked in #330.
+- **PE-S2**: Implemented in #516/#330. A persistent cross-invocation cache at `~/.config/summon/cache.json` keyed on absolute path + mtimeMs + size accelerates machine config and project registry reads across CLI invocations. Opt-out: `SUMMON_NO_CACHE=1`.
 
 ## Schema Migrations
 

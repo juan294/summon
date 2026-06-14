@@ -2,7 +2,8 @@ import { readAllStatuses, getGitBranch } from "./status.js";
 import type { ResolvedStatus } from "./status.js";
 import { listProjects } from "./config.js";
 import { bold, dim, green, red, yellow, cyan, invert } from "./ui/ansi.js";
-import { getDisplayWidth } from "./ui/layout-preview.js";
+import { getDisplayWidth, truncate } from "./ui/width.js";
+import { runPool, IO_CONCURRENCY } from "./utils.js";
 
 // --- Types ---
 
@@ -36,47 +37,9 @@ const CURSOR_HOME = "\x1b[H";
 
 // --- Formatting (pure functions, testable) ---
 
-/**
- * Truncates a string to at most maxLen display columns, appending an ellipsis if truncated.
- * Wide characters (CJK, emoji) count as 2 display columns; all others count as 1.
- * The returned string always fits within maxLen display columns.
- */
-export function truncate(str: string, maxLen: number): string {
-  if (maxLen <= 0) return "";
-  if (getDisplayWidth(str) <= maxLen) return str;
-  // Walk codepoints accumulating display width; stop when next char would exceed (maxLen - 1)
-  const budget = maxLen - 1; // reserve 1 column for the ellipsis "…"
-  let accWidth = 0;
-  let i = 0;
-  let cutAt = 0;
-  while (i < str.length) {
-    const cp = str.codePointAt(i);
-    if (cp === undefined) break;
-    const step = cp > 0xffff ? 2 : 1;
-    const charWidth = isWideChar(cp) ? 2 : 1;
-    if (accWidth + charWidth > budget) break;
-    accWidth += charWidth;
-    cutAt = i + step;
-    i += step;
-  }
-  return str.slice(0, cutAt) + "…";
-}
-
-function isWideChar(cp: number): boolean {
-  return (
-    (cp >= 0x1100 && cp <= 0x115f) ||
-    (cp >= 0x2e80 && cp <= 0x303f) ||
-    (cp >= 0x3040 && cp <= 0x33bf) ||
-    (cp >= 0x3400 && cp <= 0x4dbf) ||
-    (cp >= 0x4e00 && cp <= 0x9fff) ||
-    (cp >= 0xa000 && cp <= 0xabff) ||
-    (cp >= 0xac00 && cp <= 0xd7af) ||
-    (cp >= 0xf900 && cp <= 0xfaff) ||
-    (cp >= 0xfe10 && cp <= 0xfe6f) ||
-    (cp >= 0xff00 && cp <= 0xffef) ||
-    (cp >= 0x1f300 && cp <= 0x1ffff)
-  );
-}
+// truncate is re-exported from ui/width.ts for use in this module and its tests.
+// It is imported above from "./ui/width.js".
+export { truncate };
 
 export function formatUptime(ms: number): string {
   const seconds = Math.floor(ms / 1000);
@@ -122,7 +85,8 @@ export function renderRow(row: ProjectRow, width: number, selected: boolean): st
   const colorFn = stateColor(row.state);
   const dot = colorFn(stateDot(row.state));
   const name = displayPadEnd(truncate(row.name, NAME_WIDTH), NAME_WIDTH);
-  const stateText = row.state === "active-long" ? "active" : row.state;
+  // UX-H2 (#599): active-long gets "active*" label so it is distinguishable without color
+  const stateText = row.state === "active-long" ? "active*" : row.state;
   const stateLabel = colorFn(stateText);
   // Pad the visible text, not the ANSI-wrapped version
   const statePad = " ".repeat(Math.max(0, STATE_WIDTH - stateText.length));
@@ -159,6 +123,11 @@ export function renderFooter(width: number): string {
 }
 
 export function renderScreen(rows: ProjectRow[], selectedIndex: number, width: number, height: number, scrollStart = 0): string {
+  // UX-L1 (#616): when terminal is too narrow, render a guard message instead of a clamped grid
+  if (width < MIN_COLS) {
+    return `Terminal too narrow \u2014 widen to \u2265${MIN_COLS} cols`;
+  }
+
   const activeCount = rows.filter(r => r.state === "active" || r.state === "active-long").length;
   const header = renderHeader(activeCount, rows.length, width);
   const separator = dim("\u2500".repeat(width));
@@ -184,7 +153,11 @@ export function renderScreen(rows: ProjectRow[], selectedIndex: number, width: n
     renderedRows.push("");
   }
 
-  const lines = [header, separator, ...renderedRows, separator, footer];
+  // FE-M3 (#611): append EL (erase-to-end-of-line) to each content row so that
+  // CURSOR_HOME repaints never leave trailing characters from previously-longer lines.
+  const clearedRows = renderedRows.map(r => `${r}\x1b[0K`);
+
+  const lines = [header, separator, ...clearedRows, separator, footer];
   return lines.join("\n");
 }
 
@@ -224,19 +197,15 @@ export async function prefetchGitBranches(rows: ProjectRow[], onUpdate: () => vo
 
   toFetch.forEach((r) => gitBranchFetching.add(r.directory));
 
-  await Promise.all(
-    toFetch.map(async (r) => {
-      // Wrap in a resolved promise to yield the event loop before the blocking git call
-      await Promise.resolve();
-      const branch = getGitBranch(r.directory);
-      if (branch) {
-        gitBranchCache.set(r.directory, { value: branch, timestamp: Date.now() });
-      } else {
-        gitBranchCache.delete(r.directory);
-      }
-      gitBranchFetching.delete(r.directory);
-    }),
-  );
+  await runPool(toFetch, IO_CONCURRENCY, async (r) => {
+    const branch = await getGitBranch(r.directory);
+    if (branch) {
+      gitBranchCache.set(r.directory, { value: branch, timestamp: Date.now() });
+    } else {
+      gitBranchCache.delete(r.directory);
+    }
+    gitBranchFetching.delete(r.directory);
+  });
 
   onUpdate();
 }
@@ -329,6 +298,8 @@ export async function runMonitor(): Promise<void> {
   let selectedIndex = 0;
   let scrollStart = 0;
   let refreshTimer: ReturnType<typeof setInterval> | null = null;
+  // Last frame written, for frame-level skip (avoids re-writing an unchanged screen).
+  let prevFrame: string | null = null;
 
   const getWidth = () => Math.max(MIN_COLS, process.stdout.columns || 80);
   const getHeight = () => process.stdout.rows || 24;
@@ -345,8 +316,23 @@ export async function runMonitor(): Promise<void> {
   function render(fullClear = false): void {
     updateScroll();
     const screen = renderScreen(rows, selectedIndex, getWidth(), getHeight(), scrollStart);
+    // Skip the write when nothing changed (common on idle 3s ticks) — identical end state.
+    if (!fullClear && screen === prevFrame) return;
     const prefix = fullClear ? CLEAR_SCREEN : CURSOR_HOME;
     process.stdout.write(prefix + screen);
+    prevFrame = screen;
+  }
+
+  // Patch freshly-fetched git branches into the existing rows from cache, avoiding a
+  // second full readAllStatuses scan per refresh. The only thing prefetch surfaces is
+  // the branch of active rows; status/uptime are picked up by the next refresh tick.
+  function applyCachedBranches(): void {
+    for (const row of rows) {
+      if (row.state === "active" || row.state === "active-long") {
+        const cached = getCachedGitBranch(row.directory);
+        if (cached) row.gitBranch = cached;
+      }
+    }
   }
 
   function refresh(): void {
@@ -358,10 +344,7 @@ export async function runMonitor(): Promise<void> {
     render(false);
     // Kick off async git branch fetches without blocking the render loop
     void prefetchGitBranches(rows, () => {
-      rows = loadProjectRows();
-      if (selectedIndex >= rows.length) {
-        selectedIndex = Math.max(0, rows.length - 1);
-      }
+      applyCachedBranches();
       render(false);
     });
   }
@@ -402,10 +385,7 @@ export async function runMonitor(): Promise<void> {
   render(true);
   // Initial async branch fetch so the "…" placeholders are filled quickly
   void prefetchGitBranches(rows, () => {
-    rows = loadProjectRows();
-    if (selectedIndex >= rows.length) {
-      selectedIndex = Math.max(0, rows.length - 1);
-    }
+    applyCachedBranches();
     render(false);
   });
 
@@ -459,17 +439,27 @@ export async function runMonitor(): Promise<void> {
           `  ${cyan("?")}          ${dim("show this help")}`,
           `  ${cyan("q / Ctrl+C")} ${dim("quit")}`,
           "",
-          `  ${bold("Colors:")}`,
-          `  ${dim("green = active   yellow = active >4h   dim = stopped")}`,
+          // UX-H2 (#599) + UX-L1 (#616): glyph markers so the legend is readable
+          // under NO_COLOR; "active*" matches the row label for long-running workspaces.
+          `  ${bold("State legend:")}`,
+          `  ${green("●")} ${dim("active")}   ${yellow("●")} ${dim("active* (running >4h)")}   ${dim("○ stopped/unknown")}`,
+          `  ${dim("color: green = active, yellow = running >4h, dim = stopped")}`,
           "",
           `  ${dim("Press any key to dismiss...")}`,
         ];
+        // FE-B1 (#580): invalidate prevFrame so dismiss causes a repaint even when
+        // the screen hasn't changed — the overlay itself wrote directly to stdout.
+        prevFrame = null;
+        // FE-B2 (#581): detach the persistent keypress handler before registering the
+        // dismisser so the dismiss key is NOT also handled by onKeypress (double-fire).
+        process.stdin.off("data", onKeypress);
         process.stdout.write(CLEAR_SCREEN + helpLines.join("\n"));
 
         // Wait for any key to dismiss
-        const dismissHelp = (dismissData: Buffer): void => {
-          void dismissData;
+        const dismissHelp = (_dismissData: Buffer): void => {
           process.stdin.off("data", dismissHelp);
+          // Re-attach the main keypress handler, then repaint.
+          process.stdin.on("data", onKeypress);
           render();
         };
         process.stdin.once("data", dismissHelp);
@@ -503,12 +493,18 @@ export async function runMonitor(): Promise<void> {
                   "",
                   `  ${dim("Press any key to continue...")}`,
                 ];
+                // FE-B1 (#580): invalidate prevFrame so render() after dismiss writes
+                // the dashboard even if the screen content hasn't changed.
+                prevFrame = null;
                 process.stdout.write(CLEAR_SCREEN + errDisplay.join("\n"));
                 // Wait for any key, then resume the TUI
+                // FE-M1 (#582): re-register SIGWINCH and the timer so resize events work
+                // after a launch-error re-entry (cleanup() removed them).
                 const dismissError = (_dismissData: Buffer): void => {
                   process.stdin.off("data", dismissError);
                   render(true);
                   refreshTimer = setInterval(refresh, REFRESH_INTERVAL_MS);
+                  process.on("SIGWINCH", onResize);
                   process.stdin.on("data", onKeypress);
                 };
                 process.stdin.once("data", dismissError);

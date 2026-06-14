@@ -12,6 +12,12 @@ permissions:
   contents: read
   security-events: write
 
+concurrency:
+  # Scheduled runs each get their own group so they are never cancelled.
+  # Push/PR runs for the same ref cancel any in-progress predecessor.
+  group: codeql-${{ github.event_name == 'schedule' && github.run_id || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   analyze:
     runs-on: ubuntu-latest

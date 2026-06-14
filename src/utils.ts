@@ -1,7 +1,7 @@
-import { existsSync, writeFileSync, renameSync } from "node:fs";
+import { existsSync, writeFileSync, renameSync, unlinkSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
-import { homedir } from "node:os";
+import { homedir, availableParallelism } from "node:os";
 import { randomBytes } from "node:crypto";
 
 /** Regex for safe command names — only letters, digits, hyphens, dots, underscores, plus signs. */
@@ -16,8 +16,18 @@ export const SAFE_COMMAND_RE = /^[a-zA-Z0-9_][a-zA-Z0-9_.+-]*$/;
  */
 export function atomicWrite(path: string, content: string, options?: Parameters<typeof writeFileSync>[2]): void {
   const tmpPath = `${path}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
-  writeFileSync(tmpPath, content, options);
-  renameSync(tmpPath, path);
+  // SE-L4 #574: default mode 0o600 (defense-in-depth — a tmp/file must never land
+  // with a umask-wide mode if the caller forgets to specify one).
+  const resolvedOptions: Parameters<typeof writeFileSync>[2] =
+    options == null ? { mode: 0o600 } : options;
+  writeFileSync(tmpPath, content, resolvedOptions);
+  try {
+    renameSync(tmpPath, path);
+  } catch (err) {
+    // BE-M4 #605: clean up orphaned temp file on rename failure (best-effort)
+    try { unlinkSync(tmpPath); } catch { /* ignore cleanup errors */ }
+    throw err;
+  }
 }
 
 /** @internal — exported for testing only */
@@ -76,15 +86,31 @@ export async function promptUser(question: string): Promise<string> {
 }
 
 /**
+ * Format a user-facing error message with a consistent branded prefix.
+ * Output: "summon: error: <msg>" — with red ✗ prefix when colors are supported.
+ * Use this for all user-facing errors to ensure a uniform presentation.
+ *
+ * UX-H1 (#598): centralises the error prefix so callers don't embed it inline.
+ */
+export function formatUserError(msg: string): string {
+  if (supportsColor()) {
+    // red ✗ (U+2717) + "summon: error:" prefix in bold-red
+    return `\x1b[31m✗ summon: error:\x1b[0m ${msg}`;
+  }
+  return `summon: error: ${msg}`;
+}
+
+/**
  * Print an error message followed by a usage hint, then exit with code 1.
  * Consolidates the repeated `console.error(msg); console.error("Run 'summon --help'..."); process.exit(1)` pattern.
  * When called without a message, only the usage hint is printed before exiting.
+ * The message is emitted via formatUserError so it carries the branded prefix (#598).
  */
 export function exitWithUsageHint(message?: string): never {
   if (message) {
-    console.error(message);
+    process.stderr.write(`${formatUserError(message)}\n`);
   }
-  console.error("Run 'summon --help' for usage information.");
+  process.stderr.write("Run 'summon --help' for usage information.\n");
   process.exit(1);
 }
 
@@ -165,13 +191,96 @@ export function openAccessibilitySettings(): void {
 }
 
 /**
+ * AR-M1 #603: Shared async git helper used by status.ts, briefing.ts.
+ * Runs `git -C <dir> <args>` and returns trimmed stdout.
+ * Throws on non-zero exit (callers catch and map to null / []).
+ *
+ * `_gitExecFileAsync` is lazily initialized on first call so that test files
+ * that partially mock node:child_process (only execFileSync) do not fail at
+ * module load time. Once initialized, the same function is reused for all calls
+ * to preserve micro-task ordering in concurrent invocations.
+ * Call `resetGitOutputCache()` in tests to force re-initialization.
+ */
+type ExecFileAsyncFn = (
+  cmd: string,
+  args: string[],
+  opts: { encoding: BufferEncoding; timeout: number; killSignal?: string; env: NodeJS.ProcessEnv },
+) => Promise<{ stdout: string; stderr: string }>;
+
+let _gitExecFileAsync: ExecFileAsyncFn | undefined;
+// Singleton init promise — prevents concurrent callers from each running the
+// dynamic imports independently and introducing micro-task ordering differences.
+let _gitExecFileAsyncInitPromise: Promise<ExecFileAsyncFn> | undefined;
+
+async function getGitExecFileAsync(): Promise<ExecFileAsyncFn> {
+  if (_gitExecFileAsync !== undefined) return _gitExecFileAsync;
+  if (_gitExecFileAsyncInitPromise === undefined) {
+    _gitExecFileAsyncInitPromise = (async () => {
+      const { execFile } = await import("node:child_process");
+      const { promisify } = await import("node:util");
+      _gitExecFileAsync = promisify(execFile) as ExecFileAsyncFn;
+      return _gitExecFileAsync;
+    })();
+  }
+  return _gitExecFileAsyncInitPromise;
+}
+
+export async function gitOutput(dir: string, args: string[]): Promise<string> {
+  const execFileAsync = await getGitExecFileAsync();
+  const { stdout } = await execFileAsync("git", ["-C", dir, ...args], {
+    encoding: "utf-8",
+    timeout: 5000,
+    // BE-L3 #619: force-kill a git process that ignores SIGTERM on timeout
+    killSignal: "SIGKILL",
+    env: gitSafeEnv(),
+  });
+  return stdout.trim();
+}
+
+/** @internal — exported for testing only (AR-M1 #603) */
+export function resetGitOutputCache(): void {
+  _gitExecFileAsync = undefined;
+  _gitExecFileAsyncInitPromise = undefined;
+}
+
+/**
+ * AR-M1 #603: Shared sync git helper used by snapshot.ts.
+ * Runs `git -C <dir> <args>` synchronously and returns trimmed stdout.
+ * Throws on non-zero exit (callers catch and map to null / []).
+ */
+export function gitOutputSync(dir: string, args: string[]): string {
+  return execFileSync("git", ["-C", dir, ...args], {
+    encoding: "utf-8",
+    timeout: 5000,
+    // BE-L3 #619: force-kill a git process that ignores SIGTERM on timeout
+    killSignal: "SIGKILL",
+    stdio: ["ignore", "pipe", "ignore"],
+    env: gitSafeEnv(),
+  }).trim();
+}
+
+/**
  * Returns process.env with git context variables removed.
  * Prevents an inherited GIT_DIR/GIT_WORK_TREE (e.g. from a pre-commit hook)
  * from overriding the -C flag and making every directory appear as the current repo.
+ *
+ * PE-M2 #608: the cleaned env is computed once (lazy) and memoized — rest-spreading
+ * process.env on every git call was wasteful. Call `resetGitSafeEnvCache()` in tests
+ * to force recomputation after replacing process.env.
  */
+let _gitSafeEnvCache: NodeJS.ProcessEnv | undefined;
+
 export function gitSafeEnv(): NodeJS.ProcessEnv {
-  const { GIT_DIR: _gd, GIT_WORK_TREE: _gwt, GIT_INDEX_FILE: _gif, ...clean } = process.env;
-  return clean;
+  if (_gitSafeEnvCache === undefined) {
+    const { GIT_DIR: _gd, GIT_WORK_TREE: _gwt, GIT_INDEX_FILE: _gif, ...clean } = process.env;
+    _gitSafeEnvCache = clean;
+  }
+  return _gitSafeEnvCache;
+}
+
+/** @internal — exported for testing only (PE-M2 #608) */
+export function resetGitSafeEnvCache(): void {
+  _gitSafeEnvCache = undefined;
 }
 
 /**
@@ -207,6 +316,57 @@ export function supportsColor(): boolean {
   if (process.env["FORCE_COLOR"] === "0") return false;
   return !!process.stdout.isTTY;
 }
+
+/**
+ * Bounded-concurrency map that preserves input order.
+ * Runs at most `limit` concurrent async tasks. `limit` must be >= 1.
+ *
+ * **Rejection contract:** if any `fn(item)` rejects, `runPool` rejects with
+ * that error and remaining in-flight results are discarded. This mirrors
+ * `Promise.all` semantics. Callers that need per-item resilience (e.g.
+ * briefing, ports, monitor) must catch inside `fn` rather than relying on
+ * `runPool` to swallow errors.
+ */
+export async function runPool<T, R>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  if (items.length === 0) return [];
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const n = Math.max(1, Math.min(limit, items.length));
+  async function worker() {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i]!, i);
+    }
+  }
+  await Promise.all(Array.from({ length: n }, worker));
+  return results;
+}
+
+/**
+ * Default concurrency cap for parallel I/O fan-out (git subprocesses, fs scans).
+ * Parallel on big machines, gentle on small ones. `os.availableParallelism` is
+ * always present on the supported Node range (>=20.19).
+ */
+export function ioConcurrency(): number {
+  return Math.max(2, Math.min(8, availableParallelism()));
+}
+
+/**
+ * AR-L2 (#617): Single shared I/O concurrency constant computed once at module
+ * load. Consumers (briefing.ts, ports.ts, monitor.ts) import this instead of
+ * each calling `ioConcurrency()` independently. Value is process-constant so
+ * computing it once is both correct and efficient.
+ *
+ * The try/catch guards against test environments that mock node:os without
+ * exporting availableParallelism; production code is never affected.
+ */
+export const IO_CONCURRENCY: number = (() => {
+  try { return ioConcurrency(); } catch { return 4; }
+})();
 
 /**
  * Single-keypress yes/no confirmation.

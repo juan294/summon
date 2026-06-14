@@ -5,6 +5,7 @@ import {
   listCustomLayouts,
 } from "../config.js";
 import { exitWithUsageHint } from "../utils.js";
+import { fail, err } from "../ui/output.js";
 import type { LayoutNode } from "../tree.js";
 
 /**
@@ -47,12 +48,12 @@ export function treeToGrid(node: LayoutNode, panes: Map<string, string>): string
 
 export function validateLayoutNameOrExit(name: string): void {
   if (isPresetName(name)) {
-    console.error(`Error: "${name}" is a reserved preset name. Choose a different name.`);
+    fail(`"${name}" is a reserved preset name. Choose a different name.`);
     process.exit(1);
   }
   if (!isValidLayoutName(name)) {
-    console.error(`Error: Invalid layout name "${name}".`);
-    console.error("Names must start with a letter and contain only letters, digits, hyphens, and underscores.");
+    fail(`Invalid layout name "${name}".`);
+    err("Names must start with a letter and contain only letters, digits, hyphens, and underscores.");
     process.exit(1);
   }
 }
@@ -62,21 +63,21 @@ export function validateLayoutOrExit(value: string, label: string): void {
   try {
     customMatch = isCustomLayout(value);
   } catch {
-    exitWithUsageHint(`Error: ${label} is not a valid layout name.`);
+    exitWithUsageHint(`${label} is not a valid layout name.`);
   }
   if (!isPresetName(value) && !customMatch) {
-    console.error(`Error: ${label} must be a valid preset or custom layout name, got "${value}".`);
-    console.error(`Valid presets: ${getPresetNames().join(", ")}`);
+    fail(`${label} must be a valid preset or custom layout name, got "${value}".`);
+    err(`Valid presets: ${getPresetNames().join(", ")}`);
     const custom = listCustomLayouts();
     if (custom.length > 0) {
-      console.error(`Custom layouts: ${custom.join(", ")}`);
+      err(`Custom layouts: ${custom.join(", ")}`);
     }
     exitWithUsageHint();
   }
 }
 
 export function layoutNotFoundOrExit(name: string): never {
-  console.error(`Error: Layout not found: ${name}`);
-  console.error("Run 'summon layout list' to see available layouts.");
+  fail(`Layout not found: ${name}`);
+  err("Run 'summon layout list' to see available layouts.");
   process.exit(1);
 }

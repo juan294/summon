@@ -67,7 +67,7 @@ describe("session add", () => {
   });
 
   it("errors when a project is not in registry (calls process.exit(1))", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const mockExit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error("process.exit:" + code);
     }) as never);
@@ -78,13 +78,14 @@ describe("session add", () => {
     ).rejects.toThrow("process.exit:1");
 
     expect(mockWriteSession).not.toHaveBeenCalled();
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("bogus"));
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(allWrites).toContain("bogus");
     mockExit.mockRestore();
-    errorSpy.mockRestore();
+    writeSpy.mockRestore();
   });
 
   it("errors because 'all' is a reserved name", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const mockExit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error("process.exit:" + code);
     }) as never);
@@ -95,9 +96,10 @@ describe("session add", () => {
     ).rejects.toThrow("process.exit:1");
 
     expect(mockWriteSession).not.toHaveBeenCalled();
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("reserved"));
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(allWrites).toContain("reserved");
     mockExit.mockRestore();
-    errorSpy.mockRestore();
+    writeSpy.mockRestore();
   });
 });
 
@@ -162,7 +164,7 @@ describe("session launch <name>", () => {
   });
 
   it("errors when session is empty (readSession returns [])", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const mockExit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error("process.exit:" + code);
     }) as never);
@@ -173,14 +175,15 @@ describe("session launch <name>", () => {
     ).rejects.toThrow("process.exit:1");
 
     expect(mockLaunch).not.toHaveBeenCalled();
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("empty"));
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(allWrites).toContain("empty");
     mockExit.mockRestore();
-    errorSpy.mockRestore();
+    writeSpy.mockRestore();
   });
 
   it("aborts if second project launch rejects — third project never called — exits 1", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const mockExit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error("process.exit:" + code);
     }) as never);
@@ -200,9 +203,10 @@ describe("session launch <name>", () => {
     ).rejects.toThrow("process.exit:1");
 
     expect(mockLaunch).toHaveBeenCalledTimes(2);
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("osascript failed"));
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(allWrites).toContain("osascript failed");
     mockExit.mockRestore();
-    errorSpy.mockRestore();
+    writeSpy.mockRestore();
     logSpy.mockRestore();
   });
 });
@@ -226,7 +230,7 @@ describe("session launch --all", () => {
   });
 
   it("exits with error when registry is empty", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const mockExit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error("process.exit:" + code);
     }) as never);
@@ -238,7 +242,7 @@ describe("session launch --all", () => {
 
     expect(mockLaunch).not.toHaveBeenCalled();
     mockExit.mockRestore();
-    errorSpy.mockRestore();
+    writeSpy.mockRestore();
   });
 });
 
@@ -247,7 +251,7 @@ describe("session launch — skip untrusted projects and continue", () => {
     const { SummonError } = await import("../trust.js");
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     mockListProjects.mockReturnValue(
       new Map([
@@ -278,7 +282,7 @@ describe("session launch — skip untrusted projects and continue", () => {
 
     logSpy.mockRestore();
     warnSpy.mockRestore();
-    errorSpy.mockRestore();
+    writeSpy.mockRestore();
   });
 
 });
@@ -288,7 +292,7 @@ describe("session launch — skip tab-open failures and continue", () => {
     const { TabOpenError } = await import("../errors.js");
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     mockListProjects.mockReturnValue(
       new Map([
@@ -320,12 +324,12 @@ describe("session launch — skip tab-open failures and continue", () => {
 
     logSpy.mockRestore();
     warnSpy.mockRestore();
-    errorSpy.mockRestore();
+    writeSpy.mockRestore();
   });
 
   it("non-TabOpenError rejections still abort with process.exit(1)", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const mockExit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error("process.exit:" + code);
     }) as never);
@@ -345,7 +349,7 @@ describe("session launch — skip tab-open failures and continue", () => {
 
     expect(mockLaunch).toHaveBeenCalledTimes(2);
     mockExit.mockRestore();
-    errorSpy.mockRestore();
+    writeSpy.mockRestore();
     logSpy.mockRestore();
   });
 });
@@ -381,7 +385,7 @@ describe("session launch --new-window <name>", () => {
 
 describe("session launch with no name and no --all", () => {
   it("prints usage and lists saved sessions then exits 1", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const mockExit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error("process.exit:" + code);
     }) as never);
@@ -391,17 +395,17 @@ describe("session launch with no name and no --all", () => {
       handleSessionCommand(makeContext({ args: [] })),
     ).rejects.toThrow("process.exit:1");
 
-    const allErrors = errorSpy.mock.calls.map((c) => c[0] as string).join("\n");
+    const allErrors = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");
     expect(allErrors).toContain("Usage:");
     expect(allErrors).toContain("alpha");
     expect(allErrors).toContain("beta");
     expect(mockLaunch).not.toHaveBeenCalled();
     mockExit.mockRestore();
-    errorSpy.mockRestore();
+    writeSpy.mockRestore();
   });
 
   it("prints usage and 'no saved sessions' message when list is empty then exits 1", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const mockExit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error("process.exit:" + code);
     }) as never);
@@ -411,18 +415,18 @@ describe("session launch with no name and no --all", () => {
       handleSessionCommand(makeContext({ args: [] })),
     ).rejects.toThrow("process.exit:1");
 
-    const allErrors = errorSpy.mock.calls.map((c) => c[0] as string).join("\n");
+    const allErrors = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");
     expect(allErrors).toContain("Usage:");
     expect(allErrors).toContain("No sessions found");
     expect(mockLaunch).not.toHaveBeenCalled();
     mockExit.mockRestore();
-    errorSpy.mockRestore();
+    writeSpy.mockRestore();
   });
 });
 
 describe("session launch <name> — session not found", () => {
   it("errors when readSession returns null", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const mockExit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error("process.exit:" + code);
     }) as never);
@@ -433,16 +437,16 @@ describe("session launch <name> — session not found", () => {
     ).rejects.toThrow("process.exit:1");
 
     expect(mockLaunch).not.toHaveBeenCalled();
-    const allErrors = errorSpy.mock.calls.map((c) => c[0] as string).join("\n");
+    const allErrors = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");
     expect(allErrors).toContain("nonexistent");
     mockExit.mockRestore();
-    errorSpy.mockRestore();
+    writeSpy.mockRestore();
   });
 });
 
 describe("session launch — unknown projects in session", () => {
   it("errors when a project in the session is not registered", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const mockExit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error("process.exit:" + code);
     }) as never);
@@ -456,10 +460,10 @@ describe("session launch — unknown projects in session", () => {
     ).rejects.toThrow("process.exit:1");
 
     expect(mockLaunch).not.toHaveBeenCalled();
-    const allErrors = errorSpy.mock.calls.map((c) => c[0] as string).join("\n");
+    const allErrors = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");
     expect(allErrors).toContain("unknown-proj");
     mockExit.mockRestore();
-    errorSpy.mockRestore();
+    writeSpy.mockRestore();
   });
 });
 
@@ -476,7 +480,7 @@ describe("session remove", () => {
   });
 
   it("errors when session does not exist", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const mockExit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error("process.exit:" + code);
     }) as never);
@@ -486,17 +490,17 @@ describe("session remove", () => {
       handleSessionCommand(makeContext({ args: ["remove", "ghost"] })),
     ).rejects.toThrow("process.exit:1");
 
-    const allErrors = errorSpy.mock.calls.map((c) => c[0] as string).join("\n");
+    const allErrors = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");
     expect(allErrors).toContain("ghost");
     mockExit.mockRestore();
-    errorSpy.mockRestore();
+    writeSpy.mockRestore();
   });
 
   it("errors when no name is provided", async () => {
     const mockExit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error("process.exit:" + code);
     }) as never);
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     await expect(
       handleSessionCommand(makeContext({ args: ["remove"] })),
@@ -506,7 +510,7 @@ describe("session remove", () => {
   });
 
   it("rejects invalid session name in remove without calling deleteSession (#532 BE-M2)", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const mockExit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error("process.exit:" + code);
     }) as never);
@@ -517,16 +521,16 @@ describe("session remove", () => {
     ).rejects.toThrow("process.exit:1");
 
     expect(mockDeleteSession).not.toHaveBeenCalled();
-    const allErrors = errorSpy.mock.calls.map((c) => c[0] as string).join("\n");
+    const allErrors = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");
     expect(allErrors).toMatch(/invalid|not found/i);
     mockExit.mockRestore();
-    errorSpy.mockRestore();
+    writeSpy.mockRestore();
   });
 });
 
 describe("session show — not found", () => {
   it("errors when session does not exist", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const mockExit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error("process.exit:" + code);
     }) as never);
@@ -536,17 +540,17 @@ describe("session show — not found", () => {
       handleSessionCommand(makeContext({ args: ["show", "ghost"] })),
     ).rejects.toThrow("process.exit:1");
 
-    const allErrors = errorSpy.mock.calls.map((c) => c[0] as string).join("\n");
+    const allErrors = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");
     expect(allErrors).toContain("ghost");
     mockExit.mockRestore();
-    errorSpy.mockRestore();
+    writeSpy.mockRestore();
   });
 
   it("errors when no name is provided to show", async () => {
     const mockExit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error("process.exit:" + code);
     }) as never);
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     await expect(
       handleSessionCommand(makeContext({ args: ["show"] })),
@@ -556,7 +560,7 @@ describe("session show — not found", () => {
   });
 
   it("rejects invalid session name in show without calling readSession (#532 BE-M2)", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const mockExit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error("process.exit:" + code);
     }) as never);
@@ -567,10 +571,10 @@ describe("session show — not found", () => {
     ).rejects.toThrow("process.exit:1");
 
     expect(mockReadSession).not.toHaveBeenCalled();
-    const allErrors = errorSpy.mock.calls.map((c) => c[0] as string).join("\n");
+    const allErrors = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");
     expect(allErrors).toMatch(/invalid|not found/i);
     mockExit.mockRestore();
-    errorSpy.mockRestore();
+    writeSpy.mockRestore();
   });
 });
 
@@ -579,7 +583,7 @@ describe("session add — no args", () => {
     const mockExit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error("process.exit:" + code);
     }) as never);
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     await expect(
       handleSessionCommand(makeContext({ args: ["add"] })),
@@ -593,7 +597,7 @@ describe("session add — no args", () => {
     const mockExit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error("process.exit:" + code);
     }) as never);
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     await expect(
       handleSessionCommand(makeContext({ args: ["add", "myteam"] })),
@@ -607,7 +611,7 @@ describe("session add — no args", () => {
 describe("session launch — partial failure shows already-launched list", () => {
   it("reports already-launched projects when first succeeds and second fails", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const mockExit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error("process.exit:" + code);
     }) as never);
@@ -625,19 +629,20 @@ describe("session launch — partial failure shows already-launched list", () =>
       handleSessionCommand(makeContext({ args: ["myteam"] })),
     ).rejects.toThrow("process.exit:1");
 
-    const allErrors = errorSpy.mock.calls.map((c) => c[0] as string).join("\n");
+    const allErrors = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");
     // Should mention the already-launched project
     expect(allErrors).toContain("api");
     mockExit.mockRestore();
-    errorSpy.mockRestore();
+    writeSpy.mockRestore();
     logSpy.mockRestore();
   });
 });
 
 describe("session launch — spinner", () => {
-  it("does not write to stdout when not a TTY", async () => {
+  it("non-TTY static mode: prints label once, no animation interval (#615)", async () => {
     const writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const setIntervalSpy = vi.spyOn(globalThis, "setInterval");
     Object.defineProperty(process.stdout, "isTTY", { value: false, configurable: true });
 
     mockReadSession.mockReturnValue(["api"]);
@@ -646,10 +651,76 @@ describe("session launch — spinner", () => {
 
     await handleSessionCommand(makeContext({ args: ["mysession"] }));
 
-    expect(writeSpy).not.toHaveBeenCalled();
+    // No animation interval should have been started
+    expect(setIntervalSpy).not.toHaveBeenCalled();
+    // Label is printed once as a plain line
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join("");
+    expect(allWrites).toContain("Summoning api");
 
     writeSpy.mockRestore();
     logSpy.mockRestore();
+    setIntervalSpy.mockRestore();
     Object.defineProperty(process.stdout, "isTTY", { value: undefined, configurable: true });
+  });
+
+  it("static mode: NO_COLOR set — prints label once, no setInterval animation (#615)", async () => {
+    const writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const setIntervalSpy = vi.spyOn(globalThis, "setInterval");
+    // Simulate a TTY so the isTTY guard doesn't short-circuit
+    Object.defineProperty(process.stdout, "isTTY", { value: true, configurable: true });
+    const origNoColor = process.env["NO_COLOR"];
+    process.env["NO_COLOR"] = "1";
+
+    mockReadSession.mockReturnValue(["api"]);
+    mockGetProject.mockReturnValue("/tmp/api");
+    mockLaunch.mockResolvedValue(undefined);
+
+    await handleSessionCommand(makeContext({ args: ["mysession"] }));
+
+    // No animation interval should have been started
+    expect(setIntervalSpy).not.toHaveBeenCalled();
+    // The label should have been printed to stderr or stdout exactly once (static line)
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join("");
+    expect(allWrites).toContain("Summoning api");
+
+    writeSpy.mockRestore();
+    logSpy.mockRestore();
+    setIntervalSpy.mockRestore();
+    Object.defineProperty(process.stdout, "isTTY", { value: undefined, configurable: true });
+    if (origNoColor === undefined) {
+      delete process.env["NO_COLOR"];
+    } else {
+      process.env["NO_COLOR"] = origNoColor;
+    }
+  });
+
+  it("static mode: SUMMON_NO_SPINNER set — prints label once, no setInterval animation (#615)", async () => {
+    const writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const setIntervalSpy = vi.spyOn(globalThis, "setInterval");
+    Object.defineProperty(process.stdout, "isTTY", { value: true, configurable: true });
+    const origNoSpinner = process.env["SUMMON_NO_SPINNER"];
+    process.env["SUMMON_NO_SPINNER"] = "1";
+
+    mockReadSession.mockReturnValue(["api"]);
+    mockGetProject.mockReturnValue("/tmp/api");
+    mockLaunch.mockResolvedValue(undefined);
+
+    await handleSessionCommand(makeContext({ args: ["mysession"] }));
+
+    expect(setIntervalSpy).not.toHaveBeenCalled();
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join("");
+    expect(allWrites).toContain("Summoning api");
+
+    writeSpy.mockRestore();
+    logSpy.mockRestore();
+    setIntervalSpy.mockRestore();
+    Object.defineProperty(process.stdout, "isTTY", { value: undefined, configurable: true });
+    if (origNoSpinner === undefined) {
+      delete process.env["SUMMON_NO_SPINNER"];
+    } else {
+      process.env["SUMMON_NO_SPINNER"] = origNoSpinner;
+    }
   });
 });

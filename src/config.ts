@@ -4,12 +4,16 @@ import { isPresetName } from "./layout.js";
 import { CONFIG_DIR, LAYOUTS_DIR } from "./paths.js";
 import { PROJECT_NAME_RE as STRICT_PROJECT_NAME_RE } from "./validation.js";
 import { atomicWrite } from "./utils.js";
+import { getCachedKV, putCachedKV, invalidateCachedKV, resetPersistentCache } from "./cache.js";
 
 // Re-export path constants for backward compatibility
 export { CONFIG_DIR, LAYOUTS_DIR, STATUS_DIR, SNAPSHOTS_DIR } from "./paths.js";
 
 const PROJECTS_FILE = join(CONFIG_DIR, "projects");
 const CONFIG_FILE = join(CONFIG_DIR, "config");
+
+/** Files eligible for the persistent cross-invocation cache (machine config + registry). */
+const PERSISTENT_CACHE_PATHS = new Set([CONFIG_FILE, PROJECTS_FILE]);
 
 let configEnsured = false;
 
@@ -26,27 +30,20 @@ export function resetConfigCache(): void {
   configEnsured = false;
   fileCache.clear();
   commentStore.clear();
+  resetPersistentCache();
 }
 
 /**
- * Clear the KV file cache, forcing the next read to re-stat and re-read from disk.
+ * Alias for resetConfigCache — kept for backward compatibility (#512 AR-L2).
  * @internal — exported for testing only (#403 BE-L1)
  */
-export function clearKVCache(): void {
-  fileCache.clear();
-  commentStore.clear();
-}
+export const clearKVCache: () => void = resetConfigCache;
 
 /**
- * Clear the project registry cache, forcing the next project lookup to re-read from disk.
+ * Alias for resetConfigCache — kept for backward compatibility (#512 AR-L2).
  * @internal — exported for testing only (#404 BE-L3)
  */
-export function clearProjectCache(): void {
-  // Projects are stored in fileCache keyed by PROJECTS_FILE path.
-  // Clearing the entire KV cache also covers the project registry.
-  fileCache.clear();
-  commentStore.clear();
-}
+export const clearProjectCache: () => void = resetConfigCache;
 
 /**
  * Check if this is a first-run scenario (config file does not exist yet).
@@ -80,23 +77,35 @@ const commentStore = new Map<string, Array<{ line: string; beforeKey: string | n
  * Same parsing logic as readKVFile but operates on a pre-read string.
  * Use this when the file content has already been read (e.g. for TOCTOU prevention).
  */
+const MAX_MALFORMED_WARNINGS = 5;
+
 export function readKVFromString(content: string): Map<string, string> {
   const map = new Map<string, string>();
   const trimmed = content.trim();
   if (!trimmed) return map;
+  let warnCount = 0;
+  let skippedCount = 0;
   for (const line of trimmed.replace(/\r\n?/g, "\n").split("\n")) {
     if (line.trimStart().startsWith("#")) continue;
     const idx = line.indexOf("=");
     if (idx === -1) {
       const trimmedLine = line.trim();
       if (trimmedLine.length > 0) {
-        process.stderr.write("summon: warning: ignored malformed config line: " + trimmedLine + "\n");
+        if (warnCount < MAX_MALFORMED_WARNINGS) {
+          process.stderr.write("summon: warning: ignored malformed config line: " + trimmedLine + "\n");
+          warnCount++;
+        } else {
+          skippedCount++;
+        }
       }
       continue;
     }
     const key = line.slice(0, idx).trim();
     const value = line.slice(idx + 1).trim();
     map.set(key, value);
+  }
+  if (skippedCount > 0) {
+    process.stderr.write("summon: warning: " + skippedCount + " additional malformed config line(s) suppressed\n");
   }
   return map;
 }
@@ -134,9 +143,18 @@ function parseCommentsFromString(content: string): Array<{ line: string; beforeK
   return comments;
 }
 
+const MAX_CONFIG_FILE_BYTES = 1_048_576; // 1 MiB
+
 export function readKVFile(path: string): Map<string, string> {
   let content: string;
   try {
+    const stat = statSync(path);
+    if (stat.size > MAX_CONFIG_FILE_BYTES) {
+      process.stderr.write(
+        `summon: warning: config file too large (${stat.size} bytes), skipping: ${path}\n`,
+      );
+      return new Map<string, string>();
+    }
     content = readFileSync(path, "utf-8");
   } catch (err: unknown) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return new Map<string, string>();
@@ -149,21 +167,41 @@ export function readKVFile(path: string): Map<string, string> {
 
 function readKVCached(file: string): Map<string, string> {
   let mtime: number;
+  let size: number;
   try {
-    mtime = statSync(file).mtimeMs;
+    const st = statSync(file);
+    mtime = st.mtimeMs;
+    size = st.size;
   } catch {
     // File doesn't exist — bypass cache, let readKVFile handle it
     fileCache.delete(file);
     return readKVFile(file);
   }
 
+  // Check in-process cache first (fastest)
   const cached = fileCache.get(file);
   if (cached !== undefined && cached.mtime === mtime) {
     return cached.data;
   }
 
+  // Check persistent cross-invocation cache for eligible files (#516 / #330)
+  if (PERSISTENT_CACHE_PATHS.has(file)) {
+    const persisted = getCachedKV(file, mtime, size);
+    if (persisted !== null) {
+      // Populate in-process cache so repeated reads in this invocation are free
+      fileCache.set(file, { mtime, data: persisted });
+      return persisted;
+    }
+  }
+
   const data = readKVFile(file);
   fileCache.set(file, { mtime, data });
+
+  // Populate persistent cache for eligible files
+  if (PERSISTENT_CACHE_PATHS.has(file)) {
+    putCachedKV(file, data, mtime, size);
+  }
+
   return data;
 }
 
@@ -226,8 +264,9 @@ function writeKV(file: string, map: Map<string, string>): void {
     : formatKVLines(map);
   // Atomic write: write to .tmp then rename (BE-M3 #492)
   atomicWrite(file, content, { mode: 0o600 });
-  // Invalidate cache after write so subsequent reads see fresh data
+  // Invalidate caches after write so subsequent reads see fresh data
   fileCache.delete(file);
+  invalidateCachedKV(file);
   // Update comment store to reflect what was actually written
   commentStore.set(file, parseCommentsFromString(content));
 }
@@ -283,7 +322,8 @@ export function removeConfig(key: string): boolean {
 export function listConfig(): Map<string, string> {
   const config = readKV(CONFIG_FILE);
   for (const key of config.keys()) {
-    if (!KNOWN_CONFIG_KEYS.has(key)) {
+    // env.<KEY> entries are valid (see handleSetCommand) — don't flag them.
+    if (!KNOWN_CONFIG_KEYS.has(key) && !key.startsWith("env.")) {
       console.warn(`summon: unknown config key: ${key}`);
     }
   }
@@ -303,7 +343,7 @@ export const CLI_FLAGS = [
   "--editor-size", "--sidebar", "--shell", "--auto-resize",
   "--no-auto-resize", "--starship-preset", "--dry-run",
   "--env", "--new-window", "--new-tab", "--fullscreen", "--maximize", "--float", "--font-size", "--on-start", "--once",
-  "--clean", "--no-clean",
+  "--clean", "--no-clean", "--no-project-config", "--verbose",
   "-h", "-v", "-l", "-e", "-p", "-s", "-n",
 ];
 
@@ -326,7 +366,10 @@ export function layoutPath(name: string): string {
 
 export function listCustomLayouts(): string[] {
   if (!existsSync(LAYOUTS_DIR)) return [];
-  return readdirSync(LAYOUTS_DIR).sort();
+  // BE-M4 #605: filter out orphaned .tmp files and dotfiles so they never appear as phantom entries
+  return readdirSync(LAYOUTS_DIR)
+    .filter(f => !f.startsWith(".") && !f.endsWith(".tmp"))
+    .sort();
 }
 
 export function readCustomLayout(name: string): Map<string, string> | null {
@@ -339,7 +382,7 @@ export function readCustomLayout(name: string): Map<string, string> | null {
 
 export function saveCustomLayout(name: string, entries: Map<string, string>): void {
   mkdirSync(LAYOUTS_DIR, { recursive: true, mode: 0o700 });
-  writeFileSync(layoutPath(name), formatKVLines(entries), { mode: 0o600 });
+  atomicWrite(layoutPath(name), formatKVLines(entries), { mode: 0o600 });
 }
 
 export function deleteCustomLayout(name: string): boolean {

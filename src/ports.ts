@@ -1,8 +1,9 @@
-import { existsSync, readFileSync, promises as fsPromises } from "node:fs";
+import { existsSync, readFileSync, statSync, promises as fsPromises } from "node:fs";
 import { join } from "node:path";
 import { readKVFile, listProjects } from "./config.js";
 import { readAllStatuses } from "./status.js";
 import { isTrusted } from "./trust.js";
+import { runPool, IO_CONCURRENCY } from "./utils.js";
 
 export interface PortAssignment {
   port: number;
@@ -41,6 +42,14 @@ const FRAMEWORK_DEFAULTS: ReadonlyArray<{ pattern: string; port: number; name: s
   { pattern: "svelte.config", port: 5173, name: "SvelteKit" },
 ];
 
+// Hoisted regex for port flag parsing — /g flag makes it stateful; reset lastIndex before each use.
+// BE-H2 (#591): capture the full non-whitespace token so that "3000abc" is captured as-is
+// and rejected by the strict /^\d+$/ check below (not silently truncated to 3000).
+const PORT_FLAG_RE = /(?:-p|--port)[=\s]+(\S+)/g;
+
+// Extensions to probe when detecting framework config files.
+const EXTENSIONS = [".js", ".mjs", ".ts", ".cjs"];
+
 export async function detectProjectPorts(
   projectName: string,
   projectDir: string,
@@ -69,44 +78,46 @@ export async function detectProjectPorts(
   const pkgPath = join(projectDir, "package.json");
   if (existsSync(pkgPath)) {
     try {
-      const pkg = JSON.parse(readFileSync(pkgPath, "utf-8")) as {
-        scripts?: Record<string, string>;
-      };
-      const scripts = pkg.scripts ?? {};
-      for (const script of Object.values(scripts)) {
-        if (!isDevServerScript(script)) continue;
-        const portRe = /(?:-p|--port)[=\s]+(\d+)/g;
-        let match;
-        while ((match = portRe.exec(script)) !== null) {
-          const port = parseInt(match[1]!, 10);
-          if (port > 0 && !seenPorts.has(port)) {
-            seenPorts.add(port);
-            assignments.push({ port, project: projectName, source: "package.json", state });
+      // BE-H2 (#591): skip files larger than 1MB to prevent DoS via oversized package.json
+      const pkgStat = statSync(pkgPath);
+      if (pkgStat.size <= 1_048_576) {
+        const pkg = JSON.parse(readFileSync(pkgPath, "utf-8")) as {
+          scripts?: Record<string, string>;
+        };
+        const scripts = pkg.scripts ?? {};
+        for (const script of Object.values(scripts)) {
+          if (!isDevServerScript(script)) continue;
+          PORT_FLAG_RE.lastIndex = 0; // reset stateful /g regex before each reuse
+          let match;
+          while ((match = PORT_FLAG_RE.exec(script)) !== null) {
+            // BE-H2 (#591): strict all-digit check — parseInt("3000abc") === 3000 (wrong)
+            if (!/^\d+$/.test(match[1]!)) continue;
+            const port = parseInt(match[1]!, 10);
+            if (port > 0 && !seenPorts.has(port)) {
+              seenPorts.add(port);
+              assignments.push({ port, project: projectName, source: "package.json", state });
+            }
           }
         }
       }
     } catch {
-      /* invalid JSON, skip */
+      /* stat/read/parse failure, skip */
     }
   }
 
-  // 3. Framework defaults (only if no explicit ports found for that default)
-  const extensions = [".js", ".mjs", ".ts", ".cjs"];
-  const frameworkCandidates = FRAMEWORK_DEFAULTS.flatMap((fw) =>
-    extensions.map((ext) => ({ fw, path: join(projectDir, fw.pattern + ext) })),
-  );
-  const accessResults = await Promise.all(
-    frameworkCandidates.map(({ path }) =>
-      fsPromises.access(path).then(() => true).catch(() => false),
-    ),
-  );
-  for (let i = 0; i < frameworkCandidates.length; i++) {
-    if (accessResults[i]) {
-      const { fw } = frameworkCandidates[i]!;
-      if (!seenPorts.has(fw.port)) {
-        seenPorts.add(fw.port);
-        assignments.push({ port: fw.port, project: projectName, source: "framework-default", state });
-      }
+  // 3. Framework defaults — single readdir instead of 24 access probes per project.
+  let entries: Set<string>;
+  try {
+    entries = new Set(await fsPromises.readdir(projectDir));
+  } catch {
+    entries = new Set(); // dir unreadable → no framework defaults (same as all-access-fail today)
+  }
+  for (const fw of FRAMEWORK_DEFAULTS) {
+    if (seenPorts.has(fw.port)) continue;
+    const hit = EXTENSIONS.some((ext) => entries.has(fw.pattern + ext));
+    if (hit) {
+      seenPorts.add(fw.port);
+      assignments.push({ port: fw.port, project: projectName, source: "framework-default", state });
     }
   }
 
@@ -122,10 +133,8 @@ export async function detectAllPorts(): Promise<{
     readAllStatuses().map((status) => [status.project, status.state]),
   );
 
-  const perProject = await Promise.all(
-    [...projects].map(([name, dir]) =>
-      detectProjectPorts(name, dir, statusMap.get(name) ?? "unknown"),
-    ),
+  const perProject = await runPool([...projects], IO_CONCURRENCY, ([name, dir]) =>
+    detectProjectPorts(name, dir, statusMap.get(name) ?? "unknown"),
   );
   const allAssignments: PortAssignment[] = perProject.flat();
 

@@ -19,6 +19,7 @@ import {
 import { resolveConfig, optsToConfigMap } from "../launcher.js";
 import { ENV_KEY_RE, validateFloatFlag, validateIntFlag } from "../validation.js";
 import { exitWithUsageHint } from "../utils.js";
+import { fail, err } from "../ui/output.js";
 import { isValidPreset } from "../starship.js";
 import type { CommandContext } from "./types.js";
 import { validateLayoutNameOrExit, validateLayoutOrExit } from "./layout-support.js";
@@ -31,13 +32,13 @@ export async function handleSetCommand({ args }: CommandContext): Promise<void> 
     exitWithUsageHint("Usage: summon set <key> [value]");
   }
   if (!VALID_KEYS.includes(key) && !key.startsWith("env.")) {
-    exitWithUsageHint(`Error: Unknown config key "${key}". Valid keys: ${VALID_KEYS.join(", ")}, env.<KEY>`);
+    exitWithUsageHint(`Unknown config key "${key}". Valid keys: ${VALID_KEYS.join(", ")}, env.<KEY>`);
   }
   if (key.startsWith("env.")) {
     const envName = key.slice(4);
     if (!ENV_KEY_RE.test(envName)) {
-      console.error(`Error: invalid environment variable name "${envName}".`);
-      console.error("Environment variable names must start with a letter or underscore and contain only letters, digits, and underscores.");
+      fail(`invalid environment variable name "${envName}".`);
+      err("Environment variable names must start with a letter or underscore and contain only letters, digits, and underscores.");
       process.exit(1);
     }
   }
@@ -51,21 +52,21 @@ export async function handleSetCommand({ args }: CommandContext): Promise<void> 
     validateLayoutOrExit(value, "layout");
   }
   if (BOOLEAN_KEYS.has(key) && value !== undefined && value !== "true" && value !== "false") {
-    console.error(`Error: ${key} must be "true" or "false", got "${value}".`);
+    fail(`${key} must be "true" or "false", got "${value}".`);
     process.exit(1);
   }
   if (key === "font-size" && value !== undefined) {
     validateFloatFlag("font-size", value);
   }
   if (key === "starship-preset" && value !== undefined && !isValidPreset(value)) {
-    console.error(`Error: invalid starship preset name "${value}".`);
+    fail(`invalid starship preset name "${value}".`);
     process.exit(1);
   }
 
   if (value !== undefined) {
     if (value === "" && (key === "editor" || key === "sidebar" || key === "shell" || key === "on-start" || key === "on-stop")) {
-      console.error(`Error: ${key} cannot be set to an empty string.`);
-      console.error(`To reset to default, run: summon set ${key} (without a value)`);
+      fail(`${key} cannot be set to an empty string.`);
+      err(`To reset to default, run: summon set ${key} (without a value)`);
       process.exit(1);
     }
     setConfig(key, value);
@@ -124,7 +125,7 @@ export async function handleFreezeCommand({ args }: CommandContext): Promise<voi
   }
   validateLayoutNameOrExit(freezeName);
   if (isCustomLayout(freezeName)) {
-    console.error(`Error: Layout "${freezeName}" already exists. Delete it first: summon layout delete ${freezeName}`);
+    fail(`Layout "${freezeName}" already exists. Delete it first: summon layout delete ${freezeName}`);
     process.exit(1);
   }
 

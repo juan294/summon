@@ -376,11 +376,13 @@ Flags override both machine and per-project config for a single launch.
 | `--env KEY=VALUE` | Set environment variable for all panes (repeatable) |
 | `--on-start <cmd>` | Run a command in the target directory before workspace creation |
 | `--new-window` | Open workspace in a new Ghostty window |
-| `--clean` | Auto-close stale panes from a prior Ghostty session (default: on) |
+| `--new-tab` | Open workspace in a new Ghostty tab |
+| `--clean` | Auto-close stale panes from a prior Ghostty session (default: off) |
 | `--no-clean` | Skip auto-close of restored panes |
 | `--fullscreen` | Start workspace in fullscreen mode |
 | `--maximize` | Start workspace maximized |
 | `--float` | Float workspace window on top |
+| `--no-project-config` | Skip the `.summon` file (do not require trust) |
 | `-n`, `--dry-run` | Print generated AppleScript without executing |
 | `-h`, `--help` | Show help message |
 | `-v`, `--version` | Show version number |
@@ -841,8 +843,9 @@ When summon launches, config values are resolved in this order (first wins):
 | `font-size` | number | | Font size for workspace panes (in points). |
 | `on-start` | string | | Command to run in the target directory before workspace creation. |
 | `on-stop` | string | | Command to run after workspace closes. |
-| `clean` | boolean | `true` | Auto-close stale panes from a prior Ghostty session before building a new layout. Set to `false` to disable globally. |
+| `clean` | boolean | `false` | Auto-close stale panes from a prior Ghostty session before building a new layout. Set to `true` to enable globally (or pass `--clean` per launch). |
 | `new-window` | boolean | `false` | Open workspace in a new Ghostty window instead of reusing the front window. |
+| `new-tab` | boolean | `false` | Open workspace in a new Ghostty tab instead of reusing the front tab. |
 | `fullscreen` | boolean | `false` | Start workspace in fullscreen mode. |
 | `maximize` | boolean | `false` | Start workspace maximized. |
 | `float` | boolean | `false` | Float workspace window on top of other windows. |
@@ -921,6 +924,8 @@ All files use `key=value` format, one entry per line.
 | `STARSHIP_CONFIG` | Set automatically by summon when `starship-preset` is configured. Points each workspace to a cached preset TOML file. Do not set manually. |
 | `SUMMON_WORKSPACE` | Set to `1` in all panes inside a summon workspace. Used to detect nested launches — if you run `summon` inside an existing workspace, you'll see a warning prompt suggesting `--new-window` instead. |
 | `SUMMON_DEBUG` | Set to `1` to enable debug output. Each message is timestamped and written to stderr, and also appended to a log file in `~/.config/summon/logs/`. Useful for diagnosing launch issues or AppleScript failures. |
+| `SUMMON_NO_CACHE` | Set to `1` to disable the persistent cross-invocation read cache (`~/.config/summon/cache.json`). Machine config and the project registry are then read from disk on every invocation. |
+| `EDITOR` | Editor used by `summon layout edit` to open a custom layout file. Falls back to `vi` if unset. |
 
 ## Exit Codes
 
@@ -952,12 +957,10 @@ On first use, macOS will ask you to grant permission for your terminal to contro
 ### Unknown project name
 
 ```
-Unknown project: myapp
-Register it with: summon add myapp /path/to/project
-Or see available:  summon list
+summon: error: "myapp" is not a known command or registered project. Try: summon --help
 ```
 
-Register the project with `summon add` or use a direct path instead.
+This appears when the first argument is neither a known subcommand nor a registered project. Register the project with `summon add myapp /path/to/project`, list registered projects with `summon list`, or pass a direct path (e.g. `summon ~/code/myapp`) instead.
 
 ### Config file location
 

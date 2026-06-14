@@ -348,7 +348,7 @@ export function resolveTreeCommands(
   return resolved;
 }
 
-interface TreePlanOptions {
+export interface TreePlanOptions {
   autoResize?: boolean;
   editorSize?: number;
   fontSize?: number | null;
