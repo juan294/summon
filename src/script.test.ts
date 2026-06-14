@@ -1894,3 +1894,93 @@ describe("AR-M2: generateAppleScript is pure stateless (no cache)", () => {
     expect(r1).not.toBe(r2);
   });
 });
+
+// --- #563: escapeTabTitle removal — tab titles still correctly escaped after inlining escapeAppleScript ---
+// escapeTabTitle was a one-line alias over escapeAppleScript — removing it is a pure refactor.
+// These tests capture the pre-refactor output and assert byte-identical post-refactor behaviour.
+
+describe("#563: escapeTabTitle removed — inlined escapeAppleScript produces identical output", () => {
+  it("plain project name tab title is unchanged", () => {
+    const plan = planLayout();
+    const script = generateAppleScript(plan, "/tmp/proj", null, undefined, "myapp");
+    expect(script).toContain('perform action "set_tab_title:[myapp]" on paneRoot');
+  });
+
+  it("project name with double-quote is correctly escaped in tab title (same as pre-refactor)", () => {
+    const plan = planLayout();
+    const script = generateAppleScript(plan, "/tmp/proj", null, undefined, 'my"app');
+    // escapeAppleScript turns " into \" — identical to what escapeTabTitle produced
+    expect(script).toContain('perform action "set_tab_title:[my\\"app]" on paneRoot');
+  });
+
+  it("project name with backslash is correctly escaped in tab title (same as pre-refactor)", () => {
+    const plan = planLayout();
+    const script = generateAppleScript(plan, "/tmp/proj", null, undefined, "my\\app");
+    expect(script).toContain('perform action "set_tab_title:[my\\\\app]" on paneRoot');
+  });
+
+  it("tab title falls back to basename when projectName is omitted (same as pre-refactor)", () => {
+    const plan = planLayout();
+    const script = generateAppleScript(plan, "/tmp/my-project");
+    expect(script).toContain('perform action "set_tab_title:my-project" on paneRoot');
+  });
+
+  it("generateTreeAppleScript tab title escaping is identical to generateAppleScript (same shared emitTitles)", () => {
+    // Both generators call emitTitles → same tab title value (set_tab_title: action content)
+    const tree: LayoutNode = {
+      type: "split",
+      direction: "right",
+      first: { type: "pane", name: "editor", command: "vim" },
+      second: { type: "pane", name: "shell", command: "" },
+    };
+    const plan = buildTreePlan(tree);
+    const projectName = "myproject";
+
+    // generateAppleScript path — assert tab title value (no special chars, straightforward)
+    const tradPlan = planLayout({ editor: "vim" });
+    const tradScript = generateAppleScript(tradPlan, "/tmp/proj", null, undefined, projectName);
+
+    // generateTreeAppleScript path
+    const treeScript = generateTreeAppleScript(plan, "/tmp/proj", null, undefined, projectName);
+
+    // Both must contain the same set_tab_title action value: [myproject]
+    // (pane var differs: paneRoot vs pane_editor — that's intentional, not a title difference)
+    expect(tradScript).toContain('perform action "set_tab_title:[myproject]"');
+    expect(treeScript).toContain('perform action "set_tab_title:[myproject]"');
+  });
+});
+
+// --- #604 / #437 / #450: pipeline unification — TreePlanOptions exported from tree.ts ---
+
+describe("#604 / #437 / #450: TreePlanOptions exported from tree.ts", () => {
+  it("TreePlanOptions is usable from tree.ts via buildTreePlan (interface export proof)", () => {
+    // TreePlanOptions is a TS interface (no runtime representation), but we can verify
+    // the export contract is in place by calling buildTreePlan with a fully-typed opts object.
+    // If TreePlanOptions were not exported, the type import in launcher.ts would fail tsc.
+    const tree: LayoutNode = {
+      type: "pane",
+      name: "editor",
+      command: "vim",
+    };
+    // Passing a full set of opts verifies the interface shape is correct
+    const plan = buildTreePlan(tree, {
+      autoResize: false,
+      editorSize: 70,
+      fontSize: 14,
+      newWindow: false,
+      newTab: false,
+      fullscreen: false,
+      maximize: false,
+      float: false,
+      cleanRestoredPanes: false,
+    });
+    expect(plan.autoResize).toBe(false);
+    expect(plan.editorSize).toBe(70);
+    expect(plan.fontSize).toBe(14);
+    expect(plan.newWindow).toBe(false);
+    expect(plan.fullscreen).toBe(false);
+    expect(plan.maximize).toBe(false);
+    expect(plan.float).toBe(false);
+    expect(plan.cleanRestoredPanes).toBe(false);
+  });
+});

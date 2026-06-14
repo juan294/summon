@@ -182,7 +182,6 @@ primary injection defense. See src/shell-escape.ts for the escape functions it p
 
 ## Known Architectural Debt
 
-- **AR-L1**: Two parallel layout pipelines in `launcher.ts` and `script.ts` duplicate options mapping (`launchTreeLayout`/`launchTraditionalLayout` and `generateTreeAppleScript`/`generateAppleScript`). Any new layout option must be threaded through both pipelines independently. Tracked in #318.
 - **PE-S1**: `setup.ts` compiles to ~20KB chunk. Further code splitting (lazy imports for gallery/builder) could reduce cold-start cost. Tracked in #329.
 - **PE-S2**: Config reads are now mtime-memoized within a single invocation (implemented in WU-E). A persistent cross-invocation cache (e.g., `~/.config/summon/cache.json` surviving between CLI runs) would further reduce cold-start disk I/O. Tracked in #330.
 
