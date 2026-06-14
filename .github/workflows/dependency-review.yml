@@ -7,6 +7,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: dep-review-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   review:
     runs-on: ubuntu-latest

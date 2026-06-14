@@ -5,7 +5,7 @@ on:
     types: [published]
 
 permissions:
-  contents: read
+  contents: write # Required for gh release upload (SBOM attachment)
   id-token: write # Required for OIDC trusted publishing
 
 jobs:
@@ -53,6 +53,15 @@ jobs:
       - run: pnpm lint
       - run: pnpm test
       - run: pnpm build
+
+      - name: Generate SBOM (#566, #623)
+        # Transient via npx — not a project dependency. Produces CycloneDX JSON SBOM.
+        run: npx --yes @cyclonedx/cyclonedx-npm --output-file sbom.json
+
+      - name: Attach SBOM to GitHub Release
+        run: gh release upload "$GITHUB_REF_NAME" sbom.json --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: Pack and inspect tarball
         run: |
