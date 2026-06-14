@@ -1,18 +1,38 @@
 version: 2
+
 updates:
-  - package-ecosystem: npm
-    directory: /
+  # npm dependencies
+  - package-ecosystem: "npm"
+    directory: "/"
+    target-branch: "develop"
     schedule:
-      interval: weekly
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
     groups:
-      dev-dependencies:
-        dependency-type: "development"
-        update-types: ["minor", "patch"]
-  - package-ecosystem: github-actions
-    directory: /
-    schedule:
-      interval: weekly
-    groups:
-      actions:
+      production:
+        applies-to: version-updates
         patterns:
           - "*"
+        exclude-patterns:
+          - "@types/*"
+          - "eslint*"
+          - "vitest*"
+          - "@vitest/*"
+          - "@testing-library/*"
+      dev-and-types:
+        applies-to: version-updates
+        patterns:
+          - "@types/*"
+          - "eslint*"
+          - "vitest*"
+          - "@vitest/*"
+          - "@testing-library/*"
+
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    target-branch: "develop"
+    schedule:
+      interval: "weekly"
+      day: "monday"
