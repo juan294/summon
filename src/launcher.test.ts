@@ -92,7 +92,7 @@ vi.mock("./script.js", () => ({
 }));
 
 // Import after mocks are set up
-const { launch, resolveConfig, optsToConfigMap, focusWorkspace, resolveProjectName, probePaneCount, decideCleanRestoredPanes, closeWorkspaceWindow, layoutOptsToTreePlanOpts } = await import("./launcher.js");
+const { launch, resolveConfig, optsToConfigMap, focusWorkspace, resolveProjectName, probePaneCount, decideCleanRestoredPanes, closeWorkspaceWindow, layoutOptsToTreePlanOpts, isStaticLaunchSpinner, withLaunchSpinner } = await import("./launcher.js");
 const { listConfig, listProjects } = await import("./config.js");
 const { existsSync } = await import("node:fs");
 const { TabOpenError } = await import("./errors.js");
@@ -4181,5 +4181,132 @@ describe("SE-M1 (#595): on-stop command surfaced at launch time", () => {
     logSpy.mockRestore();
     errorSpy.mockRestore();
     warnSpy.mockRestore();
+  });
+});
+
+// --- UX-L2 (#519): single-launch spinner ---
+
+describe("UX-L2 (#519): single-launch spinner", () => {
+  it("isStaticLaunchSpinner: returns true when stdout is not a TTY", () => {
+    const origIsTTY = process.stdout.isTTY;
+    Object.defineProperty(process.stdout, "isTTY", { value: false, configurable: true });
+    try {
+      expect(isStaticLaunchSpinner()).toBe(true);
+    } finally {
+      Object.defineProperty(process.stdout, "isTTY", { value: origIsTTY, configurable: true });
+    }
+  });
+
+  it("isStaticLaunchSpinner: returns true when NO_COLOR is set", () => {
+    const origIsTTY = process.stdout.isTTY;
+    const origNoColor = process.env.NO_COLOR;
+    Object.defineProperty(process.stdout, "isTTY", { value: true, configurable: true });
+    process.env.NO_COLOR = "1";
+    try {
+      expect(isStaticLaunchSpinner()).toBe(true);
+    } finally {
+      Object.defineProperty(process.stdout, "isTTY", { value: origIsTTY, configurable: true });
+      if (origNoColor === undefined) {
+        delete process.env.NO_COLOR;
+      } else {
+        process.env.NO_COLOR = origNoColor;
+      }
+    }
+  });
+
+  it("isStaticLaunchSpinner: returns true when SUMMON_NO_SPINNER is set", () => {
+    const origIsTTY = process.stdout.isTTY;
+    const origNoSpinner = process.env.SUMMON_NO_SPINNER;
+    Object.defineProperty(process.stdout, "isTTY", { value: true, configurable: true });
+    process.env.SUMMON_NO_SPINNER = "1";
+    try {
+      expect(isStaticLaunchSpinner()).toBe(true);
+    } finally {
+      Object.defineProperty(process.stdout, "isTTY", { value: origIsTTY, configurable: true });
+      if (origNoSpinner === undefined) {
+        delete process.env.SUMMON_NO_SPINNER;
+      } else {
+        process.env.SUMMON_NO_SPINNER = origNoSpinner;
+      }
+    }
+  });
+
+  it("withLaunchSpinner: static mode — writes label to both stderr and stdout", () => {
+    const origIsTTY = process.stdout.isTTY;
+    Object.defineProperty(process.stdout, "isTTY", { value: false, configurable: true });
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    let ran = false;
+    try {
+      withLaunchSpinner("Summoning test…", () => { ran = true; });
+      expect(ran).toBe(true);
+      // stderr should contain the label
+      const allStderr = stderrSpy.mock.calls.map(c => String(c[0])).join("");
+      expect(allStderr).toContain("Summoning test…");
+      // stdout should contain the label (static line)
+      const allStdout = stdoutSpy.mock.calls.map(c => String(c[0])).join("");
+      expect(allStdout).toContain("Summoning test…");
+    } finally {
+      Object.defineProperty(process.stdout, "isTTY", { value: origIsTTY, configurable: true });
+      stderrSpy.mockRestore();
+      stdoutSpy.mockRestore();
+    }
+  });
+
+  it("withLaunchSpinner: TTY mode — writes spinner frame to stdout and clears after", () => {
+    const origIsTTY = process.stdout.isTTY;
+    const origForceColor = process.env.FORCE_COLOR;
+    Object.defineProperty(process.stdout, "isTTY", { value: true, configurable: true });
+    process.env.FORCE_COLOR = "1";
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    let ran = false;
+    try {
+      withLaunchSpinner("Summoning test…", () => { ran = true; });
+      expect(ran).toBe(true);
+      const allStdout = stdoutSpy.mock.calls.map(c => String(c[0])).join("");
+      // Should contain a spinner frame and the label
+      expect(allStdout).toContain("Summoning test…");
+      // Should clear (erase-to-end-of-line)
+      expect(allStdout).toContain("\r\x1b[K");
+    } finally {
+      Object.defineProperty(process.stdout, "isTTY", { value: origIsTTY, configurable: true });
+      if (origForceColor === undefined) {
+        delete process.env.FORCE_COLOR;
+      } else {
+        process.env.FORCE_COLOR = origForceColor;
+      }
+      stderrSpy.mockRestore();
+      stdoutSpy.mockRestore();
+    }
+  });
+
+  it("launch: spinner label written to stderr during real launch (non-TTY static mode)", async () => {
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+    const origIsTTY = process.stdout.isTTY;
+    Object.defineProperty(process.stdout, "isTTY", { value: false, configurable: true });
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      await launch("/tmp/workspace");
+
+      const allStderr = [
+        ...stderrSpy.mock.calls.map(c => String(c[0])),
+        ...errorSpy.mock.calls.flat().map(String),
+      ].join("\n");
+      // The spinner label should include "Summoning" and end up in stderr
+      expect(allStderr).toMatch(/summon/i);
+
+      // stdout spinner line should also be present
+      const allStdout = stdoutSpy.mock.calls.map(c => String(c[0])).join("");
+      expect(allStdout).toMatch(/summon/i);
+    } finally {
+      Object.defineProperty(process.stdout, "isTTY", { value: origIsTTY, configurable: true });
+      stderrSpy.mockRestore();
+      stdoutSpy.mockRestore();
+      errorSpy.mockRestore();
+    }
   });
 });
