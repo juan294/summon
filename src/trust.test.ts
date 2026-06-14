@@ -485,6 +485,39 @@ describe("assertTrustedContent", () => {
   });
 });
 
+// SE-L3 #610: assertTrusted and assertTrustedContent must agree for a trusted file.
+// This consistency test guards against the two entrypoints diverging in their trust decision.
+describe("SE-L3 #610: assertTrusted and assertTrustedContent consistency", () => {
+  it("both functions pass (do not throw) for a trusted file", () => {
+    const content = "editor = vim\nsidebar = lazygit\n";
+    const hash = sha256(content);
+
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockImplementation((p: string) => {
+      if (p.endsWith(".summon")) return content;
+      return JSON.stringify({ "/some/dir": hash });
+    });
+
+    // assertTrustedContent: receives the pre-read content bytes
+    expect(() => assertTrustedContent("/some/dir", content)).not.toThrow();
+    // assertTrusted: re-reads from disk internally (mocked to return same content)
+    expect(() => assertTrusted("/some/dir")).not.toThrow();
+  });
+
+  it("both functions throw for an untrusted file (hash mismatch)", () => {
+    const content = "editor = vim\n";
+
+    mockExistsSync.mockImplementation((p: string) => {
+      if (p.endsWith(".summon")) return true;
+      return false; // trust.json absent → untrusted
+    });
+    mockReadFileSync.mockReturnValue(content);
+
+    expect(() => assertTrustedContent("/some/dir", content)).toThrow(SummonError);
+    expect(() => assertTrusted("/some/dir")).toThrow(SummonError);
+  });
+});
+
 describe("assertTrusted fail-closed", () => {
   it("throws when isTrusted throws a non-ENOENT error (e.g. EACCES on .summon file)", () => {
     mockExistsSync.mockImplementation((p: string) => {
@@ -642,14 +675,16 @@ describe("handleTrustCommand", () => {
   it("exits with error when no .summon file exists", () => {
     mockExistsSync.mockReturnValue(false);
     const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => { throw new Error("exit"); });
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     expect(() => handleTrustCommand("/some/dir")).toThrow("exit");
     expect(exitSpy).toHaveBeenCalledWith(1);
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("No .summon file found"));
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(allWrites).toContain("No .summon file found");
+    expect(allWrites).toContain("summon: error:");
 
     exitSpy.mockRestore();
-    errorSpy.mockRestore();
+    writeSpy.mockRestore();
   });
 
   it("prints confirmation when .summon file is trusted", () => {
@@ -710,6 +745,47 @@ describe("BE-L1 #545: TRUST_FILE and CONFIG_DIR match paths.ts exports", () => {
       PATH_CONFIG_DIR,
       expect.objectContaining({ recursive: true }),
     );
+  });
+});
+
+// BE-H1 (#590): isTrusted path normalization — .summon path must use realpath not raw dir
+describe("BE-H1 (#590): isTrusted uses normalizedDir for .summon path (symlink consistency)", () => {
+  it("isTrusted reads .summon via the realpath, not the symlink path", () => {
+    const symlinkDir = "/tmp/myproject";
+    const realDir = "/private/tmp/myproject";
+    const content = "editor = vim\n";
+    const hash = sha256(content);
+
+    // realpathSync maps symlink → real
+    mockRealpathSync.mockImplementation((p: string) => {
+      if (p === symlinkDir) return realDir;
+      return p;
+    });
+
+    // Track which paths existsSync and readFileSync are called with
+    const existsPaths: string[] = [];
+    const readPaths: string[] = [];
+
+    mockExistsSync.mockImplementation((p: string) => {
+      existsPaths.push(p);
+      return p.endsWith(".summon") || p === `${realDir}/.summon`;
+    });
+
+    mockReadFileSync.mockImplementation((p: string) => {
+      readPaths.push(p);
+      if (p.endsWith(".summon")) return content;
+      return JSON.stringify({ [realDir]: hash });
+    });
+
+    isTrusted(symlinkDir);
+
+    // All .summon reads must use the realpath, NOT the symlink path
+    const summonExistsCalls = existsPaths.filter(p => p.includes(".summon"));
+    const summonReadCalls = readPaths.filter(p => p.includes(".summon"));
+    for (const p of [...summonExistsCalls, ...summonReadCalls]) {
+      expect(p.startsWith(realDir)).toBe(true);
+      expect(p.startsWith(symlinkDir)).toBe(false);
+    }
   });
 });
 

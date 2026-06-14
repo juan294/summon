@@ -1,8 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, unlinkSync, readdirSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
-import { execFileSync } from "node:child_process";
 import { STATUS_DIR } from "./paths.js";
-import { gitSafeEnv, debugLog, atomicWrite } from "./utils.js";
+import { debugLog, atomicWrite, gitOutput } from "./utils.js";
 
 // --- Types ---
 
@@ -114,7 +113,10 @@ export function parseWorkspaceStatus(raw: unknown): WorkspaceStatus | null {
   const d = raw as Record<string, unknown>;
 
   // BE-M2 #491: gracefully handle future schema versions — warn and return null
+  // BE-M5 #606: emit an unconditional stderr warning so users know to upgrade
   if (typeof d["version"] === "number" && d["version"] > 1) {
+    const file = typeof d["project"] === "string" ? `${d["project"]}.json` : "status file";
+    process.stderr.write(`summon: warning: ${file} was written by a newer summon; upgrade to read it\n`);
     debugLog(`parseWorkspaceStatus: unrecognised future schema version ${d["version"]}; returning null`);
     return null;
   }
@@ -134,7 +136,17 @@ export function parseWorkspaceStatus(raw: unknown): WorkspaceStatus | null {
     ? rawPanes as string[]
     : [];
 
-  return { ...(raw as WorkspaceStatus), panes: validPanes };
+  // BE-L3 #514: reconstruct explicitly from validated fields — no unknown keys leak through
+  return {
+    project: d["project"] as string,
+    directory: d["directory"] as string,
+    pid: d["pid"] as number,
+    startedAt: d["startedAt"] as string,
+    layout: d["layout"] as string,
+    panes: validPanes,
+    source: "summon",
+    version: 1,
+  };
 }
 
 export function readStatus(projectName: string): ResolvedStatus | null {
@@ -170,10 +182,45 @@ export function readStatus(projectName: string): ResolvedStatus | null {
   };
 }
 
-export function readAllStatuses(): ResolvedStatus[] {
-  if (!existsSync(STATUS_DIR)) return [];
+// PE-M1 #607 / PE-L3 #570: bounded-TTL in-process cache for readAllStatuses.
+// TTL is intentionally short (1000ms) so the monitor's 3-second refresh loop
+// still re-checks isPidAlive for any process that died between ticks WITHOUT a
+// file-system change. The previous dir-mtime cache was reverted because directory
+// mtime does not advance on process death — a process dying silently would remain
+// "active" indefinitely. A wall-clock TTL avoids that flaw while still coalescing
+// bursts of calls within the same render cycle. After TTL, a full re-scan runs.
+const READ_ALL_STATUSES_TTL_MS = 1000;
 
-  const files = readdirSync(STATUS_DIR).filter(f => f.endsWith(".json"));
+interface StatusCache {
+  result: ResolvedStatus[];
+  cachedAt: number;
+}
+
+let _statusCache: StatusCache | null = null;
+
+/** Clear the readAllStatuses cache. Exposed for tests; also useful for CLI commands
+ *  that need a fresh read immediately after a write. */
+export function resetReadAllStatusesCache(): void {
+  _statusCache = null;
+}
+
+export function readAllStatuses(): ResolvedStatus[] {
+  const now = Date.now();
+
+  // Return cached result if within TTL
+  if (_statusCache !== null && now - _statusCache.cachedAt < READ_ALL_STATUSES_TTL_MS) {
+    return _statusCache.result;
+  }
+
+  if (!existsSync(STATUS_DIR)) {
+    _statusCache = { result: [], cachedAt: now };
+    return _statusCache.result;
+  }
+
+  // BE-M4 #605: filter out .tmp and dotfiles so orphans never appear as phantom entries
+  const files = readdirSync(STATUS_DIR).filter(
+    f => f.endsWith(".json") && !f.startsWith(".") && !f.endsWith(".tmp")
+  );
   const statuses: ResolvedStatus[] = [];
 
   for (const file of files) {
@@ -183,24 +230,22 @@ export function readAllStatuses(): ResolvedStatus[] {
   }
 
   // Sort: active first (newest first), then stopped (newest first)
-  return statuses.sort((a, b) => {
+  const result = statuses.sort((a, b) => {
     if (a.state === "active" && b.state !== "active") return -1;
     if (a.state !== "active" && b.state === "active") return 1;
     return Date.parse(b.startedAt) - Date.parse(a.startedAt);
   });
+
+  _statusCache = { result, cachedAt: now };
+  return result;
 }
 
 // --- Git ---
 
-export function getGitBranch(directory: string): string | null {
+export async function getGitBranch(directory: string): Promise<string | null> {
+  // AR-M1 #603: use shared gitOutput helper from utils.ts
   try {
-    const result = execFileSync("git", ["-C", directory, "rev-parse", "--abbrev-ref", "HEAD"], {
-      encoding: "utf-8",
-      timeout: 5000,
-      stdio: ["ignore", "pipe", "ignore"],
-      env: gitSafeEnv(),
-    });
-    return result.trim() || null;
+    return (await gitOutput(directory, ["rev-parse", "--abbrev-ref", "HEAD"])) || null;
   } catch {
     return null;
   }

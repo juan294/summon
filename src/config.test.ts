@@ -1,4 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, test, vi, beforeEach } from "vitest";
+import { VALID_KEYS } from "./config.js";
 import {
   addProject,
   removeProject,
@@ -233,6 +234,12 @@ describe("readKVFile", () => {
   it("propagates non-ENOENT errors from readFileSync", async () => {
     const fs = await import("node:fs");
     const origReadFileSync = fs.readFileSync as (...args: unknown[]) => unknown;
+    const origStatSync = fs.statSync as (...args: unknown[]) => unknown;
+    // Temporarily override statSync to return a valid stat (so we reach readFileSync)
+    (fs as Record<string, unknown>).statSync = (path: string) => {
+      if (path === "/eacces/path") return { size: 0, mtimeMs: 1000 };
+      return (origStatSync as (p: string) => unknown)(path);
+    };
     // Temporarily override readFileSync to throw a non-ENOENT error
     (fs as Record<string, unknown>).readFileSync = (_path: string) => {
       const err = new Error("EACCES: permission denied") as NodeJS.ErrnoException;
@@ -243,6 +250,7 @@ describe("readKVFile", () => {
       expect(() => readKVFile("/eacces/path")).toThrow("EACCES");
     } finally {
       (fs as Record<string, unknown>).readFileSync = origReadFileSync;
+      (fs as Record<string, unknown>).statSync = origStatSync;
     }
   });
 
@@ -465,6 +473,20 @@ describe("unknown config key warning (BE-S27 #323)", () => {
     expect(warnSpy).not.toHaveBeenCalled();
     warnSpy.mockRestore();
   });
+
+  it("does not warn for env.* keys (parity with set path)", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const store = await getStore();
+    const { CONFIG_DIR } = await import("./config.js");
+    const configPath = `${CONFIG_DIR}/config`;
+    store.set(configPath, "editor=vim\nenv.API_URL=http://localhost:3000\n");
+    resetConfigCache();
+
+    listConfig();
+
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
 });
 
 describe("VALID_KEYS", () => {
@@ -516,6 +538,30 @@ describe("custom layouts", () => {
     store.set(`${LAYOUTS_DIR}/mid`, "panes=1\n");
     const result = listCustomLayouts();
     expect(result).toEqual(["alpha", "mid", "zeta"]);
+  });
+
+  // BE-M4 #605: orphaned .tmp and dotfiles must not appear in layout list
+  it("listCustomLayouts filters out .tmp files (BE-M4 #605)", async () => {
+    const store = await getStore();
+    const dirs = await getDirs();
+    dirs.add(LAYOUTS_DIR);
+    store.set(`${LAYOUTS_DIR}/alpha`, "panes=2\n");
+    store.set(`${LAYOUTS_DIR}/alpha.12345.abc123.tmp`, "panes=2\n");
+    const result = listCustomLayouts();
+    expect(result).toEqual(["alpha"]);
+    expect(result).not.toContain("alpha.12345.abc123.tmp");
+  });
+
+  it("listCustomLayouts filters out dotfiles (BE-M4 #605)", async () => {
+    const store = await getStore();
+    const dirs = await getDirs();
+    dirs.add(LAYOUTS_DIR);
+    store.set(`${LAYOUTS_DIR}/alpha`, "panes=2\n");
+    store.set(`${LAYOUTS_DIR}/.DS_Store`, "");
+    store.set(`${LAYOUTS_DIR}/.hidden`, "");
+    const result = listCustomLayouts();
+    expect(result).toEqual(["alpha"]);
+    expect(result.some(n => n.startsWith("."))).toBe(false);
   });
 
   it("saveCustomLayout creates file with correct content", async () => {
@@ -796,7 +842,7 @@ describe("readKVFromString (BE-B2, BE-M1 #357 #375)", () => {
   });
 });
 
-describe("clearKVCache and clearProjectCache (#402 #403 #404)", () => {
+describe("clearKVCache and clearProjectCache — aliases for resetConfigCache (#402 #403 #404 #512)", () => {
   it("clearKVCache is exported and callable", () => {
     expect(clearKVCache).toBeDefined();
     expect(() => clearKVCache()).not.toThrow();
@@ -986,5 +1032,130 @@ describe("config comment preservation (BE-L1 #494)", () => {
     // key-adjacent comments for deleted keys may be dropped.
     // We test the key is gone.
     expect(written).not.toContain("sidebar=");
+  });
+});
+
+describe("FE-M2 (#583) — VALID_KEYS parity", () => {
+  test("VALID_KEYS includes secondary-editor", () => {
+    expect(VALID_KEYS).toContain("secondary-editor");
+  });
+});
+
+describe("readKVFromString warning cap (#620 BE-L4)", () => {
+  it("emits at most 5 individual warnings for malformed lines", () => {
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    // 7 malformed lines — should only get 5 individual + 1 summary
+    const lines = Array.from({ length: 7 }, (_, i) => `malformed${i}`).join("\n");
+    readKVFromString(lines);
+    const individualWarnings = stderrSpy.mock.calls.filter(
+      (c) => String(c[0]).includes("ignored malformed config line"),
+    );
+    expect(individualWarnings.length).toBe(5);
+    stderrSpy.mockRestore();
+  });
+
+  it("emits a summary line when warnings are suppressed", () => {
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const lines = Array.from({ length: 7 }, (_, i) => `malformed${i}`).join("\n");
+    readKVFromString(lines);
+    const summaryWarnings = stderrSpy.mock.calls.filter(
+      (c) => String(c[0]).includes("additional malformed config line(s) suppressed"),
+    );
+    expect(summaryWarnings.length).toBe(1);
+    expect(String(summaryWarnings[0]![0])).toContain("2");
+    stderrSpy.mockRestore();
+  });
+
+  it("does not emit a summary when warnings are at or below the cap", () => {
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    // exactly 5 malformed lines — no summary
+    const lines = Array.from({ length: 5 }, (_, i) => `malformed${i}`).join("\n");
+    readKVFromString(lines);
+    const summaryWarnings = stderrSpy.mock.calls.filter(
+      (c) => String(c[0]).includes("suppressed"),
+    );
+    expect(summaryWarnings.length).toBe(0);
+    stderrSpy.mockRestore();
+  });
+});
+
+describe("readKVFile 1MB size guard (#620 BE-L4)", () => {
+  it("skips files larger than 1MB and emits a warning", async () => {
+    const store = await getStore();
+    const mtimes = await getMtimes();
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+
+    // Override statSync to report a file size > 1MB for our test path
+    const fs = await import("node:fs");
+    const origStatSync = fs.statSync as (...args: unknown[]) => unknown;
+    (fs as Record<string, unknown>).statSync = (path: string) => {
+      if (path === "/tmp/huge-config") return { size: 2_000_000, mtimeMs: 1000 };
+      return (origStatSync as (p: string) => unknown)(path);
+    };
+
+    store.set("/tmp/huge-config", "key=value\n");
+    mtimes.set("/tmp/huge-config", 1000);
+
+    try {
+      const result = readKVFile("/tmp/huge-config");
+      expect(result.size).toBe(0);
+      const sizeWarnings = stderrSpy.mock.calls.filter(
+        (c) => String(c[0]).includes("config file too large"),
+      );
+      expect(sizeWarnings.length).toBe(1);
+    } finally {
+      (fs as Record<string, unknown>).statSync = origStatSync;
+      stderrSpy.mockRestore();
+    }
+  });
+
+  it("reads files at exactly 1MB without skipping", async () => {
+    const store = await getStore();
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+
+    const fs = await import("node:fs");
+    const origStatSync = fs.statSync as (...args: unknown[]) => unknown;
+    (fs as Record<string, unknown>).statSync = (path: string) => {
+      if (path === "/tmp/exact-1mb") return { size: 1_048_576, mtimeMs: 1000 };
+      return (origStatSync as (p: string) => unknown)(path);
+    };
+
+    store.set("/tmp/exact-1mb", "key=value\n");
+
+    try {
+      const result = readKVFile("/tmp/exact-1mb");
+      expect(result.get("key")).toBe("value");
+      const sizeWarnings = stderrSpy.mock.calls.filter(
+        (c) => String(c[0]).includes("config file too large"),
+      );
+      expect(sizeWarnings.length).toBe(0);
+    } finally {
+      (fs as Record<string, unknown>).statSync = origStatSync;
+      stderrSpy.mockRestore();
+    }
+  });
+});
+
+describe("saveCustomLayout uses atomicWrite (#561 AR-L1)", () => {
+  it("uses rename (atomic write) to persist layout", async () => {
+    const fs = await import("node:fs");
+    const renameSpy = fs.renameSync as ReturnType<typeof vi.fn>;
+    renameSpy.mockClear();
+
+    saveCustomLayout("atomictest", new Map([["panes", "2"]]));
+
+    // atomicWrite calls renameSync to move .tmp -> final path
+    expect(renameSpy).toHaveBeenCalled();
+    const [src, dest] = renameSpy.mock.calls[renameSpy.mock.calls.length - 1] as [string, string];
+    expect(String(src)).toContain(".tmp");
+    expect(String(dest)).toContain("atomictest");
+    expect(String(dest)).not.toContain(".tmp");
+  });
+
+  it("saveCustomLayout does not leave .tmp file on success", async () => {
+    const store = await getStore();
+    saveCustomLayout("cleantmp", new Map([["panes", "3"]]));
+    const tmpFiles = [...store.keys()].filter((k) => k.endsWith(".tmp"));
+    expect(tmpFiles.length).toBe(0);
   });
 });

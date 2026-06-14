@@ -173,6 +173,34 @@ describe("readSnapshot", () => {
     expect(readSnapshot("bad")).toBeNull();
   });
 
+  // BE-M5 #606: unconditional stderr warning for future schema versions
+  it("emits stderr warning unconditionally when version > 1 (BE-M5 #606)", () => {
+    mkdirSync(TEST_SNAPSHOTS_DIR, { recursive: true });
+    writeFileSync(
+      join(TEST_SNAPSHOTS_DIR, "future-snap.json"),
+      JSON.stringify({
+        version: 2,
+        project: "future-snap",
+        directory: process.cwd(),
+        timestamp: new Date().toISOString(),
+        layout: "full",
+        git: { branch: "main", dirty: [], recentCommits: [] },
+      }),
+    );
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    try {
+      const result = readSnapshot("future-snap");
+      expect(result).toBeNull();
+      const calls = stderrSpy.mock.calls.map((c) => String(c[0]));
+      const hasWarn = calls.some((msg) =>
+        msg.includes("upgrade") || msg.includes("newer") || msg.includes("future-snap")
+      );
+      expect(hasWarn).toBe(true);
+    } finally {
+      stderrSpy.mockRestore();
+    }
+  });
+
   it("rejects path traversal in project name", () => {
     expect(() => readSnapshot("../../etc/evil")).toThrow("Invalid snapshot path");
   });
@@ -202,6 +230,59 @@ describe("readSnapshot", () => {
     } finally {
       warnSpy.mockRestore();
     }
+  });
+
+  // BE-M1 (#592): malformed-but-version-1 snapshots must be rejected, not passed through
+
+  it("returns null when git is null (BE-M1)", () => {
+    mkdirSync(TEST_SNAPSHOTS_DIR, { recursive: true });
+    const bad = { project: "p", directory: process.cwd(), timestamp: new Date().toISOString(), layout: "full", git: null, version: 1 };
+    writeFileSync(join(TEST_SNAPSHOTS_DIR, "git-null.json"), JSON.stringify(bad) + "\n", { mode: 0o600 });
+    expect(readSnapshot("git-null")).toBeNull();
+  });
+
+  it("returns null when git.dirty is not an array (BE-M1)", () => {
+    mkdirSync(TEST_SNAPSHOTS_DIR, { recursive: true });
+    const bad = { project: "p", directory: process.cwd(), timestamp: new Date().toISOString(), layout: "full", git: { branch: "main", dirty: "foo", recentCommits: [] }, version: 1 };
+    writeFileSync(join(TEST_SNAPSHOTS_DIR, "dirty-string.json"), JSON.stringify(bad) + "\n", { mode: 0o600 });
+    expect(readSnapshot("dirty-string")).toBeNull();
+  });
+
+  it("returns null when git.recentCommits is missing (BE-M1)", () => {
+    mkdirSync(TEST_SNAPSHOTS_DIR, { recursive: true });
+    const bad = { project: "p", directory: process.cwd(), timestamp: new Date().toISOString(), layout: "full", git: { branch: "main", dirty: [] }, version: 1 };
+    writeFileSync(join(TEST_SNAPSHOTS_DIR, "no-commits.json"), JSON.stringify(bad) + "\n", { mode: 0o600 });
+    expect(readSnapshot("no-commits")).toBeNull();
+  });
+
+  it("returns null when git.branch is not a string or null (BE-M1)", () => {
+    mkdirSync(TEST_SNAPSHOTS_DIR, { recursive: true });
+    const bad = { project: "p", directory: process.cwd(), timestamp: new Date().toISOString(), layout: "full", git: { branch: 42, dirty: [], recentCommits: [] }, version: 1 };
+    writeFileSync(join(TEST_SNAPSHOTS_DIR, "bad-branch.json"), JSON.stringify(bad) + "\n", { mode: 0o600 });
+    expect(readSnapshot("bad-branch")).toBeNull();
+  });
+
+  it("returns null when project is missing (BE-M1)", () => {
+    mkdirSync(TEST_SNAPSHOTS_DIR, { recursive: true });
+    const bad = { directory: process.cwd(), timestamp: new Date().toISOString(), layout: "full", git: { branch: "main", dirty: [], recentCommits: [] }, version: 1 };
+    writeFileSync(join(TEST_SNAPSHOTS_DIR, "no-project.json"), JSON.stringify(bad) + "\n", { mode: 0o600 });
+    expect(readSnapshot("no-project")).toBeNull();
+  });
+
+  it("returns null when layout is not a string (BE-M1)", () => {
+    mkdirSync(TEST_SNAPSHOTS_DIR, { recursive: true });
+    const bad = { project: "p", directory: process.cwd(), timestamp: new Date().toISOString(), layout: 42, git: { branch: "main", dirty: [], recentCommits: [] }, version: 1 };
+    writeFileSync(join(TEST_SNAPSHOTS_DIR, "bad-layout.json"), JSON.stringify(bad) + "\n", { mode: 0o600 });
+    expect(readSnapshot("bad-layout")).toBeNull();
+  });
+
+  it("accepts git.branch as null (detached HEAD) (BE-M1)", () => {
+    mkdirSync(TEST_SNAPSHOTS_DIR, { recursive: true });
+    const snap = makeSnapshot({ directory: process.cwd(), git: { branch: null as unknown as string, dirty: [], recentCommits: [] } });
+    writeFileSync(join(TEST_SNAPSHOTS_DIR, "null-branch.json"), JSON.stringify(snap) + "\n", { mode: 0o600 });
+    const result = readSnapshot("null-branch");
+    expect(result).not.toBeNull();
+    expect(result!.git.branch).toBeNull();
   });
 
 });

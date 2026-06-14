@@ -12,9 +12,75 @@ vi.mock("./status.js", async (importOriginal) => {
     getGitBranch: vi.fn().mockReturnValue(null),
   };
 });
+// briefing.ts uses execFileAsync = promisify(execFile).
+// Node's real execFile has util.promisify.custom that resolves { stdout, stderr }.
+// Our mock must replicate this: we attach [util.promisify.custom] to a proxy function
+// whose behavior is controlled by a queue, so that promisify(execFile) produces a
+// function that resolves with { stdout, stderr } on each call.
+//
+// The shim below mirrors the mockReturnValue / mockReturnValueOnce / mockImplementation
+// surface used by existing test code.
+
+import { promisify as _promisify } from "node:util";
+
+let _mockExecFileDefault: string | Error = "";
+const _mockExecFileQueue: Array<string | Error> = [];
+// Override fn: when set, used instead of queue/default.
+// QA-L1 #613: typed as () => unknown so callers can return a string stdout value
+// or throw; the return is honored below. Returning void/undefined yields { stdout: "", stderr: "" }.
+let _mockExecFileOverride: (() => unknown) | null = null;
+
+// This is the actual async impl captured by promisify.custom.
+// It delegates to queue/default/override, so it remains live even after
+// promisify(execFile) has been called in briefing.ts.
+// Recorded calls from _execFileCustomImpl — used to verify call arguments in tests
+const _execFileCustomCalls: unknown[][] = [];
+
+const _execFileCustomImpl = async (...args: unknown[]): Promise<{ stdout: string; stderr: string }> => {
+  _execFileCustomCalls.push(args);
+  if (_mockExecFileOverride !== null) {
+    // QA-L1 #613: honor the override's return value.
+    // If it returns a string, use it as stdout. If it throws, let the error propagate.
+    // If it returns void/undefined/non-string, fall back to empty stdout.
+    const overrideResult = _mockExecFileOverride();
+    const stdout = typeof overrideResult === "string" ? overrideResult : "";
+    return { stdout, stderr: "" };
+  }
+  const val = _mockExecFileQueue.length > 0 ? _mockExecFileQueue.shift()! : _mockExecFileDefault;
+  if (val instanceof Error) {
+    throw val;
+  }
+  return { stdout: val, stderr: "" };
+};
+
+const mockExecFile = vi.fn();
+(mockExecFile as unknown as Record<symbol, unknown>)[_promisify.custom] = _execFileCustomImpl;
+
+// Compatibility shim: mirrors vi.fn()'s mockReturnValue / mockReturnValueOnce / mockImplementation.
+const execFileSync = {
+  mockReturnValue(val: string) {
+    _mockExecFileDefault = val;
+    _mockExecFileQueue.length = 0;
+    _mockExecFileOverride = null;
+  },
+  mockReturnValueOnce(val: string) {
+    _mockExecFileQueue.push(val);
+    _mockExecFileOverride = null;
+    return execFileSync; // chainable
+  },
+  mockImplementation(impl: () => unknown) {
+    _mockExecFileQueue.length = 0;
+    _mockExecFileOverride = impl;
+  },
+  get mock() { return mockExecFile.mock; },
+};
+
 vi.mock("node:child_process", async (importOriginal) => {
   const original = await importOriginal<typeof import("node:child_process")>();
-  return { ...original, execFileSync: vi.fn().mockReturnValue("") };
+  return {
+    ...original,
+    execFile: mockExecFile,
+  };
 });
 
 const {
@@ -31,6 +97,10 @@ const {
 } = await import("./briefing.js");
 import type { ProjectBriefing, BriefingSummary, CommitSummary } from "./briefing.js";
 
+// AR-M1 #603: import resetGitOutputCache to reset the lazy execFileAsync in utils.ts
+// so that each test gets a fresh promisified function from the current mock.
+const { resetGitOutputCache } = await import("./utils.js");
+
 const { listProjects } = await import("./config.js") as unknown as {
   listProjects: ReturnType<typeof vi.fn>;
 };
@@ -38,9 +108,9 @@ const { readAllStatuses, getGitBranch } = await import("./status.js") as unknown
   readAllStatuses: ReturnType<typeof vi.fn>;
   getGitBranch: ReturnType<typeof vi.fn>;
 };
-const { execFileSync } = await import("node:child_process") as unknown as {
-  execFileSync: ReturnType<typeof vi.fn>;
-};
+// execFileSync is defined above as a shim wrapping mockExecFile (execFile callback mock).
+// It exposes mockReturnValue / mockReturnValueOnce / mockImplementation / mock
+// for backward-compatible test usage.
 
 // --- Test helpers ---
 
@@ -193,6 +263,8 @@ describe("generateRecommendation", () => {
 describe("collectGitData", () => {
   beforeEach(() => {
     resetGitDataCache();
+    // AR-M1 #603: reset the lazy execFileAsync so tests pick up fresh mock state
+    resetGitOutputCache();
     getGitBranch.mockReturnValue(null);
     execFileSync.mockReturnValue("");
   });
@@ -315,6 +387,7 @@ describe("collectGitData", () => {
 describe("collectBriefingData", () => {
   beforeEach(() => {
     resetGitDataCache();
+    resetGitOutputCache(); // AR-M1 #603
     listProjects.mockReturnValue([]);
     readAllStatuses.mockReturnValue([]);
     getGitBranch.mockReturnValue(null);
@@ -567,17 +640,20 @@ describe("formatFullBriefing", () => {
 describe("collectGitData gitSafeEnv", () => {
   beforeEach(() => {
     resetGitDataCache();
+    resetGitOutputCache(); // AR-M1 #603
     getGitBranch.mockReturnValue(null);
     execFileSync.mockReturnValue("");
   });
 
-  it("passes gitSafeEnv as env option to execFileSync calls", () => {
+  it("passes gitSafeEnv as env option to execFile calls", async () => {
     getGitBranch.mockReturnValue("main");
     execFileSync.mockReturnValue("");
     vi.stubEnv("GIT_DIR", "/some/bad/git/dir");
-    collectGitData("/tmp/env-test");
-    expect(execFileSync.mock.calls.length).toBeGreaterThan(0);
-    for (const call of execFileSync.mock.calls) {
+    _execFileCustomCalls.length = 0; // reset call log
+    await collectGitData("/tmp/env-test");
+    // execFileAsync calls go through _execFileCustomImpl (via promisify.custom)
+    expect(_execFileCustomCalls.length).toBeGreaterThan(0);
+    for (const call of _execFileCustomCalls) {
       const opts = call[2] as Record<string, unknown>;
       expect(opts).toBeDefined();
       expect(opts).toHaveProperty("env");
@@ -592,6 +668,7 @@ describe("collectGitData gitSafeEnv", () => {
 describe("collectBriefingData parallel processing", () => {
   beforeEach(() => {
     resetGitDataCache();
+    resetGitOutputCache(); // AR-M1 #603
     listProjects.mockReturnValue([]);
     readAllStatuses.mockReturnValue([]);
     getGitBranch.mockReturnValue(null);
@@ -635,6 +712,7 @@ describe("cache max age (BE-M18)", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     resetGitDataCache();
+    resetGitOutputCache(); // AR-M1 #603
     getGitBranch.mockReturnValue(null);
     execFileSync.mockReturnValue("");
   });
@@ -670,10 +748,38 @@ describe("formatProjectBriefing dirty file glyph (#479)", () => {
   });
 });
 
+// --- QA-L1 #613: promisify.custom shim honors override return value ---
+
+describe("execFile shim mockImplementation return value (QA-L1 #613)", () => {
+  beforeEach(() => {
+    resetGitDataCache();
+    resetGitOutputCache(); // AR-M1 #603
+    getGitBranch.mockReturnValue("main");
+  });
+
+  it("honors string return from mockImplementation override as stdout", async () => {
+    // When the override returns a string, gitLines should use it as stdout.
+    execFileSync.mockImplementation(() => "abc123|feat: test|Author");
+    const result = await collectGitData("/tmp/qa-l1-test");
+    // The override returns the log line format; we expect commits to be parsed
+    expect(result.commits.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("still propagates thrown errors from mockImplementation override", async () => {
+    execFileSync.mockImplementation(() => { throw new Error("simulated failure"); });
+    const result = await collectGitData("/tmp/qa-l1-throw-test");
+    // Errors in gitLines are caught and return [] — the data should be empty
+    expect(result.commits).toEqual([]);
+    expect(result.dirty).toEqual([]);
+  });
+});
+
 // --- runBriefing ---
 
 describe("runBriefing", () => {
   beforeEach(() => {
+    resetGitDataCache();
+    resetGitOutputCache(); // AR-M1 #603
     listProjects.mockReturnValue([]);
     readAllStatuses.mockReturnValue([]);
     getGitBranch.mockReturnValue(null);

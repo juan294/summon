@@ -202,16 +202,19 @@ describe("handleLayoutCommand", () => {
   });
 
   it("rejects built-in presets in show mode", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error(`exit:${code}`);
     }) as never);
     mockIsPresetName.mockReturnValue(true);
 
     await expect(handleLayoutCommand(makeContext({ args: ["show", "pair"] }))).rejects.toThrow("exit:1");
-    expect(errorSpy).toHaveBeenCalledWith(
-      `Error: "pair" is a built-in preset, not a custom layout. Run 'summon --help' to see preset descriptions.`,
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(allWrites).toContain(
+      `"pair" is a built-in preset, not a custom layout. Run 'summon --help' to see preset descriptions.`,
     );
+    expect(allWrites).toContain("summon: error:");
+    writeSpy.mockRestore();
   });
 
   it("requires a layout name for show, delete, and edit", async () => {
@@ -267,7 +270,7 @@ describe("handleLayoutCommand", () => {
   });
 
   it("rejects unsafe EDITOR values", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error(`exit:${code}`);
     }) as never);
@@ -275,11 +278,14 @@ describe("handleLayoutCommand", () => {
     mockReadCustomLayout.mockReturnValue(new Map([["panes", "4"]]));
 
     await expect(handleLayoutCommand(makeContext({ args: ["edit", "team"] }))).rejects.toThrow("exit:1");
-    expect(errorSpy).toHaveBeenCalledWith('Error: unsafe EDITOR value "bad editor".');
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(allWrites).toContain('unsafe EDITOR value "bad editor".');
+    expect(allWrites).toContain("summon: error:");
+    writeSpy.mockRestore();
   });
 
   it("reports editor launch failures", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error(`exit:${code}`);
     }) as never);
@@ -290,15 +296,17 @@ describe("handleLayoutCommand", () => {
     });
 
     await expect(handleLayoutCommand(makeContext({ args: ["edit", "team"] }))).rejects.toThrow("exit:1");
-    expect(errorSpy).toHaveBeenCalledWith("Failed to open editor: nvim");
-    expect(errorSpy).toHaveBeenCalledWith(
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(allWrites).toContain("Failed to open editor: nvim");
+    expect(allWrites).toContain(
       "Check your EDITOR environment variable or ensure the editor is installed.",
     );
+    writeSpy.mockRestore();
   });
 
   it("rejects unknown actions", async () => {
     await expect(handleLayoutCommand(makeContext({ args: ["wat"] }))).rejects.toThrow(
-      "usage:Error: Unknown layout action: wat\nUsage: summon layout <create|save|list|show|delete|edit> [name]",
+      "usage:Unknown layout action: wat\nUsage: summon layout <create|save|list|show|delete|edit> [name]",
     );
   });
 

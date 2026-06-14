@@ -224,11 +224,6 @@ function emitRootPaneCommand(
   }
 }
 
-/** Escape a tab title for use in an AppleScript action string. */
-function escapeTabTitle(title: string): string {
-  return escapeAppleScript(title);
-}
-
 /** Emit pane and tab titles block. */
 function emitTitles(
   { add, blank }: ScriptBuilder,
@@ -239,7 +234,7 @@ function emitTitles(
 ): void {
   add(1, "-- Set pane and tab titles");
   const tabTitle = projectName ? `[${projectName}]` : basename(targetDir);
-  add(1, `perform action "set_tab_title:${escapeTabTitle(tabTitle)}" on ${rootPaneVar}`);
+  add(1, `perform action "set_tab_title:${escapeAppleScript(tabTitle)}" on ${rootPaneVar}`);
   for (const [pane, title] of titles) {
     add(1, `perform action "set_surface_title:${escapeAppleScript(title)}" on ${pane}`);
   }
@@ -351,7 +346,7 @@ function emitVerifiedKeystroke(
   add(2, `delay ${KEYSTROKE_SETTLE_DELAY}`);
   add(2, 'tell application "System Events"');
   add(3, `tell process "${GHOSTTY_APP_NAME}"`);
-  add(4, `keystroke "${key}" using command down`);
+  add(4, `keystroke "${key}" using command down`); // lint-allow-escape: key is typed "n"|"t" (TypeScript literal union) — compile-time constant, no user input
   add(3, "end tell");
   add(2, "end tell");
   add(2, `if ${beforeVar} is equal to -1 then`);
@@ -556,11 +551,6 @@ export function generateFocusScript(tabTitle: string): string {
   lines.push("end tell");
   return lines.join("\n");
 }
-
-// TODO(AR-L1 #318): generateAppleScript and generateTreeAppleScript are parallel pipelines
-// that each independently receive and apply the same options (starshipConfigPath, envVars,
-// projectName, onStop). Any new option must be plumbed through both functions. Consider
-// extracting shared option handling into a common helper to reduce duplication.
 
 /**
  * Generate AppleScript for a traditional (LayoutPlan) workspace.

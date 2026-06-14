@@ -245,21 +245,64 @@ describe("detectProjectPorts", () => {
     expect(ports.map((p) => p.port)).toEqual(expect.arrayContaining([3000, 4000]));
   });
 
-  it("uses fs.promises.access for parallel framework file checks", async () => {
+  it("uses fs.promises.readdir (single call) for framework file checks", async () => {
     const dir = projectDir("proj-parallel");
     writeFileSync(join(dir, "vite.config.ts"), "export default {};");
 
-    const accessSpy = vi.spyOn(nodeFs.promises, "access");
+    const readdirSpy = vi.spyOn(nodeFs.promises, "readdir");
 
     const ports = await detectProjectPorts("proj-parallel", dir, "active");
 
-    // access should have been called (in parallel) for framework config candidates
-    expect(accessSpy).toHaveBeenCalled();
+    // readdir should have been called once (not 24 access probes)
+    expect(readdirSpy).toHaveBeenCalledTimes(1);
     expect(ports).toEqual([
       { port: 5173, project: "proj-parallel", source: "framework-default", state: "active" },
     ]);
 
-    accessSpy.mockRestore();
+    readdirSpy.mockRestore();
+  });
+
+  it("detects framework default vite.config.ts → port 5173 via readdir path", async () => {
+    const dir = projectDir("proj-vite-readdir");
+    writeFileSync(join(dir, "vite.config.ts"), "export default {};");
+
+    const ports = await detectProjectPorts("proj-vite-readdir", dir, "active");
+    expect(ports).toEqual([
+      { port: 5173, project: "proj-vite-readdir", source: "framework-default", state: "active" },
+    ]);
+  });
+
+  it("returns no framework defaults when project dir has no config files (readdir-empty path)", async () => {
+    // An empty project dir — readdir returns nothing, so no framework defaults
+    const dir = projectDir("proj-no-config-files");
+    // No files written — directory is empty
+
+    const ports = await detectProjectPorts("proj-no-config-files", dir, "unknown");
+    expect(ports).toEqual([]);
+  });
+
+  it("returns no framework defaults when project dir is unreadable (readdir-throw path)", async () => {
+    const dir = "/nonexistent/path/that/does/not/exist";
+
+    const ports = await detectProjectPorts("proj-bad-dir", dir, "unknown");
+    expect(ports).toEqual([]);
+  });
+
+  it("parses both --port flags when two dev scripts each carry --port (PORT_FLAG_RE lastIndex reset)", async () => {
+    const dir = projectDir("proj-two-scripts");
+    writeFileSync(
+      join(dir, "package.json"),
+      JSON.stringify({
+        scripts: {
+          dev: "vite --port 3000",
+          api: "nodemon --port 4000",
+        },
+      }),
+    );
+
+    const ports = await detectProjectPorts("proj-two-scripts", dir, "stopped");
+    expect(ports).toHaveLength(2);
+    expect(ports.map((p) => p.port).sort((a, b) => a - b)).toEqual([3000, 4000]);
   });
 });
 
@@ -395,6 +438,35 @@ describe("detectAllPorts", () => {
 
     const ports = await detectProjectPorts("proj-echo", dir, "unknown");
     expect(ports).toEqual([]);
+  });
+
+  // BE-H2 (#591): strict numeric port parsing — "3000abc" must be rejected
+  it("BE-H2: rejects port value '3000abc' (parseInt non-strict) from package.json", async () => {
+    const dir = projectDir("proj-nonstrictport");
+    writeFileSync(
+      join(dir, "package.json"),
+      JSON.stringify({
+        scripts: { dev: "vite --port 3000abc" },
+      }),
+    );
+    const ports = await detectProjectPorts("proj-nonstrictport", dir, "active");
+    // "3000abc" must NOT produce port 3000 (strict numeric validation required)
+    expect(ports.some((p) => p.port === 3000)).toBe(false);
+  });
+
+  // BE-H2 (#591): package.json size cap — files over 1MB must be skipped
+  it("BE-H2: skips package.json files larger than 1MB", async () => {
+    const dir = projectDir("proj-bigpkg");
+    // Create a large package.json with a valid port in scripts (should be skipped due to size)
+    const bigContent = JSON.stringify({
+      scripts: { dev: "vite --port 7777" },
+      padding: "x".repeat(1_100_000),
+    });
+    writeFileSync(join(dir, "package.json"), bigContent);
+
+    const ports = await detectProjectPorts("proj-bigpkg", dir, "active");
+    // File is over 1MB so it should be skipped — port 7777 must NOT appear
+    expect(ports.some((p) => p.port === 7777)).toBe(false);
   });
 
   it("handles mix of conflicting and unique ports", async () => {

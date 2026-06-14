@@ -182,6 +182,26 @@ describe("listSessions", () => {
     const result = listSessions();
     expect(result).toEqual(["alpha", "mango", "zebra"]);
   });
+
+  // BE-M4 #605: orphaned .tmp and dotfiles must not appear in session list
+  it("filters out .tmp files (BE-M4 #605)", () => {
+    dirs.add(TEST_SESSIONS_DIR);
+    store.set(`${TEST_SESSIONS_DIR}/mywork`, "projA\n");
+    store.set(`${TEST_SESSIONS_DIR}/mywork.12345.abc.tmp`, "projA\n");
+    const result = listSessions();
+    expect(result).toEqual(["mywork"]);
+    expect(result).not.toContain("mywork.12345.abc.tmp");
+  });
+
+  it("filters out dotfiles (BE-M4 #605)", () => {
+    dirs.add(TEST_SESSIONS_DIR);
+    store.set(`${TEST_SESSIONS_DIR}/mywork`, "projA\n");
+    store.set(`${TEST_SESSIONS_DIR}/.DS_Store`, "");
+    store.set(`${TEST_SESSIONS_DIR}/.hidden`, "");
+    const result = listSessions();
+    expect(result).toEqual(["mywork"]);
+    expect(result.some(n => n.startsWith("."))).toBe(false);
+  });
 });
 
 describe("deleteSession", () => {

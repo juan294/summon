@@ -428,3 +428,105 @@ describe("custom layout completions", () => {
     expect(bash).toContain("summon layout list");
   });
 });
+
+describe("FE-M2 (#583) — CLI_FLAGS parity across shells", () => {
+  test("CLI_FLAGS includes --no-project-config", () => {
+    expect(CLI_FLAGS).toContain("--no-project-config");
+  });
+
+  test("bash completion offers every flag in CLI_FLAGS", () => {
+    const bash = generateBashCompletion();
+    for (const flag of CLI_FLAGS) {
+      expect(bash, `bash completion missing: ${flag}`).toContain(flag);
+    }
+  });
+
+  test("fish completion offers --no-project-config", () => {
+    const fish = generateFishCompletion();
+    expect(fish).toContain("no-project-config");
+  });
+
+  test("fish completion offers --verbose", () => {
+    const fish = generateFishCompletion();
+    expect(fish).toContain("verbose");
+  });
+
+  test("fish completion offers --once (status flag)", () => {
+    const fish = generateFishCompletion();
+    expect(fish).toContain("once");
+  });
+});
+
+describe("FE-S2 (#444) — declarative spec: all shells derive from same source", () => {
+  // Each long flag in CLI_FLAGS must appear in every shell's output.
+  // Fish uses '-l longname' format; zsh uses '--longname[...]' format.
+  // Short flags (-h, -v, etc.) in CLI_FLAGS are expressed as '-s X' in fish
+  // and '{-h,--help}' in zsh — both present, just in shell-native form.
+  const longFlags = CLI_FLAGS.filter(f => f.startsWith("--"));
+  const shortFlags = CLI_FLAGS.filter(f => /^-[a-z]$/.test(f));
+
+  test("zsh completion offers every long flag in CLI_FLAGS", () => {
+    const zsh = generateZshCompletion();
+    for (const flag of longFlags) {
+      expect(zsh, `zsh completion missing: ${flag}`).toContain(flag);
+    }
+  });
+
+  test("zsh completion offers every short flag in CLI_FLAGS", () => {
+    const zsh = generateZshCompletion();
+    for (const flag of shortFlags) {
+      // Short flags appear in zsh as part of '{-X,--long}' alternation blocks
+      expect(zsh, `zsh completion missing short: ${flag}`).toContain(flag);
+    }
+  });
+
+  test("fish completion offers every long flag in CLI_FLAGS", () => {
+    const fish = generateFishCompletion();
+    for (const flag of longFlags) {
+      // fish uses '-l flagname' (without --)
+      const longName = flag.slice(2);
+      expect(fish, `fish completion missing: ${flag}`).toContain(longName);
+    }
+  });
+
+  test("fish completion offers every short flag in CLI_FLAGS via -s notation", () => {
+    const fish = generateFishCompletion();
+    for (const flag of shortFlags) {
+      // Fish expresses short flags as '-s X'
+      const letter = flag.slice(1);
+      expect(fish, `fish completion missing short: ${flag}`).toContain(`-s ${letter}`);
+    }
+  });
+
+  test("subcommand list is consistent across bash, zsh, and fish", () => {
+    const bash = generateBashCompletion();
+    const zsh = generateZshCompletion();
+    const fish = generateFishCompletion();
+    // Extract subcommand names from each shell's output
+    const bashMatch = bash.match(/local subcommands="([^"]+)"/);
+    expect(bashMatch, "bash subcommands variable not found").toBeTruthy();
+    const bashSubs = new Set(bashMatch![1]!.split(/\s+/).filter(Boolean));
+    // Verify representative subcommands appear in all three shells
+    for (const sub of bashSubs) {
+      expect(zsh, `zsh missing subcommand: ${sub}`).toContain(sub);
+      expect(fish, `fish missing subcommand: ${sub}`).toContain(sub);
+    }
+  });
+
+  test("adding a subcommand to SUBCOMMAND_SPECS drives all three shell outputs", () => {
+    // Indirect test: verify the known complete subcommand set is present in all shells
+    const knownSubcommands = [
+      "add", "remove", "list", "set", "config", "setup", "completions",
+      "doctor", "open", "status", "switch", "snapshot", "briefing", "ports",
+      "export", "freeze", "keybindings", "layout", "session", "trust",
+    ];
+    const bash = generateBashCompletion();
+    const zsh = generateZshCompletion();
+    const fish = generateFishCompletion();
+    for (const sub of knownSubcommands) {
+      expect(bash, `bash missing subcommand: ${sub}`).toContain(sub);
+      expect(zsh, `zsh missing subcommand: ${sub}`).toContain(sub);
+      expect(fish, `fish missing subcommand: ${sub}`).toContain(sub);
+    }
+  });
+});

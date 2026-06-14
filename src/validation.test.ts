@@ -97,25 +97,27 @@ describe("validateIntFlag", () => {
   });
 
   it("exits on invalid value", () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => { throw new Error("exit"); });
 
     expect(() => validateIntFlag("panes", "abc", 1)).toThrow("exit");
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("--panes"));
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("positive integer"));
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(allWrites).toContain("--panes");
+    expect(allWrites).toContain("positive integer");
 
-    errorSpy.mockRestore();
+    writeSpy.mockRestore();
     exitSpy.mockRestore();
   });
 
   it("exits on out-of-range value with range description", () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => { throw new Error("exit"); });
 
     expect(() => validateIntFlag("editor-size", "200", 1, 99)).toThrow("exit");
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("1-99"));
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(allWrites).toContain("1-99");
 
-    errorSpy.mockRestore();
+    writeSpy.mockRestore();
     exitSpy.mockRestore();
   });
 });
@@ -171,11 +173,12 @@ describe("validateProjectNameOrExit", () => {
   });
 
   it("calls exitWithUsageHint for name with '/'", () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => { throw new Error("exit:1"); }) as never);
     expect(() => validateProjectNameOrExit("team/api")).toThrow("exit:1");
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("team/api"));
-    errorSpy.mockRestore();
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(allWrites).toContain("team/api");
+    writeSpy.mockRestore();
     exitSpy.mockRestore();
   });
 
@@ -196,11 +199,12 @@ describe("validateProjectNameOrExit", () => {
   });
 
   it("uses custom label in error message", () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => { throw new Error("exit:1"); }) as never);
     expect(() => validateProjectNameOrExit("bad/name", "project name")).toThrow("exit:1");
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("project name"));
-    errorSpy.mockRestore();
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(allWrites).toContain("project name");
+    writeSpy.mockRestore();
     exitSpy.mockRestore();
   });
 });
@@ -225,24 +229,25 @@ describe("validateFloatFlag", () => {
   });
 
   it("exits on non-numeric value", () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => { throw new Error("exit"); });
 
     expect(() => validateFloatFlag("font-size", "abc")).toThrow("exit");
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("--font-size"));
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("positive number"));
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(allWrites).toContain("--font-size");
+    expect(allWrites).toContain("positive number");
 
-    errorSpy.mockRestore();
+    writeSpy.mockRestore();
     exitSpy.mockRestore();
   });
 
   it("exits on zero", () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => { throw new Error("exit"); });
 
     expect(() => validateFloatFlag("font-size", "0")).toThrow("exit");
 
-    errorSpy.mockRestore();
+    writeSpy.mockRestore();
     exitSpy.mockRestore();
   });
 });

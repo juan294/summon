@@ -45,6 +45,20 @@ describe("CLI integration", () => {
     expect(result.stdout.trim()).toMatch(/^\d+\.\d+\.\d+$/);
   });
 
+  // PE-P1: -v fast path (single-token bypass before parseCli)
+  it("prints version with -v and exits 0 (PE-P1 fast path)", () => {
+    const result = run("-v");
+    expect(result.status).toBe(0);
+    expect(result.stdout.trim()).toMatch(/^\d+\.\d+\.\d+$/);
+  });
+
+  it("--version and -v print identical output (PE-P1 fast path matches general path)", () => {
+    const versionResult = run("--version");
+    const shortResult = run("-v");
+    expect(shortResult.status).toBe(0);
+    expect(shortResult.stdout.trim()).toBe(versionResult.stdout.trim());
+  });
+
   describe("no-args shows full help", () => {
     it("prints full help to stdout with no arguments", () => {
       const result = run();
@@ -64,7 +78,7 @@ describe("CLI integration", () => {
   it("errors on invalid flag and exits 1", () => {
     const result = run("--invalid-flag");
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain("Error:");
+    expect(result.stderr).toContain("error:");
     expect(result.stderr).toContain("summon --help");
   });
 
@@ -216,7 +230,7 @@ describe("CLI integration", () => {
     it("rejects non-numeric value", () => {
       const result = run(".", "--panes", "foo");
       expect(result.status).toBe(1);
-      expect(result.stderr).toContain("Error:");
+      expect(result.stderr).toContain("error:");
       expect(result.stderr).toContain("--panes");
       expect(result.stderr).toContain("positive integer");
       expect(result.stderr).toContain("summon --help");
@@ -225,7 +239,7 @@ describe("CLI integration", () => {
     it("rejects zero", () => {
       const result = run(".", "--panes", "0");
       expect(result.status).toBe(1);
-      expect(result.stderr).toContain("Error:");
+      expect(result.stderr).toContain("error:");
       expect(result.stderr).toContain("--panes");
       expect(result.stderr).toContain("positive integer");
       expect(result.stderr).toContain("summon --help");
@@ -250,7 +264,7 @@ describe("CLI integration", () => {
     it("rejects non-numeric value", () => {
       const result = run(".", "--editor-size", "abc");
       expect(result.status).toBe(1);
-      expect(result.stderr).toContain("Error:");
+      expect(result.stderr).toContain("error:");
       expect(result.stderr).toContain("--editor-size");
       expect(result.stderr).toContain("1-99");
       expect(result.stderr).toContain("summon --help");
@@ -259,7 +273,7 @@ describe("CLI integration", () => {
     it("rejects zero", () => {
       const result = run(".", "--editor-size", "0");
       expect(result.status).toBe(1);
-      expect(result.stderr).toContain("Error:");
+      expect(result.stderr).toContain("error:");
       expect(result.stderr).toContain("--editor-size");
       expect(result.stderr).toContain("1-99");
       expect(result.stderr).toContain("summon --help");
@@ -268,7 +282,7 @@ describe("CLI integration", () => {
     it("rejects 100", () => {
       const result = run(".", "--editor-size", "100");
       expect(result.status).toBe(1);
-      expect(result.stderr).toContain("Error:");
+      expect(result.stderr).toContain("error:");
       expect(result.stderr).toContain("--editor-size");
       expect(result.stderr).toContain("1-99");
       expect(result.stderr).toContain("summon --help");
@@ -281,7 +295,7 @@ describe("CLI integration", () => {
     it("rejects panes '0' with validation error (#68 supersedes)", () => {
       const result = run("set", "panes", "0");
       expect(result.status).toBe(1);
-      expect(result.stderr).toContain("Error:");
+      expect(result.stderr).toContain("error:");
       expect(result.stderr).toContain("panes");
     });
 
@@ -339,7 +353,7 @@ describe("CLI integration", () => {
     it("rejects invalid layout preset with exit 1", () => {
       const result = run(".", "--layout", "bogus");
       expect(result.status).toBe(1);
-      expect(result.stderr).toContain("Error:");
+      expect(result.stderr).toContain("error:");
       expect(result.stderr).toContain("--layout");
       expect(result.stderr).toContain("bogus");
     });
@@ -424,7 +438,7 @@ describe("CLI integration", () => {
       it("rejects non-numeric panes value", () => {
         const result = run("set", "panes", "abc");
         expect(result.status).toBe(1);
-        expect(result.stderr).toContain("Error:");
+        expect(result.stderr).toContain("error:");
         expect(result.stderr).toContain("panes");
         expect(result.stderr).toContain("positive integer");
       });
@@ -432,7 +446,7 @@ describe("CLI integration", () => {
       it("rejects zero panes", () => {
         const result = run("set", "panes", "0");
         expect(result.status).toBe(1);
-        expect(result.stderr).toContain("Error:");
+        expect(result.stderr).toContain("error:");
         expect(result.stderr).toContain("panes");
       });
 
@@ -447,21 +461,21 @@ describe("CLI integration", () => {
       it("rejects non-numeric editor-size value", { retry: 2 }, () => {
         const result = run("set", "editor-size", "abc");
         expect(result.status).toBe(1);
-        expect(result.stderr).toContain("Error:");
+        expect(result.stderr).toContain("error:");
         expect(result.stderr).toContain("editor-size");
       });
 
       it("rejects out-of-range editor-size value", () => {
         const result = run("set", "editor-size", "200");
         expect(result.status).toBe(1);
-        expect(result.stderr).toContain("Error:");
+        expect(result.stderr).toContain("error:");
         expect(result.stderr).toContain("editor-size");
       });
 
       it("rejects zero editor-size", () => {
         const result = run("set", "editor-size", "0");
         expect(result.status).toBe(1);
-        expect(result.stderr).toContain("Error:");
+        expect(result.stderr).toContain("error:");
         expect(result.stderr).toContain("editor-size");
       });
 
@@ -476,7 +490,7 @@ describe("CLI integration", () => {
       it("rejects invalid layout preset", () => {
         const result = run("set", "layout", "bogus");
         expect(result.status).toBe(1);
-        expect(result.stderr).toContain("Error:");
+        expect(result.stderr).toContain("error:");
         expect(result.stderr).toContain("layout");
         expect(result.stderr).toContain("bogus");
         expect(result.stderr).toContain("Valid presets:");
@@ -496,7 +510,7 @@ describe("CLI integration", () => {
       it("rejects non-boolean auto-resize value", () => {
         const result = run("set", "auto-resize", "yes");
         expect(result.status).toBe(1);
-        expect(result.stderr).toContain("Error:");
+        expect(result.stderr).toContain("error:");
         expect(result.stderr).toContain("auto-resize");
         expect(result.stderr).toContain('"true" or "false"');
       });
@@ -596,7 +610,7 @@ describe("CLI integration", () => {
     it("rejects preset name with shell metacharacters", () => {
       const result = run("set", "starship-preset", "foo;bar");
       expect(result.status).toBe(1);
-      expect(result.stderr).toContain("Error:");
+      expect(result.stderr).toContain("error:");
       expect(result.stderr).toContain("starship preset name");
     });
 
@@ -820,7 +834,7 @@ describe("CLI integration", () => {
     it("rejects command key set to empty string with exit 1", () => {
       const result = run("set", "editor", "");
       expect(result.status).toBe(1);
-      expect(result.stderr).toContain("Error:");
+      expect(result.stderr).toContain("error:");
       expect(result.stderr).toContain("empty");
     });
   });
@@ -997,7 +1011,7 @@ describe("CLI integration", () => {
     it("errors on stderr when both --auto-resize and --no-auto-resize are given", () => {
       const result = run(".", "--auto-resize", "--no-auto-resize", "--dry-run");
       expect(result.status).toBe(1);
-      expect(result.stderr).toContain("Error:");
+      expect(result.stderr).toContain("error:");
       expect(result.stderr).toContain("--auto-resize");
       expect(result.stderr).toContain("--no-auto-resize");
     });
@@ -1124,7 +1138,7 @@ describe("CLI integration", () => {
     it("--layout rejects nonexistent custom layout", () => {
       const result = run(".", "--layout", "nonexistent");
       expect(result.status).toBe(1);
-      expect(result.stderr).toContain("Error:");
+      expect(result.stderr).toContain("error:");
     });
   });
 
@@ -1188,7 +1202,7 @@ describe("CLI integration", () => {
         env: { ...process.env, HOME: TEMP_HOME, EDITOR: "vim;rm -rf /" },
       });
       expect(result.status).toBe(1);
-      expect(result.stderr).toContain("Error:");
+      expect(result.stderr).toContain("error:");
       expect(result.stderr).toContain("EDITOR");
     });
 
@@ -1201,7 +1215,7 @@ describe("CLI integration", () => {
         env: { ...process.env, HOME: TEMP_HOME, EDITOR: "code --wait" },
       });
       expect(result.status).toBe(1);
-      expect(result.stderr).toContain("Error:");
+      expect(result.stderr).toContain("error:");
       expect(result.stderr).toContain("EDITOR");
     });
 
@@ -1253,14 +1267,14 @@ describe("CLI integration", () => {
     it("refuses to save empty string for editor", () => {
       const result = run("set", "editor", "");
       expect(result.status).toBe(1);
-      expect(result.stderr).toContain("Error:");
+      expect(result.stderr).toContain("error:");
       expect(result.stderr).toContain("empty");
     });
 
     it("refuses to save empty string for sidebar", () => {
       const result = run("set", "sidebar", "");
       expect(result.status).toBe(1);
-      expect(result.stderr).toContain("Error:");
+      expect(result.stderr).toContain("error:");
       expect(result.stderr).toContain("empty");
     });
 
@@ -1281,7 +1295,7 @@ describe("CLI integration", () => {
       // panes="" is a valid (if weird) value — not a command key
       const result = run("set", "shell", "");
       expect(result.status).toBe(1);
-      expect(result.stderr).toContain("Error:");
+      expect(result.stderr).toContain("error:");
     });
   });
 
@@ -1290,14 +1304,14 @@ describe("CLI integration", () => {
     it("rejects env key starting with digit", () => {
       const result = run("set", "env.123INVALID", "value");
       expect(result.status).toBe(1);
-      expect(result.stderr).toContain("Error:");
+      expect(result.stderr).toContain("error:");
       expect(result.stderr).toContain("invalid environment variable name");
     });
 
     it("rejects env key with special characters", () => {
       const result = run("set", "env.FOO-BAR", "value");
       expect(result.status).toBe(1);
-      expect(result.stderr).toContain("Error:");
+      expect(result.stderr).toContain("error:");
       expect(result.stderr).toContain("invalid environment variable name");
     });
 
@@ -1499,7 +1513,7 @@ describe("CLI integration", () => {
     it("unknown config key has Error: prefix", () => {
       const result = run("set", "foobar", "somevalue");
       expect(result.status).toBe(1);
-      expect(result.stderr).toMatch(/^Error:/m);
+      expect(result.stderr).toMatch(/summon: error:/m);
     });
 
     it("project not found has summon: error: prefix", () => {
@@ -1511,13 +1525,13 @@ describe("CLI integration", () => {
     it("unknown project has Error: prefix", () => {
       const result = run("nonexistent-project-200");
       expect(result.status).not.toBe(0);
-      expect(result.stderr).toMatch(/^Error:/m);
+      expect(result.stderr).toMatch(/summon: error:/m);
     });
 
     it("unsupported shell has Error: prefix", () => {
       const result = run("completions", "ksh");
       expect(result.status).toBe(1);
-      expect(result.stderr).toMatch(/^Error:/m);
+      expect(result.stderr).toMatch(/summon: error:/m);
     });
 
     it("layout already exists has Error: prefix", () => {
@@ -1525,7 +1539,7 @@ describe("CLI integration", () => {
       run("freeze", "exist200");
       const result = run("freeze", "exist200");
       expect(result.status).toBe(1);
-      expect(result.stderr).toMatch(/^Error:/m);
+      expect(result.stderr).toMatch(/summon: error:/m);
       run("layout", "delete", "exist200");
     });
 
@@ -1896,6 +1910,132 @@ describe("CLI integration", () => {
       const result = run("trust", ".");
       expect(result.stdout).not.toContain("SyntaxError");
       expect(result.stdout).not.toContain("TypeError: Cannot read");
+    });
+  });
+
+  // #518 (UX-L1): switch presented as alias of open in main --help
+  describe("switch as alias of open in main help (#518 UX-L1)", () => {
+    it("'switch' does not appear as a standalone first-class LAUNCH line in --help", () => {
+      const result = run("--help");
+      expect(result.status).toBe(0);
+      // eslint-disable-next-line no-control-regex
+      const plain = result.stdout.replace(/\x1b\[[0-9;]*m/g, "");
+      const lines = plain.split("\n");
+      const standaloneSwitchLine = lines.find(
+        l => /^\s+summon switch\s/.test(l) && !/alias/i.test(l) && !/open/i.test(l),
+      );
+      expect(standaloneSwitchLine).toBeUndefined();
+    });
+
+    it("the open entry in --help mentions 'switch' as an alias", () => {
+      const result = run("--help");
+      expect(result.status).toBe(0);
+      // eslint-disable-next-line no-control-regex
+      const plain = result.stdout.replace(/\x1b\[[0-9;]*m/g, "");
+      expect(plain).toMatch(/summon open[\s\S]{0,200}alias[\s\S]{0,50}switch/);
+    });
+
+    it("'summon switch --help' still works (command is not removed)", () => {
+      const result = run("switch", "--help");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("summon switch");
+    });
+  });
+
+  // #452 (UX-S1): docs/repo URL in main --help
+  describe("docs/repo URL footer in main help (#452 UX-S1)", () => {
+    it("--help output includes github.com/juan294/summon", () => {
+      const result = run("--help");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("github.com/juan294/summon");
+    });
+  });
+
+  // #621 (FE-L1): --vim and --fix misuse warnings
+  describe("--vim and --fix misuse warnings (#621 FE-L1)", () => {
+    it("warns when --vim is passed to a command that does not use it (e.g., list)", () => {
+      const result = run("list", "--vim");
+      expect(result.stderr).toContain("--vim");
+      expect(result.stderr).toMatch(/no effect|Warning/i);
+    });
+
+    it("warns when --fix is passed to a command that does not use it (e.g., list)", () => {
+      const result = run("list", "--fix");
+      expect(result.stderr).toContain("--fix");
+      expect(result.stderr).toMatch(/no effect|Warning/i);
+    });
+
+    it("does NOT warn when --vim is passed to keybindings (its canonical consumer)", () => {
+      const result = run("keybindings", "--vim");
+      expect(result.status).toBe(0);
+      expect(result.stderr).not.toMatch(/--vim.*no effect/);
+    });
+
+    it("does NOT warn when --fix is passed to doctor (its canonical consumer)", () => {
+      // doctor may exit 0 or 2 but must not warn about --fix being misused
+      const result = run("doctor", "--fix");
+      expect(result.status === 0 || result.status === 2).toBe(true);
+      expect(result.stderr).not.toMatch(/--fix.*no effect/);
+    });
+
+    it("warns when --vim is passed with a launch target (not keybindings)", () => {
+      // '.' is a launch target, not keybindings — --vim should warn
+      const result = run(".", "--vim", "--dry-run");
+      expect(result.stderr).toContain("--vim");
+      expect(result.stderr).toMatch(/no effect|Warning/i);
+    });
+  });
+
+  // PE-H1 (#569): true lazy-entry — --version/-v must not load config.js or trust.js
+  describe("PE-H1 lazy-entry chunk-load probe (#569)", () => {
+    function runWithModuleTrace(...args: string[]) {
+      return spawnSync("node", [CLI_PATH, ...args], {
+        encoding: "utf-8",
+        cwd: TEMP_HOME,
+        env: { ...process.env, HOME: TEMP_HOME, NODE_DEBUG: "esm" },
+        timeout: 30_000,
+      });
+    }
+
+    it("--version does not load config or trust chunks (NODE_DEBUG=esm probe)", () => {
+      const result = runWithModuleTrace("--version");
+      expect(result.status).toBe(0);
+      // NODE_DEBUG=esm prints each loaded module URL to stderr.
+      // "Translating StandardModule <url>" appears once per unique module load.
+      // Verify config and trust dist chunks are absent from the --version fast path.
+      const translating = result.stderr
+        .split("\n")
+        .filter((l: string) => l.includes("Translating StandardModule"));
+      // Must not mention config or trust chunks
+      const hasConfig = translating.some((l: string) => /\/dist\/config-/.test(l));
+      const hasTrust = translating.some((l: string) => /\/dist\/trust-/.test(l));
+      expect(hasConfig).toBe(false);
+      expect(hasTrust).toBe(false);
+      // Only index.js itself should be "Translating"
+      expect(translating.length).toBe(1);
+    });
+
+    it("-v (PE-P1 fast path) does not load config or trust chunks", () => {
+      const result = runWithModuleTrace("-v");
+      expect(result.status).toBe(0);
+      const translating = result.stderr
+        .split("\n")
+        .filter((l: string) => l.includes("Translating StandardModule"));
+      const hasConfig = translating.some((l: string) => /\/dist\/config-/.test(l));
+      const hasTrust = translating.some((l: string) => /\/dist\/trust-/.test(l));
+      expect(hasConfig).toBe(false);
+      expect(hasTrust).toBe(false);
+      expect(translating.length).toBe(1);
+    });
+
+    it("a subcommand (list) loads more chunks than --version", () => {
+      const versionResult = runWithModuleTrace("--version");
+      const listResult = runWithModuleTrace("list");
+      const countTranslating = (stderr: string) =>
+        stderr.split("\n").filter((l: string) => l.includes("Translating StandardModule")).length;
+      expect(countTranslating(listResult.stderr)).toBeGreaterThan(
+        countTranslating(versionResult.stderr),
+      );
     });
   });
 });

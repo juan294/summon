@@ -1,5 +1,7 @@
 Generate a PR description for the current branch.
 
+Model tier: **haiku** — Haiku 4.5 session (mechanical read-and-summarize).
+
 Process:
 1. Identify the PR (current branch or ask user).
 2. Get the full diff, commit history, and metadata.

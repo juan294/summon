@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ${{ matrix.os }}
@@ -61,10 +65,14 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pnpm-
       - run: pnpm install --frozen-lockfile
+      - name: Attempt Ghostty install (QA-S1 / #517)
+        # Best-effort: cask may be unavailable or slow in CI. If it fails, the
+        # test probes the dictionary itself and skips gracefully.
+        continue-on-error: true
+        run: brew install --cask ghostty
       - name: Run AppleScript syntax E2E tests
-        # Test skips automatically when /Applications/Ghostty.app is absent (ghosttyInstalled guard).
-        # osacompile requires Ghostty's scripting dictionary — cannot compile Ghostty AppleScript headlessly.
-        # SUMMON_E2E=1 wires the test into CI so it runs on machines with Ghostty installed.
+        # SUMMON_E2E=1 opts into CI mode. The test probes whether osacompile
+        # can resolve the Ghostty dictionary at runtime and skips if not (#517).
         run: pnpm vitest run src/e2e/applescript-syntax.test.ts
         env:
           SUMMON_E2E: "1"

@@ -7,3 +7,4 @@ export const SNAPSHOTS_DIR = join(CONFIG_DIR, "snapshots");
 export const LAYOUTS_DIR = join(CONFIG_DIR, "layouts");
 export const SESSIONS_DIR = join(CONFIG_DIR, "sessions");
 export const TRUST_FILE = join(CONFIG_DIR, "trust.json");
+export const CACHE_FILE = join(CONFIG_DIR, "cache.json");

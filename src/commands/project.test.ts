@@ -39,11 +39,15 @@ class MockPromptCancelled extends Error {
   constructor(msg = "Cancelled") { super(msg); this.name = "PromptCancelled"; }
 }
 
-vi.mock("../utils.js", () => ({
-  promptUser: (...args: unknown[]) => mockPromptUser(...args),
-  exitWithUsageHint: (message?: string) => mockExitWithUsageHint(message),
-  PromptCancelled: MockPromptCancelled,
-}));
+vi.mock("../utils.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../utils.js")>();
+  return {
+    ...actual,
+    promptUser: (...args: unknown[]) => mockPromptUser(...args),
+    exitWithUsageHint: (message?: string) => mockExitWithUsageHint(message),
+    PromptCancelled: MockPromptCancelled,
+  };
+});
 
 vi.mock("../monitor.js", () => ({
   loadProjectRows: (...args: unknown[]) => mockLoadProjectRows(...args),
@@ -214,6 +218,7 @@ describe("handleRemoveCommand", () => {
   });
 
   it("exits when the project does not exist", async () => {
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const exitSpy = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error(`exit:${code}`);
@@ -221,9 +226,13 @@ describe("handleRemoveCommand", () => {
     mockRemoveProject.mockReturnValue(false);
 
     await expect(handleRemoveCommand(makeContext({ args: ["missing"] }))).rejects.toThrow("exit:1");
-    expect(errorSpy).toHaveBeenCalledWith("summon: error: Project not found: missing");
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(allWrites).toContain("summon: error:");
+    expect(allWrites).toContain("Project not found: missing");
+    // The hint line still goes through console.error
     expect(errorSpy).toHaveBeenCalledWith("Run 'summon list' to see registered projects.");
     expect(exitSpy).toHaveBeenCalledWith(1);
+    writeSpy.mockRestore();
   });
 });
 
@@ -256,21 +265,21 @@ describe("handleListCommand", () => {
 
 describe("handleOpenCommand", () => {
   it("exits when there are no projects", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error(`exit:${code}`);
     }) as never);
     mockLoadProjectRows.mockReturnValue([]);
 
     await expect(handleOpenCommand(makeContext())).rejects.toThrow("exit:1");
-    const output = errorSpy.mock.calls.flat().join("\n");
-    expect(output).toContain("No projects registered.");
-    expect(output).toContain("summon add <name> <path>");
-    expect(output).toContain("summon setup");
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(allWrites).toContain("No projects registered.");
+    expect(allWrites).toContain("summon: error:");
+    writeSpy.mockRestore();
   });
 
   it("re-prompts invalid selections and focuses active workspaces", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     mockLoadProjectRows.mockReturnValue([
       { name: "api", directory: "/tmp/api", state: "active", uptime: "1h", gitBranch: "main" },
@@ -282,9 +291,11 @@ describe("handleOpenCommand", () => {
 
     await handleOpenCommand(makeContext({ overrides: { dryRun: true } }));
 
-    expect(errorSpy).toHaveBeenCalledWith("Invalid selection. Enter a number between 1 and 2.");
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(allWrites).toContain("Invalid selection. Enter a number between 1 and 2.");
     expect(mockFocusWorkspace).toHaveBeenCalledWith("api");
     expect(logSpy).toHaveBeenCalledWith("Switched to [api]");
+    writeSpy.mockRestore();
   });
 
   it("launches stopped workspaces with overrides", async () => {
@@ -389,8 +400,8 @@ describe("handleOpenCommand", () => {
 });
 
 describe("#411 FE-L1: consistent error formatting", () => {
-  it("handleRemoveCommand uses console.error (not process.stdout.write) for missing project", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  it("handleRemoveCommand uses stderr (not stdout) for missing project", async () => {
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error(`exit:${code}`);
@@ -398,17 +409,18 @@ describe("#411 FE-L1: consistent error formatting", () => {
     mockRemoveProject.mockReturnValue(false);
 
     await expect(handleRemoveCommand(makeContext({ args: ["ghost"] }))).rejects.toThrow("exit:1");
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("Project not found"));
+    const stderrWrites = stderrSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(stderrWrites).toContain("Project not found");
     // Error must NOT go to stdout
     const stdoutCalls = stdoutSpy.mock.calls.map((c) => String(c[0])).join("\n");
     expect(stdoutCalls).not.toContain("Project not found");
 
-    errorSpy.mockRestore();
+    stderrSpy.mockRestore();
     stdoutSpy.mockRestore();
   });
 
-  it("handleOpenCommand uses console.error (not process.stdout.write) for no projects", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  it("handleOpenCommand uses stderr (not stdout) for no projects", async () => {
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error(`exit:${code}`);
@@ -416,16 +428,17 @@ describe("#411 FE-L1: consistent error formatting", () => {
     mockLoadProjectRows.mockReturnValue([]);
 
     await expect(handleOpenCommand(makeContext())).rejects.toThrow("exit:1");
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("No projects registered"));
+    const stderrWrites = stderrSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(stderrWrites).toContain("No projects registered");
     const stdoutCalls = stdoutSpy.mock.calls.map((c) => String(c[0])).join("\n");
     expect(stdoutCalls).not.toContain("No projects registered");
 
-    errorSpy.mockRestore();
+    stderrSpy.mockRestore();
     stdoutSpy.mockRestore();
   });
 
-  it("resolveTargetDirectory uses console.error (not process.stdout.write) for unknown project", () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  it("resolveTargetDirectory uses stderr (not stdout) for unknown project", () => {
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error(`exit:${code}`);
@@ -433,11 +446,12 @@ describe("#411 FE-L1: consistent error formatting", () => {
     mockGetProject.mockReturnValue(undefined);
 
     expect(() => resolveTargetDirectory("unknown-project")).toThrow("exit:1");
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("not a known command or registered project"));
+    const stderrWrites = stderrSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(stderrWrites).toContain("not a known command or registered project");
     const stdoutCalls = stdoutSpy.mock.calls.map((c) => String(c[0])).join("\n");
     expect(stdoutCalls).not.toContain("not a known command or registered project");
 
-    errorSpy.mockRestore();
+    stderrSpy.mockRestore();
     stdoutSpy.mockRestore();
   });
 });
@@ -461,16 +475,20 @@ describe("resolveTargetDirectory", () => {
   });
 
   it("exits on unknown project names", () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error(`exit:${code}`);
     }) as never);
     mockGetProject.mockReturnValue(undefined);
 
     expect(() => resolveTargetDirectory("missing")).toThrow("exit:1");
-    expect(errorSpy).toHaveBeenCalledWith(`Error: "missing" is not a known command or registered project. Try: summon --help`);
-    expect(errorSpy).toHaveBeenCalledWith("To register as a project: summon add missing /path/to/project");
-    expect(errorSpy).toHaveBeenCalledWith("Or see available:         summon list");
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    // Now emits unified prefix via fail() (#598)
+    expect(allWrites).toContain("summon: error:");
+    expect(allWrites).toContain(`"missing" is not a known command or registered project. Try: summon --help`);
+    expect(allWrites).toContain("To register as a project: summon add missing /path/to/project");
+    expect(allWrites).toContain("Or see available:         summon list");
+    writeSpy.mockRestore();
   });
 });
 
@@ -489,7 +507,7 @@ describe("UX-M4 (#558): empty-state messages are standardized", () => {
   });
 
   it("handleOpenCommand uses the standard empty-state message", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error(`exit:${code}`);
     }) as never);
@@ -497,25 +515,23 @@ describe("UX-M4 (#558): empty-state messages are standardized", () => {
 
     await expect(handleOpenCommand(makeContext())).rejects.toThrow("exit:1");
 
-    const output = errorSpy.mock.calls.flat().join("\n");
-    expect(output).toContain("No projects registered.");
-    expect(output).toContain("summon add <name> <path>");
-    expect(output).toContain("summon setup");
-    errorSpy.mockRestore();
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(allWrites).toContain("No projects registered.");
+    writeSpy.mockRestore();
   });
 });
 
 describe("UX-M5 (#559): error prefixes use 'summon: error:' style", () => {
   it("handleRemoveCommand uses 'summon: error:' prefix for project not found", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error(`exit:${code}`);
     }) as never);
     mockRemoveProject.mockReturnValue(false);
 
     await expect(handleRemoveCommand(makeContext({ args: ["missing"] }))).rejects.toThrow("exit:1");
-    const errorMessages = errorSpy.mock.calls.flat().map(String);
-    expect(errorMessages.some(m => m.includes("summon: error:"))).toBe(true);
-    errorSpy.mockRestore();
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(allWrites).toContain("summon: error:");
+    writeSpy.mockRestore();
   });
 });

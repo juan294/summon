@@ -88,7 +88,7 @@ describe("handleCompletionsCommand", () => {
 
   it("rejects unsupported shells", async () => {
     await expect(handleCompletionsCommand(makeContext({ args: ["ksh"] }))).rejects.toThrow(
-      "usage:Error: Unsupported shell: ksh\nSupported shells: zsh, bash, fish",
+      "usage:Unsupported shell: ksh\nSupported shells: zsh, bash, fish",
     );
   });
 

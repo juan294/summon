@@ -20,9 +20,13 @@ vi.mock("../config.js", () => ({
   listCustomLayouts: (...args: unknown[]) => mockListCustomLayouts(...args),
 }));
 
-vi.mock("../utils.js", () => ({
-  exitWithUsageHint: (message?: string) => mockExitWithUsageHint(message),
-}));
+vi.mock("../utils.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../utils.js")>();
+  return {
+    ...actual,
+    exitWithUsageHint: (message?: string) => mockExitWithUsageHint(message),
+  };
+});
 
 const {
   layoutNotFoundOrExit,
@@ -93,28 +97,33 @@ describe("validateLayoutNameOrExit", () => {
   });
 
   it("rejects reserved preset names", () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     mockIsPresetName.mockReturnValue(true);
     vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error(`exit:${code}`);
     }) as never);
 
     expect(() => validateLayoutNameOrExit("pair")).toThrow("exit:1");
-    expect(errorSpy).toHaveBeenCalledWith('Error: "pair" is a reserved preset name. Choose a different name.');
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(allWrites).toContain('"pair" is a reserved preset name. Choose a different name.');
+    expect(allWrites).toContain("summon: error:");
+    writeSpy.mockRestore();
   });
 
   it("rejects invalid layout names", () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     mockIsValidLayoutName.mockReturnValue(false);
     vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error(`exit:${code}`);
     }) as never);
 
     expect(() => validateLayoutNameOrExit("bad name")).toThrow("exit:1");
-    expect(errorSpy).toHaveBeenCalledWith('Error: Invalid layout name "bad name".');
-    expect(errorSpy).toHaveBeenCalledWith(
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(allWrites).toContain('Invalid layout name "bad name".');
+    expect(allWrites).toContain(
       "Names must start with a letter and contain only letters, digits, hyphens, and underscores.",
     );
+    writeSpy.mockRestore();
   });
 });
 
@@ -129,23 +138,27 @@ describe("validateLayoutOrExit", () => {
   });
 
   it("prints valid preset and custom layout lists for invalid names", () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     mockListCustomLayouts.mockReturnValue(["team-layout"]);
 
     expect(() => validateLayoutOrExit("wat", "--layout")).toThrow("usage:");
-    expect(errorSpy).toHaveBeenCalledWith(
-      'Error: --layout must be a valid preset or custom layout name, got "wat".',
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(allWrites).toContain(
+      '--layout must be a valid preset or custom layout name, got "wat".',
     );
-    expect(errorSpy).toHaveBeenCalledWith("Valid presets: minimal, pair");
-    expect(errorSpy).toHaveBeenCalledWith("Custom layouts: team-layout");
+    expect(allWrites).toContain("Valid presets: minimal, pair");
+    expect(allWrites).toContain("Custom layouts: team-layout");
+    writeSpy.mockRestore();
   });
 
   it("omits custom layout guidance when there are no custom layouts", () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     expect(() => validateLayoutOrExit("wat", "--layout")).toThrow("usage:");
 
-    expect(errorSpy).not.toHaveBeenCalledWith(expect.stringContaining("Custom layouts:"));
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(allWrites).not.toContain("Custom layouts:");
+    writeSpy.mockRestore();
   });
 
   it("exits via exitWithUsageHint on path-traversal input, does not throw", () => {
@@ -153,19 +166,22 @@ describe("validateLayoutOrExit", () => {
       throw new Error('Invalid layout path: "../../../etc/passwd"');
     });
     expect(() => validateLayoutOrExit("../../../etc/passwd", "--layout")).toThrow("usage:");
-    expect(mockExitWithUsageHint).toHaveBeenCalledWith("Error: --layout is not a valid layout name.");
+    expect(mockExitWithUsageHint).toHaveBeenCalledWith("--layout is not a valid layout name.");
   });
 });
 
 describe("layoutNotFoundOrExit", () => {
   it("prints guidance before exiting", () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error(`exit:${code}`);
     }) as never);
 
     expect(() => layoutNotFoundOrExit("missing")).toThrow("exit:1");
-    expect(errorSpy).toHaveBeenCalledWith("Error: Layout not found: missing");
-    expect(errorSpy).toHaveBeenCalledWith("Run 'summon layout list' to see available layouts.");
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(allWrites).toContain("Layout not found: missing");
+    expect(allWrites).toContain("summon: error:");
+    expect(allWrites).toContain("Run 'summon layout list' to see available layouts.");
+    writeSpy.mockRestore();
   });
 });

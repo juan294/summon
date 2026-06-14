@@ -16,6 +16,58 @@ Thanks for your interest in contributing! Whether it's a bug fix, a new layout p
 - AppleScript improvements for Ghostty integration
 - Documentation and examples
 
+## Toolchain & Versions
+
+Summon targets specific toolchain versions. Using older versions may produce type
+errors, build failures, or subtly wrong test results.
+
+| Tool | Required version | Notes |
+|------|-----------------|-------|
+| Node.js | `>=20.19` | ESM `require()` interop landed in 20.19 |
+| pnpm | `10.29.2` | Pinned via `packageManager` in package.json |
+| TypeScript | `^6.0` | Strict mode + `noUncheckedIndexedAccess` |
+| Vitest | `^4.x` | Dev dep; do not downgrade to v3 |
+| tsup / esbuild | `^8.x` | Build tool; see `tsup.config.ts` |
+
+### Checking your versions
+
+```bash
+node --version      # must be >= 20.19
+pnpm --version      # must be 10.29.2
+```
+
+### Staying current with Node
+
+Use a version manager (nvm, fnm, or Volta). The project targets Node 20.19 as the
+minimum; CI also runs on Node 22 and 24. To match the minimum locally:
+
+```bash
+# with nvm:
+nvm install 20.19
+nvm use 20.19
+
+# .nvmrc snippet (place in your local clone root if desired):
+# lts/iron
+```
+
+> Note: a `.nvmrc` file is intentionally not committed to the repository — it would
+> pin contributors to the minimum and prevent easy testing on newer Node versions.
+> Pick the LTS release that matches `>=20.19` for your workflow.
+
+### pnpm
+
+Install or update pnpm globally:
+
+```bash
+npm install -g pnpm@10.29.2
+# or via corepack:
+corepack enable
+corepack prepare pnpm@10.29.2 --activate
+```
+
+The `packageManager` field in `package.json` causes corepack to enforce this version
+automatically if corepack is active.
+
 ## Development Setup
 
 1. Fork and clone the repository:

@@ -65,10 +65,14 @@ vi.mock("../validation.js", () => ({
   validateIntFlag: (...args: unknown[]) => mockValidateIntFlag(...args),
 }));
 
-vi.mock("../utils.js", () => ({
-  SAFE_COMMAND_RE: /^[A-Za-z0-9._-]+$/,
-  exitWithUsageHint: (message?: string) => mockExitWithUsageHint(message),
-}));
+vi.mock("../utils.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../utils.js")>();
+  return {
+    ...actual,
+    SAFE_COMMAND_RE: /^[A-Za-z0-9._-]+$/,
+    exitWithUsageHint: (message?: string) => mockExitWithUsageHint(message),
+  };
+});
 
 vi.mock("./layout-support.js", () => ({
   validateLayoutNameOrExit: (...args: unknown[]) => mockValidateLayoutNameOrExit(...args),
@@ -115,18 +119,21 @@ describe("handleSetCommand", () => {
 
   it("rejects unknown keys", async () => {
     await expect(handleSetCommand(makeContext({ args: ["unknown", "x"] }))).rejects.toThrow(
-      'usage:Error: Unknown config key "unknown". Valid keys: editor, sidebar, panes, editor-size, shell, layout, auto-resize, starship-preset, new-window, fullscreen, maximize, float, font-size, on-start, on-stop, env.<KEY>',
+      'usage:Unknown config key "unknown". Valid keys: editor, sidebar, panes, editor-size, shell, layout, auto-resize, starship-preset, new-window, fullscreen, maximize, float, font-size, on-start, on-stop, env.<KEY>',
     );
   });
 
   it("validates environment variable names", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error(`exit:${code}`);
     }) as never);
 
     await expect(handleSetCommand(makeContext({ args: ["env.BAD-NAME", "1"] }))).rejects.toThrow("exit:1");
-    expect(errorSpy).toHaveBeenCalledWith('Error: invalid environment variable name "BAD-NAME".');
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(allWrites).toContain('invalid environment variable name "BAD-NAME".');
+    expect(allWrites).toContain("summon: error:");
+    writeSpy.mockRestore();
   });
 
   it("accepts valid environment variable config keys", async () => {
@@ -139,7 +146,7 @@ describe("handleSetCommand", () => {
   });
 
   it("validates numeric, layout, boolean, float, and preset values", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error(`exit:${code}`);
     }) as never);
@@ -155,30 +162,38 @@ describe("handleSetCommand", () => {
     expect(mockValidateIntFlag).toHaveBeenNthCalledWith(2, "editor-size", "70", 10, 90);
     expect(mockValidateLayoutOrExit).toHaveBeenCalledWith("pair", "layout");
     expect(mockValidateFloatFlag).toHaveBeenCalledWith("font-size", "14.5");
-    expect(errorSpy).toHaveBeenCalledWith('Error: auto-resize must be "true" or "false", got "maybe".');
-    expect(errorSpy).toHaveBeenCalledWith('Error: invalid starship preset name "bad preset".');
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(allWrites).toContain('auto-resize must be "true" or "false", got "maybe".');
+    expect(allWrites).toContain('invalid starship preset name "bad preset".');
+    writeSpy.mockRestore();
   });
 
   it("rejects unknown starship preset when isValidPreset returns false", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error(`exit:${code}`);
     }) as never);
     mockIsValidPreset.mockReturnValueOnce(false);
 
     await expect(handleSetCommand(makeContext({ args: ["starship-preset", "unknown-preset"] }))).rejects.toThrow("exit:1");
-    expect(errorSpy).toHaveBeenCalledWith('Error: invalid starship preset name "unknown-preset".');
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(allWrites).toContain('invalid starship preset name "unknown-preset".');
+    expect(allWrites).toContain("summon: error:");
+    writeSpy.mockRestore();
   });
 
   it("rejects empty command values for command-like keys", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error(`exit:${code}`);
     }) as never);
 
     await expect(handleSetCommand(makeContext({ args: ["editor", ""] }))).rejects.toThrow("exit:1");
-    expect(errorSpy).toHaveBeenCalledWith("Error: editor cannot be set to an empty string.");
-    expect(errorSpy).toHaveBeenCalledWith("To reset to default, run: summon set editor (without a value)");
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(allWrites).toContain("editor cannot be set to an empty string.");
+    expect(allWrites).toContain("summon: error:");
+    expect(allWrites).toContain("To reset to default, run: summon set editor (without a value)");
+    writeSpy.mockRestore();
   });
 
   it.each(["sidebar", "shell", "on-start", "on-stop"])(
@@ -272,16 +287,17 @@ describe("handleFreezeCommand", () => {
   });
 
   it("rejects freezing over an existing custom layout", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error(`exit:${code}`);
     }) as never);
     mockIsCustomLayout.mockReturnValue(true);
 
     await expect(handleFreezeCommand(makeContext({ args: ["team"] }))).rejects.toThrow("exit:1");
-    expect(errorSpy).toHaveBeenCalledWith(
-      'Error: Layout "team" already exists. Delete it first: summon layout delete team',
-    );
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(allWrites).toContain('Layout "team" already exists. Delete it first: summon layout delete team');
+    expect(allWrites).toContain("summon: error:");
+    writeSpy.mockRestore();
   });
 
   it("freezes the resolved config into a custom layout", async () => {

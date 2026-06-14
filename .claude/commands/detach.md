@@ -1,5 +1,7 @@
 # Detach Project from cc-rpi Blueprint
 
+Model tier: **sonnet** — Sonnet 4.6 (1M context) session.
+
 You are cleanly removing cc-rpi artifacts from this project. The blueprint lives at `<path-to-your-cc-rpi-clone>/`.
 
 This command removes all blueprint-managed files and configuration while preserving project-specific content and user work products.

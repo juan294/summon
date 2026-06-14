@@ -87,6 +87,7 @@ export async function handleBriefingCommand(): Promise<void> {
 export async function handlePortsCommand(): Promise<void> {
   const { detectAllPorts } = await import("../ports.js");
   const { green, dim, yellow, truncateLine } = await import("../ui/ansi.js");
+  const { sym } = await import("../ui/symbols.js");
   const { assignments, conflicts } = await detectAllPorts();
 
   if (assignments.length === 0) {
@@ -106,7 +107,7 @@ export async function handlePortsCommand(): Promise<void> {
     const portStr = String(assignment.port).padEnd(6);
     const projectStr = truncateLine(assignment.project, 16).padEnd(16);
     const sourceStr = truncateLine(assignment.source, 18).padEnd(18);
-    const dot = assignment.state === "active" ? green("●") : dim("○");
+    const dot = assignment.state === "active" ? green(sym.dotFilled) : dim(sym.dotEmpty);
     const stateStr = assignment.state === "active" ? green("active") : dim(assignment.state);
     const conflict = conflicts.has(assignment.port)
       ? truncateLine(yellow(" ← conflict"), conflictWidth)
@@ -115,6 +116,7 @@ export async function handlePortsCommand(): Promise<void> {
   }
 
   if (conflicts.size === 0) {
+    console.log(`${green(sym.ok)} No port conflicts`);
     return;
   }
 

@@ -7,7 +7,8 @@ Technical reference for contributors.
 | Module | Role | Side Effects | Dependencies |
 |--------|------|:------------:|--------------|
 | `index.ts` | CLI entry point — thin dispatch registry (~134 lines) | yes | config, launcher, commands/*, cli/parse, utils |
-| `cli/parse.ts` | CLI argument parsing — `parseCli`, `buildOverrides`, `showHelp`, `showSubcommandHelp` | yes | layout, validation, utils, config, commands/layout-support |
+| `cli/parse.ts` | CLI argument parsing — `parseCli`, `buildOverrides` | yes | layout, validation, utils, config, commands/layout-support |
+| `cli/help.ts` | Help text (lazily imported on the `--help` path) — `showHelp`, `hasSubcommandHelp`, `showSubcommandHelp` | yes | layout, ui/width |
 | `commands/config.ts` | `handleConfigCommand`, `handleExportCommand`, `handleFreezeCommand`, `handleSetCommand` | yes | config, utils, validation |
 | `commands/doctor.ts` | `handleDoctorCommand` | yes | config, utils |
 | `commands/layout.ts` | `handleLayoutCommand` — create/save/list/show/delete/edit | yes | config, layout, utils, ui/layout-preview |
@@ -20,14 +21,19 @@ Technical reference for contributors.
 | `ui/symbols.ts` | Canonical glyph vocabulary — `sym.ok`, `sym.warn`, `sym.fail`, `sym.info`, `sym.bullet` | **pure** | none |
 | `launcher.ts` | Orchestrator — config resolution, script execution via osascript, rollback on failure | yes | config, layout, script, tree, utils, validation, starship, status, launch-guards, trust, paths |
 | `launch-guards.ts` | Pre-launch safety checks — `ensureGhostty`, `ensureAccessibility`, `confirmDangerousCommands` (extracted from launcher.ts) | yes | utils, command-spec |
-| `config.ts` | Config file read/write (`~/.config/summon/` and `.summon`), first-run detection, mtime-memoized reads | yes | paths |
-| `paths.ts` | Canonical path constants — `CONFIG_DIR`, `STATUS_DIR`, `SNAPSHOTS_DIR`, `LAYOUTS_DIR`, `LOGS_DIR`, `TRUST_FILE` | **pure** | Node stdlib only |
+| `config.ts` | Config file read/write (`~/.config/summon/` and `.summon`), first-run detection, in-process mtime memoization layered over the persistent `cache.ts` | yes | paths, cache |
+| `cache.ts` | Persistent cross-invocation read-through KV cache at `~/.config/summon/cache.json`, keyed by path + `mtimeMs` + `size`; opt-out via `SUMMON_NO_CACHE` — `getCachedKV`, `putCachedKV`, `flushCacheToDisk`, `invalidateCachedKV`, `resetPersistentCache` | yes | paths, utils |
+| `paths.ts` | Canonical path constants — `CONFIG_DIR`, `STATUS_DIR`, `SNAPSHOTS_DIR`, `LAYOUTS_DIR`, `SESSIONS_DIR`, `TRUST_FILE`, `CACHE_FILE` | **pure** | Node stdlib only |
+| `sessions.ts` | Named session save/restore — persist and replay workspace configs — `listSessions`, `readSession`, `writeSession`, `deleteSession`, `sessionExists`, `isValidSessionName` | yes | paths, utils |
+| `errors.ts` | Named error classes — `TabOpenError` (recoverable new-tab failure surfaced by `session --all`) | **pure** | none |
 | `trust.ts` | `.summon` file trust management — SHA-256 allowlist (`assertTrusted`, `trustProject`, `isTrusted`, `hashSummonFile`) | yes | paths, utils |
 | `command-spec.ts` | Command string analysis — `analyzeCommand`, `commandHasShellMeta`, `commandExecutable`, `replaceCommandExecutable` | **pure** | none |
 | `shell-escape.ts` | AppleScript/shell escape primitives — `escapeAppleScript`, `shellQuote`, `shellDoubleQuote` | **pure** | none |
 | `setup.ts` | Interactive setup wizard — back-navigation, numbered-select, accessibility prompt | yes | config, utils, starship, setup-gallery, ui/ansi |
 | `setup-gallery.ts` | Template gallery data — `LAYOUT_INFO`, `GRID_TEMPLATES`, `GridTemplate` (extracted from setup.ts) | **pure** | none |
 | `ui/ansi.ts` | ANSI color/style helpers — `bold`, `dim`, `green`, `yellow`, `cyan`, `magenta`, `brightCyan`, `colorSwatch` (extracted from setup.ts) | **pure** | none |
+| `ui/output.ts` | Single user-facing output writer — `out` (stdout), `err` (stderr), `fail` (unified `summon: error:` prefix) | yes | ui/ansi, utils |
+| `ui/width.ts` | Display-width primitives for CJK/emoji/fullwidth-safe truncation — `isWideCodePoint`, `getDisplayWidth`, `truncate` | **pure** | none |
 | `ui/layout-preview.ts` | Layout preview renderer for the setup wizard and layout list command | **pure** | layout |
 | `utils.ts` | Shared utilities — `SAFE_COMMAND_RE`, `GHOSTTY_PATHS`, `resolveCommand`, `promptUser`, `getErrorMessage`, `isDebug`, `debugLog`, `gitSafeEnv`, `confirm`, `supportsColor`, `PromptCancelled` | yes | Node stdlib only |
 | `layout.ts` | Layout calculation and presets | **pure** | none |
@@ -55,12 +61,16 @@ graph TD
     index --> launcher[launcher.ts]
     index --> utils[utils.ts]
     index --> resolvetarget[cli/resolve-target.ts]
+    index -.->|dynamic| help[cli/help.ts]
 
     cliparse --> layout[layout.ts]
     cliparse --> validation[validation.ts]
     cliparse --> utils
     cliparse --> config
     cliparse --> layoutsupport[commands/layout-support.ts]
+
+    help --> layout
+    help --> uiwidth[ui/width.ts]
 
     cmds --> config
     cmds --> launcher
@@ -73,9 +83,12 @@ graph TD
     cmds --> ports[ports.ts]
     cmds --> resolvetarget
     cmds --> uisymbols[ui/symbols.ts]
+    cmds --> uioutput[ui/output.ts]
+    cmds --> errors[errors.ts]
     cmds -.->|dynamic| completions[completions.ts]
     cmds -.->|dynamic| keybindings[keybindings.ts]
     cmds -.->|dynamic| setup[setup.ts]
+    cmds -.->|dynamic| sessions[sessions.ts]
 
     launcher --> config
     launcher --> layout
@@ -88,6 +101,8 @@ graph TD
     launcher --> launchguards[launch-guards.ts]
     launcher --> trust[trust.ts]
     launcher --> paths[paths.ts]
+    launcher --> errors
+    launcher --> uioutput
     launcher -.->|dynamic| setup
 
     launchguards --> utils
@@ -100,6 +115,14 @@ graph TD
     trust --> utils
 
     config --> paths
+    config --> cache[cache.ts]
+    cache --> paths
+    cache --> utils
+
+    sessions --> paths
+    sessions --> utils
+    uioutput --> uiansi[ui/ansi.ts]
+    uioutput --> utils
 
     setup --> config
     setup --> utils
@@ -116,6 +139,7 @@ graph TD
     monitor --> config
     monitor --> uiansi
     monitor --> uisymbols
+    monitor --> uiwidth
 
     tree --> layout
     starship --> config
@@ -126,6 +150,8 @@ graph TD
     status --> paths
     snapshot --> paths
     ports --> config
+    ports --> uiwidth
+    briefing --> uiwidth
 
     config -.- cfg_fns["addProject, removeProject,
     getProject, listProjects,
@@ -139,7 +165,7 @@ graph TD
     LAYOUT_NAME_RE"]
     paths -.- paths_fns["CONFIG_DIR, STATUS_DIR,
     SNAPSHOTS_DIR, LAYOUTS_DIR,
-    LOGS_DIR, TRUST_FILE"]
+    SESSIONS_DIR, TRUST_FILE, CACHE_FILE"]
     layout -.- lay_fns["planLayout, isPresetName,
     getPreset, getPresetNames,
     LayoutOptions, LayoutPlan"]
@@ -236,9 +262,9 @@ graph TD
     style rt_fns fill:none,stroke-dasharray:5
 ```
 
-`layout.ts`, `script.ts`, `tree.ts`, `shell-escape.ts`, `command-spec.ts`, `setup-gallery.ts`, `ui/ansi.ts`, `completions.ts`, and `validation.ts` are pure modules with no side effects. `utils.ts` and `paths.ts` only use Node stdlib. `config.ts` depends on `paths.ts` for directory constants and uses mtime-based memoization to avoid redundant disk reads within a single invocation. `starship.ts` handles Starship binary detection (cached), preset listing, and TOML config file generation — it depends on `config.ts` and `utils.ts`.
+`layout.ts`, `script.ts`, `tree.ts`, `shell-escape.ts`, `command-spec.ts`, `setup-gallery.ts`, `ui/ansi.ts`, `ui/width.ts`, `completions.ts`, and `validation.ts` are pure modules with no side effects. `utils.ts` and `paths.ts` only use Node stdlib. `config.ts` depends on `paths.ts` for directory constants and uses in-process mtime-based memoization layered over the persistent `cache.ts` read-through cache (`~/.config/summon/cache.json`, keyed by path + `mtimeMs` + `size`, disabled by `SUMMON_NO_CACHE=1`) to avoid redundant disk reads both within and across invocations. `starship.ts` handles Starship binary detection (cached), preset listing, and TOML config file generation — it depends on `config.ts` and `utils.ts`.
 
-`index.ts` is a thin dispatch registry (~134 lines) that delegates to `commands/*` handlers and `cli/parse.ts`. Command handlers are statically imported; the full setup wizard, `completions.ts`, `keybindings.ts`, `monitor.ts`, `ports.ts`, and `snapshot.ts` are loaded via dynamic `import()` where needed. `launcher.ts` also dynamically imports `setup.ts` when no editor is configured. `launcher.ts` imports `assertTrusted` from `trust.ts` and pre-launch checks from `launch-guards.ts`. `briefing.ts` and `monitor.ts` import color helpers from `ui/ansi.ts` (not `setup.ts`) for TUI rendering.
+`index.ts` is a thin dispatch registry (~134 lines) that delegates to `commands/*` handlers and `cli/parse.ts`. Command handlers are statically imported; the help text (`cli/help.ts`), full setup wizard, `completions.ts`, `keybindings.ts`, `monitor.ts`, `ports.ts`, `snapshot.ts`, and the named-session store (`sessions.ts`) are loaded via dynamic `import()` where needed — this keeps the `--version`/`--help` and simple-subcommand paths from pulling in the full launch graph. `launcher.ts` also dynamically imports `setup.ts` when no editor is configured. `launcher.ts` imports `assertTrusted` from `trust.ts` and pre-launch checks from `launch-guards.ts`. All user-facing output is funnelled through `ui/output.ts` (`out`/`err`/`fail`, the unified `summon: error:` prefix); `briefing.ts` and `monitor.ts` import color helpers from `ui/ansi.ts` (not `setup.ts`) and width-aware truncation from `ui/width.ts` for TUI rendering.
 
 All interactive prompts use `promptUser()` from `utils.ts`. On Ctrl+C or EOF, `promptUser` throws `PromptCancelled` instead of calling `process.exit`, allowing callers to clean up before exiting.
 
@@ -256,7 +282,8 @@ flowchart TD
     --new-window, --fullscreen, --maximize, --float"]
     parse --> helpcheck{"--help flag?"}
 
-    helpcheck -->|yes| showhelp["show help text
+    helpcheck -->|yes| showhelp["dynamic import cli/help.ts
+    → show help text
     (subcommand-specific or full)"]
 
     showhelp --> exit0h["exit 0"]
@@ -689,6 +716,8 @@ Config files live at `~/.config/summon/`:
 | `starship/` | Cached Starship preset TOML files (auto-generated by `ensurePresetConfig()`) |
 | `status/` | Workspace status JSON files + `.active` marker files (managed by `status.ts`) |
 | `snapshots/` | Context snapshot JSON files per project (managed by `snapshot.ts`) |
+| `sessions/` | Named session files — saved workspace configs for replay (managed by `sessions.ts`) |
+| `cache.json` | Persistent read-through cache for `config` and `projects` (managed by `cache.ts`; disable with `SUMMON_NO_CACHE=1`) |
 
 Both use `key=value` format, one entry per line.
 
