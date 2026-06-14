@@ -1,6 +1,8 @@
 import { describe, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, writeFileSync, unlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { generateAppleScript } from "../script.js";
 import { planLayout } from "../layout.js";
 
@@ -13,7 +15,15 @@ describe.skipIf(!process.env["SUMMON_E2E"] || !ghosttyInstalled)("AppleScript sy
   it("generated script compiles with osacompile", () => {
     const plan = planLayout({ editorPanes: 1, shell: "false" });
     const script = generateAppleScript(plan, "/tmp");
-    // osacompile checks syntax without running
-    execFileSync("osacompile", ["-e", script], { stdio: "pipe" });
+    // Write to a temp file so osacompile can resolve the Ghostty scripting
+    // dictionary from the tell-application block. The -e flag bypasses
+    // dictionary lookup and fails on Ghostty-specific terms (#517).
+    const tmpFile = join(tmpdir(), `summon-e2e-${process.pid}.applescript`);
+    writeFileSync(tmpFile, script, "utf8");
+    try {
+      execFileSync("osacompile", ["-o", "/dev/null", tmpFile], { stdio: "pipe" });
+    } finally {
+      unlinkSync(tmpFile);
+    }
   });
 });
