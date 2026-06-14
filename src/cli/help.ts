@@ -81,8 +81,7 @@ async function buildHelp(): Promise<string> {
     "",
     h("LAUNCH"),
     wrap(`  ${cmd("summon <target>")}             Launch workspace (project name, path, or '.')`),
-    wrap(`  ${cmd("summon open")}                 Select and launch a registered project`),
-    wrap(`  ${cmd("summon switch")}               Switch to an active workspace (focuses if running, launches if not)`),
+    wrap(`  ${cmd("summon open")}                 Select and launch a registered project ${note("(alias: switch)")}`),
     "",
     h("SESSIONS"),
     wrap(`  ${cmd("summon session <name>")}          Launch a saved multi-project session`),
@@ -194,6 +193,7 @@ async function buildHelp(): Promise<string> {
     wrap(`  summon freeze mysetup           Save current config as reusable layout`),
     "",
     note("Run 'summon <command> --help' for details on each command."),
+    note("Docs & more: https://github.com/juan294/summon#readme"),
   ].join("\n");
 }
 
