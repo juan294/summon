@@ -376,43 +376,46 @@ describe("formatUserError", () => {
 });
 
 describe("exitWithUsageHint", () => {
-  it("prints message and usage hint when message is provided", () => {
+  it("prints branded message and usage hint to stderr when message is provided", () => {
+    process.env = { ...process.env, NO_COLOR: "1" };
     const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => { throw new Error("exit"); });
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     expect(() => exitWithUsageHint("Bad flag")).toThrow("exit");
-    expect(errorSpy).toHaveBeenCalledWith("Bad flag");
-    expect(errorSpy).toHaveBeenCalledWith("Run 'summon --help' for usage information.");
+    // message is formatted with the branded prefix (#598)
+    expect(writeSpy).toHaveBeenCalledWith("summon: error: Bad flag\n");
+    expect(writeSpy).toHaveBeenCalledWith("Run 'summon --help' for usage information.\n");
     expect(exitSpy).toHaveBeenCalledWith(1);
 
     exitSpy.mockRestore();
-    errorSpy.mockRestore();
+    writeSpy.mockRestore();
+    delete (process.env as Record<string, string | undefined>)["NO_COLOR"];
   });
 
   it("prints only usage hint when no message is provided", () => {
     const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => { throw new Error("exit"); });
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     expect(() => exitWithUsageHint()).toThrow("exit");
-    expect(errorSpy).toHaveBeenCalledTimes(1);
-    expect(errorSpy).toHaveBeenCalledWith("Run 'summon --help' for usage information.");
+    expect(writeSpy).toHaveBeenCalledTimes(1);
+    expect(writeSpy).toHaveBeenCalledWith("Run 'summon --help' for usage information.\n");
     expect(exitSpy).toHaveBeenCalledWith(1);
 
     exitSpy.mockRestore();
-    errorSpy.mockRestore();
+    writeSpy.mockRestore();
   });
 
   it("prints only usage hint when message is empty string", () => {
     const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => { throw new Error("exit"); });
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     expect(() => exitWithUsageHint("")).toThrow("exit");
     // Empty string is falsy, so only the usage hint is printed
-    expect(errorSpy).toHaveBeenCalledTimes(1);
-    expect(errorSpy).toHaveBeenCalledWith("Run 'summon --help' for usage information.");
+    expect(writeSpy).toHaveBeenCalledTimes(1);
+    expect(writeSpy).toHaveBeenCalledWith("Run 'summon --help' for usage information.\n");
 
     exitSpy.mockRestore();
-    errorSpy.mockRestore();
+    writeSpy.mockRestore();
   });
 });
 

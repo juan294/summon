@@ -106,19 +106,19 @@ describe("parseCli", () => {
 
   it("errors when both --auto-resize and --no-auto-resize are passed", () => {
     expect(() => parseCli([".", "--auto-resize", "--no-auto-resize"])).toThrow(
-      "usage:Error: --auto-resize and --no-auto-resize are mutually exclusive",
+      "usage:--auto-resize and --no-auto-resize are mutually exclusive",
     );
   });
 
   it("errors when both --clean and --no-clean are passed", () => {
     expect(() => parseCli([".", "--clean", "--no-clean"])).toThrow(
-      "usage:Error: --clean and --no-clean are mutually exclusive",
+      "usage:--clean and --no-clean are mutually exclusive",
     );
   });
 
   it("rejects env entries without KEY=VALUE", () => {
     expect(() => parseCli(["ports", "--env", "INVALID"])).toThrow(
-      'usage:Error: --env must be in KEY=VALUE format, got "INVALID".',
+      'usage:--env must be in KEY=VALUE format, got "INVALID".',
     );
   });
 
@@ -133,13 +133,16 @@ describe("parseCli", () => {
   });
 
   it("adds an ambiguous-value tip when parseArgs throws", () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     expect(() => parseCli([".", "--font-size", "-5"])).toThrow("usage:");
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("Error:"));
-    expect(errorSpy).toHaveBeenCalledWith(
-      "Tip: To pass a value starting with '-', use '--flag=-value' syntax.",
-    );
+    // fail() writes the branded summon: error: prefix
+    const writeCalls = writeSpy.mock.calls.map((c) => String(c[0]));
+    expect(writeCalls.some((s) => s.includes("summon: error:"))).toBe(true);
+    // err() writes the tip hint
+    expect(writeCalls.some((s) => s.includes("Tip: To pass a value starting with '-', use '--flag=-value' syntax."))).toBe(true);
+
+    writeSpy.mockRestore();
   });
 });
 
@@ -325,13 +328,15 @@ describe("--once warning allowlist (UX-H3 #372)", () => {
 
 describe("unknown flag error message (UX-M3 #396)", () => {
   it("emits an actionable error for unknown flags instead of raw parseArgs text", () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     expect(() => parseCli(["--bogus-flag"])).toThrow("usage:");
-    const allErrors = errorSpy.mock.calls.map(c => c[0]).join("\n");
-    expect(allErrors).toMatch(/Unknown flag.*--bogus-flag/i);
-    expect(allErrors).toContain("summon --help");
-    errorSpy.mockRestore();
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    // fail() writes branded prefix + the message containing "Unknown flag ... --bogus-flag"
+    expect(allWrites).toMatch(/Unknown flag.*--bogus-flag/i);
+    // exitWithUsageHint appends the help hint
+    expect(allWrites).toContain("summon --help");
+    writeSpy.mockRestore();
   });
 });
 
@@ -429,7 +434,7 @@ describe("unknown command error includes help suggestion (UX-M2 #430)", () => {
 describe("--new-window and --new-tab conflict (AR-H1 #525)", () => {
   it("errors with a usage hint when both --new-window and --new-tab are passed", () => {
     expect(() => parseCli([".", "--new-window", "--new-tab"])).toThrow(
-      "usage:Error: --new-window and --new-tab are mutually exclusive",
+      "usage:--new-window and --new-tab are mutually exclusive",
     );
   });
 

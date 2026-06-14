@@ -13,6 +13,7 @@ import { existsSync, readFileSync, mkdirSync, realpathSync, statSync } from "nod
 import { join, resolve } from "node:path";
 import { atomicWrite } from "./utils.js";
 import { TRUST_FILE, CONFIG_DIR } from "./paths.js";
+import { fail } from "./ui/output.js";
 
 /** Error thrown when a .summon file exists but is not trusted. */
 export class SummonError extends Error {
@@ -205,7 +206,7 @@ export function handleTrustCommand(dir: string): void {
   const resolvedDir = resolve(dir);
   const summonPath = join(resolvedDir, ".summon");
   if (!existsSync(summonPath)) {
-    console.error(`No .summon file found in: ${resolvedDir}`);
+    fail(`No .summon file found in: ${resolvedDir}`);
     process.exit(1);
   }
   trustProject(resolvedDir);

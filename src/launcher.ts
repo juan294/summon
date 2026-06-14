@@ -20,6 +20,7 @@ import { generateAppleScript, generateTreeAppleScript, generateFocusScript } fro
 import { parseTreeDSL, extractPaneDefinitions, extractPaneCwds, resolveTreeCommands as resolveTreeCmds, buildTreePlan, findPaneByName } from "./tree.js";
 import type { LayoutNode, TreePlanOptions } from "./tree.js";
 import { resolveCommand as resolveCommandPath, getErrorMessage, SUMMON_WORKSPACE_ENV, promptUser, ACCESSIBILITY_SETTINGS_PATH, isDebug, supportsColor } from "./utils.js";
+import { fail, err } from "./ui/output.js";
 import { ensureGhostty, ensureAccessibility, printAccessibilityHint, confirmDangerousCommands, isAccessibilityError } from "./launch-guards.js";
 import { assertTrusted, assertTrustedContent } from "./trust.js";
 import { parseIntInRange, parsePositiveFloat, ENV_KEY_RE, PROJECT_NAME_RE, sanitizeProjectName } from "./validation.js";
@@ -164,26 +165,26 @@ function executeScript(script: string, targetLabel?: string): void {
     try {
       execFileSync("osascript", [], { input: script, encoding: "utf-8", timeout: 30_000 });
       process.stderr.write("✓ Workspace ready.\n");
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code;
+    } catch (caught) {
+      const code = (caught as NodeJS.ErrnoException).code;
       if (code === "ETIMEDOUT") {
-        console.error("Ghostty did not respond within 30 seconds. Is Ghostty running?");
-        throw new Error("Ghostty did not respond within 30 seconds. Is Ghostty running?", { cause: err });
+        err("Ghostty did not respond within 30 seconds. Is Ghostty running?");
+        throw new Error("Ghostty did not respond within 30 seconds. Is Ghostty running?", { cause: caught });
       }
 
-      const message = getErrorMessage(err);
-      console.error(`summon: error: failed to execute workspace script: ${message}`);
+      const message = getErrorMessage(caught);
+      fail(`failed to execute workspace script: ${message}`);
 
       // A verified keystroke failure means NO new tab/window was created — the existing
       // front window is intact, so DO NOT run the rollback that would close it.
       if (message.includes("summon-newtab-failed")) {
-        console.error("Ghostty did not open a new tab after multiple attempts.");
-        throw new TabOpenError("Ghostty did not open a new tab.", { cause: err });
+        err("Ghostty did not open a new tab after multiple attempts.");
+        throw new TabOpenError("Ghostty did not open a new tab.", { cause: caught });
       }
       if (message.includes("summon-newwindow-failed")) {
         const m = "Ghostty did not open a new window after multiple attempts.";
-        console.error(m);
-        throw new Error(m, { cause: err });
+        err(m);
+        throw new Error(m, { cause: caught });
       }
 
       // Best-effort rollback: the AppleScript may have opened a window before failing.
@@ -195,17 +196,17 @@ function executeScript(script: string, targetLabel?: string): void {
       }
 
       if (isAccessibilityError(message)) {
-        console.error();
+        err("");
         printAccessibilityHint();
       } else {
-        console.error();
-        console.error("Is Ghostty running? Also check:");
-        console.error(`  - ${ACCESSIBILITY_SETTINGS_PATH}`);
-        console.error("  - System Settings > Privacy & Security > Automation");
-        console.error();
-        console.error("Tip: Run 'summon doctor' to diagnose issues.");
+        err("");
+        err("Is Ghostty running? Also check:");
+        err(`  - ${ACCESSIBILITY_SETTINGS_PATH}`);
+        err("  - System Settings > Privacy & Security > Automation");
+        err("");
+        err("Tip: Run 'summon doctor' to diagnose issues.");
       }
-      throw new Error(`Failed to execute workspace script: ${message}`, { cause: err });
+      throw new Error(`Failed to execute workspace script: ${message}`, { cause: caught });
     }
   });
 }
@@ -232,12 +233,8 @@ async function ensureCommand(cmd: string, configKey: string): Promise<string> {
   const installCmd = getInstall ? getInstall() : null;
 
   if (!installCmd) {
-    console.error(
-      `\`${cmd}\` is required but not installed, and no known install method was found.`,
-    );
-    console.error(
-      `Please install \`${cmd}\` manually or change your config with: summon set ${configKey} <command>`,
-    );
+    fail(`\`${cmd}\` is required but not installed, and no known install method was found.`);
+    err(`Please install \`${cmd}\` manually or change your config with: summon set ${configKey} <command>`);
     throw new Error(`\`${cmd}\` is required but not installed.`);
   }
 
@@ -256,15 +253,13 @@ async function ensureCommand(cmd: string, configKey: string): Promise<string> {
   try {
     execFileSync(installBin, installArgs, { stdio: "inherit" });
   } catch {
-    console.error(
-      `Failed to install \`${cmd}\`. Please install it manually and try again.`,
-    );
+    fail(`Failed to install \`${cmd}\`. Please install it manually and try again.`);
     throw new Error(`Failed to install \`${cmd}\`.`);
   }
 
   const postInstallPath = resolveCommandPath(cmd);
   if (!postInstallPath) {
-    console.error(`\`${cmd}\` still not found after install. Please check your PATH.`);
+    fail(`\`${cmd}\` still not found after install. Please check your PATH.`);
     throw new Error(`\`${cmd}\` still not found after install.`);
   }
 
@@ -851,8 +846,8 @@ async function launchTraditionalLayout(
 
 export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Promise<void> {
   if (!existsSync(targetDir)) {
-    const msg = `summon: error: Directory not found: ${targetDir}`;
-    console.error(msg);
+    const msg = `Directory not found: ${targetDir}`;
+    fail(msg);
     throw new Error(msg);
   }
 
@@ -896,7 +891,7 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
       config = resolveConfig(targetDir, cliOverrides ?? {});
     } else {
       const msg = "No editor configured. Run `summon setup` interactively or use: summon set editor <command>";
-      console.error(msg);
+      fail(msg);
       throw new Error(msg);
     }
   }

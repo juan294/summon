@@ -66,17 +66,20 @@ describe("resolve-target (PE-H1 #473)", () => {
     });
 
     it("exits on unknown project names", () => {
-      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
       vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
         throw new Error(`exit:${code}`);
       }) as never);
       mockGetProject.mockReturnValue(undefined);
 
       expect(() => resolveTargetDirectory("missing")).toThrow("exit:1");
-      expect(errorSpy).toHaveBeenCalledWith(
-        `Error: "missing" is not a known command or registered project. Try: summon --help`,
+      const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      // Now emits the unified branded prefix (#598)
+      expect(allWrites).toContain("summon: error:");
+      expect(allWrites).toContain(
+        `"missing" is not a known command or registered project. Try: summon --help`,
       );
-      errorSpy.mockRestore();
+      writeSpy.mockRestore();
     });
   });
 });

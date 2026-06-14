@@ -6,6 +6,7 @@ import {
 } from "../config.js";
 import { focusWorkspace, launch } from "../launcher.js";
 import { promptUser, exitWithUsageHint, PromptCancelled } from "../utils.js";
+import { fail } from "../ui/output.js";
 import { validateProjectNameOrExit } from "../validation.js";
 // PE-H1 (#473): Re-export from new leaf module for backward compatibility with callers.
 export { resolveTargetDirectory, expandHome } from "../cli/resolve-target.js";
@@ -50,7 +51,7 @@ export async function handleRemoveCommand({ args }: CommandContext): Promise<voi
     return;
   }
 
-  console.error(`summon: error: Project not found: ${name}`);
+  fail(`Project not found: ${name}`);
   console.error("Run 'summon list' to see registered projects.");
   process.exit(1);
 }
@@ -73,7 +74,7 @@ export async function handleOpenCommand({ overrides }: CommandContext): Promise<
 
   const rows = loadProjectRows();
   if (rows.length === 0) {
-    console.error("No projects registered. Run `summon add <name> <path>` or `summon setup` to get started.");
+    fail("No projects registered. Run `summon add <name> <path>` or `summon setup` to get started.");
     process.exit(1);
   }
 
@@ -110,7 +111,7 @@ export async function handleOpenCommand({ overrides }: CommandContext): Promise<
     }
     const index = num - 1;
     if (Number.isNaN(index) || index < 0 || index >= rows.length) {
-      console.error(`Invalid selection. Enter a number between 1 and ${rows.length}.`);
+      fail(`Invalid selection. Enter a number between 1 and ${rows.length}.`);
       continue;
     }
     selectedRow = rows[index];

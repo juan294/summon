@@ -58,12 +58,14 @@ describe("launch-guards — module extraction (AR-S1 #316)", () => {
 describe("ensureGhostty", () => {
   it("throws when Ghostty.app is not found at any known path", () => {
     vi.mocked(existsSync).mockReturnValue(false);
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     expect(() => ensureGhostty()).toThrow("Ghostty.app not found");
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("Ghostty.app not found"));
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(allWrites).toContain("Ghostty.app not found");
+    expect(allWrites).toContain("summon: error:");
 
-    errorSpy.mockRestore();
+    writeSpy.mockRestore();
   });
 
   it("does not exit when Ghostty.app is found", () => {
@@ -85,14 +87,14 @@ describe("ensureAccessibility", () => {
     mockExecFileSync.mockImplementation(() => {
       throw new Error("assistive access denied (-1719)");
     });
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     expect(() => ensureAccessibility()).toThrow("Accessibility permission is required");
-    expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining("Accessibility permission is required"),
-    );
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(allWrites).toContain("Accessibility permission is required");
+    expect(allWrites).toContain("summon: error:");
 
-    errorSpy.mockRestore();
+    writeSpy.mockRestore();
   });
 
   it("does not exit when accessibility check succeeds", () => {

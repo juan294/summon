@@ -8,6 +8,7 @@ import { bold, dim, green, yellow, cyan, magenta, brightCyan, colorSwatch } from
 import { renderLayoutPreview, renderTemplateGallery, getDisplayWidth } from "./ui/layout-preview.js";
 import { sym } from "./ui/symbols.js";
 import { commandExecutable, replaceCommandExecutable } from "./command-spec.js";
+import { fail, err } from "./ui/output.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -1120,8 +1121,8 @@ const enum WizardStep {
 // dedicated module (e.g., src/wizard.ts) is tracked as architectural debt in #399.
 export async function runSetup(): Promise<void> {
   if (!process.stdin.isTTY) {
-    console.error("Setup requires an interactive terminal.");
-    console.error("Configure manually with: summon set <key> <value>");
+    fail("Setup requires an interactive terminal.");
+    err("Configure manually with: summon set <key> <value>");
     process.exit(1);
   }
 
@@ -1484,7 +1485,7 @@ export function buildPartialGrid(
 
 export async function runLayoutBuilder(name: string): Promise<void> {
   if (!process.stdin.isTTY) {
-    console.error("Layout builder requires an interactive terminal.");
+    fail("Layout builder requires an interactive terminal.");
     process.exit(1);
   }
 
@@ -1495,8 +1496,8 @@ export async function runLayoutBuilder(name: string): Promise<void> {
 
   // --- Validate name ---
   if (!isValidLayoutName(name)) {
-    console.error(`Error: Invalid layout name "${name}".`);
-    console.error(
+    fail(`Invalid layout name "${name}".`);
+    err(
       "Names must start with a letter and contain only letters, digits, hyphens, and underscores.",
     );
     process.exit(1);

@@ -104,12 +104,13 @@ export function formatUserError(msg: string): string {
  * Print an error message followed by a usage hint, then exit with code 1.
  * Consolidates the repeated `console.error(msg); console.error("Run 'summon --help'..."); process.exit(1)` pattern.
  * When called without a message, only the usage hint is printed before exiting.
+ * The message is emitted via formatUserError so it carries the branded prefix (#598).
  */
 export function exitWithUsageHint(message?: string): never {
   if (message) {
-    console.error(message);
+    process.stderr.write(`${formatUserError(message)}\n`);
   }
-  console.error("Run 'summon --help' for usage information.");
+  process.stderr.write("Run 'summon --help' for usage information.\n");
   process.exit(1);
 }
 

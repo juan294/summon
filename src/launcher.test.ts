@@ -443,16 +443,14 @@ describe("command dependency checks", () => {
     });
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "obscure-tool"], ["sidebar", "htop"]]));
 
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     await expect(launch("/tmp/workspace")).rejects.toThrow();
 
-    const errorMessages = errorSpy.mock.calls.map((c) => c[0] as string);
-    const configMsg = errorMessages.find((m) => m.includes("summon"));
-    expect(configMsg).toBeDefined();
-    expect(configMsg).toContain("summon set editor <command>");
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(allWrites).toContain("summon set editor <command>");
 
-    errorSpy.mockRestore();
+    writeSpy.mockRestore();
   });
 
   it("shows correct CLI syntax in error message for sidebar", async () => {
@@ -464,16 +462,14 @@ describe("command dependency checks", () => {
     });
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"], ["sidebar", "unknown-sidebar"]]));
 
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     await expect(launch("/tmp/workspace")).rejects.toThrow();
 
-    const errorMessages = errorSpy.mock.calls.map((c) => c[0] as string);
-    const configMsg = errorMessages.find((m) => m.includes("summon"));
-    expect(configMsg).toBeDefined();
-    expect(configMsg).toContain("summon set sidebar <command>");
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(allWrites).toContain("summon set sidebar <command>");
 
-    errorSpy.mockRestore();
+    writeSpy.mockRestore();
   });
 
   it("shows correct CLI syntax in error message for shell", async () => {
@@ -485,16 +481,14 @@ describe("command dependency checks", () => {
     });
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"], ["shell", "unknown-shell run dev"]]));
 
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     await expect(launch("/tmp/workspace")).rejects.toThrow();
 
-    const errorMessages = errorSpy.mock.calls.map((c) => c[0] as string);
-    const configMsg = errorMessages.find((m) => m.includes("summon"));
-    expect(configMsg).toBeDefined();
-    expect(configMsg).toContain("summon set shell <command>");
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(allWrites).toContain("summon set shell <command>");
 
-    errorSpy.mockRestore();
+    writeSpy.mockRestore();
   });
 
   it("triggers wizard when editor and sidebar are empty strings in config (TTY)", async () => {
@@ -564,13 +558,12 @@ describe("ensureCommand error paths", () => {
       cb("y");
     });
 
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     await expect(launch("/tmp/workspace")).rejects.toThrow();
-    expect(errorSpy).toHaveBeenCalledWith(
-      "Failed to install `claude`. Please install it manually and try again.",
-    );
-    errorSpy.mockRestore();
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(allWrites).toContain("Failed to install `claude`. Please install it manually and try again.");
+    writeSpy.mockRestore();
   });
 
   it("exits when command still not found after successful install", async () => {
@@ -587,13 +580,12 @@ describe("ensureCommand error paths", () => {
       cb("y");
     });
 
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     await expect(launch("/tmp/workspace")).rejects.toThrow();
-    expect(errorSpy).toHaveBeenCalledWith(
-      "`claude` still not found after install. Please check your PATH.",
-    );
-    errorSpy.mockRestore();
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(allWrites).toContain("`claude` still not found after install. Please check your PATH.");
+    writeSpy.mockRestore();
   });
 });
 
@@ -639,16 +631,14 @@ describe("lazygit install handler", () => {
     });
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
 
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     await expect(launch("/tmp/workspace")).rejects.toThrow();
 
-    const errorMessages = errorSpy.mock.calls.map((c) => c[0] as string);
-    expect(errorMessages).toContainEqual(
-      expect.stringContaining("no known install method"),
-    );
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(allWrites).toContain("no known install method");
 
-    errorSpy.mockRestore();
+    writeSpy.mockRestore();
   });
 });
 
@@ -780,18 +770,16 @@ describe("osascript error handling", () => {
       return "";
     });
 
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     await expect(launch("/tmp/workspace")).rejects.toThrow();
-    expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining("connection is invalid (-609)"),
-    );
-    const allErrors = errorSpy.mock.calls.map((c) => String(c[0])).join(" ");
-    expect(allErrors).toContain("Is Ghostty running?");
-    expect(allErrors).toMatch(/Accessibility/);
-    expect(allErrors).toMatch(/Automation/);
-    expect(allErrors).toContain("summon doctor");
-    errorSpy.mockRestore();
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    expect(allWrites).toContain("connection is invalid (-609)");
+    expect(allWrites).toContain("Is Ghostty running?");
+    expect(allWrites).toMatch(/Accessibility/);
+    expect(allWrites).toMatch(/Automation/);
+    expect(allWrites).toContain("summon doctor");
+    writeSpy.mockRestore();
   });
 
   it("shows accessibility-specific error when osascript reports assistive access", async () => {
@@ -805,14 +793,14 @@ describe("osascript error handling", () => {
       return "";
     });
 
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     await expect(launch("/tmp/workspace")).rejects.toThrow();
-    const allErrors = errorSpy.mock.calls.map((c) => String(c[0])).join(" ");
-    expect(allErrors).toContain("Accessibility permission");
-    expect(allErrors).not.toContain("Is Ghostty running?");
-    expect(allErrors).toContain("summon doctor");
-    errorSpy.mockRestore();
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    expect(allWrites).toContain("Accessibility permission");
+    expect(allWrites).not.toContain("Is Ghostty running?");
+    expect(allWrites).toContain("summon doctor");
+    writeSpy.mockRestore();
   });
 
   it("shows accessibility-specific error when osascript reports error code -1719", async () => {
@@ -826,14 +814,14 @@ describe("osascript error handling", () => {
       return "";
     });
 
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     await expect(launch("/tmp/workspace")).rejects.toThrow();
-    const allErrors = errorSpy.mock.calls.map((c) => String(c[0])).join(" ");
-    expect(allErrors).toContain("Accessibility permission");
-    expect(allErrors).not.toContain("Is Ghostty running?");
-    expect(allErrors).toContain("summon doctor");
-    errorSpy.mockRestore();
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    expect(allWrites).toContain("Accessibility permission");
+    expect(allWrites).not.toContain("Is Ghostty running?");
+    expect(allWrites).toContain("summon doctor");
+    writeSpy.mockRestore();
   });
 
   it("handles non-Error thrown values gracefully", async () => {
@@ -847,13 +835,12 @@ describe("osascript error handling", () => {
       return "";
     });
 
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     await expect(launch("/tmp/workspace")).rejects.toThrow();
-    expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining("string error"),
-    );
-    errorSpy.mockRestore();
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    expect(allWrites).toContain("string error");
+    writeSpy.mockRestore();
   });
 });
 
@@ -874,14 +861,14 @@ describe("pre-flight accessibility check", () => {
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
     mockAccessibilityDenied();
 
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     await expect(launch("/tmp/workspace")).rejects.toThrow("Accessibility permission");
-    const allErrors = errorSpy.mock.calls.map((c) => String(c[0])).join(" ");
-    expect(allErrors).toContain("Accessibility permission is required");
-    expect(allErrors).toContain("System Events");
-    expect(allErrors).toContain("summon doctor");
-    errorSpy.mockRestore();
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    expect(allWrites).toContain("Accessibility permission is required");
+    expect(allWrites).toContain("System Events");
+    expect(allWrites).toContain("summon doctor");
+    writeSpy.mockRestore();
   });
 
   it("skips accessibility check for --dry-run", async () => {
@@ -915,12 +902,12 @@ describe("pre-flight accessibility check", () => {
     vi.mocked(listConfig).mockReturnValue(new Map([["layout", "mytree"]]));
     mockAccessibilityDenied();
 
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     await expect(launch("/tmp/workspace", { layout: "mytree" })).rejects.toThrow("Accessibility permission");
-    const allErrors = errorSpy.mock.calls.map((c) => String(c[0])).join(" ");
-    expect(allErrors).toContain("Accessibility permission is required");
-    errorSpy.mockRestore();
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    expect(allWrites).toContain("Accessibility permission is required");
+    writeSpy.mockRestore();
   });
 });
 
@@ -1438,13 +1425,14 @@ describe("shell metacharacter confirmation (#90)", () => {
     });
 
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     await expect(launch("/tmp/workspace")).rejects.toThrow();
-    expect(errorSpy).toHaveBeenCalledWith("Aborted.");
+    const allWrites = stderrSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(allWrites).toContain("Aborted.");
 
     warnSpy.mockRestore();
-    errorSpy.mockRestore();
+    stderrSpy.mockRestore();
   });
 
   it("aborts when user presses Enter (default is no — UX-H1 #528)", async () => {
@@ -1462,14 +1450,14 @@ describe("shell metacharacter confirmation (#90)", () => {
       throw new Error("process.exit");
     });
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
     expect(mockExit).toHaveBeenCalledWith(1);
 
     mockExit.mockRestore();
     warnSpy.mockRestore();
-    errorSpy.mockRestore();
+    writeSpy.mockRestore();
   });
 
   it("proceeds when user confirms with 'y'", async () => {
@@ -1835,7 +1823,7 @@ describe("on-start hook (#107)", () => {
       });
       const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
       const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
       // Must NOT throw — launch should continue even when on-start fails
       await expect(launch("/tmp/workspace", { "on-start": "false" })).resolves.toBeUndefined();
@@ -1844,7 +1832,7 @@ describe("on-start hook (#107)", () => {
 
       logSpy.mockRestore();
       warnSpy.mockRestore();
-      errorSpy.mockRestore();
+      writeSpy.mockRestore();
     });
 
     it("skips on-start in dry-run mode", async () => {
@@ -1940,13 +1928,14 @@ describe("on-start hook (#107)", () => {
       });
 
       const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
       await expect(launch("/tmp/workspace", { "on-start": "rm -rf /; echo done" })).rejects.toThrow();
-      expect(errorSpy).toHaveBeenCalledWith("Aborted.");
+      const allWrites = stderrSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(allWrites).toContain("Aborted.");
 
       warnSpy.mockRestore();
-      errorSpy.mockRestore();
+      stderrSpy.mockRestore();
     });
 
     it("exits on non-TTY when on-start from machine config has metacharacters (#169)", async () => {
@@ -3523,14 +3512,14 @@ describe("BE-M12: osascript 30-second timeout (#302)", () => {
       return "";
     });
 
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     await expect(launch("/tmp/workspace")).rejects.toThrow("Ghostty did not respond within 30 seconds");
-    const allErrors = errorSpy.mock.calls.map((c) => String(c[0])).join(" ");
-    expect(allErrors).toContain("Ghostty did not respond within 30 seconds");
-    expect(allErrors).toContain("Is Ghostty running?");
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    expect(allWrites).toContain("Ghostty did not respond within 30 seconds");
+    expect(allWrites).toContain("Is Ghostty running?");
 
-    errorSpy.mockRestore();
+    writeSpy.mockRestore();
   });
 
   it("passes timeout: 30_000 to execFileSync for main script execution", async () => {

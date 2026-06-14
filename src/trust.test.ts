@@ -675,14 +675,16 @@ describe("handleTrustCommand", () => {
   it("exits with error when no .summon file exists", () => {
     mockExistsSync.mockReturnValue(false);
     const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => { throw new Error("exit"); });
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     expect(() => handleTrustCommand("/some/dir")).toThrow("exit");
     expect(exitSpy).toHaveBeenCalledWith(1);
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("No .summon file found"));
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(allWrites).toContain("No .summon file found");
+    expect(allWrites).toContain("summon: error:");
 
     exitSpy.mockRestore();
-    errorSpy.mockRestore();
+    writeSpy.mockRestore();
   });
 
   it("prints confirmation when .summon file is trusted", () => {

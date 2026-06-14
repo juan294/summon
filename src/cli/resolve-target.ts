@@ -4,6 +4,7 @@
 import { resolve } from "node:path";
 import { homedir } from "node:os";
 import { getProject } from "../config.js";
+import { fail, err } from "../ui/output.js";
 
 export function expandHome(path: string): string {
   return resolve(path.replace(/^~/, homedir()));
@@ -22,9 +23,9 @@ export function resolveTargetDirectory(target: string): string {
 
   const projectPath = getProject(target);
   if (!projectPath) {
-    console.error(`Error: "${target}" is not a known command or registered project. Try: summon --help`);
-    console.error(`To register as a project: summon add ${target} /path/to/project`);
-    console.error("Or see available:         summon list");
+    fail(`"${target}" is not a known command or registered project. Try: summon --help`);
+    err(`To register as a project: summon add ${target} /path/to/project`);
+    err("Or see available:         summon list");
     process.exit(1);
   }
 

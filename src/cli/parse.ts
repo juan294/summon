@@ -3,6 +3,7 @@ import type { CLIOverrides } from "../launcher.js";
 import { PANES_MIN, EDITOR_SIZE_MIN, EDITOR_SIZE_MAX } from "../layout.js";
 import { validateIntFlag, validateFloatFlag } from "../validation.js";
 import { getErrorMessage, exitWithUsageHint } from "../utils.js";
+import { fail, err } from "../ui/output.js";
 import { validateLayoutOrExit } from "../commands/layout-support.js";
 
 export type ParsedValues = {
@@ -85,16 +86,16 @@ function safeParse(args: string[]): { values: ParsedValues; positionals: string[
       values: parsed.values as ParsedValues,
       positionals: parsed.positionals,
     };
-  } catch (err) {
-    const msg = getErrorMessage(err);
+  } catch (caught) {
+    const msg = getErrorMessage(caught);
     // UX-M3 (#396): transform raw parseArgs "Unknown option" into actionable message
     const unknownMatch = msg.match(/Unknown option\s+'?(--[A-Za-z0-9-]+)/);
     if (unknownMatch?.[1]) {
-      console.error(`Error: Unknown flag '${unknownMatch[1]}'. Run 'summon --help' to see available flags.`);
+      fail(`Unknown flag '${unknownMatch[1]}'. Run 'summon --help' to see available flags.`);
     } else {
-      console.error(`Error: ${msg}`);
+      fail(msg);
       if (msg.includes("ambiguous")) {
-        console.error("Tip: To pass a value starting with '-', use '--flag=-value' syntax.");
+        err("Tip: To pass a value starting with '-', use '--flag=-value' syntax.");
       }
     }
     exitWithUsageHint();
@@ -115,7 +116,7 @@ export function parseCli(argv: string[]): ParsedCli {
   if (values.env) {
     for (const entry of values.env) {
       if (!entry.includes("=")) {
-        exitWithUsageHint(`Error: --env must be in KEY=VALUE format, got "${entry}".`);
+        exitWithUsageHint(`--env must be in KEY=VALUE format, got "${entry}".`);
       }
     }
   }
@@ -129,13 +130,13 @@ export function parseCli(argv: string[]): ParsedCli {
   }
 
   if (values["auto-resize"] && values["no-auto-resize"]) {
-    exitWithUsageHint("Error: --auto-resize and --no-auto-resize are mutually exclusive");
+    exitWithUsageHint("--auto-resize and --no-auto-resize are mutually exclusive");
   }
   if (values["clean"] && values["no-clean"]) {
-    exitWithUsageHint("Error: --clean and --no-clean are mutually exclusive");
+    exitWithUsageHint("--clean and --no-clean are mutually exclusive");
   }
   if (values["new-window"] && values["new-tab"]) {
-    exitWithUsageHint("Error: --new-window and --new-tab are mutually exclusive");
+    exitWithUsageHint("--new-window and --new-tab are mutually exclusive");
   }
 
   const [subcommand, ...args] = positionals;

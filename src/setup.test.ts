@@ -1480,7 +1480,7 @@ describe("runSetup", () => {
   });
 
   it("prints error and exits when stdin is not a TTY", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const exitSpy = vi
       .spyOn(process, "exit")
       .mockImplementation(() => undefined as never);
@@ -1493,20 +1493,17 @@ describe("runSetup", () => {
 
     await runSetup();
 
-    const allErrors = errorSpy.mock.calls.map((c) => String(c[0]));
-    expect(
-      allErrors.some((s) => s.includes("interactive terminal")),
-    ).toBe(true);
-    expect(
-      allErrors.some((s) => s.includes("summon set")),
-    ).toBe(true);
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(allWrites).toContain("interactive terminal");
+    expect(allWrites).toContain("summon set");
+    expect(allWrites).toContain("summon: error:");
     expect(exitSpy).toHaveBeenCalledWith(1);
 
     Object.defineProperty(process.stdin, "isTTY", {
       value: origIsTTY,
       writable: true,
     });
-    errorSpy.mockRestore();
+    writeSpy.mockRestore();
     exitSpy.mockRestore();
   });
 
@@ -2202,33 +2199,33 @@ describe("runLayoutBuilder", () => {
 
   it("rejects invalid layout name and exits", async () => {
     mockIsValidLayoutName.mockReturnValue(false);
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => undefined as never);
 
     await runLayoutBuilder("123bad");
 
-    expect(errorSpy).toHaveBeenCalled();
-    const allErrors = getLogOutput(errorSpy);
-    expect(allErrors.some((s: string) => s.includes("Invalid layout name"))).toBe(true);
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(allWrites).toContain("Invalid layout name");
+    expect(allWrites).toContain("summon: error:");
     expect(exitSpy).toHaveBeenCalledWith(1);
 
-    errorSpy.mockRestore();
+    writeSpy.mockRestore();
     exitSpy.mockRestore();
   });
 
   it("rejects non-TTY stdin and exits", async () => {
     Object.defineProperty(process.stdin, "isTTY", { value: false, writable: true });
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => undefined as never);
 
     await runLayoutBuilder("test");
 
-    expect(errorSpy).toHaveBeenCalled();
-    const allErrors = getLogOutput(errorSpy);
-    expect(allErrors.some((s: string) => s.includes("interactive terminal"))).toBe(true);
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(allWrites).toContain("interactive terminal");
+    expect(allWrites).toContain("summon: error:");
     expect(exitSpy).toHaveBeenCalledWith(1);
 
-    errorSpy.mockRestore();
+    writeSpy.mockRestore();
     exitSpy.mockRestore();
   });
 

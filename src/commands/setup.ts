@@ -14,7 +14,7 @@ export async function handleCompletionsCommand({ args }: CommandContext): Promis
   }
 
   if (shell !== "zsh" && shell !== "bash" && shell !== "fish") {
-    exitWithUsageHint(`Error: Unsupported shell: ${shell}\nSupported shells: zsh, bash, fish`);
+    exitWithUsageHint(`Unsupported shell: ${shell}\nSupported shells: zsh, bash, fish`);
   }
 
   const { generateZshCompletion, generateBashCompletion, generateFishCompletion } = await import("../completions.js");

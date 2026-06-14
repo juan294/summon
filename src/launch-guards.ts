@@ -18,30 +18,31 @@ import {
   ACCESSIBILITY_REQUIRED_MSG,
 } from "./utils.js";
 import { commandHasShellMeta } from "./command-spec.js";
+import { fail, err } from "./ui/output.js";
 
 // Re-export for callers that previously imported these from utils via launcher
 export { isAccessibilityError };
 
 export function printAccessibilityHint(): void {
-  console.error(ACCESSIBILITY_REQUIRED_MSG);
-  console.error(`Grant access in: ${ACCESSIBILITY_SETTINGS_PATH}`);
-  console.error(ACCESSIBILITY_ENABLE_HINT);
-  console.error();
-  console.error("Tip: Run 'summon doctor' to check all permissions.");
+  err(ACCESSIBILITY_REQUIRED_MSG);
+  err(`Grant access in: ${ACCESSIBILITY_SETTINGS_PATH}`);
+  err(ACCESSIBILITY_ENABLE_HINT);
+  err("");
+  err("Tip: Run 'summon doctor' to check all permissions.");
 }
 
 export function ensureGhostty(): void {
   if (!isGhosttyInstalled()) {
     const msg = "Ghostty.app not found. Please install Ghostty 1.3.1+ from https://ghostty.org";
-    console.error(msg);
+    fail(msg);
     throw new Error(msg);
   }
 }
 
 export function ensureAccessibility(): void {
   if (!checkAccessibility()) {
-    console.error("Accessibility permission is required to launch workspaces.");
-    console.error();
+    fail("Accessibility permission is required to launch workspaces.");
+    err("");
     printAccessibilityHint();
     throw new Error("Accessibility permission is required to launch workspaces.");
   }
@@ -104,8 +105,8 @@ export async function confirmDangerousCommands(
   if (!process.stdin.isTTY) {
     // Non-TTY automation context: refuse dangerous commands that require interactive confirmation.
     // Exit 2 signals "dangerous commands present, cannot confirm non-interactively" (BE-H3 #364).
-    console.error("summon: error: dangerous shell commands require interactive confirmation but stdin is not a TTY.");
-    console.error("summon: error: run summon interactively, or use safe commands without shell metacharacters.");
+    fail("dangerous shell commands require interactive confirmation but stdin is not a TTY.");
+    fail("run summon interactively, or use safe commands without shell metacharacters.");
     process.exit(2);
   }
 
@@ -119,7 +120,7 @@ export async function confirmDangerousCommands(
       // explicit yes → proceed
     } else {
       // Empty Enter, "n", "no", or anything else → abort (N is the default)
-      console.error("Aborted.");
+      err("Aborted.");
       process.exit(1);
     }
   }
