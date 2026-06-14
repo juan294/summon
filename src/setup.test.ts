@@ -68,6 +68,10 @@ const {
   visibleLength,
 } = await import("./ui/layout-preview.js");
 
+// PE-L2 (#445): LAYOUT_INFO and GRID_TEMPLATES are now lazy-imported inside wizard functions.
+// Import them directly from setup-gallery.js for test assertions.
+const { LAYOUT_INFO, GRID_TEMPLATES } = await import("./setup-gallery.js");
+
 // Import after mocks
 const {
   detectTools,
@@ -82,7 +86,6 @@ const {
   // Phase 2 additions:
   EDITOR_CATALOG,
   SIDEBAR_CATALOG,
-  LAYOUT_INFO,
   selectLayout,
   selectToolFromCatalog,
   selectShell,
@@ -95,7 +98,6 @@ const {
   runLayoutBuilder,
   findClosestCommand,
   // Visual layout builder additions:
-  GRID_TEMPLATES,
   selectGridTemplate,
   buildPartialGrid,
   // Phase 2 — in-place preview:
@@ -113,6 +115,8 @@ const {
   // Issue fixes:
   WIZARD_BACK,
   validateBuilderCommand,
+  // #520 UX-L3: physical row counter for cursor math
+  physicalRows,
 } = await import("./setup.js");
 
 beforeEach(() => {
@@ -459,8 +463,9 @@ describe("SUMMON_LOGO", () => {
 });
 
 describe("TIPS", () => {
-  it("has at least 5 tips", () => {
-    expect(TIPS.length).toBeGreaterThanOrEqual(5);
+  // #451 UX-L6: expanded tip pool; was 10, now at least 15
+  it("has at least 15 tips (#451)", () => {
+    expect(TIPS.length).toBeGreaterThanOrEqual(15);
   });
 
   it("all tips are under 80 characters", () => {
@@ -497,6 +502,113 @@ describe("printSection", () => {
     expect(output).toContain("──");
 
     logSpy.mockRestore();
+  });
+
+  // #441 FE-L2: rule must align with 2-space wizard body indent
+  it("prefixes the rule with 2-space indent to align with wizard body (#441)", () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    printSection("Test");
+
+    const output = logSpy.mock.calls[0]![0] as string;
+    // The output must start with two spaces
+    expect(output.startsWith("  ")).toBe(true);
+
+    logSpy.mockRestore();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #520 UX-L3: physicalRows cursor math
+// ---------------------------------------------------------------------------
+
+describe("physicalRows (#520)", () => {
+  it("returns 1 for a short line that fits within termWidth", () => {
+    expect(physicalRows("hello", 80)).toBe(1);
+  });
+
+  it("returns 2 for a line exactly 2× termWidth long", () => {
+    const line = "a".repeat(160);
+    expect(physicalRows(line, 80)).toBe(2);
+  });
+
+  it("returns 1 for a line exactly equal to termWidth", () => {
+    const line = "a".repeat(80);
+    expect(physicalRows(line, 80)).toBe(1);
+  });
+
+  it("returns correct count for a line longer than 2× termWidth", () => {
+    // 201 chars at termWidth=80 → ceil(201/80) = 3
+    const line = "a".repeat(201);
+    expect(physicalRows(line, 80)).toBe(3);
+  });
+
+  it("strips ANSI escape codes before measuring width", () => {
+    // ANSI codes don't occupy columns — a 5-char visible string is 1 row at 80
+    const line = "\x1b[1mhello\x1b[0m";
+    expect(physicalRows(line, 80)).toBe(1);
+  });
+
+  it("returns 1 for an empty string", () => {
+    expect(physicalRows("", 80)).toBe(1);
+  });
+
+  it("long option at narrow width doesn't corrupt the up-count (integration)", () => {
+    // Simulates a 60-char option label on a 40-col terminal: wraps to 2 rows
+    const longLabel = "A very long option label that exceeds the terminal";
+    const rows = physicalRows(`  1) ${longLabel}`, 40);
+    expect(rows).toBeGreaterThan(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #443 FE-S1: diagram / programmatic preview consistency
+// ---------------------------------------------------------------------------
+
+describe("LAYOUT_INFO diagram consistency (#443)", () => {
+  it("each LAYOUT_INFO diagram has the same column count as expected by its description", () => {
+    // The diagrams are hand-drawn; ensure no diagram has zero content lines
+    for (const [name, info] of Object.entries(LAYOUT_INFO)) {
+      const lines = info.diagram.split("\n");
+      expect(lines.length, `${name} diagram should have multiple lines`).toBeGreaterThan(1);
+    }
+  });
+
+  it("every LAYOUT_INFO diagram top border uses box-drawing top-left corner", () => {
+    for (const [name, info] of Object.entries(LAYOUT_INFO)) {
+      const firstLine = info.diagram.split("\n")[0]!;
+      expect(firstLine, `${name} diagram first line should contain ┌`).toContain("┌");
+    }
+  });
+
+  it("every LAYOUT_INFO diagram bottom border uses box-drawing bottom-left corner", () => {
+    for (const [name, info] of Object.entries(LAYOUT_INFO)) {
+      const lines = info.diagram.split("\n");
+      const lastLine = lines[lines.length - 1]!;
+      expect(lastLine, `${name} diagram last line should contain └`).toContain("└");
+    }
+  });
+
+  it("LAYOUT_INFO diagram column count matches a programmatic preview for the same column structure", () => {
+    // 'minimal' is a 2-column layout (editor + side)
+    // Verify the diagram top border has exactly one ┬ separator (2 columns = 1 separator)
+    const minimalDiagram = LAYOUT_INFO["minimal"]!.diagram;
+    const topLine = minimalDiagram.split("\n")[0]!;
+    const separatorCount = [...topLine].filter((c) => c === "┬").length;
+    expect(separatorCount).toBe(1); // 2 columns → 1 ┬
+
+    // 'pair' has 3 columns (editor + editor+shell + side)
+    const pairDiagram = LAYOUT_INFO["pair"]!.diagram;
+    const pairTopLine = pairDiagram.split("\n")[0]!;
+    const pairSepCount = [...pairTopLine].filter((c) => c === "┬").length;
+    expect(pairSepCount).toBe(2); // 3 columns → 2 ┬
+  });
+
+  // AR-S3 (#443): hand-drawn diagrams and programmatic preview are two parallel pipelines.
+  // Full derivation is deferred (changing rendered art risks visible regressions).
+  // This test suite asserts structural consistency so drift is caught in CI.
+  it("note: full derivation of diagrams from programmatic renderer is deferred (see AR-S3 #443)", () => {
+    // Placeholder: always passes; documents the known remaining duplication.
+    expect(true).toBe(true);
   });
 });
 

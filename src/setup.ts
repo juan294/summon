@@ -1,7 +1,7 @@
 import { setConfig, isValidLayoutName, isCustomLayout, saveCustomLayout } from "./config.js";
-import { LAYOUT_INFO, GRID_TEMPLATES } from "./setup-gallery.js";
+// PE-L2 (#445): setup-gallery is lazy-imported inside wizard functions that need it.
+// Type-only re-export is cost-free (erased at compile time).
 export type { GridTemplate } from "./setup-gallery.js";
-export { LAYOUT_INFO, GRID_TEMPLATES };
 import { SAFE_COMMAND_RE, resolveCommand as resolveCommandPath, promptUser, checkAccessibility, openAccessibilitySettings, isGhosttyInstalled, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT, debugLog } from "./utils.js";
 import { isStarshipInstalled, listStarshipPresets } from "./starship.js";
 import { bold, dim, green, yellow, cyan, magenta, brightCyan, colorSwatch } from "./ui/ansi.js";
@@ -439,6 +439,14 @@ export const TIPS: readonly string[] = [
   "Try --layout btop for an editor + system monitor workspace",
   "Use summon config to see all your current settings",
   "The --editor-size flag controls what % of width goes to editors",
+  "Run summon doctor to check your setup and troubleshoot issues",
+  "Use summon layout list to browse your saved custom layouts",
+  "The --on-start flag runs a command in the first pane on launch",
+  "Run summon session save <name> to snapshot your workspace for later",
+  "Use summon snapshot to capture current git state and layout",
+  "Try summon briefing for a morning digest of overnight project changes",
+  "Use summon ports to discover which ports your projects are listening on",
+  "The --font-size flag overrides the default Ghostty font size",
 ];
 
 export function getRandomTip(): string {
@@ -460,7 +468,7 @@ export function printSection(title: string, termWidth?: number): void {
     TOTAL_WIDTH - PREFIX_DASHES - title.length - 2,
   ); // 2 for spaces around title
   const suffix = "─".repeat(suffixLen);
-  console.log(`${dim(prefix)} ${title} ${dim(suffix)}`);
+  console.log(`  ${dim(prefix)} ${title} ${dim(suffix)}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -501,12 +509,29 @@ export const WIZARD_BACK = Symbol("WIZARD_BACK");
  * Empty input selects defaultIdx.
  * Returns WIZARD_BACK if the user enters 'b' or 'back'.
  */
+/**
+ * Count the number of physical terminal rows a printed line occupies.
+ * A line wider than the terminal wraps; we count the wrapped rows.
+ * Strips ANSI escape codes before measuring display width.
+ * @internal — exported for testing only
+ */
+export function physicalRows(line: string, termWidth: number): number {
+  // eslint-disable-next-line no-control-regex
+  const visible = line.replace(/\x1b\[[0-9;]*m/g, "");
+  const w = getDisplayWidth(visible);
+  return Math.max(1, Math.ceil(w / Math.max(1, termWidth)));
+}
+
 export async function numberedSelect(
   options: SelectOption[],
   promptText: string,
   defaultIdx?: number,
   showBackHint = true,
 ): Promise<number | typeof WIZARD_BACK> {
+  // #520 UX-L3: snapshot terminal width once so cursor math is stable even if
+  // the terminal is resized mid-prompt.
+  const termWidth = process.stdout.columns || 80;
+
   const printOptions = (): void => {
     for (let i = 0; i < options.length; i++) {
       const opt = options[i]!;
@@ -514,6 +539,22 @@ export async function numberedSelect(
       const detail = opt.detail ? `    ${dim(opt.detail)}` : "";
       console.log(`${marker}${i + 1}) ${opt.label}${detail}`);
     }
+  };
+
+  /**
+   * Count the total physical rows occupied by the option list (+ optional back hint).
+   * Uses actual terminal width so wrapped long labels are counted correctly.
+   */
+  const optionPhysicalRows = (): number => {
+    let rows = 0;
+    for (let i = 0; i < options.length; i++) {
+      const opt = options[i]!;
+      const marker = opt.marker ?? "  ";
+      const detail = opt.detail ? `    ${dim(opt.detail)}` : "";
+      const line = `${marker}${i + 1}) ${opt.label}${detail}`;
+      rows += physicalRows(line, termWidth);
+    }
+    return rows;
   };
 
   // Display options on initial render
@@ -530,8 +571,10 @@ export async function numberedSelect(
     if (isRetry) {
       // #412 FE-M6: On retry we need to move up past: options, back hint (1 line if shown),
       // the previous prompt+answer line (1 line), and the error message line (1 line).
+      // #520 UX-L3: use physical row count so wrapping long options don't corrupt cursor math.
       const hintLines = showBackHint ? 1 : 0;
-      process.stdout.write(ansiLineStart() + ansiUp(options.length + 2 + hintLines) + ansiClearDown());
+      const upLines = optionPhysicalRows() + 2 + hintLines;
+      process.stdout.write(ansiLineStart() + ansiUp(upLines) + ansiClearDown());
       printOptions();
       if (showBackHint) {
         console.log(BACK_HINT);
@@ -654,7 +697,7 @@ export const SIDEBAR_CATALOG: readonly ToolEntry[] = [
   { cmd: "htop", name: "htop", desc: "Process viewer" },
 ];
 
-// LAYOUT_INFO and GRID_TEMPLATES are imported from ./setup-gallery.js (AR-S2 #317)
+// LAYOUT_INFO and GRID_TEMPLATES are lazy-imported from ./setup-gallery.js (AR-S2 #317, PE-L2 #445)
 
 const INSTALL_HINTS: Record<string, string> = {
   claude: "npm install -g @anthropic-ai/claude-code",
@@ -708,6 +751,8 @@ function printWelcome(): void {
 }
 
 export async function selectLayout(): Promise<string | typeof WIZARD_BACK> {
+  // PE-L2 (#445): lazy-import gallery so it's not in setup's eager path
+  const { LAYOUT_INFO } = await import("./setup-gallery.js");
   printSection("Layout");
   const presetNames = Object.keys(LAYOUT_INFO);
   const options: SelectOption[] = presetNames.map((name) => {
@@ -928,7 +973,9 @@ export async function selectStarshipPreset(): Promise<string | null | typeof WIZ
   return chosen.value;
 }
 
-function printSummary(result: SetupResult, starshipPreset?: string | null): void {
+async function printSummary(result: SetupResult, starshipPreset?: string | null): Promise<void> {
+  // PE-L2 (#445): lazy-import gallery
+  const { LAYOUT_INFO } = await import("./setup-gallery.js");
   printSection("Summary");
   const layoutDesc = LAYOUT_INFO[result.layout]?.desc ?? result.layout;
   console.log(`  Layout:    ${bold(result.layout)} (${layoutDesc})`);
@@ -1201,7 +1248,7 @@ export async function runSetup(): Promise<void> {
       }
       console.log();
     } else {
-      printSummary(wizardResult, starshipPreset);
+      await printSummary(wizardResult, starshipPreset);
     }
 
     const accepted = await confirm("  Save these settings?");
@@ -1371,6 +1418,8 @@ export function gridToTree(
  * Returns selected template's columns array, or null for "build from scratch".
  */
 export async function selectGridTemplate(): Promise<number[]> {
+  // PE-L2 (#445): lazy-import gallery
+  const { GRID_TEMPLATES } = await import("./setup-gallery.js");
   const termWidth = process.stdout.columns || 80;
   const gallery = renderTemplateGallery(GRID_TEMPLATES, termWidth);
   console.log(gallery);
