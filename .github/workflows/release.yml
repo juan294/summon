@@ -56,9 +56,16 @@ jobs:
 
       - name: Generate SBOM (#566, #623)
         # Transient via npx — not a project dependency. Produces CycloneDX JSON SBOM.
-        run: npx --yes @cyclonedx/cyclonedx-npm --output-file sbom.json
+        # --ignore-npm-errors: this repo is pnpm-managed, so the tool's internal
+        # `npm ls` reports unmet npm-style devDeps; without this flag it exits 254
+        # and aborts the job before publish. SBOM is supplementary, never a gate.
+        continue-on-error: true
+        run: npx --yes @cyclonedx/cyclonedx-npm --ignore-npm-errors --output-file sbom.json
 
       - name: Attach SBOM to GitHub Release
+        # Best-effort: only attach if the SBOM was actually produced; never block publish.
+        if: hashFiles('sbom.json') != ''
+        continue-on-error: true
         run: gh release upload "$GITHUB_REF_NAME" sbom.json --clobber
         env:
           GH_TOKEN: ${{ github.token }}
