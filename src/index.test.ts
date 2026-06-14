@@ -1983,6 +1983,56 @@ describe("CLI integration", () => {
       const result = run(".", "--vim", "--dry-run");
       expect(result.stderr).toContain("--vim");
       expect(result.stderr).toMatch(/no effect|Warning/i);
+  // PE-H1 (#569): true lazy-entry — --version/-v must not load config.js or trust.js
+  describe("PE-H1 lazy-entry chunk-load probe (#569)", () => {
+    function runWithModuleTrace(...args: string[]) {
+      return spawnSync("node", [CLI_PATH, ...args], {
+        encoding: "utf-8",
+        cwd: TEMP_HOME,
+        env: { ...process.env, HOME: TEMP_HOME, NODE_DEBUG: "esm" },
+        timeout: 30_000,
+      });
+    }
+
+    it("--version does not load config or trust chunks (NODE_DEBUG=esm probe)", () => {
+      const result = runWithModuleTrace("--version");
+      expect(result.status).toBe(0);
+      // NODE_DEBUG=esm prints each loaded module URL to stderr.
+      // "Translating StandardModule <url>" appears once per unique module load.
+      // Verify config and trust dist chunks are absent from the --version fast path.
+      const translating = result.stderr
+        .split("\n")
+        .filter((l: string) => l.includes("Translating StandardModule"));
+      // Must not mention config or trust chunks
+      const hasConfig = translating.some((l: string) => /\/dist\/config-/.test(l));
+      const hasTrust = translating.some((l: string) => /\/dist\/trust-/.test(l));
+      expect(hasConfig).toBe(false);
+      expect(hasTrust).toBe(false);
+      // Only index.js itself should be "Translating"
+      expect(translating.length).toBe(1);
+    });
+
+    it("-v (PE-P1 fast path) does not load config or trust chunks", () => {
+      const result = runWithModuleTrace("-v");
+      expect(result.status).toBe(0);
+      const translating = result.stderr
+        .split("\n")
+        .filter((l: string) => l.includes("Translating StandardModule"));
+      const hasConfig = translating.some((l: string) => /\/dist\/config-/.test(l));
+      const hasTrust = translating.some((l: string) => /\/dist\/trust-/.test(l));
+      expect(hasConfig).toBe(false);
+      expect(hasTrust).toBe(false);
+      expect(translating.length).toBe(1);
+    });
+
+    it("a subcommand (list) loads more chunks than --version", () => {
+      const versionResult = runWithModuleTrace("--version");
+      const listResult = runWithModuleTrace("list");
+      const countTranslating = (stderr: string) =>
+        stderr.split("\n").filter((l: string) => l.includes("Translating StandardModule")).length;
+      expect(countTranslating(listResult.stderr)).toBeGreaterThan(
+        countTranslating(versionResult.stderr),
+      );
     });
   });
 });
