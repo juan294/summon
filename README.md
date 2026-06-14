@@ -160,11 +160,13 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 | `--env KEY=VALUE` | Set environment variable (repeatable) |
 | `--on-start <cmd>` | Run a command before workspace creation |
 | `--new-window` | Open workspace in a new Ghostty window |
-| `--clean` | Auto-close stale panes from prior Ghostty session (default: on) |
+| `--new-tab` | Open workspace in a new Ghostty tab |
+| `--clean` | Auto-close stale panes from prior Ghostty session (default: off) |
 | `--no-clean` | Skip auto-close of restored panes |
 | `--fullscreen` | Start workspace in fullscreen mode |
 | `--maximize` | Start workspace maximized |
 | `--float` | Float workspace window on top |
+| `--no-project-config` | Skip the `.summon` file (do not require trust) |
 | `-n, --dry-run` | Print generated AppleScript without executing |
 | `-h, --help` | Show help message |
 | `-v, --version` | Show version number |
@@ -180,7 +182,7 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 | `shell` | `true` | Shell pane: `true` (shell), `false` (none), or a command |
 | `layout` | | Default layout preset |
 | `auto-resize` | `true` | Auto-resize sidebar to match editor-size |
-| `clean` | `true` | Auto-close stale panes from a prior restored Ghostty session |
+| `clean` | `false` | Auto-close stale panes from a prior restored Ghostty session |
 | `starship-preset` | | Starship prompt theme preset (per-workspace) |
 | `font-size` | | Font size for workspace panes (points) |
 | `on-start` | | Command to run before workspace creation |
@@ -200,7 +202,7 @@ summon set starship-preset tokyo-night  # per-workspace Starship prompt theme
 summon set font-size 14                # font size for workspace panes
 summon set on-start "npm install"      # run before workspace creation
 summon set new-window true             # always open in a new window
-summon set clean false                 # disable auto-clean of restored panes
+summon set clean true                  # enable auto-clean of restored panes (default off)
 summon set env.API_KEY sk-123          # per-workspace environment variable
 ```
 
@@ -257,6 +259,7 @@ This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.
 | `STARSHIP_CONFIG` | Set automatically when `starship-preset` is configured. Points each workspace to a cached preset TOML file. Do not set manually. |
 | `SUMMON_WORKSPACE` | Set to `1` inside summon workspaces. Used to detect and warn about nested launches. |
 | `SUMMON_DEBUG` | Set to `1` to enable debug output. Each message is written to stderr with an ISO timestamp and also logged to `~/.config/summon/logs/`. |
+| `SUMMON_NO_CACHE` | Set to `1` to disable the persistent cross-invocation read cache (`~/.config/summon/cache.json`). Reads always hit disk. |
 | `EDITOR` | Editor used by `summon layout edit`. Falls back to `vi` if unset. |
 
 ## Trust Model
