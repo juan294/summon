@@ -473,6 +473,20 @@ describe("unknown config key warning (BE-S27 #323)", () => {
     expect(warnSpy).not.toHaveBeenCalled();
     warnSpy.mockRestore();
   });
+
+  it("does not warn for env.* keys (parity with set path)", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const store = await getStore();
+    const { CONFIG_DIR } = await import("./config.js");
+    const configPath = `${CONFIG_DIR}/config`;
+    store.set(configPath, "editor=vim\nenv.API_URL=http://localhost:3000\n");
+    resetConfigCache();
+
+    listConfig();
+
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
 });
 
 describe("VALID_KEYS", () => {

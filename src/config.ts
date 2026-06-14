@@ -322,7 +322,8 @@ export function removeConfig(key: string): boolean {
 export function listConfig(): Map<string, string> {
   const config = readKV(CONFIG_FILE);
   for (const key of config.keys()) {
-    if (!KNOWN_CONFIG_KEYS.has(key)) {
+    // env.<KEY> entries are valid (see handleSetCommand) — don't flag them.
+    if (!KNOWN_CONFIG_KEYS.has(key) && !key.startsWith("env.")) {
       console.warn(`summon: unknown config key: ${key}`);
     }
   }
