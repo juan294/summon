@@ -1,5 +1,7 @@
 # Release New Version
 
+Model tier: **sonnet** — Sonnet 4.6 (1M context) session.
+
 Prepare and publish a new version release, adapted to the project type.
 
 ## Step 1: Orientation
