@@ -1912,4 +1912,77 @@ describe("CLI integration", () => {
       expect(result.stdout).not.toContain("TypeError: Cannot read");
     });
   });
+
+  // #518 (UX-L1): switch presented as alias of open in main --help
+  describe("switch as alias of open in main help (#518 UX-L1)", () => {
+    it("'switch' does not appear as a standalone first-class LAUNCH line in --help", () => {
+      const result = run("--help");
+      expect(result.status).toBe(0);
+      // eslint-disable-next-line no-control-regex
+      const plain = result.stdout.replace(/\x1b\[[0-9;]*m/g, "");
+      const lines = plain.split("\n");
+      const standaloneSwitchLine = lines.find(
+        l => /^\s+summon switch\s/.test(l) && !/alias/i.test(l) && !/open/i.test(l),
+      );
+      expect(standaloneSwitchLine).toBeUndefined();
+    });
+
+    it("the open entry in --help mentions 'switch' as an alias", () => {
+      const result = run("--help");
+      expect(result.status).toBe(0);
+      // eslint-disable-next-line no-control-regex
+      const plain = result.stdout.replace(/\x1b\[[0-9;]*m/g, "");
+      expect(plain).toMatch(/summon open[\s\S]{0,200}alias[\s\S]{0,50}switch/);
+    });
+
+    it("'summon switch --help' still works (command is not removed)", () => {
+      const result = run("switch", "--help");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("summon switch");
+    });
+  });
+
+  // #452 (UX-S1): docs/repo URL in main --help
+  describe("docs/repo URL footer in main help (#452 UX-S1)", () => {
+    it("--help output includes github.com/juan294/summon", () => {
+      const result = run("--help");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("github.com/juan294/summon");
+    });
+  });
+
+  // #621 (FE-L1): --vim and --fix misuse warnings
+  describe("--vim and --fix misuse warnings (#621 FE-L1)", () => {
+    it("warns when --vim is passed to a command that does not use it (e.g., list)", () => {
+      const result = run("list", "--vim");
+      expect(result.stderr).toContain("--vim");
+      expect(result.stderr).toMatch(/no effect|Warning/i);
+    });
+
+    it("warns when --fix is passed to a command that does not use it (e.g., list)", () => {
+      const result = run("list", "--fix");
+      expect(result.stderr).toContain("--fix");
+      expect(result.stderr).toMatch(/no effect|Warning/i);
+    });
+
+    it("does NOT warn when --vim is passed to keybindings (its canonical consumer)", () => {
+      const result = run("keybindings", "--vim");
+      expect(result.status).toBe(0);
+      expect(result.stderr).not.toMatch(/--vim.*no effect/);
+    });
+
+    it("does NOT warn when --fix is passed to doctor (its canonical consumer)", () => {
+      // doctor may exit 0 or 2 but must not warn about --fix being misused
+      const result = run("doctor", "--fix");
+      expect(result.status === 0 || result.status === 2).toBe(true);
+      expect(result.stderr).not.toMatch(/--fix.*no effect/);
+    });
+
+    it("warns when --vim is passed with a launch target (not keybindings)", () => {
+      // '.' is a launch target, not keybindings — --vim should warn
+      const result = run(".", "--vim", "--dry-run");
+      expect(result.stderr).toContain("--vim");
+      expect(result.stderr).toMatch(/no effect|Warning/i);
+    });
+  });
 });

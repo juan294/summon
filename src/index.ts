@@ -46,6 +46,10 @@ const registry: Record<string, () => Promise<CommandHandler>> = {
 // UX-H3 (#372): Subcommands that legitimately consume --once — skip the false-positive warning.
 const ONCE_ALLOWED_SUBCOMMANDS = new Set(["status"]);
 
+// FE-L1 (#621): Subcommands that legitimately consume --vim / --fix.
+const VIM_ALLOWED_SUBCOMMANDS = new Set(["keybindings"]);
+const FIX_ALLOWED_SUBCOMMANDS = new Set(["doctor"]);
+
 const parsed = parseCli(process.argv.slice(2));
 
 if (parsed.values.version) {
@@ -82,6 +86,29 @@ if (parsed.values.all && parsed.subcommand && parsed.subcommand !== "session") {
   console.error(
     `Warning: --all has no effect with the '${parsed.subcommand}' command. --all is only valid with 'summon session'.`,
   );
+}
+
+// FE-L1 (#621): Warn if --vim is used with a command that doesn't consume it.
+// For launch targets (no recognized subcommand), warn when --vim is set.
+if (parsed.values.vim) {
+  const sub = parsed.subcommand;
+  const isLaunchTarget = sub !== undefined && !(sub in registry);
+  if ((sub && sub in registry && !VIM_ALLOWED_SUBCOMMANDS.has(sub)) || isLaunchTarget) {
+    console.error(
+      `Warning: --vim has no effect with the '${sub ?? ""}' command. --vim is only valid with 'summon keybindings'.`,
+    );
+  }
+}
+
+// FE-L1 (#621): Warn if --fix is used with a command that doesn't consume it.
+if (parsed.values.fix) {
+  const sub = parsed.subcommand;
+  const isLaunchTarget = sub !== undefined && !(sub in registry);
+  if ((sub && sub in registry && !FIX_ALLOWED_SUBCOMMANDS.has(sub)) || isLaunchTarget) {
+    console.error(
+      `Warning: --fix has no effect with the '${sub ?? ""}' command. --fix is only valid with 'summon doctor'.`,
+    );
+  }
 }
 
 try {
