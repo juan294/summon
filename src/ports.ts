@@ -3,10 +3,7 @@ import { join } from "node:path";
 import { readKVFile, listProjects } from "./config.js";
 import { readAllStatuses } from "./status.js";
 import { isTrusted } from "./trust.js";
-import { runPool, ioConcurrency } from "./utils.js";
-
-// Computed once at module load (this module is lazy-loaded, off the cold-start path).
-const IO_CONCURRENCY = ioConcurrency();
+import { runPool, IO_CONCURRENCY } from "./utils.js";
 
 export interface PortAssignment {
   port: number;

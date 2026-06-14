@@ -3,10 +3,7 @@ import { readAllStatuses, getGitBranch } from "./status.js";
 import type { ResolvedStatus } from "./status.js";
 import { bold, dim, green, yellow, cyan } from "./ui/ansi.js";
 import { sym } from "./ui/symbols.js";
-import { gitOutput, runPool, ioConcurrency } from "./utils.js";
-
-// Computed once at module load (this module is lazy-loaded, off the cold-start path).
-const IO_CONCURRENCY = ioConcurrency();
+import { gitOutput, runPool, IO_CONCURRENCY } from "./utils.js";
 
 // --- Types ---
 

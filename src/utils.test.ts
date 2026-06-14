@@ -914,7 +914,7 @@ describe("confirm", () => {
 // runPool
 // ---------------------------------------------------------------------------
 
-const { runPool, ioConcurrency, gitOutput, gitOutputSync } = await import("./utils.js");
+const { runPool, ioConcurrency, IO_CONCURRENCY, gitOutput, gitOutputSync } = await import("./utils.js");
 
 describe("runPool", () => {
   it("returns empty array for empty input", async () => {
@@ -1038,6 +1038,22 @@ describe("ioConcurrency", () => {
     expect(typeof c).toBe("number");
     expect(c).toBeGreaterThanOrEqual(2);
     expect(c).toBeLessThanOrEqual(8);
+  });
+});
+
+// AR-L2 (#617): IO_CONCURRENCY — shared computed constant
+describe("IO_CONCURRENCY", () => {
+  it("is a number between 2 and 8 inclusive", () => {
+    expect(typeof IO_CONCURRENCY).toBe("number");
+    expect(IO_CONCURRENCY).toBeGreaterThanOrEqual(2);
+    expect(IO_CONCURRENCY).toBeLessThanOrEqual(8);
+  });
+
+  it("equals the value returned by ioConcurrency() (single shared computation)", () => {
+    // Both the exported constant and the function must agree: the constant is
+    // computed exactly once via ioConcurrency(), so any call to ioConcurrency()
+    // must return the same numeric value as IO_CONCURRENCY.
+    expect(IO_CONCURRENCY).toBe(ioConcurrency());
   });
 });
 

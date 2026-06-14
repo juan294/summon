@@ -1,9 +1,8 @@
 import { existsSync, writeFileSync, renameSync, unlinkSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
-import { homedir } from "node:os";
+import { homedir, availableParallelism } from "node:os";
 import { randomBytes } from "node:crypto";
-import os from "node:os";
 
 /** Regex for safe command names — only letters, digits, hyphens, dots, underscores, plus signs. */
 export const SAFE_COMMAND_RE = /^[a-zA-Z0-9_][a-zA-Z0-9_.+-]*$/;
@@ -352,8 +351,21 @@ export async function runPool<T, R>(
  * always present on the supported Node range (>=20.19).
  */
 export function ioConcurrency(): number {
-  return Math.max(2, Math.min(8, os.availableParallelism()));
+  return Math.max(2, Math.min(8, availableParallelism()));
 }
+
+/**
+ * AR-L2 (#617): Single shared I/O concurrency constant computed once at module
+ * load. Consumers (briefing.ts, ports.ts, monitor.ts) import this instead of
+ * each calling `ioConcurrency()` independently. Value is process-constant so
+ * computing it once is both correct and efficient.
+ *
+ * The try/catch guards against test environments that mock node:os without
+ * exporting availableParallelism; production code is never affected.
+ */
+export const IO_CONCURRENCY: number = (() => {
+  try { return ioConcurrency(); } catch { return 4; }
+})();
 
 /**
  * Single-keypress yes/no confirmation.
