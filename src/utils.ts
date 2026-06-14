@@ -17,7 +17,11 @@ export const SAFE_COMMAND_RE = /^[a-zA-Z0-9_][a-zA-Z0-9_.+-]*$/;
  */
 export function atomicWrite(path: string, content: string, options?: Parameters<typeof writeFileSync>[2]): void {
   const tmpPath = `${path}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
-  writeFileSync(tmpPath, content, options);
+  // SE-L4 #574: default mode 0o600 (defense-in-depth — a tmp/file must never land
+  // with a umask-wide mode if the caller forgets to specify one).
+  const resolvedOptions: Parameters<typeof writeFileSync>[2] =
+    options == null ? { mode: 0o600 } : options;
+  writeFileSync(tmpPath, content, resolvedOptions);
   try {
     renameSync(tmpPath, path);
   } catch (err) {
@@ -200,7 +204,7 @@ export function openAccessibilitySettings(): void {
 type ExecFileAsyncFn = (
   cmd: string,
   args: string[],
-  opts: { encoding: BufferEncoding; timeout: number; env: NodeJS.ProcessEnv },
+  opts: { encoding: BufferEncoding; timeout: number; killSignal?: string; env: NodeJS.ProcessEnv },
 ) => Promise<{ stdout: string; stderr: string }>;
 
 let _gitExecFileAsync: ExecFileAsyncFn | undefined;
@@ -226,6 +230,8 @@ export async function gitOutput(dir: string, args: string[]): Promise<string> {
   const { stdout } = await execFileAsync("git", ["-C", dir, ...args], {
     encoding: "utf-8",
     timeout: 5000,
+    // BE-L3 #619: force-kill a git process that ignores SIGTERM on timeout
+    killSignal: "SIGKILL",
     env: gitSafeEnv(),
   });
   return stdout.trim();
@@ -246,6 +252,8 @@ export function gitOutputSync(dir: string, args: string[]): string {
   return execFileSync("git", ["-C", dir, ...args], {
     encoding: "utf-8",
     timeout: 5000,
+    // BE-L3 #619: force-kill a git process that ignores SIGTERM on timeout
+    killSignal: "SIGKILL",
     stdio: ["ignore", "pipe", "ignore"],
     env: gitSafeEnv(),
   }).trim();
