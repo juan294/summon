@@ -116,6 +116,7 @@ export async function handlePortsCommand(): Promise<void> {
   }
 
   if (conflicts.size === 0) {
+    console.log(`${green(sym.ok)} No port conflicts`);
     return;
   }
 

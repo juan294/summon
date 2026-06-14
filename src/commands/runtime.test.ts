@@ -56,6 +56,10 @@ vi.mock("../ui/ansi.js", () => ({
   truncateLine: (value: string, _width: number) => value,
 }));
 
+vi.mock("../ui/symbols.js", () => ({
+  sym: { ok: "✓", dotFilled: "●", dotEmpty: "○" },
+}));
+
 const {
   handleBriefingCommand,
   handlePortsCommand,
@@ -302,5 +306,20 @@ describe("handlePortsCommand", () => {
     await handlePortsCommand();
 
     expect(logSpy).not.toHaveBeenCalledWith(expect.stringContaining("Port 4000 used by"));
+  });
+
+  it("prints a positive no-conflict confirmation when there are assignments but no conflicts (#442)", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockDetectAllPorts.mockReturnValue({
+      assignments: [
+        { port: 4000, project: "api", source: ".summon", state: "active" },
+        { port: 5000, project: "web", source: "package.json", state: "stopped" },
+      ],
+      conflicts: new Map(),
+    });
+
+    await handlePortsCommand();
+
+    expect(logSpy).toHaveBeenCalledWith("[green:✓] No port conflicts");
   });
 });
