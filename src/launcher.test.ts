@@ -2051,6 +2051,17 @@ describe("on-start hook (#107)", () => {
       expect(result.envVars).toEqual({});
     });
 
+    it("warns on invalid env var key names from machine config (#618 BE-L2)", () => {
+      mockReadKVFile.mockReturnValue(new Map());
+      vi.mocked(listConfig).mockReturnValue(new Map([["env.VALID_KEY", "ok"], ["env.bad;key", "evil"]]));
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      const result = resolveConfig("/tmp/workspace", {});
+      expect(result.envVars).toEqual({ VALID_KEY: "ok" });
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining(`invalid env var key "bad;key" from machine config`));
+      warnSpy.mockRestore();
+    });
+
     it("rejects --env CLI key names with spaces", () => {
       mockReadKVFile.mockReturnValue(new Map());
       vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));

@@ -327,6 +327,9 @@ function collectEnvVars(
         console.warn(`Warning: ignoring denylisted env var key "${envKey}" from machine config.`);
       } else if (ENV_KEY_RE.test(envKey)) {
         envVars[envKey] = value;
+      } else {
+        // BE-L2 (#618): warn on invalid keys for parity with .summon and --env sources.
+        console.warn(`Warning: ignoring invalid env var key "${envKey}" from machine config.`);
       }
     }
   }
