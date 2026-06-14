@@ -1983,6 +1983,9 @@ describe("CLI integration", () => {
       const result = run(".", "--vim", "--dry-run");
       expect(result.stderr).toContain("--vim");
       expect(result.stderr).toMatch(/no effect|Warning/i);
+    });
+  });
+
   // PE-H1 (#569): true lazy-entry — --version/-v must not load config.js or trust.js
   describe("PE-H1 lazy-entry chunk-load probe (#569)", () => {
     function runWithModuleTrace(...args: string[]) {
