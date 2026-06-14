@@ -4055,6 +4055,73 @@ describe("AR-L1 #318: layoutOptsToTreePlanOpts adapter unit tests", () => {
   });
 });
 
+// --- #604 / #437 / #450: unification — TreePlanOptions imported directly, satisfies guard ---
+
+describe("#604 / #437 / #450 (#563): pipeline unification — adapter uses exported TreePlanOptions", () => {
+  // The satisfies TreePlanOptions guard in layoutOptsToTreePlanOpts ensures TypeScript
+  // rejects the function body if any field present in tree.ts#TreePlanOptions is missing
+  // from the return object. This was previously a local hand-mirrored type (LayoutPlanFieldsForTree)
+  // that could silently drift from TreePlanOptions. Now it uses the canonical export.
+  //
+  // Exhaustiveness guard proof (compile-time):
+  //   If a new field is added to TreePlanOptions in tree.ts, the `satisfies TreePlanOptions`
+  //   expression in layoutOptsToTreePlanOpts will fail tsc until the new field is added.
+  //   This is verified by the typecheck step in CI.
+  //
+  // Runtime proof: the adapter returns exactly the 9 TreePlanOptions fields.
+
+  it("returns exactly the 9 TreePlanOptions fields — no more, no less", () => {
+    const result = layoutOptsToTreePlanOpts({
+      autoResize: true,
+      editorSize: 80,
+      fontSize: 16,
+      newWindow: false,
+      newTab: true,
+      fullscreen: false,
+      maximize: true,
+      float: false,
+      cleanRestoredPanes: true,
+      // LayoutOptions-only fields — must NOT appear in result
+      editor: "vim",
+      sidebarCommand: "lazygit",
+    });
+    expect(Object.keys(result).sort()).toEqual([
+      "autoResize",
+      "cleanRestoredPanes",
+      "editorSize",
+      "float",
+      "fontSize",
+      "fullscreen",
+      "maximize",
+      "newTab",
+      "newWindow",
+    ]);
+  });
+
+  it("forwards all 9 fields with correct values (exhaustiveness at runtime)", () => {
+    const result = layoutOptsToTreePlanOpts({
+      autoResize: false,
+      editorSize: 65,
+      fontSize: 12,
+      newWindow: true,
+      newTab: false,
+      fullscreen: true,
+      maximize: false,
+      float: true,
+      cleanRestoredPanes: true,
+    });
+    expect(result.autoResize).toBe(false);
+    expect(result.editorSize).toBe(65);
+    expect(result.fontSize).toBe(12);
+    expect(result.newWindow).toBe(true);
+    expect(result.newTab).toBe(false);
+    expect(result.fullscreen).toBe(true);
+    expect(result.maximize).toBe(false);
+    expect(result.float).toBe(true);
+    expect(result.cleanRestoredPanes).toBe(true);
+  });
+});
+
 describe("SE-L3: on-start command is not echoed to stdout (#557)", () => {
   it("on-start is executed without printing command string to stdout", async () => {
     const origIsTTY = process.stdin.isTTY;

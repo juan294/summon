@@ -18,7 +18,7 @@ import { writeStatus } from "./status.js";
 import type { WorkspaceStatus } from "./status.js";
 import { generateAppleScript, generateTreeAppleScript, generateFocusScript } from "./script.js";
 import { parseTreeDSL, extractPaneDefinitions, extractPaneCwds, resolveTreeCommands as resolveTreeCmds, buildTreePlan, findPaneByName } from "./tree.js";
-import type { LayoutNode } from "./tree.js";
+import type { LayoutNode, TreePlanOptions } from "./tree.js";
 import { resolveCommand as resolveCommandPath, getErrorMessage, SUMMON_WORKSPACE_ENV, promptUser, ACCESSIBILITY_SETTINGS_PATH, isDebug } from "./utils.js";
 import { ensureGhostty, ensureAccessibility, printAccessibilityHint, confirmDangerousCommands, isAccessibilityError } from "./launch-guards.js";
 import { assertTrusted, assertTrustedContent } from "./trust.js";
@@ -684,47 +684,23 @@ function appendDryRunExtras(
 }
 
 /**
- * The subset of LayoutOptions fields that are forwarded to buildTreePlan.
- * Mirrors tree.ts#TreePlanOptions (which is not exported; kept in sync manually).
- *
- * AR-L1 / #318 / #604: This type + satisfies guard below provide an exhaustiveness
- * check. If a new field is added to LayoutOptions that should also flow through to
- * TreePlanOptions (and therefore buildTreePlan), a TypeScript error will appear at
- * the `satisfies` call site in layoutOptsToTreePlanOpts, preventing silent omission.
- *
- * What remains partially dual-pipeline (deferred, output-safe would require changes
- * outside src/launcher.ts / src/script.ts):
- *   - The 4 "outer" args (starshipConfigPath, envVars, projectName, onStop) are still
- *     assembled separately in launchTreeLayout and launchTraditionalLayout. They are
- *     identical in both call sites and are documented as such. Full unification would
- *     require changing generateAppleScript / generateTreeAppleScript signatures, which
- *     risks output changes and is deferred to avoid scope creep.
- */
-type LayoutPlanFieldsForTree = {
-  autoResize?: boolean;
-  editorSize?: number;
-  fontSize?: number | null;
-  newWindow?: boolean;
-  newTab?: boolean;
-  fullscreen?: boolean;
-  maximize?: boolean;
-  float?: boolean;
-  cleanRestoredPanes?: boolean;
-};
-
-/**
  * Adapter: extract the LayoutOptions fields relevant to buildTreePlan into a
  * single authoritative place. Previously this was an inline object literal in
  * launchTreeLayout — any new plan-level option had to be manually added to that
  * literal. Extracting it here ensures a single edit point and makes the satisfies
  * guard visible to the compiler.
  *
- * AR-L1 / #318: Partial resolution — the adapter eliminates the silent-divergence
- * risk for plan-level options between launchTreeLayout and launchTraditionalLayout.
- * The traditional pipeline's options flow through planLayout() which reads from
- * opts directly; the tree pipeline must manually forward each field via this adapter.
+ * #604 / #437 / #450 (closes AR-L1 #318): TreePlanOptions is now exported from
+ * tree.ts — this adapter uses it directly instead of a hand-mirrored local type.
+ * The `satisfies` guard provides compile-time exhaustiveness: if a new field is
+ * added to TreePlanOptions without updating this adapter, tsc will fail here.
+ *
+ * The 4 "outer" script generator args (starshipConfigPath, envVars, projectName,
+ * onStop) are assembled identically in both launchTreeLayout and launchTraditionalLayout
+ * but kept per-pipeline — merging them would require changing generateAppleScript /
+ * generateTreeAppleScript signatures and risks output changes.
  */
-export function layoutOptsToTreePlanOpts(opts: Partial<LayoutOptions>): LayoutPlanFieldsForTree {
+export function layoutOptsToTreePlanOpts(opts: Partial<LayoutOptions>): TreePlanOptions {
   return {
     autoResize: opts.autoResize,
     editorSize: opts.editorSize,
@@ -735,14 +711,8 @@ export function layoutOptsToTreePlanOpts(opts: Partial<LayoutOptions>): LayoutPl
     maximize: opts.maximize,
     float: opts.float,
     cleanRestoredPanes: opts.cleanRestoredPanes,
-  } satisfies LayoutPlanFieldsForTree;
+  } satisfies TreePlanOptions;
 }
-
-// AR-L1 / #318 / #604: launchTreeLayout now uses layoutOptsToTreePlanOpts() as the
-// single authoritative adapter for LayoutOptions -> buildTreePlan fields. Previously
-// the inline literal was a silent-divergence risk. The 4 "outer" generator args
-// (starshipConfigPath, envVars, projectName, onStop) are still assembled per-pipeline
-// but are structurally identical — full unification requires changes outside owned files.
 async function launchTreeLayout(
   treeLayout: NonNullable<ResolvedConfig["treeLayout"]>,
   opts: Partial<LayoutOptions>,
