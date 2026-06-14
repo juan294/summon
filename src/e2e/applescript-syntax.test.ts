@@ -18,7 +18,13 @@ import { planLayout } from "../layout.js";
 function ghosttyDictionaryAccessible(): boolean {
   if (!existsSync("/Applications/Ghostty.app")) return false;
   const probe = join(tmpdir(), `summon-e2e-probe-${process.pid}.applescript`);
-  writeFileSync(probe, 'tell application "Ghostty"\n  activate\nend tell\n', "utf8");
+  // Use a Ghostty-specific term (`new surface configuration`) as the probe —
+  // basic `activate` works even without the full dictionary (#517).
+  writeFileSync(
+    probe,
+    'tell application "Ghostty"\n  set cfg to new surface configuration\nend tell\n',
+    "utf8",
+  );
   try {
     execFileSync("osacompile", ["-o", "/dev/null", probe], { stdio: "pipe" });
     return true;
