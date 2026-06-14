@@ -346,7 +346,7 @@ function emitVerifiedKeystroke(
   add(2, `delay ${KEYSTROKE_SETTLE_DELAY}`);
   add(2, 'tell application "System Events"');
   add(3, `tell process "${GHOSTTY_APP_NAME}"`);
-  add(4, `keystroke "${key}" using command down`);
+  add(4, `keystroke "${key}" using command down`); // lint-allow-escape: key is typed "n"|"t" (TypeScript literal union) — compile-time constant, no user input
   add(3, "end tell");
   add(2, "end tell");
   add(2, `if ${beforeVar} is equal to -1 then`);
