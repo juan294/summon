@@ -3,10 +3,7 @@ import type { ResolvedStatus } from "./status.js";
 import { listProjects } from "./config.js";
 import { bold, dim, green, red, yellow, cyan, invert } from "./ui/ansi.js";
 import { getDisplayWidth } from "./ui/width.js";
-import { runPool, ioConcurrency } from "./utils.js";
-
-// Computed once at module load — avoids an os syscall on every 3s refresh tick.
-const IO_CONCURRENCY = ioConcurrency();
+import { runPool, IO_CONCURRENCY } from "./utils.js";
 
 // --- Types ---
 
