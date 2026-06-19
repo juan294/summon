@@ -4256,8 +4256,12 @@ describe("UX-L2 (#519): single-launch spinner", () => {
   it("withLaunchSpinner: TTY mode — writes spinner frame to stdout and clears after", () => {
     const origIsTTY = process.stdout.isTTY;
     const origForceColor = process.env.FORCE_COLOR;
+    const origNoColor = process.env.NO_COLOR;
+    const origNoSpinner = process.env.SUMMON_NO_SPINNER;
     Object.defineProperty(process.stdout, "isTTY", { value: true, configurable: true });
     process.env.FORCE_COLOR = "1";
+    delete process.env.NO_COLOR;
+    delete process.env.SUMMON_NO_SPINNER;
     const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     let ran = false;
@@ -4275,6 +4279,16 @@ describe("UX-L2 (#519): single-launch spinner", () => {
         delete process.env.FORCE_COLOR;
       } else {
         process.env.FORCE_COLOR = origForceColor;
+      }
+      if (origNoColor === undefined) {
+        delete process.env.NO_COLOR;
+      } else {
+        process.env.NO_COLOR = origNoColor;
+      }
+      if (origNoSpinner === undefined) {
+        delete process.env.SUMMON_NO_SPINNER;
+      } else {
+        process.env.SUMMON_NO_SPINNER = origNoSpinner;
       }
       stderrSpy.mockRestore();
       stdoutSpy.mockRestore();

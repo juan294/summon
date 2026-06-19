@@ -49,14 +49,6 @@ export function ensureAccessibility(): void {
 }
 
 /**
- * Result of confirmDangerousCommands for a single entry.
- * "proceed" — user confirmed or no dangerous commands.
- * "skip"    — user opted to skip this pane (UX-S2 #340).
- * "abort"   — user declined entirely.
- */
-export type CommandConfirmResult = "proceed" | "skip" | "abort";
-
-/**
  * Per-pane result after filtering.
  * The key is the config key (e.g. "shell", "pane.editor"); value is the command string.
  */
