@@ -298,7 +298,7 @@ gh repo view --json visibility --jq '.visibility' 2>/dev/null
 
 ## Step 5: Process Dependabot PRs
 
-After the triage commit is pushed and green, process the Dependabot PRs identified in Step 1.3 (Rule #72). These are independent commits from the triage code fixes -- handle them last so a flaky dependency PR can't block triage.
+After the triage commit is pushed and green, process the Dependabot PRs identified in Step 1.3 (Rule #72). These are independent commits from the triage code fixes -- handle them last so a flaky dependency PR doesn't block triage.
 
 For each PR by disposition:
 

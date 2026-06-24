@@ -13,6 +13,17 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/verify-edit.sh"
+          }
+        ]
+      }
     ]
   },
   "permissions": {

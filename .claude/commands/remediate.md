@@ -28,6 +28,19 @@ Gather context before making any changes.
    QA, UX). Section 14 (Before/After/Later) is the wave-ordering index.
    Section 15 (Open Questions) is NOT findings — skip it.
 
+   **Validate the report contract first** (deterministic gate, before any
+   parsing):
+
+   ```bash
+   python3 .claude/scripts/validate-findings.py <report-path>
+   ```
+
+   Exit 0 — findings satisfy the Output Contract; proceed. Non-zero — the
+   report has malformed findings (bad Finding-ID, missing required field, or
+   no `file:line`). **STOP** and report exactly which findings the validator
+   named. Do not parse a broken report: the consumer regex below would
+   silently drop the malformed ones, violating Rule #58 (100% coverage).
+
 2. **Extract EVERY finding** — all 5 severity tiers: launch-blocker,
    high, medium, low, strategic. No filtering by severity — Rule #58
    100% coverage.
@@ -36,6 +49,7 @@ Gather context before making any changes.
 
    - Findings are the `#### <Finding-ID> <Title>` blocks in §4-§11.
    - Finding ID regex: `(AR|FE|BE|PE|DO|SE|QA|UX)-(B|H|M|L|S)[0-9]+`
+     (machine-checked by `validate-findings.py` in step 1).
    - Each finding has structured fields (bold format:
      `**Severity:**`, `**Time horizon:**`, `**Evidence type:**`,
      `**Files:**`, `**What's happening:**`, `**Why it matters:**`,
