@@ -149,6 +149,11 @@ Rules:
 - Prefer systemic findings: one pattern covering 5 instances > five
   separate nitpicks.
 
+This contract is machine-checkable: `/remediate` runs
+`.claude/scripts/validate-findings.py` against the report before parsing and
+rejects any finding with a malformed Finding-ID, a missing required field, or
+no `file:line` ref. Emit findings in exactly this format.
+
 ### Cross-Domain Notes (optional)
 
 Findings touching another specialist's domain — noted briefly, referenced
