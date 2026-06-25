@@ -1,13 +1,5 @@
 {
-  "lastSyncCommit": "ff886846dab23e375cddfdde11aedc59dd99afd3",
-  "lastSyncDate": "2026-06-24",
-  "blueprintVersion": "v1.23.0",
-  "rulesSynced": [
-    "deployment-safety.md",
-    "push-accountability.md",
-    "rpi-details.md",
-    "testing.md"
-  ],
-  "rulesCustom": [],
-  "agentsTemplateSynced": true
+  "lastSyncCommit": "76b6b88dcd0aeed447fd3d597249744e0a58ca11",
+  "lastSyncDate": "2026-06-25",
+  "ccRpiVersion": "v1.24.0"
 }

@@ -92,3 +92,48 @@ Right -- break work so each teammate owns different files:
 Teammate A: edit src/api/auth-routes.ts
 Teammate B: edit src/api/user-routes.ts
 ```
+
+## Scope & Watchdog
+
+Wrong -- open-ended task, no stop condition: the agent keeps investigating
+long after its real work is done (a fork agent ran 2+ hours past completion).
+
+```text
+"Look into the Chapa failures and fix what you find."
+```
+
+Right -- one-sentence scope with an explicit terminal condition:
+
+```text
+"Fix the failing applyRateLimit test in src/rate-limit.test.ts so the suite
+is green. STOP the moment that test passes -- do not investigate other
+failures, refactor, or open new threads. Report back with the diff."
+```
+
+Rules for the orchestrator:
+
+- Give every spawned agent a **single-sentence scope** and a **terminal
+  condition** ("stop the moment X is true"). No open-ended "look into".
+- Set a **wall-clock budget** (~15-20 min for a focused fix). If an agent
+  is still running past it, kill it and inspect -- don't let it spin.
+- Require a **progress checkpoint** for long fan-outs: agents report status
+  every few files so a stuck agent is visible, not silent.
+
+## Dedup Before Continuing
+
+Wrong -- an agent resumes work a sibling already committed, producing a
+duplicate (e.g. a second `applyRateLimit` test block already on the branch).
+
+```text
+Agent B keeps adding tests without checking what Agent A committed.
+```
+
+Right -- check the actual repo state before doing or continuing work:
+
+```bash
+git log --oneline -10        # has a sibling already landed this?
+git status                   # is the change already staged/committed?
+grep -rn "applyRateLimit" test/   # does the artifact already exist?
+```
+
+If the work is already done, stop and report -- do not redo it.
