@@ -36,6 +36,7 @@ REQUIRED_FIELDS = [
     "What's happening",
     "Why it matters",
     "Recommendation",
+    "Regression risk",
     "Expected impact",
     "Effort estimate",
 ]
@@ -129,6 +130,7 @@ VALID_FIXTURE = """## 5. Backend
 - **What's happening:** the list endpoint issues one query per row.
 - **Why it matters:** p95 latency scales with result size.
 - **Recommendation:** batch the lookups with a single join.
+- **Regression risk:** join must preserve per-row ordering the UI relies on.
 - **Expected impact:** flat latency under load.
 - **Effort estimate:** M
 
@@ -148,6 +150,7 @@ INVALID_FIXTURE = """## 5. Backend
 - **What's happening:** x
 - **Why it matters:** y
 - **Recommendation:** z
+- **Regression risk:** none — additive index only.
 - **Expected impact:** w
 - **Effort estimate:** M
 

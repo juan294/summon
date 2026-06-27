@@ -1,5 +1,8 @@
 {
-  "lastSyncCommit": "76b6b88dcd0aeed447fd3d597249744e0a58ca11",
-  "lastSyncDate": "2026-06-25",
-  "ccRpiVersion": "v1.24.0"
+  "lastSyncCommit": "e0ac1e622fe79afa7108267253b0d757890f64c8",
+  "lastSyncDate": "2026-06-27",
+  "blueprintVersion": "v1.25.0",
+  "agentsTemplateSynced": true,
+  "rulesSynced": ["rpi-details.md", "push-accountability.md"],
+  "rulesCustom": []
 }
