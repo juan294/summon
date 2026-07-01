@@ -1,6 +1,6 @@
 # Triage Agent Reports
 
-Model tier: **sonnet** — Sonnet 4.6 (1M context) session.
+Model tier: **sonnet** — Sonnet 5 (1M context) session.
 
 Process all overnight agent reports, GitHub Security & Quality Alerts, and the Dependabot PR queue. Discovers every report using timestamp-based discovery, checks for agent failures, scans open Dependabot PRs (Rule #72), synthesizes findings, proposes an action plan, implements all fixes, and merges the Dependabot PRs that are safe to auto-merge. Report commit policy depends on repo visibility: public repos keep reports local, private repos commit them as historical artifacts (Rule #70).
 

@@ -1,6 +1,6 @@
 # Update All Documentation
 
-Model tier: **sonnet** — Sonnet 4.6 (1M context) session.
+Model tier: **sonnet** — Sonnet 5 (1M context) session.
 
 Research all changes since the last release and update every document, diagram, version reference,
 and inline code comment in the project.

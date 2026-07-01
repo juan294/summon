@@ -1,6 +1,6 @@
 # Detach Project from cc-rpi Blueprint
 
-Model tier: **sonnet** — Sonnet 4.6 (1M context) session.
+Model tier: **sonnet** — Sonnet 5 (1M context) session.
 
 You are cleanly removing cc-rpi artifacts from this project. The blueprint lives at `<path-to-your-cc-rpi-clone>/`.
 
