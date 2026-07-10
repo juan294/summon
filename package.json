@@ -77,9 +77,9 @@
     "eslint": "^10.5.0",
     "husky": "^9.1.7",
     "tsup": "^8.5.1",
-    "typescript": "^6.0.3",
+    "typescript": "^7.0.2",
     "typescript-eslint": "^8.61.1",
-    "vite": "8.0.16",
+    "vite": "8.1.4",
     "vitest": "^4.1.9"
   }
 }
