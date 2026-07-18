@@ -6,6 +6,9 @@ export default defineConfig({
     // Cap worker pool to reduce starvation risk on high-load machines.
     // Default is numCPUs; 8 leaves headroom while preserving parallelism.
     maxWorkers: 8,
+    // Subprocess-spawning tests in index.test.ts legitimately need more than
+    // the 5s default under load; raised globally instead of per-test.
+    testTimeout: 30_000,
     coverage: {
       provider: "v8",
       reporter: ["text", "json-summary"],

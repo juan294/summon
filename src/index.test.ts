@@ -1128,7 +1128,7 @@ describe("CLI integration", () => {
       expect(result.stdout).toContain("summon layout");
     });
 
-    it("--layout accepts custom layout name when it exists", { timeout: 30_000 }, () => {
+    it("--layout accepts custom layout name when it exists", () => {
       run("set", "panes", "3");
       run("layout", "save", "mycustom");
       const result = run(".", "--layout", "mycustom", "--dry-run");
