@@ -1,4 +1,4 @@
-# Project: Summon
+# Project: [PROJECT NAME]
 
 ## Codex Compatibility
 
@@ -90,7 +90,8 @@ Preserve the standard cc-rpi artifact locations:
 - `docs/research/` -- research documents
 - `docs/plans/` -- implementation plans and phase files
 - `docs/decisions/` -- ADRs and decision records
-- `docs/agents/` -- local operational reports
+- `docs/agents/` -- operational reports (commit policy follows repo
+  visibility per Rule #70: gitignored on public repos, tracked on private)
 
 Respect the phase gates:
 

@@ -2,7 +2,7 @@
 
 Model tier: **sonnet** — Sonnet 5 (1M context) session.
 
-Process all overnight agent reports, GitHub Security & Quality Alerts, and the Dependabot PR queue. Discovers every report using timestamp-based discovery, checks for agent failures, scans open Dependabot PRs (Rule #72), synthesizes findings, proposes an action plan, implements all fixes, and merges the Dependabot PRs that are safe to auto-merge. Report commit policy depends on repo visibility: public repos keep reports local, private repos commit them as historical artifacts (Rule #70).
+Process all overnight agent reports, GitHub Security & Quality Alerts, and the Dependabot PR queue. Discovers every report using timestamp-based discovery, checks for agent failures, scans open Dependabot PRs (Rule #84), synthesizes findings, proposes an action plan, implements all fixes, and merges the Dependabot PRs that are safe to auto-merge. Report commit policy depends on repo visibility: public repos keep reports local, private repos commit them as historical artifacts (Rule #70).
 
 ## Input
 
@@ -52,7 +52,7 @@ Find EVERY report, agent failure, and GitHub security/quality alert. No assumpti
    - If an agent failed but has no corresponding report in `docs/agents/`,
      flag it: "agent-name FAILED to produce a report -- check `logs/agent-name.error.log`"
 
-3. **Check for open Dependabot PRs (Rule #72):**
+3. **Check for open Dependabot PRs (Rule #84):**
 
    ```bash
    gh pr list --author "app/dependabot" \
@@ -298,7 +298,7 @@ gh repo view --json visibility --jq '.visibility' 2>/dev/null
 
 ## Step 5: Process Dependabot PRs
 
-After the triage commit is pushed and green, process the Dependabot PRs identified in Step 1.3 (Rule #72). These are independent commits from the triage code fixes -- handle them last so a flaky dependency PR doesn't block triage.
+After the triage commit is pushed and green, process the Dependabot PRs identified in Step 1.3 (Rule #84). These are independent commits from the triage code fixes -- handle them last so a flaky dependency PR doesn't block triage.
 
 For each PR by disposition:
 
@@ -384,7 +384,7 @@ Present the report summary to the user.
 - **Exhaustive discovery.** Use timestamp-based scan (Rule #71). Never assume how many reports exist. Present the full count before processing.
 - **Report commit policy is visibility-conditional (Rule #70).** Public repos: reports stay local, only code fixes are committed (`docs/agents/`, `logs/`, `scripts/agents/` gitignored). Private repos: reports are committed alongside code fixes as historical artifacts.
 - **GitHub alert coverage is mandatory.** Every triage run must query and report GitHub code scanning alerts (including CodeQL and quality warnings), Dependabot security alerts, and secret scanning alerts. Do not rely only on local agent reports. If a query fails or alerts appear disabled unexpectedly, report that as a YELLOW/RED triage finding and action item.
-- **Process Dependabot PRs (Rule #72).** Triage scans for open Dependabot PRs and merges what it can: patch + minor with green CI auto-merge, majors defer for human review, obvious CI failures get one fix attempt. Dependabot processing happens last so it can't block triage code fixes.
+- **Process Dependabot PRs (Rule #84).** Triage scans for open Dependabot PRs and merges what it can: patch + minor with green CI auto-merge, majors defer for human review, obvious CI failures get one fix attempt. Dependabot processing happens last so it can't block triage code fixes.
 - **Touch `.last-triage` after completion.** This marks all current reports as processed for the next triage run.
 - **Check for agent failures.** Scan `logs/` BEFORE analyzing reports. A missing report might mean a failed agent, not "nothing to report."
 - **Fix everything (Rule #58).** Categorize findings by severity, but implement 100% of action items. No deferring. No "nothing urgent." `leanness-report.md` is actionable: extract and implement every concrete recommendation after the user approves the action plan.

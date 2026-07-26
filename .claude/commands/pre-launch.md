@@ -4,7 +4,7 @@ Senior cross-functional launch-readiness audit before any public release.
 8 parallel specialists, 16-section deep-dive report, 3-wave remediation
 handoff.
 
-Model tier: **opus** — Claude Opus 4.6. All specialists: `model: "opus"`.
+Model tier: **opus** — Claude Opus 5. All specialists: `model: "opus"`.
 
 ## Mindset
 

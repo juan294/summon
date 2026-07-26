@@ -12,12 +12,15 @@ Process:
 7. Propose phase structure, get feedback.
 8. Write detailed plan with separate phase files.
 9. Use pseudocode notation for changes.
-10. Separate automated vs. manual success criteria.
-11. Identify batch-eligible phases: phases that are independent (no file overlap, no
+10. When the plan specifies behavior, prefer pointing at an executable or checkable
+    artifact (a failing test, a module with the semantics to match, a mockup, a rubric)
+    over describing the behavior in prose.
+11. Separate automated vs. manual success criteria.
+12. Identify batch-eligible phases: phases that are independent (no file overlap, no
     dependency on another phase's output) get marked `[batch-eligible]` in the plan.
     This tells `/implement` that `/batch` can execute them in parallel.
-12. Maximum 3 [NEEDS CLARIFICATION] markers.
-13. Iterate with user until all questions resolved.
+13. Maximum 3 [NEEDS CLARIFICATION] markers.
+14. Iterate with user until all questions resolved.
 
 Save to docs/plans/YYYY-MM-DD-[description].md
 Phase files: docs/plans/YYYY-MM-DD-[description]-phases/phase-N.md

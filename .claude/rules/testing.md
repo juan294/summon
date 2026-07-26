@@ -25,6 +25,12 @@ All code changes follow Red-Green-Refactor:
 No exceptions. Bug fixes need a regression test.
 Refactors need existing coverage. No "tests later."
 
+Before chaining onto an API, confirm the method/type actually
+exists -- docs, types, or a tiny probe (don't assume, e.g., that
+`.abortSignal()` exists on a Supabase `.single()` call). Run the
+targeted test BEFORE committing the first attempt, not after --
+a revert costs more than the probe would have.
+
 ## Verification Sequencing
 
 Run checks sequentially, never as parallel Bash calls

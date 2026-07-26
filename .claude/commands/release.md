@@ -26,9 +26,27 @@ Gather release context before making any changes.
    git log <last-tag>..HEAD --oneline
    ```
 
-4. **Identify all version-bearing files** -- scan for the current version string across the project:
-   manifests, README badges, install instructions, constants files, docker tags,
-   CI configs, documentation site configs.
+4. **Identify all version-bearing files** -- do NOT rely on memory or a static
+   list. Grep the CURRENT version string across the whole repo so nothing is
+   missed:
+
+   ```bash
+   git grep -n -F "1.2.3"; git grep -n -F "v1.2.3"   # both bare and v-prefixed
+   ```
+
+   Hand-maintained version strings drift silently when there is no canonical
+   manifest. Explicitly confirm these commonly-missed locations, even if a scoped
+   scan would skip them:
+   - **README/docs shield.io badges** -- the version can appear 3x on ONE line
+     (badge label text, the `img.shields.io` URL, and the `releases/tag/` link href).
+   - **Plugin/marketplace manifests** (e.g. `.claude-plugin/plugin.json`,
+     `.claude-plugin/marketplace.json`) -- each carries its own `"version"`.
+   - manifests, install instructions, constants files, docker tags, CI configs,
+     documentation site configs, compatibility tables.
+
+   For docs/generic repos with no manifest, git tag + CHANGELOG are the source of
+   truth and every other version string is hand-maintained -- the grep is
+   mandatory, not optional.
 
 5. **Detect branching strategy:**
    - Check if current branch is main/master
@@ -48,7 +66,13 @@ Gather release context before making any changes.
    - Detected branching strategy
    - Suggest major/minor/patch bump based on commit types (feat = minor, fix = patch, breaking = major)
 
-7. **Consider related commands:**
+7. **Retirement review.** Ask what rules, errors, or instructions came OUT of
+   the project's guidance corpus this cycle, not just what went in. If the
+   project keeps a retirement ledger, confirm it records them. Answer the
+   question every release, even when the answer is "none" -- a corpus with an
+   intake path and no exit path only grows.
+
+8. **Consider related commands:**
    - If there are unreleased changes, remind the user to consider running `/update-docs` first
      to refresh all documentation before tagging.
    - If this is the first release, recommend running `/pre-launch` for a full audit.
@@ -82,13 +106,36 @@ After the user provides a version number, prepare all files for release. Do not 
    Present the draft entry to the user for review. Apply their edits before writing.
 
 3. **Update version references** in all files identified in Step 1:
-   README badges, install instructions, constants, docker tags, etc.
+   README badges (all occurrences on the line), plugin/marketplace manifests,
+   install instructions, constants, docker tags, etc. Then re-run the grep from
+   Step 1 for the OLD version and confirm nothing remains outside CHANGELOG
+   history -- a non-empty result (other than dated CHANGELOG entries) means a
+   file was missed.
 
 4. **Run verification commands** sequentially (chain with `&&` or `;`, never parallel Bash calls):
 
    ```bash
    $TYPECHECK_CMD; $LINT_CMD; $TEST_CMD; $BUILD_CMD
    ```
+
+   Also run every repo-invariant script the project ships, not just the build.
+   In cc-rpi that is:
+
+   ```bash
+   bash templates/scripts/verify-counts.sh
+   bash templates/scripts/verify-skills.sh
+   bash templates/scripts/verify-version.sh
+   bash templates/scripts/check-tree-drift.sh
+   ```
+
+   These catch the drift a build cannot: a stated count that no longer matches
+   its catalog, a version string the bump missed, a skill that outgrew its
+   ceiling, a `.claude/` file that forked from its template. Each prints a
+   runnable FIX on failure.
+
+   Run `verify-version.sh` AFTER the bump -- it is the mechanical backstop for
+   the Step 1 grep, and catches the partial-bump case a human scan misses
+   (a shields.io badge carries the version three times on one line).
 
    If any fail, fix before proceeding.
 

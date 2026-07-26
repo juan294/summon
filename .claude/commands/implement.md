@@ -24,6 +24,18 @@ Process:
       (reuse, quality, efficiency). It spawns 3 specialized agents and applies fixes.
    f. Run ALL automated verification commands (tests, typecheck, lint, build).
    g. Update checkboxes in the plan file.
+   h. If you departed from the plan, append the decision to
+      `docs/plans/<plan-name>-notes.md` under `## Deviations`, as:
+      plan said / found / chose / why. Deviations only -- never narration,
+      and no file at all if the phase had none. `/validate` reads it.
+      **Commit it with the phase.** You are in a worktree: an uncommitted or
+      gitignored notes file is destroyed at teardown, before `/validate` ever
+      sees it. If the project gitignores its plans directory, un-ignore the
+      `*-notes.md` files (exclude `docs/plans/*` and re-include
+      `!docs/plans/*-notes.md`; git cannot re-include a path whose parent
+      directory is excluded). Reference the plan by NAME in backticks, not as
+      a markdown link -- if the plan stays untracked, a link to it dangles in
+      a clean checkout and fails any CI link check.
 7. STOP. Report results and wait for human confirmation.
 8. Do NOT proceed to the next phase without confirmation.
 
