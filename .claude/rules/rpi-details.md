@@ -48,11 +48,21 @@ description: RPI workflow details -- phase rules, pre-release sequence, implemen
 
 ## Pre-Release Workflow
 
-`/pre-launch` -> `/remediate` -> `/update-docs` -> `/release`
+`/pre-launch` -> `/remediate` -> `/update-docs` -> `/explore-release` -> `/release`
 
 After `/pre-launch`, run `/simplify` first -- it fixes dead code,
 duplicates, and inefficiencies in one pass. Then address security
 and infrastructure findings manually.
+
+`/explore-release` runs Wave B exploratory charters against the fixed
+candidate. It is not optional decoration: its charter reports become
+`charter.*` rows in the release evidence manifest, and `/release`
+blocks on a failed or incomplete charter via `pnpm analyze:release`.
+`/pre-launch` audits the code as written; charters exercise the
+candidate's actual behavior. They are complements, not duplicates.
+
+`docs/release/release-checklist.md` is the procedural authority for
+everything from the release PR onward.
 
 Fix everything, always: categorize findings by severity, but fix
 100%. With AI agents, fix cost is near-zero. Exception: `/remediate`

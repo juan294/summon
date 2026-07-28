@@ -6,7 +6,7 @@ sufficient for a single charter's execution).
 
 Independent, fresh-context exploratory testing of a fixed release candidate. This
 is **Wave B** of the E2E Pro release-verification system
-(`templates/e2e-pro-playbook-template.md`) — the cheap, high-yield layer that
+(`docs/release/e2e-pro-playbook.md`) — the cheap, high-yield layer that
 targets interaction and recovery failures deterministic suites miss.
 
 It complements, and does not replace:
@@ -16,7 +16,7 @@ It complements, and does not replace:
 - **`/release`** — the tagging authority. Charters feed evidence into the release
   gate; they never tag.
 
-Read `templates/e2e-pro-playbook-template.md` Section 6 (Wave B) for the full
+Read `docs/release/e2e-pro-playbook.md` Section 6 (Wave B) for the full
 decision detail. This command is the executable protocol.
 
 ## Input
@@ -86,8 +86,21 @@ concrete reason). **Omitting a row invalidates the charter.**
 | 7 | Read back downstream state | Authorized HTTP, datastore, storage, event, or telemetry evidence. |
 | 8 | Ask "should this exist?" | Challenge unsafe, contradictory, confusing, impossible behavior. |
 
-For non-visual systems, adapt maneuver 5 to the relevant execution context (OS,
-API version, shell, network condition, client SDK, tenant config, input encoding).
+### summon's maneuver adaptation
+
+summon is a macOS CLI that drives Ghostty through AppleScript. There is no
+browser, no datastore, no auth, and no vendor API. Read the maneuvers as:
+
+| # | Generic | summon |
+|---:|---|---|
+| 1 | Try the action twice | Launch the same project twice -- no duplicated panes, no corrupted status records. |
+| 2 | Edit after every error | After a failed launch, fix the config and relaunch; stale state must clear. |
+| 3 | Interrupt mid-flow | SIGINT during launch; Ctrl-C at a prompt. No orphaned `.tmp`, `.pid`, or `.active` files. |
+| 4 | Second session or role | Two concurrent `summon` invocations -- concurrent-write safety (the #524 class). |
+| 5 | **Locale and viewport** -> **shell, terminal size, Node version** | zsh vs bash; a narrow terminal (monitor TUI truncation); Node 20 vs 24. |
+| 6 | Compare copy with outcome | Error messages match real behavior; `summon doctor` claims match reality. |
+| 7 | Read back downstream state | Inspect `~/.config/summon/**`: schema `version` present, no leaked keys, no residue. |
+| 8 | Should this exist? | Challenge unsafe behavior -- e.g. the install-software-on-launch prompt (`launcher.ts:216-268`). |
 
 Default timebox: **30 minutes** per charter. A timebox does not turn an untested
 high-risk area into a pass — agents report where time expired.
@@ -96,13 +109,27 @@ high-risk area into a pass — agents report where time expired.
 
 Charter agents MUST:
 
-- use synthetic, run-scoped fixtures (`<PROJECT_FIXTURE_PREFIX>-<RUN_ID>`);
+- use synthetic, run-scoped fixtures (`summon-rel-<RUN_ID>`, matching `src/release/helpers.ts`);
+- run against an **isolated `HOME`**, never the real `~/.config/summon`. This is
+  not hygiene: `ensureConfig()` creates config files on the first read and the
+  cache flushes at exit, so even `list` and `config` mutate the maintainer's
+  state. Reuse the `makeIsolatedHome()` harness;
 - operate only within the charter's authorization;
 - never touch real user data;
-- never trigger live charges, email, messages, destructive mutations, or hardware
-  actions without explicit authorization (playbook D20);
 - clean up only their own fixtures and prove zero unexpected residue;
 - observe and report — never opportunistically change production or code.
+
+For summon specifically, these are **out of bounds** without explicit
+authorization (playbook D20):
+
+- `summon trust` against a real project directory — it grants execution rights;
+- accepting the install-software prompt (`npm install -g …`, `brew install …`)
+  at `launcher.ts:216-268`, which mutates the global toolchain;
+- `summon doctor --fix`, which rewrites `~/.config/ghostty/config`;
+- any `npm publish`, `git tag`, or `git push`.
+
+Real-Ghostty charters run only on the maintainer's Mac. Their findings are
+observations, not fixes.
 
 ## Step 5: Report and gate
 
@@ -121,8 +148,33 @@ Present a consolidated summary: per-charter decision, all findings with severity
 and reproduction, skipped high-risk areas, and fixture/cleanup evidence. Every
 finding gets tracked (file an issue) — do not silently drop low-severity ones.
 
+### Wiring charters into the release gate
+
+The block rule above is not advisory prose — it executes. For each charter:
+
+1. Write the report to `docs/release/charters/<candidate>-<charterId>.md`.
+2. Validate it. A report missing a maneuver row is not a charter:
+
+   ```bash
+   node scripts/release/validate-charter.mjs docs/release/charters/<file>.md
+   ```
+
+3. Add one result row per charter to the evidence manifest, so the release
+   analyzer sees it:
+
+   ```jsonc
+   { "probeId": "charter.<id>", "required": true,
+     "status": "passed",                       // "failed" if the charter is BLOCKED
+     "oracles": { "report": "docs/release/charters/<file>.md" },
+     "fixtures": [ { "id": "summon-rel-<RUN_ID>-1", "cleanupStatus": "removed" } ] }
+   ```
+
+`pnpm analyze:release` then blocks on a failed charter (`REQUIRED_MISS`), missing
+cleanup evidence (`DIRTY_FIXTURE`), or an expired exception — no new gate logic
+required.
+
 Do not tag or release from this command. Hand the evidence to `/release`, which
-gates on it.
+gates on it via the analyzer. See `docs/release/release-checklist.md` step 5.
 
 ## Rules for this process
 
