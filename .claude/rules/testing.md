@@ -34,4 +34,13 @@ a revert costs more than the probe would have.
 ## Verification Sequencing
 
 Run checks sequentially, never as parallel Bash calls
-(hook enforced). Chain: `typecheck ; lint ; test`
+(hook enforced). The canonical chain, matching `.husky/pre-commit`
+and `CLAUDE.md`:
+
+```bash
+pnpm typecheck ; pnpm lint ; pnpm build ; pnpm test
+```
+
+`build` is not optional -- it is the only check that catches
+build-only breakage, which is why the pre-commit hook includes it.
+`docs/release/release-checklist.md` is the authority for this chain.

@@ -34,7 +34,10 @@ docs/plans/*
 # directory is excluded, hence `docs/plans/*` rather than `docs/plans/`.
 !docs/plans/*-notes.md
 docs/research/
-docs/decisions/
+# ADRs are tracked: CLAUDE.md requires them to live here, and the schema
+# migration policy requires one per bump. Without this exception new ADRs
+# silently fail to commit (the three existing ones survive only by force-add).
+!docs/decisions/
 docs/prs/
 
 # Release probe intermediates (the manifest under docs/release/evidence/ is the

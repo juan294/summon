@@ -231,7 +231,7 @@ After user approval, implement all action items.
 2. **Run verification sequentially:**
 
    ```bash
-   $TEST_CMD; $TYPECHECK_CMD; $LINT_CMD
+   $TYPECHECK_CMD; $LINT_CMD; $BUILD_CMD; $TEST_CMD
    ```
 
 3. **Run `/simplify`** on all changed files.
@@ -332,7 +332,7 @@ For each PR by disposition:
 
    If the rebase resolves the conflict and CI is green, proceed with auto-merge. Otherwise, defer.
 
-Switch back to the triage branch (`main` or wherever the session started) before continuing to the report step.
+Switch back to the triage branch (`develop`, the integration branch, or wherever the session started) before continuing to the report step.
 
 ## Step 6: Report
 

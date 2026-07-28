@@ -123,9 +123,16 @@ When a release contains substantial changes and you want confidence before promo
 to `latest`, publish under the `next` tag first:
 
 ```bash
-# In the GitHub Release UI, use a pre-release flag, or publish manually under next:
+# Manual publish only -- see the caveat below.
 npm publish --tag next
 ```
+
+> **Caveat: the pre-release flag does not work as written.** `release.yml`
+> triggers on any `release: published` event, including pre-releases, and
+> publishes with no `--tag` argument -- so marking a GitHub Release as a
+> pre-release still lands the package on `latest`. Only the manual command above
+> honours `--tag next`, and it publishes without provenance. Treat the canary
+> path as unsupported until the workflow reads the pre-release flag.
 
 This does **not** affect what `npm install -g summon-ws` installs. Users can
 opt in with `npm install -g summon-ws@next`.

@@ -154,10 +154,18 @@ All commits must pass `pnpm typecheck && pnpm lint && pnpm build && pnpm test`.
 
 ## Deployment
 
+**`docs/release/release-checklist.md` is the single procedural authority for
+releases.** Follow it; do not reconstruct the steps from memory or from this
+summary.
+
 - `develop` deploys nowhere -- it's the integration branch
 - `main` is production: merging a PR to `main` is a release signal
-- npm publish is manual: `pnpm build && npm publish` (see docs/publishing.md)
-- Releases are tagged from `main`: `git tag v<version> && git push origin v<version>`
+- The release candidate is the **post-merge `main` SHA**, and the annotated tag
+  is created only after `pnpm analyze:release` exits 0
+- npm publish is **automatic** on GitHub Release `published`, via
+  `.github/workflows/release.yml`, which carries OIDC provenance. Do not run
+  `npm publish` by hand -- the manual path in `docs/publishing.md` is an
+  emergency fallback that loses provenance.
 
 ## Agent Behavior
 

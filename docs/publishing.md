@@ -33,21 +33,23 @@ When verifying a tarball with `tar tzf summon-ws-<version>.tgz`, expect to see
 - [x] `files` glob limits published contents to JS chunks + README + LICENSE (sourcemaps excluded)
 - [x] `engines: { "node": ">=20.19" }`
 - [x] `os: ["darwin"]` enforces macOS-only
-- [x] `prepublishOnly` runs `pnpm run build`
+- [x] `prepublishOnly` runs `pnpm typecheck && pnpm lint && pnpm test && pnpm build`
 - [x] `license: "MIT"` + LICENSE file
 - [x] Zero runtime dependencies
-- [x] CI pipeline (typecheck + build + test)
+- [x] CI pipeline (typecheck + lint + build + test, plus the release-probe gate)
 - [x] `keywords` for npm discoverability
 - [x] `repository`, `homepage`, `bugs` fields in package.json
 - [x] README.md
 
 ## Version Bumping
 
-Use `pnpm version patch|minor|major` to bump the version. This automatically:
-- Updates package.json version
-- Creates a git tag
+Edit the `version` field in `package.json` directly, then update CHANGELOG.md
+(Step 0 above).
 
-After running, also update CHANGELOG.md (Step 0 above).
+Do **not** use `pnpm version` for a release. It creates the tag at bump time, on
+`develop`, before verification and before the release PR merges -- but the tag
+must land on the post-merge `main` commit, after the evidence gate passes. See
+`docs/release/release-checklist.md` steps 2 and 7.
 
 ## Publishing a New Version
 
@@ -167,6 +169,12 @@ After this, `npm install -g summon-ws` will install the good version again.
 ### 3. Publish a canary fix before promoting to `latest`
 
 If you have a fix ready but want to test it before making it the default:
+
+> **Caveat:** `release.yml` triggers on any `release: published` event, including
+> pre-releases, and publishes with no `--tag` argument — so marking a GitHub
+> Release as a pre-release still lands the package on `latest`. Only the manual
+> command below honours `--tag next`, and it publishes without provenance. See
+> `docs/decisions/release-topology.md`.
 
 ```bash
 # Publish under the `next` tag — does NOT affect `latest`

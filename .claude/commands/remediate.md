@@ -169,7 +169,7 @@ After user approval:
    e. Run verification sequentially:
 
       ```bash
-      $TEST_CMD; $TYPECHECK_CMD; $LINT_CMD
+      $TYPECHECK_CMD; $LINT_CMD; $BUILD_CMD; $TEST_CMD
       ```
 
    f. Run `/simplify` on changed files.
@@ -224,7 +224,7 @@ starting Wave 2.
 
    a. Merge: `gh pr merge <pr-number> --squash`
    b. Pull: `git pull`
-   c. Run full verification: `$TEST_CMD; $TYPECHECK_CMD; $LINT_CMD`
+   c. Run full verification: `$TYPECHECK_CMD; $LINT_CMD; $BUILD_CMD; $TEST_CMD`
    d. If tests break, fix before proceeding to the next merge.
    e. Close the corresponding GitHub issue after successful merge.
 
@@ -233,7 +233,7 @@ starting Wave 2.
 6. **Run Wave 1 final verification:**
 
    ```bash
-   $TEST_CMD; $TYPECHECK_CMD; $LINT_CMD; $BUILD_CMD
+   $TYPECHECK_CMD; $LINT_CMD; $BUILD_CMD; $TEST_CMD
    ```
 
 7. **Push to remote. Monitor CI:**

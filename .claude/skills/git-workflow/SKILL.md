@@ -41,11 +41,16 @@ Wrong -- pushes ALL local tags, fails if any old tag exists on remote:
 git push --tags
 ```
 
-Right -- push specific tags by name or use --follow-tags:
+Right -- push the tag by name:
 
 ```bash
-git push origin main && git push origin v1.0.0
+git push origin v1.0.0
 ```
+
+Note: in this repo the `guard-bash.sh` PreToolUse hook BLOCKS any
+`git push` naming `main`/`master` unless `--follow-tags` is present
+(Error #48). `main` advances by merging the release PR, not by a
+direct push, so the tag push above is all that is needed.
 
 ## Branch Verification
 

@@ -21,6 +21,10 @@ paths:
 - **Dependabot PRs often target the production branch by default.**
   Never merge directly. Move updates onto the non-production integration
   path, close the original PR, and release through the normal flow.
+  In summon this is already configured: `.github/dependabot.yml` sets
+  `target-branch: "develop"` for both ecosystems, so Dependabot PRs land
+  on the integration branch and `/triage` may auto-merge them. Verify the
+  base branch before merging rather than assuming it.
 - **Every CI run and deployment costs money.**
   Estimate runs/deploys before starting.
   If more than 2-3, batch the work.

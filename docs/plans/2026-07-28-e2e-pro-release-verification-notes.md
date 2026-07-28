@@ -67,3 +67,24 @@
   ci.yml it skipped 100% of the time by construction, not just in practice.
 - **Chose:** added the same best-effort `brew install --cask ghostty` step ci.yml already had.
 - **Why:** gives the advisory probe a chance to assert something; costs nothing when it fails.
+
+### Phase 4 — C26/C28 not fixable in-repo
+
+- **Plan said:** fold `MANUAL_TESTBED.md` and `docs/release-test-plan.md` into the checklist and
+  mark them superseded.
+- **Found:** neither is in git. `MANUAL_TESTBED.md` is untracked; `docs/release-test-plan.md` is
+  excluded via `.git/info/exclude:9`, a *local* exclude. Both exist only in the maintainer's
+  working copy, so they are absent from the worktree and cannot be changed by a commit.
+- **Chose:** the checklist's step 6 "Real-Ghostty arc" absorbs their substantive content (the
+  manual Ghostty gate at `publishing.md:103-107`). The two local files are left alone and flagged
+  to the maintainer.
+- **Why:** editing files that exist in no clone would create the illusion of a fix. Their
+  disposition is the maintainer's call since they are personal working documents.
+
+### Phase 4 — `docs/decisions/` un-ignored
+
+- **Plan said:** add a `!docs/decisions/` exception.
+- **Found:** confirmed the problem was real -- the directory was gitignored while `CLAUDE.md`
+  requires ADRs to live there, and the three existing ADRs survived only because they were
+  force-added. New ADRs would have silently failed to commit.
+- **Chose:** added the exception as planned.

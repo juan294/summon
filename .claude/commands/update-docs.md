@@ -88,13 +88,18 @@ For each document in the approved plan:
 1. Read the full document.
 2. Apply content updates: document new features, changed behavior, removed items.
 3. Update Mermaid diagrams to match the current code structure.
-4. Update version references and counts. Run the project's invariant scripts
-   rather than grepping by hand -- hardcoded values drift in places a manual
-   sweep misses. In cc-rpi: `scripts/verify-counts.sh` (counts agree
-   everywhere stated), `scripts/verify-version.sh` (version strings match
-   CHANGELOG), `scripts/verify-skills.sh` (skill frontmatter and size), and
-   `scripts/check-tree-drift.sh` (`templates/` vs `.claude/`). Fix every
-   location they report.
+4. Update version references and counts. summon ships no invariant scripts, so
+   the sweep is a grep -- do it thoroughly rather than from memory:
+
+   ```bash
+   V=$(node -p "require('./package.json').version")
+   git grep -n -F "$V"; git grep -n -F "v$V"
+   ```
+
+   The mechanical backstop for version drift is the version-vs-tag equality gate
+   in `.github/workflows/release.yml`, which fails the release if
+   `package.json` and the tag disagree. Watch for shields.io badges, which carry
+   the version up to three times on one line.
 5. Preserve existing document structure, voice, and formatting.
 6. For inline docs (JSDoc, docstrings, doc comments):
    - Update `@param`, `@returns`, `@example` to match current signatures.

@@ -1,4 +1,4 @@
-# Project: [PROJECT NAME]
+# Project: summon
 
 ## Codex Compatibility
 

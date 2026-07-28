@@ -43,8 +43,12 @@ Wrong -- run typecheck, lint, test as parallel tool calls:
 Right -- chain sequentially with semicolons:
 
 ```bash
-pnpm run typecheck 2>&1; pnpm run lint 2>&1; pnpm run test 2>&1
+pnpm typecheck ; pnpm lint ; pnpm build ; pnpm test
 ```
+
+`build` is included deliberately -- it is the only check that catches
+build-only breakage. `docs/release/release-checklist.md` is the
+authority for this chain.
 
 ## Pre-Commit Verification
 
