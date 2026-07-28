@@ -49,3 +49,21 @@
   retry across the rebuild window) and every probe spawns that copy. Cleaned up in `afterAll`.
 - **Why:** a required probe that flakes on a concurrent rebuild is exactly the unreliability this
   system exists to eliminate. Verified with three consecutive clean full-suite runs.
+
+### Phase 3 — fail-closed decision extracted so it is testable
+
+- **Plan said:** make the E2E fail when `SUMMON_E2E_REQUIRED=1` and the dictionary is unreachable.
+- **Found:** on a Mac with Ghostty installed the dictionary IS reachable, so the failure branch --
+  the single most important one -- could never be exercised by the suite itself.
+- **Chose:** extracted `decideE2E(mode, dictionaryAvailable) -> "run" | "skip" | "fail"` as a pure
+  function and unit-tested all six combinations, alongside the real suite.
+- **Why:** proves the fail-closed invariant on any machine, without uninstalling Ghostty. The
+  three-state contract is now verified rather than asserted.
+
+### Phase 3 — release.yml gained a Ghostty install step
+
+- **Plan said:** reorder release.yml so verification precedes publish.
+- **Found:** `release.yml` ran `pnpm test:e2e` with no Ghostty install step at all, so unlike
+  ci.yml it skipped 100% of the time by construction, not just in practice.
+- **Chose:** added the same best-effort `brew install --cask ghostty` step ci.yml already had.
+- **Why:** gives the advisory probe a chance to assert something; costs nothing when it fails.

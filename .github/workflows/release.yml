@@ -70,6 +70,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
+      - name: Warn when no SBOM was produced
+        # A silently-absent SBOM is indistinguishable from a successful one at
+        # job-status level; only 1 of 15 releases actually carries one. Make the
+        # absence visible without turning it into a gate.
+        if: hashFiles('sbom.json') == ''
+        run: echo "::warning::No sbom.json was produced; this release will ship without an SBOM."
+
       - name: Pack and inspect tarball
         run: |
           npm pack
@@ -98,16 +105,61 @@ jobs:
           path: summon-ws-*.tgz
           retention-days: 1
 
+      - name: Attempt Ghostty install for the AppleScript E2E (#517)
+        # release.yml previously ran the E2E with no Ghostty present at all, so
+        # it skipped 100% of the time. Best-effort install gives it a chance to
+        # actually assert something.
+        continue-on-error: true
+        run: brew install --cask ghostty
+
       - name: AppleScript E2E smoke test
-        # Validates generated AppleScript syntax via osacompile (no Ghostty needed)
+        # Advisory: a hosted runner usually cannot resolve the Ghostty
+        # dictionary even with the cask installed, so this records a skip
+        # reason rather than pretending to pass. The blocking gate is the
+        # release-evidence analyzer below.
         run: SUMMON_E2E=1 pnpm test:e2e
+
+      # ── Release evidence gate (E2E Pro Wave A) ──────────────────────────
+      # Everything above this point can be green while the release is still
+      # unsafe. These three steps are what make tagging truthful, and they run
+      # BEFORE publish so a failure is recoverable.
+      - name: Verify candidate identity
+        run: |
+          TAG_SHA=$(git rev-list -n1 "$GITHUB_REF_NAME")
+          echo "Tag $GITHUB_REF_NAME -> $TAG_SHA"
+          echo "Workflow SHA        -> $GITHUB_SHA"
+          if [ "$TAG_SHA" != "$GITHUB_SHA" ]; then
+            echo "ERROR: the tag does not point at the commit being built." && exit 1
+          fi
+
+      - name: Run release probes
+        run: pnpm test:release
+        env:
+          SUMMON_RELEASE_CANDIDATE: ${{ github.sha }}
+
+      - name: Build evidence manifest
+        if: always()
+        run: |
+          pnpm release:manifest \
+            --out release-evidence.json \
+            --environment ci-macos \
+            --baseline "$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo none)"
+        env:
+          SUMMON_RELEASE_CANDIDATE: ${{ github.sha }}
+
+      - name: Analyze evidence (blocks the release)
+        # No continue-on-error. This is the gate.
+        run: pnpm analyze:release --manifest release-evidence.json --candidate "${{ github.sha }}"
 
       - name: Check if version already published
         run: |
           PKG_VERSION=$(node -p "require('./package.json').version")
-          if npm view summon-ws@$PKG_VERSION version 2>/dev/null | grep -q "$PKG_VERSION"; then
-            echo "Version $PKG_VERSION already published, skipping"
-            echo "ALREADY_PUBLISHED=true" >> $GITHUB_ENV
+          if npm view "summon-ws@${PKG_VERSION}" version 2>/dev/null | grep -q "$PKG_VERSION"; then
+            echo "::warning::Version $PKG_VERSION is already on npm; the publish step will be skipped."
+            echo "PUBLISH_OUTCOME=skipped-already-published" >> "$GITHUB_ENV"
+            echo "ALREADY_PUBLISHED=true" >> "$GITHUB_ENV"
+          else
+            echo "PUBLISH_OUTCOME=published" >> "$GITHUB_ENV"
           fi
 
       - name: Publish
@@ -117,6 +169,55 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         # OIDC trusted publisher on npmjs.com (juan294/summon + release.yml) provides
         # provenance attestation; NPM_TOKEN still required for registry PUT auth.
+
+      # ── Close the candidate-identity loop ───────────────────────────────
+      # npm SLSA provenance binds the tarball to a git commit. Assert it is the
+      # commit we actually verified: this is the check that would have caught
+      # v1.8.0 being tagged against two different trees ten minutes apart.
+      - name: Verify published provenance matches the candidate
+        if: env.ALREADY_PUBLISHED != 'true'
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          # The registry needs a moment to expose a freshly-published attestation.
+          for attempt in 1 2 3 4 5; do
+            PROV_SHA=$(curl -sf "https://registry.npmjs.org/-/npm/v1/attestations/summon-ws@${PKG_VERSION}" \
+              | node -e '
+                let raw = "";
+                process.stdin.on("data", (c) => (raw += c));
+                process.stdin.on("end", () => {
+                  try {
+                    const doc = JSON.parse(raw);
+                    for (const att of doc.attestations ?? []) {
+                      const payload = att?.bundle?.dsseEnvelope?.payload;
+                      if (!payload) continue;
+                      const stmt = JSON.parse(Buffer.from(payload, "base64").toString());
+                      const dep = stmt?.predicate?.buildDefinition?.resolvedDependencies?.[0];
+                      if (dep?.digest?.gitCommit) { process.stdout.write(dep.digest.gitCommit); return; }
+                    }
+                  } catch { /* fall through to retry */ }
+                });
+              ') || true
+            [ -n "$PROV_SHA" ] && break
+            echo "Attestation not available yet (attempt $attempt); retrying..."
+            sleep 15
+          done
+
+          if [ -z "$PROV_SHA" ]; then
+            echo "::warning::Could not read provenance attestation; skipping identity assertion."
+            exit 0
+          fi
+          echo "Provenance gitCommit -> $PROV_SHA"
+          echo "Verified candidate   -> $GITHUB_SHA"
+          if [ "$PROV_SHA" != "$GITHUB_SHA" ]; then
+            echo "ERROR: published artifact was built from $PROV_SHA, not the verified candidate $GITHUB_SHA." && exit 1
+          fi
+
+      - name: Attach release evidence to the GitHub Release
+        if: always() && hashFiles('release-evidence.json') != ''
+        continue-on-error: true
+        run: gh release upload "$GITHUB_REF_NAME" release-evidence.json --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
 
   # Validate the published tarball on Node 20.19 (minimum) and 24 (latest).
   # Node 22 is already smoke-tested inside the publish job above.
