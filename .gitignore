@@ -28,7 +28,11 @@ scripts/agents/
 
 # Internal docs (agent reports, plans, research, decisions, PRs)
 docs/agents/
-docs/plans/
+docs/plans/*
+# Deviation notes stay tracked: /validate reads them, and a worktree teardown
+# would otherwise destroy them. git cannot re-include a path whose parent
+# directory is excluded, hence `docs/plans/*` rather than `docs/plans/`.
+!docs/plans/*-notes.md
 docs/research/
 docs/decisions/
 docs/prs/
