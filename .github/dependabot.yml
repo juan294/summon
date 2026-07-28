@@ -10,8 +10,11 @@ updates:
       day: "monday"
     open-pull-requests-limit: 10
     groups:
+      # Keep major upgrades out of routine batches so unsupported toolchain
+      # jumps (for example TypeScript 6 -> 7) can be evaluated independently.
       production:
         applies-to: version-updates
+        update-types: ["minor", "patch"]
         patterns:
           - "*"
         exclude-patterns:
@@ -22,6 +25,7 @@ updates:
           - "@testing-library/*"
       dev-and-types:
         applies-to: version-updates
+        update-types: ["minor", "patch"]
         patterns:
           - "@types/*"
           - "eslint*"
