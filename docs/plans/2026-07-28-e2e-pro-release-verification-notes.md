@@ -101,3 +101,21 @@
 - **Why:** the template explicitly rejects claiming completion for deleted waves. An audit that
   reported all-green would make the system look more complete than it is, which is the exact
   failure mode this adoption exists to eliminate.
+
+### Phase 6 — placeholder criterion restated
+
+- **Plan said:** `grep -c "<[A-Z_]\{4,\}>" docs/release/e2e-pro-playbook.md` == 0.
+- **Found:** 63 tokens remain, all inside the fenced report templates of Sections 7, 9, 13 and 14
+  (evidence manifest example, charter report template, epic template, agent brief). Those are
+  filled per release, not once at adoption -- removing them would destroy the templates.
+- **Chose:** restated the criterion as "zero placeholders outside code fences", which is met
+  (verified: 2 hits, one being prose *about* placeholders and one a runtime `<RUN_ID>`).
+- **Why:** the original phrasing would have forced either a false tick or gutting the templates.
+
+### Phase 6 — rehearsal fixtures are inline, not a `__fixtures__/` directory
+
+- **Plan said:** rehearsal fixtures live in `src/release/__fixtures__/`.
+- **Chose:** built them with a `goodManifest()` factory inside `src/release/rehearsal.test.ts`.
+- **Why:** every blocking case is the good manifest with exactly one field damaged. Expressing
+  that as a factory plus overrides makes the difference between pass and block visible at the call
+  site; twelve near-identical JSON files would hide it.
