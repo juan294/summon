@@ -37,6 +37,11 @@ docs/research/
 docs/decisions/
 docs/prs/
 
+# Release probe intermediates (the manifest under docs/release/evidence/ is the
+# durable artifact; these are the raw inputs that produce it)
+.release-results.json
+.release-fixtures.json
+
 # Local summon config
 .summon
 

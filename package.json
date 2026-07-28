@@ -21,7 +21,8 @@
     "pretest:coverage": "pnpm build",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "SUMMON_E2E=1 vitest run src/e2e",
-    "test:release": "vitest run src/release",
+    "test:release": "vitest run src/release --reporter=default --reporter=json --outputFile.json=.release-results.json",
+    "release:manifest": "node scripts/release/build-manifest.mjs",
     "analyze:release": "node scripts/release/analyze-release.mjs",
     "prepublishOnly": "pnpm run typecheck && pnpm run lint && pnpm run test && pnpm run build",
     "prepare": "husky"
