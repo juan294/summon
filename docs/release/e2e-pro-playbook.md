@@ -1,13 +1,19 @@
-# E2E Pro Release Verification Playbook — Cross-Project Implementation Template
+# E2E Pro Release Verification Playbook — summon
 
-> Template version: 1.0
+> Adapted from cc-rpi template version 1.0 (upstream `9b6aa4a`) on 2026-07-28.
+> Seeded byte-identical in commit `1e42539`, then adapted; see
+> `docs/plans/2026-07-28-e2e-pro-release-verification.md`.
 >
-> Intended audience: implementation agents and maintainers adapting this quality system to
-> another repository, environment model, and technology stack.
+> Audience: maintainers and agents reasoning about summon's release-verification
+> architecture.
 
-This is a cc-rpi blueprint template. Copy it into a target project and adapt it. It is
-intentionally comprehensive; the 200-line limit it prescribes applies to the *finished* project's
-day-to-day release procedure, not to this adoption-and-architecture template.
+**This is the architecture and decision document, not the procedure.** The
+day-to-day release procedure is `docs/release/release-checklist.md`, which is
+kept under 200 lines per D02. This file explains *why* the gate is shaped the
+way it is; the checklist says what to run.
+
+Waves A and B are implemented. Waves C-H are dispositioned with reasons in
+Section 6 — read those before proposing to build any of them.
 
 ## Where This Fits in cc-rpi
 
@@ -41,17 +47,31 @@ tests, TTL automation) are structural and expensive. Adopt them **by project ris
 default. Use the MUST/SHOULD/MAY language below and the "delete inapplicable sections and record
 why" rule to right-size each adoption.
 
-## How to Use This Template
+## Adoption status
 
-1. Copy this document into the target repository.
-2. Replace every `<PLACEHOLDER>` with a verified project-specific value.
-3. Delete sections that are genuinely inapplicable and record why they are inapplicable.
-4. Create the machine-readable artifacts described here; this document alone is not the
-   finished system.
-5. Keep the hard invariants intact. Adapt commands, paths, tools, and environment tiers—not
-   the evidence standard.
-6. Create a project epic that tracks each implementation wave and links to the resulting
-   artifacts.
+This copy is adapted, not a blank template. Remaining `<PLACEHOLDER>` tokens
+appear only inside the report templates of Sections 7, 9, 13 and 14, where they
+are filled per release rather than once.
+
+Delivered artifacts:
+
+```text
+docs/release/release-checklist.md         procedural authority (D01/D02)
+docs/release/evidence/schema.md           evidence manifest schema v1
+docs/release/evidence/cadence.json        the one TTL obligation
+docs/release/charters/                    exploratory charter reports
+scripts/release/analyzer.mjs              the invariant, as pure logic
+scripts/release/analyze-release.mjs       the gate (BLOCKED/WHY/FIX, exit 1)
+scripts/release/build-manifest.mjs        vitest JSON -> evidence manifest
+scripts/release/validate-charter.mjs      maneuver-completeness enforcement
+src/release/probes.test.ts                8 release-required probes
+src/release/no-skip.test.ts               bans the skip that caused the bug
+src/release/rehearsal.test.ts             2 positive + 10 blocking rehearsals
+.claude/commands/explore-release.md       Wave B protocol, wired in
+```
+
+Hard invariants were kept intact; commands, paths, tiers, and wave scope were
+adapted. The evidence standard was not weakened.
 
 Suggested destination:
 
@@ -192,61 +212,69 @@ immediate gates.
 
 ## 5. Project Adaptation Profile
 
-Complete this table using repository evidence before implementing anything.
+Verified against repository evidence on 2026-07-28. Research:
+`docs/research/2026-07-28-e2e-pro-release-verification.md`.
 
 | Area | Project value |
 |---|---|
-| Project | `<PROJECT_NAME>` |
-| Repository visibility | `<PRIVATE_OR_PUBLIC>` |
-| Primary product type | `<WEB_APP_API_MOBILE_DESKTOP_CLI_LIBRARY_MONOREPO_OTHER>` |
-| Package/build system | `<PACKAGE_MANAGER_AND_BUILD_SYSTEM>` |
-| Integration branch | `<INTEGRATION_BRANCH>` |
-| Production branch | `<PRODUCTION_BRANCH>` |
-| Merge strategy | `<MERGE_COMMIT_SQUASH_REBASE_OTHER>` |
-| Release artifact | `<COMMIT_IMAGE_PACKAGE_BINARY_APP_BUNDLE_OTHER>` |
-| Deployment provider | `<DEPLOY_PROVIDER>` |
-| Local test target | `<LOCAL_TARGET>` |
-| Preview target | `<PREVIEW_TARGET_OR_NONE>` |
-| Staging target | `<STAGING_TARGET_OR_NONE>` |
-| Production target | `<PRODUCTION_TARGET>` |
-| Test runner(s) | `<TEST_RUNNERS>` |
-| Unit command | `<UNIT_TEST_COMMAND>` |
-| Integration command | `<INTEGRATION_TEST_COMMAND>` |
-| E2E command | `<E2E_COMMAND>` |
-| Typecheck command | `<TYPECHECK_COMMAND_OR_NONE>` |
-| Lint command | `<LINT_COMMAND_OR_NONE>` |
-| Build command | `<BUILD_COMMAND>` |
-| Release-report command | `<RELEASE_REPORT_COMMAND>` |
-| Primary datastore | `<DATASTORE_OR_NONE>` |
-| Object/media storage | `<OBJECT_STORE_OR_NONE>` |
-| Queue/event system | `<QUEUE_EVENT_SYSTEM_OR_NONE>` |
-| Authentication | `<AUTH_PROVIDER_OR_INTERNAL>` |
-| Payments/entitlements | `<PAYMENT_PROVIDER_OR_NONE>` |
-| Email/notifications | `<NOTIFICATION_PROVIDERS_OR_NONE>` |
-| Other external vendors | `<EXTERNAL_VENDORS_OR_NONE>` |
-| Observability | `<LOGS_TRACES_METRICS_ERROR_TRACKING>` |
-| Hardware/real-device surfaces | `<SURFACES_OR_NONE>` |
-| Agent command directory | `<AGENT_COMMAND_DIRECTORY>` |
-| Capability registry owner | `<TEAM_OR_ROLE>` |
-| Release approver | `<ROLE>` |
-| Rollback authority | `<ROLE>` |
+| Project | summon (npm `summon-ws`) |
+| Repository visibility | public |
+| Primary product type | CLI, macOS only |
+| Package/build system | pnpm 10.29.2, tsup, TypeScript 6 |
+| Integration branch | `develop` (repo default) |
+| Production branch | `main` |
+| Merge strategy | squash only; merge commits and rebase disabled repo-side |
+| Release artifact | npm tarball `summon-ws-<version>.tgz` |
+| Deployment provider | npm registry (no hosting provider) |
+| Local test target | Node >=20.19 on macOS |
+| Preview target | NONE -- no preview infrastructure exists |
+| Staging target | NONE |
+| Production target | npm `latest` dist-tag plus end-user Macs |
+| Test runner(s) | Vitest 4 |
+| Unit command | `pnpm test` |
+| Integration command | NONE distinct -- all suites are unit-level, `child_process` mocked |
+| E2E command | `pnpm test:e2e` (advisory) and `pnpm test:release` (the gate) |
+| Typecheck / Lint / Build | `pnpm typecheck` / `pnpm lint` / `pnpm build` |
+| Release-report command | `pnpm release:manifest` then `pnpm analyze:release` |
+| Primary datastore | NONE -- flat files under `~/.config/summon/` |
+| Object storage / Queue / Auth / Payments / Email | NONE |
+| Other external vendors | Ghostty.app, osascript/System Events, macOS TCC, git, starship, brew/npm |
+| Observability | NONE -- no telemetry, error tracking, or crash reporting |
+| Hardware/real-device surfaces | the maintainer's Mac: GUI session plus a TCC Accessibility grant |
+| Agent command directory | `.claude/commands/` |
+| Capability registry owner | maintainer (sole) |
+| Release approver | maintainer |
+| Rollback authority | maintainer |
 
 ### Environment truth table
 
-Do not infer an environment's fidelity from its name.
+Do not infer an environment's fidelity from its name. summon's ceiling is low,
+and that is the central constraint on this whole adoption.
 
 | Environment | Exact artifact? | Real auth? | Real datastore? | Real vendors? | Safe writes? | Main limitations |
 |---|---:|---:|---:|---:|---:|---|
-| Local | `<YES_NO>` | `<YES_NO>` | `<YES_NO>` | `<YES_NO>` | `<YES_NO>` | `<LIMITATIONS>` |
-| CI | `<YES_NO>` | `<YES_NO>` | `<YES_NO>` | `<YES_NO>` | `<YES_NO>` | `<LIMITATIONS>` |
-| Preview | `<YES_NO_NA>` | `<YES_NO_NA>` | `<YES_NO_NA>` | `<YES_NO_NA>` | `<YES_NO_NA>` | `<LIMITATIONS>` |
-| Staging | `<YES_NO_NA>` | `<YES_NO_NA>` | `<YES_NO_NA>` | `<YES_NO_NA>` | `<YES_NO_NA>` | `<LIMITATIONS>` |
-| Production | `<YES_NO>` | `<YES_NO>` | `<YES_NO>` | `<YES_NO>` | `<YES_NO>` | `<LIMITATIONS>` |
+| Local (dev Mac) | YES | N/A | N/A | YES | YES | the only place the product runs end to end |
+| CI ubuntu (`checks`, `test`, `Release probes`) | source, not tarball | N/A | N/A | NO | YES | `child_process` mocked in unit tests; the package cannot even be installed (`EBADPLATFORM`) |
+| CI macOS (`e2e-applescript`) | source | N/A | N/A | NO | YES | Ghostty installs, dictionary stays unreachable; advisory only |
+| Preview | N/A | N/A | N/A | N/A | N/A | does not exist |
+| Staging | N/A | N/A | N/A | N/A | N/A | does not exist |
+| Production (npm + user Macs) | YES | N/A | N/A | YES | NO | publish is irreversible; no telemetry, so failures are invisible unless a user reports them |
 
-If production is the first full-integration environment, record that as an open release risk and
-prioritize a safer full-fidelity environment or cost-bounded synthetic production probes.
+**OPEN RELEASE RISK -- production is the first and only full-integration
+environment.** Three independent blockers make a real Ghostty launch impossible
+in hosted CI, each individually sufficient:
 
----
+1. macOS TCC Accessibility cannot be granted non-interactively -- no CLI, no
+   plist, no env var (`src/utils.ts:165-176`).
+2. There is no GUI session; Ghostty must be running and windowable, and the
+   script drives it via System Events keystrokes (`src/script.ts:349`).
+3. The AppleScript dictionary is not resolvable after `brew install --cask
+   ghostty` on a headless runner (empirically confirmed).
+
+The mitigation is the TTL-bound manual arc `ghostty.real-launch`
+(`docs/release/evidence/cadence.json`), which blocks the release when overdue.
+This gap is recorded rather than papered over, per D18.
+
 
 ## 6. Implementation Waves
 
@@ -471,7 +499,8 @@ The release is blocked when:
 
 Exploratory agents MUST:
 
-- use synthetic, run-scoped fixtures such as `<PROJECT_FIXTURE_PREFIX>-<RUN_ID>`;
+- use synthetic, run-scoped fixtures named `summon-rel-<RUN_ID>-<n>`, matching
+  `src/release/helpers.ts` and `.claude/commands/explore-release.md`;
 - operate only within the charter's authorization;
 - avoid real user data;
 - avoid live charges, email, messages, destructive mutations, or hardware actions without
@@ -480,431 +509,25 @@ Exploratory agents MUST:
 - record fixture identifiers and prove zero unexpected residue;
 - observe and report findings rather than opportunistically changing production or code.
 
-### Wave C — Build the Capability Registry
+### Waves C-H — scoped out, with reasons
 
-The registry is the durable inventory from which coverage is generated and audited.
+Template rule 3: *delete sections that are genuinely inapplicable and record why
+they are inapplicable.* Wave A is the mandatory floor and is implemented; Wave B
+is implemented via `/explore-release`. The structural waves are dispositioned
+here rather than cargo-culted.
 
-#### C1. Registry schema
-
-Use YAML, JSON, TOML, or another schema-validated format. Example:
-
-```yaml
-schemaVersion: 1
-capabilities:
-  - id: account.member-invitation
-    name: Invite a member
-    owner: identity-team
-    risk: critical
-    description: An authorized member invites another actor into a scoped resource.
-
-    surfaces:
-      - web
-      - api
-      - email
-
-    actors:
-      - owner
-      - existing-member
-      - invitee
-      - unauthorized-user
-
-    states:
-      resource:
-        - active
-        - archived
-      invitation:
-        - absent
-        - pending
-        - accepted
-        - expired
-        - revoked
-
-    factors:
-      locale: [en, es]
-      auth: [fresh, expired]
-      vendorOutcome: [success, timeout, rejected]
-
-    invariants:
-      - id: invitation.no-privilege-escalation
-        statement: Acceptance never grants permissions beyond the invitation scope.
-      - id: invitation.no-duplicate-active-token
-        statement: Retrying creation does not create multiple usable invitations.
-      - id: invitation.copy-matches-state
-        statement: User-visible confirmation reflects the persisted invitation outcome.
-
-    transitions:
-      - from: absent
-        action: create
-        to: pending
-      - from: pending
-        action: accept
-        to: accepted
-      - from: pending
-        action: expire
-        to: expired
-
-    oracles:
-      - type: ui
-        assertion: Confirmation and next action match the resulting state.
-      - type: http
-        assertion: Response status and body match the transition contract.
-      - type: datastore
-        assertion: Exactly one scoped invitation is persisted.
-      - type: outbound-event
-        assertion: At most one invitation event is emitted.
-      - type: cleanup
-        assertion: Synthetic actors and invitations are removed.
-
-    tiers:
-      pullRequest: [unit, integration]
-      release: [preview, production-smoke]
-      nightly: [real-vendor]
-
-    cadence:
-      criticalManualArc:
-        intervalDays: 30
-        blocksWhenOverdue: true
-
-    safety:
-      productionWrites: synthetic-only
-      outwardEffects: explicit-authorization
-```
-
-#### C2. Invariant design rules
-
-Invariants MUST describe observable truth without depending on a particular implementation.
-
-Good:
-
-```text
-Retrying the same payment event does not grant the entitlement twice.
-```
-
-Weak:
-
-```text
-Function processWebhook calls repository.upsert once.
-```
-
-Each critical capability SHOULD include invariants for:
-
-- authorization and isolation;
-- data integrity;
-- idempotency;
-- error recovery;
-- concurrency or repeat behavior;
-- copy versus outcome;
-- cleanup or reversibility;
-- vendor degradation;
-- privacy and security;
-- product validity: whether the resulting state should be allowed to exist.
-
-#### C3. Census gate
-
-CI MUST detect when a change adds or materially changes any of the following without registry
-coverage or an explicit, reviewed exemption:
-
-- user-facing route, screen, command, or workflow;
-- mutating endpoint or public API operation;
-- background job, scheduled task, queue consumer, or webhook;
-- external vendor seam;
-- feature flag;
-- actor or permission type;
-- persisted state or enum value;
-- release-critical infrastructure surface.
-
-The census begins with a measured baseline and ratchets toward zero unexplained gaps. New gaps
-fail immediately.
-
-### Wave D — Add Constrained Combination Coverage
-
-Exhaustive Cartesian testing is usually too expensive. Hand-picked happy paths are too weak.
-Use risk-aware constrained interaction testing.
-
-#### D1. Factor inventory
-
-For every capability, identify only factors that can change behavior:
-
-| Factor class | Examples |
-|---|---|
-| Actor | anonymous, owner, member, admin, expired session |
-| Resource state | new, active, partially complete, archived, deleted |
-| Operation | create, edit, retry, cancel, restore, merge |
-| Input mode | typed, uploaded, imported, recorded |
-| Vendor outcome | success, timeout, malformed, rejected, duplicate callback |
-| Client context | locale, viewport, OS, network, SDK version |
-| Concurrency | one session, two sessions, duplicate request, stale client |
-| Entitlement | free, paid, trial, expired, refunded |
-| Delivery state | queued, sent, bounced, acknowledged |
-
-Use project-specific factors. Do not include values that cannot affect the behavior merely to
-inflate coverage.
-
-#### D2. Coverage strength
-
-Generate constrained pairwise scenarios for ordinary factor interactions.
-
-Create explicit three-way scenarios for known-dangerous interactions. The initial danger catalog
-SHOULD consider:
-
-```text
-actor × resource-state × operation
-creation-mode × enhancement × vendor-outcome
-locale × auth × return-to
-payment × webhook × retry
-media-source × mix-state × consuming-surface
-error × edit × retry
-source-roles × destination-roles × consolidate-or-reopen
-```
-
-Replace or extend these with the target project's historical bug classes.
-
-#### D3. Constraints
-
-Encode invalid combinations explicitly:
-
-```yaml
-constraints:
-  - if:
-      actor: anonymous
-    thenNot:
-      entitlement: paid-existing-account
-
-  - impossible:
-      resourceState: deleted
-      operation: edit
-```
-
-Constraints MUST distinguish:
-
-- impossible state;
-- unsafe or unauthorized test;
-- unsupported environment;
-- valid negative scenario.
-
-A valid negative scenario is a test, not a constraint to remove.
-
-#### D4. Reproducibility
-
-Generated plans MUST record:
-
-- generator version;
-- input registry revision;
-- seed, if randomized;
-- constraints revision;
-- selected interaction strength;
-- resulting stable scenario IDs.
-
-The same inputs MUST reproduce the same plan.
-
-### Wave E — Build the Per-Release Plan Compiler
-
-The compiler turns the fixed release diff into an executable obligation list.
-
-#### E1. Inputs
-
-At minimum:
-
-```text
-last release reference
-candidate commit or artifact digest
-changed paths and dependency graph
-capability registry
-scenario catalog
-combination constraints
-environment capabilities
-test cadence and last-run records
-historical escape mappings
-active, unexpired exceptions
-```
-
-#### E2. Impact mapping
-
-Map changed code to capabilities through one or more verified methods:
-
-- explicit path ownership in the registry;
-- dependency graph;
-- route or endpoint ownership;
-- service/module manifests;
-- test-to-source metadata;
-- migration or schema ownership;
-- vendor integration ownership;
-- reviewed fallback classification for unmapped changes.
-
-An unmapped user-affecting change MUST fail plan compilation or require an explicit reviewed
-classification. It MUST NOT silently produce an empty plan.
-
-#### E3. Output
-
-The plan contains:
-
-```yaml
-release:
-  baseline: <LAST_RELEASE_REF>
-  candidate: <CANDIDATE_SHA_OR_DIGEST>
-  generatedAt: <UTC_TIMESTAMP>
-
-obligations:
-  - scenarioId: account.member-invitation.vendor-timeout-retry
-    capabilityId: account.member-invitation
-    required: true
-    reason:
-      - changed-path
-      - critical-three-way-interaction
-    environment: staging
-    runner: <COMMAND_OR_TEST_SELECTOR>
-    safetyClass: synthetic-write
-    expectedOracles: [http, datastore, outbound-event, cleanup]
-    status: pending
-```
-
-For each obligation, capture:
-
-- stable scenario ID;
-- capability;
-- why it was selected;
-- required or optional status;
-- environment;
-- command or runner;
-- safety and authorization class;
-- expected oracles;
-- result;
-- evidence links or paths;
-- fixture and cleanup record;
-- exception reason and expiry, if allowed.
-
-#### E4. Compiler failure conditions
-
-Compilation or final analysis fails when:
-
-- the candidate is missing or mutable;
-- an impacted path has no capability mapping;
-- no scenario is selected for an impacted critical capability;
-- a required environment is unavailable without an approved exception;
-- a critical TTL obligation is overdue;
-- a required result is missing, failed, or skipped;
-- evidence references another candidate;
-- cleanup is unverified;
-- zero checks passed.
-
-### Wave F — Improve Environment and Vendor Fidelity
-
-#### F1. Test-tier allocation
-
-Use the cheapest tier that can prove the invariant, but use a real seam where only the real seam
-can provide proof.
-
-| Tier | Primary purpose | Typical required evidence |
+| Wave | Disposition | Reason |
 |---|---|---|
-| Unit/property | Pure rules, parsers, generators, state invariants | Assertions and reproducible inputs |
-| Component/service integration | Datastore, queue, filesystem, protocol boundaries | Request plus durable readback |
-| Local stub/emulator | Deterministic vendor shapes and fault injection | Success, timeout, malformed, rejection, retry |
-| Preview/staging E2E | Deployed artifact across application layers | Artifact identity plus multi-layer oracles |
-| Production smoke | Public routing, real deployment, narrowly safe critical paths | Version, response, readback, cleanup |
-| Scheduled real-vendor | Credentials, contracts, quotas, provider behavior | Cost-bounded request and provider-side evidence |
-| Real device/hardware | Physical, OS, permission, media, or peripheral behavior | Timestamped device evidence |
+| C — Capability registry | **Inapplicable at this scale** | 20 subcommands, one product surface, one maintainer. The 8-probe required set under `src/release/` *is* the inventory, and it is machine-readable by directory membership. Revisit if the command surface roughly doubles or a second maintainer joins. |
+| D — Combination engine | **Inapplicable** | The real factor space is shell x terminal size x Node version x layout, already covered by the CI matrix and charter maneuver 5. There are no actor, entitlement, tenant, or vendor-outcome dimensions to combine -- summon has no auth, no roles, and no remote API. |
+| E — Plan compiler | **Deferred, blocked on C** | A compiler maps changed paths to capabilities via the registry. Without one it would emit the same 8 probes for every diff, which is what `pnpm test:release` already does unconditionally. Unconditional execution is strictly safer than a compiler that could select nothing. |
+| F — Environment/vendor fidelity | **Partially applicable, hard-blocked** | There is no staging and none can be built: TCC cannot be granted non-interactively. Rather than claim coverage, the gap is stated in the environment truth table above and covered by the `ghostty.real-launch` TTL arc. This is D18 applied honestly. |
+| G — Model-based tests | **Inapplicable** | No lifecycle state machine exists. The nearest analogue -- a workspace being active or stopped -- has two states and one transition each way, already covered by `src/status.test.ts`. There are no sharing, entitlement, media, or notification lifecycles. |
+| H — Cadence/TTL automation | **Minimally adopted** | Exactly one obligation exists (`ghostty.real-launch`). It is enforced by the analyzer's `OVERDUE_ARC` block and stored in `docs/release/evidence/cadence.json`. A general TTL framework for a single obligation would be more machinery than obligation. |
 
-#### F2. Permanent local stubs
+If any disposition above stops being true, the corresponding wave should be
+reopened rather than worked around.
 
-Each critical vendor seam SHOULD have a stable local substitute that:
-
-- matches the provider's relevant response and error shapes;
-- supports deterministic success and fault legs;
-- records calls for assertions;
-- supports delay, timeout, malformed output, rejection, and duplicate delivery where relevant;
-- does not require a live credential;
-- is safe for every contributor and CI.
-
-A stub proves application behavior against the modeled contract. It does not prove the real
-provider still honors that contract.
-
-#### F3. Scheduled live probes
-
-Each critical real seam SHOULD have a cost-bounded scheduled probe that:
-
-- uses a synthetic account or sandbox where possible;
-- sets explicit cost, rate, and timeout ceilings;
-- verifies provider response and downstream application state;
-- includes at least the highest-value fault or retry leg that the provider permits safely;
-- emits evidence and alerts;
-- does not turn a provider outage into silent quarantine;
-- has a documented escalation path.
-
-#### F4. Staging gap handling
-
-If staging intentionally disables or throws on a critical integration:
-
-1. mark that capability's staging tier as unsupported;
-2. prevent reports from counting it as full-integration coverage;
-3. move deterministic behavior to a local stub or sandbox;
-4. add a narrow real-seam probe at the safest available tier;
-5. track provisioning of a representative environment as structural work.
-
-Do not normalize "first full integration happens in public production" as acceptable permanent
-architecture.
-
-### Wave G — Add Model-Based and State-Machine Verification
-
-Use model-based testing where behavior depends on sequences rather than isolated inputs.
-
-Priority domains:
-
-- roles, sharing, membership, invitations, and access revocation;
-- create/edit/publish/archive/restore lifecycle;
-- subscription, payment, entitlement, refund, and retry;
-- upload/record/process/mix/play media lifecycle;
-- notification enqueue/send/retry/bounce/read;
-- merge, consolidation, migration, and reopen flows;
-- offline/online, reconnect, and multi-session behavior.
-
-For each model:
-
-1. define valid states;
-2. define allowed actions;
-3. define transition preconditions;
-4. define observable postconditions;
-5. define invariants that must hold after every transition;
-6. generate action sequences, including repeats and interruptions;
-7. shrink failures to a minimal reproducible sequence;
-8. preserve escaped sequences as permanent regressions.
-
-The model describes product truth. The adapter performs actions through the current stack.
-
-### Wave H — Enforce Cadence and TTL
-
-Not every critical scenario can run on every commit. Frequency therefore becomes an executable
-contract.
-
-Example:
-
-```yaml
-cadence:
-  - obligationId: mobile.real-device.audio-recording
-    capabilityId: media.recording
-    risk: critical
-    intervalDays: 14
-    blocksWhenOverdue: true
-    owner: mobile-team
-
-  - obligationId: payment.real-provider.renewal
-    capabilityId: billing.entitlement
-    risk: high
-    intervalDays: 7
-    blocksWhenOverdue: true
-    owner: billing-team
-```
-
-Record:
-
-- last successful run;
-- exact candidate or environment version;
-- executor;
-- evidence;
-- next due date;
-- result;
-- exception and expiry.
-
-"Manual" MUST NOT mean "optional and untracked."
 
 ---
 
@@ -994,117 +617,31 @@ Rules:
 
 ---
 
-## 8. Release Procedure Template
+## 8. Release Procedure
 
-Keep the operational version of this section at 200 lines or fewer. Link to capability runbooks
-instead of expanding it indefinitely. In cc-rpi, the tag/publish step (8) is executed by
-`/release`; this procedure produces the verified evidence that `/release` gates on.
+**The operational procedure lives in `docs/release/release-checklist.md`** (158
+lines, under the 200-line cap). It is the single procedural authority (D01/D02);
+restating it here is exactly the drift this system exists to remove.
 
-### 1. Preflight
+Implemented shape, for orientation only:
 
-- Confirm authorized release scope and approver.
-- Confirm the integration and production branches match `<BRANCH_POLICY>`.
-- Confirm the worktree is clean or that unrelated changes are isolated.
-- Reconcile CI and deployment status.
-- Determine `<LAST_RELEASE_REF>`.
-- Fix `<CANDIDATE_SHA_OR_DIGEST>`.
+1. Preflight -- clean tree, ask for the version, determine the baseline.
+2. Prepare on `develop` -- bump, CHANGELOG, canonical chain, diff approval.
+3. Merge `develop` -> `main`, squash, verifying required checks.
+4. **Fix the candidate**: the post-merge `main` SHA. All evidence binds to it.
+5. **Verify**: `pnpm test:release` -> `pnpm release:manifest` ->
+   `pnpm analyze:release`, which must exit 0.
+6. Cadence arcs -- `ghostty.real-launch` blocks when overdue.
+7. Authorize, then tag. The annotated tag is the last action before the GitHub
+   Release, which triggers the automated publish.
+8. Post-publish -- assert the SLSA provenance `gitCommit` equals the candidate.
+9. Rollback -- `npm deprecate` plus a `latest` dist-tag revert; never re-tag a
+   failed candidate.
 
-### 2. Compile obligations
+Tagging before steps 1-7 is forbidden and mechanically prevented: the release
+workflow runs the analyzer before publish with no `continue-on-error`, and
+`src/release/rehearsal.test.ts` (B10) regresses that ordering.
 
-```sh
-<COMPILE_RELEASE_PLAN_COMMAND> \
-  --baseline <LAST_RELEASE_REF> \
-  --candidate <CANDIDATE_SHA_OR_DIGEST> \
-  --output <PLAN_PATH>
-```
-
-- Review impacted and unmapped capabilities.
-- Resolve compiler failures.
-- Confirm overdue critical cadence checks are included.
-
-### 3. Run deterministic gates sequentially
-
-```sh
-<TYPECHECK_COMMAND>
-<LINT_COMMAND>
-<UNIT_TEST_COMMAND>
-<INTEGRATION_TEST_COMMAND>
-<BUILD_COMMAND>
-<RELEASE_REQUIRED_TEST_COMMAND>
-```
-
-Do not combine commands in a way that masks an earlier exit status.
-
-### 4. Verify a deployed candidate
-
-- Deploy or promote the fixed candidate using `<DEPLOY_COMMAND>`.
-- Verify the deployed SHA, digest, or version.
-- Stop if deployed identity differs from the candidate.
-- Run the required environment probes.
-
-### 5. Run exploratory release charters
-
-```text
-<EXPLORE_RELEASE_COMMAND> <LAST_RELEASE_REF> <CANDIDATE_SHA_OR_DIGEST>
-```
-
-- Use fresh independent contexts.
-- Complete every maneuver table.
-- Triage every finding.
-- Resolve skipped high-risk areas.
-- Verify fixture cleanup.
-
-### 6. Complete cadence-bound arcs
-
-- Run due device, hardware, rotation, or manual obligations.
-- Attach current evidence.
-- Stop for overdue critical obligations.
-
-### 7. Analyze evidence
-
-```sh
-<ANALYZE_RELEASE_COMMAND> \
-  --plan <PLAN_PATH> \
-  --evidence <EVIDENCE_MANIFEST_PATH>
-```
-
-The analyzer MUST fail for:
-
-- zero passes;
-- any required failure or skip;
-- missing required evidence;
-- missing or failed cleanup;
-- candidate/deployment mismatch;
-- unexplained unmapped impact;
-- overdue critical obligations;
-- untriaged exploratory failures or skipped high-risk areas.
-
-### 8. Authorize and tag
-
-- Present the complete report to `<RELEASE_APPROVER>`.
-- Obtain any explicit authorization required by repository policy.
-- Create the release tag only now (via `/release`).
-- Push the tag using `<TAG_COMMAND>`.
-- Record release, deployment, report, and rollback references.
-
-### 9. Rollback
-
-Trigger rollback on `<ROLLBACK_CONDITIONS>`.
-
-Use:
-
-```sh
-<ROLLBACK_COMMAND>
-```
-
-After rollback:
-
-- verify the restored artifact identity;
-- verify health and critical reads;
-- prevent the failed candidate from being retagged;
-- preserve evidence and open incident follow-up.
-
----
 
 ## 9. Required Reports
 
@@ -1303,34 +840,35 @@ Add:
 
 ## 11. Historical Escapes Become Coverage
 
-Every production escape or manual-tester discovery produces at least one durable update:
+Real escape classes from summon's history (200 `fix:` commits plus the agent
+reports), each mapped to the coverage that now catches it. Where nothing
+automated can catch it, that is stated rather than implied.
 
-1. a regression scenario;
-2. a new or refined invariant;
-3. a factor or dangerous interaction;
-4. an oracle requirement;
-5. an impact-mapping rule;
-6. an exploratory charter heuristic;
-7. a cadence change.
+| # | Escape class | Evidence | Now covered by |
+|---|---|---|---|
+| 1 | **Ghostty window/tab creation races** -- repaired repeatedly: retry+verify (`b2a7afd`), `session --all` new-tab hardening (`b40560e`, #523), recoverable `TabOpenError` (`60ff42b`), 200ms inter-launch delay, failure sentinels (`launcher.ts:180-188`) | most-repaired area in the codebase | **Manual arc only** (`ghostty.real-launch`). No automated tier can reach it -- see the environment truth table. This is the largest residual risk and the reason the arc blocks when overdue. |
+| 2 | **Atomic-write / orphan-file bugs** -- shared tmp name collision (`fa46b44`, #524), orphaned `.tmp` producing phantom list entries (`24f5866`, BE-M4 #605), default mode `0o600` (`85a5393`, #574) | concurrent-write corruption | `release.state-isolation` probe (registry round-trip, state confined to sandbox) plus existing unit coverage |
+| 3 | **Trust-path normalization drift** -- `isTrusted` hashed an un-normalized path while keying by realpath (BE-H1 #590, fixed `e9e4a92`) | authorization bypass | `release.trust-enforcement` probe: block -> trust -> revoke-on-edit, end to end through the real CLI |
+| 4 | **Flag-set / help / completions drift** -- no single source of truth across `parse.ts`, help text, `CLI_FLAGS`, and three completion generators (FE-M2) | **structurally still open** | `release.cli-contract` probe covers exit codes and stderr routing, but NOT flag-set parity. Recorded as a known gap; a census gate would need Wave C. |
+| 5 | **Monitor/TUI lifecycle** -- frame-skip broke overlay dismissal (FE-B1, a launch-blocker shipped by a perf release); SIGWINCH lost after error recovery | shipped regression | charter maneuvers 3 and 5 (interrupt mid-flow; narrow terminal). Not automated. |
+| 6 | **Parser/validation semantics** -- `parseInt("3000abc") === 3000` (BE-H2 #591), config inline-comment truncation (#532) | silent misparse | existing unit coverage; `release.cli-contract` guards the error-path contract |
+| 7 | **Release-engineering failures** -- 21 `fix(ci)` commits, notably `53ad23e`/`ec85584` where the SBOM step aborted the job *before publish*, leaving a tag and GitHub Release with nothing on npm | D07 violation, realized | `release.yml` reordering (verify -> analyze -> publish -> assert provenance), rehearsal B10, and the explicit SBOM-absence warning |
+| 8 | **Schema/shape validation gaps** -- snapshot reader not validating inner fields (BE-M1 #592), future-version JSON silently dropped (BE-M5 #606) | silent data loss | `release.state-isolation` probe asserts schema `version` presence; migration policy in `docs/decisions/schema-migration-strategy.md` |
 
-Record:
+Two further escapes are release-process rather than code, and are regressed
+directly in `src/release/rehearsal.test.ts`:
 
-```yaml
-escape:
-  id: <INCIDENT_OR_ISSUE_ID>
-  capability: <CAPABILITY_ID>
-  missedBecause: <WHY_EXISTING_SYSTEM_DID_NOT_SELECT_OR_DETECT_IT>
-  interaction:
-    - <FACTOR_VALUE>
-    - <FACTOR_VALUE>
-  permanentCoverage:
-    - <SCENARIO_OR_INVARIANT_ID>
-```
+- **`v1.8.0` was tagged against two different trees** ten minutes apart
+  (`12d59df` failed to publish, tag recreated on `53ad23e`) -> rehearsal B5
+  (`DEPLOYED_MISMATCH`).
+- **`v1.4.0` has a tag and a GitHub Release but was never published**
+  (`npm view summon-ws@1.4.0` returns 404) -> rehearsal B10 (tag cannot precede
+  the evidence gate).
 
-Do not stop at adding a one-off regression if the real gap was scenario selection or evidence
-quality.
+Per the template: do not stop at a one-off regression when the real gap was
+scenario selection or evidence quality. Items 1, 4, and 5 above remain
+uncovered by automation, and that is recorded deliberately.
 
----
 
 ## 12. Anti-Patterns This System Rejects
 
@@ -1512,25 +1050,37 @@ is explicitly authorized.
 
 ---
 
-## 15. Definition of Done
+## 15. Definition of Done — audit
 
-The implementation is not complete because this template was copied or because a longer playbook
-exists. It is complete when:
+Walked 2026-07-28 against the template's own checklist. "Scoped out" is not
+"done"; it is recorded as deliberately not built.
 
-- the project profile and environment truth table are verified;
-- release procedures no longer contradict each other;
-- zero-pass, required-skip, and required-failure cases fail mechanically;
-- required probes are runnable in the declared workflow;
-- release obligations are generated for a fixed candidate;
-- changed critical behavior cannot silently remain unmapped;
-- combination selection covers ordinary pairs and declared dangerous triples;
-- independent exploratory charters produce complete maneuver evidence;
-- expected datastore, storage, event, vendor, telemetry, and cleanup oracles are checked;
-- vendor seams have deterministic fault coverage and appropriately scheduled real probes;
-- manual or hardware obligations have enforced TTLs;
-- high-risk stateful domains have a model-based coverage plan;
-- the final report identifies the exact tested and deployed artifact;
-- tagging occurs only after the complete evidence and authorization gate;
-- a full rehearsal has demonstrated both a passing release and deliberate blocked cases.
+| Criterion | Status | Evidence |
+|---|---|---|
+| Project profile and environment truth table verified | **MET** | Section 5, from `docs/research/2026-07-28-e2e-pro-release-verification.md` |
+| Release procedures no longer contradict each other | **MET** | `docs/release/release-checklist.md` is the single authority; 28 contradictions resolved |
+| Zero-pass, required-skip, required-failure fail mechanically | **MET** | `scripts/release/analyzer.mjs`; rehearsals B1, B2, B3 |
+| Required probes runnable in the declared workflow | **MET** | `Release probes` job, ubuntu, 8 probes, none skippable |
+| Release obligations generated for a fixed candidate | **PARTIAL** | The probe set is fixed rather than generated -- Wave E is scoped out. Unconditional execution is safer than a compiler that could select nothing. |
+| Changed critical behavior cannot silently remain unmapped | **NOT MET** | Requires the Wave C census gate. Recorded gap: a new subcommand adds no probe automatically. |
+| Combination coverage: ordinary pairs plus dangerous triples | **SCOPED OUT** | Wave D -- no actor/entitlement/vendor dimensions exist |
+| Independent exploratory charters produce complete maneuver evidence | **MET** | `/explore-release` repaired and wired; `validate-charter.mjs` enforces all 8 rows |
+| Expected oracles checked | **MET** | Analyzer blocks on `MISSING_ORACLE`; cleanup on `DIRTY_FIXTURE` |
+| Vendor seams have fault coverage and scheduled real probes | **NOT MET, BLOCKED** | The only real seam is Ghostty, unreachable from CI. Covered by the manual arc instead; stated in the truth table. |
+| Manual/hardware obligations have enforced TTLs | **MET** | `ghostty.real-launch`, 30 days, `blocksWhenOverdue: true`; rehearsal B8 |
+| High-risk stateful domains have a model-based plan | **SCOPED OUT** | Wave G -- no lifecycle state machine exists |
+| The final report identifies the exact tested and deployed artifact | **MET** | Manifest binds to the candidate; `release.yml` asserts SLSA provenance `gitCommit` post-publish |
+| Tagging occurs only after the evidence and authorization gate | **MET** | Checklist step 7; analyzer runs before publish with no `continue-on-error`; rehearsal B10 |
+| A full rehearsal demonstrates passing and deliberate blocked cases | **MET** | `src/release/rehearsal.test.ts`: 2 positive, 10 blocking, re-run every commit |
 
-At that point, the playbook has become an executable quality system rather than a memory aid.
+### Known residual risks
+
+1. **The Ghostty launch path has no automated coverage at any tier.** Three
+   independent blockers, none removable without a self-hosted macOS runner with
+   a persistent TCC grant. Mitigated only by the 30-day manual arc.
+2. **Flag-set parity is unguarded** (escape class 4). `parse.ts`, help text,
+   `CLI_FLAGS`, and three completion generators can still drift apart.
+3. **No census gate.** A newly added subcommand acquires no probe automatically;
+   the required set grows only when someone extends `src/release/`.
+
+These are stated so the system is not mistaken for more complete than it is.

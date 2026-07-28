@@ -88,3 +88,16 @@
   requires ADRs to live there, and the three existing ADRs survived only because they were
   force-added. New ADRs would have silently failed to commit.
 - **Chose:** added the exception as planned.
+
+### Phase 6 — Definition of Done audit reports three NOT MET items
+
+- **Plan said:** walk template Section 15 and record met / inapplicable / open.
+- **Found:** three criteria are genuinely not met and cannot be met within Wave A+B scope:
+  unmapped-change detection (needs the Wave C census gate), real-vendor seam probes (the only
+  vendor is Ghostty, unreachable from CI), and generated per-release obligations (Wave E).
+- **Chose:** recorded them as NOT MET with reasons, plus a "Known residual risks" section naming
+  the three uncovered areas — the Ghostty launch path, flag-set parity drift, and the absent
+  census gate.
+- **Why:** the template explicitly rejects claiming completion for deleted waves. An audit that
+  reported all-green would make the system look more complete than it is, which is the exact
+  failure mode this adoption exists to eliminate.

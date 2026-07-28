@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "obligations": [
+    {
+      "obligationId": "ghostty.real-launch",
+      "capability": "launch.applescript-execution",
+      "risk": "critical",
+      "intervalDays": 30,
+      "blocksWhenOverdue": true,
+      "owner": "maintainer",
+      "procedure": "docs/release/release-checklist.md#real-ghostty-arc",
+      "rationale": "The only real-seam coverage that exists. CI cannot grant TCC Accessibility non-interactively, has no GUI session, and cannot resolve Ghostty's AppleScript dictionary, so the launch path -- including the window/tab race class that has been repaired repeatedly -- is unreachable by any automated tier.",
+      "lastRunAt": null,
+      "evidence": null
+    }
+  ]
+}
