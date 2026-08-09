@@ -17,7 +17,8 @@
 # Checks:
 #   1. No emojis in docs (always on; per-file opt-out via <!-- contract:allow-emoji -->)
 #   2. markdownlint — ONLY when the project ships a markdownlint config (otherwise
-#      default rules flood false positives on repos that never opted into linting).
+#      default rules flood false positives on repos that never opted into linting)
+#      AND the edited file lives inside the project root.
 
 # Fail-open by design — see guard-bash.sh. Any tooling gap → allow through.
 set -uo pipefail
@@ -83,11 +84,27 @@ MDL_CONFIG=""
 for c in .markdownlint.json .markdownlint.jsonc .markdownlint.yaml .markdownlint.yml .markdownlintrc; do
   [[ -f "$c" ]] && MDL_CONFIG="$c" && break
 done
+# The config and .markdownlintignore are project-scoped, so only lint files that
+# live inside the project. markdownlint-cli resolves each path against the
+# ignore file and throws a RangeError on anything outside the root (e.g. an
+# agent memory file under ~/.claude) — a crash that would read as violations.
+PROJECT_ROOT=$(cd "${CLAUDE_PROJECT_DIR:-$PWD}" 2>/dev/null && pwd -P) || PROJECT_ROOT=""
+FILE_DIR=$(cd "$(dirname "$FILE")" 2>/dev/null && pwd -P) || FILE_DIR=""
+IN_PROJECT=0
+if [[ -n "$PROJECT_ROOT" && -n "$FILE_DIR" ]]; then
+  [[ "$FILE_DIR" == "$PROJECT_ROOT" || "$FILE_DIR" == "$PROJECT_ROOT"/* ]] && IN_PROJECT=1
+fi
 # Probe that markdownlint actually runs — otherwise a "tool not found" exit
 # would be misread as lint violations and falsely block. Fail-open if absent.
-if [[ -n "$MDL_CONFIG" ]] && command -v npx &>/dev/null \
+if [[ -n "$MDL_CONFIG" ]] && (( IN_PROJECT )) && command -v npx &>/dev/null \
    && npx --no-install markdownlint --version &>/dev/null; then
   if ! LINT=$(npx --no-install markdownlint "$FILE" 2>&1); then
+    # A Node stack trace means markdownlint itself blew up. That is a tooling
+    # gap, not a lint violation — fail open rather than block on a broken tool.
+    if [[ "$LINT" == *"    at "* ]]; then
+      log_event allow markdownlint-error "$FILE"
+      exit 0
+    fi
     NL=$'\n'
     emit_block "markdownlint violations" \
       "Lint errors fail CI; fix them at edit time, not at push." \
