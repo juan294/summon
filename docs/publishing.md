@@ -63,6 +63,15 @@ publishing, and then validates the published tarball across Node 20.19 and 24.
 
 **Always use this path for production releases.**
 
+> **No npm token is involved (#641).** The workflow authenticates to the
+> registry by exchanging its GitHub OIDC id-token for a short-lived publish
+> credential. That trust relationship is bound to the repository, the workflow
+> **filename** (`release.yml`), and the **environment name** (`npm-publish`);
+> renaming either breaks publishing with an opaque 401 until
+> `npm trust github summon-ws --repo juan294/summon --file release.yml --env npm-publish --allow-publish`
+> is re-run. Trusted publishing also requires npm >= 11.5.1, which the workflow
+> installs explicitly because Node 22 still bundles npm 10.9.
+
 Steps:
 
 #### 0. Prepare CHANGELOG.md

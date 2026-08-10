@@ -39,11 +39,17 @@ Actions is unavailable.
 
 With a single maintainer:
 
-- **Token expiry:** npm granular tokens expire (default 60 days). A stale token causes
-  a misleading 404 on publish. Check token age before each release.
 - **Account lockout:** If the GitHub account is inaccessible, the OIDC trusted
-  publisher cannot issue tokens. Keep a scoped npm token in a secure password manager
-  as a break-glass credential for the fallback path.
+  publisher cannot issue credentials. The break-glass path is an interactive
+  `npm login` + `npm publish` from a trusted machine (loses provenance). Do not
+  keep a long-lived publish token as a standby: npm removes direct publishing
+  from bypass-2FA granular tokens in Jan 2027, so a stashed token would silently
+  stop working exactly when it is needed (#641).
+- **Token expiry:** no longer applicable to CI. The workflow authenticates via
+  OIDC trusted publishing and carries no `NPM_TOKEN`. What can expire instead is
+  the *trust binding*: it is pinned to `juan294/summon` + `release.yml` +
+  the `npm-publish` environment, and renaming any of those breaks publishing
+  with an opaque 401.
 - **Reviewer gap:** There is no second reviewer for release PRs. CI is the gate —
   do not merge a release PR if any required check is red.
 - **Key rotation:** If npm credentials are compromised, immediately rotate the npm
