@@ -154,5 +154,10 @@ cut a new patch version.
 - **`v1.4.0`** — tag and GitHub Release exist; the publish run failed and the version was never
   published (`npm view summon-ws@1.4.0` returns 404). Left in place deliberately; deleting a public
   tag would break anyone referencing it. The step-5 gate exists so this cannot recur.
-- **Branch protection asymmetry** — `main` requires 0 approving reviews, `develop` requires 1.
-  Deliberate for a sole-maintainer repo; CI is the gate on `main`.
+- **Branch protection** — neither branch requires an approving review. `develop`'s 1-review
+  requirement was removed on 2026-08-10: GitHub forbids self-approval, so on a sole-maintainer
+  repo it could only ever be satisfied by an admin bypass, which is not a gate. **CI status
+  checks are the gate on both branches** and are deliberately left in place (see the release
+  topology ADR). The branches still differ in one way that matters: `main` has
+  `enforce_admins: true`, so admin bypass does *not* work there — a red check on `main` is
+  final. `develop` has it false.
