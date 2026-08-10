@@ -1,16 +1,34 @@
 name: Publish to npm
 
+# Authentication is OIDC trusted publishing, not a token (#641). npm revoked
+# classic tokens in Dec 2025, stripped account management from bypass-2FA
+# granular tokens in Aug 2026, and removes their direct-publish ability in
+# Jan 2027 — after which a token can only *stage* a publish for human 2FA
+# approval, which no unattended workflow can do.
+#
+# The trust relationship registered on npmjs.com is `juan294/summon` +
+# THIS FILENAME (`release.yml`). Renaming this file silently breaks publishing
+# with an opaque 401, so rename it only alongside:
+#
+#   npm trust github summon-ws --repo juan294/summon \
+#     --file release.yml --allow-publish
+#
+# No environment is pinned in that binding, so the `environment:` name below is
+# free to change. If it is ever pinned (`--env <name>`), renaming the
+# environment becomes a second way to break publishing the same opaque way.
+
 on:
   release:
     types: [published]
 
 permissions:
   contents: write # Required for gh release upload (SBOM attachment)
-  id-token: write # Required for OIDC trusted publishing
+  id-token: write # Mints the OIDC token npm exchanges for publish rights
 
 jobs:
   publish:
-    # Create 'npm-publish' environment in GitHub Settings > Environments with required reviewer
+    # Create 'npm-publish' environment in GitHub Settings > Environments with required reviewer.
+    # Not currently part of the npm trust binding — see the header note.
     environment: npm-publish
     concurrency:
       group: npm-publish
@@ -36,6 +54,16 @@ jobs:
         with:
           node-version: '22' # LTS — update in lockstep with ci.yml matrix
           registry-url: https://registry.npmjs.org
+
+      - name: Ensure npm supports trusted publishing
+        # Node 22 bundles npm 10.9, which has no OIDC support at all and fails
+        # with a bare 401 that reads like a credentials problem. Trusted
+        # publishing needs >= 11.5.1, so upgrade before anything touches the
+        # registry and record the resolved version in the log.
+        run: |
+          npm install -g npm@latest
+          npm --version
+
       - run: corepack enable
       - run: corepack prepare pnpm@10.29.2 --activate
       - name: Get pnpm store directory
@@ -164,11 +192,14 @@ jobs:
 
       - name: Publish
         if: env.ALREADY_PUBLISHED != 'true'
+        # No NODE_AUTH_TOKEN. Two distinct mechanisms, both riding the same OIDC
+        # id-token, which an earlier comment here conflated:
+        #   --provenance       attests how the tarball was built (SLSA).
+        #   trusted publishing authenticates the publish itself — this is what
+        #                      replaces NPM_TOKEN. npm detects the OIDC
+        #                      environment and exchanges the id-token for a
+        #                      short-lived publish credential.
         run: npm publish summon-ws-*.tgz --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        # OIDC trusted publisher on npmjs.com (juan294/summon + release.yml) provides
-        # provenance attestation; NPM_TOKEN still required for registry PUT auth.
 
       # ── Close the candidate-identity loop ───────────────────────────────
       # npm SLSA provenance binds the tarball to a git commit. Assert it is the
