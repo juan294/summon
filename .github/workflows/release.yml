@@ -6,12 +6,16 @@ name: Publish to npm
 # Jan 2027 — after which a token can only *stage* a publish for human 2FA
 # approval, which no unattended workflow can do.
 #
-# The trust relationship is registered against this repository, THIS FILENAME,
-# and the `npm-publish` environment below. Renaming either silently breaks
-# publishing with an opaque 401, so change one only alongside:
+# The trust relationship registered on npmjs.com is `juan294/summon` +
+# THIS FILENAME (`release.yml`). Renaming this file silently breaks publishing
+# with an opaque 401, so rename it only alongside:
 #
 #   npm trust github summon-ws --repo juan294/summon \
-#     --file release.yml --env npm-publish --allow-publish
+#     --file release.yml --allow-publish
+#
+# No environment is pinned in that binding, so the `environment:` name below is
+# free to change. If it is ever pinned (`--env <name>`), renaming the
+# environment becomes a second way to break publishing the same opaque way.
 
 on:
   release:
@@ -24,7 +28,7 @@ permissions:
 jobs:
   publish:
     # Create 'npm-publish' environment in GitHub Settings > Environments with required reviewer.
-    # This name is part of the npm trust binding — see the header note.
+    # Not currently part of the npm trust binding — see the header note.
     environment: npm-publish
     concurrency:
       group: npm-publish

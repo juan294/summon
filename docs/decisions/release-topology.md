@@ -46,10 +46,11 @@ With a single maintainer:
   from bypass-2FA granular tokens in Jan 2027, so a stashed token would silently
   stop working exactly when it is needed (#641).
 - **Token expiry:** no longer applicable to CI. The workflow authenticates via
-  OIDC trusted publishing and carries no `NPM_TOKEN`. What can expire instead is
-  the *trust binding*: it is pinned to `juan294/summon` + `release.yml` +
-  the `npm-publish` environment, and renaming any of those breaks publishing
-  with an opaque 401.
+  OIDC trusted publishing and carries no `NPM_TOKEN`. The failure mode that
+  replaces it is a *broken trust binding*: it is pinned to `juan294/summon` +
+  the workflow filename `release.yml`, so renaming that file breaks publishing
+  with an opaque 401. Verified registered on 2026-08-10 with the `npm publish`
+  permission and no environment restriction.
 - **Reviewer gap:** There is no second reviewer for release PRs. CI is the gate —
   do not merge a release PR if any required check is red.
 - **Key rotation:** If npm credentials are compromised, immediately rotate the npm
