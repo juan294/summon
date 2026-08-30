@@ -42,8 +42,9 @@ Work through `docs/release/release-checklist.md` in order. It owns preparation,
 the merge, fixing the candidate, the evidence gate, cadence arcs, tagging,
 post-publish verification, and rollback.
 
-The branching strategy is not detected — it is fixed: `develop` -> `main`, squash
-merge, annotated tag on `main`. The checklist encodes it.
+The branching strategy is not detected — it is fixed: `develop` -> `main` merge
+commit, annotated tag on `main`. The checklist encodes it. Never squash the
+release PR; feature PRs into `develop` may still squash.
 
 Two hard stops are built in. Honour both:
 

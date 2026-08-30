@@ -128,7 +128,10 @@ pnpm run dev            # Watch mode
 
 1. All development happens on `develop`
 2. Never commit directly to `main`
-3. Release to production via PR: `develop` -> `main`
+3. Release to production via a **merge-commit** PR: `develop` -> `main`. Never
+   squash a release PR. A squash drops the shared ancestry and makes later
+   release PRs use a stale merge base. Feature PRs into `develop` may still
+   squash.
 4. Always run checks before committing (pre-commit hooks enforce this)
 5. Always commit before pulling -- `git pull --rebase` requires a clean tree (hook enforced)
 6. **Before any commit, verify the current branch** -- run `git branch --show-current` and confirm it matches your intent. If the user hasn't specified a branch, ask. (hook blocks push to main/master)

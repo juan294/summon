@@ -300,3 +300,46 @@ describe("rehearsal: the gate is wired into CI", () => {
     expect(arc?.blocksWhenOverdue).toBe(true);
   });
 });
+
+describe("rehearsal: release promotion preserves branch ancestry", () => {
+  const releaseAuthorityMarkers = new Map([
+    ["CLAUDE.md", "Release to production via a **merge-commit** PR"],
+    [
+      ".claude/commands/release.md",
+      "fixed: `develop` -> `main` merge\ncommit",
+    ],
+    [
+      "docs/release/release-checklist.md",
+      "gh pr merge --merge --auto",
+    ],
+    [
+      "docs/release/e2e-pro-playbook.md",
+      "| Merge strategy | merge commit for `develop` -> `main`",
+    ],
+  ]);
+  const releaseAuthorities = new Map(
+    [...releaseAuthorityMarkers].map(([path]) => [
+      path,
+      readFileSync(join(PROJECT_ROOT, path), "utf-8"),
+    ]),
+  );
+  const checklist = releaseAuthorities.get("docs/release/release-checklist.md") ?? "";
+
+  it("requires a merge commit and rejects squash commands on the release path", () => {
+    for (const [path, marker] of releaseAuthorityMarkers) {
+      const source = releaseAuthorities.get(path) ?? "";
+      expect(source).toContain(marker);
+      expect(source).not.toMatch(/\bgh\s+pr\s+merge\b[^\n]*\s--squash\b/);
+    }
+  });
+
+  it("does not require a recurring main-to-develop back-merge", () => {
+    const mergeCommands = checklist
+      .split("\n")
+      .filter((line) => /\bgit\s+merge(?:\s|$)/.test(line));
+
+    expect(mergeCommands).not.toEqual(
+      expect.arrayContaining([expect.stringMatching(/\b(?:origin\/)?main\b/)]),
+    );
+  });
+});

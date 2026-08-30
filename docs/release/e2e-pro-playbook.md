@@ -223,7 +223,7 @@ Verified against repository evidence on 2026-07-28. Research:
 | Package/build system | pnpm 10.29.2, tsup, TypeScript 6 |
 | Integration branch | `develop` (repo default) |
 | Production branch | `main` |
-| Merge strategy | squash only; merge commits and rebase disabled repo-side |
+| Merge strategy | merge commit for `develop` -> `main`; feature PRs may still squash |
 | Release artifact | npm tarball `summon-ws-<version>.tgz` |
 | Deployment provider | npm registry (no hosting provider) |
 | Local test target | Node >=20.19 on macOS |
@@ -627,7 +627,7 @@ Implemented shape, for orientation only:
 
 1. Preflight -- clean tree, ask for the version, determine the baseline.
 2. Prepare on `develop` -- bump, CHANGELOG, canonical chain, diff approval.
-3. Merge `develop` -> `main`, squash, verifying required checks.
+3. Merge `develop` -> `main` with a merge commit, verifying required checks.
 4. **Fix the candidate**: the post-merge `main` SHA. All evidence binds to it.
 5. **Verify**: `pnpm test:release` -> `pnpm release:manifest` ->
    `pnpm analyze:release`, which must exit 0.

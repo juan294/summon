@@ -26,7 +26,7 @@ optional: it is the only check that catches build-only breakage.
 |---|---|
 | Integration branch | `develop` (repo default) |
 | Production branch | `main` |
-| Merge | squash only (merge commits and rebase are disabled repo-side) |
+| Merge | merge commit for `develop` -> `main`; feature PRs may still squash |
 | Candidate | the **post-merge `main` SHA** |
 | Tag | annotated, on `main`, created **after** evidence passes |
 | Publish | automatic, on GitHub Release `published` -> `.github/workflows/release.yml` |
@@ -40,6 +40,16 @@ provenance. The manual fallback in `docs/publishing.md` is an emergency path tha
 - [ ] Ask the maintainer for the version number — never guess or auto-increment
 - [ ] Baseline: `git describe --tags --abbrev=0`
 - [ ] Confirm no release PR is already open: `gh pr list --base main --head develop`
+- [ ] Confirm `gh api repos/juan294/summon --jq .allow_merge_commit` returns `true`
+- [ ] Fetch origin, then prove the promotion is conflict-free and produces the exact `develop` tree:
+
+      ```sh
+      git fetch origin
+      test "$(git merge-tree --write-tree origin/main origin/develop)" = \
+        "$(git rev-parse origin/develop^{tree})"
+      ```
+
+      Stop if this fails. Do not open or merge a release PR with unresolved branch drift.
 
 ## 2. Prepare on `develop`
 
@@ -68,7 +78,7 @@ gh pr create --base main --head develop --title "release: vX.Y.Z" --body "<chang
 - [ ] Merge. Never pass `--delete-branch` — `develop` is permanent.
 
       ```sh
-      gh pr merge --squash --auto
+      gh pr merge --merge --auto
       ```
 
 - [ ] Wait for it to land: `gh pr view --json state`
@@ -78,11 +88,14 @@ gh pr create --base main --head develop --title "release: vX.Y.Z" --body "<chang
 ```sh
 git checkout main && git pull --rebase
 CANDIDATE=$(git rev-parse HEAD)
+DEVELOP_COMMIT=$(gh pr view <number> --json headRefOid --jq .headRefOid)
+git merge-base --is-ancestor "$DEVELOP_COMMIT" "$CANDIDATE"
+test "$(git rev-parse "$CANDIDATE^{tree}")" = "$(git rev-parse "$DEVELOP_COMMIT^{tree}")"
 ```
 
-Everything downstream is evidence about this exact SHA. Squash means it is a new commit object
-that no pre-merge run evaluated, which is why CI re-runs on `main` and why the evidence below is
-bound to `$CANDIDATE`.
+Everything downstream is evidence about this exact SHA. The merge creates a new commit object
+that no pre-merge run evaluated, so CI re-runs on `main` and the evidence below binds to
+`$CANDIDATE`. The ancestry and tree checks reject a squashed release or unexpected `main` content.
 
 ## 5. Verify — the gate
 
@@ -133,7 +146,9 @@ and then publishes. Do **not** run `npm publish` afterwards — it has already h
 - [ ] `release.yml` green, including "Verify published provenance matches the candidate"
 - [ ] `npm view summon-ws version` matches the tag
 - [ ] Evidence manifest attached to the GitHub Release
-- [ ] `git checkout develop && git merge main` if the release commit changed anything on `main`
+
+No routine `main` -> `develop` back-merge is needed. The promotion merge preserves the release
+head as an ancestor of the `main` candidate, so the next release starts from the correct merge base.
 
 ## 9. Rollback
 
