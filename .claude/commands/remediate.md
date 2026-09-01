@@ -25,8 +25,10 @@ Gather context before making any changes.
 
    The report uses a 16-section format. Findings live in sections 4-11
    (Frontend, Backend, Performance, DevOps/SRE, Security, Architecture,
-   QA, UX). Section 14 (Before/After/Later) is the wave-ordering index.
-   Section 15 (Open Questions) is NOT findings — skip it.
+   QA, UX), plus §11a (Agent-Facing Surface) when Specialist 9 ran —
+   §11a is omitted entirely otherwise. Section 14 (Before/After/Later)
+   is the wave-ordering index. Section 15 (Open Questions) is NOT
+   findings — skip it.
 
    **Validate the report contract first** (deterministic gate, before any
    parsing):
@@ -47,8 +49,9 @@ Gather context before making any changes.
 
    Parser contract:
 
-   - Findings are the `#### <Finding-ID> <Title>` blocks in §4-§11.
-   - Finding ID regex: `(AR|FE|BE|PE|DO|SE|QA|UX)-(B|H|M|L|S)[0-9]+`
+   - Findings are the `#### <Finding-ID> <Title>` blocks in §4-§11,
+     plus §11a when present.
+   - Finding ID regex: `(AR|FE|BE|PE|DO|SE|QA|UX|AS)-(B|H|M|L|S)[0-9]+`
      (machine-checked by `validate-findings.py` in step 1).
    - Each finding has structured fields (bold format:
      `**Severity:**`, `**Time horizon:**`, `**Evidence type:**`,
@@ -123,7 +126,7 @@ After user approval:
    - Wave: `wave-1-before-launch`, `wave-2-after-launch`,
      `wave-3-later`
    - Domain: `architect`, `frontend`, `backend`, `performance`,
-     `devops-sre`, `security`, `qa-reliability`, `ux`
+     `devops-sre`, `security`, `qa-reliability`, `ux`, `agent-surface`
 
    Check that labels exist before using them. If they don't, create
    them or omit.
