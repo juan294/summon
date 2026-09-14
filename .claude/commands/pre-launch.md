@@ -1,8 +1,8 @@
 # Pre-Launch Codebase Audit
 
 Senior cross-functional launch-readiness audit before any public release.
-8 parallel specialists, 16-section deep-dive report, 3-wave remediation
-handoff.
+8 core specialists, plus a conditional ninth for agent-facing surfaces,
+16-section deep-dive report, 3-wave remediation handoff.
 
 Model tier: **opus** — Claude Opus 5. All specialists: `model: "opus"`.
 
@@ -37,9 +37,26 @@ synthesis emphasis — does not disable any specialist.
 
 ## Step 1: The Team
 
-Spawn all 8 as parallel background Task agents (`subagent_type:
-general-purpose`, `model: "opus"`, tools: Read/Grep/Glob/Bash —
-read-only commands only).
+Before spawning, run one read-only gate check for Specialist 9:
+
+```bash
+grep -rlE 'modelContext|registerTool|toolname=' --include='*.ts' \
+  --include='*.tsx' --include='*.js' --include='*.jsx' --include='*.html' . \
+  2>/dev/null | head -1
+```
+
+Non-empty means spawn all 9. Empty means spawn 8 core specialists only,
+and Specialist 9 does not run. Either way, state which in the report
+header (§3) so a reader can tell a skipped specialist from a silent one
+— the same principle as Rule #68, that a fallback path must be
+observable. A project that is *planning* an agent surface but has not
+built one yet gets 8 specialists and no `AS` findings: `/pre-launch`
+audits code as written.
+
+Spawn all 8 core specialists as parallel background Task agents
+(`subagent_type: general-purpose`, `model: "opus"`, tools:
+Read/Grep/Glob/Bash — read-only commands only). Spawn Specialist 9 the
+same way, only when the gate check above is non-empty.
 
 Each specialist opens with the **system-map-first preamble**:
 
@@ -104,7 +121,7 @@ critical workflows; graceful degradation; failure modes;
 retry/idempotency coverage; high-risk untested files.
 Commands: `$TEST_CMD` (full suite — the ONE specialist authorized;
 Rule #73).
-Rule #73: other 7 specialists MUST NOT run `$TEST_CMD` in parallel.
+Rule #73: the other specialists MUST NOT run `$TEST_CMD` in parallel.
 
 **Specialist 8 — Product Designer / UX Lead** (`ux-lead`, UX)
 
@@ -115,6 +132,27 @@ responsiveness, accessibility (ARIA, focus, keyboard nav,
 `prefers-reduced-motion`, alt text), perceived performance, UX friction,
 conversion blockers.
 Commands: read UI source tree, component library, design tokens.
+
+**Specialist 9 — Agent Surface Engineer** (`agent-surface`, AS) -- conditional: spawned only when the Step 1 gate check finds an agent-facing surface
+
+The literal `-- conditional` text on the header line above is
+load-bearing: `verify-counts.sh` greps for it, on that one line, to
+exclude this specialist from the guarded "8 core specialists" count.
+Keep the header on a single line and keep that exact phrase if you
+edit it.
+
+Scope: tool inventory and overlap; tool naming against the
+execute-vs-initiate distinction; input schemas versus in-handler
+validation; error paths and whether their text is actionable
+(recovery instructions, not stack traces); registration lifecycle
+against page state; whether the pre-standard `document.modelContext`
+global is confined to one adapter; presence and coverage of tool evals.
+Commands: read the tool registration sites and their handlers. Read-only,
+like the other specialists. Does not run `$TEST_CMD` — Rule #73 reserves
+that for QA.
+Excludes: general component structure and bundle composition, which stay
+with Staff Frontend; server-side API design, which stays with Staff
+Backend. The boundary is the tool contract itself.
 
 Rule: All specialists are read-only. None may modify files. Commands run
 sequentially within each specialist, never as parallel Bash calls
@@ -153,7 +191,8 @@ One entry per finding (use `####` heading + structured fields):
 
 Finding ID format: `<DOMAIN>-<SEVERITY_LETTER><COUNTER>`
 
-- DOMAIN: `AR` | `FE` | `BE` | `PE` | `DO` | `SE` | `QA` | `UX`
+- DOMAIN: `AR` | `FE` | `BE` | `PE` | `DO` | `SE` | `QA` | `UX` | `AS`
+  (`AS` only when Specialist 9 ran)
 - SEVERITY_LETTER: `B` (launch-blocker) | `H` (high) | `M` (medium)
   | `L` (low) | `S` (strategic)
 - COUNTER: 1-indexed per (domain, severity) pair
@@ -184,12 +223,12 @@ by target domain.
 
 ## Step 3: Synthesis
 
-After all 8 specialists complete, write `docs/agents/pre-launch-report.md`
-with this structure:
+After all 8 core specialists (and Specialist 9, if spawned) complete,
+write `docs/agents/pre-launch-report.md` with this structure:
 
 ```markdown
       # Pre-Launch Codebase Audit
-      > Generated on [date] | Branch: `[branch]` | 8 parallel specialists
+      > Generated on [date] | Branch: `[branch]` | 8 core specialists (+ conditional Agent Surface Engineer)
       > Focus: $ARGUMENTS or "comprehensive"
 
       ## 1. Executive Summary
@@ -232,6 +271,10 @@ with this structure:
 
       ## 11. UX Cohesion / Design System Findings (Product Designer / UX Lead)
       [All UX findings]
+
+      ## 11a. Agent-Facing Surface Findings (Agent Surface Engineer)
+      [All AS findings. Omit this section entirely when Specialist 9 did
+      not run.]
 
       ## 12. Prioritized Action Plan
       Table: | ID | Domain | Title | Severity | Time Horizon | Effort | Impact |
@@ -294,10 +337,12 @@ doubt.
 
 ### Execution
 
-- All 8 specialists are read-only. No modifications during the audit.
-- All 8 run in parallel as background Task agents.
-- Only QA / Reliability Lead runs the full `$TEST_CMD`. Other 7 use
-  scoped reads and non-test commands. (Rule #73)
+- All 8 core specialists (and Specialist 9, when spawned) are read-only.
+  No modifications during the audit.
+- All 8 core specialists (and Specialist 9, when spawned) run in
+  parallel as background Task agents.
+- Only QA / Reliability Lead runs the full `$TEST_CMD`. The other
+  specialists use scoped reads and non-test commands. (Rule #73)
 - Commands run sequentially within each specialist, never as parallel
   Bash calls. (Error #63)
 - Every finding must include `file:line` refs. No refs = no finding.

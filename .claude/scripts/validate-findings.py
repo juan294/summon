@@ -20,7 +20,7 @@ import re
 import sys
 
 # Strict Finding-ID grammar (must match the /remediate consumer regex).
-ID_VALID = re.compile(r"^(AR|FE|BE|PE|DO|SE|QA|UX)-(B|H|M|L|S)[0-9]+$")
+ID_VALID = re.compile(r"^(AR|FE|BE|PE|DO|SE|QA|UX|AS)-(B|H|M|L|S)[0-9]+$")
 # Loose "looks like someone tried to write a Finding-ID" — used to detect
 # malformed IDs (lowercase, wrong severity letter, etc.) that the consumer
 # would silently drop.
@@ -100,7 +100,7 @@ def validate_text(text):
         if not ID_VALID.match(block.first_token):
             errors.append(
                 (label, "invalid or missing Finding-ID "
-                        "(want <AR|FE|BE|PE|DO|SE|QA|UX>-<B|H|M|L|S><n>)")
+                        "(want <AR|FE|BE|PE|DO|SE|QA|UX|AS>-<B|H|M|L|S><n>)")
             )
         for field in REQUIRED_FIELDS:
             if f"**{field}:**" not in block.body:
@@ -138,6 +138,29 @@ VALID_FIXTURE = """## 5. Backend
 
 ### Domain Model
 Plain prose, not a finding.
+
+## 11a. Agent-Facing Surface
+
+#### AS-H1 Tool handler has no schema validation on input
+- **Severity:** high
+- **Time horizon:** Before launch
+- **Evidence type:** [evidence]
+- **Files:** src/mcp/tools/create-order.ts:18, src/mcp/tools/create-order.ts:35-52
+- **What's happening:** the `create_order` tool handler casts the model's
+  arguments straight to the domain type with no schema check, so a malformed
+  or adversarial call reaches the order-creation code path unvalidated.
+- **Why it matters:** the agent surface is an untrusted input boundary; a bad
+  tool call can corrupt order state the same way an unvalidated HTTP body
+  would.
+- **Recommendation:** validate arguments against the declared input schema
+  before invoking the handler, and return a structured error the model can
+  recover from.
+- **Regression risk:** stricter validation could reject payloads the model
+  currently sends successfully; confirm the schema matches every field the
+  handler actually reads.
+- **Expected impact:** malformed tool calls fail fast with an actionable
+  error instead of corrupting order state.
+- **Effort estimate:** S
 """
 
 INVALID_FIXTURE = """## 5. Backend
