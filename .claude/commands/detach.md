@@ -29,6 +29,7 @@ Check for these files and note which exist:
 - `.claude/commands/pre-launch.md`
 - `.claude/commands/status.md`
 - `.claude/commands/fix-ci.md`
+- `.claude/commands/explore-release.md`
 - `.claude/hooks/guard-bash.sh`
 - `.claude/cc-rpi-sync.json`
 - `scripts/agents/cc-rpi-update.sh` (nightly sync agent, if exists)
