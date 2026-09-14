@@ -54,6 +54,11 @@ describe("command-spec", () => {
     expect(replaceCommandExecutable('  "my tool" --watch', "other")).toBe("  other --watch");
   });
 
+  it("quotes replacement executables containing shell metacharacters or spaces", () => {
+    expect(replaceCommandExecutable("tool --watch", "/tmp/tool dir/bin")).toBe("'/tmp/tool dir/bin' --watch");
+    expect(replaceCommandExecutable("tool", "/tmp/$(touch marker)/bin")).toBe("'/tmp/$(touch marker)/bin'");
+  });
+
   it("returns the raw command unchanged when there is no executable", () => {
     expect(replaceCommandExecutable("   ", "ignored")).toBe("   ");
   });

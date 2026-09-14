@@ -695,7 +695,9 @@ function executeOnStart(onStart: string, targetDir: string): void {
     // A hard abort (e.g. for SIGINT/SIGKILL) is unlikely from a hook and would be
     // surfaced via the stderr inherited above; treating all failures as warnings
     // allows pre-flight checks to fail gracefully without killing the workspace.
-    const message = `on-start command failed: ${onStart} — ${getErrorMessage(err)}`;
+    const message = isDebug()
+      ? `[debug] on-start command failed: ${onStart} — ${getErrorMessage(err)}`
+      : "on-start command failed; continuing workspace launch";
     console.warn(message);
   }
 }
@@ -955,7 +957,7 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
   // on-stop is embedded in the AppleScript's EXIT trap and runs silently; a launch-time notice
   // makes the hook visible without requiring users to inspect the generated script.
   if (effectiveOnStop && !cliOverrides?.dryRun) {
-    process.stderr.write(`Note: on-stop will run on workspace exit: ${effectiveOnStop}\n`);
+    process.stderr.write("Note: on-stop will run on workspace exit.\n");
   }
 
   // Cache resolved command paths so the same binary is only looked up once

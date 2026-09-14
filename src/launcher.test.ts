@@ -3221,9 +3221,9 @@ describe("W9: ensureCommand install prompt defaults to No (#190)", () => {
   });
 });
 
-describe("R19: on-start failure includes error message (#190)", () => {
+describe("R19: on-start failure diagnostics (#190)", () => {
   // BE-M3 (#594): on-start failure is now non-fatal — warns and continues launch.
-  it("includes the underlying error message in the warning when on-start fails", async () => {
+  it("reports failure without echoing the on-start command", async () => {
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
     mockExecSync.mockImplementation((cmd: string) => {
       if (cmd === "broken-command") throw new Error("command not found: broken-command");
@@ -3239,7 +3239,7 @@ describe("R19: on-start failure includes error message (#190)", () => {
     const warnMessages = warnSpy.mock.calls.map((c) => c[0] as string);
     const failMsg = warnMessages.find((m) => m.includes("on-start command failed"));
     expect(failMsg).toBeDefined();
-    expect(failMsg).toContain("command not found: broken-command");
+    expect(failMsg).not.toContain("broken-command");
 
     logSpy.mockRestore();
     warnSpy.mockRestore();
@@ -4216,7 +4216,8 @@ describe("SE-L3: on-start command is not echoed to stdout (#557)", () => {
 describe("SE-M1 (#595): on-stop command surfaced at launch time", () => {
   it("prints an informational notice to stderr when on-stop is configured", async () => {
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
-    mockReadKVFile.mockReturnValue(new Map([["on-stop", "git stash"]]));
+    const hook = "notify --token sensitive-value";
+    mockReadKVFile.mockReturnValue(new Map([["on-stop", hook]]));
     const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -4225,9 +4226,9 @@ describe("SE-M1 (#595): on-stop command surfaced at launch time", () => {
     await launch("/tmp/workspace");
 
     const allStderr = stderrSpy.mock.calls.map(c => String(c[0])).join("\n");
-    // The notice must mention on-stop and the command
+    // The notice identifies the hook without disclosing its contents.
     expect(allStderr).toMatch(/on-stop/i);
-    expect(allStderr).toContain("git stash");
+    expect(allStderr).not.toContain(hook);
 
     stderrSpy.mockRestore();
     logSpy.mockRestore();
