@@ -214,6 +214,12 @@ describe("getPresetConfigPath", () => {
       /Invalid preset path/,
     );
   });
+
+  it("throws when traversal resolves to a sibling with the same prefix", () => {
+    expect(() => getPresetConfigPath("../starship-evil")).toThrow(
+      /Invalid preset path/,
+    );
+  });
 });
 
 describe("listStarshipPresets caching", () => {

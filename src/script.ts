@@ -131,13 +131,17 @@ function emitCleanupTrap(
   // Ensure log directory exists for cleanup error logging.
   // SE-L3: mode 700 restricts access to the log directory to the owning user only,
   // consistent with STATUS_DIR/SNAPSHOTS_DIR which are also created with 0o700.
+  const configDir = `"$HOME/.config/summon"`;
   const logDir = `"$HOME/.config/summon/logs"`;
-  parts.push(`mkdir -p -m 700 ${logDir}`);
+  parts.push(`mkdir -p ${configDir} ${logDir}`);
+  parts.push(`chmod 700 ${configDir} ${logDir}`);
 
   if (options?.onStop) {
     // Inline the on-stop command directly (no eval wrapper).
     // Redirect errors to a log file instead of suppressing them.
     const logFile = `"$HOME/.config/summon/logs/cleanup-${shellDoubleQuote(projectName)}.log"`;
+    parts.push(`: >> ${logFile}`);
+    parts.push(`chmod 600 ${logFile}`);
     parts.push(`${options.onStop} >> ${logFile} 2>&1`);
   }
 

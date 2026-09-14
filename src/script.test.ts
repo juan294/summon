@@ -25,6 +25,22 @@ describe("generateAppleScript", () => {
     expect(script).toContain('set initial working directory of cfg to "/Users/me/code/myapp"');
   });
 
+  it("repairs cleanup directory and log permissions before running on-stop", () => {
+    const plan = planLayout();
+    const script = generateAppleScript(
+      plan,
+      "/tmp/project",
+      null,
+      undefined,
+      "project",
+      "echo done",
+    );
+
+    expect(script).toMatch(/chmod 700 .*\.config\/summon.*\.config\/summon\/logs/);
+    expect(script).toMatch(/chmod 600 .*cleanup-project\.log/);
+    expect(script.indexOf("chmod 600")).toBeLessThan(script.indexOf("echo done"));
+  });
+
   it("full preset creates correct splits", () => {
     const plan = planLayout(getPreset("full"));
     const script = generateAppleScript(plan, "/tmp");
