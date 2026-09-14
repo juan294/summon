@@ -1,5 +1,6 @@
 // tree.ts — Tree data model, DSL parser, pane extractor, resolver, plan builder, leaf collector
 
+import { realpathSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import { EDITOR_SIZE_DEFAULT } from "./layout.js";
 
@@ -20,6 +21,39 @@ export interface SplitNode {
 }
 
 export type LayoutNode = PaneNode | SplitNode;
+
+function pathIsWithin(parent: string, candidate: string): boolean {
+  const prefix = parent.endsWith(sep) ? parent : parent + sep;
+  return candidate === parent || candidate.startsWith(prefix);
+}
+
+function tryRealpath(path: string): string | undefined {
+  try {
+    return realpathSync(path);
+  } catch {
+    return undefined;
+  }
+}
+
+/** Reject lexical traversal and existing symlinks that escape a project. */
+export function assertPaneCwdContained(targetDir: string, cwd: string): void {
+  const normalizedTarget = resolve(targetDir);
+  const resolvedCwd = resolve(normalizedTarget, cwd);
+  if (!pathIsWithin(normalizedTarget, resolvedCwd)) {
+    throw new Error(
+      `Tree DSL: pane cwd '${cwd}' resolves outside project directory '${normalizedTarget}'. Use a path within the project.`,
+    );
+  }
+
+  const canonicalTarget = tryRealpath(normalizedTarget);
+  const canonicalCwd = tryRealpath(resolvedCwd);
+  if (canonicalTarget !== undefined && canonicalCwd !== undefined
+    && !pathIsWithin(canonicalTarget, canonicalCwd)) {
+    throw new Error(
+      `Tree DSL: pane cwd '${cwd}' resolves outside project directory '${normalizedTarget}'. Use a path within the project.`,
+    );
+  }
+}
 
 export interface TreeLayoutPlan {
   tree: LayoutNode;
@@ -306,13 +340,7 @@ export function resolveTreeCommands(
 
       // Validate cwd does not escape the project directory
       if (cwd !== undefined && targetDir !== undefined) {
-        const resolved = resolve(targetDir, cwd);
-        const prefix = targetDir.endsWith(sep) ? targetDir : targetDir + sep;
-        if (!resolved.startsWith(prefix) && resolved !== targetDir) {
-          throw new Error(
-            `Tree DSL: pane cwd '${cwd}' resolves outside project directory '${targetDir}'. Use a path within the project.`,
-          );
-        }
+        assertPaneCwdContained(targetDir, cwd);
       }
 
       if (node.command !== "") {

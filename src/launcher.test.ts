@@ -42,6 +42,7 @@ vi.mock("./starship.js", () => ({
 // Mock fs.existsSync for directory and Ghostty.app checks
 vi.mock("node:fs", () => ({
   existsSync: vi.fn(() => true),
+  realpathSync: vi.fn((path: string) => path),
 }));
 
 // Mock readline for prompt tests

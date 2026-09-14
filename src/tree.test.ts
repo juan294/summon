@@ -1,4 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   parseTreeDSL,
   extractPaneDefinitions,
@@ -408,6 +411,31 @@ describe("resolveTreeCommands", () => {
     const resolved = resolveTreeCommands(tree, panes, cwds, "/tmp/myproject") as PaneNode;
     // Should succeed and attach the cwd
     expect(resolved.cwd).toBe("frontend");
+  });
+
+  it("throws when pane cwd is a symlink to outside targetDir", () => {
+    const fixtureRoot = mkdtempSync(join(tmpdir(), "summon-tree-cwd-"));
+    const targetDir = join(fixtureRoot, "project");
+    const outsideDir = join(fixtureRoot, "outside");
+    try {
+      mkdirSync(targetDir);
+      mkdirSync(outsideDir);
+      symlinkSync(outsideDir, join(targetDir, "escape"));
+      const tree: LayoutNode = {
+        type: "pane",
+        name: "editor",
+        command: "",
+      };
+
+      expect(() => resolveTreeCommands(
+        tree,
+        new Map([["editor", "vim"]]),
+        new Map([["editor", "escape"]]),
+        targetDir,
+      )).toThrow(/resolves outside project directory/);
+    } finally {
+      rmSync(fixtureRoot, { recursive: true, force: true });
+    }
   });
 
   it("warns on unused pane defs but succeeds", () => {

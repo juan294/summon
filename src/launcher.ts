@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { basename, join, resolve, sep } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { execFileSync, execSync } from "node:child_process";
 import {
   planLayout,
@@ -17,7 +17,7 @@ import { listConfig, listProjects, readKVFile, readKVFromString, readCustomLayou
 import { writeStatus } from "./status.js";
 import type { WorkspaceStatus } from "./status.js";
 import { generateAppleScript, generateTreeAppleScript, generateFocusScript } from "./script.js";
-import { parseTreeDSL, extractPaneDefinitions, extractPaneCwds, resolveTreeCommands as resolveTreeCmds, buildTreePlan, collectLeaves, findPaneByName } from "./tree.js";
+import { parseTreeDSL, extractPaneDefinitions, extractPaneCwds, resolveTreeCommands as resolveTreeCmds, buildTreePlan, collectLeaves, findPaneByName, assertPaneCwdContained } from "./tree.js";
 import type { LayoutNode, TreePlanOptions } from "./tree.js";
 import { resolveCommand as resolveCommandPath, getErrorMessage, SUMMON_WORKSPACE_ENV, promptUser, ACCESSIBILITY_SETTINGS_PATH, isDebug, supportsColor } from "./utils.js";
 import { fail, err } from "./ui/output.js";
@@ -567,15 +567,8 @@ export function resolveConfig(targetDir: string, cliOverrides: CLIOverrides, sum
     if (projectCwds.size > 0) {
       // BE-M2 (#593): validate cwd containment at ingestion so that a malicious .summon
       // file cannot inject an out-of-project path before resolveTreeCommands runs.
-      const normalizedTarget = resolve(targetDir);
-      const prefix = normalizedTarget.endsWith(sep) ? normalizedTarget : normalizedTarget + sep;
       for (const [_paneName, cwd] of projectCwds) {
-        const resolved = resolve(normalizedTarget, cwd);
-        if (resolved !== normalizedTarget && !resolved.startsWith(prefix)) {
-          throw new Error(
-            `Tree DSL: pane cwd '${cwd}' resolves outside project directory '${normalizedTarget}'. Use a path within the project.`,
-          );
-        }
+        assertPaneCwdContained(targetDir, cwd);
       }
       const merged = new Map(mergedTreeLayout.paneCwds ?? []);
       for (const [k, v] of projectCwds) merged.set(k, v);
