@@ -104,10 +104,10 @@ Summon generates AppleScript that drives Ghostty's native split system. The scri
 
 This project follows Research-Plan-Implement (RPI).
 
-1. /research -- Understand the codebase as-is
-2. /plan -- Create a phased implementation spec
-3. /implement -- Execute one phase at a time with review gates
-4. /validate -- Verify implementation against the plan
+1. /rpi-research -- Understand the codebase as-is
+2. /rpi-plan -- Create a phased implementation spec
+3. /rpi-implement -- Execute one phase at a time with review gates
+4. /rpi-validate -- Verify implementation against the plan
 
 Each phase is its own conversation. STOP after each phase.
 Use /clear between tasks, /compact when context is heavy.
@@ -217,3 +217,6 @@ See `docs/decisions/schema-migration-strategy.md` for the full policy.
 ## Known TODOs
 
 - **UX-L4**: Add "All projects clean" positive confirmation to briefing output when no issues are found (briefing.ts).
+<!-- rpi:claude-import:start -->
+@AGENTS.md
+<!-- rpi:claude-import:end -->

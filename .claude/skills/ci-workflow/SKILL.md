@@ -1,5 +1,5 @@
 ---
-name: "CI Workflow"
+name: "ci-workflow"
 description: "Push accountability, CI monitoring after push, background agent CI verification, verification command sequencing."
 ---
 
@@ -7,26 +7,83 @@ description: "Push accountability, CI monitoring after push, background agent CI
 
 ## Push Accountability
 
-Use the branch that is currently under CI verification. In a
-`develop/main` topology this is often `develop`. In a `main-only` repo
-it is usually the temporary branch or PR branch being validated before
-merge.
+Keep working branches and worktrees local. Finish applicable tests, coverage,
+typechecks, lint, build and deployment preflight locally, resolve failures,
+and integrate completed work locally into the documented integration branch.
+Inspect workflow and deployment triggers before the single authorized push of
+that completed branch. Never create Vercel Preview deployments or publish
+working branches/PRs for experimentation. If an integration push would create a
+Preview, stop before pushing and use only a documented, non-destructive bypass.
+Production publication remains separately and explicitly authorized. Read-only
+inspection of existing runs and deployments is allowed.
 
-Wrong -- push and move on:
+After an authorized integration push, match every expected workflow to its
+pushed commit, rather than assuming the latest branch run belongs to this push:
 
 ```bash
-git push origin <branch-under-test>
-# Start next task immediately, never check CI
+gh run list --branch <integration-branch> --commit <pushed-sha> \
+  --json databaseId,headSha,name,status,conclusion
+gh run view <failed-run-id> --log-failed
 ```
 
-Right -- spawn background agent to monitor CI:
+Failure diagnosis and repair happen locally. Do not rerun remote workflows or
+re-push fixes as a debugging loop; report the result and complete local gates
+before any separately authorized follow-up publication.
+
+## Buffer Output from execSync/spawnSync
+
+Wrong -- `.trim()` fails because these return a Buffer by default:
+
+```js
+const sha = execSync('git rev-parse HEAD').trim();  // TypeError
+```
+
+Right -- pass encoding explicitly:
+
+```js
+const sha = execSync('git rev-parse HEAD', { encoding: 'utf-8' }).trim();
+```
+
+## Running ESM CLI Tools
+
+A shebang or executable bit does not change Node's module interpretation.
+Use `.mjs` for ESM, `.cjs` for CommonJS, or a `.js` file governed by its nearest
+package.json `"type"` field. Respect the project's supported Node version and
+package metadata; invoking via `npx` does not repair invalid module metadata.
 
 ```bash
-git push origin <branch-under-test>
-# Background agent:
-gh run list --branch <branch-under-test> --limit 1
-# If CI fails: investigate with gh run view <id> --log-failed
-# Fix and re-push. The push isn't done until CI is green.
+node ./bin/cli.mjs
+# Or: node ./bin/cli.js with nearest package.json declaring "type": "module"
+```
+
+## Missing Dependencies
+
+Wrong -- run commands in a worktree, fresh clone, or CI with no node_modules:
+
+```bash
+pnpm run build  # Cannot find module ...
+```
+
+Right -- install first:
+
+```bash
+pnpm install && pnpm run build
+```
+
+## Scaffolding Requires an Empty Directory
+
+Wrong -- add config files before scaffolding, so the tool aborts:
+
+```bash
+echo "# Project" > CLAUDE.md
+npx create-next-app@latest .   # aborts: directory not empty
+```
+
+Right -- scaffold first, add config files after:
+
+```bash
+npx create-next-app@latest .
+echo "# Project" > CLAUDE.md
 ```
 
 ## Verification Command Sequencing
@@ -40,15 +97,11 @@ Wrong -- run typecheck, lint, test as parallel tool calls:
 # If one fails, all parallel calls are killed (Error #1)
 ```
 
-Right -- chain sequentially with semicolons:
+Right -- chain sequentially with `&&` so early failures cannot be hidden:
 
 ```bash
-pnpm typecheck ; pnpm lint ; pnpm build ; pnpm test
+pnpm run typecheck 2>&1 && pnpm run lint 2>&1 && pnpm run test 2>&1
 ```
-
-`build` is included deliberately -- it is the only check that catches
-build-only breakage. `docs/release/release-checklist.md` is the
-authority for this chain.
 
 ## Pre-Commit Verification
 
@@ -62,7 +115,7 @@ git commit -m "feat: add feature"
 Right -- run checks before committing:
 
 ```bash
-pnpm run typecheck 2>&1; pnpm run lint 2>&1
+pnpm run typecheck 2>&1 && pnpm run lint 2>&1 &&
 git add <files> && git commit -m "feat: add feature"
 ```
 
@@ -80,6 +133,6 @@ Right -- run full test suite immediately after config changes:
 
 ```bash
 # Edit tsconfig.json
-pnpm run typecheck 2>&1; pnpm run lint 2>&1; pnpm run test 2>&1
+pnpm run typecheck 2>&1 && pnpm run lint 2>&1 && pnpm run test 2>&1
 # Fix any breakage before proceeding
 ```

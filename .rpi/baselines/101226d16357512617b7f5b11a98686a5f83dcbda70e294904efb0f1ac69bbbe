@@ -1,0 +1,9 @@
+{
+  "id": "ask-6",
+  "mode": "entry",
+  "pointer": [
+    "permissions",
+    "ask"
+  ],
+  "value": "Bash(gh release upload:*)"
+}

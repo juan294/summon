@@ -1,0 +1,4156 @@
+{
+  "domains": [
+    "ci-workflow",
+    "deployment-safety",
+    "error-patterns",
+    "git-workflow",
+    "github-cli",
+    "macos-rules",
+    "multi-agent",
+    "systematic-debugging"
+  ],
+  "entries": [
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "ee12fdecb83cac9d80903e82ae32b6188ccb881e8d88aec1246a01cef6772d7a",
+      "component_id": "skill:ci-workflow",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/ci-workflow/SKILL.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "ee12fdecb83cac9d80903e82ae32b6188ccb881e8d88aec1246a01cef6772d7a",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "8619a54e8c098122a7f3881394f84ca89b684366e848233a29ad18b6ec363935",
+      "component_id": "skill:ci-workflow",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/ci-workflow/agents/openai.yaml",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "8619a54e8c098122a7f3881394f84ca89b684366e848233a29ad18b6ec363935",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "414ae212cd01c533e35d742292f4978fcdb4a7444dd83be57131960b3802be40",
+      "component_id": "skill:codex-simplify",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/codex-simplify/SKILL.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "414ae212cd01c533e35d742292f4978fcdb4a7444dd83be57131960b3802be40",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "8619a54e8c098122a7f3881394f84ca89b684366e848233a29ad18b6ec363935",
+      "component_id": "skill:codex-simplify",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/codex-simplify/agents/openai.yaml",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "8619a54e8c098122a7f3881394f84ca89b684366e848233a29ad18b6ec363935",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "b0f6b826b7c2e91ced87d58c3766342b1a7b5b0a5cdde118179add24ed12f938",
+      "component_id": "skill:deployment-safety",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/deployment-safety/SKILL.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "b0f6b826b7c2e91ced87d58c3766342b1a7b5b0a5cdde118179add24ed12f938",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "8619a54e8c098122a7f3881394f84ca89b684366e848233a29ad18b6ec363935",
+      "component_id": "skill:deployment-safety",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/deployment-safety/agents/openai.yaml",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "8619a54e8c098122a7f3881394f84ca89b684366e848233a29ad18b6ec363935",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "bd5f29ce6f105ff1a9fe12beecdb24f964cb3ecb6dfc5d1add1c2f661f6a21c4",
+      "component_id": "skill:error-patterns",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/error-patterns/SKILL.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "bd5f29ce6f105ff1a9fe12beecdb24f964cb3ecb6dfc5d1add1c2f661f6a21c4",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "8619a54e8c098122a7f3881394f84ca89b684366e848233a29ad18b6ec363935",
+      "component_id": "skill:error-patterns",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/error-patterns/agents/openai.yaml",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "8619a54e8c098122a7f3881394f84ca89b684366e848233a29ad18b6ec363935",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "98c8f539bb36a335d34eb27585bc84f8f8113a005a81e5e33482a4e53d871b14",
+      "component_id": "skill:error-patterns",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/error-patterns/references/error-catalog.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "98c8f539bb36a335d34eb27585bc84f8f8113a005a81e5e33482a4e53d871b14",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "32528609d4e0b4a6053ee03be786fe7c65177ab0c553be1b2978d1aff6cab68c",
+      "component_id": "skill:git-workflow",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/git-workflow/SKILL.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "32528609d4e0b4a6053ee03be786fe7c65177ab0c553be1b2978d1aff6cab68c",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "8619a54e8c098122a7f3881394f84ca89b684366e848233a29ad18b6ec363935",
+      "component_id": "skill:git-workflow",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/git-workflow/agents/openai.yaml",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "8619a54e8c098122a7f3881394f84ca89b684366e848233a29ad18b6ec363935",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "a90bb082cdec25fc70f9ea5f134ff4474bf3f6ee648641856d2f20230b022db9",
+      "component_id": "skill:github-cli",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/github-cli/SKILL.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "a90bb082cdec25fc70f9ea5f134ff4474bf3f6ee648641856d2f20230b022db9",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "8619a54e8c098122a7f3881394f84ca89b684366e848233a29ad18b6ec363935",
+      "component_id": "skill:github-cli",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/github-cli/agents/openai.yaml",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "8619a54e8c098122a7f3881394f84ca89b684366e848233a29ad18b6ec363935",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "36027fda2740d7481724e6a50ff3de7bcd7d87968b5f25bf7f8524905ed5b37c",
+      "component_id": "skill:macos-rules",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/macos-rules/SKILL.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "36027fda2740d7481724e6a50ff3de7bcd7d87968b5f25bf7f8524905ed5b37c",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "8619a54e8c098122a7f3881394f84ca89b684366e848233a29ad18b6ec363935",
+      "component_id": "skill:macos-rules",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/macos-rules/agents/openai.yaml",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "8619a54e8c098122a7f3881394f84ca89b684366e848233a29ad18b6ec363935",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "a1ccd932c0f1f246296c01718418b8e319ec66864e064bc81dfaf40834cbcb67",
+      "component_id": "skill:multi-agent",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/multi-agent/SKILL.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "a1ccd932c0f1f246296c01718418b8e319ec66864e064bc81dfaf40834cbcb67",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "8619a54e8c098122a7f3881394f84ca89b684366e848233a29ad18b6ec363935",
+      "component_id": "skill:multi-agent",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/multi-agent/agents/openai.yaml",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "8619a54e8c098122a7f3881394f84ca89b684366e848233a29ad18b6ec363935",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "6f478b83cb5edf68e5eafe39d8aca0ee79b76294f1611cc52b4387b610d7b9d7",
+      "component_id": "skill:rpi-assess",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-assess/SKILL.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "6f478b83cb5edf68e5eafe39d8aca0ee79b76294f1611cc52b4387b610d7b9d7",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "8619a54e8c098122a7f3881394f84ca89b684366e848233a29ad18b6ec363935",
+      "component_id": "skill:rpi-assess",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-assess/agents/openai.yaml",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "8619a54e8c098122a7f3881394f84ca89b684366e848233a29ad18b6ec363935",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "be95cbc66b3bcdbd256decddd759cee282ab5b5c2ab82069c392ec1b2b135aa6",
+      "component_id": "skill:rpi-assess",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-assess/references/handoff.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "be95cbc66b3bcdbd256decddd759cee282ab5b5c2ab82069c392ec1b2b135aa6",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "4a78814233ae2bf2a42676bcf99413df4a15e0664abb9cd1280a6e19fe3a964e",
+      "component_id": "skill:rpi-brainstorm",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-brainstorm/SKILL.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "4a78814233ae2bf2a42676bcf99413df4a15e0664abb9cd1280a6e19fe3a964e",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "8619a54e8c098122a7f3881394f84ca89b684366e848233a29ad18b6ec363935",
+      "component_id": "skill:rpi-brainstorm",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-brainstorm/agents/openai.yaml",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "8619a54e8c098122a7f3881394f84ca89b684366e848233a29ad18b6ec363935",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "1df7a07947f5e2021d2c82a01e46612c70d55d24d4a78dddb5497e6c4988a554",
+      "component_id": "skill:rpi-describe-pr",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-describe-pr/SKILL.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "1df7a07947f5e2021d2c82a01e46612c70d55d24d4a78dddb5497e6c4988a554",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "8619a54e8c098122a7f3881394f84ca89b684366e848233a29ad18b6ec363935",
+      "component_id": "skill:rpi-describe-pr",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-describe-pr/agents/openai.yaml",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "8619a54e8c098122a7f3881394f84ca89b684366e848233a29ad18b6ec363935",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "be95cbc66b3bcdbd256decddd759cee282ab5b5c2ab82069c392ec1b2b135aa6",
+      "component_id": "skill:rpi-describe-pr",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-describe-pr/references/handoff.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "be95cbc66b3bcdbd256decddd759cee282ab5b5c2ab82069c392ec1b2b135aa6",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "edf7b9650b1a6152fd2efd1c598ed181bef9f27aba3c7547dacd64a51bd57e69",
+      "component_id": "skill:rpi-explore-release",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-explore-release/SKILL.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "edf7b9650b1a6152fd2efd1c598ed181bef9f27aba3c7547dacd64a51bd57e69",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "a1499d95abd8447558c535fe5554adcc3c9b988a0a39264a6283d430effe1e94",
+      "component_id": "skill:rpi-explore-release",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-explore-release/agents/openai.yaml",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "a1499d95abd8447558c535fe5554adcc3c9b988a0a39264a6283d430effe1e94",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "13d2c12f46e48777e38e76f6c756cf2849b6b39269c919194a78a03d186f2194",
+      "component_id": "skill:rpi-explore-release",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-explore-release/references/e2e-pro-playbook.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "13d2c12f46e48777e38e76f6c756cf2849b6b39269c919194a78a03d186f2194",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "8047939c1f9d54c7fe724b06cef9a0815014b6f2bf8237025b6d3dbb47ce108c",
+      "component_id": "skill:rpi-fix-ci",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-fix-ci/SKILL.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "8047939c1f9d54c7fe724b06cef9a0815014b6f2bf8237025b6d3dbb47ce108c",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "a1499d95abd8447558c535fe5554adcc3c9b988a0a39264a6283d430effe1e94",
+      "component_id": "skill:rpi-fix-ci",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-fix-ci/agents/openai.yaml",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "a1499d95abd8447558c535fe5554adcc3c9b988a0a39264a6283d430effe1e94",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "be95cbc66b3bcdbd256decddd759cee282ab5b5c2ab82069c392ec1b2b135aa6",
+      "component_id": "skill:rpi-fix-ci",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-fix-ci/references/handoff.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "be95cbc66b3bcdbd256decddd759cee282ab5b5c2ab82069c392ec1b2b135aa6",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "c44507ee2cb2cf73dd80153dac837c97593e3e4db34c8a777d852d8aa29134ca",
+      "component_id": "skill:rpi-implement",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-implement/SKILL.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "c44507ee2cb2cf73dd80153dac837c97593e3e4db34c8a777d852d8aa29134ca",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "a1499d95abd8447558c535fe5554adcc3c9b988a0a39264a6283d430effe1e94",
+      "component_id": "skill:rpi-implement",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-implement/agents/openai.yaml",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "a1499d95abd8447558c535fe5554adcc3c9b988a0a39264a6283d430effe1e94",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "60311b06204d30e2a3d980133f5b3e8a81265f2516fdc00f807d87286e727e16",
+      "component_id": "skill:rpi-implement",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-implement/references/dispatch.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "60311b06204d30e2a3d980133f5b3e8a81265f2516fdc00f807d87286e727e16",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "be95cbc66b3bcdbd256decddd759cee282ab5b5c2ab82069c392ec1b2b135aa6",
+      "component_id": "skill:rpi-implement",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-implement/references/handoff.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "be95cbc66b3bcdbd256decddd759cee282ab5b5c2ab82069c392ec1b2b135aa6",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "18b91c4db6b54591849fb25ad6b41c9d81e9d822a76a92dc25f54cc9689029e9",
+      "component_id": "skill:rpi-implement",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-implement/scripts/rpi-dispatch.py",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "18b91c4db6b54591849fb25ad6b41c9d81e9d822a76a92dc25f54cc9689029e9",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "da9a4705c92c59f8284a936012f18d1bbedb7bc9fa591725a6435fc1a97f90c5",
+      "component_id": "skill:rpi-implement",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-implement/scripts/validate-findings.py",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "da9a4705c92c59f8284a936012f18d1bbedb7bc9fa591725a6435fc1a97f90c5",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "4b139f8e93c81a5a4535f80c354851f0dd80a00862b27f5d38792f68e76555ce",
+      "component_id": "skill:rpi-plan",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-plan/SKILL.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "4b139f8e93c81a5a4535f80c354851f0dd80a00862b27f5d38792f68e76555ce",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "8619a54e8c098122a7f3881394f84ca89b684366e848233a29ad18b6ec363935",
+      "component_id": "skill:rpi-plan",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-plan/agents/openai.yaml",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "8619a54e8c098122a7f3881394f84ca89b684366e848233a29ad18b6ec363935",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "be95cbc66b3bcdbd256decddd759cee282ab5b5c2ab82069c392ec1b2b135aa6",
+      "component_id": "skill:rpi-plan",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-plan/references/handoff.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "be95cbc66b3bcdbd256decddd759cee282ab5b5c2ab82069c392ec1b2b135aa6",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "23104d62bda3299ea4e60cd4b1003ac07ee268f5be2f4683f030389e8eec3881",
+      "component_id": "skill:rpi-plan",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-plan/references/pseudocode-notation.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "23104d62bda3299ea4e60cd4b1003ac07ee268f5be2f4683f030389e8eec3881",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "3d04b9e0dadadf0f36fe182c5ad754dcc50c9b82149ae612f2acbafb06a64f0d",
+      "component_id": "skill:rpi-pre-launch",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-pre-launch/SKILL.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "3d04b9e0dadadf0f36fe182c5ad754dcc50c9b82149ae612f2acbafb06a64f0d",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "8619a54e8c098122a7f3881394f84ca89b684366e848233a29ad18b6ec363935",
+      "component_id": "skill:rpi-pre-launch",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-pre-launch/agents/openai.yaml",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "8619a54e8c098122a7f3881394f84ca89b684366e848233a29ad18b6ec363935",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "60311b06204d30e2a3d980133f5b3e8a81265f2516fdc00f807d87286e727e16",
+      "component_id": "skill:rpi-pre-launch",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-pre-launch/references/dispatch.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "60311b06204d30e2a3d980133f5b3e8a81265f2516fdc00f807d87286e727e16",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "be95cbc66b3bcdbd256decddd759cee282ab5b5c2ab82069c392ec1b2b135aa6",
+      "component_id": "skill:rpi-pre-launch",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-pre-launch/references/handoff.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "be95cbc66b3bcdbd256decddd759cee282ab5b5c2ab82069c392ec1b2b135aa6",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "18b91c4db6b54591849fb25ad6b41c9d81e9d822a76a92dc25f54cc9689029e9",
+      "component_id": "skill:rpi-pre-launch",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-pre-launch/scripts/rpi-dispatch.py",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "18b91c4db6b54591849fb25ad6b41c9d81e9d822a76a92dc25f54cc9689029e9",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "da9a4705c92c59f8284a936012f18d1bbedb7bc9fa591725a6435fc1a97f90c5",
+      "component_id": "skill:rpi-pre-launch",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-pre-launch/scripts/validate-findings.py",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "da9a4705c92c59f8284a936012f18d1bbedb7bc9fa591725a6435fc1a97f90c5",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "15fb70d26fe4ee107f2887f3c145239c7d6ade90bb251881c558a3ca0cae7330",
+      "component_id": "skill:rpi-release",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-release/SKILL.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "15fb70d26fe4ee107f2887f3c145239c7d6ade90bb251881c558a3ca0cae7330",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "a1499d95abd8447558c535fe5554adcc3c9b988a0a39264a6283d430effe1e94",
+      "component_id": "skill:rpi-release",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-release/agents/openai.yaml",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "a1499d95abd8447558c535fe5554adcc3c9b988a0a39264a6283d430effe1e94",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "13d2c12f46e48777e38e76f6c756cf2849b6b39269c919194a78a03d186f2194",
+      "component_id": "skill:rpi-release",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-release/references/e2e-pro-playbook.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "13d2c12f46e48777e38e76f6c756cf2849b6b39269c919194a78a03d186f2194",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "be95cbc66b3bcdbd256decddd759cee282ab5b5c2ab82069c392ec1b2b135aa6",
+      "component_id": "skill:rpi-release",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-release/references/handoff.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "be95cbc66b3bcdbd256decddd759cee282ab5b5c2ab82069c392ec1b2b135aa6",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "fa2c6aaa63678a1ddf2501a31446c1b67311a618a3d0c76549c76a1edd15580e",
+      "component_id": "skill:rpi-remediate",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-remediate/SKILL.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "fa2c6aaa63678a1ddf2501a31446c1b67311a618a3d0c76549c76a1edd15580e",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "a1499d95abd8447558c535fe5554adcc3c9b988a0a39264a6283d430effe1e94",
+      "component_id": "skill:rpi-remediate",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-remediate/agents/openai.yaml",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "a1499d95abd8447558c535fe5554adcc3c9b988a0a39264a6283d430effe1e94",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "60311b06204d30e2a3d980133f5b3e8a81265f2516fdc00f807d87286e727e16",
+      "component_id": "skill:rpi-remediate",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-remediate/references/dispatch.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "60311b06204d30e2a3d980133f5b3e8a81265f2516fdc00f807d87286e727e16",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "be95cbc66b3bcdbd256decddd759cee282ab5b5c2ab82069c392ec1b2b135aa6",
+      "component_id": "skill:rpi-remediate",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-remediate/references/handoff.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "be95cbc66b3bcdbd256decddd759cee282ab5b5c2ab82069c392ec1b2b135aa6",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "18b91c4db6b54591849fb25ad6b41c9d81e9d822a76a92dc25f54cc9689029e9",
+      "component_id": "skill:rpi-remediate",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-remediate/scripts/rpi-dispatch.py",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "18b91c4db6b54591849fb25ad6b41c9d81e9d822a76a92dc25f54cc9689029e9",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "da9a4705c92c59f8284a936012f18d1bbedb7bc9fa591725a6435fc1a97f90c5",
+      "component_id": "skill:rpi-remediate",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-remediate/scripts/validate-findings.py",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "da9a4705c92c59f8284a936012f18d1bbedb7bc9fa591725a6435fc1a97f90c5",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "dd11d9e184ccdfbd11c5d11258659b87613b21fcbd935bc651547a585bfee8a2",
+      "component_id": "skill:rpi-research",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-research/SKILL.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "dd11d9e184ccdfbd11c5d11258659b87613b21fcbd935bc651547a585bfee8a2",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "8619a54e8c098122a7f3881394f84ca89b684366e848233a29ad18b6ec363935",
+      "component_id": "skill:rpi-research",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-research/agents/openai.yaml",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "8619a54e8c098122a7f3881394f84ca89b684366e848233a29ad18b6ec363935",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "be95cbc66b3bcdbd256decddd759cee282ab5b5c2ab82069c392ec1b2b135aa6",
+      "component_id": "skill:rpi-research",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-research/references/handoff.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "be95cbc66b3bcdbd256decddd759cee282ab5b5c2ab82069c392ec1b2b135aa6",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "93c304a71fa7039ee3b246328f34c181b90c990c03ff594a924eae9ba8509bf6",
+      "component_id": "skill:rpi-research",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-research/references/research-contract.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "93c304a71fa7039ee3b246328f34c181b90c990c03ff594a924eae9ba8509bf6",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "ea8b79ba1bcfcf7ad6587b497692c83da56e7623ddd9f281c2c9de124603caaa",
+      "component_id": "skill:rpi-status",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-status/SKILL.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "ea8b79ba1bcfcf7ad6587b497692c83da56e7623ddd9f281c2c9de124603caaa",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "8619a54e8c098122a7f3881394f84ca89b684366e848233a29ad18b6ec363935",
+      "component_id": "skill:rpi-status",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-status/agents/openai.yaml",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "8619a54e8c098122a7f3881394f84ca89b684366e848233a29ad18b6ec363935",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "05cdfb828e803b996a3e0da3e5f677a54e3422ef418409ffd2c836061fe81e4a",
+      "component_id": "skill:rpi-tool-design",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-tool-design/SKILL.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "05cdfb828e803b996a3e0da3e5f677a54e3422ef418409ffd2c836061fe81e4a",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "8619a54e8c098122a7f3881394f84ca89b684366e848233a29ad18b6ec363935",
+      "component_id": "skill:rpi-tool-design",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-tool-design/agents/openai.yaml",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "8619a54e8c098122a7f3881394f84ca89b684366e848233a29ad18b6ec363935",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "9bb3096d0174679a48fac1a3866b02f33e8dda5a30f6f84ec5f98e1139e8cbfd",
+      "component_id": "skill:rpi-tool-design",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-tool-design/references/webmcp/DOMAIN.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "9bb3096d0174679a48fac1a3866b02f33e8dda5a30f6f84ec5f98e1139e8cbfd",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "c802cc226b94e16df3b3978df190271f364fe38d00108574c3940ed288531def",
+      "component_id": "skill:rpi-tool-design",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-tool-design/references/webmcp/references/tool-design-framework.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "c802cc226b94e16df3b3978df190271f364fe38d00108574c3940ed288531def",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "c92c58c6aff1d87ba5ab39b481e7e8375c0a8f0f4f2db8c162c3c6c199477f63",
+      "component_id": "skill:rpi-triage",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-triage/SKILL.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "c92c58c6aff1d87ba5ab39b481e7e8375c0a8f0f4f2db8c162c3c6c199477f63",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "a1499d95abd8447558c535fe5554adcc3c9b988a0a39264a6283d430effe1e94",
+      "component_id": "skill:rpi-triage",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-triage/agents/openai.yaml",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "a1499d95abd8447558c535fe5554adcc3c9b988a0a39264a6283d430effe1e94",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "be95cbc66b3bcdbd256decddd759cee282ab5b5c2ab82069c392ec1b2b135aa6",
+      "component_id": "skill:rpi-triage",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-triage/references/handoff.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "be95cbc66b3bcdbd256decddd759cee282ab5b5c2ab82069c392ec1b2b135aa6",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "9dac64bae51f6e725d1ebe7432290a171f6300178bc903e8ad495f8799df6d01",
+      "component_id": "skill:rpi-triage",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-triage/references/triage-state.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "9dac64bae51f6e725d1ebe7432290a171f6300178bc903e8ad495f8799df6d01",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "cd66ae06436452190eac245399746bf80087faa0c3b1b9782bd267cfc006fcc7",
+      "component_id": "skill:rpi-triage",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-triage/scripts/rpi-triage-state.py",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "cd66ae06436452190eac245399746bf80087faa0c3b1b9782bd267cfc006fcc7",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "d171a991649372b75db9d73a8a737a859e20358464bc03fff47afc5adb871a29",
+      "component_id": "skill:rpi-update-docs",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-update-docs/SKILL.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "d171a991649372b75db9d73a8a737a859e20358464bc03fff47afc5adb871a29",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "a1499d95abd8447558c535fe5554adcc3c9b988a0a39264a6283d430effe1e94",
+      "component_id": "skill:rpi-update-docs",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-update-docs/agents/openai.yaml",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "a1499d95abd8447558c535fe5554adcc3c9b988a0a39264a6283d430effe1e94",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "be95cbc66b3bcdbd256decddd759cee282ab5b5c2ab82069c392ec1b2b135aa6",
+      "component_id": "skill:rpi-update-docs",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-update-docs/references/handoff.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "be95cbc66b3bcdbd256decddd759cee282ab5b5c2ab82069c392ec1b2b135aa6",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "471f9e40d22eefe254d80e94045b71842954eee09e94aeebe5408dea3b99346c",
+      "component_id": "skill:rpi-validate",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-validate/SKILL.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "471f9e40d22eefe254d80e94045b71842954eee09e94aeebe5408dea3b99346c",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "8619a54e8c098122a7f3881394f84ca89b684366e848233a29ad18b6ec363935",
+      "component_id": "skill:rpi-validate",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-validate/agents/openai.yaml",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "8619a54e8c098122a7f3881394f84ca89b684366e848233a29ad18b6ec363935",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "60311b06204d30e2a3d980133f5b3e8a81265f2516fdc00f807d87286e727e16",
+      "component_id": "skill:rpi-validate",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-validate/references/dispatch.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "60311b06204d30e2a3d980133f5b3e8a81265f2516fdc00f807d87286e727e16",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "be95cbc66b3bcdbd256decddd759cee282ab5b5c2ab82069c392ec1b2b135aa6",
+      "component_id": "skill:rpi-validate",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-validate/references/handoff.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "be95cbc66b3bcdbd256decddd759cee282ab5b5c2ab82069c392ec1b2b135aa6",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "18b91c4db6b54591849fb25ad6b41c9d81e9d822a76a92dc25f54cc9689029e9",
+      "component_id": "skill:rpi-validate",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-validate/scripts/rpi-dispatch.py",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "18b91c4db6b54591849fb25ad6b41c9d81e9d822a76a92dc25f54cc9689029e9",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "da9a4705c92c59f8284a936012f18d1bbedb7bc9fa591725a6435fc1a97f90c5",
+      "component_id": "skill:rpi-validate",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/rpi-validate/scripts/validate-findings.py",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "da9a4705c92c59f8284a936012f18d1bbedb7bc9fa591725a6435fc1a97f90c5",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "1fcc82ae237e69135ec3b79f5201e7ee6b6c2fa495b3030b747bbd5ac37eb834",
+      "component_id": "skill:systematic-debugging",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/systematic-debugging/SKILL.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "1fcc82ae237e69135ec3b79f5201e7ee6b6c2fa495b3030b747bbd5ac37eb834",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "8619a54e8c098122a7f3881394f84ca89b684366e848233a29ad18b6ec363935",
+      "component_id": "skill:systematic-debugging",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".agents/skills/systematic-debugging/agents/openai.yaml",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "8619a54e8c098122a7f3881394f84ca89b684366e848233a29ad18b6ec363935",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "94bcaf4a2016b3dd8b95f32f67438dac32bff2094ca9c9d966ad6785216d7c89",
+      "component_id": "hook:guard-bash",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/hooks/guard-bash.sh",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "94bcaf4a2016b3dd8b95f32f67438dac32bff2094ca9c9d966ad6785216d7c89",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "f8bcec0eef0b62e3b0cb67a8b18f52527b9d0349210e25a347f60ef05d9d636d",
+      "component_id": "hook:verify-edit",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/hooks/verify-edit.sh",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "f8bcec0eef0b62e3b0cb67a8b18f52527b9d0349210e25a347f60ef05d9d636d",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "fb05dc4d4a9e3c1f3061d3d591817a6a234632f25d91afda43d061992911f106",
+      "component_id": "rule:deployment-safety",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/rules/deployment-safety.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "fb05dc4d4a9e3c1f3061d3d591817a6a234632f25d91afda43d061992911f106",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "local-only"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "c96fc92a476c32a11662d08bf34151d21b61004b42a59a336a4e453699b87aed",
+      "component_id": "rule:supabase",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/rules/supabase.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "c96fc92a476c32a11662d08bf34151d21b61004b42a59a336a4e453699b87aed",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "f57338ca83a66b9034a15896f7a119b9ab4d39f26b3e8e06f18b1d54967b2239",
+      "component_id": "rule:testing",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/rules/testing.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "f57338ca83a66b9034a15896f7a119b9ab4d39f26b3e8e06f18b1d54967b2239",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "local-only"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "c6e6ee4e798c31158b7697012afe63d73652bf74485b0529d0c0c2c981bf22c1",
+      "component_id": "rule:webmcp",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/rules/webmcp.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "c6e6ee4e798c31158b7697012afe63d73652bf74485b0529d0c0c2c981bf22c1",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "2272dc58a2bdc903f338605d98919cc16a39ca0d42b35e099fb045a56f7dd9a5",
+      "component_id": "config:claude-policy",
+      "config_record": {
+        "id": "ask-0",
+        "mode": "entry",
+        "pointer": [
+          "permissions",
+          "ask"
+        ],
+        "value": "Bash(git push:*)"
+      },
+      "destination": ".claude/settings.json",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "2272dc58a2bdc903f338605d98919cc16a39ca0d42b35e099fb045a56f7dd9a5",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "entry-owned"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "053c53cb342f25d97105a30d1c8bb66261bfe473a0b7ed0518fdfaa092df176a",
+      "component_id": "config:claude-policy",
+      "config_record": {
+        "id": "ask-1",
+        "mode": "entry",
+        "pointer": [
+          "permissions",
+          "ask"
+        ],
+        "value": "Bash(git * push *)"
+      },
+      "destination": ".claude/settings.json",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "053c53cb342f25d97105a30d1c8bb66261bfe473a0b7ed0518fdfaa092df176a",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "entry-owned"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "443197febb82bb4dc340958bf06e82fcc70dac82fcd0450120362f230fc66368",
+      "component_id": "config:claude-policy",
+      "config_record": {
+        "id": "ask-10",
+        "mode": "entry",
+        "pointer": [
+          "permissions",
+          "ask"
+        ],
+        "value": "Bash(pnpm *vercel*)"
+      },
+      "destination": ".claude/settings.json",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "443197febb82bb4dc340958bf06e82fcc70dac82fcd0450120362f230fc66368",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "entry-owned"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "7767c15a86efe3f999c3fe7ed531f47f7b6a54c22ea49e25485825a72f4b06d2",
+      "component_id": "config:claude-policy",
+      "config_record": {
+        "id": "ask-2",
+        "mode": "entry",
+        "pointer": [
+          "permissions",
+          "ask"
+        ],
+        "value": "Bash(gh pr create:*)"
+      },
+      "destination": ".claude/settings.json",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "7767c15a86efe3f999c3fe7ed531f47f7b6a54c22ea49e25485825a72f4b06d2",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "entry-owned"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "a499ccc8911a36e285eec3a3a3fdad0e973d8363318f696068ab8d6b214b8104",
+      "component_id": "config:claude-policy",
+      "config_record": {
+        "id": "ask-3",
+        "mode": "entry",
+        "pointer": [
+          "permissions",
+          "ask"
+        ],
+        "value": "Bash(gh workflow run:*)"
+      },
+      "destination": ".claude/settings.json",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "a499ccc8911a36e285eec3a3a3fdad0e973d8363318f696068ab8d6b214b8104",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "entry-owned"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "ab22c3e927f5185c036f149f6f533fd08cf37e1989d1ec8db0ee217356270922",
+      "component_id": "config:claude-policy",
+      "config_record": {
+        "id": "ask-4",
+        "mode": "entry",
+        "pointer": [
+          "permissions",
+          "ask"
+        ],
+        "value": "Bash(gh release create:*)"
+      },
+      "destination": ".claude/settings.json",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "ab22c3e927f5185c036f149f6f533fd08cf37e1989d1ec8db0ee217356270922",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "entry-owned"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "57ff3f6102f7011ee71fd2285405dea2f44e685af9cfc07c6ab209586587405c",
+      "component_id": "config:claude-policy",
+      "config_record": {
+        "id": "ask-5",
+        "mode": "entry",
+        "pointer": [
+          "permissions",
+          "ask"
+        ],
+        "value": "Bash(gh release edit:*)"
+      },
+      "destination": ".claude/settings.json",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "57ff3f6102f7011ee71fd2285405dea2f44e685af9cfc07c6ab209586587405c",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "entry-owned"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "101226d16357512617b7f5b11a98686a5f83dcbda70e294904efb0f1ac69bbbe",
+      "component_id": "config:claude-policy",
+      "config_record": {
+        "id": "ask-6",
+        "mode": "entry",
+        "pointer": [
+          "permissions",
+          "ask"
+        ],
+        "value": "Bash(gh release upload:*)"
+      },
+      "destination": ".claude/settings.json",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "101226d16357512617b7f5b11a98686a5f83dcbda70e294904efb0f1ac69bbbe",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "entry-owned"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "c119ce4f91f437c6829b81123d2b245f6d912a81c3f73ab4a2dc2c222ce63fa1",
+      "component_id": "config:claude-policy",
+      "config_record": {
+        "id": "ask-7",
+        "mode": "entry",
+        "pointer": [
+          "permissions",
+          "ask"
+        ],
+        "value": "Bash(vercel:*)"
+      },
+      "destination": ".claude/settings.json",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "c119ce4f91f437c6829b81123d2b245f6d912a81c3f73ab4a2dc2c222ce63fa1",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "entry-owned"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "a02de20d615fea28cc4be46800755b4ed0bc4899f13a1ba847be4b01ca18283b",
+      "component_id": "config:claude-policy",
+      "config_record": {
+        "id": "ask-8",
+        "mode": "entry",
+        "pointer": [
+          "permissions",
+          "ask"
+        ],
+        "value": "Bash(vc:*)"
+      },
+      "destination": ".claude/settings.json",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "a02de20d615fea28cc4be46800755b4ed0bc4899f13a1ba847be4b01ca18283b",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "entry-owned"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "8ca90edc265e92e7b6b5de5fee68a3b1e2cd2b7765142cc9d8a427c635c2d588",
+      "component_id": "config:claude-policy",
+      "config_record": {
+        "id": "ask-9",
+        "mode": "entry",
+        "pointer": [
+          "permissions",
+          "ask"
+        ],
+        "value": "Bash(npx *vercel*)"
+      },
+      "destination": ".claude/settings.json",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "8ca90edc265e92e7b6b5de5fee68a3b1e2cd2b7765142cc9d8a427c635c2d588",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "entry-owned"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "4dbfc989421270a35161a9c9f28b3ffa041f6cc242c07949c4c42481ff5257dc",
+      "component_id": "config:claude-policy",
+      "config_record": {
+        "id": "deny-0",
+        "mode": "entry",
+        "pointer": [
+          "permissions",
+          "deny"
+        ],
+        "value": "Bash(vercel)"
+      },
+      "destination": ".claude/settings.json",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "4dbfc989421270a35161a9c9f28b3ffa041f6cc242c07949c4c42481ff5257dc",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "entry-owned"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "6345ed00b010914b252aa84c2d1af3bd2efff3c743b2338e3efec1acdc7c9f9a",
+      "component_id": "config:claude-policy",
+      "config_record": {
+        "id": "deny-1",
+        "mode": "entry",
+        "pointer": [
+          "permissions",
+          "deny"
+        ],
+        "value": "Bash(vc)"
+      },
+      "destination": ".claude/settings.json",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "6345ed00b010914b252aa84c2d1af3bd2efff3c743b2338e3efec1acdc7c9f9a",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "entry-owned"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "5963a0bd21a022185729a5055f8f8eae9ba81f81da61b76cb523d17060d889d2",
+      "component_id": "config:claude-policy",
+      "config_record": {
+        "id": "deny-2",
+        "mode": "entry",
+        "pointer": [
+          "permissions",
+          "deny"
+        ],
+        "value": "Bash(git push --tags:*)"
+      },
+      "destination": ".claude/settings.json",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "5963a0bd21a022185729a5055f8f8eae9ba81f81da61b76cb523d17060d889d2",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "entry-owned"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "529596bcd5799f34a790283a882ea48a0e994444f33c163a91f7974639254e49",
+      "component_id": "config:claude-policy",
+      "config_record": {
+        "id": "deny-3",
+        "mode": "entry",
+        "pointer": [
+          "permissions",
+          "deny"
+        ],
+        "value": "Bash(git push --mirror:*)"
+      },
+      "destination": ".claude/settings.json",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "529596bcd5799f34a790283a882ea48a0e994444f33c163a91f7974639254e49",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "entry-owned"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "f71e147da14ddb4360a049930dfb733f81d29212a977e2aa2f608790e0d459be",
+      "component_id": "config:claude-policy",
+      "config_record": {
+        "id": "pre-tool-policy",
+        "mode": "entry",
+        "pointer": [
+          "hooks",
+          "PreToolUse"
+        ],
+        "value": {
+          "hooks": [
+            {
+              "command": "rpi_root=\"$PWD\"; while [ ! -f \"$rpi_root/.claude/hooks/guard-bash.sh\" ] && [ \"$rpi_root\" != / ]; do rpi_root=${rpi_root%/*}; rpi_root=${rpi_root:-/}; done; if [ ! -f \"$rpi_root/.claude/hooks/guard-bash.sh\" ]; then printf \"%s\\n\" \"BLOCKED / WHY: installed policy wrapper unavailable from native hook cwd. / FIX: launch the client inside the trusted project and run the read-only installation check.\" >&2; exit 2; fi; exec bash \"$rpi_root/.claude/hooks/guard-bash.sh\" claude",
+              "type": "command"
+            }
+          ],
+          "matcher": "Bash"
+        }
+      },
+      "destination": ".claude/settings.json",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "f71e147da14ddb4360a049930dfb733f81d29212a977e2aa2f608790e0d459be",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "entry-owned"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "ee12fdecb83cac9d80903e82ae32b6188ccb881e8d88aec1246a01cef6772d7a",
+      "component_id": "skill:ci-workflow",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/ci-workflow/SKILL.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "ee12fdecb83cac9d80903e82ae32b6188ccb881e8d88aec1246a01cef6772d7a",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "b0f6b826b7c2e91ced87d58c3766342b1a7b5b0a5cdde118179add24ed12f938",
+      "component_id": "skill:deployment-safety",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/deployment-safety/SKILL.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "b0f6b826b7c2e91ced87d58c3766342b1a7b5b0a5cdde118179add24ed12f938",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "6bae9fc2033e9b3abe7bb8b85e33d9d2c1171aeac35d7288a01ca24b7c545453",
+      "component_id": "skill:error-patterns",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/error-patterns/SKILL.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "6bae9fc2033e9b3abe7bb8b85e33d9d2c1171aeac35d7288a01ca24b7c545453",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "98c8f539bb36a335d34eb27585bc84f8f8113a005a81e5e33482a4e53d871b14",
+      "component_id": "skill:error-patterns",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/error-patterns/references/error-catalog.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "98c8f539bb36a335d34eb27585bc84f8f8113a005a81e5e33482a4e53d871b14",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "32528609d4e0b4a6053ee03be786fe7c65177ab0c553be1b2978d1aff6cab68c",
+      "component_id": "skill:git-workflow",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/git-workflow/SKILL.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "32528609d4e0b4a6053ee03be786fe7c65177ab0c553be1b2978d1aff6cab68c",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "a90bb082cdec25fc70f9ea5f134ff4474bf3f6ee648641856d2f20230b022db9",
+      "component_id": "skill:github-cli",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/github-cli/SKILL.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "a90bb082cdec25fc70f9ea5f134ff4474bf3f6ee648641856d2f20230b022db9",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "36027fda2740d7481724e6a50ff3de7bcd7d87968b5f25bf7f8524905ed5b37c",
+      "component_id": "skill:macos-rules",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/macos-rules/SKILL.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "36027fda2740d7481724e6a50ff3de7bcd7d87968b5f25bf7f8524905ed5b37c",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "a1ccd932c0f1f246296c01718418b8e319ec66864e064bc81dfaf40834cbcb67",
+      "component_id": "skill:multi-agent",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/multi-agent/SKILL.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "a1ccd932c0f1f246296c01718418b8e319ec66864e064bc81dfaf40834cbcb67",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "fb335a5bb2fce8012769c1647a9094ade5f75fa26430706bfd50ddb39de86540",
+      "component_id": "skill:rpi-assess",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/rpi-assess/SKILL.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "fb335a5bb2fce8012769c1647a9094ade5f75fa26430706bfd50ddb39de86540",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "be95cbc66b3bcdbd256decddd759cee282ab5b5c2ab82069c392ec1b2b135aa6",
+      "component_id": "skill:rpi-assess",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/rpi-assess/references/handoff.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "be95cbc66b3bcdbd256decddd759cee282ab5b5c2ab82069c392ec1b2b135aa6",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "7e52553fd3e1d70c3f83a09d0371d2de2e260c9b4bed1980b374e62cf3d20441",
+      "component_id": "skill:rpi-brainstorm",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/rpi-brainstorm/SKILL.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "7e52553fd3e1d70c3f83a09d0371d2de2e260c9b4bed1980b374e62cf3d20441",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "9a605a99354b09276a4c38e29d55ba0b568c43ff591fe3753abbf917a83a9be6",
+      "component_id": "skill:rpi-describe-pr",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/rpi-describe-pr/SKILL.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "9a605a99354b09276a4c38e29d55ba0b568c43ff591fe3753abbf917a83a9be6",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "be95cbc66b3bcdbd256decddd759cee282ab5b5c2ab82069c392ec1b2b135aa6",
+      "component_id": "skill:rpi-describe-pr",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/rpi-describe-pr/references/handoff.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "be95cbc66b3bcdbd256decddd759cee282ab5b5c2ab82069c392ec1b2b135aa6",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "f0a20e208a0f6ed2c8712d2208c21ecab2c10290c5495f078564e3abb2eaf797",
+      "component_id": "skill:rpi-explore-release",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/rpi-explore-release/SKILL.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "f0a20e208a0f6ed2c8712d2208c21ecab2c10290c5495f078564e3abb2eaf797",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "13d2c12f46e48777e38e76f6c756cf2849b6b39269c919194a78a03d186f2194",
+      "component_id": "skill:rpi-explore-release",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/rpi-explore-release/references/e2e-pro-playbook.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "13d2c12f46e48777e38e76f6c756cf2849b6b39269c919194a78a03d186f2194",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "40b110d225ac69922e0f96b641aa7f7658068e8a77fdf1f9aa44e3d51568ab98",
+      "component_id": "skill:rpi-fix-ci",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/rpi-fix-ci/SKILL.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "40b110d225ac69922e0f96b641aa7f7658068e8a77fdf1f9aa44e3d51568ab98",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "be95cbc66b3bcdbd256decddd759cee282ab5b5c2ab82069c392ec1b2b135aa6",
+      "component_id": "skill:rpi-fix-ci",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/rpi-fix-ci/references/handoff.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "be95cbc66b3bcdbd256decddd759cee282ab5b5c2ab82069c392ec1b2b135aa6",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "362fcadcb5e6dc3f4b34910c7f0c0ead377323417217c79ef4e0e5a4d1991cbd",
+      "component_id": "skill:rpi-implement",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/rpi-implement/SKILL.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "362fcadcb5e6dc3f4b34910c7f0c0ead377323417217c79ef4e0e5a4d1991cbd",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "60311b06204d30e2a3d980133f5b3e8a81265f2516fdc00f807d87286e727e16",
+      "component_id": "skill:rpi-implement",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/rpi-implement/references/dispatch.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "60311b06204d30e2a3d980133f5b3e8a81265f2516fdc00f807d87286e727e16",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "be95cbc66b3bcdbd256decddd759cee282ab5b5c2ab82069c392ec1b2b135aa6",
+      "component_id": "skill:rpi-implement",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/rpi-implement/references/handoff.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "be95cbc66b3bcdbd256decddd759cee282ab5b5c2ab82069c392ec1b2b135aa6",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "18b91c4db6b54591849fb25ad6b41c9d81e9d822a76a92dc25f54cc9689029e9",
+      "component_id": "skill:rpi-implement",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/rpi-implement/scripts/rpi-dispatch.py",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "18b91c4db6b54591849fb25ad6b41c9d81e9d822a76a92dc25f54cc9689029e9",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "da9a4705c92c59f8284a936012f18d1bbedb7bc9fa591725a6435fc1a97f90c5",
+      "component_id": "skill:rpi-implement",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/rpi-implement/scripts/validate-findings.py",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "da9a4705c92c59f8284a936012f18d1bbedb7bc9fa591725a6435fc1a97f90c5",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "72bb011d1c9635032e08c57377de7cf980d0966a0d5994604881bcc22c2d276b",
+      "component_id": "skill:rpi-plan",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/rpi-plan/SKILL.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "72bb011d1c9635032e08c57377de7cf980d0966a0d5994604881bcc22c2d276b",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "be95cbc66b3bcdbd256decddd759cee282ab5b5c2ab82069c392ec1b2b135aa6",
+      "component_id": "skill:rpi-plan",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/rpi-plan/references/handoff.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "be95cbc66b3bcdbd256decddd759cee282ab5b5c2ab82069c392ec1b2b135aa6",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "23104d62bda3299ea4e60cd4b1003ac07ee268f5be2f4683f030389e8eec3881",
+      "component_id": "skill:rpi-plan",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/rpi-plan/references/pseudocode-notation.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "23104d62bda3299ea4e60cd4b1003ac07ee268f5be2f4683f030389e8eec3881",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "eacf9b1e2e5fa71445d9db903ed3676d3671bdf601f4eb4d788692386d5b81db",
+      "component_id": "skill:rpi-pre-launch",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/rpi-pre-launch/SKILL.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "eacf9b1e2e5fa71445d9db903ed3676d3671bdf601f4eb4d788692386d5b81db",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "60311b06204d30e2a3d980133f5b3e8a81265f2516fdc00f807d87286e727e16",
+      "component_id": "skill:rpi-pre-launch",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/rpi-pre-launch/references/dispatch.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "60311b06204d30e2a3d980133f5b3e8a81265f2516fdc00f807d87286e727e16",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "be95cbc66b3bcdbd256decddd759cee282ab5b5c2ab82069c392ec1b2b135aa6",
+      "component_id": "skill:rpi-pre-launch",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/rpi-pre-launch/references/handoff.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "be95cbc66b3bcdbd256decddd759cee282ab5b5c2ab82069c392ec1b2b135aa6",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "18b91c4db6b54591849fb25ad6b41c9d81e9d822a76a92dc25f54cc9689029e9",
+      "component_id": "skill:rpi-pre-launch",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/rpi-pre-launch/scripts/rpi-dispatch.py",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "18b91c4db6b54591849fb25ad6b41c9d81e9d822a76a92dc25f54cc9689029e9",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "da9a4705c92c59f8284a936012f18d1bbedb7bc9fa591725a6435fc1a97f90c5",
+      "component_id": "skill:rpi-pre-launch",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/rpi-pre-launch/scripts/validate-findings.py",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "da9a4705c92c59f8284a936012f18d1bbedb7bc9fa591725a6435fc1a97f90c5",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "56c84e6e2afecdfc4a84dbdbf46c47efd758498ab2ece939370bfd8a4227dccb",
+      "component_id": "skill:rpi-release",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/rpi-release/SKILL.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "56c84e6e2afecdfc4a84dbdbf46c47efd758498ab2ece939370bfd8a4227dccb",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "13d2c12f46e48777e38e76f6c756cf2849b6b39269c919194a78a03d186f2194",
+      "component_id": "skill:rpi-release",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/rpi-release/references/e2e-pro-playbook.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "13d2c12f46e48777e38e76f6c756cf2849b6b39269c919194a78a03d186f2194",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "be95cbc66b3bcdbd256decddd759cee282ab5b5c2ab82069c392ec1b2b135aa6",
+      "component_id": "skill:rpi-release",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/rpi-release/references/handoff.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "be95cbc66b3bcdbd256decddd759cee282ab5b5c2ab82069c392ec1b2b135aa6",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "ad7933edec2677d03d825eef31be48eae240722d388ea9547309eb36f7e77a5a",
+      "component_id": "skill:rpi-remediate",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/rpi-remediate/SKILL.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "ad7933edec2677d03d825eef31be48eae240722d388ea9547309eb36f7e77a5a",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "60311b06204d30e2a3d980133f5b3e8a81265f2516fdc00f807d87286e727e16",
+      "component_id": "skill:rpi-remediate",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/rpi-remediate/references/dispatch.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "60311b06204d30e2a3d980133f5b3e8a81265f2516fdc00f807d87286e727e16",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "be95cbc66b3bcdbd256decddd759cee282ab5b5c2ab82069c392ec1b2b135aa6",
+      "component_id": "skill:rpi-remediate",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/rpi-remediate/references/handoff.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "be95cbc66b3bcdbd256decddd759cee282ab5b5c2ab82069c392ec1b2b135aa6",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "18b91c4db6b54591849fb25ad6b41c9d81e9d822a76a92dc25f54cc9689029e9",
+      "component_id": "skill:rpi-remediate",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/rpi-remediate/scripts/rpi-dispatch.py",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "18b91c4db6b54591849fb25ad6b41c9d81e9d822a76a92dc25f54cc9689029e9",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "da9a4705c92c59f8284a936012f18d1bbedb7bc9fa591725a6435fc1a97f90c5",
+      "component_id": "skill:rpi-remediate",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/rpi-remediate/scripts/validate-findings.py",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "da9a4705c92c59f8284a936012f18d1bbedb7bc9fa591725a6435fc1a97f90c5",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "d8805bd458ae8107e60dab6ac2b8b1df10fc00b10748a90e777f841519939304",
+      "component_id": "skill:rpi-research",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/rpi-research/SKILL.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "d8805bd458ae8107e60dab6ac2b8b1df10fc00b10748a90e777f841519939304",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "be95cbc66b3bcdbd256decddd759cee282ab5b5c2ab82069c392ec1b2b135aa6",
+      "component_id": "skill:rpi-research",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/rpi-research/references/handoff.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "be95cbc66b3bcdbd256decddd759cee282ab5b5c2ab82069c392ec1b2b135aa6",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "93c304a71fa7039ee3b246328f34c181b90c990c03ff594a924eae9ba8509bf6",
+      "component_id": "skill:rpi-research",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/rpi-research/references/research-contract.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "93c304a71fa7039ee3b246328f34c181b90c990c03ff594a924eae9ba8509bf6",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "6955346826d9948ab65bef5e1b2b500197bbbc734b3779ea91554211efb43e55",
+      "component_id": "skill:rpi-status",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/rpi-status/SKILL.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "6955346826d9948ab65bef5e1b2b500197bbbc734b3779ea91554211efb43e55",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "fbddc07f735f6baa47d74dac4b52b4a3368b9bcfa001a930f4c439a039b356eb",
+      "component_id": "skill:rpi-tool-design",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/rpi-tool-design/SKILL.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "fbddc07f735f6baa47d74dac4b52b4a3368b9bcfa001a930f4c439a039b356eb",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "9bb3096d0174679a48fac1a3866b02f33e8dda5a30f6f84ec5f98e1139e8cbfd",
+      "component_id": "skill:rpi-tool-design",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/rpi-tool-design/references/webmcp/DOMAIN.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "9bb3096d0174679a48fac1a3866b02f33e8dda5a30f6f84ec5f98e1139e8cbfd",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "c802cc226b94e16df3b3978df190271f364fe38d00108574c3940ed288531def",
+      "component_id": "skill:rpi-tool-design",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/rpi-tool-design/references/webmcp/references/tool-design-framework.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "c802cc226b94e16df3b3978df190271f364fe38d00108574c3940ed288531def",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "aacb6772501e7bc999b9d26b05338dcc49154c7718e868c229cabddbda7b68e2",
+      "component_id": "skill:rpi-triage",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/rpi-triage/SKILL.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "aacb6772501e7bc999b9d26b05338dcc49154c7718e868c229cabddbda7b68e2",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "be95cbc66b3bcdbd256decddd759cee282ab5b5c2ab82069c392ec1b2b135aa6",
+      "component_id": "skill:rpi-triage",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/rpi-triage/references/handoff.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "be95cbc66b3bcdbd256decddd759cee282ab5b5c2ab82069c392ec1b2b135aa6",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "9dac64bae51f6e725d1ebe7432290a171f6300178bc903e8ad495f8799df6d01",
+      "component_id": "skill:rpi-triage",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/rpi-triage/references/triage-state.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "9dac64bae51f6e725d1ebe7432290a171f6300178bc903e8ad495f8799df6d01",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "cd66ae06436452190eac245399746bf80087faa0c3b1b9782bd267cfc006fcc7",
+      "component_id": "skill:rpi-triage",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/rpi-triage/scripts/rpi-triage-state.py",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "cd66ae06436452190eac245399746bf80087faa0c3b1b9782bd267cfc006fcc7",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "a7608c53df3050de127306a772623d5aa7cbdb5064c9b46f7bf00059464c23b4",
+      "component_id": "skill:rpi-update-docs",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/rpi-update-docs/SKILL.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "a7608c53df3050de127306a772623d5aa7cbdb5064c9b46f7bf00059464c23b4",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "be95cbc66b3bcdbd256decddd759cee282ab5b5c2ab82069c392ec1b2b135aa6",
+      "component_id": "skill:rpi-update-docs",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/rpi-update-docs/references/handoff.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "be95cbc66b3bcdbd256decddd759cee282ab5b5c2ab82069c392ec1b2b135aa6",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "8b33ade4afb9001d30368569cfde6f5dd0c9a85ca0db0f3fc35aa80c655deba2",
+      "component_id": "skill:rpi-validate",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/rpi-validate/SKILL.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "8b33ade4afb9001d30368569cfde6f5dd0c9a85ca0db0f3fc35aa80c655deba2",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "60311b06204d30e2a3d980133f5b3e8a81265f2516fdc00f807d87286e727e16",
+      "component_id": "skill:rpi-validate",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/rpi-validate/references/dispatch.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "60311b06204d30e2a3d980133f5b3e8a81265f2516fdc00f807d87286e727e16",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "be95cbc66b3bcdbd256decddd759cee282ab5b5c2ab82069c392ec1b2b135aa6",
+      "component_id": "skill:rpi-validate",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/rpi-validate/references/handoff.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "be95cbc66b3bcdbd256decddd759cee282ab5b5c2ab82069c392ec1b2b135aa6",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "18b91c4db6b54591849fb25ad6b41c9d81e9d822a76a92dc25f54cc9689029e9",
+      "component_id": "skill:rpi-validate",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/rpi-validate/scripts/rpi-dispatch.py",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "18b91c4db6b54591849fb25ad6b41c9d81e9d822a76a92dc25f54cc9689029e9",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "da9a4705c92c59f8284a936012f18d1bbedb7bc9fa591725a6435fc1a97f90c5",
+      "component_id": "skill:rpi-validate",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/rpi-validate/scripts/validate-findings.py",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "da9a4705c92c59f8284a936012f18d1bbedb7bc9fa591725a6435fc1a97f90c5",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "3f31d015fe1988f2f1ca6a96c11340595b3f93e37abafad12319c88781619088",
+      "component_id": "skill:systematic-debugging",
+      "consumers": [
+        "claude"
+      ],
+      "destination": ".claude/skills/systematic-debugging/SKILL.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "3f31d015fe1988f2f1ca6a96c11340595b3f93e37abafad12319c88781619088",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "482e49d35c30321eb20ff529839a685611c56334162f9c4a84dbb59c06fb2f34",
+      "component_id": "config:codex-hooks",
+      "config_record": {
+        "id": "pre-tool-policy",
+        "mode": "entry",
+        "pointer": [
+          "hooks",
+          "PreToolUse"
+        ],
+        "value": {
+          "hooks": [
+            {
+              "command": "rpi_root=\"$PWD\"; while [ ! -f \"$rpi_root/.codex/hooks/guard-bash.sh\" ] && [ \"$rpi_root\" != / ]; do rpi_root=${rpi_root%/*}; rpi_root=${rpi_root:-/}; done; if [ ! -f \"$rpi_root/.codex/hooks/guard-bash.sh\" ]; then printf \"%s\\n\" \"BLOCKED / WHY: installed policy wrapper unavailable from native hook cwd. / FIX: launch the client inside the trusted project and run the read-only installation check.\" >&2; exit 2; fi; exec bash \"$rpi_root/.codex/hooks/guard-bash.sh\" codex",
+              "timeout": 30,
+              "type": "command"
+            }
+          ],
+          "matcher": "^Bash$"
+        }
+      },
+      "destination": ".codex/hooks.json",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "482e49d35c30321eb20ff529839a685611c56334162f9c4a84dbb59c06fb2f34",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "entry-owned"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "94bcaf4a2016b3dd8b95f32f67438dac32bff2094ca9c9d966ad6785216d7c89",
+      "component_id": "hook:guard-bash",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".codex/hooks/guard-bash.sh",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "94bcaf4a2016b3dd8b95f32f67438dac32bff2094ca9c9d966ad6785216d7c89",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "codex",
+        "sha256": "f4710c2c7f104b3e1826c5442eab4cd81055f89339d0a4ad433c319a590b46e7"
+      },
+      "base_hash": "9d8d66fef4f22c65cbbf33ee7042ee22df35d3b12582edb7bfe6607760a9a545",
+      "capability": true,
+      "component_id": "resource:codex-permissions",
+      "consumers": [
+        "codex"
+      ],
+      "destination": ".codex/rules/rpi.rules",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "9d8d66fef4f22c65cbbf33ee7042ee22df35d3b12582edb7bfe6607760a9a545",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "4cb727ff137ff6e803368ca93e13c58f71d1273b0855a5347d360fc8f46e7e4c",
+      "component_id": "resource:claude-adapter",
+      "consumers": [
+        "claude",
+        "codex"
+      ],
+      "destination": ".rpi/adapters/claude.json",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "4cb727ff137ff6e803368ca93e13c58f71d1273b0855a5347d360fc8f46e7e4c",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "319be40b047f3953e92d8e500e29dd482e3d096699eff33c4552d9d6b2087420",
+      "component_id": "resource:codex-adapter",
+      "consumers": [
+        "claude",
+        "codex"
+      ],
+      "destination": ".rpi/adapters/codex.json",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "319be40b047f3953e92d8e500e29dd482e3d096699eff33c4552d9d6b2087420",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "f90a6aa69e80d1f65db48892fd44e2036f155d234b818857770dba49da7e68cc",
+      "component_id": "resource:model-profiles",
+      "consumers": [
+        "claude",
+        "codex"
+      ],
+      "destination": ".rpi/adapters/model-profiles.json",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "f90a6aa69e80d1f65db48892fd44e2036f155d234b818857770dba49da7e68cc",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "258e038b793588a8aa4c6293c8ae24c7d63fec3a4786b7bc1d2f3557bc77db64",
+      "component_id": "resource:distribution-manifest",
+      "consumers": [
+        "claude",
+        "codex"
+      ],
+      "destination": ".rpi/distribution.json",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "258e038b793588a8aa4c6293c8ae24c7d63fec3a4786b7bc1d2f3557bc77db64",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "fb05dc4d4a9e3c1f3061d3d591817a6a234632f25d91afda43d061992911f106",
+      "component_id": "rule:deployment-safety",
+      "consumers": [
+        "claude",
+        "codex"
+      ],
+      "destination": ".rpi/rules/deployment-safety.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "fb05dc4d4a9e3c1f3061d3d591817a6a234632f25d91afda43d061992911f106",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "local-only"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "9cc0f3a17b160ae13a5c25591845ec6044ef15857c818c4ed244d528db200b22",
+      "component_id": "rule:push-accountability",
+      "consumers": [
+        "claude",
+        "codex"
+      ],
+      "destination": ".rpi/rules/push-accountability.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "9cc0f3a17b160ae13a5c25591845ec6044ef15857c818c4ed244d528db200b22",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "08993d048a7fe9cfc33f753b43a8d550d8ed5900092901e4a79d3a7f254d0cf7",
+      "component_id": "rule:rpi-details",
+      "consumers": [
+        "claude",
+        "codex"
+      ],
+      "destination": ".rpi/rules/rpi-details.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "08993d048a7fe9cfc33f753b43a8d550d8ed5900092901e4a79d3a7f254d0cf7",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "c96fc92a476c32a11662d08bf34151d21b61004b42a59a336a4e453699b87aed",
+      "component_id": "rule:supabase",
+      "consumers": [
+        "claude",
+        "codex"
+      ],
+      "destination": ".rpi/rules/supabase.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "c96fc92a476c32a11662d08bf34151d21b61004b42a59a336a4e453699b87aed",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "f57338ca83a66b9034a15896f7a119b9ab4d39f26b3e8e06f18b1d54967b2239",
+      "component_id": "rule:testing",
+      "consumers": [
+        "claude",
+        "codex"
+      ],
+      "destination": ".rpi/rules/testing.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "f57338ca83a66b9034a15896f7a119b9ab4d39f26b3e8e06f18b1d54967b2239",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "local-only"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "c6e6ee4e798c31158b7697012afe63d73652bf74485b0529d0c0c2c981bf22c1",
+      "component_id": "rule:webmcp",
+      "consumers": [
+        "claude",
+        "codex"
+      ],
+      "destination": ".rpi/rules/webmcp.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "c6e6ee4e798c31158b7697012afe63d73652bf74485b0529d0c0c2c981bf22c1",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "c889ada05ac8adb82a0c7c6e40006fa064b87b28c1f615778fb9584047906ef0",
+      "component_id": "resource:candidate-identity",
+      "consumers": [
+        "claude",
+        "codex"
+      ],
+      "destination": ".rpi/scripts/rpi-candidate.py",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "c889ada05ac8adb82a0c7c6e40006fa064b87b28c1f615778fb9584047906ef0",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "409e69edf7256a176a1b4407c4fc35f75139423ed22b86c5155191e904f896fc",
+      "component_id": "resource:configuration-engine",
+      "consumers": [
+        "claude",
+        "codex"
+      ],
+      "destination": ".rpi/scripts/rpi-config.py",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "409e69edf7256a176a1b4407c4fc35f75139423ed22b86c5155191e904f896fc",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "3439b78d081ef11bb91083336c734145616686b34811b7756e8c2183bb2f4c73",
+      "component_id": "resource:diagnostics",
+      "consumers": [
+        "claude",
+        "codex"
+      ],
+      "destination": ".rpi/scripts/rpi-diagnostics.py",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "3439b78d081ef11bb91083336c734145616686b34811b7756e8c2183bb2f4c73",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "82206ec8236c3a0cac870fcd005b48113365a2c5b851dc0b382cf244bc11c494",
+      "component_id": "resource:distribution-engine",
+      "consumers": [
+        "claude",
+        "codex"
+      ],
+      "destination": ".rpi/scripts/rpi-distribution.py",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "82206ec8236c3a0cac870fcd005b48113365a2c5b851dc0b382cf244bc11c494",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "b7cfb98c2b03f009c45229c48a5d3a7de0eb3cd92d934b260e8a34a5d8c9f94e",
+      "component_id": "resource:lifecycle-engine",
+      "consumers": [
+        "claude",
+        "codex"
+      ],
+      "destination": ".rpi/scripts/rpi-lifecycle.py",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "b7cfb98c2b03f009c45229c48a5d3a7de0eb3cd92d934b260e8a34a5d8c9f94e",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "c183f406e0bb9876c8bcb39b5b244a4d5c14e7b3dacd451214c6695a29646c7c",
+      "component_id": "resource:models",
+      "consumers": [
+        "claude",
+        "codex"
+      ],
+      "destination": ".rpi/scripts/rpi-models.py",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "c183f406e0bb9876c8bcb39b5b244a4d5c14e7b3dacd451214c6695a29646c7c",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "0e4dc8aa15b48980d7b789c574e84ab85acf22f26b940ba97f76a8b3d4cb75b6",
+      "component_id": "resource:package-engine",
+      "consumers": [
+        "claude",
+        "codex"
+      ],
+      "destination": ".rpi/scripts/rpi-package.py",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "0e4dc8aa15b48980d7b789c574e84ab85acf22f26b940ba97f76a8b3d4cb75b6",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "0dea9491512c706d9dcdcd48ef343b6f2254587a0f22584bedf3ab6e6fc28bfb",
+      "component_id": "resource:policy-engine",
+      "consumers": [
+        "claude",
+        "codex"
+      ],
+      "destination": ".rpi/scripts/rpi-policy.py",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "0dea9491512c706d9dcdcd48ef343b6f2254587a0f22584bedf3ab6e6fc28bfb",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "893bf65e2c0a945efbc74d2e1e6298e190b5afd6535ed7cd714eb4666b2f616b",
+      "component_id": "resource:verification-runner",
+      "consumers": [
+        "claude",
+        "codex"
+      ],
+      "destination": ".rpi/scripts/rpi-verify.py",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "893bf65e2c0a945efbc74d2e1e6298e190b5afd6535ed7cd714eb4666b2f616b",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "740644025fdbd5ca1084d06b1c593efab696304f79e94fce3e5120d0b6369523",
+      "block": "push-accountability",
+      "component_id": "instruction:push-accountability",
+      "consumers": [
+        "claude",
+        "codex"
+      ],
+      "destination": "AGENTS.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "740644025fdbd5ca1084d06b1c593efab696304f79e94fce3e5120d0b6369523",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "26eb4374c3f004aaab089e9e6070430887c167d71b5a4707d63a1a71d749b34f",
+      "block": "rpi-details",
+      "component_id": "instruction:rpi-details",
+      "consumers": [
+        "claude",
+        "codex"
+      ],
+      "destination": "AGENTS.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "26eb4374c3f004aaab089e9e6070430887c167d71b5a4707d63a1a71d749b34f",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "af492bcc3ffbe0c660c947aec20c036e4be61d2c96251c41272cd36ff9f3bec5",
+      "block": "rule-map",
+      "component_id": "instruction:rule-map",
+      "consumers": [
+        "claude",
+        "codex"
+      ],
+      "destination": "AGENTS.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "af492bcc3ffbe0c660c947aec20c036e4be61d2c96251c41272cd36ff9f3bec5",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    },
+    {
+      "adapter": {
+        "harness": "claude",
+        "sha256": "bb6160eda79372660a247b14d7d2e3cb467fda5c0f67c3004e7efe1ef435cf38"
+      },
+      "base_hash": "a7c78a8dfc2c7eacfce7fc6938baa618ab7e54d373cc9617c9773bf1c728b89e",
+      "block": "claude-import",
+      "component_id": "instruction:claude-import",
+      "consumers": [
+        "claude"
+      ],
+      "destination": "CLAUDE.md",
+      "ownership": "cc-rpi",
+      "root_id": "project",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "rendered_sha256": "a7c78a8dfc2c7eacfce7fc6938baa618ab7e54d373cc9617c9773bf1c728b89e",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      },
+      "status": "clean"
+    }
+  ],
+  "harnesses": [
+    "claude",
+    "codex"
+  ],
+  "installations": {
+    "claude": {
+      "domains": [
+        "ci-workflow",
+        "deployment-safety",
+        "error-patterns",
+        "git-workflow",
+        "github-cli",
+        "macos-rules",
+        "multi-agent",
+        "systematic-debugging"
+      ],
+      "route": "direct",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      }
+    },
+    "codex": {
+      "domains": [
+        "ci-workflow",
+        "deployment-safety",
+        "error-patterns",
+        "git-workflow",
+        "github-cli",
+        "macos-rules",
+        "multi-agent",
+        "systematic-debugging"
+      ],
+      "route": "direct",
+      "source": {
+        "manifest_sha256": "d8c72cff72c7663ed862d007b9e8dbbb90ee65cb97efd6323cc93a8161362acc",
+        "revision": "0e786ccda5981566ce94ac74bc50937df3978c0c",
+        "version": "2.0.2"
+      }
+    }
+  },
+  "root_ids": [
+    "project"
+  ],
+  "route": "direct",
+  "schema_version": 1,
+  "scope": "project"
+}

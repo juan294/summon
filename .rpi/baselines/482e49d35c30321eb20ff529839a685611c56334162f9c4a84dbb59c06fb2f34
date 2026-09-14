@@ -1,0 +1,18 @@
+{
+  "id": "pre-tool-policy",
+  "mode": "entry",
+  "pointer": [
+    "hooks",
+    "PreToolUse"
+  ],
+  "value": {
+    "hooks": [
+      {
+        "command": "rpi_root=\"$PWD\"; while [ ! -f \"$rpi_root/.codex/hooks/guard-bash.sh\" ] && [ \"$rpi_root\" != / ]; do rpi_root=${rpi_root%/*}; rpi_root=${rpi_root:-/}; done; if [ ! -f \"$rpi_root/.codex/hooks/guard-bash.sh\" ]; then printf \"%s\\n\" \"BLOCKED / WHY: installed policy wrapper unavailable from native hook cwd. / FIX: launch the client inside the trusted project and run the read-only installation check.\" >&2; exit 2; fi; exec bash \"$rpi_root/.codex/hooks/guard-bash.sh\" codex",
+        "timeout": 30,
+        "type": "command"
+      }
+    ],
+    "matcher": "^Bash$"
+  }
+}

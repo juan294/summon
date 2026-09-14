@@ -9,7 +9,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash .claude/hooks/guard-bash.sh"
+            "command": "rpi_root=\"$PWD\"; while [ ! -f \"$rpi_root/.claude/hooks/guard-bash.sh\" ] && [ \"$rpi_root\" != / ]; do rpi_root=${rpi_root%/*}; rpi_root=${rpi_root:-/}; done; if [ ! -f \"$rpi_root/.claude/hooks/guard-bash.sh\" ]; then printf \"%s\\n\" \"BLOCKED / WHY: installed policy wrapper unavailable from native hook cwd. / FIX: launch the client inside the trusted project and run the read-only installation check.\" >&2; exit 2; fi; exec bash \"$rpi_root/.claude/hooks/guard-bash.sh\" claude"
           }
         ]
       }
@@ -28,8 +28,6 @@
   },
   "permissions": {
     "allow": [
-      "Bash(git *)",
-      "Bash(gh *)",
       "Bash(pnpm *)",
       "Bash(npx *)",
       "Read",
@@ -40,6 +38,24 @@
       "Bash(pnpm run *)",
       "Bash(npm run *)"
     ],
-    "deny": []
+    "deny": [
+      "Bash(vercel)",
+      "Bash(vc)",
+      "Bash(git push --tags:*)",
+      "Bash(git push --mirror:*)"
+    ],
+    "ask": [
+      "Bash(git push:*)",
+      "Bash(git * push *)",
+      "Bash(pnpm *vercel*)",
+      "Bash(gh pr create:*)",
+      "Bash(gh workflow run:*)",
+      "Bash(gh release create:*)",
+      "Bash(gh release edit:*)",
+      "Bash(gh release upload:*)",
+      "Bash(vercel:*)",
+      "Bash(vc:*)",
+      "Bash(npx *vercel*)"
+    ]
   }
 }

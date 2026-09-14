@@ -1,0 +1,9 @@
+{
+  "id": "ask-1",
+  "mode": "entry",
+  "pointer": [
+    "permissions",
+    "ask"
+  ],
+  "value": "Bash(git * push *)"
+}

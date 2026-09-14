@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "harness": "codex",
+  "preamble": "",
+  "frontmatter": {},
+  "sidecar": "agents/openai.yaml",
+  "explicit_field": "policy.allow_implicit_invocation"
+}

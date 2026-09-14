@@ -1,5 +1,5 @@
 ---
-name: "Git Workflow"
+name: "git-workflow"
 description: "Git recipes, worktree management, push sequences, branch verification, and conflict resolution patterns."
 ---
 
@@ -7,31 +7,50 @@ description: "Git recipes, worktree management, push sequences, branch verificat
 
 ## Push Sequence
 
-Wrong -- unstaged changes break the pull:
+Keep working branches and worktrees local. Finish applicable tests, coverage,
+typechecks, lint, build and deployment preflight locally, resolve failures,
+and integrate completed work locally into the documented integration branch.
+Inspect workflow and deployment triggers before the single authorized push of
+that completed branch. Never create Vercel Preview deployments or publish
+working branches/PRs for experimentation. If an integration push would create a
+Preview, stop before pushing and use only a documented, non-destructive bypass.
+Production publication remains separately and explicitly authorized. Read-only
+inspection of existing runs and deployments is allowed.
+
+Commit intended files locally before pulling. Fetch and inspect the remote
+integration tip before final local integration; if it moved, reconcile locally
+and repeat the applicable gates. Do not rebase through uncommitted work.
 
 ```bash
-git pull --rebase && git push
+git branch --show-current
+git add <files> && git commit -m "msg"
+git fetch origin
+# Inspect origin/<integration-branch>; integrate and verify locally.
+# Only after trigger inspection and authorization:
+git push origin <integration-branch>
 ```
 
-Right -- commit before pulling (clean tree required):
+## Empty Repositories
+
+Wrong -- `git log` and `git diff HEAD` fail on a repo with no commits yet:
 
 ```bash
-git add <files> && git commit -m "msg" && git pull --rebase && git push
+git log -1
+git diff HEAD
 ```
 
-## First Push / PR Creation
-
-Wrong -- no upstream, push and gh pr create both fail:
+Right -- check for a HEAD first:
 
 ```bash
-git push && gh pr create --title "feat: thing"
+git rev-parse HEAD 2>&1 || echo "no commits yet -- skip log/diff HEAD"
 ```
 
-Right -- set upstream on first push:
+## First Publication
 
-```bash
-git push -u origin <branch> && gh pr create --title "feat: thing"
-```
+Working branches have no remote upstream because they remain local. Do not
+create feature, temporary, or remediation PRs. The orchestrator integrates
+completed work locally and publishes only the documented integration branch
+once, subject to the remote-budget and production authorization boundaries.
 
 ## Push with Tag
 
@@ -41,16 +60,13 @@ Wrong -- pushes ALL local tags, fails if any old tag exists on remote:
 git push --tags
 ```
 
-Right -- push the tag by name:
+Right -- after release authorization, push only the named release tag:
 
 ```bash
+git push origin main
+# Observe required main CI passing for the exact pushed SHA before the tag:
 git push origin v1.0.0
 ```
-
-Note: in this repo the `guard-bash.sh` PreToolUse hook BLOCKS any
-`git push` naming `main`/`master` unless `--follow-tags` is present
-(Error #48). `main` advances by merging the release PR, not by a
-direct push, so the tag push above is all that is needed.
 
 ## Branch Verification
 
@@ -68,51 +84,32 @@ git branch --show-current && git commit -m "feat: add feature"
 
 ## Worktree Management
 
-Wrong -- relative paths and lowercase -d:
+Use absolute worktree paths or the tool's explicit per-call working directory.
+Do not infer cwd or branch from an earlier shell call. Before cleanup, establish that this task owns the
+worktree and branch, all source changes are integrated, and plans, handoffs,
+ignored evidence and untracked files are preserved outside the disposable tree.
+A clean `git status` alone cannot prove ignored artifacts are preserved.
 
 ```bash
-cd ../worktree && pnpm test           # cwd resets between calls
-git worktree remove <path> && git branch -d <branch>  # -d fails
+git worktree list --porcelain
+git -C /absolute/path/to/worktree status --short --untracked-files=all
+git -C /absolute/path/to/worktree ls-files --others --ignored --exclude-standard
+git merge-base --is-ancestor <working-branch> <integration-branch>
+# Proceed only after ownership, preservation and integration are confirmed.
+git worktree remove /absolute/path/to/worktree && git branch -d <working-branch>
 ```
 
-Right -- absolute paths, force remove, uppercase -D:
-
-```bash
-cd /absolute/path/to/worktree && pnpm test
-git worktree remove --force <path>; git branch -D <branch>
-```
-
-Always remove worktrees BEFORE merging PRs with `--delete-branch`.
+If removal or `-d` refuses, retain the worktree/branch and investigate. A squash
+merge does not preserve ancestry; record equivalent integrated content and
+preserve the original branch instead of defaulting to force deletion. Never
+remove a foreign worktree or delete every branch returned by a listing.
 
 ## Cleanup After Merge
 
-Wrong -- assume the merge cleaned up; leave stale local branches behind
-(a cleanup "done" that left two local branches needing a second pass):
-
-```bash
-gh pr merge --squash --delete-branch   # deletes the REMOTE branch only
-```
-
-Right -- a complete cleanup covers worktrees, local branches, and prune,
-then verifies nothing is left dangling:
-
-```bash
-# 1. Remove worktrees FIRST (a branch checked out in a worktree won't delete)
-git worktree remove --force /absolute/path/to/worktree
-git worktree prune
-
-# 2. Delete the local branch (remote went with --delete-branch at merge)
-git branch -D <branch>
-
-# 3. Drop stale remote-tracking refs for branches deleted on the remote
-git fetch --prune
-
-# 4. Verify -- these should list ONLY active work, nothing merged
-git branch --merged                # local branches already merged
-git worktree list                  # lingering worktrees
-```
-
-Anything still listed in step 4 is the "second pass" -- finish it now, not later.
+Remove only the verified task-owned worktree using the procedure above. Report
+retained artifacts and branches with their reasons. Other active worktrees and
+unmerged branches are expected to survive. No remote branch cleanup is needed
+for branches that were never published.
 
 ## Conflict Resolution
 
@@ -122,11 +119,11 @@ Wrong -- plain checkout fails on unmerged files:
 git checkout -- conflicted-file.ts
 ```
 
-Right -- pick a side, abort, or remove conflicting untracked files:
+Right -- inspect `git status` and the conflicting contents first. Resolve the intended combination; preserve untracked collisions outside the worktree before retrying. Never delete unknown files:
 
 ```bash
 git checkout --ours file.ts    # keep yours
 git checkout --theirs file.ts  # keep incoming
 git rebase --abort             # cancel entirely
-rm untracked-file.ts && git merge feature  # untracked collision
+# Preserve the untracked collision at a verified unique recovery path first.
 ```

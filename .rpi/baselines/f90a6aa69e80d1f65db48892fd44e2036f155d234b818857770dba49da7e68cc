@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "verified_on": "2026-09-05",
+  "default_policy": "inherit",
+  "application": "separate explicit session/profile",
+  "mechanical_roles": ["status-summary", "formatting", "locator"],
+  "limitations": [
+    "A dated capability snapshot is not an entitlement check or universal quality ranking.",
+    "Claude skill model and effort fields override the active turn; use a separate explicit economy session.",
+    "Codex turn model and effort overrides persist to subsequent turns; no automatic parent restoration is promised.",
+    "Profiles never launch clients, alter global configuration, or replace an explicit owner selection."
+  ],
+  "clients": {
+    "claude": {
+      "version": "2.1.261",
+      "sources": [
+        "https://code.claude.com/docs/en/model-config#model-aliases",
+        "https://code.claude.com/docs/en/skills"
+      ],
+      "native_evidence": "Installed CLI help and no-inference SDK initialization; actual primary research response identity observed separately.",
+      "capabilities": {
+        "best": {"efforts": ["low", "medium", "high", "xhigh", "max"]},
+        "fable": {"efforts": ["low", "medium", "high", "xhigh", "max"]},
+        "claude-fable-5-1[1m]": {"efforts": ["low", "medium", "high", "xhigh", "max"]},
+        "haiku": {"efforts": []}
+      },
+      "primary": {"model": "fable", "effort": "high"},
+      "economy": {"model": "haiku"},
+      "launch_examples": {
+        "best": ["claude", "--model", "best", "--effort", "high"],
+        "primary": ["claude", "--model", "fable", "--effort", "high"],
+        "economy": ["claude", "--model", "haiku"]
+      }
+    },
+    "codex": {
+      "version": "0.153.4",
+      "sources": [
+        "https://learn.chatgpt.com/docs/config-file/config-advanced#profiles",
+        "https://developers.openai.com/codex/app-server"
+      ],
+      "native_evidence": "Installed CLI help, app-server model catalog and no-inference thread/start precedence; actual primary research turn_context observed separately.",
+      "capabilities": {
+        "gpt-6-astra": {"efforts": ["low", "medium", "high", "xhigh", "max", "ultra"]},
+        "gpt-5.6-sol": {"efforts": ["low", "medium", "high", "xhigh", "max", "ultra"]}
+      },
+      "primary": {"model": "gpt-6-astra", "effort": "high"},
+      "economy": {"model": "gpt-5.6-sol", "effort": "medium"},
+      "profile_files": {
+        "rpi-research.config.toml": {"model": "gpt-6-astra", "model_reasoning_effort": "high"},
+        "rpi-implementation.config.toml": {"model": "gpt-6-astra", "model_reasoning_effort": "high"},
+        "rpi-mechanical.config.toml": {"model": "gpt-5.6-sol", "model_reasoning_effort": "medium"}
+      },
+      "launch_examples": {
+        "research": ["codex", "--profile", "rpi-research"],
+        "implementation": ["codex", "--profile", "rpi-implementation"],
+        "economy": ["codex", "--profile", "rpi-mechanical"]
+      }
+    }
+  }
+}

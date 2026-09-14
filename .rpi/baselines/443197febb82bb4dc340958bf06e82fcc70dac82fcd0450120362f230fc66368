@@ -1,0 +1,9 @@
+{
+  "id": "ask-10",
+  "mode": "entry",
+  "pointer": [
+    "permissions",
+    "ask"
+  ],
+  "value": "Bash(pnpm *vercel*)"
+}

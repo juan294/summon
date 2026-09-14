@@ -1,0 +1,9 @@
+{
+  "id": "deny-0",
+  "mode": "entry",
+  "pointer": [
+    "permissions",
+    "deny"
+  ],
+  "value": "Bash(vercel)"
+}
