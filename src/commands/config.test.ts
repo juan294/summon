@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockWriteFileSync = vi.fn();
+const mockOpenSync = vi.fn((..._args: unknown[]) => 42);
+const mockFchmodSync = vi.fn();
+const mockCloseSync = vi.fn();
 const mockListConfig = vi.fn();
 const mockRemoveConfig = vi.fn();
 const mockSaveCustomLayout = vi.fn();
@@ -18,6 +21,9 @@ const mockValidateLayoutOrExit = vi.fn();
 
 vi.mock("node:fs", () => ({
   writeFileSync: (...args: unknown[]) => mockWriteFileSync(...args),
+  openSync: (...args: unknown[]) => mockOpenSync(...args),
+  fchmodSync: (...args: unknown[]) => mockFchmodSync(...args),
+  closeSync: (...args: unknown[]) => mockCloseSync(...args),
 }));
 
 vi.mock("../config.js", () => ({
@@ -335,16 +341,24 @@ describe("handleExportCommand", () => {
 
     await handleExportCommand(makeContext({ args: ["./out.summon"] }));
 
-    expect(mockWriteFileSync).toHaveBeenCalledWith(
+    expect(mockOpenSync).toHaveBeenCalledWith(
       `${process.cwd()}/out.summon`,
+      "w",
+      0o600,
+    );
+    expect(mockFchmodSync).toHaveBeenCalledWith(42, 0o600);
+    expect(mockWriteFileSync).toHaveBeenCalledWith(
+      42,
       expect.stringContaining("editor=nvim"),
-      { mode: 0o644 },
     );
     expect(mockWriteFileSync).toHaveBeenCalledWith(
-      `${process.cwd()}/out.summon`,
+      42,
       expect.stringContaining("env.PORT=3000"),
-      { mode: 0o644 },
     );
+    expect(mockFchmodSync.mock.invocationCallOrder[0]).toBeLessThan(
+      mockWriteFileSync.mock.invocationCallOrder[0]!,
+    );
+    expect(mockCloseSync).toHaveBeenCalledWith(42);
     expect(logSpy).toHaveBeenCalledWith(`Exported to: ${process.cwd()}/out.summon`);
   });
 });

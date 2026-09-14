@@ -908,6 +908,7 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
   decideCleanRestoredPanes(opts, cliOverrides ?? {}, config.projectOverrides, machineConfig, cliOverrides?.dryRun, projectName);
 
   let effectiveOnStart = onStart;
+  let effectiveOnStop = onStop;
 
   if (!cliOverrides?.dryRun) {
     const resolvedCommands: Array<[string, string]> = [];
@@ -936,6 +937,7 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
       if (skipped.has("sidebar")) opts.sidebarCommand = undefined;
       if (skipped.has("shell")) opts.shell = undefined;
       if (skipped.has("on-start")) effectiveOnStart = undefined;
+      if (skipped.has("on-stop")) effectiveOnStop = undefined;
       if (treeLayout) {
         for (const key of skipped) {
           if (key.startsWith("pane.")) {
@@ -953,8 +955,8 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
   // SE-M1 (#595): surface on-stop command at launch time so users know it will run on exit.
   // on-stop is embedded in the AppleScript's EXIT trap and runs silently; a launch-time notice
   // makes the hook visible without requiring users to inspect the generated script.
-  if (onStop && !cliOverrides?.dryRun) {
-    process.stderr.write(`Note: on-stop will run on workspace exit: ${onStop}\n`);
+  if (effectiveOnStop && !cliOverrides?.dryRun) {
+    process.stderr.write(`Note: on-stop will run on workspace exit: ${effectiveOnStop}\n`);
   }
 
   // Cache resolved command paths so the same binary is only looked up once
@@ -995,8 +997,8 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
   };
 
   const paneNames = treeLayout
-    ? await launchTreeLayout(treeLayout, opts, cliOverrides ?? {}, targetDir, starshipPreset, envVars, ensureAndResolve, resolveStarship, projectName, onStop)
-    : await launchTraditionalLayout(opts, cliOverrides ?? {}, targetDir, starshipPreset, envVars, ensureAndResolve, resolveStarship, projectName, onStop);
+    ? await launchTreeLayout(treeLayout, opts, cliOverrides ?? {}, targetDir, starshipPreset, envVars, ensureAndResolve, resolveStarship, projectName, effectiveOnStop)
+    : await launchTraditionalLayout(opts, cliOverrides ?? {}, targetDir, starshipPreset, envVars, ensureAndResolve, resolveStarship, projectName, effectiveOnStop);
 
   // Write workspace status for monitoring features
   if (!cliOverrides?.dryRun) {

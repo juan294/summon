@@ -65,7 +65,13 @@ describe("saveSnapshot", () => {
     mkdirSync(repoDir, { recursive: true });
     // Unset git env vars that the pre-commit hook injects — they'd redirect
     // these temp-repo git commands to the parent repo and break the commit.
-    const gitEnv = { ...process.env, GIT_DIR: undefined, GIT_WORK_TREE: undefined, GIT_INDEX_FILE: undefined };
+    const gitEnv = {
+      ...process.env,
+      GIT_DIR: undefined,
+      GIT_WORK_TREE: undefined,
+      GIT_INDEX_FILE: undefined,
+      GIT_COMMON_DIR: undefined,
+    };
     execFileSync("git", ["init"], { cwd: repoDir, stdio: "ignore", env: gitEnv });
     execFileSync("git", ["config", "user.email", "summon@example.test"], { cwd: repoDir, env: gitEnv });
     execFileSync("git", ["config", "user.name", "Summon Test"], { cwd: repoDir, env: gitEnv });

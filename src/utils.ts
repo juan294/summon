@@ -261,7 +261,7 @@ export function gitOutputSync(dir: string, args: string[]): string {
 
 /**
  * Returns process.env with git context variables removed.
- * Prevents an inherited GIT_DIR/GIT_WORK_TREE (e.g. from a pre-commit hook)
+ * Prevents inherited Git context variables (e.g. from a pre-commit hook)
  * from overriding the -C flag and making every directory appear as the current repo.
  *
  * PE-M2 #608: the cleaned env is computed once (lazy) and memoized — rest-spreading
@@ -272,7 +272,13 @@ let _gitSafeEnvCache: NodeJS.ProcessEnv | undefined;
 
 export function gitSafeEnv(): NodeJS.ProcessEnv {
   if (_gitSafeEnvCache === undefined) {
-    const { GIT_DIR: _gd, GIT_WORK_TREE: _gwt, GIT_INDEX_FILE: _gif, ...clean } = process.env;
+    const {
+      GIT_DIR: _gd,
+      GIT_WORK_TREE: _gwt,
+      GIT_INDEX_FILE: _gif,
+      GIT_COMMON_DIR: _gcd,
+      ...clean
+    } = process.env;
     _gitSafeEnvCache = clean;
   }
   return _gitSafeEnvCache;

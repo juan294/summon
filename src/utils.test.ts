@@ -678,14 +678,22 @@ describe("gitSafeEnv", () => {
     expect("GIT_INDEX_FILE" in result).toBe(false);
   });
 
-  it("strips all three git context vars when all are set", () => {
+  it("strips GIT_COMMON_DIR from the returned env", () => {
+    process.env["GIT_COMMON_DIR"] = "/some/repo/.git";
+    const result = gitSafeEnv();
+    expect("GIT_COMMON_DIR" in result).toBe(false);
+  });
+
+  it("strips all git context vars when all are set", () => {
     process.env["GIT_DIR"] = "/a";
     process.env["GIT_WORK_TREE"] = "/b";
     process.env["GIT_INDEX_FILE"] = "/c";
+    process.env["GIT_COMMON_DIR"] = "/d";
     const result = gitSafeEnv();
     expect("GIT_DIR" in result).toBe(false);
     expect("GIT_WORK_TREE" in result).toBe(false);
     expect("GIT_INDEX_FILE" in result).toBe(false);
+    expect("GIT_COMMON_DIR" in result).toBe(false);
   });
 
   it("preserves other env vars", () => {
