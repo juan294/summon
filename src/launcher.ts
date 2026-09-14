@@ -17,7 +17,7 @@ import { listConfig, listProjects, readKVFile, readKVFromString, readCustomLayou
 import { writeStatus } from "./status.js";
 import type { WorkspaceStatus } from "./status.js";
 import { generateAppleScript, generateTreeAppleScript, generateFocusScript } from "./script.js";
-import { parseTreeDSL, extractPaneDefinitions, extractPaneCwds, resolveTreeCommands as resolveTreeCmds, buildTreePlan, findPaneByName } from "./tree.js";
+import { parseTreeDSL, extractPaneDefinitions, extractPaneCwds, resolveTreeCommands as resolveTreeCmds, buildTreePlan, collectLeaves, findPaneByName } from "./tree.js";
 import type { LayoutNode, TreePlanOptions } from "./tree.js";
 import { resolveCommand as resolveCommandPath, getErrorMessage, SUMMON_WORKSPACE_ENV, promptUser, ACCESSIBILITY_SETTINGS_PATH, isDebug, supportsColor } from "./utils.js";
 import { fail, err } from "./ui/output.js";
@@ -919,12 +919,14 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
 
     maybePush("editor", opts.editor);
     maybePush("sidebar", opts.sidebarCommand);
+    maybePush("secondary-editor", opts.secondaryEditor);
     maybePush("shell", opts.shell);
     maybePush("on-start", onStart);
     maybePush("on-stop", onStop);
     if (treeLayout) {
-      for (const [paneName, cmd] of treeLayout.panes) {
-        maybePush(`pane.${paneName}`, cmd);
+      for (const paneName of collectLeaves(treeLayout.tree)) {
+        const inlineCommand = findPaneByName(treeLayout.tree, paneName)?.command;
+        maybePush(`pane.${paneName}`, inlineCommand || treeLayout.panes.get(paneName));
       }
     }
 
@@ -935,13 +937,17 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
     if (skipped.size > 0) {
       if (skipped.has("editor")) opts.editor = undefined;
       if (skipped.has("sidebar")) opts.sidebarCommand = undefined;
+      if (skipped.has("secondary-editor")) opts.secondaryEditor = undefined;
       if (skipped.has("shell")) opts.shell = undefined;
       if (skipped.has("on-start")) effectiveOnStart = undefined;
       if (skipped.has("on-stop")) effectiveOnStop = undefined;
       if (treeLayout) {
         for (const key of skipped) {
           if (key.startsWith("pane.")) {
-            treeLayout.panes.delete(key.slice(5));
+            const paneName = key.slice(5);
+            treeLayout.panes.set(paneName, "");
+            const pane = findPaneByName(treeLayout.tree, paneName);
+            if (pane) pane.command = "";
           }
         }
       }

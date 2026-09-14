@@ -37,6 +37,7 @@ describe("command-spec", () => {
     expect(commandHasShellMeta('printf "hello\\$world"')).toBe(false);
     expect(commandHasShellMeta(String.raw`echo \$\(safe\)`)).toBe(false);
     expect(commandHasShellMeta("echo ';'")).toBe(false);
+    expect(commandHasShellMeta("printf first\nprintf second")).toBe(true);
   });
 
   it("preserves the original raw command string", () => {

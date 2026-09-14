@@ -98,7 +98,16 @@ function detectShellMeta(raw: string): boolean {
         index++;
         continue;
       }
-      if (char === ";" || char === "|" || char === "&" || char === "`" || char === "<" || char === ">") {
+      if (
+        char === ";"
+        || char === "|"
+        || char === "&"
+        || char === "`"
+        || char === "<"
+        || char === ">"
+        || char === "\n"
+        || char === "\r"
+      ) {
         return true;
       }
       if (char === "$" && (raw[index + 1] === "(" || raw[index + 1] === "{")) {
