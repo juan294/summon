@@ -36,7 +36,7 @@ Working branches remain local; only completed integration may be published.
 Do not publish a working branch merely to create a PR.
 
 **#33: Pull rebase with dirty tree** --
-Commit before `git pull --rebase` (hook enforced).
+Commit before `git pull --rebase`.
 
 **#44: Push --tags pushes ALL tags** --
 Push only the named authorized release tag: `git push origin v1.0.0`.

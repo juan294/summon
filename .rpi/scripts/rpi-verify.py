@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run the CI-equivalent selection sequentially and bind results to candidate bytes.
 
-Prerequisites: Git, Bash, Python 3, PyYAML, ShellCheck, Node, gh and uv.
+Prerequisites: Git, Bash, Python 3.11+, PyYAML, ShellCheck, Node, gh and uv.
 Disposable database recipe acceptance is a separate required phase check.
 The custom --checks
 option supports fixture/regression execution and emits a clearly distinct suite
@@ -15,6 +15,7 @@ import json
 import os
 from pathlib import Path
 import shlex
+import shutil
 import stat
 import subprocess
 import sys
@@ -133,6 +134,16 @@ def attempt_lock(root):
         os.close(descriptor)
 
 
+def ignore_local(root):
+    """Keep evidence out of Git status in every clone and worktree; an existing entry is the owner's."""
+    try:
+        descriptor = os.open(root / '.rpi/local/.gitignore', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644)
+    except FileExistsError:
+        return  # Never overwrite, and never follow, what is already there.
+    with os.fdopen(descriptor, 'w', encoding='utf-8') as handle:
+        handle.write('*\n')
+
+
 def run(root, checks, evidence, suite):
     root = root.resolve()
     evidence = safe_output(root, evidence)
@@ -150,6 +161,7 @@ def run(root, checks, evidence, suite):
             raise ValueError("checks require unique names and nonempty argv arrays")
         names.add(check["name"])
     with attempt_lock(root):
+        ignore_local(root)
         attempt = {'schema_version': 1, 'suite': suite, 'attempt_id': uuid.uuid4().hex,
                    'status': 'running', 'passed': False, 'checks': [],
                    'started_at': datetime.now(timezone.utc).isoformat()}
@@ -206,6 +218,23 @@ def execute_checks(root, checks, evidence, authoritative, attempt):
     return 0 if passed else 1
 
 
+def supported_interpreter():
+    """The first Python 3.11+ in the pre-push wrapper's order, excluding this (older) interpreter."""
+    current = os.path.realpath(sys.executable)
+    for name in ('python3.14', 'python3.13', 'python3.12', 'python3.11', 'python3'):
+        found = shutil.which(name)
+        if found is None or os.path.realpath(found) == current:
+            continue
+        try:
+            probe = subprocess.run([found, '-c', 'import sys; sys.exit(sys.version_info < (3, 11))'],
+                                   capture_output=True, timeout=10, check=False)
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        if probe.returncode == 0:
+            return found
+    return None
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[2])
@@ -216,7 +245,13 @@ def main():
     evidence = args.evidence or root / ".rpi/local/verification.json"
     try:
         if sys.version_info < (3, 11):
-            raise ValueError('verification requires Python 3.11 or newer')
+            script = [str(Path(__file__).resolve()), '--root', str(root)]
+            found = supported_interpreter()
+            rerun = (shlex.join([found, *script]) if found else
+                     shlex.join(['uv', 'run', '--no-project', '--python', '3.13', 'python', *script]))
+            print(f"BLOCKED / WHY: verification requires Python 3.11 or newer; this is {sys.executable} "
+                  f"(Python {'.'.join(map(str, sys.version_info[:3]))}) / FIX: {rerun}", file=sys.stderr)
+            return 1
         checks = json.loads(args.checks.read_text()) if args.checks else required_checks(root)
         return run(root, checks, evidence, "custom" if args.checks else "ci-equivalent")
     except (OSError, ValueError, subprocess.CalledProcessError) as error:

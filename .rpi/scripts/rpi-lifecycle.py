@@ -18,11 +18,28 @@ import sys
 import stat
 import subprocess
 import tempfile
+import time
 import uuid
 
 
 class Conflict(ValueError):
     """A valid request needs reconciliation before it can mutate files."""
+    fix = None  # A specific runnable repair, when the failure site knows one.
+
+
+class MergeConflict(Conflict):
+    """Both the owner and the template changed the same lines of an owned file."""
+
+
+class UsageError(ValueError):
+    """An invalid request whose exact repair is known at the failure site.
+
+    `drop` = (option, values) the operator passed in error; the CLI turns it into
+    the same command without them."""
+
+    def __init__(self, reason, fix, drop=None):
+        super().__init__(reason)
+        self.fix, self.drop = fix, drop
 
 
 class TargetSettingsError(ValueError):
@@ -291,7 +308,7 @@ def merge_bytes(local, base, upstream):
             path.write_bytes(content)
         result = subprocess.run(['git', 'merge-file', '-p', *map(str, paths)], capture_output=True)
     if result.returncode != 0:
-        raise Conflict('both local and upstream changed overlapping content')
+        raise MergeConflict('both local and upstream changed overlapping content')
     return result.stdout
 
 
@@ -358,11 +375,15 @@ def make_plan(engine, request):
     revision = request.get('legacy_base')
     if revision:
         if not re.fullmatch('[0-9a-f]{40}|[0-9a-f]{64}', revision):
-            raise ValueError('--legacy-base must be a full immutable commit ID')
+            raise UsageError('--legacy-base must be a full immutable commit ID, not ' + repr(revision),
+                             'pass the full ID that ' + shlex.join(['git', '-C', str(source), 'rev-parse', '--verify', revision + '^{commit}']) +
+                             ' prints')
         top = subprocess.run(['git', '-C', str(source), 'rev-parse', '--show-toplevel'], capture_output=True, text=True)
         kind = subprocess.run(['git', '-C', str(source), 'cat-file', '-t', revision], capture_output=True, text=True)
         if top.returncode != 0 or Path(top.stdout.strip()).resolve() != source or kind.returncode != 0 or kind.stdout.strip() != 'commit':
-            raise ValueError('--legacy-base must identify a locally available commit in the explicitly bound source checkout')
+            raise UsageError('--legacy-base ' + revision + ' is not a commit available in the --source checkout ' + str(source),
+                             'pass --source the cc-rpi Git checkout root that contains that commit (fetch it there first), '
+                             'or choose a commit that ' + shlex.join(['git', '-C', str(source), 'log', '--format=%H']) + ' lists')
     configuration = engine.load_sibling('rpi-config')
     if request['scope'] == 'project':
         settings = bound_path(roots['project'], '.claude/settings.json')
@@ -377,12 +398,30 @@ def make_plan(engine, request):
             raise Conflict('settings must be a regular JSON file')
     previous = load_state(state)
     if previous and (previous.get('scope') != request['scope'] or previous.get('root_ids') != sorted(roots)):
-        raise ValueError('installation root IDs or scope changed')
+        raise UsageError('this request uses scope ' + request['scope'] + ' with roots ' + ', '.join(sorted(roots)) +
+                         '; the installation at ' + str(state) + ' records scope ' + str(previous.get('scope')) +
+                         ' with roots ' + ', '.join(map(str, previous.get('root_ids') or [])),
+                         'rerun with --scope ' + str(previous.get('scope')) + ' and that installation\'s roots, '
+                         'or inspect ' + str(Path(state) / 'manifest.json') + ' if it was edited by hand')
     # Local root binding is separate from the portable ownership manifest.
     binding_path = bound_path(state, 'local/root-binding.json')
     binding = snapshot(binding_path)
     if previous and binding['kind'] != 'missing' and node_bytes(binding) != serialized(roots):
-        raise Conflict('installation roots differ from the recorded local binding')
+        error = Conflict('installation roots differ from the recorded local binding ' +
+                         node_bytes(binding).decode('utf-8', errors='replace').strip().replace('\n', ' ') +
+                         '; the installation was moved or renamed, or the requested roots differ')
+        # The ignored binding only ties local recovery journals to their roots.
+        # Journals record absolute roots, so old-location journals stay refused.
+        error.fix = ('if this installation was moved or renamed on purpose, rebind it with ' +
+                     shlex.join(['rm', str(binding_path)]) + ', then create a new plan (the next apply records '
+                     'the new roots; journals from the old location cannot roll back here); otherwise pass the '
+                     'recorded roots shown in this message')
+        raise error
+    interrupted, recovery = interrupted_recovery(state)
+    if interrupted:
+        error = Conflict('interrupted transaction must be rolled back before planning: ' + str(interrupted[-1]))
+        error.fix = recovery
+        raise error
     defaults = [c['name'] for c in manifest['components'] if c.get('category') == 'domain' and c['selection'] == 'default']
     installations = dict((previous or {}).get('installations', {}))
     if previous and not installations:
@@ -390,6 +429,11 @@ def make_plan(engine, request):
                          for h in previous['harnesses']}
     routes, domains_by_harness = {}, {}
     available = {c['name'] for c in manifest['components'] if c.get('category') == 'domain'}
+    unknown = sorted(set(request.get('domains') or []) - available)
+    if unknown:
+        raise UsageError('--domain names no domain in this source: ' + ', '.join(unknown) +
+                         ' (available: ' + (', '.join(sorted(available)) or 'none') + ')',
+                         'drop ' + ' '.join('--domain ' + name for name in unknown), drop=('--domain', unknown))
     for harness in request['harnesses']:
         installed = installations.get(harness, {})
         routes[harness] = request.get('route') or installed.get('route', 'direct')
@@ -563,7 +607,17 @@ def make_plan(engine, request):
                     result_file = result
                 file_changes[physical_key] = result_file
         except (Conflict, OSError) as error:
-            conflicts.append(reconciliation_conflict(destination, str(error), base, local, upstream))
+            record = reconciliation_conflict(destination, str(error), base, local, upstream)
+            owner = proposed or prior or {}
+            cid = owner.get('component_id')
+            if cid:
+                record['component_id'] = cid
+            flag = cid if cid and (owner.get('capability') or cid in capability_ids) else None
+            if flag and str(error).startswith('native capability file'):
+                record['allow_capabilities'] = flag
+            if isinstance(error, MergeConflict):
+                record.update(merge_repair(state, roots, root_id, destination, block, prior, flag))
+            conflicts.append(record)
 
     # Legacy command names are only candidates. An immutable local source commit
     # plus exact historical bytes is the sole automatic retirement authority.
@@ -613,8 +667,14 @@ def make_plan(engine, request):
                         if c['kind'] == 'config' and not c.get('distribution_only') and c['scope'] == request['scope']]
     selected_capabilities = {c['id'] for c in engine.selected_components(manifest, domains)
                              if c.get('capability') and c['scope'] == request['scope'] and set(c['harnesses']) & set(request['harnesses'])}
-    if authorized - ({c['id'] for c in selected_configs if set(c['harnesses']) & set(request['harnesses'])} | selected_capabilities | {e['component_id'] for e in (previous or {}).get('entries', []) if 'config_record' in e or e.get('capability')}):
-        raise ValueError('capability authorization names an unselected configuration component')
+    selectable = ({c['id'] for c in selected_configs if set(c['harnesses']) & set(request['harnesses'])} | selected_capabilities |
+                  {e['component_id'] for e in (previous or {}).get('entries', []) if 'config_record' in e or e.get('capability')})
+    if authorized - selectable:
+        unselected = sorted(authorized - selectable)
+        raise UsageError('--allow-capabilities names a component this request does not install: ' + ', '.join(unselected) +
+                         ' (selectable for ' + '/'.join(request['harnesses']) + ': ' + (', '.join(sorted(selectable)) or 'none') + ')',
+                         'drop ' + ' '.join('--allow-capabilities ' + cid for cid in unselected),
+                         drop=('--allow-capabilities', unselected))
     for entry in (previous or {}).get('entries', []):
         if 'config_record' not in entry:
             continue
@@ -652,9 +712,10 @@ def make_plan(engine, request):
                 raise Conflict('native configuration must be a regular file')
             local = file_changes.get((root_id, destination), node_bytes(current))
             result = configuration.reconcile(local, previous_records, group['desired'], cid in authorized, allow_removal=request['action'] == 'detach')
-            conflicts.extend({'destination': destination, 'reason': item['reason'], 'component_id': cid}
-                             for item in result['conflicts'])
-            retained.extend({'destination': destination, 'reason': item['reason'], 'component_id': cid}
+            conflicts.extend(entry_conflict(item, destination, cid) for item in result['conflicts'])
+            retained.extend({'destination': destination, 'reason': item['reason'] + ' (' + entry_label(item) + ')',
+                             'component_id': cid, 'record_id': item['id'], 'value': item['value'],
+                             **({'in_effect': False} if item.get('in_effect') is False else {})}
                             for item in result['retained'])
             if result['content'] != local:
                 file_changes[(root_id, destination)] = result['content']
@@ -706,10 +767,138 @@ def make_plan(engine, request):
     after = file_node(serialized(next_manifest)) if next_manifest else {'kind': 'missing'}
     if node_bytes(before) != node_bytes(after):
         operations.append({'root_id': 'state', 'destination': 'manifest.json', 'before': before, 'after': after})
+    notices = receipt_gate_notices(request, roots, operations, previous, manifest['version'])
     return {'schema_version': 1, 'request': request, 'roots': roots, 'state_root': state,
             'source': identity, 'status': 'conflict' if conflicts else 'ready' if operations else 'noop',
-            'operations': operations, 'conflicts': conflicts, 'retained': retained,
+            'operations': operations, 'conflicts': conflicts, 'retained': retained, **({'notices': notices} if notices else {}),
             'observations': [{'root_id': root, 'destination': name, 'node': node} for (root, name), node in sorted(observations.items())]}
+
+
+GATE_DOC = 'https://github.com/juan294/cc-rpi/blob/main/docs/native-policy.md#optional-verification-receipt-gate'
+# Verbatim from docs/native-policy.md (a test keeps them identical); adopters do not have that file.
+PRE_PUSH_ENABLE = r'''hooks=$(git config --type=path --get core.hooksPath || echo "$(git rev-parse --path-format=absolute --git-common-dir)/hooks")
+mkdir -p "$hooks" && cat > "$hooks/pre-push" <<'EOF'
+#!/bin/sh
+top=$(git rev-parse --show-toplevel 2>/dev/null)
+gate="$top/.rpi/scripts/rpi-prepush.py"
+case $0 in /*) hook=$0 ;; *) hook=$PWD/$0 ;; esac
+if [ ! -f "$gate" ]; then
+  echo "BLOCKED / WHY: this checkout has no .rpi/scripts/rpi-prepush.py receipt gate. / FIX: push from a checkout that contains it, such as the integration worktree; or restore it with a reviewed update (RPI_SOURCE is your cc-rpi checkout): bash \"\$RPI_SOURCE/scripts/install.sh\" --target \"$top\" --action update --output \"$top/.rpi/local/plans/restore.json\"; review it, then bash \"\$RPI_SOURCE/scripts/install.sh\" --apply \"$top/.rpi/local/plans/restore.json\"; or, if this project no longer opts in, remove this hook: rm \"$hook\"" >&2
+  exit 1
+fi
+for python in python3.14 python3.13 python3.12 python3.11 python3; do
+  command -v "$python" >/dev/null 2>&1 && break
+  python=
+done
+if [ -z "$python" ] || ! "$python" -c 'import sys; sys.exit(sys.version_info < (3, 11))' 2>/dev/null; then
+  echo "BLOCKED / WHY: the receipt gate needs Python 3.11 or newer; the first of python3.14, python3.13, python3.12, python3.11 and python3 on PATH is ${python:-missing}. / FIX: install Python 3.11 or newer so python3.11 (or newer) is on PATH (brew install python@3.13, or sudo apt-get install python3.11), then push again." >&2
+  exit 1
+fi
+exec "$python" "$gate" "$@"
+EOF
+chmod +x "$hooks/pre-push"'''
+ENABLE_HINT = ('run the one-time command in enable_command from the integration checkout\'s repository root '
+               '(documented at ' + GATE_DOC + ')')
+
+
+def release(version):
+    """(major, minor) of a recorded version; None when absent or unreadable."""
+    try:
+        return tuple(int(part) for part in str(version).split('.')[:2])
+    except ValueError:
+        return None
+
+
+def pre_push_hook(root):
+    """(path, state) of the pre-push hook Git would run for root; None without Git. Never writes .git."""
+    try:
+        process = subprocess.run(['git', '-C', str(root), 'rev-parse', '--git-path', 'hooks'],
+                                 capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if process.returncode or not process.stdout.strip():
+        return None
+    path = (Path(root) / process.stdout.strip() / 'pre-push').resolve()
+    try:
+        invokes = path.is_file() and b'rpi-prepush.py' in path.read_bytes()
+    except OSError:
+        invokes = False
+    if invokes and not os.access(path, os.X_OK):
+        return str(path), 'not executable'  # Git skips it without running the gate.
+    return str(path), 'present' if invokes else 'does not invoke rpi-prepush.py' if path.exists() else 'missing'
+
+
+def receipt_gate_notices(request, roots, operations, previous=None, version=None):
+    """Informational receipt-gate notices; they never change a plan's status."""
+    if request['scope'] != 'project':
+        return []
+    root = roots['project']
+    if request['action'] == 'detach':
+        removes = any(op['root_id'] == 'project' and op['destination'] == '.rpi/scripts/rpi-prepush.py'
+                      and op['after']['kind'] == 'missing' for op in operations)
+        hook = pre_push_hook(root) if removes else None
+        if not hook or hook[1] not in ('present', 'not executable'):
+            return []
+        return [{'pre_push_hook': hook[1], 'hook_path': hook[0],
+                 'reason': 'this detach removes .rpi/scripts/rpi-prepush.py, which the pre-push hook invokes; later pushes would fail' +
+                           (' once the hook is made executable' if hook[1] == 'not executable' else ''),
+                 'fix': 'after applying, remove ' + hook[0] + ' (or its rpi-prepush.py line); the engine never modifies .git'}]
+    if request['action'] != 'update':
+        return []
+    try:
+        node = snapshot(bound_path(root, '.rpi/policy.json'))
+        policy = json.loads(node_bytes(node)) if node['kind'] == 'file' else None
+    except (Conflict, OSError, ValueError):
+        policy = None
+    if isinstance(policy, dict) and policy.get('require_verification_receipt') is True:
+        hook = pre_push_hook(root)
+        notice = {'receipt_gate': 'on', 'pre_push_hook': hook[1] if hook else 'unavailable; not a Git work tree'}
+        if hook:
+            notice['hook_path'] = hook[0]
+        if notice['pre_push_hook'] == 'not executable':
+            notice['fix'] = ('Git ignores a pre-push hook without the execute bit, so pushes are not gated; run ' +
+                             shlex.join(['chmod', '+x', hook[0]]))
+        elif notice['pre_push_hook'] != 'present':
+            notice.update(fix='.rpi/policy.json requires a verification receipt, but no pre-push hook runs '
+                              '.rpi/scripts/rpi-prepush.py; ' + ENABLE_HINT, enable_command=PRE_PUSH_ENABLE)
+        return [notice]
+    opt_in = ('add "require_verification_receipt": true to .rpi/policy.json and enable the Git pre-push hook that runs '
+              '.rpi/scripts/rpi-prepush.py: ' + ENABLE_HINT)
+    if isinstance(policy, dict) and ('verification_checks' in policy or 'verification_command' in policy):
+        return [{'receipt_gate': 'off', 'enable_command': PRE_PUSH_ENABLE,
+                 'reason': '.rpi/policy.json declares verification evidence but not require_verification_receipt; '
+                           'the v2.0 pre-action hook blocked integration pushes without a passing receipt, and '
+                           'from v2.1 that push gate is opt-in, so pushes are no longer gated',
+                 'fix': 'to keep the push gate, ' + opt_in + '; to accept an ungated push, no action is needed'}]
+    recorded = sorted({str(selection.get('source', {}).get('version') or 'unrecorded') for selection in
+                       (previous or {}).get('installations', {}).values() if isinstance(selection, dict)}) or ['unrecorded']
+    older = [value for value in recorded if (release(value) or (0, 0)) < (2, 1)]
+    if previous and older and (release(version) or (0, 0)) >= (2, 1):
+        return [{'receipt_gate': 'off', 'recorded_version': ', '.join(older), 'enable_command': PRE_PUSH_ENABLE,
+                 'reason': 'this installation was recorded at cc-rpi ' + ', '.join(older) + '; from v2.1 the pre-action '
+                           'hook no longer asks for or blocks ordinary git push, gh pr or gh workflow run commands, '
+                           'so after this update pushes are not gated unless the project opts in',
+                 'fix': 'no action is needed to accept ungated pushes; to require a passing verification receipt before '
+                        'integration-branch and version-tag pushes, declare verification_checks and verification_command, ' +
+                        opt_in}]
+    return []
+
+
+def status_bookkeeping_only(plan):
+    """True when the only pending write relabels owned entries clean/local-only.
+
+    A deliberate owner customization is retained and reported, not action-needed;
+    the next real update records the label with its other changes."""
+    operations = plan.get('operations') or []
+    if plan.get('conflicts') or [(op['root_id'], op['destination']) for op in operations] != [('state', 'manifest.json')]:
+        return False
+    def unlabeled(node):
+        value = json.loads(node_bytes(node) or b'null')
+        for entry in (value or {}).get('entries', []):
+            entry.pop('status', None)
+        return value
+    before, after = unlabeled(operations[0]['before']), unlabeled(operations[0]['after'])
+    return before is not None and before == after
 
 
 def atomic_node(path, node):
@@ -763,7 +952,8 @@ def validate_plan(engine, plan):
     # Reconstruct all authority from the explicitly bound request. Untrusted plan
     # operations cannot introduce ownership, permissions or arbitrary destinations.
     fresh = make_plan(engine, plan['request'])
-    if fresh != plan:
+    informational = lambda value: {key: item for key, item in value.items() if key != 'notices'}
+    if informational(fresh) != informational(plan):  # A hook edit after planning never invalidates it.
         raise Conflict('plan changed or source/installation preimages changed; create a new plan')
     if plan.get('status') == 'conflict':
         raise Conflict('unresolved plan conflicts')
@@ -815,36 +1005,23 @@ def apply_plan(engine, plan, fail_after=None, fail_after_rename=None):
             atomic_node(ignore, file_node(b'*\n', 0o600))
         transaction = uuid.uuid4().hex
         journal_path = bound_path(plan['state_root'], 'local/transactions/' + transaction + '/journal.json')
+        # Apply order lets rollback refuse an older journal once newer work exists.
+        sequence = 1 + max((item[0] for item in journals(plan['state_root'])), default=0)
         journal = {'schema_version': 1, 'transaction': transaction, 'status': 'applying',
                    'roots': plan['roots'], 'state_root': plan['state_root'],
                    'operations': plan['operations'], 'completed': 0, 'pending': None,
-                   'scope': plan['request']['scope']}
-        receipt = {'roots': plan['roots'], 'state_root': plan['state_root'],
+                   'scope': plan['request']['scope'], 'sequence': sequence}
+        receipt = {'roots': plan['roots'], 'state_root': plan['state_root'], 'sequence': sequence,
                    'scope': plan['request']['scope'], 'operations_sha256': digest(serialized(plan['operations']))}
         atomic_node(journal_path.with_name('receipt.json'), file_node(serialized(receipt), 0o600))
         atomic_node(journal_path, file_node(serialized(journal), 0o600))
-        written = {}
-        for operation in plan['operations']:
-            if operation['root_id'] == 'state' and operation['destination'] == 'manifest.json':
-                for observation in plan['observations']:
-                    key = (observation['root_id'], observation['destination'])
-                    expected = written.get(key, observation['node'])
-                    if snapshot(operation_path(plan, observation)) != expected:
-                        raise Conflict('preimage changed before manifest commit: ' + observation['destination'])
-            path = operation_path(plan, operation)
-            if snapshot(path) != operation['before']:
-                raise Conflict('preimage changed during transaction: ' + operation['destination'])
-            journal['pending'] = journal['completed']
-            atomic_node(journal_path, file_node(serialized(journal), 0o600))
-            atomic_node(path, operation['after'])
-            if fail_after_rename == journal['completed'] + 1:
-                raise Conflict('simulated interruption after rename; rollback journal ' + str(journal_path))
-            written[(operation['root_id'], operation['destination'])] = operation['after']
-            journal['completed'] += 1
-            journal['pending'] = None
-            atomic_node(journal_path, file_node(serialized(journal), 0o600))
-            if fail_after == journal['completed']:
-                raise Conflict('simulated interruption; rollback journal ' + str(journal_path))
+        try:
+            apply_operations(plan, journal, journal_path, fail_after, fail_after_rename)
+        except (Conflict, OSError, ValueError) as error:
+            error.fix = ('the transaction stopped after ' + str(journal['completed']) + ' of ' + str(len(plan['operations'])) +
+                         ' operations; undo it exactly with ' + engine_command('rollback', '--journal', journal_path) +
+                         ', then create a new plan')
+            raise
         journal['status'] = 'complete'
         atomic_node(journal_path, file_node(serialized(journal), 0o600))
         atomic_node(bound_path(plan['state_root'], 'local/root-binding.json'), file_node(serialized(plan['roots']), 0o600))
@@ -854,17 +1031,47 @@ def apply_plan(engine, plan, fail_after=None, fail_after_rename=None):
         os.close(lock)
 
 
+def apply_operations(plan, journal, journal_path, fail_after, fail_after_rename):
+    written = {}
+    for operation in plan['operations']:
+        if operation['root_id'] == 'state' and operation['destination'] == 'manifest.json':
+            for observation in plan['observations']:
+                key = (observation['root_id'], observation['destination'])
+                expected = written.get(key, observation['node'])
+                if snapshot(operation_path(plan, observation)) != expected:
+                    raise Conflict('preimage changed before manifest commit: ' + observation['destination'])
+        path = operation_path(plan, operation)
+        if snapshot(path) != operation['before']:
+            raise Conflict('preimage changed during transaction: ' + operation['destination'])
+        journal['pending'] = journal['completed']
+        atomic_node(journal_path, file_node(serialized(journal), 0o600))
+        atomic_node(path, operation['after'])
+        if fail_after_rename == journal['completed'] + 1:
+            raise Conflict('simulated interruption after rename; rollback journal ' + str(journal_path))
+        written[(operation['root_id'], operation['destination'])] = operation['after']
+        journal['completed'] += 1
+        journal['pending'] = None
+        atomic_node(journal_path, file_node(serialized(journal), 0o600))
+        if fail_after == journal['completed']:
+            raise Conflict('simulated interruption; rollback journal ' + str(journal_path))
+
+
 def rollback(journal_path):
     journal_path = Path(journal_path).absolute()
     if journal_path.is_symlink():
         raise ValueError('journal cannot be a symlink')
     journal_path = journal_path.resolve()
+    if not journal_path.is_file():
+        raise ValueError('journal is not an existing regular file: ' + str(journal_path))
     journal_node = snapshot(journal_path)
     journal = json.loads(node_bytes(journal_node))
     if (not isinstance(journal, dict) or journal.get('schema_version') != 1 or
             not isinstance(journal.get('transaction'), str) or
             not re.fullmatch('[0-9a-f]{32}', journal['transaction'])):
         raise ValueError('invalid transaction journal')
+    sequence = journal.get('sequence', 0)  # Journals before apply ordering carry none.
+    if 'sequence' in journal and (type(sequence) is not int or sequence < 1):
+        raise ValueError('invalid transaction sequence')
     operations, completed, pending = journal.get('operations'), journal.get('completed'), journal.get('pending')
     if (not isinstance(operations, list) or type(completed) is not int or
             not 0 <= completed <= len(operations) or
@@ -890,7 +1097,8 @@ def rollback(journal_path):
     receipt_node = snapshot(receipt_path)
     receipt = json.loads(node_bytes(receipt_node))
     expected_receipt = {'roots': journal['roots'], 'state_root': journal['state_root'],
-                        'scope': journal['scope'], 'operations_sha256': digest(serialized(journal['operations']))}
+                        'scope': journal['scope'], 'operations_sha256': digest(serialized(journal['operations'])),
+                        **({'sequence': sequence} if 'sequence' in journal else {})}
     if receipt != expected_receipt:
         raise Conflict('transaction journal changed from its recovery receipt')
     for operation in journal['operations']:
@@ -908,6 +1116,21 @@ def rollback(journal_path):
         for path, validated in ((journal_path, journal_node), (receipt_path, receipt_node), (binding_path, binding_node)):
             if snapshot(path) != validated:
                 raise Conflict('recovery inputs changed before lock acquisition; reread the journal and retry rollback')
+        # A stale journal's postimages can match again (install, detach, install);
+        # undoing it would silently remove newer work, so only the latest applies.
+        ordered = journals(journal['state_root'])
+        position = next((index for index, item in enumerate(ordered) if item[2] == journal_path), -1)
+        # Journals written before sequencing (pre-2.1) carry no sequence; the file order
+        # (modification time) is then the only evidence of what came later.
+        newer = [path for index, (order, status, path) in enumerate(ordered)
+                 if (order > sequence if 'sequence' in journal else index > position)
+                 and status in ('applying', 'complete') and path != journal_path]
+        if newer:
+            error = Conflict('journal is not the most recent applied transaction for ' + journal['state_root'] +
+                             '; newer transaction ' + str(newer[-1]))
+            error.fix = ('keep this journal; undo newer transactions first, newest first, starting with ' +
+                         engine_command('rollback', '--journal', newer[-1]))
+            raise error
         completed = journal['operations'][:journal['completed']]
         if journal.get('pending') is not None:
             pending = journal['operations'][journal['pending']]
@@ -932,29 +1155,242 @@ def rollback(journal_path):
         os.close(lock)
 
 
-def blocked_hint(args, reason):
-    command = [sys.executable, str(Path(__file__).with_name('rpi-distribution.py'))]
-    if getattr(args, 'target', None):
-        command += ['check', '--source', str(args.source), '--target', str(args.target),
-                    '--harness', args.harness]
-    else:
-        command += ['--help']
-    fix = 'Inspect the local plan/journal conflicts, preserve newer project work, then run ' + shlex.join(command)
+def compact(value):
+    return json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=False)
+
+
+def entry_label(item):
+    """Record id plus its public template value(s): previous -> desired."""
+    values = [compact(item[key]) for key in ('value', 'previous', 'desired') if key in item]
+    return 'entry ' + item['id'] + ': ' + ' -> '.join(values) if values else 'entry ' + item['id']
+
+
+def entry_conflict_reason(item, component_id):
+    """Name the native entry, its value and the exact repair for a configuration conflict."""
+    return entry_conflict(item, '', component_id)['reason']
+
+
+def entry_conflict(item, destination, component_id):
+    """A configuration conflict record; `allow_capabilities` marks a flag-only repair."""
+    reason = item['reason'] + ' (' + entry_label(item) + ')'
+    record = {'destination': destination, 'component_id': component_id, 'record_id': item['id'],
+              **{k: item[k] for k in ('previous', 'desired', 'current') if k in item}}
+    replan = 'then re-plan with --allow-capabilities ' + component_id
+    if 'setup or detach scope' in item['reason'] or 'explicit setup scope' in item['reason']:
+        reason += '; confirm the value shown in this message, ' + replan
+        record['allow_capabilities'] = component_id
+    elif 'both changed' in item['reason']:
+        current = ('; your current value ' + compact(item['current'])) if 'current' in item else ''
+        record['fix'] = ('replace your edited entry with the new value ' + compact(item['desired']) +
+                         ' or restore the previous value ' + compact(item['previous']) + ', ' + replan)
+        record['allow_capabilities'] = component_id
+        reason += current + '; ' + record['fix']
+    record['reason'] = reason
+    return record
+
+
+def merge_repair(state, roots, root_id, destination, block, prior, flag):
+    """Exact repairs for overlapping owner and template edits of one owned file or block."""
+    replan = 'then re-plan' + (' with --allow-capabilities ' + flag if flag else '')
+    upstream = ('make ' + (('the marked ' + block + ' block in ') if block else '') + destination +
+                " match the upstream version shown in this plan's diffs.base_to_upstream")
+    after = ('; re-add your customization after applying and later updates keep it as a local customization'
+             ' (a hand merge of both edits still overlaps)')
+    baseline = bound_path(state, 'baselines/' + prior['base_hash'])
+    if block:
+        return {'fix': upstream + ', or replace that block with the previous bytes in ' + str(baseline) + ', ' + replan + after}
+    command = shlex.join(['cp', str(baseline), str(bound_path(roots[root_id], destination))])
+    return {'fix': upstream + ', or restore the previous version (discarding your edit) with ' + command + ', ' + replan + after,
+            'restore_command': command}
+
+
+def engine_command(*parts):
+    return shlex.join([sys.executable, str(Path(__file__).with_name('rpi-distribution.py')), *map(str, parts)])
+
+
+def journals(state_root, bound=False):
+    """(apply order, status, path) of readable journals, oldest first; never raises.
+
+    `bound` keeps only journals recorded for this state root: a moved or copied
+    installation's old journals name other roots and can never roll back here."""
+    found = []
+    try:
+        directory = bound_path(state_root, 'local/transactions')
+        paths = sorted(directory.glob('*/journal.json')) if directory.is_dir() else []
+        for path in paths:
+            try:
+                value = json.loads(path.read_bytes()) if not path.is_symlink() else None
+                order = value.get('sequence', 0) if isinstance(value, dict) else None
+                if bound and type(order) is int and value.get('state_root') != str(Path(state_root).resolve()):
+                    continue
+                if type(order) is int:
+                    found.append((order, value.get('status'), path.resolve(), path.stat().st_mtime_ns))
+            except (OSError, ValueError):
+                continue
+    except (OSError, ValueError):
+        return []
+    return [item[:3] for item in sorted(found, key=lambda item: (item[0], item[3], str(item[2])))]
+
+
+def interrupted_recovery(state_root):
+    """Interrupted journals here, and the exact newest-first rollbacks that clear them."""
+    ordered = [(status, path) for _, status, path in journals(state_root, bound=True) if status in ('applying', 'complete')]
+    first = next((index for index, (status, _) in enumerate(ordered) if status == 'applying'), None)
+    if first is None:
+        return [], None
+    chain = ' && '.join(engine_command('rollback', '--journal', path) for _, path in reversed(ordered[first:]))
+    lead = ('an apply stopped before completing; undo it exactly with ' if first == len(ordered) - 1 else
+            'an apply stopped before completing and newer transactions followed it; undo them newest first with ')
+    return [path for status, path in ordered if status == 'applying'], lead + chain + ', then create a new plan'
+
+
+def replan_command(request, flags, output):
+    """The same explicit plan request with the named capability flags and a new output."""
+    harnesses = request['harnesses']
+    parts = ['plan', '--source', request['source'], '--target', request['target'],
+             '--harness', harnesses[0] if len(harnesses) == 1 else 'both', '--action', request['action']]
+    if request.get('route'):
+        parts += ['--route', request['route']]
+    for domain in request.get('domains') or []:
+        parts += ['--domain', domain]
+    if request['scope'] == 'user':
+        parts += ['--scope', 'user']
+        for option in ('state_root', 'claude_skill_root', 'codex_skill_root'):
+            if request.get(option):
+                parts += ['--' + option.replace('_', '-'), request[option]]
+    if request.get('legacy_base'):
+        parts += ['--legacy-base', request['legacy_base']]
+    for flag in flags:
+        parts += ['--allow-capabilities', flag]
+    return engine_command(*parts, '--output', output)
+
+
+def conflict_fix(request, conflicts, saved, output):
+    """A top-level repair when every conflict names its exact flag or edit; otherwise None."""
+    if not conflicts or not all('fix' in item or 'allow_capabilities' in item for item in conflicts):
+        return None
+    flags = sorted({item['allow_capabilities'] for item in conflicts if 'allow_capabilities' in item} |
+                   set(request.get('allow_capabilities') or []))
+    edits = '; '.join(item['destination'] + ' (' + item.get('component_id', 'owned content') + '): ' + item['fix']
+                      for item in conflicts if 'fix' in item)
+    return (('review the conflicts and diffs saved in ' + str(saved) if saved else
+             'review the conflicts listed here (a plan --output saves their diffs)') +
+            ('; ' + edits if edits else '') + '; then create a new plan with ' + replan_command(request, flags, output))
+
+
+def journal_fix(args):
+    """Name the newest unfinished-or-applied journal near the request as an exact rollback."""
+    if getattr(args, 'target', None) or not getattr(args, 'journal', None):
+        state = Path(getattr(args, 'target', None) or Path.cwd()).resolve() / '.rpi'
+    else:  # <state>/local/transactions/<transaction>/journal.json
+        state = Path(args.journal).resolve().parents[3]
+    candidates = [path for _, status, path in journals(state) if status in ('applying', 'complete')]
+    if candidates:
+        return 'undo the most recent transaction with ' + engine_command('rollback', '--journal', candidates[-1])
+    return ('pass the journal.json path printed by the interrupted apply; transactions are recorded as ' +
+            str(state / 'local/transactions') + '/<transaction>/journal.json (none found there)')
+
+
+def recorded_harness(args):
+    """An update or detach keeps the installation's recorded harnesses unless one is named."""
+    if args.harness is not None:
+        return args.harness
+    if args.command == 'check' or args.action in ('update', 'detach'):
+        try:
+            base = Path(args.state_root) if args.scope == 'user' and args.state_root else Path(args.target)
+            state = base.absolute().resolve() / ('' if args.scope == 'user' and args.state_root else '.rpi')
+            recorded = (load_state(state) or {}).get('harnesses') or []
+        except (Conflict, OSError, TypeError, ValueError):
+            recorded = []
+        if len(recorded) == 1:
+            return recorded[0]
+    return 'both'
+
+
+def blocked_hint(args, reason, fix=None):
+    if fix is None:
+        target, source, harness = getattr(args, 'target', None), getattr(args, 'source', None), getattr(args, 'harness', None) or 'both'
+        if not target:
+            try:  # Apply and rollback name their installation inside the plan or journal.
+                if getattr(args, 'plan', None):
+                    request = json.loads(Path(args.plan).read_text())['request']
+                    target, source = request['target'], request['source']
+                    harness = request['harnesses'][0] if len(request['harnesses']) == 1 else 'both'
+                elif getattr(args, 'journal', None):
+                    target = json.loads(Path(args.journal).read_text())['roots']['project']
+            except (OSError, ValueError, KeyError, TypeError, IndexError):
+                target = None
+        if target:
+            fix = ('Inspect the local plan/journal conflicts, preserve newer project work, then run ' +
+                   engine_command('check', '--source', source, '--target', target, '--harness', harness))
+        else:
+            fix = 'Inspect the local plan/journal conflicts and preserve newer project work; ' + journal_fix(args)
     print('BLOCKED / WHY: ' + reason + ' / FIX: ' + fix, file=sys.stderr)
     return fix
 
 
+def rerun(drop=(), add=()):
+    """This invocation without the named (option, values) and with extra arguments."""
+    option, values = drop or (None, ())
+    arguments, kept = sys.argv[1:], []
+    index = 0
+    while index < len(arguments):
+        name, _, inline = arguments[index].partition('=')
+        if option and name.startswith('--') and len(name) > 2 and option.startswith(name):
+            value = inline if inline else arguments[index + 1] if index + 1 < len(arguments) else None
+            if value in values:
+                index += 1 if inline else 2
+                continue
+        kept.append(arguments[index])
+        index += 1
+    return engine_command(*kept, *add)
+
+
+def plan_first(args, reason):
+    """Apply without a usable plan: the newest saved plan nearby, or how to create one."""
+    target = Path(getattr(args, 'target', None) or Path.cwd()).absolute()
+    saved = sorted((path for path in (target / '.rpi/local/plans').glob('*.json') if path.is_file() and path != args.plan),
+                   key=lambda path: path.stat().st_mtime_ns) if (target / '.rpi/local/plans').is_dir() else []
+    output = target / '.rpi/local/plans' / ('update-' + time.strftime('%Y%m%d-%H%M%S') + '.json')
+    try:  # An existing installation is updated with its recorded harnesses, never widened.
+        recorded = load_state(target.resolve() / '.rpi')
+    except (Conflict, OSError, TypeError, ValueError):
+        recorded = None
+    harnesses = (recorded or {}).get('harnesses') or []
+    scope = (['--action', 'update'] + (['--harness', harnesses[0]] if len(harnesses) == 1 else [])) if recorded else []
+    create = ('create a new plan with ' + engine_command('plan', '--source', args.source.absolute(), '--target', target,
+                                                         *scope, '--output', output) +
+              ' (from the project root it installs into), review it, then run ' + engine_command('apply', '--plan', output))
+    if saved:
+        create = 'apply the newest saved plan with ' + engine_command('apply', '--plan', saved[-1].resolve()) + '; or ' + create
+    return UsageError(reason, create)
+
+
 def cli(engine, args):
+    pending_fix = None
     if args.command == 'detach':
         args.command, args.action = 'plan', 'detach'
     if args.command == 'apply':
         if not args.plan:
-            raise ValueError('apply requires --plan')
-        result = apply_plan(engine, json.loads(args.plan.read_text()), args.fail_after, args.fail_after_rename)
+            raise plan_first(args, 'apply requires --plan with the path a plan --output saved')
+        try:
+            plan = json.loads(args.plan.read_text())
+        except OSError as error:
+            raise plan_first(args, 'cannot read plan ' + str(args.plan) + ': ' + (error.strerror or str(error))) from error
+        except ValueError as error:
+            raise plan_first(args, 'plan ' + str(args.plan) + ' is not plan JSON: ' + str(error)) from error
+        if not isinstance(plan, dict) or plan.get('schema_version') != 1 or not isinstance(plan.get('request'), dict):
+            raise plan_first(args, 'plan ' + str(args.plan) + ' is not a schema_version 1 plan with a request')
+        result = apply_plan(engine, plan, args.fail_after, args.fail_after_rename)
     elif args.command == 'rollback':
         if not args.journal:
-            raise ValueError('rollback requires --journal')
-        result = rollback(args.journal)
+            raise UsageError('rollback requires --journal', journal_fix(args))
+        try:
+            result = rollback(args.journal)
+        except Conflict:
+            raise
+        except (ValueError, TypeError) as error:
+            raise UsageError('unusable rollback journal ' + str(args.journal) + ': ' + str(error), journal_fix(args)) from error
     else:
         if args.scope == 'user':
             args.state_root = args.state_root or Path.home() / '.config/cc-rpi/installations/user'
@@ -964,7 +1400,10 @@ def cli(engine, args):
             if args.scope == 'user' and args.state_root:
                 args.target = args.state_root
             else:
-                raise ValueError('project lifecycle operations require an explicit --target')
+                raise UsageError('project lifecycle operations require an explicit --target',
+                                 'name the project root; to use the current directory, rerun ' +
+                                 rerun(add=('--target', Path.cwd().absolute())))
+        args.harness = recorded_harness(args)
         request = {'source': str(args.source.absolute()), 'target': str(args.target.absolute()),
                    'harnesses': list(engine.HARNESSES) if args.harness == 'both' else [args.harness],
                    'domains': args.domain, 'scope': args.scope, 'route': args.route,
@@ -975,16 +1414,27 @@ def cli(engine, args):
                    'codex_skill_root': str(args.codex_skill_root.absolute()) if args.codex_skill_root else None}
         try:
             result = make_plan(engine, request)
+        except UsageError as error:
+            if error.drop:
+                error.fix += '; rerun ' + rerun(drop=error.drop)
+            raise
         except Conflict as error:
+            pending_fix = error.fix
             result = {'schema_version': 1, 'request': request, 'status': 'conflict', 'operations': [],
-                      'conflicts': [{'destination': '', 'reason': str(error)}], 'retained': []}
+                      'conflicts': [{'destination': '', 'reason': str(error), **({'fix': error.fix} if error.fix else {})}],
+                      'retained': []}
+        saved = None
         if args.command == 'plan':
             if not args.output:
-                raise ValueError('plan requires an explicit --output')
+                stamp = time.strftime('%Y%m%d-%H%M%S')
+                raise UsageError('plan requires an explicit --output for the reviewable plan',
+                                 'save it under the ignored local plans directory; rerun ' + rerun(add=(
+                                     '--output', Path(request_roots(request)[1]) / 'local/plans' / (request['action'] + '-' + stamp + '.json'))))
             output = args.output.parent.resolve() / args.output.name
             bound_path(output.parent, output.name)
             if output.exists() or output.is_symlink():
-                raise ValueError('plan output already exists; choose a new review artifact')
+                raise UsageError('plan output already exists: ' + str(output),
+                                 'choose a new --output path; the existing review artifact is kept unchanged')
             _, state_root = request_roots(request)
             local = Path(state_root) / 'local'
             if output.resolve().is_relative_to(local.resolve()):
@@ -993,14 +1443,41 @@ def cli(engine, args):
                 if b'*' not in original_ignore.splitlines():
                     atomic_node(ignore, file_node(original_ignore + (b'\n' if original_ignore else b'') + b'*\n', 0o600))
             atomic_node(output, file_node(serialized(result), 0o600))
+            saved = output
         else:
+            if result['status'] == 'ready' and status_bookkeeping_only(result):
+                result['status'], result['operations'] = 'noop', []  # Retained customization is healthy.
             result['status'] = 'healthy' if result['status'] == 'noop' else 'action-needed'
+        try:
+            state_root = request_roots(request)[1]
+            interrupted, recovery = interrupted_recovery(state_root)
+        except (Conflict, OSError, ValueError):
+            state_root, interrupted, recovery = None, [], None
+        if interrupted:
+            result['interrupted_transactions'] = [str(path) for path in interrupted]
+            if result['status'] == 'healthy':
+                result['status'] = 'action-needed'
+            pending_fix = recovery
+        if pending_fix is None and state_root:
+            stamp = time.strftime('%Y%m%d-%H%M%S')
+            output = (saved.with_name(saved.stem + '-' + stamp + saved.suffix) if saved else
+                      Path(state_root) / 'local/plans' / (request['action'] + '-' + stamp + '.json'))
+            pending_fix = conflict_fix(request, result.get('conflicts', []), saved, output)
+            if pending_fix is None and args.command == 'check' and result['status'] == 'action-needed' and not result.get('conflicts'):
+                pending_fix = ('review the pending operations listed here; create the update plan with ' +
+                               replan_command(request, sorted(request.get('allow_capabilities') or []), output) +
+                               ', review it, then apply it with ' + engine_command('apply', '--plan', output))
     summary = {key: value for key, value in result.items() if key not in ('observations', 'operations', 'request', 'roots')}
     if 'conflicts' in summary:
         summary['conflicts'] = [{key: value for key, value in item.items() if key != 'diffs'} for item in summary['conflicts']]
+    not_in_effect = [{key: item[key] for key in ('component_id', 'destination', 'record_id', 'value')}
+                     for item in result.get('retained', []) if item.get('in_effect') is False]
+    if not_in_effect:  # A removed owned boundary is the owner's choice, but never silent.
+        summary['owned_entries_not_in_effect'] = not_in_effect
     if 'operations' in result:
         summary['operations'] = [{'root_id': op['root_id'], 'destination': op['destination']} for op in result['operations']]
     if result['status'] in ('conflict', 'action-needed'):
-        summary['fix'] = blocked_hint(args, 'installation needs reconciliation; inspect the saved local diff before applying')
+        summary['fix'] = blocked_hint(args, 'installation needs reconciliation; inspect the saved local plan before applying',
+                                      pending_fix)
     print(json.dumps(summary, sort_keys=True))
     return 2 if result['status'] in ('conflict', 'action-needed') else 0

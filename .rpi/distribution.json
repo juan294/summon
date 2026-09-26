@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "version": "2.0.2",
+  "version": "2.1.0",
   "managed_root_budget_bytes": 8192,
   "components": [
     {
@@ -1296,12 +1296,32 @@
         "claude",
         "codex"
       ],
+      "dependencies": [],
+      "outputs": {
+        "claude": ".rpi/scripts/rpi-policy.py",
+        "codex": ".rpi/scripts/rpi-policy.py"
+      },
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "cc-rpi"
+      }
+    },
+    {
+      "id": "resource:prepush-gate",
+      "kind": "resource",
+      "source": "templates/scripts/rpi-prepush.py",
+      "scope": "project",
+      "selection": "default",
+      "harnesses": [
+        "claude",
+        "codex"
+      ],
       "dependencies": [
         "resource:candidate-identity"
       ],
       "outputs": {
-        "claude": ".rpi/scripts/rpi-policy.py",
-        "codex": ".rpi/scripts/rpi-policy.py"
+        "claude": ".rpi/scripts/rpi-prepush.py",
+        "codex": ".rpi/scripts/rpi-prepush.py"
       },
       "ownership": {
         "direct": "cc-rpi",

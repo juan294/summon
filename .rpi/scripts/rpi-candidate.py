@@ -45,7 +45,7 @@ def environment(environ=None):
                     'PYTHONCOERCECLOCALE', 'PYTHONHASHSEED')}
     return {"python": platform.python_version(),
             "implementation": platform.python_implementation(),
-            "executable": str(Path(sys.executable).absolute()),
+            "executable": os.path.realpath(sys.executable),  # Interpreter aliases name one binary.
             "platform": platform_id, "packages": packages,
             "executables": executables,
             "execution_settings_sha256": hashlib.sha256(

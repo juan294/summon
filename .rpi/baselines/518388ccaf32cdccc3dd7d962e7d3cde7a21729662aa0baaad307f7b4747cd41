@@ -1,0 +1,17 @@
+{
+  "id": "pre-tool-policy",
+  "mode": "entry",
+  "pointer": [
+    "hooks",
+    "PreToolUse"
+  ],
+  "value": {
+    "hooks": [
+      {
+        "command": "rpi_root=\"$PWD\"; while [ ! -f \"$rpi_root/.claude/hooks/guard-bash.sh\" ] && [ \"$rpi_root\" != / ]; do rpi_root=${rpi_root%/*}; rpi_root=${rpi_root:-/}; done; if [ ! -f \"$rpi_root/.claude/hooks/guard-bash.sh\" ]; then printf \"%s\\n\" \"RPI POLICY SKIPPED: no installed policy wrapper above the hook cwd.\" >&2; exit 0; fi; exec bash \"$rpi_root/.claude/hooks/guard-bash.sh\" claude",
+        "type": "command"
+      }
+    ],
+    "matcher": "Bash"
+  }
+}

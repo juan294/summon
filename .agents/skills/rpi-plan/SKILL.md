@@ -27,15 +27,29 @@ Process:
     artifact (a failing test, a module with the semantics to match, a mockup, a rubric)
     over describing the behavior in prose.
 11. Separate automated vs. manual success criteria.
-12. Identify independent work units within each phase: no file overlap or
+12. Write a **Stuck states and recovery** section: for every state the change
+    can enter that fails closed, blocks work, or degrades output (a barrier,
+    lock, fallback, disabled path, cached error), state who sees it and what
+    they see; how it ends without insider knowledge (automatic recovery, or a
+    visible prompt that starts the fix); and the test that proves it ends or
+    that the user is told. A safety test alone is not enough; each stuck state
+    also needs a recovery-or-disclosure test. "Recovery requires a manual step"
+    is acceptable only when the user is shown that step.
+13. Write a **Consumer sweep** section when the change alters what a shared
+    function, type, cache format or fixture returns or stores (especially on
+    failure): list every caller and writer found by search, with the command
+    used, and mark each covered by a phase or explicitly excluded with a
+    reason. Include test fixtures, E2E helpers and scripts that write the
+    same data.
+14. Identify independent work units within each phase: no file overlap or
     dependency on another unit's output. Mark those units `[batch-eligible]`
     for local worktree coordination, with one integration owner and no working
     branch push/PR creation. Keep phase execution and acceptance sequential.
-13. Use at most three temporary [NEEDS CLARIFICATION] markers and resolve
+15. Use at most three temporary [NEEDS CLARIFICATION] markers and resolve
     every one before final acceptance. Do not fill unknowns with placeholders.
-14. Resolve every material decision before plan acceptance. A missing required
+16. Resolve every material decision before plan acceptance. A missing required
     investigation or reviewer result remains an explicit acceptance gap.
-15. Apply the [durable handoff](references/handoff.md) contract in the plan/notes,
+17. Apply the [durable handoff](references/handoff.md) contract in the plan/notes,
     naming accepted decisions, evidence limits and next-phase entry conditions.
     Revalidate actual worktree state on resume.
 

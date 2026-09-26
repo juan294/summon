@@ -29,6 +29,9 @@ Process:
    is an acceptance gap, not approval.
 4. For each requested phase:
    - Verify marked-complete items are actually done.
+   - Confirm the plan's stuck-state recovery-or-disclosure tests and its
+     consumer-sweep coverage exist and pass; a stuck state with only a safety
+     test, or a swept consumer left unmarked, is an open finding.
    - Run every applicable automated verification command, or reuse valid
      evidence when candidate inputs and check selection are unchanged.
    - Review test quality, not only test results. For each changed or added

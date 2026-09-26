@@ -28,6 +28,9 @@ or recommendations, use `rpi-assess` as a separate evaluative workflow.
    research contract for volatile external claims, source provenance and untrusted
    retrieved content. Record material gaps and distinguish observations from
    inference; search completeness follows evidence quality, not a query quota.
+   When the findings describe a failure mode, barrier, lock or fail-closed
+   state, record its current recovery mechanism and whether it is visible to
+   the user, as observed in code; this is a documented fact, not a proposal.
 5. Write `docs/research/YYYY-MM-DD-description.md` with the actual date, topic,
    repository, branch and commit; summarize the answer, detailed findings,
    `file:line` evidence, source versions/retrieval dates, relevant context and

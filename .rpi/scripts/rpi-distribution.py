@@ -556,6 +556,8 @@ def load_sibling(name):
 def blocked_fix(error):
     """Corrective hint for a top-level failure. An unrepresentable path is a
     runtime encoding fault, so it must not send the owner to edit healthy source."""
+    if getattr(error, "fix", None):
+        return error.fix  # The failure site knows the exact repair.
     if isinstance(error, UnicodeError):
         return ("a path or name cannot be represented in this runtime's "
                 f"{sys.getfilesystemencoding()} encoding; rerun under a UTF-8 locale, for example "
@@ -569,7 +571,8 @@ def main():
     parser.add_argument("command", choices=("validate", "render", "check-generated", "check-native", "check-local-skills", "check-self", "self-paths", "counts", "plan", "apply", "check", "rollback", "detach", "diagnose"))
     parser.add_argument("--source", type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument("--output", type=Path)
-    parser.add_argument("--harness", choices=("both", *HARNESSES), default="both")
+    # Default: both for install/render; an update keeps the recorded harnesses.
+    parser.add_argument("--harness", choices=("both", *HARNESSES), default=None)
     parser.add_argument("--domain", action="append", default=None)
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--skill-dir", type=Path, action="append")
@@ -590,6 +593,8 @@ def main():
     diagnostics = load_sibling("rpi-diagnostics")
     diagnostics.add_arguments(parser)
     args = parser.parse_args()
+    if args.harness is None and args.command not in ("plan", "check", "detach"):
+        args.harness = "both"
     try:
         if args.command == "diagnose":
             if args.target is None:
@@ -604,7 +609,7 @@ def main():
                 print(f"BLOCKED / WHY: {error} / FIX: repair the JSON object in {error.path}, preserving owner settings; rerun {rerun}", file=sys.stderr)
                 return 1
             except lifecycle.Conflict as error:
-                print(json.dumps({"status": "conflict", "reason": str(error), "fix": lifecycle.blocked_hint(args, str(error))}))
+                print(json.dumps({"status": "conflict", "reason": str(error), "fix": lifecycle.blocked_hint(args, str(error), error.fix)}))
                 return 2
         source = args.source.resolve()
         manifest = load_manifest(source)
