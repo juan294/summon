@@ -1856,7 +1856,7 @@
         "revision": "aa3ea57fb26ae2e1e167acada4b769e073a417f4",
         "version": "2.1.0"
       },
-      "status": "clean"
+      "status": "local-only"
     },
     {
       "adapter": {
@@ -3656,7 +3656,7 @@
         "revision": "aa3ea57fb26ae2e1e167acada4b769e073a417f4",
         "version": "2.1.0"
       },
-      "status": "clean"
+      "status": "local-only"
     },
     {
       "adapter": {
