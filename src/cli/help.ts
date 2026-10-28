@@ -81,6 +81,7 @@ async function buildHelp(): Promise<string> {
     "",
     h("LAUNCH"),
     wrap(`  ${cmd("summon <target>")}             Launch workspace (project name, path, or '.')`),
+    wrap(`  ${cmd("summon title <project> [pane]")}  Read/set/reset native titles`),
     wrap(`  ${cmd("summon focus <project> [pane]")}  Focus an exact existing pane`),
     wrap(`  ${cmd("summon inspect <project>")}       Inspect native panes (--json)`),
     wrap(`  ${cmd("summon open")}                 Select and launch a registered project ${note("(alias: switch)")}`),
@@ -237,6 +238,13 @@ Setup (add to your shell config):
   bash:  eval "$(summon completions bash)"
   fish:  eval (summon completions fish | psub)`,
 
+  title: `Usage: summon title <project> [pane] [--set <text> | --reset]
+
+Read a title override, set it with --set, or clear it with --reset.
+Default target: the current tab containing the recorded root. An explicit pane targets that pane.
+Titles support ordinary Unicode up to 256 codepoints; controls and bidi overrides are rejected.
+Unavailable capability or target exits 2. After an unknown mutation outcome, read the title before retrying.`,
+
   inspect: `Usage: summon inspect <project> [--json]
 
 Read stored workspace state and exact native pane observations without activating Ghostty.
@@ -307,13 +315,17 @@ Examples:
   summon export > .summon          Write to .summon in current directory
   summon export .summon            Same, using path argument`,
 
-  keybindings: `Usage: summon keybindings [--vim]
+  keybindings: `Usage: summon keybindings [--vim] [--detach-tab]
 
 Generate Ghostty key table configuration for workspace pane navigation.
 Output can be appended to ~/.config/ghostty/config.
 
 Options:
-  --vim  Use vim-style keys (hjkl) instead of arrow keys`,
+  --vim  Use vim-style keys (hjkl) instead of arrow keys
+
+--detach-tab  Add summon-nav:n = move_tab_to_new_window (Ghostty 1.4+ capability required).
+Moves the whole tab into its own window. Drag handles remain a Ghostty user preference.
+Only prints a snippet; no configuration file is changed.`,
 
   freeze: `Usage: summon freeze <name>
 

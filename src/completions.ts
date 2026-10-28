@@ -44,6 +44,7 @@ const SUBCOMMAND_SPECS: SubcommandSpec[] = [
   { name: "doctor",       desc: "Check Ghostty config" },
   { name: "open",         desc: "Select and launch a project" },
   { name: "inspect",      desc: "Inspect exact native workspace panes" },
+  { name: "title",        desc: "Read, set or reset native titles" },
   { name: "focus",        desc: "Focus an existing workspace pane" },
   { name: "status",       desc: "Show workspace status across all projects" },
   { name: "switch",       desc: "Switch to an active project" },
@@ -87,6 +88,9 @@ const FLAG_SPECS: FlagSpec[] = [
   { long: "maximize",                      desc: "Start maximized" },
   { long: "float",                         desc: "Float window on top" },
   { long: "dry-run",           short: "n", desc: "Print AppleScript without executing" },
+  { long: "set",                           desc: "Set native title override", arg: "value" },
+  { long: "reset",                         desc: "Clear native title override" },
+  { long: "detach-tab",                    desc: "Add opt-in detach-tab navigation binding" },
   { long: "json",                          desc: "Print native inspection as JSON" },
   { long: "verbose",                       desc: "Show verbose output (e.g. resolved config paths)" },
   // --once is a subcommand flag (status), included in CLI_FLAGS for bash completion
@@ -203,7 +207,7 @@ ${argLines}
       ;;
     args)
       case "\${words[1]}" in
-        remove|inspect|focus)
+        remove|inspect|focus|title)
           compadd -a project_names
           ;;
         set)
@@ -245,7 +249,7 @@ ${argLines}
           ;;
         keybindings)
           if (( CURRENT == 2 )); then
-            compadd -- --vim
+            compadd -- --vim --detach-tab
           fi
           ;;
         freeze)
@@ -355,7 +359,7 @@ export function generateBashCompletion(): string {
 
   # Context-specific completions
   case "\${words[1]}" in
-    remove|inspect|focus)
+    remove|inspect|focus|title)
       COMPREPLY=($(compgen -W "$project_names" -- "$cur"))
       ;;
     set)
@@ -386,7 +390,7 @@ export function generateBashCompletion(): string {
       COMPREPLY=($(compgen -W "--fix" -- "$cur"))
       ;;
     keybindings)
-      COMPREPLY=($(compgen -W "--vim" -- "$cur"))
+      COMPREPLY=($(compgen -W "--vim --detach-tab" -- "$cur"))
       ;;
     freeze)
       COMPREPLY=($(compgen -W "$layout_presets" -- "$cur"))
@@ -437,7 +441,7 @@ export function generateFishCompletion(): string {
   // --once is a status-specific flag — rendered with subcommand guard, not as a global flag.
   // --layout is rendered separately with preset values appended, so skip it here.
   const globalFlagLines = FLAG_SPECS
-    .filter(f => f.long !== "once" && f.long !== "layout")
+    .filter(f => !["once", "layout", "set", "reset", "detach-tab"].includes(f.long))
     .map(f => {
       const short = f.short ? ` -s ${f.short}` : "";
       return `complete -c summon -l ${f.long}${short} -d '${f.desc}'`;
@@ -452,7 +456,10 @@ complete -c summon -f
 ${subcommandLines}
 ${globalFlagLines}
 complete -c summon -l layout -s l -d 'Layout preset or tree DSL' -a '${layoutPresets}'
-complete -c summon -n '__fish_seen_subcommand_from inspect focus' -a '(cut -d= -f1 ~/.config/summon/projects 2>/dev/null)' -d 'Project'
+complete -c summon -n '__fish_seen_subcommand_from inspect focus title' -a '(cut -d= -f1 ~/.config/summon/projects 2>/dev/null)' -d 'Project'
+complete -c summon -n '__fish_seen_subcommand_from title' -l set -r -d 'Set title override'
+complete -c summon -n '__fish_seen_subcommand_from title' -l reset -d 'Clear title override'
+complete -c summon -n '__fish_seen_subcommand_from keybindings' -l detach-tab -d 'Include detach-tab binding'
 complete -c summon -n '__fish_seen_subcommand_from status' -l once -d 'Print status table once and exit'
 complete -c summon -n '__fish_seen_subcommand_from set' -n '__fish_is_nth_token 2' -a '${configKeys}' -d 'Config key'
 complete -c summon -n '__fish_seen_subcommand_from session' -n 'not __fish_seen_subcommand_from add remove list show' -a 'add remove list show' -d 'Session action'

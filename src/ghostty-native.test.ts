@@ -6,6 +6,7 @@ import {
   focusTerminal,
   generateInventoryScript,
   generateNativeFocusScript,
+  generateTitleScript, titleTerminal, validateTitleText,
 } from "./ghostty-native.js";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -22,6 +23,7 @@ afterAll(() => {
 const id = "00000000-0000-4000-8000-000000000001";
 beforeEach(() => {
   exec.mockReset();
+  writeFileSync(join(app,"Contents/Resources/Ghostty.sdef"),'<class name="terminal"><property name="id"/><property name="pid"/><property name="tty"/><property name="name override" access="rw"/></class><class name="tab"><property name="name override" access="rw"/></class>');
 });
 describe("native bridge", () => {
   it("P2-json-roundtrip retains arbitrary native text; pid zero/empty tty become null", () => {
@@ -169,5 +171,148 @@ describe("native bridge", () => {
     );
     expect(() => generateInventoryScript(["invalid"])).toThrow(/identity/);
     expect(exec).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("P4 native title controls", () => {
+  it("read is side-effect-free and resolves current container by UUID", () => {
+    const script = generateTitleScript(id, "tab", { kind: "read" });
+    expect(script).toContain("set liveIds to id of every terminal of t");
+    expect(script).toContain("set titleTarget to t");
+    expect(script).toContain("name override of titleTarget");
+    expect(script).not.toMatch(
+      /\bactivate\b|\bfocus\b|\bclose\b|set name override/,
+    );
+    exec.mockReturnValue(
+      JSON.stringify({
+        found: true,
+        terminalId: id,
+        scope: "tab",
+        override: 'existing\n\t"🦊',
+      }),
+    );
+    expect(titleTerminal(id, "tab", { kind: "read" }, app)).toEqual({
+      kind: "title",
+      terminalId: id,
+      scope: "tab",
+      override: 'existing\n\t"🦊',
+    });
+  });
+  it("set/reset confirms exact override without changing identity", () => {
+    const title = 'work "a" \\ 🦊';
+    exec.mockReturnValue(
+      JSON.stringify({
+        found: true,
+        terminalId: id,
+        scope: "pane",
+        override: title,
+      }),
+    );
+    expect(
+      titleTerminal(id, "pane", { kind: "set", text: title }, app),
+    ).toEqual({
+      kind: "title",
+      terminalId: id,
+      scope: "pane",
+      override: title,
+    });
+    expect(exec.mock.calls[0]![2].input).toContain(
+      "set name override of titleTarget to",
+    );
+    exec.mockReturnValue(
+      JSON.stringify({
+        found: true,
+        terminalId: id,
+        scope: "pane",
+        override: "",
+      }),
+    );
+    expect(titleTerminal(id, "pane", { kind: "reset" }, app)).toMatchObject({
+      kind: "title",
+      override: "",
+    });
+  });
+  it.each([
+    "",
+    "x\n",
+    "x\r",
+    "x\t",
+    "\x00",
+    "\x7f",
+    "\x9f",
+    "\u202a",
+    "\u202e",
+    "\u2066",
+    "\u2069",
+    "🦊".repeat(257),
+  ])("rejects invalid title before native IO", (text) => {
+    expect(validateTitleText(text)).not.toBeNull();
+    expect(() =>
+      generateTitleScript(id, "pane", { kind: "set", text }),
+    ).toThrow();
+    expect(exec).not.toHaveBeenCalled();
+  });
+  it("counts Unicode codepoints and preserves spaces", () => {
+    expect(validateTitleText("🦊".repeat(256))).toBeNull();
+    expect(validateTitleText("  ")).toBeNull();
+  });
+  it("capability failure prevents writes and can recover", () => {
+    writeFileSync(
+      join(app, "Contents/Resources/Ghostty.sdef"),
+      '<class name="terminal"><property name="id"/></class>',
+    );
+    expect(
+      titleTerminal(id, "tab", { kind: "set", text: "title" }, app),
+    ).toMatchObject({ kind: "unavailable" });
+    expect(exec).not.toHaveBeenCalled();
+    writeFileSync(join(app, "Contents/Resources/Ghostty.sdef"), '<class name="terminal"><property name="id"/><property name="name override" access="rw"/></class><class name="tab"><property name="name override" access="rw"/></class>');
+    exec.mockReturnValue(JSON.stringify({found:true,terminalId:id,scope:"tab",override:"title"}));
+    expect(titleTerminal(id,"tab",{kind:"set",text:"title"},app).kind).toBe("title");
+  });
+  it("timeout/malformed/mismatched mutation result is unknown; no automatic retry", () => {
+    exec.mockImplementationOnce(() => {
+      throw Object.assign(new Error("timeout"), { code: "ETIMEDOUT" });
+    });
+    expect(
+      titleTerminal(id, "tab", { kind: "set", text: "title" }, app),
+    ).toMatchObject({
+      kind: "failed",
+      reason: expect.stringContaining("unknown"),
+    });
+    expect(exec).toHaveBeenCalledTimes(1);
+    for (const output of [
+      "invalid",
+      JSON.stringify({
+        found: true,
+        terminalId: id,
+        scope: "tab",
+        override: "other",
+      }),
+    ]) {
+      exec.mockReturnValue(output);
+      expect(
+        titleTerminal(id, "tab", { kind: "set", text: "title" }, app),
+      ).toMatchObject({
+        kind: "failed",
+        reason: expect.stringMatching(/read/i),
+      });
+    }
+    exec.mockReturnValue(
+      JSON.stringify({
+        found: true,
+        terminalId: id,
+        scope: "tab",
+        override: "title",
+      }),
+    );
+    expect(titleTerminal(id, "tab", { kind: "read" }, app).kind).toBe("title");
+  });
+  it("missing target exits unavailable without false mutation success", () => {
+    exec.mockReturnValue('{"found":false}');
+    expect(titleTerminal(id, "tab", { kind: "reset" }, app)).toMatchObject({
+      kind: "unavailable",
+      code: "missing",
+    });
   });
 });

@@ -2035,3 +2035,16 @@ describe("P2 explicit native commands",()=>{
   for(const cmd of ["inspect","focus"]){const result=run(cmd,"--help");expect(result.status).toBe(0);expect(result.stdout).toContain(`Usage: summon ${cmd} <project>`);}
  });
 });
+
+describe("P4 title CLI",()=>{
+ it("rejects empty/control/conflicting title flags before any native target action",()=>{
+  for(const args of [["--set="],["--set=bad\n"],["--set=x","--reset"]]){
+   const result=run("title","never-launched",...args);expect(result.status).toBe(1);expect(result.stderr).toMatch(/reset|control|exclusive/);expect(result.stdout).not.toContain("Summoning");
+  }
+ });
+ it("reads missing identity without implicit relaunch and documents new commands",()=>{
+  const missing=run("title","never-launched");expect(missing.status).toBe(2);expect(missing.stderr).toContain("identity");
+  const help=run("title","--help");expect(help.status).toBe(0);expect(help.stdout).toContain("--set");expect(help.stdout).toContain("--reset");
+  expect(run("keybindings","--help").stdout).toContain("--detach-tab");
+ });
+});

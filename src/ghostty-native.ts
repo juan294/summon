@@ -148,7 +148,7 @@ export function readNativeInventory(
   ids: string[],
   app?: string,
 ): InventoryResult {
-  const support = nativeSupport(true, app);
+  const support = nativeSupport("foreground", app);
   if (support) return support;
   const response = runNativeScript(generateInventoryScript(ids));
   if (response.kind !== "available") return response;
@@ -201,7 +201,7 @@ function malformed(): NativeFailure {
 }
 
 export function focusTerminal(terminalId: string, app?: string): FocusResult {
-  const support = nativeSupport(false, app);
+  const support = nativeSupport("identity", app);
   if (support) return support;
   const response = runNativeScript(generateNativeFocusScript(terminalId));
   if (response.kind !== "available") return response;
@@ -222,13 +222,13 @@ export function focusTerminal(terminalId: string, app?: string): FocusResult {
 }
 
 function nativeSupport(
-  foreground: boolean,
+  required: "identity" | "foreground" | "title",
   app?: string,
 ): NativeFailure | undefined {
   const capabilities = probeGhosttyNative(app);
   for (const capability of [
     capabilities.nativeIdentity,
-    ...(foreground ? [capabilities.foreground] : []),
+    ...(required === "foreground" ? [capabilities.foreground] : required === "title" ? [capabilities.titleOverride] : []),
   ]) {
     if (capability.state !== "supported")
       return {
@@ -237,4 +237,131 @@ function nativeSupport(
         reason: `${capability.reason} ${RECOVERY}`,
       };
   }
+}
+
+export type TitleOperation =
+  { kind: "read" } | { kind: "set"; text: string } | { kind: "reset" };
+export type TitleScope = "tab" | "pane";
+export type TitleResult =
+  | { kind: "title"; terminalId: string; scope: TitleScope; override: string }
+  | NativeFailure;
+
+/** Validation is shared by the CLI and native emitter; existing titles are read verbatim via JSON. */
+export function validateTitleText(text: string): string | null {
+  if (text.length === 0)
+    return "Empty title is invalid; use --reset to clear the override.";
+  if ([...text].length > 256)
+    return "Title must be at most 256 Unicode codepoints.";
+  // eslint-disable-next-line no-control-regex -- user-authored titles cannot contain terminal or bidi controls
+  if (/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/.test(text))
+    return "Title cannot contain control or bidi override/isolate characters.";
+  return null;
+}
+
+export function generateTitleScript(
+  terminalId: string,
+  scope: TitleScope,
+  operation: TitleOperation,
+): string {
+  validateIds([terminalId]);
+  if (scope !== "tab" && scope !== "pane")
+    throw new Error("Invalid title target scope.");
+  if (operation.kind === "set") {
+    const invalid = validateTitleText(operation.text);
+    if (invalid) throw new Error(invalid);
+  }
+  const mutation =
+    operation.kind === "read"
+      ? ""
+      : `set name override of titleTarget to "${escapeAppleScript(operation.kind === "reset" ? "" : operation.text)}"`;
+  return (
+    PRELUDE +
+    `set wantedId to "${escapeAppleScript(terminalId.toUpperCase())}"
+set targetFound to false
+set resultValue to current application's NSMutableDictionary's dictionary()
+resultValue's setObject:false forKey:"found"
+tell application "Ghostty"
+  repeat with w in windows
+    repeat with t in tabs of w
+      set liveIds to id of every terminal of t
+      if liveIds contains wantedId then
+        set p to terminal id wantedId
+        set titleTarget to ${scope === "tab" ? "t" : "p"}
+        ${mutation}
+        resultValue's setObject:(name override of titleTarget as text) forKey:"override"
+        resultValue's setObject:(id of p as text) forKey:"terminalId"
+        resultValue's setObject:"${scope}" forKey:"scope"
+        resultValue's setObject:true forKey:"found"
+        set targetFound to true
+      end if
+      if targetFound then exit repeat
+    end repeat
+    if targetFound then exit repeat
+  end repeat
+end tell
+` +
+    JSON_RESULT
+  );
+}
+
+export function titleTerminal(
+  terminalId: string,
+  scope: TitleScope,
+  operation: TitleOperation,
+  app?: string,
+): TitleResult {
+  const script = generateTitleScript(terminalId, scope, operation);
+  const support = nativeSupport("title", app);
+  if (support) return support;
+  const response = runNativeScript(script);
+  if (response.kind !== "available") {
+    if (operation.kind === "read" || response.code === "permission")
+      return response;
+    return unknownTitleOutcome(response.code);
+  }
+  const value = response.value as {
+    found?: unknown;
+    terminalId?: unknown;
+    scope?: unknown;
+    override?: unknown;
+  } | null;
+  if (value?.found === false)
+    return {
+      kind: "unavailable",
+      code: "missing",
+      reason:
+        "Exact native title target is closed or unavailable. Run summon inspect <project>; no title change was confirmed.",
+    };
+  if (
+    value?.found === true &&
+    value.terminalId === terminalId.toUpperCase() &&
+    value.scope === scope &&
+    typeof value.override === "string"
+  ) {
+    const expected =
+      operation.kind === "reset"
+        ? ""
+        : operation.kind === "set"
+          ? operation.text
+          : undefined;
+    if (expected === undefined || value.override === expected)
+      return {
+        kind: "title",
+        terminalId: terminalId.toUpperCase(),
+        scope,
+        override: value.override,
+      };
+  }
+  return operation.kind === "read"
+    ? malformed()
+    : unknownTitleOutcome("unavailable");
+}
+
+function unknownTitleOutcome(code: NativeFailure["code"]): NativeFailure {
+  return {
+    kind: "failed",
+    code,
+    reason:
+      "Title change outcome is unknown. Read with summon title <project> [pane] or inspect before retrying; no automatic retry was made.",
+  };
 }

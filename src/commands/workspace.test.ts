@@ -35,7 +35,7 @@ vi.mock("node:fs", async (original) => {
       actual.existsSync(file),
     readFileSync: (...args: Parameters<typeof actual.readFileSync>) =>
       String(args[0]).endsWith("Ghostty.sdef")
-        ? '<class name="terminal"><property name="id"/><property name="pid"/><property name="tty"/></class>'
+        ? '<class name="terminal"><property name="id"/><property name="pid"/><property name="tty"/><property name="name override" access="rw"/></class><class name="tab"><property name="name override" access="rw"/></class>'
         : actual.readFileSync(...args),
   };
 });
@@ -46,7 +46,7 @@ vi.mock("node:child_process", async (original) => ({
 fixture.home = mkdtempSync(join(tmpdir(), "summon-workspace-test-"));
 const { writeStatus, readStatus } = await import("../status.js");
 const { focusWorkspace, launch } = await import("../launcher.js");
-const { handleFocusCommand, handleInspectCommand } =
+const { handleFocusCommand, handleInspectCommand, handleTitleCommand } =
   await import("./workspace.js");
 const { STATUS_DIR } = await import("../paths.js");
 const id = "00000000-0000-4000-8000-000000000001";
@@ -218,5 +218,128 @@ describe("workspace commands with real status fixtures", () => {
     expect(fixture.exec).not.toHaveBeenCalled();
     exit.mockRestore();
     err.mockRestore();
+  });
+});
+
+
+describe("P4 title handler real status fixtures", () => {
+  it("reads default tab and targets explicit pane without changing status keys", async () => {
+    seed();
+    const before = readFileSync(join(STATUS_DIR, "demo.json"), "utf8");
+    const out = vi.spyOn(console, "log").mockImplementation(() => {});
+    fixture.exec.mockReturnValue(
+      JSON.stringify({
+        found: true,
+        terminalId: id,
+        scope: "tab",
+        override: "existing\n\u202e🦊",
+      }),
+    );
+    await handleTitleCommand(context(["demo"]));
+    expect(fixture.exec.mock.calls[0]![2].input).not.toMatch(
+      /\bactivate\b|set name override/,
+    );
+    expect(out.mock.calls.flat().join("")).toContain("\\u000a");
+    expect(out.mock.calls.flat().join("")).toContain("\\u202e");
+    fixture.exec.mockReturnValue(
+      JSON.stringify({
+        found: true,
+        terminalId: id,
+        scope: "pane",
+        override: "new 🦊",
+      }),
+    );
+    await handleTitleCommand(context(["demo", "editor"], { set: "new 🦊" }));
+    expect(fixture.exec.mock.calls[1]![2].input).toContain(
+      "set titleTarget to p",
+    );
+    fixture.exec.mockReturnValue(
+      JSON.stringify({
+        found: true,
+        terminalId: id,
+        scope: "tab",
+        override: "",
+      }),
+    );
+    await handleTitleCommand(context(["demo"], { reset: true }));
+    expect(out).toHaveBeenCalledWith(
+      expect.stringContaining("no title override"),
+    );
+    expect(readFileSync(join(STATUS_DIR, "demo.json"), "utf8")).toBe(before);
+    out.mockRestore();
+  });
+  it("invalid/conflicting title options fail before native IO", async () => {
+    seed();
+    const exit = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("usage");
+    });
+    const err = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    for (const values of [
+      { set: "", reset: true },
+      { set: "" },
+      { set: "bad\n" },
+      { set: "🦊".repeat(257) },
+    ])
+      await expect(
+        handleTitleCommand(context(["demo"], values)),
+      ).rejects.toThrow("usage");
+    expect(fixture.exec).not.toHaveBeenCalled();
+    exit.mockRestore();
+    err.mockRestore();
+  });
+  it("unknown mutation output exits2 with readback guidance and no retry", async () => {
+    seed();
+    fixture.exec.mockImplementation(() => {
+      throw Object.assign(new Error("timeout"), { code: "ETIMEDOUT" });
+    });
+    const exit = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("exit2");
+    });
+    const err = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    await expect(
+      handleTitleCommand(context(["demo"], { set: "new" })),
+    ).rejects.toThrow("exit2");
+    expect(exit).toHaveBeenCalledWith(2);
+    expect(fixture.exec).toHaveBeenCalledTimes(1);
+    expect(err.mock.calls.flat().join("")).toContain("unknown");
+    exit.mockRestore();
+    err.mockRestore();
+  });
+});
+
+describe("P4 detach command real generator", () => {
+  it("prints an opt-in snippet only after supported action evidence", async () => {
+    const { handleKeybindingsCommand } = await import("./setup.js");
+    const out = vi.spyOn(console, "log").mockImplementation(() => {});
+    fixture.exec.mockReturnValue("move_tab_to_new_window\n");
+    await handleKeybindingsCommand(context([], { "detach-tab": true }));
+    expect(out.mock.calls.flat().join("")).toContain(
+      "summon-nav:n = move_tab_to_new_window",
+    );
+    expect(fixture.exec).toHaveBeenCalledTimes(1);
+    out.mockRestore();
+  });
+  it("unsupported action prints no partial stdout and exits2", async () => {
+    const { handleKeybindingsCommand } = await import("./setup.js");
+    const out = vi.spyOn(console, "log").mockImplementation(() => {});
+    const err = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    const exit = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("exit2");
+    });
+    fixture.exec.mockReturnValue("set_tab_title\n");
+    await expect(
+      handleKeybindingsCommand(context([], { "detach-tab": true })),
+    ).rejects.toThrow("exit2");
+    expect(out).not.toHaveBeenCalled();
+    expect(exit).toHaveBeenCalledWith(2);
+    out.mockRestore();
+    err.mockRestore();
+    exit.mockRestore();
   });
 });

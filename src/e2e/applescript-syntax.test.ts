@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { generateAppleScript, generateTreeAppleScript } from "../script.js";
 import { planLayout } from "../layout.js";
 import { buildTreePlan, parseTreeDSL } from "../tree.js";
-import { generateInventoryScript, generateNativeFocusScript } from "../ghostty-native.js";
+import { generateInventoryScript, generateNativeFocusScript, generateTitleScript } from "../ghostty-native.js";
 
 /**
  * Probe whether osacompile can resolve Ghostty's scripting dictionary.
@@ -113,6 +113,9 @@ describe("AppleScript syntax E2E", () => {
       generateAppleScript(planLayout({ editorPanes:4, shell:"true" }), "/tmp"),
       generateTreeAppleScript(buildTreePlan(parseTreeDSL("a-b | a_b / A_b")), "/tmp"),
       generateInventoryScript([id]), generateNativeFocusScript(id),
+      generateTitleScript(id,"tab",{kind:"read"}),
+      generateTitleScript(id,"pane",{kind:"set",text:'title "quoted" 🦊'}),
+      generateTitleScript(id,"tab",{kind:"reset"}),
     ];
     const tmpFile = join(tmpdir(), `summon-e2e-${process.pid}.applescript`);
     try {

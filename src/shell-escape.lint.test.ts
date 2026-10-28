@@ -50,7 +50,7 @@ const FILES = walkTs(SRC_DIR).filter(
 // variable reference *after* a safe action string (e.g. `perform action
 // "toggle_fullscreen" on ${rootPaneVar}`).
 const DANGER_CONTEXT =
-  /(sh\s+-c|bash\s+-c|osascript|eval\s|input text|sendCommand\s*\(|setInitialInput\s*\(|do shell script)/;
+  /(sh\s+-c|bash\s+-c|osascript|eval\s|input text|sendCommand\s*\(|setInitialInput\s*\(|do shell script|set name override)/;
 
 // Precise combined patterns (dangerous keyword + interpolation in same position).
 // These are checked in addition to DANGER_CONTEXT + ${…} so that we catch
@@ -460,6 +460,11 @@ add(1, \`perform action "set_tab_title:\${title}" on \${pane}\`);
 `;
       const violations = scan(allowedSnippet);
       expect(violations).toEqual([]);
+    });
+
+    it("P4 catches unescaped writable title-property interpolation", () => {
+      expect(scan('const mutation = `set name override of titleTarget to "${rawTitle}"`;')).not.toEqual([]);
+      expect(scan('const mutation = `set name override of titleTarget to "${escapeAppleScript(title)}"`;')).toEqual([]);
     });
 
     // -------------------------------------------------------------------------

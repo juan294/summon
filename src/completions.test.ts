@@ -162,7 +162,7 @@ describe("subcommand-specific flag completions", () => {
 
   test("bash keybindings completion includes --vim flag", () => {
     const result = generateBashCompletion();
-    expect(result).toMatch(/keybindings\)[\s\S]*?compgen\s+-W\s+"--vim"/);
+    expect(result).toMatch(/keybindings\)[\s\S]*?compgen\s+-W\s+"--vim --detach-tab"/);
   });
 });
 
@@ -539,12 +539,20 @@ describe("P2 native command completion behavior",()=>{
   const home=mkdtempSync(join(tmpdir(),"summon-completion-"));
   mkdirSync(join(home,".config/summon"),{recursive:true});writeFileSync(join(home,".config/summon/projects"),"demo=/tmp/demo\n");
   try {
-   for(const command of ["inspect","focus"]){
+   for(const command of ["inspect","focus","title"]){
     const script=generateBashCompletion()+`\n_init_completion(){ words=("\${COMP_WORDS[@]}"); cword=$COMP_CWORD; cur=\${COMP_WORDS[COMP_CWORD]}; prev=\${COMP_WORDS[COMP_CWORD-1]}; }\nsummon(){ :; }\nCOMP_WORDS=(summon ${command} de); COMP_CWORD=2; _summon; printf '%s\\n' "\${COMPREPLY[@]}"`;
     const result=spawnSync("bash",["-c",script],{encoding:"utf8",env:{...process.env,HOME:home}});
     expect(result.status).toBe(0);expect(result.stdout.trim()).toBe("demo");
    }
    expect(generateZshCompletion()).toContain("--json");expect(generateFishCompletion()).toContain("-l json");
   } finally {rmSync(home,{recursive:true,force:true});}
+ });
+});
+
+
+describe("P4 title/detach completions",()=>{
+ test("all shells expose title flags and explicit detach option",()=>{
+  for(const script of [generateBashCompletion(),generateZshCompletion(),generateFishCompletion()])for(const token of ["title","set","reset","detach-tab"])expect(script).toContain(token);
+  expect(generateFishCompletion()).toMatch(/title.*-l set -r/);
  });
 });

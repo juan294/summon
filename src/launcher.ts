@@ -30,7 +30,7 @@ import { isStarshipInstalled, ensurePresetConfig, getPresetConfigPath } from "./
 import { commandExecutable, replaceCommandExecutable } from "./command-spec.js";
 import { TabOpenError } from "./errors.js";
 import { focusTerminal } from "./ghostty-native.js";
-import type { FocusResult } from "./ghostty-native.js";
+import type { FocusResult, NativeFailure } from "./ghostty-native.js";
 import { traditionalInventory, treeInventory, parseNativeCapture } from "./pane-inventory.js";
 import type { NativeMetadata, PaneDescriptor } from "./pane-inventory.js";
 
@@ -91,16 +91,21 @@ export function resolveProjectName(targetDir: string): string {
   return sanitized;
 }
 
-/** Focus only a recorded exact UUID. Legacy/stale records never launch implicitly. */
-export function focusWorkspace(projectName: string, paneName?: string): FocusResult {
+/** Resolve a recorded exact UUID without activating or querying the application. */
+export function resolveWorkspaceTerminal(projectName: string, paneName?: string): { kind: "target"; terminalId: string } | NativeFailure {
   if (!PROJECT_NAME_RE.test(projectName)) return { kind: "unavailable", code: "missing", reason: "Invalid project name. Run summon inspect <project>." };
   const status = readStatus(projectName);
   if (!status?.native) return { kind: "unavailable", code: "missing", reason: "Exact native identity is unavailable. Select in Ghostty or explicitly relaunch when ready to capture identity; run summon inspect <project>." };
   const terminalId = paneName === undefined ? status.native.rootTerminalId : status.native.panes.find(p => p.name === paneName)?.terminalId;
   if (!terminalId) return { kind: "unavailable", code: "missing", reason: `Unknown pane. Valid panes: ${status.native.panes.map(p => p.name).join(", ")}. Run summon inspect ${projectName}.` };
-  return focusTerminal(terminalId);
+  return { kind: "target", terminalId };
 }
 
+/** Focus only a recorded exact UUID. Legacy/stale records never launch implicitly. */
+export function focusWorkspace(projectName: string, paneName?: string): FocusResult {
+  const target = resolveWorkspaceTerminal(projectName, paneName);
+  return target.kind === "target" ? focusTerminal(target.terminalId) : target;
+}
 
 async function prompt(question: string): Promise<string> {
   const answer = await promptUser(question);

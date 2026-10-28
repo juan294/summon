@@ -1,7 +1,7 @@
 import type { CommandContext } from "./types.js";
 import { readStatus } from "../status.js";
-import { focusWorkspace } from "../launcher.js";
-import { readNativeInventory } from "../ghostty-native.js";
+import { focusWorkspace, resolveWorkspaceTerminal } from "../launcher.js";
+import { readNativeInventory, titleTerminal, validateTitleText } from "../ghostty-native.js";
 import { validateProjectNameOrExit } from "../validation.js";
 import { exitWithUsageHint } from "../utils.js";
 import { fail } from "../ui/output.js";
@@ -90,7 +90,50 @@ export async function handleInspectCommand({
 function displayText(text: string): string {
   return text.replace(
     // eslint-disable-next-line no-control-regex -- display native titles without terminal control effects
-    /[\x00-\x1f\x7f-\x9f]/g,
+    /[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g,
     (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`,
+  );
+}
+
+
+export async function handleTitleCommand({
+  args,
+  values,
+}: CommandContext): Promise<void> {
+  const project = projectArg(
+    args,
+    2,
+    "Usage: summon title <project> [pane] [--set <text> | --reset]",
+  );
+  if (values.set !== undefined && values.reset)
+    exitWithUsageHint("--set and --reset are mutually exclusive.");
+  if (values.set !== undefined) {
+    const invalid = validateTitleText(values.set);
+    if (invalid) exitWithUsageHint(invalid);
+  }
+  const target = resolveWorkspaceTerminal(project, args[1]);
+  if (target.kind !== "target") {
+    fail(target.reason);
+    process.exit(2);
+  }
+  const operation =
+    values.set !== undefined
+      ? { kind: "set" as const, text: values.set }
+      : values.reset
+        ? { kind: "reset" as const }
+        : { kind: "read" as const };
+  const result = titleTerminal(
+    target.terminalId,
+    args[1] === undefined ? "tab" : "pane",
+    operation,
+  );
+  if (result.kind !== "title") {
+    fail(result.reason);
+    process.exit(2);
+  }
+  console.log(
+    result.override === ""
+      ? "(no title override)"
+      : displayText(result.override),
   );
 }

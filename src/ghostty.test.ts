@@ -10,6 +10,7 @@ import {
   parseVersion,
   parseEffectiveConfig,
   probeGhostty,
+  probeGhosttyDetach,
 } from "./ghostty.js";
 
 let temp: string;
@@ -127,4 +128,14 @@ describe("bounded Ghostty diagnostics", () => {
     expect(probeGhostty(null).app).toBeNull();
     expect(exec).not.toHaveBeenCalled();
   });
+});
+
+
+describe("P4 cheap detach capability",()=>{
+ it("queries actions only with bounded shell-free argv",()=>{
+  expect(probeGhosttyDetach(temp).state).toBe("supported");expect(exec).toHaveBeenCalledTimes(1);expect(exec).toHaveBeenCalledWith(join(temp,"Contents/MacOS/ghostty"),["+list-actions"],expect.objectContaining({timeout:3000,maxBuffer:1048576}));
+ });
+ it("old/unknown capabilities disclose and retry on a new invocation",()=>{
+  exec.mockReturnValue("set_tab_title\n");expect(probeGhosttyDetach(temp).state).toBe("unsupported");exec.mockImplementationOnce(()=>{throw new Error("timeout");});expect(probeGhosttyDetach(temp).state).toBe("unavailable");exec.mockReturnValue("move_tab_to_new_window\n");expect(probeGhosttyDetach(temp).state).toBe("supported");expect(probeGhosttyDetach(null).state).toBe("unavailable");
+ });
 });

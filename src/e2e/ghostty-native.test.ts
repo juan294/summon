@@ -3,8 +3,8 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { discoverGhostty, probeGhosttyNative } from "../ghostty.js";
-import { readNativeInventory, focusTerminal } from "../ghostty-native.js";
+import { discoverGhostty, probeGhosttyNative, probeGhosttyDetach } from "../ghostty.js";
+import { readNativeInventory, focusTerminal, titleTerminal } from "../ghostty-native.js";
 import { generateAppleScript, generateTreeAppleScript } from "../script.js";
 import { planLayout } from "../layout.js";
 import { buildTreePlan, parseTreeDSL } from "../tree.js";
@@ -101,6 +101,50 @@ function inspectHiddenSpan(events: VisibilityTraceEvent[]): { complete: boolean;
   if (visible < 0) return { complete: false, durationMs: null };
   const durationMs = events[visible]!.at - events[hidden]!.at;
   return { complete: true, durationMs };
+}
+
+/** Title mutations and detach stay within a dedicated task-owned window/tab tree. */
+async function checkTitleAndDetach(dir: string, root: string, recover: () => void): Promise<void> {
+  for (const scope of ["tab", "pane"] as const) {
+    const title = `Summon ${scope} "quoted" \\ 🦊`;
+    expect(titleTerminal(root, scope, {kind:"read"}).kind).toBe("title");
+    expect(titleTerminal(root, scope, {kind:"set",text:title})).toEqual({kind:"title",terminalId:root,scope,override:title});
+    expect(titleTerminal(root, scope, {kind:"read"})).toEqual({kind:"title",terminalId:root,scope,override:title});
+    expect(titleTerminal(root, scope, {kind:"reset"})).toEqual({kind:"title",terminalId:root,scope,override:""});
+    expect(titleTerminal(root, scope, {kind:"read"})).toEqual({kind:"title",terminalId:root,scope,override:""});
+  }
+  expect(probeGhosttyDetach().state).toBe("supported");
+  const initial=readNativeInventory([root]);
+  if(initial.kind!=="available" || !initial.panes[0])throw new Error("Owned title root unavailable before detach");
+  const originalWindow=initial.panes[0].windowId;
+  const before=new Set(terminalDirectories().map(p=>p.terminalId));
+  try {
+    run(`tell application "Ghostty"
+set cfg to new surface configuration
+set initial working directory of cfg to "${escapeAppleScript(dir)}"
+set command of cfg to "/bin/zsh -f"
+new tab in window id "${escapeAppleScript(originalWindow)}" with configuration cfg
+end tell`);
+  } finally { recover(); }
+  const added=terminalDirectories().filter(p=>!before.has(p.terminalId) && p.windowId===originalWindow);
+  expect(added).toHaveLength(1);
+  expect(focusTerminal(root).kind).toBe("focused");
+  expect(run(`tell application "Ghostty" to perform action "move_tab_to_new_window" on ${exactTerminal(root)}`).trim()).toBe("true");
+  await eventually(()=>{
+    const moved=readNativeInventory([root,added[0]!.terminalId]);
+    if(moved.kind!=="available")return false;
+    const rootPane=moved.panes.find(p=>p.terminalId===root);
+    const otherPane=moved.panes.find(p=>p.terminalId===added[0]!.terminalId);
+    return !!rootPane && !!otherPane && rootPane.windowId!==originalWindow && otherPane.windowId===originalWindow;
+  });
+  recover();
+  const movedTitle="Summon detached tab 🦊";
+  expect(titleTerminal(root,"tab",{kind:"set",text:movedTitle})).toEqual({kind:"title",terminalId:root,scope:"tab",override:movedTitle});
+  expect(titleTerminal(root,"tab",{kind:"read"})).toMatchObject({kind:"title",override:movedTitle});
+  expect(titleTerminal(root,"tab",{kind:"reset"})).toMatchObject({kind:"title",override:""});
+  const after=readNativeInventory([root]);
+  expect(after.kind).toBe("available");
+  writeFileSync(join(process.cwd(),"logs/ghostty-p4-native-title-detach.json"),JSON.stringify({root,originalWindow,retainedTabTerminal:added[0]!.terminalId,after,tabAndPaneSetReadReset:true,currentTabAfterDetach:true},null,2));
 }
 
 /** Actual monitor under an owned terminal PTY; HOME and all status files are disposable. */
@@ -318,6 +362,14 @@ describe("Ghostty native behavior E2E", () => {
       join(dir, "baseline.json"),
       JSON.stringify({ directory: dir, terminals: baseline }),
     );
+    const evidencePath = join(process.cwd(), "logs", `ghostty-native-${dir.split("/").at(-1)}-events.jsonl`);
+    const recordError = (stage: string, error: unknown) => {
+      const receipt = { stage, at: new Date().toISOString(), directory: dir, owned: [...owned], message: error instanceof Error ? error.message : String(error), stack: error instanceof Error ? error.stack : undefined };
+      try { writeFileSync(evidencePath, JSON.stringify(receipt) + "\n", { flag: "a" }); }
+      catch { console.error(JSON.stringify(receipt)); }
+    };
+    let bodyFailed = false;
+    let creationOutcomeUnknown = false;
     const owned = new Set<string>();
     const ownedWindows = new Set<string>();
     const processDirectory = (pid: number) => {
@@ -363,32 +415,52 @@ describe("Ghostty native behavior E2E", () => {
 set cfg to new surface configuration
 set initial working directory of cfg to "${escapeAppleScript(dir)}"
 set command of cfg to "/bin/zsh -f"
-set testWindow to new window with configuration cfg
-return id of terminal 1 of selected tab of testWindow
+new window with configuration cfg
+return "summon-window-requested"
 end tell`).trim();
-        writeFileSync(join(dir, "created-root-id.txt"), createdId);
+        writeFileSync(join(dir, "creation-response.txt"), createdId);
+      } catch (error) {
+        creationOutcomeUnknown = true;
+        recordError("creation", error);
+        // The request outcome is unknown. Recover read-only; never repeat creation.
       } finally {
-        recover();
+        try { recover(); } catch (error) { recordError("creation-recovery", error); }
       }
       await eventually(() => {
         recover();
         return owned.size === 1;
-      });
+      }, 10_000);
       const root = [...owned][0]!;
-      if (TERMINAL_ID_RE.test(createdId)) expect(root).toBe(createdId);
+      creationOutcomeUnknown = false;
+      writeFileSync(join(dir, "created-root-id.txt"), root);
       expect(focusTerminal(root).kind).toBe("focused");
-      const adoptCapture = (capture: NativeMetadata | undefined) => {
+      const adoptCapture = async (capture: NativeMetadata | undefined) => {
         expect(capture?.rootTerminalId).toBe(root);
         const ids = capture!.panes.map((p) => p.terminalId);
         for (const id of ids) expect(before.has(id)).toBe(false);
-        const readback = readNativeInventory(ids);
-        expect(readback.kind).toBe("available");
+        const started = Date.now();
+        let readback = readNativeInventory(ids);
+        if (readback.kind !== "available") {
+          try {
+            await eventually(() => {
+              readback = readNativeInventory(ids);
+              return readback.kind === "available";
+            }, Math.max(1, 10_000 - (Date.now() - started)));
+          } catch (error) {
+            throw new Error(`Owned capture inventory was not ready: ${readback.reason}`, { cause: error });
+          }
+        }
+        expect(readback.kind, readback.kind === "available" ? "" : readback.reason).toBe("available");
         if (readback.kind !== "available") throw new Error(readback.reason);
         expect(readback.panes).toHaveLength(ids.length);
         for (const p of readback.panes)
           expect(ownedWindows.has(p.windowId)).toBe(true);
         for (const id of ids) owned.add(id);
       };
+      if (process.env.SUMMON_NATIVE_TITLE_ONLY === "1") {
+        await checkTitleAndDetach(dir, root, recover);
+        return;
+      }
       if (process.env.SUMMON_NATIVE_VISIBILITY_ONLY === "1") {
         await checkMonitorVisibility(dir, root, recover);
         return;
@@ -415,7 +487,8 @@ end tell`).trim();
         run(anchor(generateAppleScript(plan, dir), "paneRoot")),
         traditionalInventory(plan),
       );
-      adoptCapture(capture);
+      writeFileSync(join(dir,"traditional-capture.json"), JSON.stringify(capture ?? null));
+      await adoptCapture(capture);
       recover();
       expect(capture?.panes.map((p) => p.name)).toEqual([
         "editor",
@@ -490,41 +563,49 @@ end tell`);
         ),
         treeInventory(tree),
       );
-      adoptCapture(treeCapture);
+      writeFileSync(join(dir,"tree-capture.json"), JSON.stringify(treeCapture ?? null));
+      await adoptCapture(treeCapture);
       recover();
       expect(treeCapture?.panes.map((p) => p.name)).toEqual([
         "a-b",
         "a_b",
         "A_b",
       ]);
+      await checkTitleAndDetach(dir, root, recover);
       await checkMonitorVisibility(dir, root, recover);
+    } catch (error) {
+      bodyFailed = true;
+      recordError("body", error);
+      throw error;
     } finally {
       for (const file of ["visibility-child.mjs","visibility-state.json","visibility-child.stderr"]) {
-        if (existsSync(join(dir,file))) writeFileSync(join(process.cwd(),`logs/ghostty-p3-${file}`),readFileSync(join(dir,file)));
-      }
-      recover();
-      // Cleanup only UUIDs proven task-owned by unique cwd and absent from baseline.
-      for (const id of owned) {
         try {
-          run(`tell application "Ghostty" to close ${exactTerminal(id)}`);
-        } catch {
-          /* already closed */
-        }
+          if (existsSync(join(dir,file))) writeFileSync(join(process.cwd(),`logs/ghostty-p3-${file}`),readFileSync(join(dir,file)));
+        } catch (error) { recordError("evidence-copy", error); }
       }
-      await eventually(() =>
-        terminalDirectories().every((p) => !owned.has(p.terminalId)),
-      );
-      // Preserve baseline/ownership evidence if cleanup cannot establish a closed fixture.
-      writeFileSync(
-        join(dir, "cleanup.json"),
-        JSON.stringify({
-          owned: [...owned],
-          remaining: terminalDirectories().filter((p) =>
-            owned.has(p.terminalId),
-          ),
-        }),
-      );
-      rmSync(dir, { recursive: true, force: true });
+      try { recover(); } catch (error) { recordError("cleanup-recovery", error); }
+      // Recovery failure cannot skip cleanup of UUIDs already proven task-owned.
+      for (const id of owned) {
+        try { run(`tell application "Ghostty" to close ${exactTerminal(id)}`); }
+        catch (error) { recordError("close-owned", error); }
+      }
+      let ownershipResolved = false;
+      let remaining: ReturnType<typeof terminalDirectories> | null = null;
+      try {
+        await eventually(() => {
+          remaining = terminalDirectories().filter(p => owned.has(p.terminalId));
+          return remaining.length === 0;
+        });
+        ownershipResolved = !creationOutcomeUnknown || owned.size > 0;
+      } catch (error) { recordError("cleanup-readback", error); }
+      const cleanup = { owned: [...owned], remaining, ownershipResolved, bodyFailed, creationOutcomeUnknown, directory: dir };
+      try {
+        writeFileSync(join(dir,"cleanup.json"), JSON.stringify(cleanup));
+        writeFileSync(evidencePath, JSON.stringify({stage:"cleanup-summary", ...cleanup})+"\n", {flag:"a"});
+      } catch (error) { ownershipResolved = false; recordError("cleanup-evidence", error); }
+      // Preserve timed-out creation evidence: an unknown outcome may complete later.
+      if (ownershipResolved && !bodyFailed) rmSync(dir, { recursive: true, force: true });
+      if (!bodyFailed) expect(ownershipResolved, `Owned native fixture cleanup unresolved; evidence retained at ${dir}`).toBe(true);
     }
   }, process.env.SUMMON_NATIVE_VISIBILITY_MANUAL === "1" ? 240_000 : 120_000);
 });

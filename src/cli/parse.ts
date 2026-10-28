@@ -36,6 +36,9 @@ export type ParsedValues = {
   all?: boolean;
   verbose?: boolean;
   json?: boolean;
+  set?: string;
+  reset?: boolean;
+  "detach-tab"?: boolean;
 };
 
 export type ParsedCli = {
@@ -78,6 +81,9 @@ const parseOpts = {
     all: { type: "boolean" },
     verbose: { type: "boolean" },
     json: { type: "boolean" },
+    set: { type: "string" },
+    reset: { type: "boolean" },
+    "detach-tab": { type: "boolean" },
   },
 } as const;
 

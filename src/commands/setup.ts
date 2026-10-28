@@ -1,4 +1,6 @@
 import { resolveConfig, traditionalPaneNames } from "../launcher.js";
+import { probeGhosttyDetach } from "../ghostty.js";
+import { fail } from "../ui/output.js";
 import { exitWithUsageHint } from "../utils.js";
 import type { CommandContext } from "./types.js";
 
@@ -22,6 +24,13 @@ export async function handleCompletionsCommand({ args }: CommandContext): Promis
 }
 
 export async function handleKeybindingsCommand({ values, overrides }: CommandContext): Promise<void> {
+  if (values["detach-tab"]) {
+    const support = probeGhosttyDetach();
+    if (support.state !== "supported") {
+      fail(support.reason);
+      process.exit(2);
+    }
+  }
   const { generateKeyTableConfig } = await import("../keybindings.js");
   const { collectLeaves, resolveTreeCommands } = await import("../tree.js");
   const style = values.vim ? "vim" as const : "arrows" as const;
@@ -41,5 +50,8 @@ export async function handleKeybindingsCommand({ values, overrides }: CommandCon
     layoutName = "default";
   }
 
-  console.log(generateKeyTableConfig(paneNames, layoutName, style));
+  const snippet = values["detach-tab"]
+    ? generateKeyTableConfig(paneNames, layoutName, style, { detachTab: true })
+    : generateKeyTableConfig(paneNames, layoutName, style);
+  console.log(snippet);
 }

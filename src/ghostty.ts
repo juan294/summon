@@ -179,6 +179,14 @@ export function probeGhosttyNative(app: string | null = discoverGhostty()): Pick
   return result;
 }
 
+/** Explicit snippet generation only needs the action list, never an effective config scan. */
+export function probeGhosttyDetach(app: string | null = discoverGhostty()): Capability {
+  if (!app) return capability("unavailable", "Ghostty action probe unavailable; run summon doctor and retry.");
+  const actions = probe(app, ["+list-actions"]);
+  if (!actions?.trim()) return capability("unavailable", "Ghostty action probe unavailable; run summon doctor and retry.");
+  return capability(/^move_tab_to_new_window(?:\s|$)/m.test(actions) ? "supported" : "unsupported", "Installed +list-actions; upgrade to Ghostty 1.4.0 or later if detach is unsupported.");
+}
+
 /** Optional app is for native bundle fixtures, never sourced from project configuration. */
 export function probeGhostty(
   app: string | null = discoverGhostty(),
@@ -203,14 +211,7 @@ export function probeGhostty(
   const version = probe(app, ["--version"], 2000);
   result.version = version === null ? null : parseVersion(version);
   Object.assign(result.capabilities, probeGhosttyNative(app));
-  const actions = probe(app, ["+list-actions"]);
-  if (actions?.trim())
-    result.capabilities.detachTab = capability(
-      /^move_tab_to_new_window(?:\s|$)/m.test(actions)
-        ? "supported"
-        : "unsupported",
-      "Installed +list-actions; upgrade Ghostty if unavailable.",
-    );
+  result.capabilities.detachTab = probeGhosttyDetach(app);
   result.config = effectiveConfig(app);
   if (GHOSTTY_CONFIG_KEYS.every((key) => result.config[key] !== null))
     result.capabilities.effectiveConfig = capability(
