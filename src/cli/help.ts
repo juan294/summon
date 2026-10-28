@@ -180,7 +180,7 @@ async function buildHelp(): Promise<string> {
     wrap(`  Note: .summon files can specify commands that will be executed.`),
     wrap(`  Review .summon files before running summon in untrusted directories.`),
     "",
-    note("Requires: macOS, Ghostty 1.3.1+"),
+    note("Requires: macOS, Ghostty 1.3.1+ (1.4.0 recommended security baseline)"),
     "",
     bold("Examples:"),
     wrap(`  summon .                        Launch workspace in current directory`),

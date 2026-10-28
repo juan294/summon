@@ -19,7 +19,7 @@ Summon your Ghostty workspace with one command. Native splits, no tmux.
 npm i -g summon-ws
 ```
 
-Requires Node >= 20.19, macOS, and [Ghostty](https://ghostty.org) 1.3.1+.
+Requires Node >= 20.19, macOS, and [Ghostty](https://ghostty.org) 1.3.1+; 1.4.0 is the recommended security baseline.
 
 ## Quick Start
 
@@ -123,7 +123,7 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 | `summon config` | Show current machine configuration |
 | `summon open` | Select and launch a registered project interactively (always opens a new workspace) |
 | `summon export [path]` | Export resolved config as a `.summon` file |
-| `summon doctor [--fix] [--verbose]` | Check Ghostty config for recommended settings (--fix auto-adds missing; --verbose adds diagnostic info) |
+| `summon doctor [--fix] [--verbose]` | Check version, capabilities and effective settings (--fix appends eligible missing settings to an unambiguous existing file; --verbose adds diagnostic info) |
 | `summon freeze <name>` | Save current resolved config as a reusable custom layout |
 | `summon keybindings [--vim]` | Generate Ghostty key table config for pane navigation |
 | `summon layout <action>` | Manage custom layouts (create, save, list, show, delete, edit) |
