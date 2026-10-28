@@ -70,3 +70,12 @@ describe("generateKeyTableConfig", () => {
     expect(result.endsWith("\n")).toBe(true);
   });
 });
+
+describe("P4 optional detach binding",()=>{
+ it.each(["arrows","vim"] as const)("keeps %s defaults byte-identical and adds only one opt-in line",style=>{
+  const defaultOutput=generateKeyTableConfig(["editor"],"minimal",style);
+  const expected=`# Summon workspace navigation — minimal layout\n# Pane mapping:\n#   [0] editor\n#\n# Activate with: keybind = alt+s = key_table:summon-nav\n\n${style==="vim"?"keybind = summon-nav:h = focus_split:left\nkeybind = summon-nav:j = focus_split:down\nkeybind = summon-nav:k = focus_split:up\nkeybind = summon-nav:l = focus_split:right":"keybind = summon-nav:left = focus_split:left\nkeybind = summon-nav:down = focus_split:down\nkeybind = summon-nav:up = focus_split:up\nkeybind = summon-nav:right = focus_split:right"}\nkeybind = summon-nav:1 = focus_split:0\nkeybind = summon-nav:z = toggle_split_zoom\nkeybind = summon-nav:escape = pop_key_table\n`;
+  expect(defaultOutput).toBe(expected);expect(generateKeyTableConfig(["editor"],"minimal",style,{detachTab:false})).toBe(expected);
+  const opted=generateKeyTableConfig(["editor"],"minimal",style,{detachTab:true});const line="keybind = summon-nav:n = move_tab_to_new_window\n";expect(opted.split(line)).toHaveLength(2);expect(opted.replace(line,"")).toBe(expected);
+ });
+});

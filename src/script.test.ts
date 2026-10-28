@@ -1766,21 +1766,13 @@ describe("emitCleanupTrap — meta-char payloads", () => {
 });
 
 describe("generateFocusScript", () => {
-  it("generates valid AppleScript", () => {
-    const script = generateFocusScript("[myapp]");
+  it("generates exact UUID targeting and validates the input", () => {
+    const id="00000000-0000-4000-8000-000000000001";
+    const script = generateFocusScript(id);
     expect(script).toContain('tell application "Ghostty"');
-    expect(script).toContain("activate");
-    expect(script).toContain("end tell");
-  });
-
-  it("includes tab title reference", () => {
-    const script = generateFocusScript("[myapp]");
-    expect(script).toContain("myapp");
-  });
-
-  it("escapes special characters in tab title", () => {
-    const script = generateFocusScript('[my "app]');
-    expect(script).toContain("my \\\"app");
+    expect(script).toContain(id);
+    expect(script).toContain("focused terminal");
+    expect(()=>generateFocusScript('[my "app]')).toThrow("identity");
   });
 });
 

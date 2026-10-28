@@ -118,7 +118,8 @@ export async function handleOpenCommand({ overrides }: CommandContext): Promise<
   }
 
   if (selectedRow.state === "active" || selectedRow.state === "active-long") {
-    focusWorkspace(selectedRow.name);
+    const result = focusWorkspace(selectedRow.name);
+    if (result.kind !== "focused") { fail(result.reason); process.exit(2); }
     console.log(`Switched to [${selectedRow.name}]`);
     return;
   }

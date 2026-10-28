@@ -35,6 +35,10 @@ export type ParsedValues = {
   "dry-run"?: boolean;
   all?: boolean;
   verbose?: boolean;
+  json?: boolean;
+  set?: string;
+  reset?: boolean;
+  "detach-tab"?: boolean;
 };
 
 export type ParsedCli = {
@@ -76,6 +80,10 @@ const parseOpts = {
     "dry-run": { type: "boolean", short: "n" },
     all: { type: "boolean" },
     verbose: { type: "boolean" },
+    json: { type: "boolean" },
+    set: { type: "string" },
+    reset: { type: "boolean" },
+    "detach-tab": { type: "boolean" },
   },
 } as const;
 

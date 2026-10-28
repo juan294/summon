@@ -81,6 +81,9 @@ async function buildHelp(): Promise<string> {
     "",
     h("LAUNCH"),
     wrap(`  ${cmd("summon <target>")}             Launch workspace (project name, path, or '.')`),
+    wrap(`  ${cmd("summon title <project> [pane]")}  Read/set/reset native titles`),
+    wrap(`  ${cmd("summon focus <project> [pane]")}  Focus an exact existing pane`),
+    wrap(`  ${cmd("summon inspect <project>")}       Inspect native panes (--json)`),
     wrap(`  ${cmd("summon open")}                 Select and launch a registered project ${note("(alias: switch)")}`),
     "",
     h("SESSIONS"),
@@ -180,7 +183,7 @@ async function buildHelp(): Promise<string> {
     wrap(`  Note: .summon files can specify commands that will be executed.`),
     wrap(`  Review .summon files before running summon in untrusted directories.`),
     "",
-    note("Requires: macOS, Ghostty 1.3.1+"),
+    note("Requires: macOS, Ghostty 1.3.1+ (1.4.0 recommended security baseline)"),
     "",
     bold("Examples:"),
     wrap(`  summon .                        Launch workspace in current directory`),
@@ -235,6 +238,23 @@ Setup (add to your shell config):
   bash:  eval "$(summon completions bash)"
   fish:  eval (summon completions fish | psub)`,
 
+  title: `Usage: summon title <project> [pane] [--set <text> | --reset]
+
+Read a title override, set it with --set, or clear it with --reset.
+Default target: the current tab containing the recorded root. An explicit pane targets that pane.
+Titles support ordinary Unicode up to 256 codepoints; controls and bidi overrides are rejected.
+Unavailable capability or target exits 2. After an unknown mutation outcome, read the title before retrying.`,
+
+  inspect: `Usage: summon inspect <project> [--json]
+
+Read stored workspace state and exact native pane observations without activating Ghostty.
+Legacy records require an explicit relaunch to capture native identity. Unavailable targets exit 2.`,
+
+  focus: `Usage: summon focus <project> [pane]
+
+Focus the recorded root or a named native pane by exact UUID.
+Use summon inspect <project> to list valid names. Closed or legacy targets exit 2; no automatic relaunch.`,
+
   status: `Usage: summon status [--once]
 
 Show workspace status across all registered projects.
@@ -243,7 +263,7 @@ Launches an interactive TUI dashboard with live refresh.
 Options:
   --once  Print status table once and exit (non-interactive)
 
-In TUI mode: ↑↓/jk navigate, Enter opens project, r refreshes, q quits.
+In TUI mode: ↑↓/jk navigate, Enter focuses active projects or launches stopped projects, r refreshes, q quits.
 Automatically uses --once when stdout is not a TTY (e.g., piped output).`,
 
   open: `Usage: summon open
@@ -295,13 +315,17 @@ Examples:
   summon export > .summon          Write to .summon in current directory
   summon export .summon            Same, using path argument`,
 
-  keybindings: `Usage: summon keybindings [--vim]
+  keybindings: `Usage: summon keybindings [--vim] [--detach-tab]
 
 Generate Ghostty key table configuration for workspace pane navigation.
 Output can be appended to ~/.config/ghostty/config.
 
 Options:
-  --vim  Use vim-style keys (hjkl) instead of arrow keys`,
+  --vim  Use vim-style keys (hjkl) instead of arrow keys
+
+--detach-tab  Add summon-nav:n = move_tab_to_new_window (Ghostty 1.4+ capability required).
+Moves the whole tab into its own window. Drag handles remain a Ghostty user preference.
+Only prints a snippet; no configuration file is changed.`,
 
   freeze: `Usage: summon freeze <name>
 

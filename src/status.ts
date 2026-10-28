@@ -3,6 +3,9 @@ import { join, resolve, sep } from "node:path";
 import { STATUS_DIR } from "./paths.js";
 import { debugLog, atomicWrite, gitOutput } from "./utils.js";
 
+import { parseNativeMetadata } from "./pane-inventory.js";
+import type { NativeMetadata } from "./pane-inventory.js";
+
 // --- Types ---
 
 export interface WorkspaceStatus {
@@ -22,6 +25,8 @@ export interface WorkspaceStatus {
   source: "summon";
   /** Schema version for future compatibility */
   version: 1;
+  /** Exact surface-lifetime native identity; optional for legacy launches. */
+  native?: NativeMetadata;
 }
 
 export type WorkspaceState = "active" | "stopped" | "unknown";
@@ -67,6 +72,12 @@ function pidFilePath(projectName: string): string {
 export function writeStatus(status: WorkspaceStatus): void {
   mkdirSync(STATUS_DIR, { recursive: true, mode: 0o700 });
   atomicWrite(statusFilePath(status.project), JSON.stringify(status, null, 2) + "\n", { mode: 0o600 });
+}
+
+/** Discard metadata only after failed replacement; root-shell liveness sidecars stay authoritative. */
+export function discardStatusRecord(projectName: string): boolean {
+  try { unlinkSync(statusFilePath(projectName)); return true; }
+  catch (error) { return (error as NodeJS.ErrnoException).code === "ENOENT"; }
 }
 
 export function clearStatus(projectName: string): void {
@@ -136,6 +147,9 @@ export function parseWorkspaceStatus(raw: unknown): WorkspaceStatus | null {
     ? rawPanes as string[]
     : [];
 
+  const native = parseNativeMetadata(d["native"]);
+  if (d["native"] !== undefined && !native) process.stderr.write("summon: warning: invalid native identity discarded; inspect or explicitly relaunch to capture exact targets.\n");
+
   // BE-L3 #514: reconstruct explicitly from validated fields — no unknown keys leak through
   return {
     project: d["project"] as string,
@@ -146,6 +160,7 @@ export function parseWorkspaceStatus(raw: unknown): WorkspaceStatus | null {
     panes: validPanes,
     source: "summon",
     version: 1,
+    ...(native ? { native } : {}),
   };
 }
 

@@ -3,8 +3,10 @@ import { execFileSync } from "node:child_process";
 import { existsSync, writeFileSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { generateAppleScript } from "../script.js";
+import { generateAppleScript, generateTreeAppleScript } from "../script.js";
 import { planLayout } from "../layout.js";
+import { buildTreePlan, parseTreeDSL } from "../tree.js";
+import { generateInventoryScript, generateNativeFocusScript, generateTitleScript } from "../ghostty-native.js";
 
 /**
  * Probe whether osacompile can resolve Ghostty's scripting dictionary.
@@ -106,14 +108,21 @@ describe("AppleScript syntax E2E", () => {
       );
     }
 
-    const plan = planLayout({ editorPanes: 1, shell: "false" });
-    const script = generateAppleScript(plan, "/tmp");
-    // Write to a temp file so osacompile resolves the Ghostty scripting
-    // dictionary from the tell-application block (#517).
+    const id="00000000-0000-4000-8000-000000000001";
+    const scripts = [
+      generateAppleScript(planLayout({ editorPanes:4, shell:"true" }), "/tmp"),
+      generateTreeAppleScript(buildTreePlan(parseTreeDSL("a-b | a_b / A_b")), "/tmp"),
+      generateInventoryScript([id]), generateNativeFocusScript(id),
+      generateTitleScript(id,"tab",{kind:"read"}),
+      generateTitleScript(id,"pane",{kind:"set",text:'title "quoted" 🦊'}),
+      generateTitleScript(id,"tab",{kind:"reset"}),
+    ];
     const tmpFile = join(tmpdir(), `summon-e2e-${process.pid}.applescript`);
-    writeFileSync(tmpFile, script, "utf8");
     try {
-      execFileSync("osacompile", ["-o", "/dev/null", tmpFile], { stdio: "pipe" });
+      for (const script of scripts) {
+        writeFileSync(tmpFile, script, "utf8");
+        execFileSync("osacompile", ["-o", "/dev/null", tmpFile], { stdio: "pipe" });
+      }
     } finally {
       try { unlinkSync(tmpFile); } catch { /* ignore */ }
     }
