@@ -21,6 +21,8 @@ npm i -g summon-ws
 
 Requires Node >= 20.19, macOS, and [Ghostty](https://ghostty.org) 1.3.1+; 1.4.0 is the recommended security baseline.
 
+Run `summon doctor` to inspect version, capabilities and effective settings. See the [Ghostty workflow guide](docs/ghostty.md) for compatibility, exact pane focus, titles, visibility-aware monitoring and opt-in SSH recipes.
+
 ## Quick Start
 
 ```bash
@@ -121,14 +123,17 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 | `summon list` | List all registered projects |
 | `summon set <key> [value]` | Set a machine-level config value |
 | `summon config` | Show current machine configuration |
-| `summon open` | Select and launch a registered project interactively (always opens a new workspace) |
+| `summon open` | Pick a project interactively: focus active workspaces or launch stopped ones |
 | `summon export [path]` | Export resolved config as a `.summon` file |
 | `summon doctor [--fix] [--verbose]` | Check version, capabilities and effective settings (--fix appends eligible missing settings to an unambiguous existing file; --verbose adds diagnostic info) |
 | `summon freeze <name>` | Save current resolved config as a reusable custom layout |
-| `summon keybindings [--vim]` | Generate Ghostty key table config for pane navigation |
+| `summon keybindings [--vim] [--detach-tab]` | Print pane navigation config, optionally including whole-tab detachment |
 | `summon layout <action>` | Manage custom layouts (create, save, list, show, delete, edit) |
 | `summon status [--once]` | Interactive workspace status dashboard across all projects |
-| `summon switch` | Focus an existing workspace window (use this to return to a running workspace); falls back to launching if not found |
+| `summon switch` | Alias for the interactive `summon open` picker |
+| `summon inspect <project> [--json]` | Read workspace state and current native pane observations |
+| `summon focus <project> [pane]` | Focus the recorded root or named pane by exact native identity |
+| `summon title <project> [pane] [--set <text> \| --reset]` | Read, set or clear a tab/pane title override |
 | `summon briefing` | Morning briefing — overnight commits, dirty files, recommendations |
 | `summon ports` | Detect port assignments across projects, highlight conflicts |
 | `summon snapshot <action>` | Manage context snapshots (save, show, clear) |
@@ -141,7 +146,7 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 | `summon trust <dir>` | Trust a project's `.summon` file (required before first launch in untrusted directories) |
 | `summon completions <shell>` | Generate shell completion script (`zsh`, `bash`, `fish`) |
 
-> **`switch` vs `open`:** Use `summon switch <name>` to focus an existing workspace window for a running project. Use `summon open <name>` (or `summon <name>`) to launch a new workspace. When in doubt: `switch` returns you to work already in progress; `open` starts fresh.
+`summon open` and `summon switch` use the same picker. For a direct target, use `summon focus myapp` to focus an existing recorded pane or `summon myapp` to launch explicitly. Missing or legacy native identity produces recovery guidance; focus does not automatically launch a replacement.
 
 ## CLI Flags
 
@@ -238,6 +243,7 @@ Auto-clean is skipped when:
 - [Workspace Gallery](https://juan294.github.io/summon/gallery/) -- visual showcase of layout examples
 - [Architecture](docs/architecture.md) -- module map, AppleScript generation, layout algorithm
 - [User Manual](docs/user-manual.md) -- full command reference, walkthrough, troubleshooting
+- [Ghostty Workflows](docs/ghostty.md) -- version/capability diagnostics, pane focus, titles, visibility and SSH
 - [Changelog](CHANGELOG.md) -- release history
 - [Publishing](docs/publishing.md) -- npm publish checklist
 
@@ -260,6 +266,7 @@ This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.
 | `SUMMON_WORKSPACE` | Set to `1` inside summon workspaces. Used to detect and warn about nested launches. |
 | `SUMMON_DEBUG` | Set to `1` to enable debug output. Each message is written to stderr with an ISO timestamp and also logged to `~/.config/summon/logs/`. |
 | `SUMMON_NO_CACHE` | Set to `1` to disable the persistent cross-invocation read cache (`~/.config/summon/cache.json`). Reads always hit disk. |
+| `SUMMON_NO_VISIBILITY` | Set to `1` to keep normal status-monitor polling instead of negotiating terminal visibility reports. |
 | `EDITOR` | Editor used by `summon layout edit`. Falls back to `vi` if unset. |
 
 ## Trust Model
