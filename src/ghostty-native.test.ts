@@ -73,11 +73,24 @@ describe("native bridge", () => {
     exec.mockReturnValue(JSON.stringify({ focused: true, terminalId: id }));
     expect(focusTerminal(id, app)).toEqual({ kind: "focused", terminalId: id });
     const script = exec.mock.calls[0]![2].input as string;
-    expect(script).toContain(`id of p as text) is "${id}"`);
+    expect(script).toContain(`set wantedId to "${id}"`);
+    expect(script).toContain("set p to terminal id wantedId");
     expect(script).toContain(
       "id of focused terminal of selected tab of front window",
     );
     expect(script).not.toContain("working directory");
+  });
+  it("batches container UUID enumeration and stops after exact targets are resolved", () => {
+    const focus = generateNativeFocusScript(id);
+    const inventory = generateInventoryScript([id]);
+    for (const script of [focus, inventory]) {
+      expect(script).toContain("set liveIds to id of every terminal of t");
+      expect(script).not.toContain("repeat with p in terminals of t");
+    }
+    expect(focus).toContain("if targetFound then exit repeat");
+    expect(focus).toContain("if liveIds contains wantedId then");
+    expect(inventory).toContain("if remainingCount is 0 then exit repeat");
+    expect(inventory).toContain("set p to terminal id (wantedId as text)");
   });
   it("P2-missing-identity never reports a false successful focus", () => {
     exec.mockReturnValue('{"focused":false}');

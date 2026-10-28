@@ -37,18 +37,21 @@ function validateIds(ids: string[]): void {
 /** Read-only JSON transport; no delimiter framing for native process-controlled strings. */
 export function generateInventoryScript(ids: string[]): string {
   validateIds(ids);
-  const wanted = ids
-    .map((id) => `"${escapeAppleScript(id.toUpperCase())}"`)
+  const wanted = [...new Set(ids.map((id) => id.toUpperCase()))]
+    .map((id) => `"${escapeAppleScript(id)}"`)
     .join(", ");
   return (
     PRELUDE +
     `set wantedIds to {${wanted}}
+set remainingCount to count of wantedIds
 set resultValue to current application's NSMutableArray's array()
 tell application "Ghostty"
   repeat with w in windows
     repeat with t in tabs of w
-      repeat with p in terminals of t
-        if wantedIds contains (id of p as text) then
+      set liveIds to id of every terminal of t
+      repeat with wantedId in wantedIds
+        if liveIds contains (wantedId as text) then
+          set p to terminal id (wantedId as text)
           set entry to current application's NSMutableDictionary's dictionary()
           entry's setObject:(id of p as text) forKey:"terminalId"
           entry's setObject:(pid of p as integer) forKey:"pid"
@@ -59,9 +62,13 @@ tell application "Ghostty"
           entry's setObject:(id of w as text) forKey:"windowId"
           entry's setObject:((id of focused terminal of t as text) is (id of p as text)) forKey:"focused"
           resultValue's addObject:entry
+          set remainingCount to remainingCount - 1
         end if
+        if remainingCount is 0 then exit repeat
       end repeat
+      if remainingCount is 0 then exit repeat
     end repeat
+    if remainingCount is 0 then exit repeat
   end repeat
 end tell
 ` +
@@ -74,13 +81,17 @@ export function generateNativeFocusScript(terminalId: string): string {
   validateIds([terminalId]);
   return (
     PRELUDE +
-    `set resultValue to current application's NSMutableDictionary's dictionary()
+    `set wantedId to "${escapeAppleScript(terminalId.toUpperCase())}"
+set targetFound to false
+set resultValue to current application's NSMutableDictionary's dictionary()
 resultValue's setObject:false forKey:"focused"
 tell application "Ghostty"
   repeat with w in windows
     repeat with t in tabs of w
-      repeat with p in terminals of t
-        if (id of p as text) is "${escapeAppleScript(terminalId.toUpperCase())}" then
+      set liveIds to id of every terminal of t
+      if liveIds contains wantedId then
+          set p to terminal id wantedId
+          set targetFound to true
           activate
           activate window w
           select tab t
@@ -93,9 +104,10 @@ tell application "Ghostty"
             end if
             delay 0.05
           end repeat
-        end if
-      end repeat
+      end if
+      if targetFound then exit repeat
     end repeat
+    if targetFound then exit repeat
   end repeat
 end tell
 ` +
