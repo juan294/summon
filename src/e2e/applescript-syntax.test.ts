@@ -7,6 +7,7 @@ import { generateAppleScript, generateTreeAppleScript } from "../script.js";
 import { planLayout } from "../layout.js";
 import { buildTreePlan, parseTreeDSL } from "../tree.js";
 import { generateInventoryScript, generateNativeFocusScript, generateTitleScript } from "../ghostty-native.js";
+import { probeGhosttyNative } from "../ghostty.js";
 
 /**
  * Probe whether osacompile can resolve Ghostty's scripting dictionary.
@@ -78,6 +79,41 @@ export function decideE2E(mode: Mode, dictionaryAvailable: boolean): "run" | "sk
   return mode === "required" ? "fail" : "skip";
 }
 
+type NativeCapabilities = ReturnType<typeof probeGhosttyNative>;
+type SyntaxVariant = "launch-traditional" | "launch-tree" | "native-inventory" | "native-focus" | "title-read" | "title-set" | "title-reset";
+
+const syntaxRequirements: Record<SyntaxVariant, (keyof NativeCapabilities)[]> = {
+  "launch-traditional": [],
+  "launch-tree": [],
+  "native-inventory": ["nativeIdentity", "foreground"],
+  "native-focus": ["nativeIdentity"],
+  "title-read": ["nativeIdentity", "titleOverride"],
+  "title-set": ["nativeIdentity", "titleOverride"],
+  "title-reset": ["nativeIdentity", "titleOverride"],
+};
+
+export function selectSyntaxVariants(capabilities: NativeCapabilities, mode: Mode): {
+  compile: SyntaxVariant[];
+  omitted: { name: SyntaxVariant; reason: string }[];
+} {
+  const compile: SyntaxVariant[] = [];
+  const omitted: { name: SyntaxVariant; reason: string }[] = [];
+  for (const name of Object.keys(syntaxRequirements) as SyntaxVariant[]) {
+    // Match the native bridge: UUID identity plus the action-specific capability.
+    const missing = syntaxRequirements[name].map((key) => capabilities[key]).filter((capability) => capability.state !== "supported");
+    const unavailable = missing.find((capability) => capability.state === "unavailable");
+    if (unavailable && mode === "required") {
+      throw new Error(`${name}: capability unavailable — ${unavailable.reason}`);
+    }
+    if (missing.length) {
+      omitted.push({ name, reason: missing.map((capability) => `${capability.state}: ${capability.reason}`).join("; ") });
+    } else {
+      compile.push(name);
+    }
+  }
+  return { compile, omitted };
+}
+
 const mode = resolveMode(process.env);
 const dictionaryAvailable = mode === "off" ? false : ghosttyDictionaryAccessible();
 
@@ -108,23 +144,32 @@ describe("AppleScript syntax E2E", () => {
       );
     }
 
-    const id="00000000-0000-4000-8000-000000000001";
-    const scripts = [
-      generateAppleScript(planLayout({ editorPanes:4, shell:"true" }), "/tmp"),
-      generateTreeAppleScript(buildTreePlan(parseTreeDSL("a-b | a_b / A_b")), "/tmp"),
-      generateInventoryScript([id]), generateNativeFocusScript(id),
-      generateTitleScript(id,"tab",{kind:"read"}),
-      generateTitleScript(id,"pane",{kind:"set",text:'title "quoted" 🦊'}),
-      generateTitleScript(id,"tab",{kind:"reset"}),
-    ];
-    const tmpFile = join(tmpdir(), `summon-e2e-${process.pid}.applescript`);
-    try {
-      for (const script of scripts) {
-        writeFileSync(tmpFile, script, "utf8");
+    const id = "00000000-0000-4000-8000-000000000001";
+    const scripts: Record<SyntaxVariant, () => string> = {
+      "launch-traditional": () => generateAppleScript(planLayout({ editorPanes: 4, shell: "true" }), "/tmp"),
+      "launch-tree": () => generateTreeAppleScript(buildTreePlan(parseTreeDSL("a-b | a_b / A_b")), "/tmp"),
+      "native-inventory": () => generateInventoryScript([id]),
+      "native-focus": () => generateNativeFocusScript(id),
+      "title-read": () => generateTitleScript(id, "tab", { kind: "read" }),
+      "title-set": () => generateTitleScript(id, "pane", { kind: "set", text: 'title "quoted" 🦊' }),
+      "title-reset": () => generateTitleScript(id, "tab", { kind: "reset" }),
+    };
+    const selection = selectSyntaxVariants(probeGhosttyNative(), mode);
+    for (const { name, reason } of selection.omitted) {
+      process.stderr.write(`AppleScript syntax ${name}: OMITTED — ${reason}\n`);
+    }
+    for (const name of selection.compile) {
+      const tmpFile = join(tmpdir(), `summon-e2e-${process.pid}-${name}.applescript`);
+      try {
+        writeFileSync(tmpFile, scripts[name](), "utf8");
         execFileSync("osacompile", ["-o", "/dev/null", tmpFile], { stdio: "pipe" });
+        process.stderr.write(`AppleScript syntax ${name}: COMPILED\n`);
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        throw new Error(`AppleScript syntax ${name} failed (${tmpFile}): ${detail}`, { cause: error });
+      } finally {
+        try { unlinkSync(tmpFile); } catch { /* ignore */ }
       }
-    } finally {
-      try { unlinkSync(tmpFile); } catch { /* ignore */ }
     }
   });
 });
@@ -155,5 +200,36 @@ describe("AppleScript E2E mode contract", () => {
   it("runs whenever the dictionary is reachable and the suite is opted in", () => {
     expect(decideE2E("opportunistic", true)).toBe("run");
     expect(decideE2E("required", true)).toBe("run");
+  });
+});
+
+
+describe("AppleScript syntax capability selection", () => {
+  const supported = { state: "supported", reason: "Installed dictionary" } as const;
+  const unsupported = { state: "unsupported", reason: "Requires Ghostty 1.4" } as const;
+  const unavailable = { state: "unavailable", reason: "Unreadable dictionary" } as const;
+
+  it("keeps both launch generators and UUID focus on the 1.3 dictionary", () => {
+    const selection = selectSyntaxVariants({ nativeIdentity: supported, foreground: unsupported, titleOverride: unsupported }, "required");
+    expect(selection.compile).toEqual(["launch-traditional", "launch-tree", "native-focus"]);
+    expect(selection.omitted.map(({ name }) => name)).toEqual(["native-inventory", "title-read", "title-set", "title-reset"]);
+    expect(selection.omitted.every(({ reason }) => reason.includes("unsupported") && reason.includes("Requires Ghostty 1.4"))).toBe(true);
+  });
+
+  it("compiles every variant on the 1.4 dictionary", () => {
+    expect(selectSyntaxVariants({ nativeIdentity: supported, foreground: supported, titleOverride: supported }, "required")).toEqual({
+      compile: ["launch-traditional", "launch-tree", "native-inventory", "native-focus", "title-read", "title-set", "title-reset"], omitted: [],
+    });
+  });
+
+  it("fails required probes when capability evidence is unavailable", () => {
+    expect(() => selectSyntaxVariants({ nativeIdentity: supported, foreground: unavailable, titleOverride: supported }, "required")).toThrow(/native-inventory.*unavailable.*Unreadable dictionary/);
+  });
+
+  it("records unavailable advisory variants and keeps launch checks", () => {
+    const selection = selectSyntaxVariants({ nativeIdentity: unavailable, foreground: supported, titleOverride: supported }, "opportunistic");
+    expect(selection.compile).toEqual(["launch-traditional", "launch-tree"]);
+    expect(selection.omitted).toHaveLength(5);
+    expect(selection.omitted.every(({ reason }) => reason.includes("unavailable"))).toBe(true);
   });
 });

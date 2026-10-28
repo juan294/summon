@@ -45,6 +45,7 @@ const context = (values = {}) => ({
 const output = () => errors.mock.calls.flat().join("\n");
 beforeEach(() => {
   vi.restoreAllMocks();
+  vi.stubEnv("XDG_CONFIG_HOME", join(home, ".config"));
   rmSync(join(home, ".config"), { recursive: true, force: true });
   rmSync(join(home, "Library"), { recursive: true, force: true });
   mkdirSync(join(home, ".config/ghostty"), { recursive: true });
@@ -191,7 +192,7 @@ describe("doctor effective diagnostics", () => {
     await expect(handleDoctorCommand(context({ fix: true }))).rejects.toThrow(
       "exit:2",
     );
-    vi.unstubAllEnvs();
+    vi.stubEnv("XDG_CONFIG_HOME", join(home, ".config"));
     exec.mockImplementation((binary: string, args: string[]) =>
       binary === "/bin/ps"
         ? `${app}/Contents/MacOS/ghostty --config-file=other`

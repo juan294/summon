@@ -31,6 +31,7 @@ vi.mock("node:fs", async (original) => {
       return actual.renameSync(from, to);
     },
     existsSync: (file: import("node:fs").PathLike) =>
+      String(file) === "/Applications/Ghostty.app" ||
       String(file) === "/Applications/Ghostty.app/Contents/MacOS/ghostty" ||
       actual.existsSync(file),
     readFileSync: (...args: Parameters<typeof actual.readFileSync>) =>
