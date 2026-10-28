@@ -81,6 +81,8 @@ async function buildHelp(): Promise<string> {
     "",
     h("LAUNCH"),
     wrap(`  ${cmd("summon <target>")}             Launch workspace (project name, path, or '.')`),
+    wrap(`  ${cmd("summon focus <project> [pane]")}  Focus an exact existing pane`),
+    wrap(`  ${cmd("summon inspect <project>")}       Inspect native panes (--json)`),
     wrap(`  ${cmd("summon open")}                 Select and launch a registered project ${note("(alias: switch)")}`),
     "",
     h("SESSIONS"),
@@ -235,6 +237,16 @@ Setup (add to your shell config):
   bash:  eval "$(summon completions bash)"
   fish:  eval (summon completions fish | psub)`,
 
+  inspect: `Usage: summon inspect <project> [--json]
+
+Read stored workspace state and exact native pane observations without activating Ghostty.
+Legacy records require an explicit relaunch to capture native identity. Unavailable targets exit 2.`,
+
+  focus: `Usage: summon focus <project> [pane]
+
+Focus the recorded root or a named native pane by exact UUID.
+Use summon inspect <project> to list valid names. Closed or legacy targets exit 2; no automatic relaunch.`,
+
   status: `Usage: summon status [--once]
 
 Show workspace status across all registered projects.
@@ -243,7 +255,7 @@ Launches an interactive TUI dashboard with live refresh.
 Options:
   --once  Print status table once and exit (non-interactive)
 
-In TUI mode: ↑↓/jk navigate, Enter opens project, r refreshes, q quits.
+In TUI mode: ↑↓/jk navigate, Enter focuses active projects or launches stopped projects, r refreshes, q quits.
 Automatically uses --once when stdout is not a TTY (e.g., piped output).`,
 
   open: `Usage: summon open

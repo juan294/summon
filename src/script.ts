@@ -4,6 +4,8 @@ import type { TreeLayoutPlan, LayoutNode } from "./tree.js";
 import { firstLeaf, walkLeaves } from "./tree.js";
 import { GHOSTTY_APP_NAME, SUMMON_WORKSPACE_ENV } from "./utils.js";
 import { escapeAppleScript, shellQuote, shellDoubleQuote } from "./shell-escape.js";
+import { traditionalInventory, treeInventory } from "./pane-inventory.js";
+import type { PaneDescriptor } from "./pane-inventory.js";
 
 // --- AppleScript timing constants (empirically tuned for Ghostty responsiveness) ---
 
@@ -296,8 +298,18 @@ function formatTitle(role: string, cmd: string | null | undefined): string {
 
 // --- Internal helpers for script generation ---
 
-function paneVar(name: string): string {
-  return `pane_${name.replace(/-/g, "_")}`;
+function paneVar(name: string, inventory: PaneDescriptor[]): string {
+  return inventory.find(p => p.name === name)!.variable;
+}
+
+function emitNativeCapture(sb: ScriptBuilder, inventory: PaneDescriptor[]): void {
+  sb.add(1, "try");
+  sb.add(2, 'set summonCapture to "SUMMON_NATIVE_V1"');
+  for (const pane of inventory) sb.add(2, `set summonCapture to summonCapture & linefeed & (id of ${pane.variable} as text)`);
+  sb.add(2, "return summonCapture");
+  sb.add(1, "on error");
+  sb.add(2, 'return "SUMMON_NATIVE_UNAVAILABLE"');
+  sb.add(1, "end try");
 }
 
 /**
@@ -507,6 +519,7 @@ function emitTreeTraversal(
   rootPaneVar: string,
   plan: TreeLayoutPlan,
   targetDir: string,
+  inventory: PaneDescriptor[],
 ): void {
   let firstRightSplitDone = false;
 
@@ -514,7 +527,7 @@ function emitTreeTraversal(
     if (node.type === "pane") return;
 
     const secondLeaf = firstLeaf(node.second);
-    const secondLeafVar = paneVar(secondLeaf.name);
+    const secondLeafVar = paneVar(secondLeaf.name, inventory);
 
     if (secondLeaf.command) {
       sb.setInitialInput(secondLeaf.command);
@@ -547,14 +560,8 @@ function collectLeavesWithCommands(node: LayoutNode): Array<[string, string]> {
 
 // --- Public API ---
 
-export function generateFocusScript(tabTitle: string): string {
-  const lines: string[] = [];
-  lines.push(`-- Focus workspace: ${escapeAppleScript(tabTitle)}`);
-  lines.push(`tell application "${GHOSTTY_APP_NAME}"`);
-  lines.push("    activate");
-  lines.push("end tell");
-  return lines.join("\n");
-}
+/** Exact UUID focus script; no title-based or activate-only fallback. */
+export { generateNativeFocusScript as generateFocusScript } from "./ghostty-native.js";
 
 /**
  * Generate AppleScript for a traditional (LayoutPlan) workspace.
@@ -623,6 +630,7 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, starshi
   emitTitles(sb, "paneRoot", targetDir, titles, projectName);
   sb.add(1, "focus paneRoot");
   emitWindowState(sb, "paneRoot", plan);
+  emitNativeCapture(sb, traditionalInventory(plan));
 
   sb.add(0, "end tell");
   return lines.join("\n");
@@ -641,8 +649,9 @@ export function generateTreeAppleScript(
   const sb = buildScriptBuilder(lines);
 
   const allEnvVars = buildEnvVarsList(starshipConfigPath, envVars, projectName);
+  const inventory = treeInventory(plan);
   const rootLeaf = firstLeaf(plan.tree);
-  const rootPaneVar = paneVar(rootLeaf.name);
+  const rootPaneVar = paneVar(rootLeaf.name, inventory);
 
   emitSurfaceConfig(sb, targetDir, plan.fontSize, allEnvVars);
   emitClosePrelude(sb, plan.cleanRestoredPanes, plan.newWindow);
@@ -655,7 +664,7 @@ export function generateTreeAppleScript(
   }
   sb.blank();
 
-  emitTreeTraversal(sb, plan.tree, rootPaneVar, plan, targetDir);
+  emitTreeTraversal(sb, plan.tree, rootPaneVar, plan, targetDir, inventory);
   sb.blank();
 
   const rootCwd = rootLeaf.cwd ? resolve(targetDir, rootLeaf.cwd) : targetDir;
@@ -674,12 +683,13 @@ export function generateTreeAppleScript(
   sb.blank();
 
   for (const [leafName, cmd] of collectLeavesWithCommands(plan.tree)) {
-    titles.push([paneVar(leafName), formatTitle(leafName, cmd)]);
+    titles.push([paneVar(leafName, inventory), formatTitle(leafName, cmd)]);
   }
   emitTitles(sb, rootPaneVar, targetDir, titles, projectName);
 
   sb.add(1, `focus ${rootPaneVar}`);
   emitWindowState(sb, rootPaneVar, plan);
+  emitNativeCapture(sb, inventory);
 
   sb.add(0, "end tell");
   return lines.join("\n");

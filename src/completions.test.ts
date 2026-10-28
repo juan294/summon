@@ -530,3 +530,21 @@ describe("FE-S2 (#444) — declarative spec: all shells derive from same source"
     }
   });
 });
+
+describe("P2 native command completion behavior",()=>{
+ test("bash completes registered projects for inspect/focus and JSON flag",async()=>{
+  const {spawnSync}=await import("node:child_process");
+  const {mkdtempSync,mkdirSync,writeFileSync,rmSync}=await import("node:fs");
+  const {tmpdir}=await import("node:os");const {join}=await import("node:path");
+  const home=mkdtempSync(join(tmpdir(),"summon-completion-"));
+  mkdirSync(join(home,".config/summon"),{recursive:true});writeFileSync(join(home,".config/summon/projects"),"demo=/tmp/demo\n");
+  try {
+   for(const command of ["inspect","focus"]){
+    const script=generateBashCompletion()+`\n_init_completion(){ words=("\${COMP_WORDS[@]}"); cword=$COMP_CWORD; cur=\${COMP_WORDS[COMP_CWORD]}; prev=\${COMP_WORDS[COMP_CWORD-1]}; }\nsummon(){ :; }\nCOMP_WORDS=(summon ${command} de); COMP_CWORD=2; _summon; printf '%s\\n' "\${COMPREPLY[@]}"`;
+    const result=spawnSync("bash",["-c",script],{encoding:"utf8",env:{...process.env,HOME:home}});
+    expect(result.status).toBe(0);expect(result.stdout.trim()).toBe("demo");
+   }
+   expect(generateZshCompletion()).toContain("--json");expect(generateFishCompletion()).toContain("-l json");
+  } finally {rmSync(home,{recursive:true,force:true});}
+ });
+});

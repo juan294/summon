@@ -28,6 +28,8 @@ const registry: Record<string, () => Promise<CommandHandler>> = {
   config:      () => import("./commands/config.js").then(m => m.handleConfigCommand),
   setup:       () => import("./commands/setup.js").then(m => m.handleSetupCommand),
   completions: () => import("./commands/setup.js").then(m => m.handleCompletionsCommand),
+  inspect:     () => import("./commands/workspace.js").then(m => m.handleInspectCommand),
+  focus:       () => import("./commands/workspace.js").then(m => m.handleFocusCommand),
   doctor:      () => import("./commands/doctor.js").then(m => m.handleDoctorCommand),
   keybindings: () => import("./commands/setup.js").then(m => m.handleKeybindingsCommand),
   freeze:      () => import("./commands/config.js").then(m => m.handleFreezeCommand),

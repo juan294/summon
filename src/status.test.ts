@@ -664,3 +664,20 @@ describe("readAllStatuses TTL cache (PE-M1 #607, PE-L3 #570)", () => {
     expect(second).toHaveLength(2);
   });
 });
+
+describe("P2 optional native schema",()=>{
+ const id="00000000-0000-4000-8000-000000000001";
+ it("roundtrips native identity while root-shell liveness remains unchanged",()=>{
+  writeStatus(makeStatus({native:{rootTerminalId:id,panes:[{name:"editor",terminalId:id}]}}));
+  const result=readStatus("testapp");
+  expect(result?.native?.rootTerminalId).toBe(id);
+  expect(result?.state).toBe("stopped");
+  expect(existsSync(join(TEST_STATUS_DIR,"testapp.active"))).toBe(false);
+ });
+ it("discards malformed optional data with a bounded warning and retains base status",()=>{
+  const stderr=vi.spyOn(process.stderr,"write").mockImplementation(()=>true);
+  const parsed=parseWorkspaceStatus({...makeStatus(),native:{rootTerminalId:"invalid",panes:[]}});
+  expect(parsed?.project).toBe("testapp");expect(parsed?.native).toBeUndefined();
+  expect(stderr).toHaveBeenCalledWith(expect.stringContaining("native identity"));stderr.mockRestore();
+ });
+});

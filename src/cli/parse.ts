@@ -35,6 +35,7 @@ export type ParsedValues = {
   "dry-run"?: boolean;
   all?: boolean;
   verbose?: boolean;
+  json?: boolean;
 };
 
 export type ParsedCli = {
@@ -76,6 +77,7 @@ const parseOpts = {
     "dry-run": { type: "boolean", short: "n" },
     all: { type: "boolean" },
     verbose: { type: "boolean" },
+    json: { type: "boolean" },
   },
 } as const;
 

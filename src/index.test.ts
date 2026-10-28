@@ -2022,3 +2022,16 @@ describe("CLI integration", () => {
     });
   });
 });
+
+describe("P2 explicit native commands",()=>{
+ it("inspect missing record returns structured unavailable exit2",()=>{
+  const result=run("inspect","never-launched","--json");expect(result.status).toBe(2);
+  expect(JSON.parse(result.stdout)).toMatchObject({project:"never-launched",availability:"unavailable",state:"unknown",reason:expect.stringContaining("relaunch")});
+ });
+ it("focus legacy/missing record explains recovery, never launches",()=>{
+  const result=run("focus","never-launched");expect(result.status).toBe(2);expect(result.stderr).toContain("identity");expect(result.stdout).not.toContain("Summoning");
+ });
+ it("documents inspect/focus on lazy help paths",()=>{
+  for(const cmd of ["inspect","focus"]){const result=run(cmd,"--help");expect(result.status).toBe(0);expect(result.stdout).toContain(`Usage: summon ${cmd} <project>`);}
+ });
+});

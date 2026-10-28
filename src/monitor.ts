@@ -474,11 +474,15 @@ export async function runMonitor(): Promise<void> {
             // Print feedback BEFORE exiting alt-screen so user sees "Opening..." immediately
             process.stdout.write(`Opening ${selected.name}...\n`);
             cleanup();
-            import("./launcher.js").then(async ({ launch }) => {
+            import("./launcher.js").then(async ({ launch, focusWorkspace }) => {
               let launchError: Error | null = null;
-              await launch(selected.directory).catch((err: Error) => {
-                launchError = err;
-              });
+              const isActive = selected.state === "active" || selected.state === "active-long";
+              if (isActive) {
+                const result = focusWorkspace(selected.name);
+                if (result.kind !== "focused") launchError = new Error(result.reason);
+              } else {
+                await launch(selected.directory).catch((err: Error) => { launchError = err; });
+              }
               if (launchError !== null) {
                 // Re-enter TUI and show the error in-place so the user can continue
                 process.stdout.write(ENTER_ALT_SCREEN + HIDE_CURSOR);
@@ -488,7 +492,7 @@ export async function runMonitor(): Promise<void> {
                 process.stdin.resume();
                 const errDisplay = [
                   "",
-                  `  ${bold("Launch failed:")}`,
+                  `  ${bold(isActive ? "Focus failed:" : "Launch failed:")}`,
                   `  ${red((launchError as Error).message)}`,
                   "",
                   `  ${dim("Press any key to continue...")}`,

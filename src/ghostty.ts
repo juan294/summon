@@ -137,6 +137,48 @@ function effectiveConfig(app: string): EffectiveConfig {
   return merged;
 }
 
+/** Cheap native-only dictionary read; explicit actions never scan effective configuration. */
+export function probeGhosttyNative(app: string | null = discoverGhostty()): Pick<GhosttyDiagnostics["capabilities"], "nativeIdentity" | "foreground" | "titleOverride"> {
+  const unavailable = capability("unavailable", "Native dictionary unavailable; retry summon doctor.");
+  const result = { nativeIdentity: unavailable, foreground: unavailable, titleOverride: unavailable };
+  if (!app) return result;
+  let dictionary = "";
+  try {
+    dictionary = readFileSync(
+      join(app, "Contents/Resources/Ghostty.sdef"),
+      "utf-8",
+    );
+  } catch {
+    /* unavailable */
+  }
+  const terminal = /<class\s+name="terminal"[\s\S]*?<\/class>/.exec(
+    dictionary,
+  )?.[0];
+  const tab = /<class\s+name="tab"[\s\S]*?<\/class>/.exec(dictionary)?.[0];
+  if (terminal) {
+    const check = (supported: boolean): Capability =>
+      capability(
+        supported ? "supported" : "unsupported",
+        supported
+          ? "Installed scripting dictionary."
+          : "Requires a newer Ghostty scripting dictionary; upgrade to 1.4.0 or later.",
+      );
+    result.nativeIdentity = check(
+      /<property\s+name="id"/.test(terminal),
+    );
+    result.foreground = check(
+      /<property\s+name="pid"/.test(terminal) &&
+        /<property\s+name="tty"/.test(terminal),
+    );
+    result.titleOverride = check(
+      /<property\s+name="name override"[^>]*access="rw"/.test(terminal) &&
+        !!tab &&
+        /<property\s+name="name override"[^>]*access="rw"/.test(tab),
+    );
+  }
+  return result;
+}
+
 /** Optional app is for native bundle fixtures, never sourced from project configuration. */
 export function probeGhostty(
   app: string | null = discoverGhostty(),
@@ -160,40 +202,7 @@ export function probeGhostty(
   if (!app) return result;
   const version = probe(app, ["--version"], 2000);
   result.version = version === null ? null : parseVersion(version);
-  let dictionary = "";
-  try {
-    dictionary = readFileSync(
-      join(app, "Contents/Resources/Ghostty.sdef"),
-      "utf-8",
-    );
-  } catch {
-    /* unavailable */
-  }
-  const terminal = /<class\s+name="terminal"[\s\S]*?<\/class>/.exec(
-    dictionary,
-  )?.[0];
-  const tab = /<class\s+name="tab"[\s\S]*?<\/class>/.exec(dictionary)?.[0];
-  if (terminal) {
-    const check = (supported: boolean): Capability =>
-      capability(
-        supported ? "supported" : "unsupported",
-        supported
-          ? "Installed scripting dictionary."
-          : "Requires a newer Ghostty scripting dictionary; upgrade to 1.4.0 or later.",
-      );
-    result.capabilities.nativeIdentity = check(
-      /<property\s+name="id"/.test(terminal),
-    );
-    result.capabilities.foreground = check(
-      /<property\s+name="pid"/.test(terminal) &&
-        /<property\s+name="tty"/.test(terminal),
-    );
-    result.capabilities.titleOverride = check(
-      /<property\s+name="name override"[^>]*access="rw"/.test(terminal) &&
-        !!tab &&
-        /<property\s+name="name override"[^>]*access="rw"/.test(tab),
-    );
-  }
+  Object.assign(result.capabilities, probeGhosttyNative(app));
   const actions = probe(app, ["+list-actions"]);
   if (actions?.trim())
     result.capabilities.detachTab = capability(

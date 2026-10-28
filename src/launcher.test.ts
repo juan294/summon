@@ -24,9 +24,8 @@ vi.mock("./config.js", () => ({
 }));
 
 // Mock status module (write is a no-op in tests)
-vi.mock("./status.js", () => ({
-  writeStatus: vi.fn(),
-}));
+const mockReadStatus = vi.fn();
+vi.mock("./status.js", () => ({ writeStatus: vi.fn(), discardStatusRecord: vi.fn(()=>true), readStatus: (...args: unknown[]) => mockReadStatus(...args) }));
 
 // Mock starship
 const mockIsStarshipInstalled = vi.fn(() => false);
@@ -43,6 +42,7 @@ vi.mock("./starship.js", () => ({
 vi.mock("node:fs", () => ({
   existsSync: vi.fn(() => true),
   realpathSync: vi.fn((path: string) => path),
+  readFileSync: vi.fn((path: string) => { if(path.endsWith("Ghostty.sdef")) return '<class name="terminal"><property name="id"/><property name="pid"/><property name="tty"/></class>'; throw new Error("fixture absent"); }),
 }));
 
 // Mock readline for prompt tests
@@ -102,6 +102,7 @@ let savedSummonWorkspace: string | undefined;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockReadStatus.mockReturnValue(null);
   // Prevent warnIfNested from activating when tests run inside a summon workspace
   savedSummonWorkspace = process.env.SUMMON_WORKSPACE;
   delete process.env.SUMMON_WORKSPACE;
@@ -238,23 +239,17 @@ describe("script execution", () => {
 });
 
 describe("focusWorkspace", () => {
-  it("returns true when osascript succeeds", () => {
-    mockExecFileSync.mockReturnValue("");
-
-    expect(focusWorkspace("api")).toBe(true);
-    expect(mockExecFileSync).toHaveBeenCalledWith(
-      "osascript",
-      [],
-      expect.objectContaining({ encoding: "utf-8" }),
-    );
+  const id="00000000-0000-4000-8000-000000000001";
+  it("returns focused only for confirmed UUID readback", () => {
+    mockReadStatus.mockReturnValue({native:{rootTerminalId:id,panes:[{name:"editor",terminalId:id}]}});
+    mockExecFileSync.mockReturnValue(JSON.stringify({focused:true,terminalId:id}));
+    expect(focusWorkspace("api")).toEqual({kind:"focused",terminalId:id});
   });
-
-  it("returns false when osascript fails", () => {
-    mockExecFileSync.mockImplementation(() => {
-      throw new Error("osascript failed");
-    });
-
-    expect(focusWorkspace("api")).toBe(false);
+  it("returns unavailable when native identity or permission fails", () => {
+    expect(focusWorkspace("api").kind).toBe("unavailable");
+    mockReadStatus.mockReturnValue({native:{rootTerminalId:id,panes:[{name:"editor",terminalId:id}]}});
+    mockExecFileSync.mockImplementation(()=>{throw new Error("-1743");});
+    expect(focusWorkspace("api")).toMatchObject({kind:"unavailable",code:"permission"});
   });
 });
 
@@ -4394,5 +4389,26 @@ describe("UX-L2 (#519): single-launch spinner", () => {
       stdoutSpy.mockRestore();
       errorSpy.mockRestore();
     }
+  });
+});
+
+
+describe("P2 capture failure isolation",()=>{
+  const id="00000000-0000-4000-8000-000000000001";
+  it.each(["", "SUMMON_NATIVE_UNAVAILABLE", "SUMMON_NATIVE_V1\ninvalid", "x".repeat(65537)])("launch stays successful for invalid capture",async output=>{
+    const status=await import("./status.js");
+    mockExecFileSync.mockImplementation((bin:string,args:string[],opts?:{input?:string})=> bin === "/usr/bin/which" ? "/usr/bin/stub\n" : opts?.input ? output : "");
+    await expect(launch("/tmp/workspace",{layout:"minimal"})).resolves.toBeUndefined();
+    expect(status.writeStatus).toHaveBeenCalledWith(expect.objectContaining({project:"workspace",version:1}));
+    expect(vi.mocked(status.writeStatus).mock.calls[0]?.[0].native).toBeUndefined();
+    expect(mockExecFileSync.mock.calls.filter(c=>String(c[2]?.input).includes("close front window"))).toHaveLength(0);
+  });
+  it("maps successful capture and warns without throwing on status write failure",async()=>{
+    const status=await import("./status.js"); const err=vi.spyOn(process.stderr,"write").mockImplementation(()=>true);
+    mockExecFileSync.mockImplementation((bin:string,args:string[],opts?:{input?:string})=>bin === "/usr/bin/which" ? "/usr/bin/stub\n" : opts?.input ? `SUMMON_NATIVE_V1\n${id}\n00000000-0000-4000-8000-000000000002\n` : "");
+    vi.mocked(status.writeStatus).mockImplementationOnce(()=>{throw new Error("disk");});
+    await expect(launch("/tmp/workspace",{layout:"minimal"})).resolves.toBeUndefined();
+    expect(status.writeStatus).toHaveBeenCalledWith(expect.objectContaining({native:expect.objectContaining({rootTerminalId:id})}));
+    expect(err).toHaveBeenCalledWith(expect.stringContaining("status could not be saved"));err.mockRestore();
   });
 });
