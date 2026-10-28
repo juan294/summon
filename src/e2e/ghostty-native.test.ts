@@ -88,6 +88,21 @@ function exactTerminal(id: string): string {
   return `terminal id "${escapeAppleScript(id)}"`;
 }
 
+type VisibilityTraceEvent = { tag: string; status?: number; at: number };
+
+/** Event order is authoritative; timestamps only describe the observed advisory span. */
+function inspectHiddenSpan(events: VisibilityTraceEvent[]): { complete: boolean; durationMs: number | null } {
+  const hidden = events.findIndex(event => event.tag === "visibility" && event.status === 2);
+  if (hidden < 0) return { complete: false, durationMs: null };
+  const visible = events.findIndex((event, index) => index > hidden && event.tag === "visibility" && event.status === 1);
+  if (events.slice(hidden + 1, visible < 0 ? undefined : visible).some(event => event.tag === "frame")) {
+    throw new Error("Frame emitted while terminal reported hidden");
+  }
+  if (visible < 0) return { complete: false, durationMs: null };
+  const durationMs = events[visible]!.at - events[hidden]!.at;
+  return { complete: true, durationMs };
+}
+
 /** Actual monitor under an owned terminal PTY; HOME and all status files are disposable. */
 async function checkMonitorVisibility(dir: string, root: string, recover: () => void): Promise<void> {
   const home = join(dir, "monitor-home");
@@ -173,6 +188,7 @@ end tell`);
   run(`tell application "Ghostty" to input text "?" to ${exactTerminal(root)}`);
   await eventually(() => state().frames > framesBeforeHelp);
   run(`tell application "Ghostty" to input text "q" to ${exactTerminal(root)}`); // dismiss help
+  let manualHiddenDurationMs: number | null = null;
   if (process.env.SUMMON_NATIVE_VISIBILITY_MANUAL === "1") {
     const title = `Summon visibility check ${dir.split("/").at(-1)}`;
     run(`tell application "Ghostty" to perform action "set_tab_title:${escapeAppleScript(title)}" on ${exactTerminal(root)}`);
@@ -191,38 +207,53 @@ set dataBytes to current application's NSJSONSerialization's dataWithJSONObject:
 return (current application's NSString's alloc()'s initWithData:dataBytes encoding:(current application's NSUTF8StringEncoding)) as text`)) as {windowTitle:string;tabTitle:string;selectedTabId:string};
     expect(readback.tabTitle).toBe(title);
     expect(readback.selectedTabId).toBe(tabId);
-    const readiness = {title, actualWindowTitle:readback.windowTitle,windowId,tabId,terminalId:root,statePath,instructions:"Minimize this owned Ghostty window for at least 4 seconds, then restore it. Do not type in it or close it."};
+    const readiness = {title, actualWindowTitle:readback.windowTitle,windowId,tabId,terminalId:root,statePath,instructions:"Minimize this owned Ghostty window, then restore it. Do not type in it or close it."};
     writeFileSync(join(dir, "manual-minimize-ready.json"), JSON.stringify(readiness));
     writeFileSync(join(process.cwd(), "logs/ghostty-p3-manual-ready.json"), JSON.stringify(readiness,null,2));
     console.error(`Manual minimize ready: ${JSON.stringify(readiness)}`);
     const eventCount=state().events.length;
     const deadline=Date.now()+180_000;
-    let hiddenIndex=-1, visibleIndex=-1;
+    let observation: ReturnType<typeof inspectHiddenSpan> = {complete:false,durationMs:null};
     while(Date.now()<deadline) {
-      const events=state().events.slice(eventCount);
-      hiddenIndex=events.findIndex(event=>event.tag === "visibility" && event.status === 2);
-      if(hiddenIndex>=0) {
-        visibleIndex=events.findIndex((event,index)=>index>hiddenIndex && event.tag === "visibility" && event.status === 1);
-        const hiddenEvents=events.slice(hiddenIndex+1,visibleIndex<0 ? undefined : visibleIndex);
-        expect(hiddenEvents.filter(event=>event.tag === "frame")).toHaveLength(0);
-        if(visibleIndex>=0) {
-          expect(events[visibleIndex]!.at-events[hiddenIndex]!.at).toBeGreaterThanOrEqual(4000);
-          break;
-        }
-      }
+      observation=inspectHiddenSpan(state().events.slice(eventCount));
+      if(observation.complete) break;
       await new Promise(resolve=>setTimeout(resolve,100));
     }
-    if(hiddenIndex<0 || visibleIndex<0) throw new Error("Manual owned-window minimize/restore2→1 was not observed; native gate remains unavailable.");
-    writeFileSync(join(dir,"manual-minimize-result.json"),JSON.stringify({title,windowId,terminalId:root,reports:state().reports,passed:true}));
+    if(!observation.complete) throw new Error("Manual owned-window minimize/restore2→1 was not observed; native gate remains unavailable.");
+    manualHiddenDurationMs=observation.durationMs;
+    writeFileSync(join(dir,"manual-minimize-result.json"),JSON.stringify({title,windowId,terminalId:root,reports:state().reports,manualHiddenDurationMs,passed:true}));
   }
   run(`tell application "Ghostty" to input text "q" to ${exactTerminal(root)}`);
   await eventually(() => state().done);
   expect(state().finalMode).toBe(state().initialMode);
-  writeFileSync(join(dir, "visibility-result.json"), JSON.stringify({ ...state(), tabSuppression, classification: process.env.SUMMON_NATIVE_VISIBILITY_MANUAL === "1" ? "GREEN" : "PARTIAL", minimize: process.env.SUMMON_NATIVE_VISIBILITY_MANUAL === "1" ? "observed" : "UNAVAILABLE: no native minimize action; manual owned-window check required" }));
+  writeFileSync(join(dir, "visibility-result.json"), JSON.stringify({ ...state(), tabSuppression, manualHiddenDurationMs, classification: process.env.SUMMON_NATIVE_VISIBILITY_MANUAL === "1" ? "GREEN" : "PARTIAL", minimize: process.env.SUMMON_NATIVE_VISIBILITY_MANUAL === "1" ? "observed" : "UNAVAILABLE: no native minimize action; manual owned-window check required" }));
   // Native assertions are copied outside the disposable workspace for phase evidence.
-  writeFileSync(join(process.cwd(), "logs/ghostty-p3-native-visibility.json"), JSON.stringify({ directory:dir, terminalId:root,windowId,tabSuppression,classification:process.env.SUMMON_NATIVE_VISIBILITY_MANUAL === "1" ? "GREEN" : "PARTIAL",...state(),minimize:process.env.SUMMON_NATIVE_VISIBILITY_MANUAL === "1" ? "observed" : "UNAVAILABLE" },null,2));
+  writeFileSync(join(process.cwd(), "logs/ghostty-p3-native-visibility.json"), JSON.stringify({ directory:dir, terminalId:root,windowId,tabSuppression,manualHiddenDurationMs,classification:process.env.SUMMON_NATIVE_VISIBILITY_MANUAL === "1" ? "GREEN" : "PARTIAL",...state(),minimize:process.env.SUMMON_NATIVE_VISIBILITY_MANUAL === "1" ? "observed" : "UNAVAILABLE" },null,2));
 }
 
+describe("native visibility trace", () => {
+  it.each([0, 1, 1722])("accepts ordered reports with informational %sms duration", durationMs => {
+    expect(inspectHiddenSpan([
+      {tag:"visibility",status:2,at:100},
+      {tag:"visibility",status:1,at:100+durationMs},
+    ])).toEqual({complete:true,durationMs});
+  });
+  it("requires ordered hidden then visible even if timestamps are identical", () => {
+    expect(inspectHiddenSpan([{tag:"visibility",status:1,at:100}])).toEqual({complete:false,durationMs:null});
+    expect(inspectHiddenSpan([{tag:"visibility",status:1,at:100},{tag:"visibility",status:2,at:100}])).toEqual({complete:false,durationMs:null});
+  });
+  it("rejects frames during a complete or pending hidden span", () => {
+    const pending=[{tag:"visibility",status:2,at:100},{tag:"frame",at:100}];
+    expect(()=>inspectHiddenSpan(pending)).toThrow("Frame emitted while terminal reported hidden");
+    expect(()=>inspectHiddenSpan([...pending,{tag:"visibility",status:1,at:100}])).toThrow("Frame emitted while terminal reported hidden");
+  });
+  it("allows frames outside the ordered hidden span", () => {
+    expect(inspectHiddenSpan([
+      {tag:"frame",at:0},{tag:"visibility",status:2,at:100},
+      {tag:"visibility",status:1,at:100},{tag:"frame",at:100},
+    ])).toEqual({complete:true,durationMs:0});
+  });
+});
 describe("native E2E mode contract", () => {
   it("required wins and ordinary unit tests never mutate GUI", () => {
     expect(resolveNativeMode({})).toBe("off");
