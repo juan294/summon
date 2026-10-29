@@ -4,6 +4,7 @@ import { isPresetName } from "./layout.js";
 import { CONFIG_DIR, LAYOUTS_DIR } from "./paths.js";
 import { PROJECT_NAME_RE as STRICT_PROJECT_NAME_RE } from "./validation.js";
 import { atomicWrite } from "./utils.js";
+import { withFileLock } from "./file-lock.js";
 import { getCachedKV, putCachedKV, invalidateCachedKV, resetPersistentCache } from "./cache.js";
 
 // Re-export path constants for backward compatibility
@@ -20,8 +21,11 @@ let configEnsured = false;
 function ensureConfig(): void {
   if (configEnsured) return;
   mkdirSync(CONFIG_DIR, { recursive: true, mode: 0o700 });
-  if (!existsSync(PROJECTS_FILE)) writeFileSync(PROJECTS_FILE, "", { mode: 0o600 });
-  if (!existsSync(CONFIG_FILE)) writeFileSync(CONFIG_FILE, "", { mode: 0o600 });
+  for (const file of [PROJECTS_FILE, CONFIG_FILE]) {
+    try { writeFileSync(file, "", { mode: 0o600, flag: "wx" }); } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    }
+  }
   configEnsured = true;
 }
 
@@ -271,6 +275,17 @@ function writeKV(file: string, map: Map<string, string>): void {
   commentStore.set(file, parseCommentsFromString(content));
 }
 
+/** Read authoritative bytes and comments only after acquiring the per-file lock. */
+function mutateKV<T>(file: string, mutate: (map: Map<string, string>) => { result: T; changed: boolean }): T {
+  ensureConfig();
+  return withFileLock(file, () => {
+    const map = readKVFile(file);
+    const { result, changed } = mutate(map);
+    if (changed) writeKV(file, map);
+    return result;
+  });
+}
+
 // --- Projects ---
 
 export function addProject(name: string, path: string): void {
@@ -278,16 +293,17 @@ export function addProject(name: string, path: string): void {
     throw new Error(`Invalid project name: "${name}". Names must start with a letter, digit, or underscore, contain only letters, digits, and "_.-", and be 1-64 chars.`);
   }
   const resolvedPath = resolve(path);
-  const projects = readKV(PROJECTS_FILE);
-  projects.set(name, resolvedPath);
-  writeKV(PROJECTS_FILE, projects);
+  mutateKV(PROJECTS_FILE, (projects) => {
+    projects.set(name, resolvedPath);
+    return { result: undefined, changed: true };
+  });
 }
 
 export function removeProject(name: string): boolean {
-  const projects = readKV(PROJECTS_FILE);
-  const existed = projects.delete(name);
-  if (existed) writeKV(PROJECTS_FILE, projects);
-  return existed;
+  return mutateKV(PROJECTS_FILE, (projects) => {
+    const existed = projects.delete(name);
+    return { result: existed, changed: existed };
+  });
 }
 
 export function getProject(name: string): string | undefined {
@@ -304,16 +320,17 @@ export function setConfig(key: string, value: string): void {
   if (key.includes("=") || key.includes("\n") || key.includes("\r") || key.startsWith("#")) {
     throw new Error(`Invalid config key: "${key}". Keys must not contain '=', newlines, or start with '#'.`);
   }
-  const config = readKV(CONFIG_FILE);
-  config.set(key, value);
-  writeKV(CONFIG_FILE, config);
+  mutateKV(CONFIG_FILE, (config) => {
+    config.set(key, value);
+    return { result: undefined, changed: true };
+  });
 }
 
 export function removeConfig(key: string): boolean {
-  const config = readKV(CONFIG_FILE);
-  const existed = config.delete(key);
-  if (existed) writeKV(CONFIG_FILE, config);
-  return existed;
+  return mutateKV(CONFIG_FILE, (config) => {
+    const existed = config.delete(key);
+    return { result: existed, changed: existed };
+  });
 }
 
 export function listConfig(): Map<string, string> {

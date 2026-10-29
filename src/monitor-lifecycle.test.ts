@@ -137,6 +137,109 @@ function negotiate(mode = 2, visibility = 1) {
 const frames = () => writes.filter((value) => value.includes("\x1b[H"));
 
 describe("real monitor visibility lifecycle", () => {
+  it.each([
+    ["SIGINT", 130, 1],
+    ["SIGINT", 130, 2],
+    ["SIGTERM", 143, 1],
+    ["SIGTERM", 143, 2],
+  ] as const)(
+    "%s restores terminal state once and exits %s from original visibility mode %s",
+    async (signal, exitCode, mode) => {
+      const originalListeners = process.listeners(signal);
+      const originalSignalCounts = ["SIGINT", "SIGTERM"].map(
+        (name) => process.listenerCount(name),
+      );
+      const exit = vi.spyOn(process, "exit").mockImplementation((() => {
+        throw new Error("intercepted signal exit");
+      }) as never);
+      start();
+      negotiate(mode);
+      const handler = process.listeners(signal).find(
+        (listener) => !originalListeners.includes(listener),
+      );
+      expect(handler).toBeDefined();
+      writes.length = 0;
+
+      // Invoke only the captured monitor listener; never signal the Vitest process.
+      expect(() => handler!(signal)).toThrow("intercepted signal exit");
+      pending = undefined; // The intercepted exit cannot settle the CLI's Promise.
+      expect(exit).toHaveBeenCalledExactlyOnceWith(exitCode);
+      expect(writes.filter((wire) => wire === "\x1b[?2033l")).toHaveLength(
+        mode === 2 ? 1 : 0,
+      );
+      expect(writes.filter((wire) => wire === "\x1b[?25h\x1b[?1049l")).toHaveLength(1);
+      expect(process.stdin.setRawMode).toHaveBeenLastCalledWith(false);
+      expect(vi.getTimerCount()).toBe(0);
+      expect(process.listeners(signal)).toEqual(originalListeners);
+      ["SIGINT", "SIGTERM"].forEach((name, index) => {
+        expect(process.listenerCount(name)).toBe(originalSignalCounts[index]);
+      });
+
+      // A queued copy of the old handler must not clean up or terminate again.
+      const output = [...writes];
+      handler!(signal);
+      expect(writes).toEqual(output);
+      expect(exit).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("failed focus reentry keeps one signal handler per signal and normal quit removes them", async () => {
+    const signals = ["SIGINT", "SIGTERM"] as const;
+    const originalCounts = signals.map((signal) => process.listenerCount(signal));
+    const originalHandlers = process.listeners("SIGINT");
+    const exit = vi.spyOn(process, "exit").mockImplementation((() => {
+      throw new Error("unexpected stale signal exit");
+    }) as never);
+    start();
+    const oldHandler = process.listeners("SIGINT").find(
+      (listener) => !originalHandlers.includes(listener),
+    );
+    negotiate();
+    send("\r");
+    await vi.dynamicImportSettled();
+    await settle();
+    expect(writes.join("")).toContain("Focus failed");
+    signals.forEach((signal, index) => {
+      expect(process.listenerCount(signal)).toBe(originalCounts[index]! + 1);
+    });
+    oldHandler!("SIGINT");
+    expect(exit).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBeGreaterThan(0);
+    send(" ");
+    send("q");
+    await pending;
+    signals.forEach((signal, index) => {
+      expect(process.listenerCount(signal)).toBe(originalCounts[index]);
+    });
+  });
+
+  it("uses the real terminal width for the initial narrow guard and both resize directions", () => {
+    const originalColumns = Object.getOwnPropertyDescriptor(process.stdout, "columns");
+    const setColumns = (columns: number) => Object.defineProperty(process.stdout, "columns", {
+      value: columns,
+      configurable: true,
+    });
+    try {
+      setColumns(40);
+      start();
+      expect(frames().at(-1)).toContain("Terminal too narrow — widen to ≥60 cols");
+      expect(frames().at(-1)).not.toContain("summon status");
+
+      setColumns(120);
+      process.emit("SIGWINCH");
+      expect(frames().at(-1)).toContain("summon status");
+      expect(frames().at(-1)).not.toContain("Terminal too narrow");
+
+      setColumns(40);
+      process.emit("SIGWINCH");
+      expect(frames().at(-1)).toContain("Terminal too narrow — widen to ≥60 cols");
+      expect(frames().at(-1)).not.toContain("summon status");
+    } finally {
+      if (originalColumns) Object.defineProperty(process.stdout, "columns", originalColumns);
+      else Reflect.deleteProperty(process.stdout, "columns");
+    }
+  });
+
   it("installs decoder before negotiation; hidden30s performs no status/Git/frame work, visible refreshes once", async () => {
     start();
     negotiate();
