@@ -1,4 +1,4 @@
-import { mkdirSync, readdirSync, renameSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, renameSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 
@@ -46,20 +46,30 @@ export function withFileLock<T>(file: string, action: () => T, timeoutMs = 3000)
   const token = `${process.pid}-${randomUUID()}.owner`;
   const staging = `${directory}-${token}.tmp`;
   let acquired = false;
+  let stagingCreated = false;
   let result: T;
-  mkdirSync(staging, { mode: 0o700 });
   try {
-    writeFileSync(join(staging, token), "", { mode: 0o600, flag: "wx" });
     const deadline = performance.now() + timeoutMs;
     for (;;) {
-      try {
-        // Publish a NONEMPTY directory atomically. rename cannot replace another
-        // nonempty owner, including one acquired during stale-owner recovery.
-        renameSync(staging, directory);
-        acquired = true;
-        break;
-      } catch (error) {
-        if (!["EEXIST", "ENOTEMPTY"].includes(code(error) ?? "")) throw error;
+      // A waiter holds no staging directory while the canonical lock exists.
+      if (!existsSync(directory)) {
+        mkdirSync(staging, { mode: 0o700 });
+        stagingCreated = true;
+        writeFileSync(join(staging, token), "", { mode: 0o600, flag: "wx" });
+        try {
+          // Publish a NONEMPTY directory atomically. rename cannot replace another
+          // nonempty owner, including one acquired during stale-owner recovery.
+          renameSync(staging, directory);
+          acquired = true;
+          stagingCreated = false;
+          break;
+        } catch (error) {
+          if (!["EEXIST", "ENOTEMPTY"].includes(code(error) ?? "")) throw error;
+        }
+        // Another process won publication. Dispose only our own attempt BEFORE
+        // recovery or sleep, so interrupting a blocked waiter leaves no artifact.
+        removeOwner(staging, token);
+        stagingCreated = false;
       }
       recoverDeadOwner(directory);
       if (performance.now() >= deadline) {
@@ -70,7 +80,10 @@ export function withFileLock<T>(file: string, action: () => T, timeoutMs = 3000)
     result = action();
   } catch (error) {
     // Preserve a transaction/acquisition error rather than masking it with cleanup.
-    try { removeOwner(acquired ? directory : staging, token); } catch { /* best effort */ }
+    try {
+      if (acquired) removeOwner(directory, token);
+      else if (stagingCreated) removeOwner(staging, token);
+    } catch { /* best effort */ }
     throw error;
   }
   removeOwner(directory, token);

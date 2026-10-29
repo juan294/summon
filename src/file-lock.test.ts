@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
@@ -55,6 +55,73 @@ describe("per-file transaction lock", () => {
     writeFileSync(`${file}.lock`, "not a directory");
     expect(() => withFileLock(file, () => 1)).toThrow();
     expect(readdirSync(dir)).toEqual(["config.lock"]);
+  });
+
+  it.each([
+    ["SIGINT", "preexisting"], ["SIGTERM", "preexisting"],
+    ["SIGINT", "publication-conflict"], ["SIGTERM", "publication-conflict"],
+  ] as const)("leaves no waiter staging after %s during %s contention", async (signal, contention) => {
+    const dir = fixture(), file = join(dir, "config");
+    writeFileSync(file, "keep=original\n");
+    const token = contention === "preexisting" ? owner(file, process.pid) : `${process.pid}-${randomUUID()}.owner`;
+    await build({ config: false, entry: { lock: new URL("./file-lock.ts", import.meta.url).pathname }, outDir: dir, outExtension: () => ({ js: ".mjs" }), platform: "node", format: ["esm"], silent: true });
+    writeFileSync(join(dir, "interrupt.mjs"), `
+      import fs from 'node:fs';
+      import { syncBuiltinESMExports } from 'node:module';
+      const [file, token, contention] = process.argv.slice(2);
+      const rename = fs.renameSync;
+      if (contention === 'publication-conflict') {
+        fs.renameSync = function(from, to) {
+          // Inject only an OS publication race: another live owner wins just
+          // before the real rename. The product helper remains unmodified.
+          if (String(to) === file + '.lock' && !fs.existsSync(to)) {
+            fs.mkdirSync(to);
+            fs.writeFileSync(to + '/' + token, '');
+          }
+          return rename.call(this, from, to);
+        };
+      }
+      const readdir = fs.readdirSync;
+      let reported = false;
+      fs.readdirSync = function(path, ...args) {
+        const result = readdir.call(this, path, ...args);
+        if (String(path) === file + '.lock' && !reported) {
+          reported = true;
+          process.stdout.write('waiting\\n');
+        }
+        return result;
+      };
+      syncBuiltinESMExports();
+      const { withFileLock } = await import('./lock.mjs');
+      withFileLock(file, () => fs.writeFileSync(file, 'must-not-write'));
+    `);
+    const child = spawn(process.execPath, [join(dir, "interrupt.mjs"), file, token, contention], { timeout: 10_000, stdio: ["ignore", "pipe", "pipe"] });
+    let stderr = "";
+    child.stderr.on("data", (data: Buffer) => { stderr += data.toString(); });
+    const done = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
+      child.once("error", reject);
+      child.once("exit", (code, signal) => resolve({ code, signal }));
+    });
+    void done.catch(() => undefined);
+    try {
+      await new Promise<void>((resolve, reject) => {
+        child.stdout.once("data", () => resolve());
+        child.once("error", reject);
+        child.once("exit", (code) => reject(new Error(`waiter exited before contention (${code}): ${stderr}`)));
+      });
+      expect(child.kill(signal)).toBe(true);
+      expect(await done).toEqual({ code: null, signal });
+      expect(readFileSync(file, "utf8")).toBe("keep=original\n");
+      expect(readdirSync(`${file}.lock`)).toEqual([token]);
+      expect(readdirSync(dir).filter((name) => name.startsWith("config.lock-"))).toEqual([]);
+      // Release only the exact fixture owner, then retry against the same bytes.
+      rmSync(`${file}.lock`, { recursive: true });
+      expect(withFileLock(file, () => readFileSync(file, "utf8"))).toBe("keep=original\n");
+      expect(readdirSync(dir).filter((name) => name.startsWith("config.lock"))).toEqual([]);
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+      await Promise.allSettled([done]);
+    }
   });
 
   it("serializes competing stale reclaimers without deleting a newly published owner", async () => {
