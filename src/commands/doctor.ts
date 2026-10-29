@@ -15,6 +15,9 @@ import { commandExecutable } from "../command-spec.js";
 import { green, red, yellow, bold, dim } from "../ui/ansi.js";
 import { sym } from "../ui/symbols.js";
 import { CONFIG_DIR, TRUST_FILE } from "../paths.js";
+import { resolveBackendForLaunch } from "../backend.js";
+import { createRexCli, defaultRexServer, discoverRex, whoamiOf } from "../backends/rex/cli.js";
+import { listAppClients } from "../backends/rex/app.js";
 import type { CommandContext } from "./types.js";
 
 const PASS = green(`${sym.ok} PASS`);
@@ -42,12 +45,6 @@ export async function handleDoctorCommand({
   let totalChecks = 0;
   let passedChecks = 0;
 
-  // FE-M5: diagnostic output goes to stderr so pipelines (e.g. summon export > .summon)
-  // are not contaminated. Machine-consumable data (exit codes) stay on stdout.
-  console.error("Checking Ghostty configuration...\n");
-
-  const ghosttyConfigPath = join(homedir(), ".config", "ghostty", "config");
-  let diagnostics = probeGhostty();
   let allGood = true;
   const record = (ok: boolean): void => {
     totalChecks++;
@@ -57,6 +54,23 @@ export async function handleDoctorCommand({
       totalIssues++;
     }
   };
+
+  // Plan P15: with Rex installed and Ghostty absent, the Ghostty checks are not applicable
+  // and are not counted as failures.
+  const ghosttyConfigPath = join(homedir(), ".config", "ghostty", "config");
+  let diagnostics = probeGhostty();
+  const rexDiscovery = discoverRex();
+  const detection = resolveBackendForLaunch({ discoverRex: () => rexDiscovery });
+  const ghosttyApplicable = !!diagnostics.app || rexDiscovery.path === null;
+
+  // FE-M5: diagnostic output goes to stderr so pipelines (e.g. summon export > .summon)
+  // are not contaminated. Machine-consumable data (exit codes) stay on stdout.
+  console.error("Checking Ghostty configuration...\n");
+  if (!ghosttyApplicable) {
+    console.error("  - not applicable (Rex detected, Ghostty not installed)");
+    console.error();
+  }
+  if (ghosttyApplicable) {
   record(!!diagnostics.app && !!diagnostics.version);
   if (!diagnostics.app)
     console.error(
@@ -249,6 +263,44 @@ export async function handleDoctorCommand({
     console.error(`    ${ACCESSIBILITY_SETTINGS_PATH}`);
     console.error(`    ${ACCESSIBILITY_ENABLE_HINT}`);
     console.error();
+  }
+  } // ghosttyApplicable
+
+  console.error();
+  console.error("Checking Rex...\n");
+  if (rexDiscovery.path === null) {
+    console.error(`  - Rex CLI not found (searched ${rexDiscovery.searched.join(", ")}); not applicable`);
+  } else {
+    const rexContext = detection.ok && detection.backend === "rex" ? detection : null;
+    const server = rexContext?.server ?? defaultRexServer();
+    const cli = createRexCli(rexDiscovery.path, server);
+    console.error(`  ${PASS}  Rex CLI found at ${rexDiscovery.path}`);
+    const version = cli.call("version", ["version"]);
+    const versionLines = version.ok ? version.stdout.split("\n") : [];
+    record(version.ok);
+    console.error(version.ok
+      ? `  ${PASS}  ${versionLines[0] ?? ""} (${versionLines.find((line) => line.startsWith("api:")) ?? "api revision unknown"})`
+      : `  ${FAIL}  rex version failed: ${version.reason}`);
+    const who = whoamiOf(cli);
+    // The server is required only when Rex is the backend of this shell; otherwise it is informational.
+    record(rexContext ? who.answers : true);
+    if (who.answers) console.error(`  ${PASS}  Rex server reachable at ${server} (host ${who.hostId})`);
+    else console.error(`  ${rexContext ? FAIL : "INFO"}  Rex server not reachable at ${server} (${who.reason}); open the Rex app to start it`);
+    if (who.answers) {
+      const clients = listAppClients(cli, { includeLost: true });
+      if (!clients.ok) {
+        console.error(`  INFO  app clients unavailable (${clients.reason})`);
+      } else if (clients.clients.length === 0) {
+        console.error("  INFO  no Rex app connected; open Rex to show workspaces");
+      } else {
+        for (const client of clients.clients) {
+          console.error(`    app client ${client.clientId} ${client.label ? `(${client.label}) ` : ""}${client.connectionState}`);
+        }
+      }
+    }
+    console.error(detection.ok
+      ? `  INFO  this shell launches in ${detection.backend} (placement ${detection.placement}${detection.backend === "rex" ? `, server ${detection.server}` : ""})`
+      : `  INFO  this shell cannot launch: ${detection.reason}`);
   }
 
   const userConfig = listConfig();

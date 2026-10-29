@@ -170,7 +170,7 @@ export function writeStatus(status: WorkspaceStatus): void {
   withOwnedRecord(status.project, "replace", () => status);
 }
 
-function unlinkIgnoringMissing(path: string): boolean {
+export function unlinkIgnoringMissing(path: string): boolean {
   try { unlinkSync(path); return true; }
   catch (error) { return (error as NodeJS.ErrnoException).code === "ENOENT"; }
 }

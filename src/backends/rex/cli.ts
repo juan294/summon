@@ -9,7 +9,7 @@ import { rexOpTraits } from "./types.js";
 import type { RexOp, RexRawResult, RexResult } from "./types.js";
 
 const BUNDLE_RELATIVE_CLI = join("Contents", "Helpers", "Rex Server.rex", "Contents", "MacOS", "rex");
-const BUNDLE_NAMES = ["Rex Beta.app", "Rex.app"] as const;
+export const BUNDLE_NAMES = ["Rex Beta.app", "Rex.app"] as const;
 
 /** Rex's default local API socket (`unix://` + percent-encoded path), as the app reports it. */
 export function defaultRexServer(home: string = homedir()): string {
@@ -68,7 +68,7 @@ function text(value: unknown): string {
   return "";
 }
 
-function rawResult(partial: Partial<RexRawResult>): RexRawResult {
+export function rawResult(partial: Partial<RexRawResult>): RexRawResult {
   return { code: null, signal: null, timedOut: false, enoent: false, stdout: "", stderr: "", ...partial };
 }
 
@@ -113,4 +113,65 @@ export function runRex(op: RexOp, argv: readonly string[], opts: RunRexOptions, 
   } catch {
     return classifyRexFailure(op, rawResult({ code: 0, stdout, malformed: true }));
   }
+}
+
+// --- Bound CLI handle and probes (Phase 3) ---
+
+export interface RexCallOptions {
+  input?: string;
+  /** Defaults to the read-only budget (3 s). */
+  timeoutMs?: number;
+  /** Defaults to false: reads never start a server. */
+  autostart?: boolean;
+}
+
+/** A `rex` binary bound to one server (plan P6: every call passes `-S` explicitly). */
+export interface RexCli {
+  binary: string;
+  server: string;
+  call(op: RexOp, argv: readonly string[], opts?: RexCallOptions): RexResult;
+}
+
+export const REX_READ_TIMEOUT_MS = 3000;
+
+export function createRexCli(binary: string, server: string, exec: RexExec = execFileSync): RexCli {
+  return {
+    binary,
+    server,
+    call(op, argv, opts = {}) {
+      return runRex(op, argv, {
+        binary,
+        server,
+        ...(opts.input !== undefined ? { input: opts.input } : {}),
+        timeoutMs: opts.timeoutMs ?? REX_READ_TIMEOUT_MS,
+        autostart: opts.autostart ?? false,
+      }, exec);
+    },
+  };
+}
+
+export type WhoamiProbe =
+  | { answers: true; hostId: string; sessionId?: string }
+  | { answers: false; reason: string };
+
+/** Validation probes answer in milliseconds on a healthy server; a dead socket must not stall a Ghostty launch. */
+export const WHOAMI_TIMEOUT_MS = 1000;
+
+/** `whoami --json` on a bound CLI: the server's host id and, inside Rex, the caller's session. */
+export function whoamiOf(cli: RexCli): WhoamiProbe {
+  const result = cli.call("whoami", ["whoami", "--json"], { timeoutMs: WHOAMI_TIMEOUT_MS });
+  if (!result.ok) return { answers: false, reason: result.reason };
+  const json = result.json as Record<string, unknown> | null;
+  const hostId = json && typeof json === "object" ? json["host_id"] : undefined;
+  if (typeof hostId !== "string" || hostId === "") return { answers: false, reason: "rex whoami returned no host id" };
+  const sessionId = json!["session_id"];
+  return { answers: true, hostId, ...(typeof sessionId === "string" ? { sessionId } : {}) };
+}
+
+/**
+ * `rex -S <server> --autostart=false whoami --json`: validates an inherited REX_SERVER for the
+ * detection table (plan P5) and yields the server's host id.
+ */
+export function probeWhoami(binary: string, server: string, exec: RexExec = execFileSync): WhoamiProbe {
+  return whoamiOf(createRexCli(binary, server, exec));
 }

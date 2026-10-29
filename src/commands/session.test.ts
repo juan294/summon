@@ -14,6 +14,11 @@ vi.mock("../launcher.js", () => ({
   launch: (...args: unknown[]) => mockLaunch(...args),
 }));
 
+const mockResolveBackendForLaunch = vi.fn((): unknown => ({ ok: true, backend: "ghostty", placement: "outside", notices: [] }));
+const mockShowRecordedWorkspace = vi.fn((..._args: unknown[]): unknown => ({ shown: true, clientId: "client:app" }));
+vi.mock("../backend.js", () => ({ resolveBackendForLaunch: () => mockResolveBackendForLaunch() }));
+vi.mock("../backends/rex/launch.js", () => ({ showRecordedWorkspace: (...args: unknown[]) => mockShowRecordedWorkspace(...args) }));
+
 vi.mock("../config.js", () => ({
   listProjects: (...args: unknown[]) => mockListProjects(...args),
   getProject: (...args: unknown[]) => mockGetProject(...args),
@@ -722,5 +727,57 @@ describe("session launch — spinner", () => {
     } else {
       process.env["SUMMON_NO_SPINNER"] = origNoSpinner;
     }
+  });
+});
+
+describe("session launch under Rex (plan P11)", () => {
+  const REX = { ok: true, backend: "rex", placement: "inside-rex", server: "unix:///tmp/rex.sock", rexBinary: "/usr/local/bin/rex", notices: [] };
+  beforeEach(() => {
+    mockResolveBackendForLaunch.mockReturnValue(REX);
+    mockShowRecordedWorkspace.mockReturnValue({ shown: true, clientId: "client:app" });
+    mockGetProject.mockImplementation((name: string) => ({ api: "/tmp/api", web: "/tmp/web", worker: "/tmp/worker" } as Record<string, string>)[name]);
+  });
+
+  it("creates one session per project without new-tab and shows the first launched project at the end", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockReadSession.mockReturnValue(["api", "web", "worker"]);
+    mockLaunch.mockResolvedValue(undefined);
+    await handleSessionCommand(makeContext({ args: ["myteam"], overrides: { "new-window": "true" } }));
+    expect(mockLaunch).toHaveBeenCalledTimes(3);
+    for (const call of mockLaunch.mock.calls) expect(call[1]["new-tab"]).toBeUndefined();
+    expect(mockLaunch.mock.calls[0]![1]["new-window"]).toBe("true");
+    expect(mockLaunch.mock.calls[1]![1]["new-window"]).toBeUndefined();
+    expect(mockShowRecordedWorkspace).toHaveBeenCalledTimes(1);
+    expect(mockShowRecordedWorkspace).toHaveBeenCalledWith("api", "/usr/local/bin/rex");
+    logSpy.mockRestore();
+  });
+
+  it("one untrusted project does not stop the others, and the first launched one is shown", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { SummonError } = await import("../trust.js");
+    mockReadSession.mockReturnValue(["api", "web", "worker"]);
+    mockLaunch.mockRejectedValueOnce(new SummonError("untrusted")).mockResolvedValue(undefined);
+    await handleSessionCommand(makeContext({ args: ["myteam"] }));
+    expect(mockLaunch).toHaveBeenCalledTimes(3);
+    expect(mockShowRecordedWorkspace).toHaveBeenCalledWith("web", "/usr/local/bin/rex");
+    logSpy.mockRestore();
+    warnSpy.mockRestore();
+  });
+
+  it("does not select again for a single project and reports a failed show as a note", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    mockReadSession.mockReturnValue(["api"]);
+    mockLaunch.mockResolvedValue(undefined);
+    await handleSessionCommand(makeContext({ args: ["solo"] }));
+    expect(mockShowRecordedWorkspace).not.toHaveBeenCalled();
+
+    mockReadSession.mockReturnValue(["api", "web"]);
+    mockShowRecordedWorkspace.mockReturnValue({ shown: false, reason: "no Rex app is connected" });
+    await handleSessionCommand(makeContext({ args: ["pair"] }));
+    expect(errSpy.mock.calls.map((c) => String(c[0])).join("")).toContain("summon: note: could not show [api] in Rex: no Rex app is connected");
+    logSpy.mockRestore();
+    errSpy.mockRestore();
   });
 });

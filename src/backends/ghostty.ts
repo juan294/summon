@@ -7,6 +7,7 @@ import { ensureGhostty, ensureAccessibility, printAccessibilityHint, isAccessibi
 import { traditionalInventory, treeInventory, parseNativeCapture } from "../pane-inventory.js";
 import type { NativeMetadata, PaneDescriptor } from "../pane-inventory.js";
 import type { BackendId } from "../backend.js";
+import type { RexIdentity } from "./rex/types.js";
 import { getErrorMessage, ACCESSIBILITY_SETTINGS_PATH, supportsColor } from "../utils.js";
 import { fail, err } from "../ui/output.js";
 import { TabOpenError } from "../errors.js";
@@ -19,17 +20,29 @@ export interface BackendLaunchContext {
   projectName: string;
   onStop: string | undefined;
   launchId: string;
+  /** Preset name or "custom"; recorded in the status record and the Rex manifest. */
+  layoutLabel: string;
   /** Resolve a configured command to its binary, installing on request. */
   ensureAndResolve: (cmd: string, key: string) => Promise<string>;
   /** Starship preset config path, or null when none applies. */
   resolveStarship: () => string | null;
 }
 
+/** Exact identity a backend captured: Ghostty's native metadata or the Rex identity. */
+export interface BackendLaunchResult {
+  native?: NativeMetadata;
+  rex?: RexIdentity;
+}
+
 /** A backend launches a planned layout and returns the exact identity it captured, if any. */
 export interface TerminalBackend {
   readonly id: BackendId;
-  launchTraditional(plan: LayoutPlan, ctx: BackendLaunchContext): Promise<NativeMetadata | undefined>;
-  launchTree(plan: TreeLayoutPlan, ctx: BackendLaunchContext): Promise<NativeMetadata | undefined>;
+  launchTraditional(plan: LayoutPlan, ctx: BackendLaunchContext): Promise<BackendLaunchResult | undefined>;
+  launchTree(plan: TreeLayoutPlan, ctx: BackendLaunchContext): Promise<BackendLaunchResult | undefined>;
+}
+
+function asResult(native: NativeMetadata | undefined): BackendLaunchResult | undefined {
+  return native ? { native } : undefined;
 }
 
 // --- Spinner helpers (UX-L2 #519) ---
@@ -163,7 +176,7 @@ export const GhosttyBackend: TerminalBackend = {
 
     const starshipConfigPath = ctx.resolveStarship();
     const script = generateAppleScript(plan, ctx.targetDir, starshipConfigPath, ctx.envVars, ctx.projectName, ctx.onStop, ctx.launchId);
-    return executeScript(script, traditionalInventory(plan), ctx.projectName);
+    return asResult(executeScript(script, traditionalInventory(plan), ctx.projectName));
   },
 
   async launchTree(plan, ctx) {
@@ -179,6 +192,6 @@ export const GhosttyBackend: TerminalBackend = {
 
     const starshipConfigPath = ctx.resolveStarship();
     const script = generateTreeAppleScript(plan, ctx.targetDir, starshipConfigPath, ctx.envVars, ctx.projectName, ctx.onStop, ctx.launchId);
-    return executeScript(script, treeInventory(plan), ctx.projectName);
+    return asResult(executeScript(script, treeInventory(plan), ctx.projectName));
   },
 };

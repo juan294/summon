@@ -1,4 +1,6 @@
 import { launch } from "../launcher.js";
+import { resolveBackendForLaunch } from "../backend.js";
+import { showRecordedWorkspace } from "../backends/rex/launch.js";
 import { listProjects, getProject } from "../config.js";
 import {
   listSessions,
@@ -11,7 +13,7 @@ import { SummonError } from "../trust.js";
 import { TabOpenError } from "../errors.js";
 import { exitWithUsageHint, getErrorMessage, supportsColor } from "../utils.js";
 import { sym } from "../ui/symbols.js";
-import { fail, err } from "../ui/output.js";
+import { fail, err, note } from "../ui/output.js";
 import type { CommandContext } from "./types.js";
 
 const RESERVED = new Set(["add", "remove", "list", "show", "all"]);
@@ -129,11 +131,16 @@ async function cmdLaunch(ctx: CommandContext, name: string | undefined): Promise
   // every subsequent one opens a new tab.
   let openedFirst = false;
   const baseOverrides = { ...ctx.overrides };
+  // Plan P11: under Rex every project is its own session; tabs do not apply and the first
+  // launched session is shown again at the end.
+  const detection = resolveBackendForLaunch();
+  const rex = detection.ok && detection.backend === "rex" ? detection : null;
+  const underRex = rex !== null;
 
   for (let i = 0; i < total; i++) {
     const proj = projects[i]!;
     const dir = getProject(proj)!;
-    const overrides = { ...baseOverrides, "new-tab": openedFirst ? "true" : undefined };
+    const overrides = { ...baseOverrides, "new-tab": openedFirst && !underRex ? "true" : undefined };
     if (openedFirst) {
       delete overrides["new-window"];
     }
@@ -166,6 +173,11 @@ async function cmdLaunch(ctx: CommandContext, name: string | undefined): Promise
     if (i < total - 1) {
       await new Promise((r) => setTimeout(r, INTER_LAUNCH_DELAY_MS));
     }
+  }
+
+  if (rex && launched.length > 1) {
+    const shown = showRecordedWorkspace(launched[0]!, rex.rexBinary);
+    if (!shown.shown) note(`could not show [${launched[0]}] in Rex: ${shown.reason}`);
   }
 
   const parts = [`${launched.length} launched`];

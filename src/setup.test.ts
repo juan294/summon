@@ -1207,6 +1207,29 @@ describe("printValidation", () => {
     logSpy.mockRestore();
   });
 
+  it("under Rex skips the Ghostty install line and the Accessibility step and says so (plan P15)", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockExecFileSync.mockReturnValue("/usr/bin/stub\n");
+    mockExistsSync.mockReturnValue(false); // Ghostty NOT found
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      if (_q.includes("[Y/n]")) cb("y");
+      else cb("1");
+    });
+    const origIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", { value: true, writable: true });
+
+    await runSetup({ backend: "rex" });
+
+    const allOutput = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(allOutput.some((s) => s.includes("Rex detected: Ghostty install and Accessibility checks skipped."))).toBe(true);
+    expect(allOutput.some((s) => s.includes("Rex") && s.includes("detected (Ghostty not required)"))).toBe(true);
+    expect(allOutput.some((s) => s.includes("Ghostty") && s.includes("not found"))).toBe(false);
+    expect(allOutput.some((s) => s.includes("Accessibility permission"))).toBe(false);
+
+    Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, writable: true });
+    logSpy.mockRestore();
+  });
+
   it("prints all tools available when none missing", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     mockExecFileSync.mockReturnValue("/usr/bin/stub\n");

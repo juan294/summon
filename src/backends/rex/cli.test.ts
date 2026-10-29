@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync, chmodSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -172,5 +172,32 @@ describe("runRex", () => {
 
   it("rejects a timeout below one second so the Rex --timeout flag is never 0s", () => {
     expect(() => runRex("ls", ["ls"], { ...opts, timeoutMs: 0 }, fakeExec(() => "").exec)).toThrow("timeoutMs");
+  });
+});
+
+describe("createRexCli / probeWhoami (Phase 3)", () => {
+  it("binds the binary and server and forwards per-call options with read-only defaults", async () => {
+    const { createRexCli } = await import("./cli.js");
+    const exec = vi.fn(() => "{}");
+    const cli = createRexCli("/mock/rex", "unix:///mock/server.sock", exec);
+    cli.call("ls", ["ls", "--json"]);
+    expect(exec).toHaveBeenLastCalledWith("/mock/rex", ["--color", "never", "--timeout", "3s", "--autostart=false", "-S", "unix:///mock/server.sock", "ls", "--json"], expect.objectContaining({ timeout: 5000 }));
+    cli.call("session-create", ["api", "call", "session.create", "-"], { input: "{}", timeoutMs: 10_000, autostart: true });
+    expect(exec).toHaveBeenLastCalledWith("/mock/rex", ["--color", "never", "--timeout", "10s", "--autostart=true", "-S", "unix:///mock/server.sock", "api", "call", "session.create", "-"], expect.objectContaining({ input: "{}", timeout: 12_000 }));
+  });
+
+  it("probeWhoami answers with the host id and the caller's session when the server replies", async () => {
+    const { probeWhoami } = await import("./cli.js");
+    const exec = vi.fn(() => JSON.stringify({ host_id: "host-1", session_id: "session:1", endpoint: "unix:///x" }));
+    expect(probeWhoami("/mock/rex", "unix:///x", exec)).toEqual({ answers: true, hostId: "host-1", sessionId: "session:1" });
+    expect(exec).toHaveBeenCalledWith("/mock/rex", ["--color", "never", "--timeout", "1s", "--autostart=false", "-S", "unix:///x", "whoami", "--json"], expect.objectContaining({ timeout: 3000 }));
+  });
+
+  it("probeWhoami does not answer on failure or when the host id is missing", async () => {
+    const { probeWhoami } = await import("./cli.js");
+    const failing = vi.fn(() => { throw Object.assign(new Error("exit 4"), { status: 4, stderr: "Error: dial unix: connect: no such file\n" }); });
+    expect(probeWhoami("/mock/rex", "unix:///x", failing)).toEqual({ answers: false, reason: "Error: dial unix: connect: no such file" });
+    const noHost = vi.fn(() => JSON.stringify({ endpoint: "unix:///x" }));
+    expect(probeWhoami("/mock/rex", "unix:///x", noHost)).toEqual({ answers: false, reason: "rex whoami returned no host id" });
   });
 });

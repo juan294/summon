@@ -11,8 +11,10 @@ import {
   EDITOR_SIZE_MIN,
   EDITOR_SIZE_MAX,
   EDITOR_SIZE_DEFAULT,
+  traditionalPaneNames,
 } from "./layout.js";
 import type { LayoutOptions } from "./layout.js";
+export { traditionalPaneNames } from "./layout.js";
 import { listConfig, listProjects, readKVFile, readKVFromString, readCustomLayout, isCustomLayout, LAYOUT_NAME_RE } from "./config.js";
 import { writeStatus, readStatus, readStatusRecord, discardStatusRecord } from "./status.js";
 import type { WorkspaceStatus } from "./status.js";
@@ -21,14 +23,17 @@ import { newLaunchId } from "./launch-identity.js";
 import { resolveBackendForLaunch } from "./backend.js";
 import type { BackendId, LaunchContext } from "./backend.js";
 import { GhosttyBackend } from "./backends/ghostty.js";
-import type { BackendLaunchContext, TerminalBackend } from "./backends/ghostty.js";
-import { RexBackend, REX_NOT_AVAILABLE_MSG } from "./backends/rex/backend.js";
+import type { BackendLaunchContext, BackendLaunchResult, TerminalBackend } from "./backends/ghostty.js";
+import { createRexBackend } from "./backends/rex/backend.js";
+import { adoptOrphans, adoptDeps, maybeSwitchToExisting } from "./backends/rex/launch.js";
+import { createRexCli, discoverRex } from "./backends/rex/cli.js";
+import { sessionState } from "./backends/rex/status.js";
 import { buildSessionCreateRequest } from "./backends/rex/layout.js";
 import type { SessionCreateInput } from "./backends/rex/layout.js";
 import { parseTreeDSL, extractPaneDefinitions, extractPaneCwds, resolveTreeCommands as resolveTreeCmds, buildTreePlan, collectLeaves, findPaneByName, assertPaneCwdContained } from "./tree.js";
 import type { LayoutNode, TreePlanOptions } from "./tree.js";
 import { resolveCommand as resolveCommandPath, getErrorMessage, SUMMON_WORKSPACE_ENV, promptUser, isDebug } from "./utils.js";
-import { fail, err } from "./ui/output.js";
+import { fail, err, note } from "./ui/output.js";
 import { confirmDangerousCommands } from "./launch-guards.js";
 import { assertTrusted, assertTrustedContent } from "./trust.js";
 import { parseIntInRange, parsePositiveFloat, ENV_KEY_RE, PROJECT_NAME_RE, sanitizeProjectName } from "./validation.js";
@@ -38,7 +43,6 @@ import { isStarshipInstalled, ensurePresetConfig, getPresetConfigPath } from "./
 import { commandExecutable, replaceCommandExecutable } from "./command-spec.js";
 import { focusTerminal } from "./ghostty-native.js";
 import type { FocusResult, NativeFailure } from "./ghostty-native.js";
-import type { NativeMetadata } from "./pane-inventory.js";
 
 /** Convert resolved layout options to a key-value config map suitable for saving as a custom layout. */
 export function optsToConfigMap(opts: Partial<LayoutOptions>): Map<string, string> {
@@ -706,7 +710,7 @@ async function launchTreeLayout(
   treeLayout: NonNullable<ResolvedConfig["treeLayout"]>,
   opts: Partial<LayoutOptions>,
   inputs: LaunchInputs,
-): Promise<{ paneNames: string[]; native?: NativeMetadata }> {
+): Promise<LaunchedLayout> {
   const { ctx, backend, dryRun } = inputs;
   const resolvedTree = resolveTreeCmds(treeLayout.tree, treeLayout.panes, treeLayout.paneCwds, resolve(ctx.targetDir));
   const treePlan = buildTreePlan(resolvedTree, layoutOptsToTreePlanOpts(opts));
@@ -723,24 +727,13 @@ async function launchTreeLayout(
     return { paneNames: treePlan.leaves };
   }
 
-  const native = await backend.launchTree(treePlan, ctx);
-  return { paneNames: treePlan.leaves, ...(native ? { native } : {}) };
-}
-
-/** Extract pane names from a traditional LayoutPlan. */
-export function traditionalPaneNames(plan: { sidebarCommand: string; leftColumnCount: number; rightColumnEditorCount: number; hasShell: boolean }): string[] {
-  const names = ["editor"];
-  if (plan.sidebarCommand) names.push("sidebar");
-  for (let i = 1; i < plan.leftColumnCount; i++) names.push(`editor-${i + 1}`);
-  for (let i = 0; i < plan.rightColumnEditorCount; i++) names.push(`right-${i + 1}`);
-  if (plan.hasShell) names.push("shell");
-  return names;
+  return { paneNames: treePlan.leaves, ...(await backend.launchTree(treePlan, ctx)) };
 }
 
 async function launchTraditionalLayout(
   opts: Partial<LayoutOptions>,
   inputs: LaunchInputs,
-): Promise<{ paneNames: string[]; native?: NativeMetadata }> {
+): Promise<LaunchedLayout> {
   const { ctx, backend, dryRun } = inputs;
   const plan = planLayout(opts);
   const paneNames = traditionalPaneNames(plan);
@@ -757,8 +750,37 @@ async function launchTraditionalLayout(
     return { paneNames };
   }
 
-  const native = await backend.launchTraditional(plan, ctx);
-  return { paneNames, ...(native ? { native } : {}) };
+  return { paneNames, ...(await backend.launchTraditional(plan, ctx)) };
+}
+
+type LaunchedLayout = { paneNames: string[] } & BackendLaunchResult;
+
+/** Plan P8: flags Rex cannot honor are deliberate limitations, one stderr line each. */
+export function rexLimitationNotices(opts: Partial<LayoutOptions>, overrides: CLIOverrides): string[] {
+  const notices: string[] = [];
+  const limited: Array<[string, boolean]> = [
+    ["maximize", opts.maximize === true],
+    ["float", opts.float === true],
+    ["fullscreen", opts.fullscreen === true],
+    ["font-size", opts.fontSize !== undefined && opts.fontSize !== null],
+    ["clean", opts.cleanRestoredPanes === true || overrides["clean"] === "true"],
+  ];
+  for (const [flag, set] of limited) {
+    if (set) notices.push(`Rex cannot honor ${flag}; ignored`);
+  }
+  return notices;
+}
+
+/** A Ghostty launch over a live Rex session of the same project replaces the record; the session stays (plan §6). */
+function warnRexStillRunning(project: string): void {
+  const record = readStatusRecord(project);
+  if (record?.backend !== "rex" || !record.rex) return;
+  const binary = discoverRex().path;
+  if (!binary) return;
+  const state = sessionState(createRexCli(binary, record.rex.server), record.rex, project);
+  if (state.state === "active" || state.state === "partial") {
+    note(`Rex session [${project}] ${record.rex.sessionId} is still running; rex kill ${record.rex.sessionId} closes it`);
+  }
 }
 
 /**
@@ -815,10 +837,23 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
   const launchId = newLaunchId();
   const launchContext = resolveLaunchBackend(cliOverrides?.dryRun);
   for (const notice of launchContext.notices) err(notice);
-  // A Rex detection launches nothing until Phase 3 ships createWorkspace; a dry run prints
-  // the request a real run would send (plan P2) and runs no Rex command.
-  if (launchContext.backend === "rex" && !cliOverrides?.dryRun) throw new Error(REX_NOT_AVAILABLE_MSG);
-  const backend: TerminalBackend = launchContext.backend === "rex" ? RexBackend : GhosttyBackend;
+  const projectName = resolveProjectName(targetDir);
+  const dryRun = cliOverrides?.dryRun === true;
+  const backend: TerminalBackend = launchContext.backend === "rex"
+    ? createRexBackend(launchContext, { callerSession: launchContext.placement === "inside-rex" ? process.env["REX_SESSION"] : undefined })
+    : GhosttyBackend;
+  if (launchContext.backend === "rex" && !dryRun) {
+    // P13 late adoption, then the P2 reuse decision: both before the wizard, the pane probe
+    // and on-start, so a switch never reruns them. A dry run skips both (P2) and runs no Rex command.
+    for (const line of adoptOrphans(projectName, adoptDeps(launchContext.rexBinary))) note(line);
+    const decision = maybeSwitchToExisting(projectName, cliOverrides?.["new-window"] === "true", { cliFor: (server) => createRexCli(launchContext.rexBinary, server) });
+    if (decision.kind === "switched") return;
+    if (decision.kind === "refused") {
+      fail(decision.reason);
+      process.exit(2);
+    }
+  }
+  if (launchContext.backend === "ghostty" && !dryRun) warnRexStillRunning(projectName);
 
   // If no editor is configured from any source and this isn't a tree layout
   // (which defines its own pane commands), redirect to the setup wizard.
@@ -826,7 +861,7 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
     if (process.stdin.isTTY) {
       console.log("No editor configured. Let's set up your workspace.\n");
       const { runSetup } = await import("./setup.js");
-      await runSetup();
+      await runSetup({ backend: launchContext.backend });
       // Re-resolve config after setup saved new values
       config = resolveConfig(targetDir, cliOverrides ?? {});
     } else {
@@ -837,12 +872,15 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
   }
 
   const { opts, machineConfig, starshipPreset, onStart, onStop, envVars, treeLayout } = config;
-  const projectName = resolveProjectName(targetDir);
 
   if (await warnIfNested(opts, cliOverrides?.dryRun)) {
     throw new Error("Launch aborted by user (nested workspace).");
   }
-  decideCleanRestoredPanes(opts, cliOverrides ?? {}, config.projectOverrides, machineConfig, cliOverrides?.dryRun, projectName);
+  if (launchContext.backend === "ghostty") {
+    decideCleanRestoredPanes(opts, cliOverrides ?? {}, config.projectOverrides, machineConfig, cliOverrides?.dryRun, projectName);
+  } else if (!dryRun) {
+    for (const line of rexLimitationNotices(opts, cliOverrides ?? {})) note(line);
+  }
 
   let effectiveOnStart = onStart;
   let effectiveOnStop = onStop;
@@ -939,6 +977,7 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
     return null;
   };
 
+  const layoutLabel = treeLayout ? "custom" : (cliOverrides?.layout ?? "default");
   const inputs: LaunchInputs = {
     ctx: {
       targetDir,
@@ -946,6 +985,7 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
       projectName,
       onStop: effectiveOnStop,
       launchId,
+      layoutLabel,
       ensureAndResolve,
       resolveStarship,
     },
@@ -960,7 +1000,6 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
 
   // Write workspace status for monitoring features
   if (!cliOverrides?.dryRun) {
-    const layoutLabel = treeLayout ? "custom" : (cliOverrides?.layout ?? "default");
     const status: WorkspaceStatus = {
       project: projectName,
       directory: resolve(targetDir),
@@ -973,6 +1012,7 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
       version: 1,
       launchId,
       backend: backend.id,
+      ...(launched.rex ? { rex: launched.rex } : {}),
     };
 
     try {

@@ -23,7 +23,7 @@ export interface RexIdentity {
   blocks: RexBlockIdentity[];
 }
 
-function isKindId(value: unknown, kind: "session" | "window" | "block"): value is string {
+export function isKindId(value: unknown, kind: "session" | "window" | "block"): value is string {
   return typeof value === "string" && REX_ID_RE.test(value) && value.startsWith(`${kind}:`);
 }
 
@@ -79,8 +79,9 @@ interface RexOpTraits {
  */
 export const REX_OPS = {
   "whoami": { mutating: false },
+  "version": { mutating: false },
   "ls": { mutating: false },
-  "client-ls": { mutating: false },
+  "client-ls": { mutating: false, json: true },
   "session-create": { mutating: true, json: true, rollsBackOnReject: true },
   "session-view": { mutating: false, json: true },
   "session-inspect": { mutating: false },
@@ -88,7 +89,6 @@ export const REX_OPS = {
   "block-call": { mutating: false },
   "focus": { mutating: true },
   "do-select": { mutating: true },
-  "do-window-new": { mutating: true },
   "kill": { mutating: true },
   "window-rename": { mutating: true },
   "block-label": { mutating: true },

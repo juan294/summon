@@ -1,5 +1,11 @@
-import { describe, it, expect } from "vitest";
-import { resolveBackendForLaunch, resolveBackendForRecord, isBackendId } from "./backend.js";
+import { describe, it, expect, vi } from "vitest";
+
+const mockProbeWhoami = vi.hoisted(() => vi.fn((_binary: string, _server: string): unknown => ({ answers: false, reason: "no server" })));
+vi.mock("./backends/rex/cli.js", async (original) => ({
+  ...(await original<typeof import("./backends/rex/cli.js")>()),
+  probeWhoami: (binary: string, server: string) => mockProbeWhoami(binary, server),
+}));
+const { resolveBackendForLaunch, resolveBackendForRecord, isBackendId } = await import("./backend.js");
 
 const REX_BIN = "/fake/rex";
 const SERVER = "unix:///tmp/rex.sock";
@@ -27,13 +33,27 @@ describe("resolveBackendForLaunch", () => {
     expect(context).toMatchObject({ ok: true, backend: "rex", placement: "outside", server: SERVER });
   });
 
-  it("defaults whoami to false in this version, so an inherited REX_SERVER falls to the installed rules", () => {
+  it("validates an inherited REX_SERVER with rex whoami through the discovered binary (plan P5, Phase 3)", () => {
+    mockProbeWhoami.mockReturnValue({ answers: true, hostId: "host-1" });
+    let discoveries = 0;
     const context = resolveBackendForLaunch({
       env: { REX_SERVER: SERVER },
       ghosttyInstalled: () => true,
-      discoverRex: () => ({ path: REX_BIN, searched: ["PATH"] }),
+      discoverRex: () => { discoveries += 1; return { path: REX_BIN, searched: ["PATH"] }; },
     });
-    expect(context).toEqual({ ok: true, backend: "ghostty", placement: "outside", notices: [] });
+    expect(mockProbeWhoami).toHaveBeenCalledWith(REX_BIN, SERVER);
+    expect(context).toMatchObject({ ok: true, backend: "rex", placement: "outside", server: SERVER, rexBinary: REX_BIN });
+    expect(discoveries).toBe(1);
+  });
+
+  it("falls to the installed rules when whoami does not answer or no binary is found", () => {
+    mockProbeWhoami.mockReturnValue({ answers: false, reason: "no server" });
+    const silent = resolveBackendForLaunch({ env: { REX_SERVER: SERVER }, ghosttyInstalled: () => true, discoverRex: () => ({ path: REX_BIN, searched: ["PATH"] }) });
+    expect(silent).toEqual({ ok: true, backend: "ghostty", placement: "outside", notices: [] });
+    mockProbeWhoami.mockClear();
+    const noBinary = resolveBackendForLaunch({ env: { REX_SERVER: SERVER }, ghosttyInstalled: () => true, discoverRex: () => ({ path: null, searched: ["PATH"] }) });
+    expect(noBinary).toEqual({ ok: true, backend: "ghostty", placement: "outside", notices: [] });
+    expect(mockProbeWhoami).not.toHaveBeenCalled();
   });
 
   it("returns a Ghostty context with the notice when Rex's CLI is missing", () => {

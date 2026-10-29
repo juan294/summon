@@ -1,7 +1,7 @@
 import { isGhosttyInstalled } from "./utils.js";
 import { detectBackend, snapshotEnv } from "./backend-detect.js";
 import type { Detection, RexDiscovery } from "./backend-detect.js";
-import { discoverRex, defaultRexServer } from "./backends/rex/cli.js";
+import { discoverRex, defaultRexServer, probeWhoami } from "./backends/rex/cli.js";
 import type { WorkspaceStatus } from "./status.js";
 
 /** Terminal backend that owns a workspace. Records without the field are Ghostty. */
@@ -19,7 +19,7 @@ export interface BackendProbes {
   env?: NodeJS.ProcessEnv;
   ghosttyInstalled?: () => boolean;
   discoverRex?: (env: NodeJS.ProcessEnv) => RexDiscovery;
-  /** Validates an inherited REX_SERVER. Phase 3 replaces the default with `rex whoami`. */
+  /** Validates an inherited REX_SERVER; the default runs `rex -S <server> --autostart=false whoami --json`. */
   whoami?: (server: string) => boolean;
   defaultServer?: string;
 }
@@ -31,11 +31,17 @@ export interface BackendProbes {
  */
 export function resolveBackendForLaunch(probes: BackendProbes = {}): Detection {
   const env = probes.env ?? process.env;
+  const discover = probes.discoverRex ?? discoverRex;
+  let discovery: RexDiscovery | undefined;
+  const rex = (): RexDiscovery => (discovery ??= discover(env));
   return detectBackend({
     env: snapshotEnv(env),
     ghosttyInstalled: probes.ghosttyInstalled ?? isGhosttyInstalled,
-    rex: () => (probes.discoverRex ?? discoverRex)(env),
-    whoamiAnswers: probes.whoami ?? (() => false),
+    rex,
+    whoamiAnswers: probes.whoami ?? ((server) => {
+      const binary = rex().path;
+      return binary !== null && probeWhoami(binary, server).answers;
+    }),
     defaultServer: probes.defaultServer ?? defaultRexServer(),
   });
 }

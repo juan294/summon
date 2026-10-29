@@ -7,7 +7,7 @@ function raw(partial: Partial<RexRawResult>): RexRawResult {
   return { code: null, signal: null, timedOut: false, enoent: false, stdout: "", stderr: "", ...partial };
 }
 
-const MUTATING: RexOp[] = ["session-create", "focus", "do-select", "do-window-new", "kill", "window-rename", "block-label"];
+const MUTATING: RexOp[] = ["session-create", "focus", "do-select", "kill", "window-rename", "block-label"];
 const READ_ONLY: RexOp[] = ["whoami", "ls", "client-ls", "session-view", "session-inspect", "block-ls", "block-call"];
 
 describe("isMutatingOp", () => {

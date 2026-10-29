@@ -2,6 +2,7 @@ import { setConfig, isValidLayoutName, isCustomLayout, saveCustomLayout } from "
 // PE-L2 (#445): setup-gallery is lazy-imported inside wizard functions that need it.
 // Type-only re-export is cost-free (erased at compile time).
 export type { GridTemplate } from "./setup-gallery.js";
+import type { BackendId } from "./backend.js";
 import { SAFE_COMMAND_RE, resolveCommand as resolveCommandPath, promptUser, checkAccessibility, openAccessibilitySettings, isGhosttyInstalled, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT, debugLog } from "./utils.js";
 import { isStarshipInstalled, listStarshipPresets } from "./starship.js";
 import { bold, dim, green, yellow, cyan, magenta, brightCyan, colorSwatch } from "./ui/ansi.js";
@@ -1036,10 +1037,12 @@ export function validateSetup(result: SetupResult): ValidationResult {
   return { warnings, ghosttyFound };
 }
 
-function printValidation(validation: ValidationResult): void {
+function printValidation(validation: ValidationResult, underRex = false): void {
   printSection("Checking tools");
 
-  if (validation.ghosttyFound) {
+  if (underRex) {
+    console.log(`  ${green(sym.ok)} Rex        detected (Ghostty not required)`);
+  } else if (validation.ghosttyFound) {
     console.log(`  ${green(sym.ok)} Ghostty    found`);
   } else {
     console.log(
@@ -1119,7 +1122,13 @@ const enum WizardStep {
 // AR-L2 (#399): This function is the wizard state machine and composes multiple concerns
 // (welcome, layout, editor, sidebar, shell, starship, confirm). Extracting it into a
 // dedicated module (e.g., src/wizard.ts) is tracked as architectural debt in #399.
-export async function runSetup(): Promise<void> {
+export interface SetupOptions {
+  /** Detected launch backend (plan P15): under Rex the Ghostty install and Accessibility steps are skipped. */
+  backend?: BackendId;
+}
+
+export async function runSetup(options: SetupOptions = {}): Promise<void> {
+  const underRex = options.backend === "rex";
   if (!process.stdin.isTTY) {
     fail("Setup requires an interactive terminal.");
     err("Configure manually with: summon set <key> <value>");
@@ -1161,7 +1170,8 @@ export async function runSetup(): Promise<void> {
       debugLog(`wizard step complete: layout=${layout}`);
       if (!accessibilityChecked) {
         accessibilityChecked = true;
-        await checkAndRecoverAccessibility();
+        if (underRex) console.log(dim("  Rex detected: Ghostty install and Accessibility checks skipped."));
+        else await checkAndRecoverAccessibility();
       }
       history.push(WizardStep.Layout);
       const isCustom = isCustomLayout(layout);
@@ -1266,7 +1276,7 @@ export async function runSetup(): Promise<void> {
 
       if (!isCustom) {
         const validation = validateSetup(wizardResult);
-        printValidation(validation);
+        printValidation(validation, underRex);
       }
 
       debugLog("wizard exit: completed");
