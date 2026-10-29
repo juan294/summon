@@ -75,7 +75,7 @@ async function buildHelp(): Promise<string> {
   });
 
   return [
-    wrap(`${bold(`summon v${__VERSION__}`)} ${note("-- Launch multi-pane Ghostty workspaces")}`),
+    wrap(`${bold(`summon v${__VERSION__}`)} ${note("-- Launch multi-pane terminal workspaces (Ghostty or Rex)")}`),
     "",
     wrap(`${bold("Usage:")} summon <command|target> [options]`),
     "",
@@ -119,7 +119,7 @@ async function buildHelp(): Promise<string> {
     wrap(`  ${cmd("summon snapshot <action>")}    Manage context snapshots (save, show, clear)`),
     "",
     h("TOOLS"),
-    wrap(`  ${cmd("summon doctor")}               Check Ghostty config for recommended settings`),
+    wrap(`  ${cmd("summon doctor")}               Check terminal setup (Ghostty config, Rex server)`),
     wrap(`  ${cmd("summon doctor --fix")}         Auto-add missing recommended settings (backs up first)`),
     wrap(`  ${cmd("summon completions <shell>")}  Generate shell completion script (zsh, bash, fish)`),
     wrap(`  ${cmd("summon trust [path]")}         Trust the .summon file in the given directory (default: current)`),
@@ -143,13 +143,13 @@ async function buildHelp(): Promise<string> {
     wrap(`  --env <KEY=VALUE>           Set environment variable (repeatable; e.g. --env PORT=3000)`),
     wrap(`  --font-size <n>             Override font size for workspace panes`),
     wrap(`  --on-start <cmd>            Run command before workspace creation`),
-    wrap(`  --new-window                Open workspace in a new Ghostty window`),
-    wrap(`  --new-tab                   Open workspace in a new Ghostty tab`),
+    wrap(`  --new-window                Open workspace in a new terminal window`),
+    wrap(`  --new-tab                   Open workspace in a new terminal tab`),
     wrap(`  --no-project-config         Skip the .summon file (do not require trust)`),
     wrap(`  --fullscreen                Start workspace in fullscreen mode`),
     wrap(`  --maximize                  Start workspace maximized`),
     wrap(`  --float                     Float workspace window on top`),
-    wrap(`  -n, --dry-run               Print generated AppleScript without executing`),
+    wrap(`  -n, --dry-run               Print the generated launch script or request`),
     "",
     bold("Config keys:") + note(" (set via 'summon set <key> <value>' or in .summon file)"),
     wrap(`  editor          Command for coding panes (set during setup)`),
@@ -184,7 +184,7 @@ async function buildHelp(): Promise<string> {
     wrap(`  Note: .summon files can specify commands that will be executed.`),
     wrap(`  Review .summon files before running summon in untrusted directories.`),
     "",
-    note("Requires: macOS, Ghostty 1.3.1+ (1.4.0 recommended security baseline)"),
+    note("Requires: macOS and either Ghostty 1.3.1+ (1.4.0 recommended security baseline) or Rex (beta)"),
     "",
     bold("Examples:"),
     wrap(`  summon .                        Launch workspace in current directory`),
@@ -333,6 +333,7 @@ Examples:
 
 Generate Ghostty key table configuration for workspace pane navigation.
 Output can be appended to ~/.config/ghostty/config.
+Rex key bindings are not generated: they live in ~/.config/rex/init.lua (see docs/rex.md).
 
 Options:
   --vim  Use vim-style keys (hjkl) instead of arrow keys
@@ -371,7 +372,7 @@ hyphens, and underscores. Built-in preset names cannot be used.`,
           summon session list
           summon session show <name>
 
-Launch a saved multi-project session. Each project opens in its own Ghostty tab.
+Launch a saved multi-project session. Each project opens in its own terminal tab (one Rex session per project under Rex).
 
 Actions:
   <name>              Launch the named session

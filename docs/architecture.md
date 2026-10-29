@@ -17,9 +17,26 @@ Technical reference for contributors.
 | `commands/runtime.ts` | `handleStatusCommand`, `handleSnapshotCommand`, `handleBriefingCommand`, `handlePortsCommand` | yes | monitor, snapshot, briefing, ports, utils |
 | `commands/setup.ts` | `handleCompletionsCommand`, `handleKeybindingsCommand`, `handleSetupCommand` | yes | completions, keybindings, setup |
 | `commands/types.ts` | `CommandHandler` and `CommandContext` interfaces | **pure** | none |
-| `cli/resolve-target.ts` | Resolves the launch target directory from a project name, path, or `.` — `resolveTargetDirectory`, `expandHome` | **pure** | config, node:path, node:os |
+| `cli/resolve-target.ts` | Resolves the launch target directory from a project name, path, or `.` — `resolveTargetDirectory`, `expandHome`; "Did you mean" hint on a mistyped name | yes | config, status-record, cli/suggest, node:path, node:os |
 | `ui/symbols.ts` | Canonical glyph vocabulary — `sym.ok`, `sym.warn`, `sym.fail`, `sym.info`, `sym.bullet` | **pure** | none |
-| `launcher.ts` | Orchestrator — config resolution, script execution via osascript, rollback on failure | yes | config, layout, script, tree, utils, validation, starship, status, launch-guards, trust, paths |
+| `launcher.ts` | Orchestrator — config resolution, backend resolution (seam), dispatch to a backend, rollback on failure | yes | config, layout, script, tree, utils, validation, starship, status, launch-guards, trust, paths, backend, backends/* |
+| `backend.ts` | `BackendId`, `LaunchContext`, `resolveBackendForLaunch` (one `rex` lookup per detection), `resolveBackendForRecord` | yes | backend-detect, backends/rex/cli |
+| `backend-detect.ts` | Pure backend detection table over an env snapshot plus injected probes (`detectBackend`, `snapshotEnv`) | **pure** | none |
+| `backends/ghostty.ts` | Ghostty adapter — AppleScript launch, `executeScript`, spinner, rollback | yes | script, utils |
+| `backends/rex/cli.ts` | `discoverRex`, `defaultRexServer`, `createRexCli` (bounded `rex` invocations), `probeWhoami` | yes | types, errors |
+| `backends/rex/types.ts` | `RexIdentity`, `REX_OPS` trait table, result types | **pure** | none |
+| `backends/rex/errors.ts` | `classifyRexFailure` — CLI failure classifier | **pure** | none |
+| `backends/rex/layout.ts` | `buildSessionCreateRequest` — layout plan to `session.create` request, pane order and block labels | **pure** | tree, launch-identity, pane-inventory, shell-escape |
+| `backends/rex/app.ts` | App client listing and choice, `selectInApp`, `waitForAppClient`, `openRexApp` | yes | cli |
+| `backends/rex/launch.ts` | `createWorkspace`, `adoptOrphans`, `showWorkspace`, `maybeSwitchToExisting`, pane mapping | yes | cli, app, status, status-record, launch-identity |
+| `backends/rex/status.ts` | `sessionState` (four-state table), `focusRex`, `inspectRex`, `titleRex`, program status | yes | cli, app |
+| `backends/rex/backend.ts` | `createRexBackend` — the Rex `Backend` adapter | yes | layout, launch, cli |
+| `status-record.ts` | Record layer — `WorkspaceStatus`, `readStatusRecord`, `withOwnedRecord` (locked, ownership-checked writes), artifact removal, Ghostty liveness | yes | paths, file-lock, launch-identity, utils |
+| `launch-identity.ts` | Per-launch ids and artifact paths, bootstrap/trap shell fragments, launch manifests | yes | paths, shell-escape, utils |
+| `commands/workspace.ts` | `handleFocusCommand`, `handleInspectCommand`, `handleTitleCommand` — per-backend | yes | launcher, status, backends/rex/status |
+| `commands/clean.ts` | `handleCleanCommand` — close an empty Rex session, review earlier launches | yes | status, backends/rex/* |
+| `cli/suggest.ts` | `suggestProjects` — "did you mean" ranking (prefix, subsequence, edit distance, lazy recency lookup) | **pure** | edit-distance |
+| `edit-distance.ts` | `editDistance` — optimal string alignment distance shared by `setup.ts` and `cli/suggest.ts` | **pure** | none |
 | `launch-guards.ts` | Pre-launch safety checks — `ensureGhostty`, `ensureAccessibility`, `confirmDangerousCommands` (extracted from launcher.ts) | yes | utils, command-spec |
 | `config.ts` | Config file read/write (`~/.config/summon/` and `.summon`), first-run detection, in-process mtime memoization layered over the persistent `cache.ts` | yes | paths, cache |
 | `cache.ts` | Persistent cross-invocation read-through KV cache at `~/.config/summon/cache.json`, keyed by path + `mtimeMs` + `size`; opt-out via `SUMMON_NO_CACHE` — `getCachedKV`, `putCachedKV`, `flushCacheToDisk`, `invalidateCachedKV`, `resetPersistentCache` | yes | paths, utils |
@@ -29,7 +46,7 @@ Technical reference for contributors.
 | `trust.ts` | `.summon` file trust management — SHA-256 allowlist (`assertTrusted`, `trustProject`, `isTrusted`, `hashSummonFile`) | yes | paths, utils |
 | `command-spec.ts` | Command string analysis — `analyzeCommand`, `commandHasShellMeta`, `commandExecutable`, `replaceCommandExecutable` | **pure** | none |
 | `shell-escape.ts` | AppleScript/shell escape primitives — `escapeAppleScript`, `shellQuote`, `shellDoubleQuote` | **pure** | none |
-| `setup.ts` | Interactive setup wizard — back-navigation, numbered-select, accessibility prompt | yes | config, utils, starship, setup-gallery, ui/ansi |
+| `setup.ts` | Interactive setup wizard — back-navigation, numbered-select, accessibility prompt | yes | config, utils, starship, setup-gallery, ui/ansi, edit-distance |
 | `setup-gallery.ts` | Template gallery data — `LAYOUT_INFO`, `GRID_TEMPLATES`, `GridTemplate` (extracted from setup.ts) | **pure** | none |
 | `ui/ansi.ts` | ANSI color/style helpers — `bold`, `dim`, `green`, `yellow`, `cyan`, `magenta`, `brightCyan`, `colorSwatch` (extracted from setup.ts) | **pure** | none |
 | `ui/output.ts` | Single user-facing output writer — `out` (stdout), `err` (stderr), `fail` (unified `summon: error:` prefix) | yes | ui/ansi, utils |
@@ -267,6 +284,25 @@ graph TD
 `index.ts` is a thin dispatch registry (~134 lines) that delegates to `commands/*` handlers and `cli/parse.ts`. Command handlers are statically imported; the help text (`cli/help.ts`), full setup wizard, `completions.ts`, `keybindings.ts`, `monitor.ts`, `ports.ts`, `snapshot.ts`, and the named-session store (`sessions.ts`) are loaded via dynamic `import()` where needed — this keeps the `--version`/`--help` and simple-subcommand paths from pulling in the full launch graph. `launcher.ts` also dynamically imports `setup.ts` when no editor is configured. `launcher.ts` imports `assertTrusted` from `trust.ts` and pre-launch checks from `launch-guards.ts`. All user-facing output is funnelled through `ui/output.ts` (`out`/`err`/`fail`, the unified `summon: error:` prefix); `briefing.ts` and `monitor.ts` import color helpers from `ui/ansi.ts` (not `setup.ts`) and width-aware truncation from `ui/width.ts` for TUI rendering.
 
 All interactive prompts use `promptUser()` from `utils.ts`. On Ctrl+C or EOF, `promptUser` throws `PromptCancelled` instead of calling `process.exit`, allowing callers to clean up before exiting.
+
+## Backends
+
+Summon drives two terminals behind one seam. `launcher.ts` resolves the backend right after config resolution and before any guard or prompt, then hands the layout plan to the backend's `launch`. Nothing in config or on the command line selects the backend; the environment does.
+
+| Where `summon` runs | Backend |
+|---|---|
+| `TERM_PROGRAM=rex`, `rex` CLI found | Rex on the inherited `REX_SERVER` (else the default socket) |
+| `TERM_PROGRAM=rex`, `rex` CLI missing | Ghostty when installed (notice), else fail |
+| `TERM_PROGRAM=ghostty` | Ghostty (inherited `REX_*` ignored) |
+| Another `TERM_PROGRAM` | Ghostty when installed, else Rex when its CLI is found (`REX_SERVER` ignored) |
+| No `TERM_PROGRAM` | `REX_SERVER` only when `rex whoami` answers on it; else Ghostty when installed, else Rex |
+
+The table is a pure function (`backend-detect.ts`) over an env snapshot and injected probes, so each row is a unit test. `backend.ts` looks the `rex` CLI up at most once per detection; `status.ts` caches the binary path per process.
+
+- **Ghostty** (`backends/ghostty.ts`): the AppleScript path described below; liveness from the per-launch `.pid`/`.active` markers.
+- **Rex** (`backends/rex/`): the launch writes a manifest first, sends `session.create` (one block per pane, each an interactive login shell started under `/usr/bin/env` with the workspace variables), records the session, window and block ids from the server's answer (on a lost answer it waits for the root pane's token file instead), and selects the session in the newest connected Rex app. Liveness is read from the server (`ls`, `session.view`) into four states (`active`, `partial`, `stopped`, `unknown`); a lost creation answer is adopted from the manifest and pane files on the next status read; a workspace that ended outside Summon is reconciled (snapshot, `endedAt`, file removal) under the status lock.
+
+The status record is shared by both backends and written only through `withOwnedRecord` (`status-record.ts`), which takes the file lock and checks that the record still belongs to the launch the writer expects. The user-facing contract is in `docs/rex.md`.
 
 ## Data Flow
 

@@ -182,6 +182,26 @@ describe("CLI integration", () => {
     });
   });
 
+  // Phase 6 Unit A (D7): a mistyped project name gets suggestions; the exit code and target do not change.
+  describe("did-you-mean suggestions", () => {
+    beforeAll(() => {
+      run("add", "chapa", TEMP_HOME);
+      run("add", "chapa-cli", TEMP_HOME);
+    });
+    afterAll(() => {
+      run("remove", "chapa");
+      run("remove", "chapa-cli");
+    });
+
+    it("suggests the closest registered name and exits 1", () => {
+      const result = run("chpaa");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain(`"chpaa" is not a known command or registered project`);
+      expect(result.stderr).toContain("Or see available:         summon list");
+      expect(result.stderr.trimEnd().endsWith("Did you mean: chapa?")).toBe(true);
+    });
+  });
+
   describe("relative path resolution", () => {
     it("resolves ./somedir as a path, not a project name", () => {
       const result = run("./somedir");

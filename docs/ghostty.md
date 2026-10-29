@@ -2,6 +2,8 @@
 
 Summon supports Ghostty 1.3.1 and later on macOS. Ghostty 1.4.0 is the recommended security baseline. Run `summon doctor` to see the installed version, detected capabilities and effective configuration.
 
+Summon also runs workspaces in Rex (beta). The backend is detected from the terminal that runs `summon`, so nothing on this page changes when Ghostty is the terminal in use; what differs under Rex (detection, session and pane mapping, already-running behavior, `summon clean`, per-launch files) is documented in [Summon under Rex](rex.md).
+
 ## Compatibility
 
 | Runtime | Behavior | Validation |

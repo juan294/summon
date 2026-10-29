@@ -247,7 +247,7 @@ export function inspectRex(cli: RexCli, identity: RexIdentity, panes: readonly s
   // Availability follows the recorded blocks (all present = available); unverified panes are reported, not counted.
   const problems: string[] = [];
   if (closed.length > 0) problems.push(`${closed.length} recorded ${closed.length === 1 ? "pane is" : "panes are"} closed in Rex (${closed.join(", ")})`);
-  if (unverified.length > 0) problems.push(`${unverified.length} ${unverified.length === 1 ? "pane" : "panes"} could not be verified after recovery (${unverified.join(", ")}); run summon ${project} to relaunch`);
+  if (unverified.length > 0) problems.push(`${unverified.length} ${unverified.length === 1 ? "pane" : "panes"} could not be verified after recovery (${unverified.join(", ")}); run summon ${project} --new-window to relaunch`);
   const root = rows.find((row) => row.blockId === identity.rootBlockId && row.availability === "available");
   const programStatus = root ? programStatusOf(cli, identity.sessionId, identity.rootBlockId) : undefined;
   return { availability: closed.length > 0 ? "unavailable" : "available", ...(problems.length > 0 ? { reason: problems.join("; ") } : {}), panes: rows, ...(programStatus ? { programStatus } : {}) };

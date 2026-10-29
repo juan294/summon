@@ -471,7 +471,7 @@ describe("resolveTargetDirectory", () => {
   });
 
   it("returns registered project paths", () => {
-    mockGetProject.mockReturnValue("/work/demo");
+    mockListProjects.mockReturnValue(new Map([["demo", "/work/demo"]]));
 
     expect(resolveTargetDirectory("demo")).toBe("/work/demo");
   });
@@ -481,7 +481,7 @@ describe("resolveTargetDirectory", () => {
     vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error(`exit:${code}`);
     }) as never);
-    mockGetProject.mockReturnValue(undefined);
+    mockListProjects.mockReturnValue(new Map());
 
     expect(() => resolveTargetDirectory("missing")).toThrow("exit:1");
     const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");

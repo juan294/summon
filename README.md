@@ -1,4 +1,4 @@
-# Summon your Ghostty workspace!
+# Summon your Ghostty or Rex workspace!
 
 [![CI](https://github.com/juan294/summon/actions/workflows/ci.yml/badge.svg)](https://github.com/juan294/summon/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/juan294/summon/actions/workflows/codeql.yml/badge.svg)](https://github.com/juan294/summon/actions/workflows/codeql.yml)
@@ -7,7 +7,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-6-blue)](https://www.typescriptlang.org)
 [![license](https://img.shields.io/npm/l/summon-ws)](./LICENSE)
 
-Summon your Ghostty workspace with one command. Native splits, no tmux.
+Summon your Ghostty or Rex workspace with one command. Native splits, no tmux.
 
 **[Browse the Layout Gallery](https://juan294.github.io/summon/)**
 
@@ -19,9 +19,9 @@ Summon your Ghostty workspace with one command. Native splits, no tmux.
 npm i -g summon-ws
 ```
 
-Requires Node >= 20.19, macOS, and [Ghostty](https://ghostty.org) 1.3.1+; 1.4.0 is the recommended security baseline.
+Requires Node >= 20.19, macOS, and one of two terminals: [Ghostty](https://ghostty.org) 1.3.1+ (1.4.0 is the recommended security baseline) or Rex (beta). Summon detects the terminal that runs it; Rex needs no extra setup.
 
-Run `summon doctor` to inspect version, capabilities and effective settings. See the [Ghostty workflow guide](docs/ghostty.md) for compatibility, exact pane focus, titles, visibility-aware monitoring and opt-in SSH recipes.
+Run `summon doctor` to inspect version, capabilities and effective settings. See the [Ghostty workflow guide](docs/ghostty.md) for compatibility, exact pane focus, titles, visibility-aware monitoring and opt-in SSH recipes, and [Summon under Rex](docs/rex.md) for what differs in Rex.
 
 ## Quick Start
 
@@ -48,7 +48,7 @@ summon myapp                      # launch by project name
 
 ## How It Works
 
-Summon generates and executes AppleScript that drives Ghostty's native split system. No terminal multiplexer -- just native Ghostty panes with commands running in each one.
+Under Ghostty, Summon generates and executes AppleScript that drives Ghostty's native split system. Under Rex, it sends one `session.create` request to the Rex server: one session per workspace, one block per pane. No terminal multiplexer of its own -- just the terminal's native panes with commands running in each one. The terminal that runs `summon` decides the backend; see [docs/rex.md](docs/rex.md).
 
 ## Default Layout
 
@@ -137,7 +137,7 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 | `summon briefing` | Morning briefing — overnight commits, dirty files, recommendations |
 | `summon ports` | Detect port assignments across projects, highlight conflicts |
 | `summon snapshot <action>` | Manage context snapshots (save, show, clear) |
-| `summon session <name>` | Launch a saved multi-project session — one Ghostty tab per project |
+| `summon session <name>` | Launch a saved multi-project session — one terminal tab (or Rex session) per project |
 | `summon session add <name> <p>...` | Save a session (named list of registered projects) |
 | `summon session list` | List saved sessions |
 | `summon session show <name>` | Print a session's project list |
@@ -164,8 +164,8 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 | `--font-size <n>` | Override font size for workspace panes |
 | `--env KEY=VALUE` | Set environment variable (repeatable) |
 | `--on-start <cmd>` | Run a command before workspace creation |
-| `--new-window` | Open workspace in a new Ghostty window |
-| `--new-tab` | Open workspace in a new Ghostty tab |
+| `--new-window` | Open workspace in a new terminal window (a fresh session under Rex) |
+| `--new-tab` | Open workspace in a new terminal tab |
 | `--clean` | Auto-close stale panes from prior Ghostty session (default: off) |
 | `--no-clean` | Skip auto-close of restored panes |
 | `--fullscreen` | Start workspace in fullscreen mode |
@@ -244,6 +244,7 @@ Auto-clean is skipped when:
 - [Architecture](docs/architecture.md) -- module map, AppleScript generation, layout algorithm
 - [User Manual](docs/user-manual.md) -- full command reference, walkthrough, troubleshooting
 - [Ghostty Workflows](docs/ghostty.md) -- version/capability diagnostics, pane focus, titles, visibility and SSH
+- [Summon under Rex](docs/rex.md) -- backend detection, session and pane mapping, already-running behavior, `summon clean`, per-launch files
 - [Changelog](CHANGELOG.md) -- release history
 - [Publishing](docs/publishing.md) -- npm publish checklist
 

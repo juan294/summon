@@ -3,8 +3,10 @@
 // without pulling in the full launch/AppleScript graph.
 import { resolve } from "node:path";
 import { homedir } from "node:os";
-import { getProject } from "../config.js";
+import { listProjects } from "../config.js";
+import { readStatusRecord } from "../status-record.js";
 import { fail, err } from "../ui/output.js";
+import { suggestProjects } from "./suggest.js";
 
 export function expandHome(path: string): string {
   return resolve(path.replace(/^~/, homedir()));
@@ -21,13 +23,31 @@ export function resolveTargetDirectory(target: string): string {
     return resolve(target);
   }
 
-  const projectPath = getProject(target);
+  const projects = listProjects();
+  const projectPath = projects.get(target);
   if (!projectPath) {
     fail(`"${target}" is not a known command or registered project. Try: summon --help`);
     err(`To register as a project: summon add ${target} /path/to/project`);
     err("Or see available:         summon list");
+    const suggestions = projectSuggestions(target, projects.keys());
+    if (suggestions.length > 0) err(`Did you mean: ${suggestions.join(", ")}?`);
     process.exit(1);
   }
 
   return projectPath;
+}
+
+/**
+ * Registered names close to a mistyped `target`, best first (D7). Recency comes from the
+ * status record JSON of the matching names only: no liveness, no Rex probes, no adoption.
+ */
+export function projectSuggestions(target: string, names: Iterable<string> = listProjects().keys()): string[] {
+  return suggestProjects(target, [...names], lastLaunchAt);
+}
+
+function lastLaunchAt(name: string): number | undefined {
+  const record = readStatusRecord(name);
+  if (!record) return undefined;
+  const at = Date.parse(record.startedAt);
+  return Number.isFinite(at) ? at : undefined;
 }

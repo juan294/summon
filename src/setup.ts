@@ -10,6 +10,7 @@ import { renderLayoutPreview, renderTemplateGallery, getDisplayWidth } from "./u
 import { sym } from "./ui/symbols.js";
 import { commandExecutable, replaceCommandExecutable } from "./command-spec.js";
 import { fail, err } from "./ui/output.js";
+import { editDistance } from "./edit-distance.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -1310,7 +1311,7 @@ export async function runSetup(options: SetupOptions = {}): Promise<void> {
 
 /**
  * Find the closest match to `input` from a list of known commands.
- * Uses simple edit distance (Levenshtein). Returns null if no close match.
+ * Uses the shared edit distance (`edit-distance.ts`). Returns null if no close match.
  */
 /** @internal — exported for testing */
 export function findClosestCommand(input: string, known: string[]): string | null {
@@ -1324,23 +1325,6 @@ export function findClosestCommand(input: string, known: string[]): string | nul
     }
   }
   return best;
-}
-
-/** Simple Levenshtein distance for short command names. */
-function editDistance(a: string, b: string): number {
-  const m = a.length;
-  const n = b.length;
-  const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0) as number[]);
-  for (let i = 0; i <= m; i++) dp[i]![0] = i;
-  for (let j = 0; j <= n; j++) dp[0]![j] = j;
-  for (let i = 1; i <= m; i++) {
-    for (let j = 1; j <= n; j++) {
-      dp[i]![j] = a[i - 1] === b[j - 1]
-        ? dp[i - 1]![j - 1]!
-        : 1 + Math.min(dp[i - 1]![j]!, dp[i]![j - 1]!, dp[i - 1]![j - 1]!);
-    }
-  }
-  return dp[m]![n]!;
 }
 
 /**

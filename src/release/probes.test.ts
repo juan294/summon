@@ -215,6 +215,14 @@ describe("release.dangerous-command-refusal", () => {
   });
 });
 
+describe("release.docs", () => {
+  it("the Rex guide exists and README links it (Rex plan Phase 6)", () => {
+    expect(existsSync(join(PROJECT_ROOT, "docs", "rex.md"))).toBe(true);
+    const readme = readFileSync(join(PROJECT_ROOT, "README.md"), "utf-8");
+    expect(readme).toContain("](docs/rex.md)");
+  });
+});
+
 describe("release.injection-defense", () => {
   it("the static escape-lint gate is present and non-trivial", () => {
     // CLAUDE.md marks this file load-bearing: it is the primary injection
