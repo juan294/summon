@@ -32,6 +32,16 @@ function run(...args: string[]) {
 }
 
 describe("CLI integration", () => {
+  it("accepts the cleanup trap's snapshot save flags (--dir/--project/--layout/--launch)", () => {
+    const result = run("snapshot", "save", "--dir", TEMP_HOME, "--project", "trapdemo", "--layout", "unknown");
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("No git repo found in");
+    const generation = run("snapshot", "save", "--dir", TEMP_HOME, "--project", "trapdemo", "--layout", "unknown", "--launch", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+    // No record for this generation: superseded, silent, exit 0.
+    expect(generation.status, generation.stderr).toBe(0);
+    expect(generation.stdout).toBe("");
+  });
+
   it("prints help with --help and exits 0", () => {
     const result = run("--help");
     expect(result.status).toBe(0);

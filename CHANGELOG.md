@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Every launch now has a launch id. Liveness sidecars live under `status/<project>.launches/<launchId>.*`, the cleanup trap removes only its own files, and the shared status record is written only by Node under a file lock with an explicit ownership expectation. Records gain optional `launchId`, `backend`, `rex` and `endedAt` fields (schema version stays 1; see `docs/decisions/status-record-launch-ownership-and-backend.md`).
+- The terminal backend is resolved automatically right after config resolution. This version still launches with Ghostty only; a Rex terminal without Ghostty is refused with "Rex backend is not available in this version".
+- `--dry-run` output gains two header lines, `-- Backend:` and `-- Launch:`. A dry run on a machine with neither Ghostty.app nor the Rex CLI prints the Ghostty script with a notice instead of failing.
+
+### Fixed
+
+- `summon snapshot save --dir … --project … --layout …`, the call made by the workspace cleanup trap, was rejected by the global flag parser ("Unknown flag '--dir'") so the on-exit snapshot never saved. The flags are now parsed like every other option (and `--layout` is validated as a preset only for launches); `--launch <id>` performs a generation-checked save.
+
 ## [1.9.0] - 2026-10-29
 
 ### Added

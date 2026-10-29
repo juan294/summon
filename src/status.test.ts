@@ -13,8 +13,37 @@ vi.mock("./paths.js", () => ({
   CONFIG_DIR: join(tmpdir(), `summon-config-test-${process.pid}`),
 }));
 
-const { writeStatus, clearStatus, readStatus, readAllStatuses, getGitBranch, parseWorkspaceStatus, resetReadAllStatusesCache } = await import("./status.js");
+const { writeStatus, clearStatus, readStatus, readAllStatuses, getGitBranch, parseWorkspaceStatus, resetReadAllStatusesCache, readStatusRecord, withOwnedRecord, discardStatusRecord, statusTestHooks } = await import("./status.js");
+const { writeLaunchManifest } = await import("./launch-identity.js");
 import type { WorkspaceStatus } from "./status.js";
+import type { LaunchManifest } from "./launch-identity.js";
+
+const GEN_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const GEN_B = "bbbbbbbb-bbbb-4bbb-9bbb-bbbbbbbbbbbb";
+const REX_SESSION = "session:01a1b2c3-d4e5-4f60-8a7b-8c9d0e1f2a3b";
+const REX_WINDOW = "window:01a1b2c3-d4e5-4f60-8a7b-8c9d0e1f2a3b";
+const REX_BLOCK = "block:01a1b2c3-d4e5-4f60-8a7b-8c9d0e1f2a3b";
+
+function launchDir(project: string): string {
+  return join(TEST_STATUS_DIR, `${project}.launches`);
+}
+
+function writeLaunchFiles(project: string, launchId: string, pid: number | string = process.pid, marker: string = launchId): void {
+  mkdirSync(launchDir(project), { recursive: true });
+  writeFileSync(join(launchDir(project), `${launchId}.pid`), `${pid}\n`);
+  writeFileSync(join(launchDir(project), `${launchId}.active`), `${marker}\n`);
+}
+
+function rexIdentity() {
+  return {
+    server: "unix:///tmp/rex.sock",
+    hostId: "cf528d2b-1111-4222-8333-444455556666",
+    sessionId: REX_SESSION,
+    windowId: REX_WINDOW,
+    rootBlockId: REX_BLOCK,
+    blocks: [{ name: "editor", blockId: REX_BLOCK, label: "editor · nvim" }],
+  };
+}
 
 function makeStatus(overrides?: Partial<WorkspaceStatus>): WorkspaceStatus {
   return {
@@ -680,4 +709,331 @@ describe("P2 optional native schema",()=>{
   expect(parsed?.project).toBe("testapp");expect(parsed?.native).toBeUndefined();
   expect(stderr).toHaveBeenCalledWith(expect.stringContaining("native identity"));stderr.mockRestore();
  });
+});
+
+describe("per-launch liveness (plan P12)", () => {
+  it("legacy record (no launchId) resolves ghostty with the legacy paths", () => {
+    writeStatus(makeStatus({ project: "myapp" }));
+    writeFileSync(join(TEST_STATUS_DIR, "myapp.pid"), String(process.pid));
+    writeFileSync(join(TEST_STATUS_DIR, "myapp.active"), "");
+    const result = readStatus("myapp")!;
+    expect(result.state).toBe("active");
+    expect(result.launchId).toBeUndefined();
+    expect(result.backend).toBeUndefined();
+  });
+
+  it("a launchId record is active only through its own .active and live .pid", () => {
+    writeStatus(makeStatus({ project: "myapp", launchId: GEN_A, backend: "ghostty" }));
+    writeLaunchFiles("myapp", GEN_A);
+    const result = readStatus("myapp")!;
+    expect(result.state).toBe("active");
+    expect(result.launchId).toBe(GEN_A);
+    expect(result.uptime).not.toBeNull();
+  });
+
+  it("a launchId record ignores the legacy paths (legacy .active present, per-launch absent -> stopped)", () => {
+    writeStatus(makeStatus({ project: "myapp", launchId: GEN_A }));
+    writeFileSync(join(TEST_STATUS_DIR, "myapp.pid"), String(process.pid));
+    writeFileSync(join(TEST_STATUS_DIR, "myapp.active"), "");
+    expect(readStatus("myapp")!.state).toBe("stopped");
+  });
+
+  it("an .active holding another launch id means stopped even with a live pid", () => {
+    writeStatus(makeStatus({ project: "myapp", launchId: GEN_A }));
+    writeLaunchFiles("myapp", GEN_A, process.pid, GEN_B);
+    expect(readStatus("myapp")!.state).toBe("stopped");
+  });
+
+  it("a dead pid under the launch directory means stopped", () => {
+    writeStatus(makeStatus({ project: "myapp", launchId: GEN_A }));
+    writeLaunchFiles("myapp", GEN_A, 999999);
+    expect(readStatus("myapp")!.state).toBe("stopped");
+  });
+
+  it("a missing pid file under the launch directory means stopped", () => {
+    writeStatus(makeStatus({ project: "myapp", launchId: GEN_A }));
+    mkdirSync(launchDir("myapp"), { recursive: true });
+    writeFileSync(join(launchDir("myapp"), `${GEN_A}.active`), `${GEN_A}\n`);
+    expect(readStatus("myapp")!.state).toBe("stopped");
+  });
+
+  it("a Rex record resolves to unknown with a reason until Phase 3 ships sessionState", () => {
+    writeStatus(makeStatus({ project: "myapp", launchId: GEN_A, backend: "rex", rex: rexIdentity(), panes: ["editor", "sidebar", "shell"] }));
+    writeLaunchFiles("myapp", GEN_A);
+    const result = readStatus("myapp")!;
+    expect(result.state).toBe("unknown");
+    expect(result.uptime).toBeNull();
+    expect(result.reason).toContain("Rex liveness");
+  });
+});
+
+describe("optional identity fields (plan P16)", () => {
+  it("round-trips a Rex identity, backend and endedAt", () => {
+    const endedAt = "2026-10-29T12:00:00.000Z";
+    writeStatus(makeStatus({ project: "rexapp", launchId: GEN_A, backend: "rex", rex: rexIdentity(), endedAt }));
+    const record = readStatusRecord("rexapp")!;
+    expect(record.rex).toEqual(rexIdentity());
+    expect(record.backend).toBe("rex");
+    expect(record.launchId).toBe(GEN_A);
+    expect(record.endedAt).toBe(endedAt);
+  });
+
+  it("drops an invalid Rex identity with a warning and keeps the record", () => {
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    try {
+      const parsed = parseWorkspaceStatus({ ...makeStatus(), backend: "rex", rex: { ...rexIdentity(), sessionId: "nope" } });
+      expect(parsed?.project).toBe("testapp");
+      expect(parsed?.rex).toBeUndefined();
+      expect(stderr).toHaveBeenCalledWith(expect.stringContaining("invalid Rex identity"));
+    } finally {
+      stderr.mockRestore();
+    }
+  });
+
+  it("drops a block whose name is not one of the record's panes", () => {
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    try {
+      const parsed = parseWorkspaceStatus({ ...makeStatus({ panes: ["a"] }), backend: "rex", rex: rexIdentity() });
+      expect(parsed?.rex).toBeUndefined();
+    } finally {
+      stderr.mockRestore();
+    }
+  });
+
+  it("drops an unknown backend with a warning (treated as ghostty)", () => {
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    try {
+      const parsed = parseWorkspaceStatus({ ...makeStatus(), backend: "zsh" });
+      expect(parsed?.backend).toBeUndefined();
+      expect(stderr).toHaveBeenCalledWith(expect.stringContaining('unknown backend "zsh"'));
+    } finally {
+      stderr.mockRestore();
+    }
+  });
+
+  it("drops an invalid launchId with a warning so liveness falls back to the legacy markers", () => {
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    try {
+      const parsed = parseWorkspaceStatus({ ...makeStatus(), launchId: "NOT-A-UUID" });
+      expect(parsed?.launchId).toBeUndefined();
+      expect(stderr).toHaveBeenCalledWith(expect.stringContaining("invalid launch id"));
+    } finally {
+      stderr.mockRestore();
+    }
+  });
+
+  it("keeps native and rex mutually exclusive according to the backend", () => {
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    try {
+      const id = "00000000-0000-4000-8000-000000000001";
+      const native = { rootTerminalId: id, panes: [{ name: "editor", terminalId: id }] };
+      const onRex = parseWorkspaceStatus({ ...makeStatus(), backend: "rex", rex: rexIdentity(), native });
+      expect(onRex?.native).toBeUndefined();
+      expect(onRex?.rex).toBeDefined();
+      const onGhostty = parseWorkspaceStatus({ ...makeStatus(), rex: rexIdentity(), native });
+      expect(onGhostty?.rex).toBeUndefined();
+      expect(onGhostty?.native).toBeDefined();
+    } finally {
+      stderr.mockRestore();
+    }
+  });
+
+  it("drops an unparsable endedAt silently", () => {
+    expect(parseWorkspaceStatus({ ...makeStatus(), endedAt: "not a date" })?.endedAt).toBeUndefined();
+  });
+});
+
+describe("withOwnedRecord (plan §3 status write protocol)", () => {
+  const recordBytes = (project: string) => readFileSync(join(TEST_STATUS_DIR, `${project}.json`), "utf-8");
+
+  afterEach(() => {
+    delete statusTestHooks.beforeLock;
+  });
+
+  it("{launchId: null} with no record runs the action and writes", () => {
+    const action = vi.fn(() => makeStatus({ project: "p", launchId: GEN_A }));
+    const result = withOwnedRecord("p", { launchId: null }, action);
+    expect(result).toEqual({ outcome: "written", afterErrors: [] });
+    expect(action).toHaveBeenCalledWith(null);
+    expect(readStatusRecord("p")?.launchId).toBe(GEN_A);
+  });
+
+  it("{launchId: null} when a record appeared before the lock -> superseded, action never runs", () => {
+    statusTestHooks.beforeLock = () => {
+      delete statusTestHooks.beforeLock;
+      writeFileSync(join(TEST_STATUS_DIR, "p.json"), JSON.stringify(makeStatus({ project: "p", launchId: GEN_B })));
+    };
+    const action = vi.fn(() => makeStatus({ project: "p", launchId: GEN_A }));
+    expect(withOwnedRecord("p", { launchId: null }, action).outcome).toBe("superseded");
+    expect(action).not.toHaveBeenCalled();
+    expect(readStatusRecord("p")?.launchId).toBe(GEN_B);
+  });
+
+  it("{launchId: null} when a legacy record (no launchId) exists -> superseded", () => {
+    writeStatus(makeStatus({ project: "p" }));
+    const action = vi.fn(() => null);
+    expect(withOwnedRecord("p", { launchId: null }, action).outcome).toBe("superseded");
+    expect(action).not.toHaveBeenCalled();
+  });
+
+  it("{launchId: null} when a malformed record file exists -> superseded (a file is a present record)", () => {
+    mkdirSync(TEST_STATUS_DIR, { recursive: true });
+    writeFileSync(join(TEST_STATUS_DIR, "p.json"), "{broken");
+    const action = vi.fn(() => null);
+    expect(withOwnedRecord("p", { launchId: null }, action).outcome).toBe("superseded");
+    expect(action).not.toHaveBeenCalled();
+  });
+
+  it("{launchId: gen} mismatch -> superseded without touching the record", () => {
+    writeStatus(makeStatus({ project: "p", launchId: GEN_B }));
+    const before = recordBytes("p");
+    const action = vi.fn(() => makeStatus({ project: "p", launchId: GEN_A }));
+    expect(withOwnedRecord("p", { launchId: GEN_A }, action).outcome).toBe("superseded");
+    expect(action).not.toHaveBeenCalled();
+    expect(recordBytes("p")).toBe(before);
+  });
+
+  it("{launchId: gen} against a legacy record -> superseded", () => {
+    writeStatus(makeStatus({ project: "p" }));
+    expect(withOwnedRecord("p", { launchId: GEN_A }, () => null).outcome).toBe("superseded");
+  });
+
+  it("{launchId: gen} with no record -> superseded", () => {
+    expect(withOwnedRecord("p", { launchId: GEN_A }, () => null).outcome).toBe("superseded");
+  });
+
+  it("{launchId: gen} match runs the action with the current record", () => {
+    writeStatus(makeStatus({ project: "p", launchId: GEN_A, layout: "full" }));
+    const action = vi.fn((current: WorkspaceStatus | null) => ({ ...current!, layout: "pair" }));
+    expect(withOwnedRecord("p", { launchId: GEN_A }, action).outcome).toBe("written");
+    expect(action.mock.calls[0]?.[0]?.layout).toBe("full");
+    expect(readStatusRecord("p")?.layout).toBe("pair");
+  });
+
+  it("action returning null -> unchanged and the file bytes are identical", () => {
+    writeStatus(makeStatus({ project: "p", launchId: GEN_A }));
+    const before = recordBytes("p");
+    expect(withOwnedRecord("p", { launchId: GEN_A }, () => null).outcome).toBe("unchanged");
+    expect(recordBytes("p")).toBe(before);
+  });
+
+  it('"replace" always writes, even over another live generation', () => {
+    writeStatus(makeStatus({ project: "p", launchId: GEN_A }));
+    expect(withOwnedRecord("p", "replace", () => makeStatus({ project: "p", launchId: GEN_B })).outcome).toBe("written");
+    expect(readStatusRecord("p")?.launchId).toBe(GEN_B);
+  });
+
+  it("action throw -> no write, error propagates, afterWrite not called", () => {
+    writeStatus(makeStatus({ project: "p", launchId: GEN_A, layout: "full" }));
+    const afterWrite = vi.fn();
+    expect(() => withOwnedRecord("p", { launchId: GEN_A }, () => { throw new Error("boom"); }, afterWrite)).toThrow("boom");
+    expect(afterWrite).not.toHaveBeenCalled();
+    expect(readStatusRecord("p")?.layout).toBe("full");
+    // The lock is released: a later write succeeds.
+    expect(withOwnedRecord("p", { launchId: GEN_A }, () => null).outcome).toBe("unchanged");
+  });
+
+  it("afterWrite runs after written and after unchanged, observing the durable file, never after superseded", () => {
+    const seen: Array<[string, string | undefined]> = [];
+    const afterWrite = (outcome: "written" | "unchanged", record: WorkspaceStatus | null) => {
+      seen.push([outcome, readStatusRecord("p")?.layout]);
+      expect(record?.project).toBe("p");
+    };
+    withOwnedRecord("p", { launchId: null }, () => makeStatus({ project: "p", launchId: GEN_A, layout: "full" }), afterWrite);
+    withOwnedRecord("p", { launchId: GEN_A }, () => null, afterWrite);
+    const superseded = vi.fn();
+    withOwnedRecord("p", { launchId: GEN_B }, () => null, superseded);
+    expect(seen).toEqual([["written", "full"], ["unchanged", "full"]]);
+    expect(superseded).not.toHaveBeenCalled();
+  });
+
+  it("an afterWrite throw lands in afterErrors and the outcome stays written", () => {
+    const result = withOwnedRecord("p", "replace", () => makeStatus({ project: "p", launchId: GEN_A }), () => { throw new Error("cleanup failed"); });
+    expect(result.outcome).toBe("written");
+    expect(result.afterErrors.map((e) => e.message)).toEqual(["cleanup failed"]);
+    expect(readStatusRecord("p")?.launchId).toBe(GEN_A);
+  });
+
+  it("a held lock surfaces the file-lock timeout error (status-record case)", () => {
+    mkdirSync(TEST_STATUS_DIR, { recursive: true });
+    const lockDir = join(TEST_STATUS_DIR, "p.json.lock");
+    mkdirSync(lockDir);
+    writeFileSync(join(lockDir, `${process.pid}-00000000-0000-4000-8000-000000000000.owner`), "");
+    const action = vi.fn(() => null);
+    expect(() => withOwnedRecord("p", "replace", action)).toThrow("Timed out waiting for config lock");
+    expect(action).not.toHaveBeenCalled();
+    rmSync(lockDir, { recursive: true, force: true });
+  });
+
+  it("rejects path traversal before taking any lock", () => {
+    expect(() => withOwnedRecord("../../etc/evil", "replace", () => null)).toThrow("Invalid status path");
+  });
+});
+
+describe("discardStatusRecord and clearStatus with a generation", () => {
+  it("discardStatusRecord removes the record only while the generation holds", () => {
+    writeStatus(makeStatus({ project: "p", launchId: GEN_B }));
+    expect(discardStatusRecord("p", GEN_A)).toBe(false);
+    expect(readStatusRecord("p")?.launchId).toBe(GEN_B);
+    expect(discardStatusRecord("p", GEN_B)).toBe(true);
+    expect(existsSync(join(TEST_STATUS_DIR, "p.json"))).toBe(false);
+    expect(discardStatusRecord("p")).toBe(true);
+  });
+
+  it("discardStatusRecord returns false instead of throwing on an invalid project name", () => {
+    expect(discardStatusRecord("../../etc/evil")).toBe(false);
+  });
+
+  it("clearStatus with a generation removes that launch's own files and the legacy paths", () => {
+    writeStatus(makeStatus({ project: "p", launchId: GEN_A }));
+    writeLaunchFiles("p", GEN_A);
+    writeLaunchFiles("p", GEN_B);
+    writeFileSync(join(TEST_STATUS_DIR, "p.active"), "");
+    clearStatus("p", GEN_A);
+    expect(existsSync(join(TEST_STATUS_DIR, "p.json"))).toBe(false);
+    expect(existsSync(join(TEST_STATUS_DIR, "p.active"))).toBe(false);
+    expect(existsSync(join(launchDir("p"), `${GEN_A}.pid`))).toBe(false);
+    expect(existsSync(join(launchDir("p"), `${GEN_A}.active`))).toBe(false);
+    expect(existsSync(join(launchDir("p"), `${GEN_B}.pid`))).toBe(true);
+  });
+
+  it("clearStatus with a stale generation leaves everything in place", () => {
+    writeStatus(makeStatus({ project: "p", launchId: GEN_B }));
+    writeLaunchFiles("p", GEN_B);
+    clearStatus("p", GEN_A);
+    expect(existsSync(join(TEST_STATUS_DIR, "p.json"))).toBe(true);
+    expect(existsSync(join(launchDir("p"), `${GEN_B}.pid`))).toBe(true);
+  });
+});
+
+describe("readAllStatuses discovery of unverified launches (plan P13 §6)", () => {
+  function manifest(project: string, launchId: string): LaunchManifest {
+    return {
+      version: 1, launchId, project, directory: `/tmp/${project}`, layout: "default",
+      panes: ["editor", "shell"], paneOrder: ["editor", "shell"], blockLabels: { editor: "editor", shell: "shell" },
+      backend: "rex", server: "unix:///tmp/rex.sock", startedAt: "2026-10-29T10:00:00.000Z",
+    };
+  }
+
+  it("lists a manifest without a record as an unverified launch row", () => {
+    mkdirSync(TEST_STATUS_DIR, { recursive: true });
+    writeLaunchManifest(manifest("orphan", GEN_A));
+    const rows = readAllStatuses();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ project: "orphan", launchId: GEN_A, backend: "rex", state: "unknown", uptime: null, reason: "unverified launch", panes: ["editor", "shell"], directory: "/tmp/orphan" });
+  });
+
+  it("does not list manifests of a project that has a record (adoption is Phase 3)", () => {
+    writeStatus(makeStatus({ project: "recorded", launchId: GEN_B }));
+    writeLaunchManifest(manifest("recorded", GEN_A));
+    const rows = readAllStatuses();
+    expect(rows.map((r) => r.launchId)).toEqual([GEN_B]);
+  });
+
+  it("ignores launch directories without manifests and lock directories", () => {
+    writeStatus(makeStatus({ project: "a" }));
+    mkdirSync(join(TEST_STATUS_DIR, "empty.launches"), { recursive: true });
+    mkdirSync(join(TEST_STATUS_DIR, "a.json.lock"), { recursive: true });
+    expect(readAllStatuses().map((r) => r.project)).toEqual(["a"]);
+  });
 });

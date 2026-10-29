@@ -3,6 +3,10 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     include: ["src/**/*.test.ts"],
+    // Backend detection (plan P5) reads the terminal that runs the tests. Pin Ghostty so every
+    // suite, including subprocess suites that spread process.env, behaves the same under Rex,
+    // iTerm or CI. Tests that need another terminal stub TERM_PROGRAM explicitly.
+    env: { TERM_PROGRAM: "ghostty" },
     // Cap worker pool to reduce starvation risk on high-load machines.
     // Default is numCPUs; 8 leaves headroom while preserving parallelism.
     maxWorkers: 8,

@@ -33,13 +33,20 @@ src/
   layout.ts             Layout calculation (pure function)
   tree.ts               Tree DSL parser, layout node model, plan builder (pure function)
   script.ts             AppleScript generator (pure function — builds script string)
-  launcher.ts           Orchestrator: resolve config, generate script, execute via osascript
+  launcher.ts           Orchestrator: resolve config, resolve backend (P15 seam), generate script, dispatch to a backend
+  backend.ts            BackendId, LaunchContext, resolveBackendForLaunch, resolveBackendForRecord
+  backend-detect.ts     Pure backend detection table over an env snapshot plus injected probe results
+  launch-identity.ts    Per-launch ids and artifacts: newLaunchId, launchArtifactPaths, bootstrap/trap shell fragments, launch manifests
+  file-lock.ts          withFileLock: cross-process lock (directory rename, dead-owner recovery) for config and status records
+  backends/ghostty.ts   GhosttyBackend adapter: AppleScript launch, executeScript, spinner, rollback
+  backends/rex/cli.ts   discoverRex (PATH, REX_BIN_DIR, app bundles), defaultRexServer
+  backends/rex/types.ts RexIdentity type and parser
   launch-guards.ts      Pre-launch safety checks (ensureGhostty, ensureAccessibility, confirmDangerousCommands)
-  status.ts             Workspace status tracking (active/stopped, PID, uptime, marker files)
+  status.ts             Workspace status tracking (active/stopped/unknown, per-launch liveness, withOwnedRecord locked writes)
   briefing.ts           Morning project briefing (overnight commits, dirty files, recommendations)
   monitor.ts            Interactive TUI dashboard for workspace status (refresh loop, keyboard nav)
   ports.ts              Port detection across projects (env vars, package.json, framework configs)
-  snapshot.ts           Context snapshot save/restore (git state, layout, branch)
+  snapshot.ts           Context snapshot collect/write/restore (git state, layout, branch)
   setup.ts              Interactive setup wizard, visual layout builder (back-nav, numbered select, accessibility prompt)
   setup-gallery.ts      Template gallery data extracted from setup.ts (LAYOUT_INFO, GRID_TEMPLATES)
   starship.ts           Starship detection, preset listing, TOML config caching

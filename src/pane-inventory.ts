@@ -9,6 +9,15 @@ export interface NativeMetadata {
   rootTerminalId: string;
   panes: Array<{ name: string; terminalId: string }>;
 }
+/** Bounded, control-free text for names and labels that end up in native selectors or titles. */
+export const MAX_TEXT_LENGTH = 256;
+// eslint-disable-next-line no-control-regex -- native selectors cannot contain terminal controls
+const CONTROL_CHARS_RE = /[\x00-\x1f\x7f-\x9f]/;
+export function isPlainText(value: unknown, options: { allowEmpty?: boolean } = {}): value is string {
+  if (typeof value !== "string" || value.length > MAX_TEXT_LENGTH || CONTROL_CHARS_RE.test(value)) return false;
+  return options.allowEmpty === true || value.length > 0;
+}
+
 export const TERMINAL_ID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -69,11 +78,7 @@ export function parseNativeMetadata(raw: unknown): NativeMetadata | undefined {
     if (!item || typeof item !== "object") return;
     const p = item as Record<string, unknown>;
     if (
-      typeof p.name !== "string" ||
-      !p.name ||
-      p.name.length > 256 ||
-      // eslint-disable-next-line no-control-regex -- native selectors cannot contain terminal controls
-      /[\x00-\x1f\x7f-\x9f]/.test(p.name) ||
+      !isPlainText(p.name) ||
       typeof p.terminalId !== "string" ||
       !TERMINAL_ID_RE.test(p.terminalId)
     )

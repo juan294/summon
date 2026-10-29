@@ -280,8 +280,9 @@ Alias for 'summon open'. Switch to an active workspace or launch a stopped one.`
 Manage workspace context snapshots.
 
 Actions:
-  save [--dir <path>] [--project <name>] [--layout <name>]
-        Save a snapshot of the current project state
+  save [--dir <path>] [--project <name>] [--layout <name>] [--launch <id>]
+        Save a snapshot of the current project state. --launch <id> (used by the
+        workspace cleanup trap) saves only while that launch still owns the record.
   show <project>    Display a saved snapshot
   clear <project>   Remove a saved snapshot`,
 

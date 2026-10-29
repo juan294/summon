@@ -17,22 +17,28 @@ import { listConfig, listProjects, readKVFile, readKVFromString, readCustomLayou
 import { writeStatus, readStatus, discardStatusRecord } from "./status.js";
 import type { WorkspaceStatus } from "./status.js";
 import { generateAppleScript, generateTreeAppleScript } from "./script.js";
+import { newLaunchId } from "./launch-identity.js";
+import { resolveBackendForLaunch } from "./backend.js";
+import type { BackendId, LaunchContext } from "./backend.js";
+import { GhosttyBackend } from "./backends/ghostty.js";
+import type { BackendLaunchContext, TerminalBackend } from "./backends/ghostty.js";
 import { parseTreeDSL, extractPaneDefinitions, extractPaneCwds, resolveTreeCommands as resolveTreeCmds, buildTreePlan, collectLeaves, findPaneByName, assertPaneCwdContained } from "./tree.js";
 import type { LayoutNode, TreePlanOptions } from "./tree.js";
-import { resolveCommand as resolveCommandPath, getErrorMessage, SUMMON_WORKSPACE_ENV, promptUser, ACCESSIBILITY_SETTINGS_PATH, isDebug, supportsColor } from "./utils.js";
+import { resolveCommand as resolveCommandPath, getErrorMessage, SUMMON_WORKSPACE_ENV, promptUser, isDebug } from "./utils.js";
 import { fail, err } from "./ui/output.js";
-import { ensureGhostty, ensureAccessibility, printAccessibilityHint, confirmDangerousCommands, isAccessibilityError } from "./launch-guards.js";
+import { confirmDangerousCommands } from "./launch-guards.js";
 import { assertTrusted, assertTrustedContent } from "./trust.js";
 import { parseIntInRange, parsePositiveFloat, ENV_KEY_RE, PROJECT_NAME_RE, sanitizeProjectName } from "./validation.js";
 import { isStarshipInstalled, ensurePresetConfig, getPresetConfigPath } from "./starship.js";
 // command-spec is a pure utility module with no imports from this file.
 // Dependency direction: launcher -> command-spec (one-way, no circular risk).
 import { commandExecutable, replaceCommandExecutable } from "./command-spec.js";
-import { TabOpenError } from "./errors.js";
 import { focusTerminal } from "./ghostty-native.js";
 import type { FocusResult, NativeFailure } from "./ghostty-native.js";
-import { traditionalInventory, treeInventory, parseNativeCapture } from "./pane-inventory.js";
-import type { NativeMetadata, PaneDescriptor } from "./pane-inventory.js";
+import type { NativeMetadata } from "./pane-inventory.js";
+
+/** Message printed while the Rex launch path is not shipped (Phase 1 of the Rex backend plan). */
+export const REX_NOT_AVAILABLE_MSG = "Rex backend is not available in this version";
 
 /** Convert resolved layout options to a key-value config map suitable for saving as a custom layout. */
 export function optsToConfigMap(opts: Partial<LayoutOptions>): Map<string, string> {
@@ -111,120 +117,6 @@ async function prompt(question: string): Promise<string> {
   const answer = await promptUser(question);
   return answer.toLowerCase();
 }
-
-/**
- * Best-effort rollback: close the Ghostty front window that was opened by a
- * failed script execution (BE-S26 #322).
- * Silently ignored if Ghostty is not running or the window is already gone.
- */
-export function closeWorkspaceWindow(): void {
-  const closeScript = `tell application "Ghostty"
-  if (count of windows) > 0 then
-    close front window
-  end if
-end tell`;
-  try {
-    execFileSync("osascript", [], { input: closeScript, encoding: "utf-8" });
-  } catch {
-    // Silently ignore — rollback is best-effort
-  }
-}
-
-// --- Spinner helpers (UX-L2 #519) ---
-
-const LAUNCH_SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
-
-/** Returns true when the spinner should run in static (non-animating) mode.
- *  Static: NO_COLOR set, SUMMON_NO_SPINNER set, or stdout is not a TTY. */
-export function isStaticLaunchSpinner(): boolean {
-  if (!process.stdout.isTTY) return true;
-  if (process.env["SUMMON_NO_SPINNER"] !== undefined) return true;
-  return !supportsColor();
-}
-
-/**
- * Run `fn` (a synchronous block) with a brief spinner on stdout.
- * In static mode (non-TTY or NO_COLOR), writes a single labelled line to stdout then runs fn.
- * In TTY mode, writes an initial spinner frame, runs fn (which may block), then clears.
- * The label is also written to stderr so pipeline consumers still get progress feedback.
- */
-export function withLaunchSpinner(label: string, fn: () => void): void {
-  // FE-M5/UX-M6: keep stderr progress so pipelines are not polluted
-  process.stderr.write(`${label}\n`);
-  if (isStaticLaunchSpinner()) {
-    // Static mode: one labelled line to stdout (matches session.ts spinner convention)
-    process.stdout.write(`${label}\n`);
-    fn();
-    return;
-  }
-  // Write initial spinner frame to stdout for interactive TTY
-  process.stdout.write(`${LAUNCH_SPINNER_FRAMES[0]} ${label}`);
-  try {
-    fn();
-  } finally {
-    // Clear the spinner line
-    process.stdout.write("\r\x1b[K");
-  }
-}
-
-function executeScript(script: string, inventory: PaneDescriptor[], targetLabel?: string): NativeMetadata | undefined {
-  let output = "";
-  const label = `Summoning ${targetLabel ?? "workspace"}…`;
-  withLaunchSpinner(label, () => {
-    try {
-      output = execFileSync("osascript", [], { input: script, encoding: "utf-8", timeout: 30_000 });
-      process.stderr.write("✓ Workspace ready.\n");
-    } catch (caught) {
-      const code = (caught as NodeJS.ErrnoException).code;
-      if (code === "ETIMEDOUT") {
-        err("Ghostty did not respond within 30 seconds. Is Ghostty running?");
-        throw new Error("Ghostty did not respond within 30 seconds. Is Ghostty running?", { cause: caught });
-      }
-
-      const message = getErrorMessage(caught);
-      fail(`failed to execute workspace script: ${message}`);
-
-      // A verified keystroke failure means NO new tab/window was created — the existing
-      // front window is intact, so DO NOT run the rollback that would close it.
-      if (message.includes("summon-newtab-failed")) {
-        err("Ghostty did not open a new tab after multiple attempts.");
-        throw new TabOpenError("Ghostty did not open a new tab.", { cause: caught });
-      }
-      if (message.includes("summon-newwindow-failed")) {
-        const m = "Ghostty did not open a new window after multiple attempts.";
-        err(m);
-        throw new Error(m, { cause: caught });
-      }
-
-      // Best-effort rollback: the AppleScript may have opened a window before failing.
-      // Attempt to close it so the user is not left with a stale empty window (BE-S26 #322).
-      // Skip rollback for accessibility errors — osascript couldn't run at all,
-      // so no window was created (BE-M3 #377).
-      if (!isAccessibilityError(message)) {
-        closeWorkspaceWindow();
-      }
-
-      if (isAccessibilityError(message)) {
-        err("");
-        printAccessibilityHint();
-      } else {
-        err("");
-        err("Is Ghostty running? Also check:");
-        err(`  - ${ACCESSIBILITY_SETTINGS_PATH}`);
-        err("  - System Settings > Privacy & Security > Automation");
-        err("");
-        err("Tip: Run 'summon doctor' to diagnose issues.");
-      }
-      throw new Error(`Failed to execute workspace script: ${message}`, { cause: caught });
-    }
-  });
-  // Parsing is deliberately outside launch rollback: an already-ready workspace stays open.
-  const native = parseNativeCapture(typeof output === "string" ? output : "", inventory);
-  if (!native) err("summon: warning: workspace launched, but exact native targeting is unavailable. Use summon inspect or explicitly relaunch to capture identity.");
-  return native;
-}
-
-
 
 const KNOWN_INSTALL_COMMANDS: Record<string, () => [string, string[]] | null> = {
   claude: () => ["npm", ["install", "-g", "@anthropic-ai/claude-code"]],
@@ -715,15 +607,19 @@ function executeOnStart(onStart: string, targetDir: string): void {
   }
 }
 
-/** Append shared optional dry-run header lines (starship preset). */
+/** Append shared optional dry-run header lines (starship preset) plus the backend and launch identity. */
 function appendDryRunExtras(
   headerLines: string[],
   starshipPreset: string | undefined,
   dryRunStarshipPath: string | null,
+  backend: BackendId,
+  launchId: string,
 ): void {
   if (starshipPreset) {
     headerLines.push(`-- Starship preset: ${starshipPreset} (${dryRunStarshipPath})`);
   }
+  headerLines.push(`-- Backend: ${backend}`);
+  headerLines.push(`-- Launch: ${launchId}`);
 }
 
 /**
@@ -756,49 +652,37 @@ export function layoutOptsToTreePlanOpts(opts: Partial<LayoutOptions>): TreePlan
     cleanRestoredPanes: opts.cleanRestoredPanes,
   } satisfies TreePlanOptions;
 }
+/** Per-launch inputs shared by both layout paths. */
+interface LaunchInputs {
+  ctx: BackendLaunchContext;
+  backend: TerminalBackend;
+  dryRun: boolean;
+  starshipPreset: string | undefined;
+}
+
 async function launchTreeLayout(
   treeLayout: NonNullable<ResolvedConfig["treeLayout"]>,
   opts: Partial<LayoutOptions>,
-  cliOverrides: CLIOverrides,
-  targetDir: string,
-  starshipPreset: string | undefined,
-  envVars: Record<string, string>,
-  ensureAndResolve: (cmd: string, key: string) => Promise<string>,
-  resolveStarship: () => string | null,
-  projectName?: string,
-  onStop?: string,
+  { ctx, backend, dryRun, starshipPreset }: LaunchInputs,
 ): Promise<{ paneNames: string[]; native?: NativeMetadata }> {
-  const resolvedTree = resolveTreeCmds(treeLayout.tree, treeLayout.panes, treeLayout.paneCwds, resolve(targetDir));
+  const resolvedTree = resolveTreeCmds(treeLayout.tree, treeLayout.panes, treeLayout.paneCwds, resolve(ctx.targetDir));
   const treePlan = buildTreePlan(resolvedTree, layoutOptsToTreePlanOpts(opts));
-  const hasEnvVars = Object.keys(envVars).length > 0;
 
-  if (cliOverrides.dryRun) {
+  if (dryRun) {
     const dryRunStarshipPath = starshipPreset ? getPresetConfigPath(starshipPreset) : null;
-    const script = generateTreeAppleScript(treePlan, targetDir, dryRunStarshipPath, hasEnvVars ? envVars : undefined, projectName, onStop);
+    const script = generateTreeAppleScript(treePlan, ctx.targetDir, dryRunStarshipPath, ctx.envVars, ctx.projectName, ctx.onStop, ctx.launchId);
     const paneCount = treePlan.leaves.length;
     const headerLines = [
       "-- summon dry-run",
       `-- Layout: tree layout, ${paneCount} ${paneCount === 1 ? "pane" : "panes"}`,
-      `-- Target: ${targetDir}`,
+      `-- Target: ${ctx.targetDir}`,
     ];
-    appendDryRunExtras(headerLines, starshipPreset, dryRunStarshipPath);
+    appendDryRunExtras(headerLines, starshipPreset, dryRunStarshipPath, backend.id, ctx.launchId);
     console.log(`${headerLines.join("\n")}\n${script}`);
     return { paneNames: treePlan.leaves };
   }
 
-  ensureGhostty();
-  ensureAccessibility();
-
-  for (const leafName of treePlan.leaves) {
-    const pane = findPaneByName(resolvedTree, leafName);
-    if (pane?.command) {
-      pane.command = await ensureAndResolve(pane.command, leafName);
-    }
-  }
-
-  const starshipConfigPath = resolveStarship();
-  const script = generateTreeAppleScript(treePlan, targetDir, starshipConfigPath, hasEnvVars ? envVars : undefined, projectName, onStop);
-  const native = executeScript(script, treeInventory(treePlan), projectName);
+  const native = await backend.launchTree(treePlan, ctx);
   return { paneNames: treePlan.leaves, ...(native ? { native } : {}) };
 }
 
@@ -814,45 +698,39 @@ export function traditionalPaneNames(plan: { sidebarCommand: string; leftColumnC
 
 async function launchTraditionalLayout(
   opts: Partial<LayoutOptions>,
-  cliOverrides: CLIOverrides,
-  targetDir: string,
-  starshipPreset: string | undefined,
-  envVars: Record<string, string>,
-  ensureAndResolve: (cmd: string, key: string) => Promise<string>,
-  resolveStarship: () => string | null,
-  projectName?: string,
-  onStop?: string,
+  { ctx, backend, dryRun, starshipPreset }: LaunchInputs,
 ): Promise<{ paneNames: string[]; native?: NativeMetadata }> {
   const plan = planLayout(opts);
-  const hasEnvVars = Object.keys(envVars).length > 0;
   const paneNames = traditionalPaneNames(plan);
 
-  if (cliOverrides.dryRun) {
+  if (dryRun) {
     const dryRunStarshipPath = starshipPreset ? getPresetConfigPath(starshipPreset) : null;
-    const script = generateAppleScript(plan, targetDir, dryRunStarshipPath, hasEnvVars ? envVars : undefined, projectName, onStop);
+    const script = generateAppleScript(plan, ctx.targetDir, dryRunStarshipPath, ctx.envVars, ctx.projectName, ctx.onStop, ctx.launchId);
     const totalPanes = plan.leftColumnCount + plan.rightColumnEditorCount;
     const headerLines = [
       "-- summon dry-run",
       `-- Layout: ${totalPanes} editor ${totalPanes === 1 ? "pane" : "panes"}, editor=${plan.editor}, sidebar=${plan.sidebarCommand}, shell=${plan.hasShell}`,
-      `-- Target: ${targetDir}`,
+      `-- Target: ${ctx.targetDir}`,
     ];
-    appendDryRunExtras(headerLines, starshipPreset, dryRunStarshipPath);
+    appendDryRunExtras(headerLines, starshipPreset, dryRunStarshipPath, backend.id, ctx.launchId);
     console.log(`${headerLines.join("\n")}\n${script}`);
     return { paneNames };
   }
 
-  ensureGhostty();
-  ensureAccessibility();
-
-  if (plan.editor) plan.editor = await ensureAndResolve(plan.editor, "editor");
-  if (plan.sidebarCommand) plan.sidebarCommand = await ensureAndResolve(plan.sidebarCommand, "sidebar");
-  if (plan.secondaryEditor) plan.secondaryEditor = await ensureAndResolve(plan.secondaryEditor, "editor");
-  if (plan.shellCommand) plan.shellCommand = await ensureAndResolve(plan.shellCommand, "shell");
-
-  const starshipConfigPath = resolveStarship();
-  const script = generateAppleScript(plan, targetDir, starshipConfigPath, hasEnvVars ? envVars : undefined, projectName, onStop);
-  const native = executeScript(script, traditionalInventory(plan), projectName);
+  const native = await backend.launchTraditional(plan, ctx);
   return { paneNames, ...(native ? { native } : {}) };
+}
+
+/**
+ * Backend for this launch. A dry run executes nothing, so it keeps working on a machine
+ * with neither terminal (CI, another terminal without Ghostty): it falls back to the Ghostty
+ * generator with a notice instead of failing. A real launch fails naming both terminals.
+ */
+function resolveLaunchBackend(dryRun: boolean | undefined): LaunchContext {
+  const detection = resolveBackendForLaunch();
+  if (detection.ok) return detection;
+  if (!dryRun) throw new Error(detection.reason);
+  return { ok: true, backend: "ghostty", placement: "outside", notices: [...detection.notices, `${detection.reason} Dry run continues with the Ghostty script.`] };
 }
 
 export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Promise<void> {
@@ -890,6 +768,16 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
 
   let config: ReturnType<typeof resolveConfig>;
   config = resolveConfig(targetDir, cliOverrides ?? {}, summonFileContent);
+
+  // Backend seam (plan P15): resolve the backend right after config, before the wizard
+  // redirect, the pane-count probe and on-start. The launch id is the generation every
+  // per-launch artifact and the status record carry (P12).
+  const launchId = newLaunchId();
+  const launchContext = resolveLaunchBackend(cliOverrides?.dryRun);
+  for (const notice of launchContext.notices) err(notice);
+  // Phase 3 replaces this line with the Rex dispatch.
+  if (launchContext.backend !== "ghostty") throw new Error(REX_NOT_AVAILABLE_MSG);
+  const backend: TerminalBackend = GhosttyBackend;
 
   // If no editor is configured from any source and this isn't a tree layout
   // (which defines its own pane commands), redirect to the setup wizard.
@@ -1010,9 +898,23 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
     return null;
   };
 
+  const inputs: LaunchInputs = {
+    ctx: {
+      targetDir,
+      envVars: Object.keys(envVars).length > 0 ? envVars : undefined,
+      projectName,
+      onStop: effectiveOnStop,
+      launchId,
+      ensureAndResolve,
+      resolveStarship,
+    },
+    backend,
+    dryRun: cliOverrides?.dryRun === true,
+    starshipPreset,
+  };
   const launched = treeLayout
-    ? await launchTreeLayout(treeLayout, opts, cliOverrides ?? {}, targetDir, starshipPreset, envVars, ensureAndResolve, resolveStarship, projectName, effectiveOnStop)
-    : await launchTraditionalLayout(opts, cliOverrides ?? {}, targetDir, starshipPreset, envVars, ensureAndResolve, resolveStarship, projectName, effectiveOnStop);
+    ? await launchTreeLayout(treeLayout, opts, inputs)
+    : await launchTraditionalLayout(opts, inputs);
 
   // Write workspace status for monitoring features
   if (!cliOverrides?.dryRun) {
@@ -1027,9 +929,12 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
       ...(launched.native ? { native: launched.native } : {}),
       source: "summon",
       version: 1,
+      launchId,
+      backend: backend.id,
     };
 
     try {
+      // A user-initiated launch always publishes (expectation "replace", plan P12).
       writeStatus(status);
     } catch {
       const discarded = discardStatusRecord(projectName);

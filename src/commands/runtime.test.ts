@@ -34,8 +34,18 @@ vi.mock("../monitor.js", () => ({
   printStatusOnce: (...args: unknown[]) => mockPrintStatusOnce(...args),
 }));
 
+const mockCollectSnapshot = vi.fn();
+const mockWriteSnapshotFile = vi.fn();
+const mockWithOwnedRecord = vi.fn();
+
+vi.mock("../status.js", () => ({
+  withOwnedRecord: (...args: unknown[]) => mockWithOwnedRecord(...args),
+}));
+
 vi.mock("../snapshot.js", () => ({
   saveSnapshot: (...args: unknown[]) => mockSaveSnapshot(...args),
+  collectSnapshot: (...args: unknown[]) => mockCollectSnapshot(...args),
+  writeSnapshotFile: (...args: unknown[]) => mockWriteSnapshotFile(...args),
   readSnapshot: (...args: unknown[]) => mockReadSnapshot(...args),
   clearSnapshot: (...args: unknown[]) => mockClearSnapshot(...args),
   formatRestorationBanner: (...args: unknown[]) => mockFormatRestorationBanner(...args),
@@ -114,7 +124,8 @@ describe("handleSnapshotCommand", () => {
     mockSaveSnapshot.mockReturnValue({ project: "demo" });
 
     await handleSnapshotCommand(makeContext({
-      args: ["save", "--dir", "/tmp/demo", "--project", "api", "--layout", "pair"],
+      args: ["save"],
+      values: { dir: "/tmp/demo", project: "api", layout: "pair" },
     }));
 
     expect(mockSaveSnapshot).toHaveBeenCalledWith("api", "/tmp/demo", "pair");
@@ -126,7 +137,8 @@ describe("handleSnapshotCommand", () => {
     mockSaveSnapshot.mockReturnValue(null);
 
     await handleSnapshotCommand(makeContext({
-      args: ["save", "--dir", "/tmp/apps/web"],
+      args: ["save"],
+      values: { dir: "/tmp/apps/web" },
     }));
 
     expect(mockSaveSnapshot).toHaveBeenCalledWith("web", "/tmp/apps/web", "unknown");
@@ -138,7 +150,8 @@ describe("handleSnapshotCommand", () => {
     mockSaveSnapshot.mockReturnValue({ project: "api" });
 
     await handleSnapshotCommand(makeContext({
-      args: ["save", "api", "--layout", "pair"],
+      args: ["save", "api"],
+      values: { layout: "pair" },
     }));
 
     expect(mockSaveSnapshot).toHaveBeenCalledWith("api", process.cwd(), "pair");
@@ -159,7 +172,8 @@ describe("handleSnapshotCommand", () => {
     mockSaveSnapshot.mockReturnValue({ project: "unknown" });
 
     await handleSnapshotCommand(makeContext({
-      args: ["save", "--dir", "/"],
+      args: ["save"],
+      values: { dir: "/" },
     }));
 
     expect(mockSaveSnapshot).toHaveBeenCalledWith("unknown", "/", "unknown");
@@ -321,5 +335,73 @@ describe("handlePortsCommand", () => {
     await handlePortsCommand();
 
     expect(logSpy).toHaveBeenCalledWith("[green:✓] No port conflicts");
+  });
+});
+
+describe("handleSnapshotCommand save --launch <id> (plan P12)", () => {
+  const LAUNCH = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+
+  it("collects before the lock, writes inside withOwnedRecord when the generation holds, and leaves the record unchanged", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const snapshot = { project: "api" };
+    mockCollectSnapshot.mockReturnValue(snapshot);
+    mockWithOwnedRecord.mockImplementation((_project: string, _expectation: unknown, action: (current: null) => unknown) => {
+      expect(mockCollectSnapshot).toHaveBeenCalledTimes(1);
+      expect(mockWriteSnapshotFile).not.toHaveBeenCalled();
+      expect(action(null)).toBeNull();
+      expect(mockWriteSnapshotFile).toHaveBeenCalledWith(snapshot);
+      return { outcome: "unchanged", afterErrors: [] };
+    });
+
+    await handleSnapshotCommand(makeContext({
+      args: ["save"],
+      values: { dir: "/tmp/demo", project: "api", layout: "pair", launch: LAUNCH },
+    }));
+
+    expect(mockWithOwnedRecord).toHaveBeenCalledWith("api", { launchId: LAUNCH }, expect.any(Function));
+    expect(mockCollectSnapshot).toHaveBeenCalledWith("api", "/tmp/demo", "pair");
+    expect(mockSaveSnapshot).not.toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith("Snapshot saved for api");
+    logSpy.mockRestore();
+  });
+
+  it("exits 0 silently and writes nothing when the generation is superseded", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockCollectSnapshot.mockReturnValue({ project: "api" });
+    mockWithOwnedRecord.mockReturnValue({ outcome: "superseded", afterErrors: [] });
+
+    await handleSnapshotCommand(makeContext({ args: ["save", "api"], values: { launch: LAUNCH } }));
+
+    expect(mockWriteSnapshotFile).not.toHaveBeenCalled();
+    expect(logSpy).not.toHaveBeenCalled();
+    logSpy.mockRestore();
+  });
+
+  it("reports a missing git repo without writing when collectSnapshot returns null", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockCollectSnapshot.mockReturnValue(null);
+    mockWithOwnedRecord.mockImplementation((_project: string, _expectation: unknown, action: (current: null) => unknown) => {
+      action(null);
+      return { outcome: "unchanged", afterErrors: [] };
+    });
+
+    await handleSnapshotCommand(makeContext({ args: ["save", "api"], values: { dir: "/tmp/demo", launch: LAUNCH } }));
+
+    expect(mockWriteSnapshotFile).not.toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith("No git repo found in /tmp/demo");
+    logSpy.mockRestore();
+  });
+
+  it("rejects a --launch value that is not a launch id", async () => {
+    await expect(handleSnapshotCommand(makeContext({ args: ["save", "api"], values: { launch: "nope" } })))
+      .rejects.toThrow("usage:Usage: summon snapshot save --launch <launch-id>");
+    expect(mockWithOwnedRecord).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the plain save when --launch is absent", async () => {
+    mockSaveSnapshot.mockReturnValue({ project: "api" });
+    await handleSnapshotCommand(makeContext({ args: ["save", "api"] }));
+    expect(mockSaveSnapshot).toHaveBeenCalledWith("api", process.cwd(), "unknown");
+    expect(mockWithOwnedRecord).not.toHaveBeenCalled();
   });
 });

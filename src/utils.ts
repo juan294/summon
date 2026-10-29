@@ -1,6 +1,6 @@
 import { existsSync, writeFileSync, renameSync, unlinkSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { join } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { homedir, availableParallelism } from "node:os";
 import { randomBytes } from "node:crypto";
 
@@ -28,6 +28,18 @@ export function atomicWrite(path: string, content: string, options?: Parameters<
     try { unlinkSync(tmpPath); } catch { /* ignore cleanup errors */ }
     throw err;
   }
+}
+
+/**
+ * Join `name` under `root` and refuse any result that escapes the root (path traversal).
+ * `label` names the artifact family in the error ("Invalid status path: ...").
+ */
+export function confinedPath(root: string, name: string, label: string): string {
+  const filePath = join(root, name);
+  if (!resolve(filePath).startsWith(resolve(root) + sep)) {
+    throw new Error(`Invalid ${label} path: "${name}"`);
+  }
+  return filePath;
 }
 
 /** @internal — exported for testing only */

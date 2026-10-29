@@ -1,0 +1,71 @@
+-- summon dry-run
+-- Layout: 2 editor panes, editor=nvim, sidebar=lazygit, shell=true
+-- Target: /tmp/summon-dryrun-fixture
+tell application "Ghostty"
+    activate
+
+    set cfg to new surface configuration
+    set initial working directory of cfg to "/tmp/summon-dryrun-fixture"
+    set environment variables of cfg to {"SUMMON_WORKSPACE=1", "SUMMON_TAB_TITLE=summon-dryrun-fixture"}
+
+    set win to front window
+    set paneRoot to terminal 1 of selected tab of win
+
+    set initial input of cfg to "lazygit\n"
+    set paneSidebar to split paneRoot direction right with configuration cfg
+
+    -- Resize editor/sidebar split
+    delay 0.3
+    tell application "System Events"
+        tell process "Ghostty"
+            set windowSize to size of front window
+            set windowWidth to item 1 of windowSize
+        end tell
+    end tell
+    set resizeAmount to round (windowWidth * 0.25)
+    set resizeAction to "resize_split:right," & (resizeAmount as text)
+    perform action resizeAction on paneRoot
+    delay 0.2
+
+    set initial input of cfg to "nvim\n"
+    set paneRightCol to split paneRoot direction right with configuration cfg
+
+    set initial input of cfg to ""
+    set paneRight2 to split paneRightCol direction down with configuration cfg
+
+    input text "export SUMMON_WORKSPACE='1'" to paneRoot
+    send key "enter" to paneRoot
+    input text "export SUMMON_TAB_TITLE='summon-dryrun-fixture'" to paneRoot
+    send key "enter" to paneRoot
+    input text "mkdir -p \"$HOME/.config/summon/status\" && printf '%s\\n' \"$$\" > \"$HOME/.config/summon/status/summon-dryrun-fixture.pid\" && : > \"$HOME/.config/summon/status/summon-dryrun-fixture.active\"" to paneRoot
+    send key "enter" to paneRoot
+    input text "__summon_cleanup() { mkdir -p \"$HOME/.config/summon\" \"$HOME/.config/summon/logs\"; chmod 700 \"$HOME/.config/summon\" \"$HOME/.config/summon/logs\"; summon snapshot save --dir \"/tmp/summon-dryrun-fixture\" --project \"summon-dryrun-fixture\" --layout \"unknown\" 2>/dev/null; rm -f \"$HOME/.config/summon/status/summon-dryrun-fixture.active\" \"$HOME/.config/summon/status/summon-dryrun-fixture.pid\" 2>/dev/null; }; trap '__summon_cleanup' EXIT HUP" to paneRoot
+    send key "enter" to paneRoot
+    input text "clear" to paneRight2
+    send key "enter" to paneRight2
+    input text "cd '/tmp/summon-dryrun-fixture'" to paneRoot
+    send key "enter" to paneRoot
+    input text "clear" to paneRoot
+    send key "enter" to paneRoot
+    input text "nvim" to paneRoot
+    send key "enter" to paneRoot
+
+    -- Set pane and tab titles
+    perform action "set_tab_title:[summon-dryrun-fixture]" on paneRoot
+    perform action "set_surface_title:editor · nvim" on paneRoot
+    perform action "set_surface_title:sidebar · lazygit" on paneSidebar
+    perform action "set_surface_title:editor · nvim" on paneRightCol
+    perform action "set_surface_title:shell" on paneRight2
+
+    focus paneRoot
+    try
+        set summonCapture to "SUMMON_NATIVE_V1"
+        set summonCapture to summonCapture & linefeed & (id of paneRoot as text)
+        set summonCapture to summonCapture & linefeed & (id of paneSidebar as text)
+        set summonCapture to summonCapture & linefeed & (id of paneRightCol as text)
+        set summonCapture to summonCapture & linefeed & (id of paneRight2 as text)
+        return summonCapture
+    on error
+        return "SUMMON_NATIVE_UNAVAILABLE"
+    end try
+end tell

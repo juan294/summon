@@ -23,6 +23,14 @@ vi.mock("./config.js", () => ({
   LAYOUT_NAME_RE: /^[a-zA-Z][a-zA-Z0-9_-]*$/,
 }));
 
+// Mock backend detection: the table is covered by backend-detect.test.ts; here the launcher's
+// seam is exercised by steering the resolved detection directly.
+const mockResolveBackendForLaunch = vi.fn((): unknown => ({ ok: true, backend: "ghostty", placement: "outside", notices: [] }));
+vi.mock("./backend.js", () => ({
+  resolveBackendForLaunch: () => mockResolveBackendForLaunch(),
+  isBackendId: (value: unknown) => value === "ghostty" || value === "rex",
+}));
+
 // Mock status module (write is a no-op in tests)
 const mockReadStatus = vi.fn();
 vi.mock("./status.js", () => ({ writeStatus: vi.fn(), discardStatusRecord: vi.fn(()=>true), readStatus: (...args: unknown[]) => mockReadStatus(...args) }));
@@ -93,10 +101,13 @@ vi.mock("./script.js", () => ({
 }));
 
 // Import after mocks are set up
-const { launch, resolveConfig, optsToConfigMap, focusWorkspace, resolveProjectName, probePaneCount, decideCleanRestoredPanes, closeWorkspaceWindow, layoutOptsToTreePlanOpts, isStaticLaunchSpinner, withLaunchSpinner } = await import("./launcher.js");
+const { launch, resolveConfig, optsToConfigMap, focusWorkspace, resolveProjectName, probePaneCount, decideCleanRestoredPanes, layoutOptsToTreePlanOpts } = await import("./launcher.js");
+const { closeWorkspaceWindow, isStaticLaunchSpinner, withLaunchSpinner } = await import("./backends/ghostty.js");
 const { listConfig, listProjects } = await import("./config.js");
 const { existsSync } = await import("node:fs");
 const { TabOpenError } = await import("./errors.js");
+const { LAUNCH_ID_RE } = await import("./launch-identity.js");
+const ANY_LAUNCH_ID = expect.stringMatching(LAUNCH_ID_RE);
 
 let savedSummonWorkspace: string | undefined;
 
@@ -106,6 +117,7 @@ beforeEach(() => {
   // Prevent warnIfNested from activating when tests run inside a summon workspace
   savedSummonWorkspace = process.env.SUMMON_WORKSPACE;
   delete process.env.SUMMON_WORKSPACE;
+  mockResolveBackendForLaunch.mockReturnValue({ ok: true, backend: "ghostty", placement: "outside", notices: [] });
   // Default: execSync no-ops (osascript, etc.)
   mockExecSync.mockImplementation(() => "");
   // Default: all commands are installed (resolveCommand uses execFileSync)
@@ -219,6 +231,7 @@ describe("script execution", () => {
       undefined,
       "workspace",
       undefined,
+      ANY_LAUNCH_ID,
     );
   });
 
@@ -234,6 +247,7 @@ describe("script execution", () => {
       undefined,
       "api",
       undefined,
+      ANY_LAUNCH_ID,
     );
   });
 });
@@ -941,6 +955,7 @@ describe("falsy sidebarCommand guard", () => {
       undefined,
       "workspace",
       undefined,
+      ANY_LAUNCH_ID,
     );
   });
 
@@ -960,6 +975,7 @@ describe("falsy sidebarCommand guard", () => {
       undefined,
       "workspace",
       undefined,
+      ANY_LAUNCH_ID,
     );
   });
 
@@ -977,6 +993,7 @@ describe("falsy sidebarCommand guard", () => {
       undefined,
       "workspace",
       undefined,
+      ANY_LAUNCH_ID,
     );
   });
 });
@@ -1111,6 +1128,7 @@ describe("command resolution cache for shared binaries (#61)", () => {
       undefined,
       "workspace",
       undefined,
+      ANY_LAUNCH_ID,
     );
   });
 });
@@ -1209,6 +1227,7 @@ describe("path resolution", () => {
       undefined,
       "workspace",
       undefined,
+      ANY_LAUNCH_ID,
     );
   });
 
@@ -1232,6 +1251,7 @@ describe("path resolution", () => {
       undefined,
       "workspace",
       undefined,
+      ANY_LAUNCH_ID,
     );
   });
 });
@@ -1655,6 +1675,7 @@ describe("shell metacharacter confirmation (#90)", () => {
         undefined,
         "workspace",
         undefined,
+        ANY_LAUNCH_ID,
       );
     });
 
@@ -1670,6 +1691,7 @@ describe("shell metacharacter confirmation (#90)", () => {
         undefined,
         "workspace",
         undefined,
+        ANY_LAUNCH_ID,
       );
     });
 
@@ -1689,6 +1711,7 @@ describe("shell metacharacter confirmation (#90)", () => {
         undefined,
         "workspace",
         undefined,
+        ANY_LAUNCH_ID,
       );
       warnSpy.mockRestore();
     });
@@ -1712,6 +1735,7 @@ describe("shell metacharacter confirmation (#90)", () => {
         undefined,
         "workspace",
         undefined,
+        ANY_LAUNCH_ID,
       );
       warnSpy.mockRestore();
     });
@@ -1774,6 +1798,7 @@ describe("shell metacharacter confirmation (#90)", () => {
         undefined,
         "workspace",
         undefined,
+        ANY_LAUNCH_ID,
       );
       logSpy.mockRestore();
     });
@@ -1912,6 +1937,7 @@ describe("on-start hook (#107)", () => {
         undefined,
         "workspace",
         undefined,
+        ANY_LAUNCH_ID,
       );
     });
 
@@ -2345,6 +2371,7 @@ describe("custom tree layout integration (Phase 4)", () => {
         undefined,
         "workspace",
         undefined,
+        ANY_LAUNCH_ID,
       );
       logSpy.mockRestore();
     });
@@ -2548,6 +2575,7 @@ describe("env vars passed to script generator (#168)", () => {
       { NODE_ENV: "production" },
       "workspace",
       undefined,
+      ANY_LAUNCH_ID,
     );
   });
 
@@ -2564,6 +2592,7 @@ describe("env vars passed to script generator (#168)", () => {
       { NODE_ENV: "production" },
       "workspace",
       undefined,
+      ANY_LAUNCH_ID,
     );
     logSpy.mockRestore();
   });
@@ -2589,6 +2618,7 @@ describe("env vars passed to script generator (#168)", () => {
       { NODE_ENV: "test" },
       "workspace",
       undefined,
+      ANY_LAUNCH_ID,
     );
   });
 
@@ -2614,6 +2644,7 @@ describe("env vars passed to script generator (#168)", () => {
       { MY_VAR: "hello" },
       "workspace",
       undefined,
+      ANY_LAUNCH_ID,
     );
     logSpy.mockRestore();
   });
@@ -2679,6 +2710,7 @@ describe("tree dry-run without starship preset (#168)", () => {
       undefined,
       "workspace",
       undefined,
+      ANY_LAUNCH_ID,
     );
     logSpy.mockRestore();
   });
@@ -4410,5 +4442,105 @@ describe("P2 capture failure isolation",()=>{
     await expect(launch("/tmp/workspace",{layout:"minimal"})).resolves.toBeUndefined();
     expect(status.writeStatus).toHaveBeenCalledWith(expect.objectContaining({native:expect.objectContaining({rootTerminalId:id})}));
     expect(err).toHaveBeenCalledWith(expect.stringContaining("status could not be saved"));err.mockRestore();
+  });
+});
+
+const statusModule = await import("./status.js");
+
+describe("backend seam (plan P15, Phase 1)", () => {
+  const status = statusModule;
+
+  it("dry-run header names the backend and the launch id", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+    await launch("/tmp/workspace", { dryRun: true });
+    const output = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    logSpy.mockRestore();
+    const header = output.split("\n").filter((line) => line.startsWith("-- "));
+    expect(header[0]).toBe("-- summon dry-run");
+    expect(header).toContain("-- Backend: ghostty");
+    expect(header.find((line) => line.startsWith("-- Launch: "))).toMatch(new RegExp(`^-- Launch: ${LAUNCH_ID_RE.source.slice(1, -1)}$`));
+  });
+
+  it("dry-run header for a tree layout also names the backend and launch id", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockIsCustomLayout.mockReturnValue(true);
+    mockReadCustomLayout.mockReturnValue(new Map([["tree", "a | b"], ["pane.a", "vim"], ["pane.b", "htop"]]));
+    vi.mocked(listConfig).mockReturnValue(new Map([["layout", "mytree"]]));
+    await launch("/tmp/workspace", { dryRun: true });
+    const output = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    logSpy.mockRestore();
+    expect(output).toContain("-- Layout: tree layout, 2 panes");
+    expect(output).toContain("-- Backend: ghostty");
+    expect(output).toMatch(/-- Launch: [0-9a-f-]{36}/);
+  });
+
+  it("publishes the status record with the launch id and backend", async () => {
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+    await launch("/tmp/workspace");
+    expect(status.writeStatus).toHaveBeenCalledWith(expect.objectContaining({
+      project: "workspace",
+      backend: "ghostty",
+      launchId: ANY_LAUNCH_ID,
+    }));
+    const written = vi.mocked(status.writeStatus).mock.calls[0]?.[0];
+    const dryRunId = mockGenerateAppleScript.mock.calls[0]?.[6];
+    expect(written?.launchId).toBe(dryRunId);
+  });
+
+  it("when detection resolves Rex, launch() fails before the wizard, the pane probe and on-start", async () => {
+    mockResolveBackendForLaunch.mockReturnValue({ ok: true, backend: "rex", placement: "inside-rex", server: "unix:///tmp/rex.sock", rexBinary: "/usr/local/bin/rex", notices: [] });
+    // The config has no editor: a Ghostty launch on a TTY would redirect to the setup wizard.
+    vi.mocked(listConfig).mockReturnValue(new Map());
+    const origIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
+    try {
+      await expect(launch("/tmp/workspace", { "on-start": "echo hi", clean: "true" })).rejects.toThrow("Rex backend is not available in this version");
+    } finally {
+      Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, configurable: true });
+    }
+    expect(mockRunSetup).not.toHaveBeenCalled();
+    expect(mockExecSync).not.toHaveBeenCalled();
+    const osascriptCalls = mockExecFileSync.mock.calls.filter((c) => c[0] === "osascript");
+    expect(osascriptCalls).toHaveLength(0);
+    expect(mockGenerateAppleScript).not.toHaveBeenCalled();
+    expect(status.writeStatus).not.toHaveBeenCalled();
+  });
+
+  it("dry-run falls back to the Ghostty script with the detection notices when neither terminal is found; a real launch fails", async () => {
+    mockResolveBackendForLaunch.mockReturnValue({ ok: false, reason: "Neither Ghostty.app nor the Rex CLI was found. Install one.", notices: ["Rex detected but its CLI was not found at PATH"] });
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    let stderrText: string;
+    let output: string;
+    try {
+      await launch("/tmp/workspace", { dryRun: true });
+      stderrText = errSpy.mock.calls.map((c) => String(c[0])).join("");
+      output = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      await expect(launch("/tmp/workspace")).rejects.toThrow("Neither Ghostty.app nor the Rex CLI was found");
+    } finally {
+      errSpy.mockRestore();
+      logSpy.mockRestore();
+    }
+    expect(stderrText).toContain("Rex detected but its CLI was not found at PATH");
+    expect(stderrText).toContain("Neither Ghostty.app nor the Rex CLI was found. Install one. Dry run continues with the Ghostty script.");
+    expect(output).toContain("-- Backend: ghostty");
+    expect(status.writeStatus).not.toHaveBeenCalled();
+  });
+
+  it("prints detection notices and continues on Ghostty when the table says so", async () => {
+    mockResolveBackendForLaunch.mockReturnValue({ ok: true, backend: "ghostty", placement: "inside-rex", notices: ["Rex detected but its CLI was not found at PATH"] });
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+    const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    let stderrText: string;
+    try {
+      await launch("/tmp/workspace");
+      stderrText = errSpy.mock.calls.map((c) => String(c[0])).join("");
+    } finally {
+      errSpy.mockRestore();
+    }
+    expect(stderrText).toContain("Rex detected but its CLI was not found at PATH");
+    expect(status.writeStatus).toHaveBeenCalledWith(expect.objectContaining({ backend: "ghostty" }));
   });
 });

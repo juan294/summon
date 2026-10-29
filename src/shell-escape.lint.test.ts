@@ -69,6 +69,15 @@ const PRECISE_DANGER_PATTERNS: RegExp[] = [
   /perform action\s+"[^":]*:[^"]*\$\{[^}]+\}/,
 ];
 
+// Shell-fragment regions: inside a region that starts with a "// --- Shell fragments"
+// section header (and ends at the next "// --- " header), every line that interpolates a
+// value is a shell context whether or not it names a keyword, because the region exists
+// to produce text that is typed into a shell (bootstrap and cleanup trap, plan P12). The
+// region's own quoting helpers count as safe calls: each is itself a checked line.
+const SHELL_FRAGMENT_REGION_START = /^\/\/ --- Shell fragments/;
+const SECTION_HEADER = /^\/\/ --- /;
+const SHELL_FRAGMENT_SAFE_CALL = /(shellLaunchId|shellArtifact|shellLaunchDir|shellPaneFile|shellLogFile|paneFileLine)\s*\(/;
+
 // Patterns that confirm the interpolated value goes through a helper
 const SAFE_CALL = /(shellQuote|shellDoubleQuote|escapeAppleScript|escapeTabTitle)\s*\(/;
 // Inline suppression marker — use sparingly; requires documented reason.
@@ -96,20 +105,35 @@ const LINT_ALLOW = /\/\/\s*lint-allow-escape:/;
 const EXEC_DANGER = /(?<!\.)(?:\bexecSync|\bexec)\s*\(/;
 
 describe("shell-escape invariant", () => {
+  it("launch-identity.ts keeps its shell-fragment region header (the region rule depends on it)", () => {
+    const src = readFileSync(join(SRC_DIR, "launch-identity.ts"), "utf-8");
+    expect(src.split("\n").some((line) => SHELL_FRAGMENT_REGION_START.test(line))).toBe(true);
+  });
+
   it.each(FILES)(
     "%s — every shell/applescript interpolation routes through a helper",
     (file) => {
       const src = readFileSync(file, "utf-8");
       const lines = src.split("\n");
       const violations: string[] = [];
+      let inShellFragmentRegion = false;
 
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i]!;
         const prevLine = i > 0 ? (lines[i - 1] ?? "") : "";
+        if (SHELL_FRAGMENT_REGION_START.test(line)) inShellFragmentRegion = true;
+        else if (SECTION_HEADER.test(line)) inShellFragmentRegion = false;
 
         // Check broad DANGER_CONTEXT (existing patterns + do shell script)
         if (DANGER_CONTEXT.test(line) && /\$\{[^}]+\}/.test(line)) {
           if (!SAFE_CALL.test(line) && !LINT_ALLOW.test(line) && !LINT_ALLOW.test(prevLine)) {
+            violations.push(`${relative(SRC_DIR, file)}:${i + 1}: ${line.trim()}`);
+          }
+        }
+
+        // Shell-fragment regions: any interpolation is a shell context.
+        if (inShellFragmentRegion && /\$\{[^}]+\}/.test(line) && !line.trimStart().startsWith("*") && !line.trimStart().startsWith("//")) {
+          if (!SAFE_CALL.test(line) && !SHELL_FRAGMENT_SAFE_CALL.test(line) && !LINT_ALLOW.test(line) && !LINT_ALLOW.test(prevLine)) {
             violations.push(`${relative(SRC_DIR, file)}:${i + 1}: ${line.trim()}`);
           }
         }

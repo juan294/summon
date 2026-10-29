@@ -5,6 +5,10 @@ import { planLayout, getPreset } from "./layout.js";
 import { collectLeaves, buildTreePlan } from "./tree.js";
 import type { TreeLayoutPlan, LayoutNode } from "./tree.js";
 
+/** Fixed launch id for script expectations (plan P12: every per-launch path carries it). */
+const LAUNCH_ID = "0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f";
+const LAUNCH_DIR = `$HOME/.config/summon/status/myapp.launches`;
+
 describe("generateAppleScript", () => {
   it("generates valid AppleScript structure", () => {
     const plan = planLayout();
@@ -34,6 +38,7 @@ describe("generateAppleScript", () => {
       undefined,
       "project",
       "echo done",
+      LAUNCH_ID,
     );
 
     expect(script).toMatch(/chmod 700 .*\.config\/summon.*\.config\/summon\/logs/);
@@ -1623,7 +1628,7 @@ describe("generateTreeAppleScript", () => {
 describe("tab title", () => {
   it("generateAppleScript includes project name in tab title when provided", () => {
     const plan = planLayout();
-    const script = generateAppleScript(plan, "/tmp/test", null, undefined, "myapp");
+    const script = generateAppleScript(plan, "/tmp/test", null, undefined, "myapp", undefined, LAUNCH_ID);
     expect(script).toContain("set_tab_title:[myapp]");
   });
 
@@ -1655,13 +1660,13 @@ describe("tab title", () => {
       float: false,
       cleanRestoredPanes: false,
     };
-    const script = generateTreeAppleScript(plan, "/tmp/test", null, undefined, "myproject");
+    const script = generateTreeAppleScript(plan, "/tmp/test", null, undefined, "myproject", undefined, LAUNCH_ID);
     expect(script).toContain("set_tab_title:[myproject]");
   });
 
   it("sets SUMMON_TAB_TITLE env var when projectName provided", () => {
     const plan = planLayout();
-    const script = generateAppleScript(plan, "/tmp/test", null, undefined, "myapp");
+    const script = generateAppleScript(plan, "/tmp/test", null, undefined, "myapp", undefined, LAUNCH_ID);
     expect(script).toContain("SUMMON_TAB_TITLE=myapp");
   });
 
@@ -1675,17 +1680,23 @@ describe("tab title", () => {
 describe("status trap", () => {
   it("generateAppleScript injects trap when projectName provided", () => {
     const plan = planLayout();
-    const script = generateAppleScript(plan, "/tmp/test", null, undefined, "myapp");
+    const script = generateAppleScript(plan, "/tmp/test", null, undefined, "myapp", undefined, LAUNCH_ID);
     expect(script).toContain("trap");
-    expect(script).toContain("myapp.active");
-    expect(script).toContain("myapp.pid");
+    expect(script).toContain(`${LAUNCH_ID}.active`);
+    expect(script).toContain(`${LAUNCH_ID}.pid`);
     expect(script).toContain("EXIT HUP");
   });
 
   it("generateAppleScript omits trap when no projectName", () => {
     const plan = planLayout();
     const script = generateAppleScript(plan, "/tmp/test");
-    expect(script).not.toContain("myapp.active");
+    expect(script).not.toContain("myapp.launches");
+    expect(script).not.toContain("__summon_cleanup");
+  });
+
+  it("generateAppleScript requires a launchId when projectName is provided", () => {
+    const plan = planLayout();
+    expect(() => generateAppleScript(plan, "/tmp/test", null, undefined, "myapp")).toThrow("launchId is required");
   });
 
   it("generateTreeAppleScript injects trap when projectName provided", () => {
@@ -1710,34 +1721,46 @@ describe("status trap", () => {
       float: false,
       cleanRestoredPanes: false,
     };
-    const script = generateTreeAppleScript(plan, "/tmp/test", null, undefined, "myproject");
+    const script = generateTreeAppleScript(plan, "/tmp/test", null, undefined, "myproject", undefined, LAUNCH_ID);
     expect(script).toContain("trap");
-    expect(script).toContain("myproject.active");
-    expect(script).toContain("myproject.pid");
+    expect(script).toContain(`myproject.launches/${LAUNCH_ID}.active`);
+    expect(script).toContain(`myproject.launches/${LAUNCH_ID}.pid`);
   });
 
-  it("writes the root shell pid sidecar when projectName provided", () => {
+  it("writes the root shell pid sidecar under the launch directory when projectName provided", () => {
     const plan = planLayout();
-    const script = generateAppleScript(plan, "/tmp/test", null, undefined, "myapp");
-    expect(script).toContain(`printf '%s\\\\n' \\"$$\\" > \\"$HOME/.config/summon/status/myapp.pid\\"`);
+    const script = generateAppleScript(plan, "/tmp/test", null, undefined, "myapp", undefined, LAUNCH_ID);
+    expect(script).toContain(`mkdir -p \\"${LAUNCH_DIR}\\" && chmod 700 \\"${LAUNCH_DIR}\\"`);
+    expect(script).toContain(`printf '%s\\\\n' \\"$$\\" > \\"${LAUNCH_DIR}/${LAUNCH_ID}.pid\\"`);
   });
 
-  it("writes marker file after pid sidecar (pid-then-marker ordering)", () => {
+  it("writes the active marker (holding the launch id) after the pid sidecar (pid-then-marker ordering)", () => {
     const plan = planLayout();
-    const script = generateAppleScript(plan, "/tmp/test", null, undefined, "myapp");
-    expect(script).toContain(`: > \\"$HOME/.config/summon/status/myapp.active\\"`);
+    const script = generateAppleScript(plan, "/tmp/test", null, undefined, "myapp", undefined, LAUNCH_ID);
+    expect(script).toContain(`printf '%s\\\\n' '${LAUNCH_ID}' > \\"${LAUNCH_DIR}/${LAUNCH_ID}.active\\"`);
     // pid must appear before marker in the script
-    const pidIdx = script.indexOf("myapp.pid");
-    const markerIdx = script.indexOf("myapp.active");
+    const pidIdx = script.indexOf(`${LAUNCH_ID}.pid`);
+    const markerIdx = script.indexOf(`${LAUNCH_ID}.active`);
     expect(pidIdx).toBeLessThan(markerIdx);
+  });
+
+  it("the trap removes only this launch's pid and active files and passes --launch to snapshot save", () => {
+    const plan = planLayout();
+    const script = generateAppleScript(plan, "/tmp/test", null, undefined, "myapp", undefined, LAUNCH_ID);
+    expect(script).toContain(`rm -f \\"${LAUNCH_DIR}/${LAUNCH_ID}.pid\\" \\"${LAUNCH_DIR}/${LAUNCH_ID}.active\\" 2>/dev/null`);
+    expect(script).toContain(`--launch '${LAUNCH_ID}'`);
+    // The legacy per-project paths and the record are never named by the new trap (P12).
+    expect(script).not.toContain("status/myapp.active");
+    expect(script).not.toContain("status/myapp.pid");
+    expect(script).not.toContain("myapp.json");
   });
 
   it("routes project name through shellDoubleQuote in pid-then-marker bootstrap", () => {
     const plan = planLayout();
-    const script = generateAppleScript(plan, "/tmp/test", null, undefined, 'my"proj');
+    const script = generateAppleScript(plan, "/tmp/test", null, undefined, 'my"proj', undefined, LAUNCH_ID);
     // shellDoubleQuote('my"proj') → my\"proj; escapeAppleScript → my\\\"proj (3 backslashes + quote)
-    expect(script).toContain('my\\\\\\"proj.pid');
-    expect(script).toContain('my\\\\\\"proj.active');
+    expect(script).toContain(`my\\\\\\"proj.launches/${LAUNCH_ID}.pid`);
+    expect(script).toContain(`my\\\\\\"proj.launches/${LAUNCH_ID}.active`);
   });
 });
 
@@ -1759,7 +1782,7 @@ describe("emitCleanupTrap — meta-char payloads", () => {
       const targetDir = c.field === "targetDir" ? c.raw : "/tmp/p";
       const projectName = c.field === "projectName" ? c.raw : "proj";
       const onStop = c.field === "onStop" ? c.raw : undefined;
-      const script = generateAppleScript(plan, targetDir, null, undefined, projectName, onStop);
+      const script = generateAppleScript(plan, targetDir, null, undefined, projectName, onStop, LAUNCH_ID);
       expect(script).toContain(c.expectedSub);
     });
   }
@@ -1787,8 +1810,8 @@ describe("generateFocusScript", () => {
 describe("escapeTabTitle — no module-global mutable state (BE-H2, BE-L2)", () => {
   it("repeated generateAppleScript calls with the same tab title produce identical output (cache not needed)", () => {
     const plan = planLayout(getPreset("full"));
-    const script1 = generateAppleScript(plan, "/tmp/proj", null, undefined, "stable-title");
-    const script2 = generateAppleScript(plan, "/tmp/proj", null, undefined, "stable-title");
+    const script1 = generateAppleScript(plan, "/tmp/proj", null, undefined, "stable-title", undefined, LAUNCH_ID);
+    const script2 = generateAppleScript(plan, "/tmp/proj", null, undefined, "stable-title", undefined, LAUNCH_ID);
     // Pure function: same inputs → same outputs, no state required
     expect(script1).toBe(script2);
     expect(script1).toContain("set_tab_title:[stable-title]");
@@ -1796,7 +1819,7 @@ describe("escapeTabTitle — no module-global mutable state (BE-H2, BE-L2)", () 
 
   it("tab title is correctly escaped on each call without caching", () => {
     const plan = planLayout();
-    const script = generateAppleScript(plan, "/tmp/proj", null, undefined, 'my"app');
+    const script = generateAppleScript(plan, "/tmp/proj", null, undefined, 'my"app', undefined, LAUNCH_ID);
     // projectName wraps in brackets: [my"app] → escapeAppleScript → [my\"app]
     expect(script).toContain('set_tab_title:[my\\"app]');
   });
@@ -1910,20 +1933,20 @@ describe("AR-M2: generateAppleScript is pure stateless (no cache)", () => {
 describe("#563: escapeTabTitle removed — inlined escapeAppleScript produces identical output", () => {
   it("plain project name tab title is unchanged", () => {
     const plan = planLayout();
-    const script = generateAppleScript(plan, "/tmp/proj", null, undefined, "myapp");
+    const script = generateAppleScript(plan, "/tmp/proj", null, undefined, "myapp", undefined, LAUNCH_ID);
     expect(script).toContain('perform action "set_tab_title:[myapp]" on paneRoot');
   });
 
   it("project name with double-quote is correctly escaped in tab title (same as pre-refactor)", () => {
     const plan = planLayout();
-    const script = generateAppleScript(plan, "/tmp/proj", null, undefined, 'my"app');
+    const script = generateAppleScript(plan, "/tmp/proj", null, undefined, 'my"app', undefined, LAUNCH_ID);
     // escapeAppleScript turns " into \" — identical to what escapeTabTitle produced
     expect(script).toContain('perform action "set_tab_title:[my\\"app]" on paneRoot');
   });
 
   it("project name with backslash is correctly escaped in tab title (same as pre-refactor)", () => {
     const plan = planLayout();
-    const script = generateAppleScript(plan, "/tmp/proj", null, undefined, "my\\app");
+    const script = generateAppleScript(plan, "/tmp/proj", null, undefined, "my\\app", undefined, LAUNCH_ID);
     expect(script).toContain('perform action "set_tab_title:[my\\\\app]" on paneRoot');
   });
 
@@ -1946,10 +1969,10 @@ describe("#563: escapeTabTitle removed — inlined escapeAppleScript produces id
 
     // generateAppleScript path — assert tab title value (no special chars, straightforward)
     const tradPlan = planLayout({ editor: "vim" });
-    const tradScript = generateAppleScript(tradPlan, "/tmp/proj", null, undefined, projectName);
+    const tradScript = generateAppleScript(tradPlan, "/tmp/proj", null, undefined, projectName, undefined, LAUNCH_ID);
 
     // generateTreeAppleScript path
-    const treeScript = generateTreeAppleScript(plan, "/tmp/proj", null, undefined, projectName);
+    const treeScript = generateTreeAppleScript(plan, "/tmp/proj", null, undefined, projectName, undefined, LAUNCH_ID);
 
     // Both must contain the same set_tab_title action value: [myproject]
     // (pane var differs: paneRoot vs pane_editor — that's intentional, not a title difference)

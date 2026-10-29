@@ -75,7 +75,8 @@ export interface TreeLayoutPlan {
 /** Maximum allowed nesting depth for parenthesised tree expressions. */
 const MAX_TREE_DEPTH = 32;
 
-const PANE_NAME_RE = /^[a-zA-Z_][a-zA-Z0-9_-]*$/;
+/** Pane names are identifiers, never paths; shared with the per-launch shell fragments. */
+export const PANE_NAME_RE = /^[a-zA-Z_][a-zA-Z0-9_-]*$/;
 const PANE_CWD_RE = /^pane\.([a-zA-Z_][a-zA-Z0-9_-]*)\.cwd$/;
 const NAME_START_RE = /[a-zA-Z_]/;
 const NAME_CHAR_RE = /[a-zA-Z0-9_-]/;

@@ -1,7 +1,12 @@
 import { existsSync, mkdirSync, readFileSync, unlinkSync, readdirSync } from "node:fs";
-import { join, resolve, sep } from "node:path";
 import { STATUS_DIR } from "./paths.js";
-import { debugLog, atomicWrite, gitOutput } from "./utils.js";
+import { debugLog, atomicWrite, gitOutput, confinedPath } from "./utils.js";
+import { withFileLock } from "./file-lock.js";
+import { isLaunchId, launchArtifactPaths, listLaunchManifests } from "./launch-identity.js";
+import { isBackendId } from "./backend.js";
+import type { BackendId } from "./backend.js";
+import { parseRexIdentity } from "./backends/rex/types.js";
+import type { RexIdentity } from "./backends/rex/types.js";
 
 import { parseNativeMetadata } from "./pane-inventory.js";
 import type { NativeMetadata } from "./pane-inventory.js";
@@ -25,27 +30,51 @@ export interface WorkspaceStatus {
   source: "summon";
   /** Schema version for future compatibility */
   version: 1;
-  /** Exact surface-lifetime native identity; optional for legacy launches. */
+  /** Exact surface-lifetime native identity (Ghostty); optional for legacy launches. */
   native?: NativeMetadata;
+  /** Launch generation (UUID v4, plan P12); absent on records written before per-launch ownership. */
+  launchId?: string;
+  /** Owning terminal backend; absent means Ghostty (plan P6). */
+  backend?: BackendId;
+  /** Exact Rex identity (plan P16); mutually exclusive with `native`. */
+  rex?: RexIdentity;
+  /** Set by lifecycle reconciliation once the workspace ended; absent while live. */
+  endedAt?: string;
 }
 
 export type WorkspaceState = "active" | "stopped" | "unknown";
 
-export interface ResolvedStatus extends WorkspaceStatus {
+export interface ResolvedStatus extends Omit<WorkspaceStatus, "pid"> {
+  /** Recorded launcher pid; null for an unverified launch that has no record yet. */
+  pid: number | null;
   /** Derived from marker file check at read time */
   state: WorkspaceState;
   /** Milliseconds since workspace started (if active), null if stopped */
   uptime: number | null;
+  /** Why the state is `unknown` (or another non-active state), when a reason is known. */
+  reason?: string;
 }
+
+/** Who may write the shared record (plan §3 "Status write protocol"). */
+export type RecordExpectation =
+  | { launchId: string | null }
+  | "replace";
+
+export type OwnedRecordOutcome = "written" | "unchanged" | "superseded";
+
+export interface OwnedRecordResult {
+  outcome: OwnedRecordOutcome;
+  /** Errors thrown by `afterWrite`; collected, never rethrown. */
+  afterErrors: Error[];
+}
+
+/** @internal test hook: runs just before the status lock is taken. */
+export const statusTestHooks: { beforeLock?: () => void } = {};
 
 // --- Paths ---
 
 function statusArtifactPath(projectName: string, extension: "json" | "active" | "pid"): string {
-  const filePath = join(STATUS_DIR, `${projectName}.${extension}`);
-  if (!resolve(filePath).startsWith(resolve(STATUS_DIR) + sep)) {
-    throw new Error(`Invalid status path: "${projectName}"`);
-  }
-  return filePath;
+  return confinedPath(STATUS_DIR, `${projectName}.${extension}`, "status");
 }
 
 function statusFilePath(projectName: string): string {
@@ -62,43 +91,153 @@ function pidFilePath(projectName: string): string {
 
 // --- Write ---
 
+/** Read the record as JSON only: no liveness, no probes, no side effects. */
+export function readStatusRecord(projectName: string): WorkspaceStatus | null {
+  const filePath = statusFilePath(projectName);
+  let raw: string;
+  try {
+    raw = readFileSync(filePath, "utf-8");
+  } catch {
+    return null;
+  }
+  let data: unknown;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  return parseWorkspaceStatus(data);
+}
+
 /**
- * Write workspace status JSON. Liveness artifacts (.active marker, .pid sidecar)
- * are created by the root shell bootstrap after the pid is durable — see
- * emitRootPanePidBootstrap in src/script.ts. Node never writes the marker; this
- * eliminates a launch-window race where a concurrent reader would observe
+ * Locked, expectation-checked record write (plan P12, §3 "Status write protocol").
+ *
+ * Inside `withFileLock(<project>.json)`: read the current record, compare it with the
+ * caller's expectation, run `action` (which may write side files and returns the record to
+ * publish, or null to leave it unchanged), write atomically, then run `afterWrite` for
+ * idempotent cleanup. An expectation mismatch returns "superseded" and runs nothing.
+ *
+ * - `{ launchId: null }` requires that NO record file exists (a legacy record is present).
+ * - `{ launchId: g }` requires a record whose `launchId` is g (a legacy record never matches).
+ * - `"replace"` is for user-initiated launches only: it always publishes.
+ */
+export function withOwnedRecord(
+  projectName: string,
+  expectation: RecordExpectation,
+  action: (current: WorkspaceStatus | null) => WorkspaceStatus | null,
+  afterWrite?: (outcome: "written" | "unchanged", record: WorkspaceStatus | null) => void,
+): OwnedRecordResult {
+  const file = statusFilePath(projectName);
+  mkdirSync(STATUS_DIR, { recursive: true, mode: 0o700 });
+  statusTestHooks.beforeLock?.();
+  return withFileLock(file, () => {
+    const exists = existsSync(file);
+    const current = exists ? readStatusRecord(projectName) : null;
+    if (expectation !== "replace") {
+      const superseded = expectation.launchId === null
+        ? exists
+        : current === null || current.launchId !== expectation.launchId;
+      if (superseded) return { outcome: "superseded", afterErrors: [] };
+    }
+    const next = action(current);
+    let outcome: "written" | "unchanged";
+    if (next === null) {
+      outcome = "unchanged";
+    } else {
+      atomicWrite(file, JSON.stringify(next, null, 2) + "\n", { mode: 0o600 });
+      outcome = "written";
+    }
+    const afterErrors: Error[] = [];
+    if (afterWrite) {
+      try {
+        afterWrite(outcome, next ?? current);
+      } catch (error) {
+        afterErrors.push(error instanceof Error ? error : new Error(String(error)));
+      }
+    }
+    return { outcome, afterErrors };
+  });
+}
+
+/**
+ * Publish a launch's record (expectation "replace": a user-initiated launch always wins).
+ * Liveness artifacts (.active marker, .pid sidecar) are created by the root shell bootstrap
+ * after the pid is durable (see bootstrapLine in src/launch-identity.ts). Node never writes
+ * the marker; this eliminates a launch-window race where a concurrent reader would observe
  * marker-without-pid and GC both artifacts. (2026-04-19 audit #2.)
  */
 export function writeStatus(status: WorkspaceStatus): void {
-  mkdirSync(STATUS_DIR, { recursive: true, mode: 0o700 });
-  atomicWrite(statusFilePath(status.project), JSON.stringify(status, null, 2) + "\n", { mode: 0o600 });
+  withOwnedRecord(status.project, "replace", () => status);
 }
 
-/** Discard metadata only after failed replacement; root-shell liveness sidecars stay authoritative. */
-export function discardStatusRecord(projectName: string): boolean {
-  try { unlinkSync(statusFilePath(projectName)); return true; }
+function unlinkIgnoringMissing(path: string): boolean {
+  try { unlinkSync(path); return true; }
   catch (error) { return (error as NodeJS.ErrnoException).code === "ENOENT"; }
 }
 
-export function clearStatus(projectName: string): void {
-  const statusPath = statusFilePath(projectName);
-  const markerPath = markerFilePath(projectName);
-  const pidPath = pidFilePath(projectName);
-  try { unlinkSync(statusPath); } catch { /* ignore */ }
-  try { unlinkSync(markerPath); } catch { /* ignore */ }
-  try { unlinkSync(pidPath); } catch { /* ignore */ }
+/**
+ * Discard metadata only after a failed replacement; root-shell liveness sidecars stay
+ * authoritative. With a `launchId` the record is removed only while it still belongs to
+ * that generation. Returns true when the record is gone (or was already absent).
+ */
+export function discardStatusRecord(projectName: string, launchId?: string): boolean {
+  let removed = false;
+  try {
+    const { outcome } = withOwnedRecord(
+      projectName,
+      launchId ? { launchId } : "replace",
+      () => null,
+      () => { removed = unlinkIgnoringMissing(statusFilePath(projectName)); },
+    );
+    return outcome !== "superseded" && removed;
+  } catch {
+    return false;
+  }
+}
+
+/** Remove the record and its liveness files (explicit user command; "replace" unless a generation is given). */
+export function clearStatus(projectName: string, launchId?: string): void {
+  const legacyPaths = [markerFilePath(projectName), pidFilePath(projectName)];
+  withOwnedRecord(
+    projectName,
+    launchId ? { launchId } : "replace",
+    () => null,
+    () => {
+      unlinkIgnoringMissing(statusFilePath(projectName));
+      for (const path of legacyPaths) unlinkIgnoringMissing(path);
+      if (launchId) {
+        const paths = launchArtifactPaths(projectName, launchId);
+        unlinkIgnoringMissing(paths.pid);
+        unlinkIgnoringMissing(paths.active);
+      }
+    },
+  );
 }
 
 // --- Read ---
 
-function readShellPid(projectName: string): number | null {
+function readPidFile(path: string): number | null {
   try {
-    const raw = readFileSync(pidFilePath(projectName), "utf-8").trim();
+    const raw = readFileSync(path, "utf-8").trim();
     const pid = Number.parseInt(raw, 10);
     return Number.isInteger(pid) && pid > 0 ? pid : null;
   } catch {
     return null;
   }
+}
+
+/** Liveness of a record that carries a launch id: its own `.active` names it and its own `.pid` is alive. */
+function isLaunchLive(projectName: string, launchId: string): boolean {
+  const paths = launchArtifactPaths(projectName, launchId);
+  let marker: string;
+  try {
+    marker = readFileSync(paths.active, "utf-8").trim();
+  } catch {
+    return false;
+  }
+  if (marker !== launchId) return false;
+  const pid = readPidFile(paths.pid);
+  return pid !== null && isPidAlive(pid);
 }
 
 function isPidAlive(pid: number): boolean {
@@ -147,8 +286,43 @@ export function parseWorkspaceStatus(raw: unknown): WorkspaceStatus | null {
     ? rawPanes as string[]
     : [];
 
-  const native = parseNativeMetadata(d["native"]);
-  if (d["native"] !== undefined && !native) process.stderr.write("summon: warning: invalid native identity discarded; inspect or explicitly relaunch to capture exact targets.\n");
+  const warn = (message: string) => process.stderr.write(`summon: warning: ${message}\n`);
+
+  let launchId: string | undefined;
+  if (d["launchId"] !== undefined) {
+    if (isLaunchId(d["launchId"])) launchId = d["launchId"];
+    else warn("invalid launch id discarded; liveness falls back to the legacy markers.");
+  }
+
+  let backend: BackendId | undefined;
+  if (d["backend"] !== undefined) {
+    if (isBackendId(d["backend"])) backend = d["backend"];
+    else warn(`unknown backend ${JSON.stringify(d["backend"])} discarded; treating the workspace as Ghostty.`);
+  }
+  let native = parseNativeMetadata(d["native"]);
+  if (d["native"] !== undefined && !native) warn("invalid native identity discarded; inspect or explicitly relaunch to capture exact targets.");
+
+  let rex: RexIdentity | undefined;
+  if (d["rex"] !== undefined) {
+    rex = parseRexIdentity(d["rex"], validPanes);
+    if (!rex) warn("invalid Rex identity discarded; relaunch to capture exact targets.");
+  }
+
+  // `native` (Ghostty) and `rex` are mutually exclusive: the backend (absent = Ghostty) decides which one is kept.
+  if (backend === "rex" && native) {
+    warn("native Ghostty identity discarded on a Rex record.");
+    native = undefined;
+  }
+  if (backend !== "rex" && rex) {
+    warn("Rex identity discarded on a Ghostty record.");
+    rex = undefined;
+  }
+
+  let endedAt: string | undefined;
+  if (d["endedAt"] !== undefined) {
+    if (typeof d["endedAt"] === "string" && !Number.isNaN(Date.parse(d["endedAt"]))) endedAt = d["endedAt"];
+    else debugLog("parseWorkspaceStatus: invalid endedAt discarded");
+  }
 
   // BE-L3 #514: reconstruct explicitly from validated fields — no unknown keys leak through
   return {
@@ -161,31 +335,34 @@ export function parseWorkspaceStatus(raw: unknown): WorkspaceStatus | null {
     source: "summon",
     version: 1,
     ...(native ? { native } : {}),
+    ...(launchId ? { launchId } : {}),
+    ...(backend ? { backend } : {}),
+    ...(rex ? { rex } : {}),
+    ...(endedAt ? { endedAt } : {}),
   };
 }
 
+const REX_LIVENESS_PENDING = "Rex liveness is not available in this version";
+
 export function readStatus(projectName: string): ResolvedStatus | null {
-  const filePath = statusFilePath(projectName);
-  let raw: string;
-  try {
-    raw = readFileSync(filePath, "utf-8");
-  } catch {
-    return null;
-  }
-
-  let data: unknown;
-  try {
-    data = JSON.parse(raw);
-  } catch {
-    return null;
-  }
-
-  const status = parseWorkspaceStatus(data);
+  const status = readStatusRecord(projectName);
   if (!status) return null;
 
-  const markerExists = existsSync(markerFilePath(projectName));
-  const shellPid = readShellPid(projectName);
-  const active = markerExists && shellPid !== null && isPidAlive(shellPid);
+  // Rex liveness (`sessionState`, plan P10) ships in Phase 3; until then a Rex record is
+  // `unknown`, which no consumer treats as live.
+  if (status.backend === "rex") {
+    return { ...status, state: "unknown", uptime: null, reason: REX_LIVENESS_PENDING };
+  }
+
+  // A record with a launch id never reads the legacy `<project>.active`/`.pid` paths (P12).
+  let active: boolean;
+  if (status.launchId) {
+    active = isLaunchLive(projectName, status.launchId);
+  } else {
+    const markerExists = existsSync(markerFilePath(projectName));
+    const shellPid = readPidFile(pidFilePath(projectName));
+    active = markerExists && shellPid !== null && isPidAlive(shellPid);
+  }
 
   const now = Date.now();
   const started = Date.parse(status.startedAt);
@@ -195,6 +372,44 @@ export function readStatus(projectName: string): ResolvedStatus | null {
     state: active ? "active" : "stopped",
     uptime: active && !isNaN(started) ? now - started : null,
   };
+}
+
+const UNVERIFIED_LAUNCH = "unverified launch";
+
+/**
+ * Launches that have a manifest but no record (unknown creation outcome, plan P13 §6).
+ * Phase 3 resolves them through adoption; here they are surfaced so `summon status` can
+ * list them and never hide a session Summon may have created.
+ */
+function unverifiedLaunchRows(launchDirProjects: string[], recordedProjects: Set<string>): ResolvedStatus[] {
+  const rows: ResolvedStatus[] = [];
+  for (const projectName of launchDirProjects) {
+    if (recordedProjects.has(projectName)) continue;
+    let manifests;
+    try {
+      manifests = listLaunchManifests(projectName);
+    } catch {
+      continue;
+    }
+    for (const manifest of manifests) {
+      rows.push({
+        project: manifest.project,
+        directory: manifest.directory,
+        pid: null,
+        startedAt: manifest.startedAt,
+        layout: manifest.layout,
+        panes: [...manifest.panes],
+        source: "summon",
+        version: 1,
+        launchId: manifest.launchId,
+        backend: manifest.backend,
+        state: "unknown",
+        uptime: null,
+        reason: UNVERIFIED_LAUNCH,
+      });
+    }
+  }
+  return rows;
 }
 
 // PE-M1 #607 / PE-L3 #570: bounded-TTL in-process cache for readAllStatuses.
@@ -233,16 +448,23 @@ export function readAllStatuses(): ResolvedStatus[] {
   }
 
   // BE-M4 #605: filter out .tmp and dotfiles so orphans never appear as phantom entries
-  const files = readdirSync(STATUS_DIR).filter(
-    f => f.endsWith(".json") && !f.startsWith(".") && !f.endsWith(".tmp")
-  );
+  const entries = readdirSync(STATUS_DIR, { withFileTypes: true });
+  const files = entries
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".json") && !entry.name.startsWith(".") && !entry.name.endsWith(".tmp"))
+    .map((entry) => entry.name);
+  const launchDirProjects = entries
+    .filter((entry) => entry.isDirectory() && entry.name.endsWith(".launches"))
+    .map((entry) => entry.name.slice(0, -".launches".length));
   const statuses: ResolvedStatus[] = [];
 
+  const recordedProjects = new Set<string>();
   for (const file of files) {
     const projectName = file.replace(/\.json$/, "");
+    recordedProjects.add(projectName);
     const status = readStatus(projectName);
     if (status) statuses.push(status);
   }
+  statuses.push(...unverifiedLaunchRows(launchDirProjects, recordedProjects));
 
   // Sort: active first (newest first), then stopped (newest first)
   const result = statuses.sort((a, b) => {
