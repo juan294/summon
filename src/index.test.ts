@@ -3,6 +3,7 @@ import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { randomUUID } from "node:crypto";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 
 const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -2047,4 +2048,69 @@ describe("P4 title CLI",()=>{
   const help=run("title","--help");expect(help.status).toBe(0);expect(help.stdout).toContain("--set");expect(help.stdout).toContain("--reset");
   expect(run("keybindings","--help").stdout).toContain("--detach-tab");
  });
+});
+
+
+describe("top-level operational error presentation", () => {
+  const modes = ["default", "debug"] as const;
+  for (const command of ["add", "set"] as const) {
+    it.each(modes)(`reports a live lock timeout from ${command} in %s mode without an uncaught source dump`, (mode) => {
+      const home = mkdtempSync(join(tmpdir(), "summon-cli-error-"));
+      const directory = join(home, ".config", "summon");
+      mkdirSync(directory, { recursive: true, mode: 0o700 });
+      const file = join(directory, command === "add" ? "projects" : "config");
+      const original = "# preserved\n";
+      writeFileSync(file, original, { mode: 0o600 });
+      const lock = `${file}.lock`;
+      mkdirSync(lock, { mode: 0o700 });
+      const token = `${process.pid}-${randomUUID()}.owner`;
+      writeFileSync(join(lock, token), "", { mode: 0o600 });
+      try {
+        const env: NodeJS.ProcessEnv = { ...process.env, HOME: home, NO_COLOR: "1" };
+        delete env["SUMMON_DEBUG"];
+        delete env["SUMMON_TEST_THROW"];
+        if (mode === "debug") env["SUMMON_DEBUG"] = "1";
+        const args = command === "add" ? ["add", "Locked", home] : ["set", "env.CLI03", "value"];
+        // Execute the built shebang, exercising the actual installed-style entry point.
+        const result = spawnSync(CLI_PATH, args, { cwd: home, env, encoding: "utf8", timeout: 10_000 });
+        expect(result.error).toBeUndefined();
+        expect(result.status).toBe(1);
+        expect(result.stdout).toBe("");
+        expect(result.stderr).toMatch(/^summon: error: Timed out waiting for config lock:/);
+        expect(result.stderr).not.toMatch(/Node\.js v|import\{|UnhandledPromiseRejection/);
+        if (mode === "debug") {
+          expect(result.stderr).toMatch(/\n\s+at /);
+          expect(result.stderr).not.toContain("Re-run with");
+        } else {
+          expect(result.stderr).toContain("Re-run with SUMMON_DEBUG=1 for full details.");
+          expect(result.stderr).not.toMatch(/(?:^|\n)\s*at /);
+          expect(result.stderr.length).toBeLessThan(1024);
+        }
+        expect(readFileSync(file, "utf8")).toBe(original);
+        expect(readdirSync(lock)).toEqual([token]);
+      } finally {
+        rmSync(home, { recursive: true, force: true });
+      }
+    });
+  }
+
+  it.each(modes)("presents generic exceptions in %s mode without rethrowing", (mode) => {
+    const env: NodeJS.ProcessEnv = { ...process.env, HOME: TEMP_HOME, SUMMON_TEST_THROW: "1", NO_COLOR: "1" };
+    delete env["SUMMON_DEBUG"];
+    if (mode === "debug") env["SUMMON_DEBUG"] = "1";
+    const result = spawnSync(CLI_PATH, ["list"], { cwd: TEMP_HOME, env, encoding: "utf8", timeout: 10_000 });
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(1);
+    expect(result.stderr).toMatch(/^summon: error: Synthetic test error/);
+    expect(result.stderr).not.toMatch(/Node\.js v|import\{|UnhandledPromiseRejection/);
+    if (mode === "debug") {
+      expect(result.stderr).toContain("Error: Synthetic test error");
+      expect(result.stderr).toMatch(/\n\s+at /);
+      expect(result.stderr).not.toContain("Re-run with");
+    } else {
+      expect(result.stderr.trim().split("\n")).toHaveLength(2);
+      expect(result.stderr).toContain("Re-run with SUMMON_DEBUG=1");
+      expect(result.stderr).not.toMatch(/\n\s+at /);
+    }
+  });
 });
