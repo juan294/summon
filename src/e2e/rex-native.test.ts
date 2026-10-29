@@ -11,33 +11,16 @@ import { join } from "node:path";
  * It creates sessions labelled `summon-e2e-<suffix>` on the local server and destroys only those.
  */
 
-type RexMode = "off" | "advisory" | "required";
-export function resolveRexMode(env: NodeJS.ProcessEnv): RexMode {
-  return env.SUMMON_REX_E2E_REQUIRED ? "required" : env.SUMMON_REX_E2E ? "advisory" : "off";
-}
-const mode = resolveRexMode(process.env);
-
-const { discoverRex, createRexCli, defaultRexServer, probeWhoami } = await import("../backends/rex/cli.js");
-const { listAppClients } = await import("../backends/rex/app.js");
+const { rexGate, until } = await import("./rex-harness.js");
+const { discoverRex, createRexCli, defaultRexServer } = await import("../backends/rex/cli.js");
 const { listSessions, viewSession } = await import("../backends/rex/status.js");
 const { readStatusRecord, clearStatus } = await import("../status.js");
 const { launchArtifactPaths, launchesDir } = await import("../launch-identity.js");
 const { launch } = await import("../launcher.js");
+const harness = rexGate(process.env, "rex-native e2e");
+const { prereq } = harness;
 
 const REX_PROCESS_NAMES = ["Rex Beta", "Rex"];
-
-function prerequisiteFailure(): string | null {
-  const binary = discoverRex().path;
-  if (!binary) return "rex CLI not found";
-  const who = probeWhoami(binary, defaultRexServer());
-  if (!who.answers) return `Rex server not reachable: ${who.reason}`;
-  const clients = listAppClients(createRexCli(binary, defaultRexServer()));
-  if (!clients.ok || clients.clients.length === 0) return "no Rex app client connected";
-  return null;
-}
-
-const prereq = mode === "off" ? "SUMMON_REX_E2E not set" : prerequisiteFailure();
-if (prereq && mode !== "required") console.log(`rex-native e2e skipped: ${prereq}`);
 
 function systemEvents(script: string): string {
   return execFileSync("osascript", ["-e", script], { encoding: "utf8", timeout: 10_000 }).trim();
@@ -56,16 +39,6 @@ function rexWindowCount(): { process: string; count: number } {
   throw new Error(`System Events could not read the Rex windows (Accessibility for this terminal?): ${lastError}`);
 }
 
-async function until<T>(read: () => T | undefined, timeoutMs: number, what: string): Promise<T> {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    const value = read();
-    if (value !== undefined) return value;
-    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
-    await new Promise((r) => setTimeout(r, 250));
-  }
-}
-
 function splitDirections(node: unknown, out: string[] = []): string[] {
   if (!node || typeof node !== "object") return out;
   const split = (node as Record<string, unknown>)["split"] as Record<string, unknown> | undefined;
@@ -77,22 +50,14 @@ function splitDirections(node: unknown, out: string[] = []): string[] {
   return out;
 }
 
-/** Repo convention (applescript-syntax, ghostty-native suites): skip inside the test, fail loudly in required mode. */
-function gate(ctx: { skip: (reason?: string) => void }): boolean {
-  if (mode === "off") { ctx.skip("SUMMON_REX_E2E not set"); return false; }
-  if (prereq && mode !== "required") { ctx.skip(prereq); return false; }
-  if (prereq) throw new Error(`BLOCKED (SUMMON_REX_E2E_REQUIRED): ${prereq}`);
-  return true;
-}
-
 describe("rex native e2e", () => {
   it("prerequisites are present", (ctx) => {
-    if (!gate(ctx)) return;
+    if (!harness.gate(ctx)) return;
     expect(prereq).toBeNull();
   });
 
   it("creates, proves ownership through the pane files, switches on relaunch, keeps a dry run read-only and handles --new-window", { timeout: 120_000 }, async (ctx) => {
-    if (!gate(ctx)) return;
+    if (!harness.gate(ctx)) return;
     const binary = discoverRex().path!;
     const server = defaultRexServer();
     const cli = createRexCli(binary, server);
@@ -179,8 +144,10 @@ describe("rex native e2e", () => {
       stderrSpy.length = 0;
       await launch(dir, overrides);
       expect(stderrSpy.join("")).toContain(`Workspace [${project}] is already running in Rex; switched to it`);
+      // Only this project's sessions count: other suites (or the owner) may create sessions on the same server meanwhile.
       const after = listSessions(cli);
-      expect(after.ok && after.sessions.length).toBe(before.ok ? before.sessions.length + 1 : -1);
+      const own = (listing: typeof after) => (listing.ok ? listing.sessions.filter((s) => s.label === project).length : -1);
+      expect(own(after)).toBe(own(before) + 1);
       expect(readStatusRecord(project)!.launchId).toBe(launchId);
       expect(readFileSync(onStartLog, "utf-8")).toBe("start\n");
 

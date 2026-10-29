@@ -30,6 +30,7 @@ export type ParsedValues = {
   maximize?: boolean;
   float?: boolean;
   fix?: boolean;
+  orphans?: boolean;
   vim?: boolean;
   once?: boolean;
   "dry-run"?: boolean;
@@ -79,6 +80,7 @@ const parseOpts = {
     maximize: { type: "boolean" },
     float: { type: "boolean" },
     fix: { type: "boolean" },
+    orphans: { type: "boolean" },
     vim: { type: "boolean" },
     once: { type: "boolean" },
     "dry-run": { type: "boolean", short: "n" },

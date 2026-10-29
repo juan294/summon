@@ -1,4 +1,6 @@
+import { sym } from "./ui/symbols.js";
 import { readAllStatuses, getGitBranch, isLiveState as isLiveWorkspaceState, unverifiedMessage } from "./status.js";
+import type { ProgramState } from "./backends/rex/status.js";
 import type { ResolvedStatus } from "./status.js";
 import { listProjects } from "./config.js";
 import { bold, dim, green, red, yellow, cyan, invert } from "./ui/ansi.js";
@@ -22,6 +24,19 @@ export interface ProjectRow {
   reason?: string;
   /** Advisory lines (late adoption, pane-file refresh) printed under the row by `summon status --once`. */
   notices?: string[];
+  /** Rex only: the root pane's program status (OSC 7501), shown as a glyph before the dot. */
+  programStatus?: ProgramState;
+}
+
+/** One column: what the root pane's program reports (`idle` and nothing shows a space). */
+export function programGlyph(state: ProgramState | undefined): string {
+  switch (state) {
+    case "blocked": return yellow(sym.warn);
+    case "error": return red(sym.fail);
+    case "working": return cyan("\u22EF"); // ⋯
+    case "done": return green(sym.ok);
+    default: return " ";
+  }
 }
 
 /** States that have a live workspace to focus (`active-long` is `active` with a long uptime). */
@@ -36,7 +51,7 @@ const REFRESH_INTERVAL_MS = 3000;
 const NAME_WIDTH = 16;
 const STATE_WIDTH = 8;
 const UPTIME_WIDTH = 8;
-const FIXED_COLS = 2 + NAME_WIDTH + 2 + STATE_WIDTH + 2 + UPTIME_WIDTH + 2; // dot + spaces + padding
+const FIXED_COLS = 2 + 1 + NAME_WIDTH + 2 + STATE_WIDTH + 2 + UPTIME_WIDTH + 2; // dot + program glyph + spaces + padding
 const MIN_COLS = 60; // below this width, show the narrow-terminal guard
 
 // Terminal control sequences
@@ -115,7 +130,7 @@ export function renderRow(row: ProjectRow, width: number, selected: boolean): st
   const branchText = truncate(rawBranchText, branchWidth);
   const branch = isStopped || detail ? dim(branchText) : branchText;
 
-  const line = `  ${dot} ${name}  ${stateLabel}${statePad}  ${uptime}  ${branch}`;
+  const line = ` ${programGlyph(row.programStatus)}${dot} ${name}  ${stateLabel}${statePad}  ${uptime}  ${branch}`;
 
   if (selected) {
     return invert(line);
@@ -263,12 +278,13 @@ function statusToRow(name: string, directory: string, status: ResolvedStatus): P
     gitBranch,
     ...(status.reason ? { reason: status.reason } : {}),
     ...(status.notices && status.notices.length > 0 ? { notices: status.notices } : {}),
+    ...(status.programStatus ? { programStatus: status.programStatus.state } : {}),
   };
 }
 
 export function loadProjectRows(): ProjectRow[] {
   const projects = listProjects();
-  const statuses = readAllStatuses();
+  const statuses = readAllStatuses({ programStatus: true });
   const statusMap = new Map<string, ResolvedStatus>();
   for (const s of statuses) {
     statusMap.set(s.project, s);

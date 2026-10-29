@@ -1546,3 +1546,25 @@ describe("handoff on the four states (plan P10, Phase 4)", () => {
   });
 });
 
+describe("program status glyph (Rex, Phase 5)", () => {
+  const { programGlyph, renderRow } = monitorModule;
+  it("maps each program state to one glyph and renders it beside the dot", () => {
+    expect(programGlyph("blocked")).toContain("\u26A0");
+    expect(programGlyph("error")).toContain("\u2717");
+    expect(programGlyph("working")).toContain("\u22EF");
+    expect(programGlyph("done")).toContain("\u2713");
+    expect(programGlyph("idle")).toBe(" ");
+    expect(programGlyph(undefined)).toBe(" ");
+    const row = renderRow(makeRow({ programStatus: "blocked" }), 80, false);
+    expect(row).toContain("\u26A0");
+    expect(renderRow(makeRow(), 80, false)).not.toContain("\u26A0");
+  });
+
+  it("loadProjectRows carries the program state from the status", () => {
+    listProjects.mockReturnValue([["a", "/tmp/a"]]);
+    readAllStatuses.mockReturnValue([makeResolvedStatus({ project: "a", state: "active", uptime: 60_000, programStatus: { state: "error", msg: "boom" } })]);
+    getGitBranch.mockReturnValue("main");
+    expect(monitorModule.loadProjectRows()[0]!.programStatus).toBe("error");
+  });
+});
+

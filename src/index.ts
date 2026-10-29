@@ -18,6 +18,8 @@ const ONCE_ALLOWED_SUBCOMMANDS = new Set(["status"]);
 // FE-L1 (#621): Subcommands that legitimately consume --vim / --fix.
 const VIM_ALLOWED_SUBCOMMANDS = new Set(["keybindings"]);
 const FIX_ALLOWED_SUBCOMMANDS = new Set(["doctor"]);
+// Flags consumed by exactly one subcommand; any other use (including a launch target) gets a warning.
+const SINGLE_OWNER_FLAGS: Array<[flag: "orphans", owner: string]> = [["orphans", "clean"]];
 
 // PE-H2 (#369): Lazy-import registry — handlers are only loaded when the subcommand is used.
 const registry: Record<string, () => Promise<CommandHandler>> = {
@@ -44,6 +46,7 @@ const registry: Record<string, () => Promise<CommandHandler>> = {
   layout:      () => import("./commands/layout.js").then(m => m.handleLayoutCommand),
   session:     () => import("./commands/session.js").then(m => m.handleSessionCommand),
   trust:       () => import("./commands/trust.js").then(m => m.handleTrustCommand),
+  clean:       () => import("./commands/clean.js").then(m => m.handleCleanCommand),
 };
 
 async function main(): Promise<void> {
@@ -97,6 +100,12 @@ async function main(): Promise<void> {
         `Warning: --vim has no effect with the '${sub ?? ""}' command. --vim is only valid with 'summon keybindings'.`,
       );
     }
+  }
+
+  for (const [flag, owner] of SINGLE_OWNER_FLAGS) {
+    if (!parsed.values[flag]) continue;
+    const sub = parsed.subcommand;
+    if (sub !== owner) console.error(`Warning: --${flag} has no effect with the '${sub ?? ""}' command. --${flag} is only valid with 'summon ${owner}'.`);
   }
 
   // FE-L1 (#621): Warn if --fix is used with a command that doesn't consume it.

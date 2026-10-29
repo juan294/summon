@@ -105,3 +105,11 @@ export function validateFloatFlag(
   }
   return result.value;
 }
+
+/** The project argument of a workspace command: exactly one positional (up to `max`), validated. */
+export function projectArgOrExit(args: string[], max: number, usage: string): string {
+  if (!args[0] || args.length > max) exitWithUsageHint(usage);
+  validateProjectNameOrExit(args[0]);
+  return args[0];
+}
+

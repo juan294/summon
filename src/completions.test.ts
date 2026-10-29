@@ -518,7 +518,7 @@ describe("FE-S2 (#444) — declarative spec: all shells derive from same source"
     const knownSubcommands = [
       "add", "remove", "list", "set", "config", "setup", "completions",
       "doctor", "open", "status", "switch", "snapshot", "briefing", "ports",
-      "export", "freeze", "keybindings", "layout", "session", "trust",
+      "export", "freeze", "keybindings", "layout", "session", "trust", "clean",
     ];
     const bash = generateBashCompletion();
     const zsh = generateZshCompletion();

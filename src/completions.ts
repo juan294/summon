@@ -57,6 +57,7 @@ const SUBCOMMAND_SPECS: SubcommandSpec[] = [
   { name: "layout",       desc: "Manage custom layouts" },
   { name: "session",      desc: "Launch a saved multi-project session" },
   { name: "trust",        desc: "Trust the .summon file in a directory" },
+  { name: "clean",        desc: "Close an empty Rex session and clear its files" },
 ];
 
 /**

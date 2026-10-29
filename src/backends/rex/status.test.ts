@@ -231,3 +231,32 @@ describe("titleRex", async () => {
     expect(cli.calls.map((c) => c.op)).toEqual(["block-label"]);
   });
 });
+
+describe("program status (OSC 7501, Phase 5)", async () => {
+  const { mostSevereProgramStatus, programStatusOf, inspectRex } = await import("./status.js");
+
+  it("picks the most severe record and keeps its text fields; unknown states count as idle; no records means nothing", () => {
+    const records = { records: [
+      { state: "working", app: "cargo", title: "build", progress: 40 },
+      { state: "blocked", kind: "permission", app: "claude", msg: "Allow rm -rf?" },
+      { state: "weird" },
+      { state: "done", title: "tests" },
+    ] };
+    expect(mostSevereProgramStatus(records)).toEqual({ state: "blocked", kind: "permission", app: "claude", msg: "Allow rm -rf?" });
+    expect(mostSevereProgramStatus({ records: [{ state: "weird" }] })).toEqual({ state: "idle" });
+    expect(mostSevereProgramStatus({ records: [] })).toBeUndefined();
+    expect(mostSevereProgramStatus(null)).toBeUndefined();
+    expect(mostSevereProgramStatus({ records: [{ state: "error", msg: "exit 1" }, { state: "working" }] })).toEqual({ state: "error", msg: "exit 1" });
+  });
+
+  it("programStatusOf calls block call program_status and inspectRex reports the root pane's status", () => {
+    const cli = fakeCli({ "block-call": (input) => { void input; return { ok: true, op: "block-call", stdout: "", json: { records: [{ state: "working", app: "pnpm" }] } }; } });
+    expect(programStatusOf(cli, IDENTITY.sessionId, IDENTITY.rootBlockId)).toEqual({ state: "working", app: "pnpm" });
+    expect(cli.calls[0]!.argv).toEqual(["block", "call", "-s", IDENTITY.sessionId, "-b", IDENTITY.rootBlockId, "program_status"]);
+    const inspect = inspectRex(cli, IDENTITY, ["editor"], "chapa", ["editor"]);
+    expect(inspect.programStatus).toEqual({ state: "working", app: "pnpm" });
+    const closedRoot = inspectRex(cli, IDENTITY, ["editor", "shell"], "chapa", ["shell"]);
+    expect(closedRoot.programStatus).toBeUndefined();
+  });
+});
+

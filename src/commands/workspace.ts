@@ -2,7 +2,7 @@ import type { CommandContext } from "./types.js";
 import { readStatus } from "../status.js";
 import { focusWorkspace, resolveWorkspaceTerminal } from "../launcher.js";
 import { readNativeInventory, titleTerminal, validateTitleText } from "../ghostty-native.js";
-import { validateProjectNameOrExit } from "../validation.js";
+import { projectArgOrExit } from "../validation.js";
 import { escapeControlChars } from "../pane-inventory.js";
 import { inspectRex, titleRex } from "../backends/rex/status.js";
 import { rexCommandGate } from "../status.js";
@@ -10,11 +10,7 @@ import type { ResolvedStatus } from "../status.js";
 import { exitWithUsageHint } from "../utils.js";
 import { fail } from "../ui/output.js";
 
-function projectArg(args: string[], max: number, usage: string): string {
-  if (!args[0] || args.length > max) exitWithUsageHint(usage);
-  validateProjectNameOrExit(args[0]);
-  return args[0];
-}
+const projectArg = projectArgOrExit;
 export async function handleFocusCommand({
   args,
 }: CommandContext): Promise<void> {
@@ -108,12 +104,15 @@ function inspectRexWorkspace(project: string, status: ResolvedStatus, json: bool
     availability: available ? "available" : "unavailable",
     ...(reason ? { reason } : {}),
     panes: inspected.panes,
+    ...(inspected.programStatus ? { programStatus: inspected.programStatus } : {}),
   };
   if (json) console.log(JSON.stringify(result, null, 2));
   else {
     console.log(`${project}: ${result.state} (${result.availability}, Rex)`);
     for (const pane of inspected.panes)
       console.log(`  ${pane.name}  ${pane.blockId ?? "UNVERIFIED"}  PID ${pane.pid ?? "UNAVAILABLE"}  UNAVAILABLE  ${escapeControlChars(pane.title ?? "UNAVAILABLE")}`);
+    const program = inspected.programStatus;
+    if (program) console.log(`  program: ${program.state}${program.kind ? ` (${program.kind})` : ""}${program.app ? ` ${program.app}` : ""}${program.title ? ` ${escapeControlChars(program.title)}` : ""}${program.msg ? ` ${escapeControlChars(program.msg)}` : ""}`);
     if (reason) console.log(reason);
   }
   if (!available) process.exit(2);

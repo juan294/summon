@@ -59,6 +59,7 @@ export function createRexBackend(context: RexLaunchContext, deps: RexBackendDeps
       envVars: ctx.envVars,
       starshipConfigPath: ctx.resolveStarship(),
       onStop: ctx.onStop,
+      layoutLabel: ctx.layoutLabel,
     });
     const manifest: LaunchManifest = {
       version: 1,

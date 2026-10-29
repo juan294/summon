@@ -33,6 +33,9 @@ export interface SessionView {
 
 export type RexWorkspaceState = "active" | "partial" | "stopped" | "unknown";
 
+/** The `stopped` reason that confirms the session is gone on the record's server. */
+export const SESSION_GONE = "Rex session no longer exists";
+
 export interface RexSessionState {
   state: RexWorkspaceState;
   reason?: string;
@@ -113,7 +116,7 @@ export type SessionListing = ReturnType<typeof listSessions>;
  */
 export function sessionState(cli: RexCli, identity: RexIdentity, project: string, listed: SessionListing = listSessions(cli)): RexSessionState {
   if (!listed.ok) return { state: "unknown", reason: listed.reason, liveBlocks: [] };
-  if (!listed.sessions.some((s) => s.sessionId === identity.sessionId)) return { state: "stopped", reason: "Rex session no longer exists", liveBlocks: [] };
+  if (!listed.sessions.some((s) => s.sessionId === identity.sessionId)) return { state: "stopped", reason: SESSION_GONE, liveBlocks: [] };
   const viewed = viewSession(cli, identity.sessionId);
   if (!viewed.ok) return { state: "unknown", reason: viewed.reason, liveBlocks: [] };
   const present = viewBlockIds(viewed.view);
@@ -189,6 +192,8 @@ export interface RexInspectResult {
   availability: "available" | "unavailable";
   reason?: string;
   panes: RexInspectPane[];
+  /** The root pane's most severe program status, when its programs report one. */
+  programStatus?: ProgramStatus;
 }
 
 /** Current labels from `block ls` for the session. */
@@ -243,7 +248,9 @@ export function inspectRex(cli: RexCli, identity: RexIdentity, panes: readonly s
   const problems: string[] = [];
   if (closed.length > 0) problems.push(`${closed.length} recorded ${closed.length === 1 ? "pane is" : "panes are"} closed in Rex (${closed.join(", ")})`);
   if (unverified.length > 0) problems.push(`${unverified.length} ${unverified.length === 1 ? "pane" : "panes"} could not be verified after recovery (${unverified.join(", ")}); run summon ${project} to relaunch`);
-  return { availability: closed.length > 0 ? "unavailable" : "available", ...(problems.length > 0 ? { reason: problems.join("; ") } : {}), panes: rows };
+  const root = rows.find((row) => row.blockId === identity.rootBlockId && row.availability === "available");
+  const programStatus = root ? programStatusOf(cli, identity.sessionId, identity.rootBlockId) : undefined;
+  return { availability: closed.length > 0 ? "unavailable" : "available", ...(problems.length > 0 ? { reason: problems.join("; ") } : {}), panes: rows, ...(programStatus ? { programStatus } : {}) };
 }
 
 export type RexTitleOperation = { kind: "read" } | { kind: "set"; text: string } | { kind: "reset" };
@@ -279,3 +286,45 @@ export function titleRex(cli: RexCli, identity: RexIdentity, panes: readonly str
   if (!result.ok) return failed(result);
   return { kind: "title", terminalId: identity.windowId, scope, override: label };
 }
+
+// --- Program status (Rex-only advantage, OSC 7501; plan Phase 5) ---
+
+export type ProgramState = "blocked" | "error" | "working" | "done" | "idle";
+
+export interface ProgramStatus {
+  state: ProgramState;
+  /** What a blocked program waits for (`permission`, `question`, `auth`), when reported. */
+  kind?: string;
+  app?: string;
+  title?: string;
+  msg?: string;
+}
+
+const PROGRAM_SEVERITY: Record<ProgramState, number> = { blocked: 4, error: 3, working: 2, done: 1, idle: 0 };
+
+function programState(value: unknown): ProgramState {
+  return value === "blocked" || value === "error" || value === "working" || value === "done" ? value : "idle";
+}
+
+/** The most severe record a block's programs reported (`blocked` > `error` > `working` > `done` > `idle`), or nothing. */
+export function mostSevereProgramStatus(json: unknown): ProgramStatus | undefined {
+  const records = asRecord(json)?.["records"];
+  if (!Array.isArray(records)) return undefined;
+  let best: ProgramStatus | undefined;
+  for (const item of records as unknown[]) {
+    const record = asRecord(item);
+    if (!record) continue;
+    const status: ProgramStatus = { state: programState(record["state"]) };
+    for (const key of ["kind", "app", "title", "msg"] as const) {
+      if (typeof record[key] === "string" && record[key] !== "") status[key] = record[key] as string;
+    }
+    if (!best || PROGRAM_SEVERITY[status.state] > PROGRAM_SEVERITY[best.state]) best = status;
+  }
+  return best;
+}
+
+/** `block call program_status` for one block (the root pane in the readers). */
+export function programStatusOf(cli: RexCli, sessionId: string, blockId: string): ProgramStatus | undefined {
+  return mostSevereProgramStatus(blockCall(cli, sessionId, blockId, "program_status"));
+}
+

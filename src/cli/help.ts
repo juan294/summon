@@ -123,6 +123,7 @@ async function buildHelp(): Promise<string> {
     wrap(`  ${cmd("summon doctor --fix")}         Auto-add missing recommended settings (backs up first)`),
     wrap(`  ${cmd("summon completions <shell>")}  Generate shell completion script (zsh, bash, fish)`),
     wrap(`  ${cmd("summon trust [path]")}         Trust the .summon file in the given directory (default: current)`),
+    wrap(`  ${cmd("summon clean <project>")}      Close an empty Rex session and clear its launch files (--orphans: earlier launches)`),
     "",
     bold("Options:"),
     wrap(`  -h, --help                  Show this help message`),
@@ -249,6 +250,18 @@ Unavailable capability or target exits 2. After an unknown mutation outcome, rea
 
 Read stored workspace state and exact native pane observations without activating Ghostty.
 Legacy records require an explicit relaunch to capture native identity. Unavailable targets exit 2.`,
+
+  clean: `Usage: summon clean <project> [--orphans]
+
+Close the project's Rex session when Summon's own check shows it empty (no blocks), then
+save a snapshot, mark the record ended and remove this launch's files. Refuses (exit 2) when
+the session cannot be verified or still has panes, naming them. Rex has no conditional destroy:
+anything added to the session between the check and the close is closed with it.
+
+Options:
+  --orphans  Review launches other than the current one: adopt or remove what the server
+             confirms, close empty sessions, print the exact command for anything left (never
+             deletes an unreadable or unconfirmed launch file).`,
 
   focus: `Usage: summon focus <project> [pane]
 

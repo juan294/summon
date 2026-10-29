@@ -71,6 +71,15 @@ export function launchArtifactPaths(project: string, launchId: string): LaunchAr
   };
 }
 
+/** Every file a launch generation may own: the liveness sidecars, and (Rex) the manifest and pane files. */
+export function launchArtifactFiles(project: string, launchId: string, paneOrder: readonly string[]): { liveness: string[]; session: string[] } {
+  const paths = launchArtifactPaths(project, launchId);
+  return {
+    liveness: [paths.pid, paths.active],
+    session: [paths.manifest, ...paneOrder.flatMap((name) => [paths.pane(name).file, paths.pane(name).tmp])],
+  };
+}
+
 // --- Workspace environment (both backends) ---
 
 /** `KEY=VALUE` pairs every workspace pane starts with: marker, tab title, Starship, user vars. */

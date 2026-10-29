@@ -1,0 +1,372 @@
+import { existsSync, mkdirSync, readFileSync, unlinkSync } from "node:fs";
+import { STATUS_DIR } from "./paths.js";
+import { debugLog, atomicWrite, confinedPath } from "./utils.js";
+import { withFileLock } from "./file-lock.js";
+import { isLaunchId, launchArtifactPaths } from "./launch-identity.js";
+import { isBackendId } from "./backend.js";
+import type { BackendId } from "./backend.js";
+import { parseRexIdentity } from "./backends/rex/types.js";
+import type { RexIdentity } from "./backends/rex/types.js";
+import { parseNativeMetadata } from "./pane-inventory.js";
+import type { NativeMetadata } from "./pane-inventory.js";
+
+/**
+ * The status record layer: the shared record `status/<project>.json`, its parser, the locked
+ * write protocol (plan P12) and the Ghostty sidecar liveness. No probes, no Rex calls, no
+ * imports from the Rex backend beyond the identity type, so the Rex modules can depend on it
+ * without a cycle; `status.ts` is the reader built on top.
+ */
+// --- Types ---
+
+export interface WorkspaceStatus {
+  /** Registered project name or directory basename */
+  project: string;
+  /** Absolute path to project directory */
+  directory: string;
+  /** PID recorded at launch (informational; root-shell PID sidecar drives liveness) */
+  pid: number;
+  /** ISO 8601 timestamp of workspace launch */
+  startedAt: string;
+  /** Layout used (preset name or "custom") */
+  layout: string;
+  /** Pane names in the workspace */
+  panes: string[];
+  /** Source of this status entry */
+  source: "summon";
+  /** Schema version for future compatibility */
+  version: 1;
+  /** Exact surface-lifetime native identity (Ghostty); optional for legacy launches. */
+  native?: NativeMetadata;
+  /** Launch generation (UUID v4, plan P12); absent on records written before per-launch ownership. */
+  launchId?: string;
+  /** Owning terminal backend; absent means Ghostty (plan P6). */
+  backend?: BackendId;
+  /** Exact Rex identity (plan P16); mutually exclusive with `native`. */
+  rex?: RexIdentity;
+  /** Set by lifecycle reconciliation once the workspace ended; absent while live. */
+  endedAt?: string;
+}
+
+/** `partial`: a Rex session whose root pane closed while other recorded panes live (plan P10). */
+export type WorkspaceState = "active" | "partial" | "stopped" | "unknown";
+
+/** States with a live workspace to focus or count (plan P10 reader rules). */
+export function isLiveState(state: WorkspaceState): boolean {
+  return state === "active" || state === "partial";
+}
+
+/** Who may write the shared record (plan §3 "Status write protocol"). */
+export type RecordExpectation =
+  | { launchId: string | null }
+  | "replace";
+
+export type OwnedRecordOutcome = "written" | "unchanged" | "superseded";
+
+export interface OwnedRecordResult {
+  outcome: OwnedRecordOutcome;
+  /** Errors thrown by `afterWrite`; collected, never rethrown. */
+  afterErrors: Error[];
+}
+
+/** The record write itself failed (step B of the end-of-launch steps); other errors come from the lock or the action. */
+export class RecordWriteError extends Error {}
+
+/** @internal test hook: runs just before the status lock is taken. */
+export const statusTestHooks: { beforeLock?: () => void; beforeWrite?: () => void } = {};
+
+// --- Paths ---
+
+function statusArtifactPath(projectName: string, extension: "json" | "active" | "pid"): string {
+  return confinedPath(STATUS_DIR, `${projectName}.${extension}`, "status");
+}
+
+function statusFilePath(projectName: string): string {
+  return statusArtifactPath(projectName, "json");
+}
+
+function markerFilePath(projectName: string): string {
+  return statusArtifactPath(projectName, "active");
+}
+
+function pidFilePath(projectName: string): string {
+  return statusArtifactPath(projectName, "pid");
+}
+
+// --- Write ---
+
+/** Read the record as JSON only: no liveness, no probes, no side effects. */
+export function readStatusRecord(projectName: string): WorkspaceStatus | null {
+  const filePath = statusFilePath(projectName);
+  let raw: string;
+  try {
+    raw = readFileSync(filePath, "utf-8");
+  } catch {
+    return null;
+  }
+  let data: unknown;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  return parseWorkspaceStatus(data);
+}
+
+/**
+ * Locked, expectation-checked record write (plan P12, §3 "Status write protocol").
+ *
+ * Inside `withFileLock(<project>.json)`: read the current record, compare it with the
+ * caller's expectation, run `action` (which may write side files and returns the record to
+ * publish, or null to leave it unchanged), write atomically, then run `afterWrite` for
+ * idempotent cleanup. An expectation mismatch returns "superseded" and runs nothing.
+ *
+ * - `{ launchId: null }` requires that NO record file exists (a legacy record is present).
+ * - `{ launchId: g }` requires a record whose `launchId` is g (a legacy record never matches).
+ * - `"replace"` is for user-initiated launches only: it always publishes.
+ */
+export function withOwnedRecord(
+  projectName: string,
+  expectation: RecordExpectation,
+  action: (current: WorkspaceStatus | null) => WorkspaceStatus | null,
+  afterWrite?: (outcome: "written" | "unchanged", record: WorkspaceStatus | null) => void,
+): OwnedRecordResult {
+  const file = statusFilePath(projectName);
+  mkdirSync(STATUS_DIR, { recursive: true, mode: 0o700 });
+  statusTestHooks.beforeLock?.();
+  return withFileLock(file, () => {
+    const exists = existsSync(file);
+    const current = exists ? readStatusRecord(projectName) : null;
+    if (expectation !== "replace") {
+      const superseded = expectation.launchId === null
+        ? exists
+        : current === null || current.launchId !== expectation.launchId;
+      if (superseded) return { outcome: "superseded", afterErrors: [] };
+    }
+    const next = action(current);
+    let outcome: "written" | "unchanged";
+    if (next === null) {
+      outcome = "unchanged";
+    } else {
+      try {
+        statusTestHooks.beforeWrite?.();
+        atomicWrite(file, JSON.stringify(next, null, 2) + "\n", { mode: 0o600 });
+      } catch (error) {
+        throw new RecordWriteError(error instanceof Error ? error.message : String(error));
+      }
+      outcome = "written";
+    }
+    const afterErrors: Error[] = [];
+    if (afterWrite) {
+      try {
+        afterWrite(outcome, next ?? current);
+      } catch (error) {
+        afterErrors.push(error instanceof Error ? error : new Error(String(error)));
+      }
+    }
+    return { outcome, afterErrors };
+  });
+}
+
+/**
+ * Publish a launch's record (expectation "replace": a user-initiated launch always wins).
+ * Liveness artifacts (.active marker, .pid sidecar) are created by the root shell bootstrap
+ * after the pid is durable (see bootstrapLine in src/launch-identity.ts). Node never writes
+ * the marker; this eliminates a launch-window race where a concurrent reader would observe
+ * marker-without-pid and GC both artifacts. (2026-04-19 audit #2.)
+ */
+export function writeStatus(status: WorkspaceStatus): void {
+  withOwnedRecord(status.project, "replace", () => status);
+}
+
+/** Remove launch artifacts, tolerating absent ones; returns `path: reason` for every other failure. */
+export function removeLaunchArtifacts(files: readonly string[]): string[] {
+  const failures: string[] = [];
+  for (const file of files) {
+    try {
+      unlinkSync(file);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") failures.push(`${file}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  return failures;
+}
+
+export function unlinkIgnoringMissing(path: string): boolean {
+  try { unlinkSync(path); return true; }
+  catch (error) { return (error as NodeJS.ErrnoException).code === "ENOENT"; }
+}
+
+/**
+ * Discard metadata only after a failed replacement; root-shell liveness sidecars stay
+ * authoritative. With a `launchId` the record is removed only while it still belongs to
+ * that generation. Returns true when the record is gone (or was already absent).
+ */
+export function discardStatusRecord(projectName: string, launchId?: string): boolean {
+  let removed = false;
+  try {
+    const { outcome } = withOwnedRecord(
+      projectName,
+      launchId ? { launchId } : "replace",
+      () => null,
+      () => { removed = unlinkIgnoringMissing(statusFilePath(projectName)); },
+    );
+    return outcome !== "superseded" && removed;
+  } catch {
+    return false;
+  }
+}
+
+/** Remove the record and its liveness files (explicit user command; "replace" unless a generation is given). */
+export function clearStatus(projectName: string, launchId?: string): void {
+  const legacyPaths = [markerFilePath(projectName), pidFilePath(projectName)];
+  withOwnedRecord(
+    projectName,
+    launchId ? { launchId } : "replace",
+    () => null,
+    () => {
+      unlinkIgnoringMissing(statusFilePath(projectName));
+      for (const path of legacyPaths) unlinkIgnoringMissing(path);
+      if (launchId) {
+        const paths = launchArtifactPaths(projectName, launchId);
+        unlinkIgnoringMissing(paths.pid);
+        unlinkIgnoringMissing(paths.active);
+      }
+    },
+  );
+}
+
+// --- Read ---
+
+function readPidFile(path: string): number | null {
+  try {
+    const raw = readFileSync(path, "utf-8").trim();
+    const pid = Number.parseInt(raw, 10);
+    return Number.isInteger(pid) && pid > 0 ? pid : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Liveness of a record that carries a launch id: its own `.active` names it and its own `.pid` is alive. */
+export function isLaunchLive(projectName: string, launchId: string): boolean {
+  const paths = launchArtifactPaths(projectName, launchId);
+  let marker: string;
+  try {
+    marker = readFileSync(paths.active, "utf-8").trim();
+  } catch {
+    return false;
+  }
+  if (marker !== launchId) return false;
+  const pid = readPidFile(paths.pid);
+  return pid !== null && isPidAlive(pid);
+}
+
+function isPidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "EPERM") {
+      return true;
+    }
+    return false;
+  }
+}
+
+
+/** Ghostty liveness from the sidecars: a record with a launch id reads only its own per-launch files (P12). */
+export function ghosttyLiveness(projectName: string, status: WorkspaceStatus): "active" | "stopped" {
+  if (status.launchId) return isLaunchLive(projectName, status.launchId) ? "active" : "stopped";
+  const markerExists = existsSync(markerFilePath(projectName));
+  const shellPid = readPidFile(pidFilePath(projectName));
+  return markerExists && shellPid !== null && isPidAlive(shellPid) ? "active" : "stopped";
+}
+
+/**
+ * Validates the raw JSON parsed from a status file. Returns a typed WorkspaceStatus
+ * if all required fields have the correct types, or null if the shape is invalid.
+ */
+export function parseWorkspaceStatus(raw: unknown): WorkspaceStatus | null {
+  if (typeof raw !== "object" || raw === null) return null;
+
+  const d = raw as Record<string, unknown>;
+
+  // BE-M2 #491: gracefully handle future schema versions — warn and return null
+  // BE-M5 #606: emit an unconditional stderr warning so users know to upgrade
+  if (typeof d["version"] === "number" && d["version"] > 1) {
+    const file = typeof d["project"] === "string" ? `${d["project"]}.json` : "status file";
+    process.stderr.write(`summon: warning: ${file} was written by a newer summon; upgrade to read it\n`);
+    debugLog(`parseWorkspaceStatus: unrecognised future schema version ${d["version"]}; returning null`);
+    return null;
+  }
+  if (d["version"] !== 1) return null;
+  if (d["source"] !== "summon") return null;
+  if (typeof d["project"] !== "string") return null;
+  if (typeof d["directory"] !== "string") return null;
+  if (typeof d["pid"] !== "number") return null;
+  if (typeof d["startedAt"] !== "string") return null;
+  if (typeof d["layout"] !== "string") return null;
+  if (!Array.isArray(d["panes"])) return null;
+
+  // Validate that every pane element is a string (BE-M5 #379).
+  // If any element is not a string, return empty panes rather than rejecting the record.
+  const rawPanes = d["panes"] as unknown[];
+  const validPanes = rawPanes.every((p) => typeof p === "string")
+    ? rawPanes as string[]
+    : [];
+
+  const warn = (message: string) => process.stderr.write(`summon: warning: ${message}\n`);
+
+  let launchId: string | undefined;
+  if (d["launchId"] !== undefined) {
+    if (isLaunchId(d["launchId"])) launchId = d["launchId"];
+    else warn("invalid launch id discarded; liveness falls back to the legacy markers.");
+  }
+
+  let backend: BackendId | undefined;
+  if (d["backend"] !== undefined) {
+    if (isBackendId(d["backend"])) backend = d["backend"];
+    else warn(`unknown backend ${JSON.stringify(d["backend"])} discarded; treating the workspace as Ghostty.`);
+  }
+  let native = parseNativeMetadata(d["native"]);
+  if (d["native"] !== undefined && !native) warn("invalid native identity discarded; inspect or explicitly relaunch to capture exact targets.");
+
+  let rex: RexIdentity | undefined;
+  if (d["rex"] !== undefined) {
+    rex = parseRexIdentity(d["rex"], validPanes);
+    if (!rex) warn("invalid Rex identity discarded; relaunch to capture exact targets.");
+  }
+
+  // `native` (Ghostty) and `rex` are mutually exclusive: the backend (absent = Ghostty) decides which one is kept.
+  if (backend === "rex" && native) {
+    warn("native Ghostty identity discarded on a Rex record.");
+    native = undefined;
+  }
+  if (backend !== "rex" && rex) {
+    warn("Rex identity discarded on a Ghostty record.");
+    rex = undefined;
+  }
+
+  let endedAt: string | undefined;
+  if (d["endedAt"] !== undefined) {
+    if (typeof d["endedAt"] === "string" && !Number.isNaN(Date.parse(d["endedAt"]))) endedAt = d["endedAt"];
+    else debugLog("parseWorkspaceStatus: invalid endedAt discarded");
+  }
+
+  // BE-L3 #514: reconstruct explicitly from validated fields — no unknown keys leak through
+  return {
+    project: d["project"] as string,
+    directory: d["directory"] as string,
+    pid: d["pid"] as number,
+    startedAt: d["startedAt"] as string,
+    layout: d["layout"] as string,
+    panes: validPanes,
+    source: "summon",
+    version: 1,
+    ...(native ? { native } : {}),
+    ...(launchId ? { launchId } : {}),
+    ...(backend ? { backend } : {}),
+    ...(rex ? { rex } : {}),
+    ...(endedAt ? { endedAt } : {}),
+  };
+}

@@ -21,6 +21,7 @@ export default defineConfig({
         "src/**/*.test.ts",
         "src/index.ts", // CLI entry point — tested via subprocess, not instrumentable by v8
         "src/globals.d.ts", // type-only file — no runtime code to cover
+        "src/e2e/rex-harness.ts", // runs only against a real Rex (gated e2e suites)
       ],
       thresholds: {
         statements: 95,

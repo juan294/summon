@@ -367,7 +367,7 @@ describe("workspace commands under Rex (plan P10, Phase 4)", () => {
   function seedRex(blocks = BLOCKS) {
     writeStatus({ ...base, panes: PANES, launchId: "0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f", backend: "rex", rex: { ...rex, blocks } });
   }
-  type RexAnswers = { present?: boolean; live?: string[]; unreachable?: boolean; windowLabel?: string };
+  type RexAnswers = { present?: boolean; live?: string[]; unreachable?: boolean; windowLabel?: string; program?: Array<Record<string, unknown>> };
   function rexExec(answers: RexAnswers = {}) {
     const live = (answers.live ?? BLOCKS.map((b) => b.name)).map((name) => BLOCKS.find((b) => b.name === name)!.blockId);
     const calls: string[][] = [];
@@ -382,6 +382,7 @@ describe("workspace commands under Rex (plan P10, Phase 4)", () => {
       if (sub.includes("client.list")) return JSON.stringify({ clients: [{ client_id: "client:app", connected_at: "2026-10-29T08:00:00Z", connection_state: "connected", info: { kind: "app" } }] });
       if (sub.includes("session.select")) return "{}";
       if (sub[0] === "block" && sub[1] === "ls") return JSON.stringify({ blocks: live.map((id) => ({ block_id: id, label: BLOCKS.find((b) => b.blockId === id)!.label, window_id: WINDOW })) });
+      if (sub[0] === "block" && sub[1] === "call" && sub.at(-1) === "program_status") return JSON.stringify({ records: answers.program ?? [] });
       if (sub[0] === "block" && sub[1] === "call") return sub.at(-1) === "title" ? JSON.stringify({ title: "vim ~/x" }) : JSON.stringify({ foreground: { pid: 4242, cwd: "/tmp/demo" }, child: { pid: 4000 } });
       if (sub.includes("session.set_block_label") || sub.includes("session.set_window_label")) return JSON.stringify({ revision: 4 });
       throw new Error(`unexpected rex call ${args.join(" ")}`);
@@ -505,6 +506,28 @@ describe("workspace commands under Rex (plan P10, Phase 4)", () => {
     expect(JSON.parse(String(logSpy.mock.calls.at(-1)![0]))).toMatchObject({ state: "stopped", availability: "unavailable", reason: expect.stringContaining("no longer exists in Rex"), panes: [] });
     expect(calls.some((c) => c.includes("block"))).toBe(false);
     errSpy.mockRestore();
+    logSpy.mockRestore();
+  });
+
+  it("inspect prints the root pane's program status when its programs report one", async () => {
+    seedRex();
+    rexExec({ program: [{ state: "blocked", kind: "question", app: "claude", title: "Review", msg: "Continue?" }] });
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    await handleInspectCommand(context(["demo"]));
+    const text = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(text).toContain("  program: blocked (question) claude Review Continue?");
+    logSpy.mockClear();
+    await handleInspectCommand(context(["demo"], { json: true }));
+    expect(JSON.parse(String(logSpy.mock.calls[0]![0])).programStatus).toEqual({ state: "blocked", kind: "question", app: "claude", title: "Review", msg: "Continue?" });
+    logSpy.mockRestore();
+  });
+
+  it("inspect prints a program status without optional fields as its state and app only", async () => {
+    seedRex();
+    rexExec({ program: [{ state: "working", app: "pnpm" }] });
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    await handleInspectCommand(context(["demo"]));
+    expect(logSpy.mock.calls.map((c) => String(c[0]))).toContain("  program: working pnpm");
     logSpy.mockRestore();
   });
 

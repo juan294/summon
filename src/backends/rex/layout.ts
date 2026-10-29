@@ -53,6 +53,8 @@ export interface SessionCreateInput {
   starshipConfigPath?: string | null | undefined;
   /** Trusted on-stop fragment from validated config. */
   onStop?: string | undefined;
+  /** Layout label recorded by the trap's snapshot (`unknown` when absent). */
+  layoutLabel?: string | undefined;
   /** Login shell for every pane; defaults to `resolveLoginShell()`. */
   loginShell?: string;
 }
@@ -151,7 +153,7 @@ function buildInitialInput(input: SessionCreateInput, pane: Leaf, isRoot: boolea
   const lines = isRoot
     ? [
       bootstrapLine(input.project, input.launchId, "rex", pane.name),
-      cleanupTrapLine(input.project, input.launchId, { onStop: input.onStop, targetDir: input.targetDir }),
+      cleanupTrapLine(input.project, input.launchId, { onStop: input.onStop, targetDir: input.targetDir, layout: input.layoutLabel }),
     ]
     : [paneFileLine(input.project, input.launchId, pane.name)];
   lines.push(`cd ${shellQuote(pane.cwd)}`, "clear");

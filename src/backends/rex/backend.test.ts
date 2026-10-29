@@ -61,6 +61,7 @@ describe("createRexBackend", () => {
     expect(manifest).toMatchObject({ version: 1, launchId: ID, project: "x", directory: "/tmp/x", layout: "minimal", panes: ["editor", "sidebar"], paneOrder: ["editor", "sidebar"], backend: "rex", server: "unix:///tmp/rex.sock" });
     expect(manifest["blockLabels"]).toEqual({ editor: "editor · vim", sidebar: "sidebar · lazygit" });
     expect(request["label"]).toBe("x");
+    expect(JSON.stringify(request)).toContain('--layout \\"minimal\\"');
     expect(JSON.stringify(request)).toContain("STARSHIP_CONFIG=/cfg/starship.toml");
     expect(context).toMatchObject({ cli, hostId: "host-1", callerSession: "session:caller", newWindow: false, app: d.app });
     expect(result).toEqual({ rex: { server: "unix:///tmp/rex.sock", hostId: "host-1", sessionId: IDS.sessionId, windowId: IDS.windowId, rootBlockId: IDS.rootBlockId, blocks: IDS.blocks } });

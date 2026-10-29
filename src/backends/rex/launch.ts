@@ -1,9 +1,8 @@
 import { readFileSync } from "node:fs";
-import { launchArtifactPaths, listLaunchManifests, readLaunchManifest, writeLaunchManifest } from "../../launch-identity.js";
+import { launchArtifactFiles, launchArtifactPaths, listLaunchManifests, readLaunchManifest, writeLaunchManifest } from "../../launch-identity.js";
 import type { LaunchArtifactPaths, LaunchManifest } from "../../launch-identity.js";
-import { readStatus, readStatusRecord, unlinkIgnoringMissing, withOwnedRecord } from "../../status.js";
-import { isLiveState } from "../../status.js";
-import type { WorkspaceState, WorkspaceStatus } from "../../status.js";
+import { ghosttyLiveness, isLiveState, readStatusRecord, removeLaunchArtifacts, withOwnedRecord } from "../../status-record.js";
+import type { WorkspaceState, WorkspaceStatus } from "../../status-record.js";
 import { err, note } from "../../ui/output.js";
 import { createRexCli, whoamiOf } from "./cli.js";
 import type { RexCli } from "./cli.js";
@@ -300,7 +299,10 @@ export interface AdoptDeps {
 export function adoptDeps(binary: string): AdoptDeps {
   return {
     cliFor: (server) => createRexCli(binary, server),
-    ghosttyState: (project) => readStatus(project)?.state ?? "stopped",
+    ghosttyState: (project) => {
+      const record = readStatusRecord(project);
+      return record ? ghosttyLiveness(project, record) : "stopped";
+    },
   };
 }
 
@@ -309,15 +311,10 @@ type Decision =
   | { kind: "remove"; manifest: LaunchManifest }
   | { kind: "adopt"; manifest: LaunchManifest; record: WorkspaceStatus; sessionId: string };
 
-function removeLaunchFiles(manifest: LaunchManifest): void {
-  const paths = launchArtifactPaths(manifest.project, manifest.launchId);
-  for (const name of manifest.paneOrder) {
-    unlinkIgnoringMissing(paths.pane(name).file);
-    unlinkIgnoringMissing(paths.pane(name).tmp);
-  }
-  unlinkIgnoringMissing(paths.pid);
-  unlinkIgnoringMissing(paths.active);
-  unlinkIgnoringMissing(paths.manifest);
+/** Every file of a launch whose session is confirmed gone; returns the failures (`path: reason`). */
+export function removeLaunchFiles(manifest: LaunchManifest): string[] {
+  const files = launchArtifactFiles(manifest.project, manifest.launchId, manifest.paneOrder);
+  return removeLaunchArtifacts([...files.session, ...files.liveness]);
 }
 
 function hostIdOf(view: SessionView, cli: RexCli): string | undefined {
