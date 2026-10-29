@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { STATUS_DIR } from "./paths.js";
-import { atomicWrite, debugLog, confinedPath } from "./utils.js";
+import { atomicWrite, debugLog, confinedPath, SUMMON_WORKSPACE_ENV } from "./utils.js";
 import { shellDoubleQuote } from "./shell-escape.js";
 import { isBackendId } from "./backend.js";
 import type { BackendId } from "./backend.js";
@@ -69,6 +69,29 @@ export function launchArtifactPaths(project: string, launchId: string): LaunchAr
       return { file, tmp: `${file}.tmp` };
     },
   };
+}
+
+// --- Workspace environment (both backends) ---
+
+/** `KEY=VALUE` pairs every workspace pane starts with: marker, tab title, Starship, user vars. */
+export function buildEnvVarsList(
+  starshipConfigPath: string | null | undefined,
+  envVars: Record<string, string> | undefined,
+  projectName?: string,
+): string[] {
+  const allEnvVars: string[] = [`${SUMMON_WORKSPACE_ENV}=1`];
+  if (projectName) {
+    allEnvVars.push(`SUMMON_TAB_TITLE=${projectName}`);
+  }
+  if (starshipConfigPath) {
+    allEnvVars.push(`STARSHIP_CONFIG=${starshipConfigPath}`);
+  }
+  if (envVars) {
+    for (const [key, value] of Object.entries(envVars)) {
+      allEnvVars.push(`${key}=${value}`);
+    }
+  }
+  return allEnvVars;
 }
 
 // --- Shell fragments (typed into the root pane; `$HOME` resolves inside the shell) ---

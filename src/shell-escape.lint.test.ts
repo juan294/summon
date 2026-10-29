@@ -49,8 +49,12 @@ const FILES = walkTs(SRC_DIR).filter(
 // regex) to avoid false-positive matches where ${…} appears only in the pane
 // variable reference *after* a safe action string (e.g. `perform action
 // "toggle_fullscreen" on ${rootPaneVar}`).
+//
+// Rex (plan Phase 2): `initial_input` is text typed into a pane's shell once it starts and
+// `rex send` types into a running pane; both are shell contexts. buildInitialInput( is the
+// helper that assembles the typed text, flagged for the same reason as sendCommand(.
 const DANGER_CONTEXT =
-  /(sh\s+-c|bash\s+-c|osascript|eval\s|input text|sendCommand\s*\(|setInitialInput\s*\(|do shell script|set name override)/;
+  /(sh\s+-c|bash\s+-c|osascript|eval\s|input text|sendCommand\s*\(|setInitialInput\s*\(|buildInitialInput\s*\(|do shell script|set name override|initial_input|rex send)/;
 
 // Precise combined patterns (dangerous keyword + interpolation in same position).
 // These are checked in addition to DANGER_CONTEXT + ${…} so that we catch
@@ -280,6 +284,25 @@ function emitBadHelper(setInitialInput, userCmd) {
       const violations = scan(dangerousSnippet);
       expect(violations.length).toBeGreaterThan(0);
       expect(violations[0]).toContain("userCmd");
+    });
+
+    it("Rex: a raw ${cmd} beside initial_input is flagged", () => {
+      const dangerousSnippet = `
+options: { shell: "none", cwd, initial_input: \`cd \${cmd}\\n\` },
+`;
+      const violations = scan(dangerousSnippet);
+      expect(violations.length).toBeGreaterThan(0);
+      expect(violations[0]).toContain("cmd");
+    });
+
+    it("Rex: a raw ${text} in a rex send argv line is flagged", () => {
+      const violations = scan(`runRex("send", ["send", "-s", s, \`rex send \${text}\`]);`);
+      expect(violations.length).toBeGreaterThan(0);
+    });
+
+    it("Rex: buildInitialInput( with a raw interpolation is flagged; with shellQuote it is not", () => {
+      expect(scan("const input = buildInitialInput(`cd ${dir}`);")).not.toEqual([]);
+      expect(scan("const input = buildInitialInput(`cd ${shellQuote(dir)}`);")).toEqual([]);
     });
 
     it("safe sendCommand call with shellQuote is not flagged", () => {

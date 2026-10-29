@@ -2,11 +2,11 @@ import { basename, resolve } from "node:path";
 import type { LayoutPlan } from "./layout.js";
 import type { TreeLayoutPlan, LayoutNode } from "./tree.js";
 import { firstLeaf, walkLeaves } from "./tree.js";
-import { GHOSTTY_APP_NAME, SUMMON_WORKSPACE_ENV } from "./utils.js";
+import { GHOSTTY_APP_NAME } from "./utils.js";
 import { escapeAppleScript, shellQuote } from "./shell-escape.js";
-import { traditionalInventory, treeInventory } from "./pane-inventory.js";
+import { traditionalInventory, treeInventory, formatTitle } from "./pane-inventory.js";
 import type { PaneDescriptor } from "./pane-inventory.js";
-import { bootstrapLine, cleanupTrapLine } from "./launch-identity.js";
+import { bootstrapLine, cleanupTrapLine, buildEnvVarsList } from "./launch-identity.js";
 import type { CleanupTrapOptions } from "./launch-identity.js";
 
 // --- AppleScript timing constants (empirically tuned for Ghostty responsiveness) ---
@@ -75,27 +75,6 @@ function buildScriptBuilder(
   };
 
   return { add, blank, sendCommand, setInitialInput, clearInitialInput, setCwd };
-}
-
-/** Build combined env vars list (workspace marker + Starship + tab title + user-defined). */
-function buildEnvVarsList(
-  starshipConfigPath: string | null | undefined,
-  envVars: Record<string, string> | undefined,
-  projectName?: string,
-): string[] {
-  const allEnvVars: string[] = [`${SUMMON_WORKSPACE_ENV}=1`];
-  if (projectName) {
-    allEnvVars.push(`SUMMON_TAB_TITLE=${projectName}`);
-  }
-  if (starshipConfigPath) {
-    allEnvVars.push(`STARSHIP_CONFIG=${starshipConfigPath}`);
-  }
-  if (envVars) {
-    for (const [key, value] of Object.entries(envVars)) {
-      allEnvVars.push(`${key}=${value}`);
-    }
-  }
-  return allEnvVars;
 }
 
 /**
@@ -232,11 +211,6 @@ function emitWindowState(
     add(1, "-- Float on top");
     add(1, `perform action "toggle_window_float_on_top" on ${rootPaneVar}`);
   }
-}
-
-/** Format a pane title: "role · cmd" or just "role" when cmd is falsy. */
-function formatTitle(role: string, cmd: string | null | undefined): string {
-  return cmd ? `${role} \u00B7 ${cmd}` : role;
 }
 
 // --- Internal helpers for script generation ---

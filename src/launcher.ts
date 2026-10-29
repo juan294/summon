@@ -14,7 +14,7 @@ import {
 } from "./layout.js";
 import type { LayoutOptions } from "./layout.js";
 import { listConfig, listProjects, readKVFile, readKVFromString, readCustomLayout, isCustomLayout, LAYOUT_NAME_RE } from "./config.js";
-import { writeStatus, readStatus, discardStatusRecord } from "./status.js";
+import { writeStatus, readStatus, readStatusRecord, discardStatusRecord } from "./status.js";
 import type { WorkspaceStatus } from "./status.js";
 import { generateAppleScript, generateTreeAppleScript } from "./script.js";
 import { newLaunchId } from "./launch-identity.js";
@@ -22,6 +22,9 @@ import { resolveBackendForLaunch } from "./backend.js";
 import type { BackendId, LaunchContext } from "./backend.js";
 import { GhosttyBackend } from "./backends/ghostty.js";
 import type { BackendLaunchContext, TerminalBackend } from "./backends/ghostty.js";
+import { RexBackend, REX_NOT_AVAILABLE_MSG } from "./backends/rex/backend.js";
+import { buildSessionCreateRequest } from "./backends/rex/layout.js";
+import type { SessionCreateInput } from "./backends/rex/layout.js";
 import { parseTreeDSL, extractPaneDefinitions, extractPaneCwds, resolveTreeCommands as resolveTreeCmds, buildTreePlan, collectLeaves, findPaneByName, assertPaneCwdContained } from "./tree.js";
 import type { LayoutNode, TreePlanOptions } from "./tree.js";
 import { resolveCommand as resolveCommandPath, getErrorMessage, SUMMON_WORKSPACE_ENV, promptUser, isDebug } from "./utils.js";
@@ -36,9 +39,6 @@ import { commandExecutable, replaceCommandExecutable } from "./command-spec.js";
 import { focusTerminal } from "./ghostty-native.js";
 import type { FocusResult, NativeFailure } from "./ghostty-native.js";
 import type { NativeMetadata } from "./pane-inventory.js";
-
-/** Message printed while the Rex launch path is not shipped (Phase 1 of the Rex backend plan). */
-export const REX_NOT_AVAILABLE_MSG = "Rex backend is not available in this version";
 
 /** Convert resolved layout options to a key-value config map suitable for saving as a custom layout. */
 export function optsToConfigMap(opts: Partial<LayoutOptions>): Map<string, string> {
@@ -656,29 +656,70 @@ export function layoutOptsToTreePlanOpts(opts: Partial<LayoutOptions>): TreePlan
 interface LaunchInputs {
   ctx: BackendLaunchContext;
   backend: TerminalBackend;
+  launchContext: LaunchContext;
   dryRun: boolean;
   starshipPreset: string | undefined;
+}
+
+/**
+ * Rex dry run (plan P2, Phase 2): the `session.create` request a real run would send, with
+ * the pane order its `block_ids` arrive in on the header. A recorded Rex workspace is noted,
+ * never switched to or probed: a dry run runs no Rex command.
+ */
+function rexDryRunBody(headerLines: string[], layout: SessionCreateInput["layout"], ctx: BackendLaunchContext, starshipConfigPath: string | null, server: string): string {
+  const project = ctx.projectName;
+  const record = readStatusRecord(project);
+  if (record?.backend === "rex") {
+    const session = record.rex?.sessionId ?? "session id unknown";
+    headerLines.push(`-- Note: ${project} is recorded as a Rex workspace (${session}); while it is running, a real run switches to it instead of creating this one`);
+  }
+  const { request, paneOrder } = buildSessionCreateRequest({
+    layout,
+    targetDir: ctx.targetDir,
+    project,
+    launchId: ctx.launchId,
+    envVars: ctx.envVars,
+    starshipConfigPath,
+    onStop: ctx.onStop,
+  });
+  headerLines.push(`-- Server: ${server}`);
+  headerLines.push(`-- Pane order (block_ids): ${paneOrder.join(", ")}`);
+  return JSON.stringify(request, null, 2);
+}
+
+/** Print the dry run: the layout headers, the shared extras, then what the detected backend would run. */
+function printDryRun(
+  headerLines: string[],
+  layout: SessionCreateInput["layout"],
+  { ctx, launchContext, starshipPreset }: LaunchInputs,
+  ghosttyScript: (starshipConfigPath: string | null) => string,
+): void {
+  const starshipConfigPath = starshipPreset ? getPresetConfigPath(starshipPreset) : null;
+  appendDryRunExtras(headerLines, starshipPreset, starshipConfigPath, launchContext.backend, ctx.launchId);
+  const body = launchContext.backend === "rex"
+    ? rexDryRunBody(headerLines, layout, ctx, starshipConfigPath, launchContext.server)
+    : ghosttyScript(starshipConfigPath);
+  console.log(`${headerLines.join("\n")}\n${body}`);
 }
 
 async function launchTreeLayout(
   treeLayout: NonNullable<ResolvedConfig["treeLayout"]>,
   opts: Partial<LayoutOptions>,
-  { ctx, backend, dryRun, starshipPreset }: LaunchInputs,
+  inputs: LaunchInputs,
 ): Promise<{ paneNames: string[]; native?: NativeMetadata }> {
+  const { ctx, backend, dryRun } = inputs;
   const resolvedTree = resolveTreeCmds(treeLayout.tree, treeLayout.panes, treeLayout.paneCwds, resolve(ctx.targetDir));
   const treePlan = buildTreePlan(resolvedTree, layoutOptsToTreePlanOpts(opts));
 
   if (dryRun) {
-    const dryRunStarshipPath = starshipPreset ? getPresetConfigPath(starshipPreset) : null;
-    const script = generateTreeAppleScript(treePlan, ctx.targetDir, dryRunStarshipPath, ctx.envVars, ctx.projectName, ctx.onStop, ctx.launchId);
     const paneCount = treePlan.leaves.length;
     const headerLines = [
       "-- summon dry-run",
       `-- Layout: tree layout, ${paneCount} ${paneCount === 1 ? "pane" : "panes"}`,
       `-- Target: ${ctx.targetDir}`,
     ];
-    appendDryRunExtras(headerLines, starshipPreset, dryRunStarshipPath, backend.id, ctx.launchId);
-    console.log(`${headerLines.join("\n")}\n${script}`);
+    printDryRun(headerLines, { kind: "tree", plan: treePlan }, inputs, (starshipConfigPath) =>
+      generateTreeAppleScript(treePlan, ctx.targetDir, starshipConfigPath, ctx.envVars, ctx.projectName, ctx.onStop, ctx.launchId));
     return { paneNames: treePlan.leaves };
   }
 
@@ -698,22 +739,21 @@ export function traditionalPaneNames(plan: { sidebarCommand: string; leftColumnC
 
 async function launchTraditionalLayout(
   opts: Partial<LayoutOptions>,
-  { ctx, backend, dryRun, starshipPreset }: LaunchInputs,
+  inputs: LaunchInputs,
 ): Promise<{ paneNames: string[]; native?: NativeMetadata }> {
+  const { ctx, backend, dryRun } = inputs;
   const plan = planLayout(opts);
   const paneNames = traditionalPaneNames(plan);
 
   if (dryRun) {
-    const dryRunStarshipPath = starshipPreset ? getPresetConfigPath(starshipPreset) : null;
-    const script = generateAppleScript(plan, ctx.targetDir, dryRunStarshipPath, ctx.envVars, ctx.projectName, ctx.onStop, ctx.launchId);
     const totalPanes = plan.leftColumnCount + plan.rightColumnEditorCount;
     const headerLines = [
       "-- summon dry-run",
       `-- Layout: ${totalPanes} editor ${totalPanes === 1 ? "pane" : "panes"}, editor=${plan.editor}, sidebar=${plan.sidebarCommand}, shell=${plan.hasShell}`,
       `-- Target: ${ctx.targetDir}`,
     ];
-    appendDryRunExtras(headerLines, starshipPreset, dryRunStarshipPath, backend.id, ctx.launchId);
-    console.log(`${headerLines.join("\n")}\n${script}`);
+    printDryRun(headerLines, { kind: "traditional", plan }, inputs, (starshipConfigPath) =>
+      generateAppleScript(plan, ctx.targetDir, starshipConfigPath, ctx.envVars, ctx.projectName, ctx.onStop, ctx.launchId));
     return { paneNames };
   }
 
@@ -775,9 +815,10 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
   const launchId = newLaunchId();
   const launchContext = resolveLaunchBackend(cliOverrides?.dryRun);
   for (const notice of launchContext.notices) err(notice);
-  // Phase 3 replaces this line with the Rex dispatch.
-  if (launchContext.backend !== "ghostty") throw new Error(REX_NOT_AVAILABLE_MSG);
-  const backend: TerminalBackend = GhosttyBackend;
+  // A Rex detection launches nothing until Phase 3 ships createWorkspace; a dry run prints
+  // the request a real run would send (plan P2) and runs no Rex command.
+  if (launchContext.backend === "rex" && !cliOverrides?.dryRun) throw new Error(REX_NOT_AVAILABLE_MSG);
+  const backend: TerminalBackend = launchContext.backend === "rex" ? RexBackend : GhosttyBackend;
 
   // If no editor is configured from any source and this isn't a tree layout
   // (which defines its own pane commands), redirect to the setup wizard.
@@ -909,6 +950,7 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
       resolveStarship,
     },
     backend,
+    launchContext,
     dryRun: cliOverrides?.dryRun === true,
     starshipPreset,
   };

@@ -3,6 +3,7 @@ import { readStatus } from "../status.js";
 import { focusWorkspace, resolveWorkspaceTerminal } from "../launcher.js";
 import { readNativeInventory, titleTerminal, validateTitleText } from "../ghostty-native.js";
 import { validateProjectNameOrExit } from "../validation.js";
+import { escapeControlChars } from "../pane-inventory.js";
 import { exitWithUsageHint } from "../utils.js";
 import { fail } from "../ui/output.js";
 
@@ -79,21 +80,13 @@ export async function handleInspectCommand({
     console.log(`${project}: ${result.state} (${result.availability})`);
     for (const pane of panes)
       console.log(
-        `  ${pane.name}  ${pane.terminalId}  PID ${pane.pid ?? "UNAVAILABLE"}  ${pane.tty ?? "UNAVAILABLE"}  ${displayText(pane.title ?? "UNAVAILABLE")}`,
+        `  ${pane.name}  ${pane.terminalId}  PID ${pane.pid ?? "UNAVAILABLE"}  ${pane.tty ?? "UNAVAILABLE"}  ${escapeControlChars(pane.title ?? "UNAVAILABLE")}`,
       );
     if (explanation) console.log(explanation);
   }
   if (!available) process.exit(2);
 }
 
-/** Native titles are process-controlled text; terminal table output cannot contain controls. */
-function displayText(text: string): string {
-  return text.replace(
-    // eslint-disable-next-line no-control-regex -- display native titles without terminal control effects
-    /[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g,
-    (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`,
-  );
-}
 
 
 export async function handleTitleCommand({
@@ -134,6 +127,6 @@ export async function handleTitleCommand({
   console.log(
     result.override === ""
       ? "(no title override)"
-      : displayText(result.override),
+      : escapeControlChars(result.override),
   );
 }

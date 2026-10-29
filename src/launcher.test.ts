@@ -33,7 +33,8 @@ vi.mock("./backend.js", () => ({
 
 // Mock status module (write is a no-op in tests)
 const mockReadStatus = vi.fn();
-vi.mock("./status.js", () => ({ writeStatus: vi.fn(), discardStatusRecord: vi.fn(()=>true), readStatus: (...args: unknown[]) => mockReadStatus(...args) }));
+const mockReadStatusRecord = vi.fn((_project: string): unknown => null);
+vi.mock("./status.js", () => ({ writeStatus: vi.fn(), discardStatusRecord: vi.fn(()=>true), readStatus: (...args: unknown[]) => mockReadStatus(...args), readStatusRecord: (project: string) => mockReadStatusRecord(project) }));
 
 // Mock starship
 const mockIsStarshipInstalled = vi.fn(() => false);
@@ -114,6 +115,7 @@ let savedSummonWorkspace: string | undefined;
 beforeEach(() => {
   vi.clearAllMocks();
   mockReadStatus.mockReturnValue(null);
+  mockReadStatusRecord.mockReturnValue(null);
   // Prevent warnIfNested from activating when tests run inside a summon workspace
   savedSummonWorkspace = process.env.SUMMON_WORKSPACE;
   delete process.env.SUMMON_WORKSPACE;
@@ -4542,5 +4544,103 @@ describe("backend seam (plan P15, Phase 1)", () => {
     }
     expect(stderrText).toContain("Rex detected but its CLI was not found at PATH");
     expect(status.writeStatus).toHaveBeenCalledWith(expect.objectContaining({ backend: "ghostty" }));
+  });
+});
+
+describe("Rex dry run (plan P2, Phase 2)", () => {
+  const REX_CONTEXT = { ok: true, backend: "rex", placement: "inside-rex", server: "unix:///tmp/rex.sock", rexBinary: "/usr/local/bin/rex", notices: [] };
+
+  /** Calls that would drive a terminal: AppleScript or the Rex CLI. */
+  const terminalCalls = () => mockExecFileSync.mock.calls.filter((c) => c[0] === "osascript" || String(c[0]).endsWith("/rex"));
+
+  async function dryRun(overrides: Record<string, unknown> = {}, config: Array<[string, string]> = [["editor", "vim"]]): Promise<string> {
+    mockResolveBackendForLaunch.mockReturnValue(REX_CONTEXT);
+    vi.mocked(listConfig).mockReturnValue(new Map(config));
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      await launch("/tmp/workspace", { dryRun: true, ...overrides });
+      // The dry run is the last console.log call; config notices may precede it.
+      return String(logSpy.mock.calls.at(-1)?.[0]);
+    } finally {
+      logSpy.mockRestore();
+    }
+  }
+
+  function requestOf(output: string): { label: string; initial_windows: Array<{ window_label: string; layout: unknown }> } {
+    const json = output.split("\n").filter((line) => !line.startsWith("-- ")).join("\n");
+    return JSON.parse(json);
+  }
+
+  it("prints the header, the session.create request and the pane order instead of AppleScript, and runs nothing", async () => {
+    const output = await dryRun({ env: ["FOO=bar"] });
+
+    expect(output).toMatch(/^-- summon dry-run\n/);
+    expect(output).toContain("-- Layout: 2 editor panes, editor=vim, sidebar=lazygit, shell=true");
+    expect(output).toContain("-- Target: /tmp/workspace");
+    expect(output).toContain("-- Backend: rex");
+    expect(output).toMatch(/-- Launch: [0-9a-f-]{36}/);
+    expect(output).toContain("-- Server: unix:///tmp/rex.sock");
+    expect(output).toContain("-- Pane order (block_ids): editor, right-1, shell, sidebar");
+    expect(output).not.toContain("-- Note:");
+    expect(output).not.toContain('tell application "Ghostty"');
+
+    const request = requestOf(output);
+    expect(request.label).toBe("workspace");
+    expect(request.initial_windows[0]!.window_label).toBe("[workspace]");
+    const launchId = /-- Launch: ([0-9a-f-]{36})/.exec(output)![1];
+    expect(output).toContain(`"SUMMON_LAUNCH_ID=${launchId}"`);
+    expect(output).toContain('"FOO=bar"');
+
+    expect(mockGenerateAppleScript).not.toHaveBeenCalled();
+    expect(mockGenerateTreeAppleScript).not.toHaveBeenCalled();
+    expect(terminalCalls()).toEqual([]);
+    expect(mockExecSync).not.toHaveBeenCalled();
+    expect(statusModule.writeStatus).not.toHaveBeenCalled();
+  });
+
+  it("prints the tree request with the tree's pane order", async () => {
+    mockIsCustomLayout.mockReturnValue(true);
+    mockReadCustomLayout.mockReturnValue(new Map([["tree", "(editor / shell) | sidebar"], ["pane.editor", "claude"], ["pane.shell", "npm run dev"], ["pane.sidebar", "lazygit"]]));
+    mockReadKVFile.mockReturnValue(new Map([["layout", "mywork"]]));
+    const output = await dryRun();
+
+    expect(output).toContain("-- Layout: tree layout, 3 panes");
+    expect(output).toContain("-- Backend: rex");
+    expect(output).toContain("-- Pane order (block_ids): editor, shell, sidebar");
+    const request = requestOf(output);
+    expect(request.initial_windows[0]!.layout).toMatchObject({ split: { direction: "horizontal", ratio: 0.75 } });
+    expect(mockGenerateTreeAppleScript).not.toHaveBeenCalled();
+    expect(terminalCalls()).toEqual([]);
+  });
+
+  it("includes the starship preset path in the env wrapper and the header", async () => {
+    mockGetPresetConfigPath.mockReturnValue("/mock/.config/summon/starship/tokyo-night.toml");
+    const output = await dryRun({}, [["editor", "vim"], ["starship-preset", "tokyo-night"]]);
+    expect(output).toContain("-- Starship preset: tokyo-night (/mock/.config/summon/starship/tokyo-night.toml)");
+    expect(output).toContain('"STARSHIP_CONFIG=/mock/.config/summon/starship/tokyo-night.toml"');
+    expect(mockEnsurePresetConfig).not.toHaveBeenCalled();
+  });
+
+  it("notes a recorded Rex workspace without probing or switching to it", async () => {
+    mockReadStatusRecord.mockReturnValue({ project: "workspace", backend: "rex", rex: { sessionId: "session:0123" } });
+    const output = await dryRun();
+    expect(mockReadStatusRecord).toHaveBeenCalledWith("workspace");
+    expect(output).toContain("-- Note: workspace is recorded as a Rex workspace (session:0123); while it is running, a real run switches to it instead of creating this one");
+    expect(output).toContain('"label": "workspace"');
+    expect(terminalCalls()).toEqual([]);
+    expect(statusModule.writeStatus).not.toHaveBeenCalled();
+  });
+
+  it("does not note a Ghostty record", async () => {
+    mockReadStatusRecord.mockReturnValue({ project: "workspace", backend: "ghostty" });
+    expect(await dryRun()).not.toContain("-- Note:");
+  });
+
+  it("a real launch under Rex still fails before any Rex command", async () => {
+    mockResolveBackendForLaunch.mockReturnValue(REX_CONTEXT);
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+    await expect(launch("/tmp/workspace")).rejects.toThrow("Rex backend is not available in this version");
+    expect(terminalCalls()).toEqual([]);
+    expect(statusModule.writeStatus).not.toHaveBeenCalled();
   });
 });

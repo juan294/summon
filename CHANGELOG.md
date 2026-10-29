@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Every launch now has a launch id. Liveness sidecars live under `status/<project>.launches/<launchId>.*`, the cleanup trap removes only its own files, and the shared status record is written only by Node under a file lock with an explicit ownership expectation. Records gain optional `launchId`, `backend`, `rex` and `endedAt` fields (schema version stays 1; see `docs/decisions/status-record-launch-ownership-and-backend.md`).
 - The terminal backend is resolved automatically right after config resolution. This version still launches with Ghostty only; a Rex terminal without Ghostty is refused with "Rex backend is not available in this version".
 - `--dry-run` output gains two header lines, `-- Backend:` and `-- Launch:`. A dry run on a machine with neither Ghostty.app nor the Rex CLI prints the Ghostty script with a notice instead of failing.
+- `--dry-run` inside a Rex terminal prints the Rex `session.create` request a real launch would send (one block per pane, each an interactive login shell started under `/usr/bin/env` with the workspace variables), the server it would target and the pane order its block ids arrive in, instead of failing. A recorded Rex workspace is noted. No Rex command runs during a dry run, and a real launch under Rex still fails with "Rex backend is not available in this version".
 
 ### Fixed
 

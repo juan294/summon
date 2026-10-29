@@ -60,3 +60,99 @@ export function parseRexIdentity(raw: unknown, panes: readonly string[]): RexIde
     blocks,
   };
 }
+
+// --- CLI adapter contract (plan §3 "Rex error classes", D5, P14) ---
+
+interface RexOpTraits {
+  /** Changes server state: a timeout or unexplained failure leaves the outcome unknown. */
+  mutating: boolean;
+  /** Prints JSON without a `--json` flag (`api call` prints the method result). */
+  json?: true;
+  /** The server rolls the request back when it answers with an error object. */
+  rollsBackOnReject?: true;
+}
+
+/**
+ * Every Rex CLI operation Summon may run, with its traits. `runRex` takes the op so the
+ * classifier never guesses what a failure meant; `rex wait` is deliberately absent (not an
+ * allowed op). Adding an op means adding one row here.
+ */
+export const REX_OPS = {
+  "whoami": { mutating: false },
+  "ls": { mutating: false },
+  "client-ls": { mutating: false },
+  "session-create": { mutating: true, json: true, rollsBackOnReject: true },
+  "session-view": { mutating: false, json: true },
+  "session-inspect": { mutating: false },
+  "block-ls": { mutating: false },
+  "block-call": { mutating: false },
+  "focus": { mutating: true },
+  "do-select": { mutating: true },
+  "do-window-new": { mutating: true },
+  "kill": { mutating: true },
+  "window-rename": { mutating: true },
+  "block-label": { mutating: true },
+} as const satisfies Record<string, RexOpTraits>;
+
+export type RexOp = keyof typeof REX_OPS;
+
+export function rexOpTraits(op: RexOp): RexOpTraits {
+  return REX_OPS[op];
+}
+
+export function isMutatingOp(op: RexOp): boolean {
+  return rexOpTraits(op).mutating;
+}
+
+/** What `runRex` observed from the process, independent of any interpretation. */
+export interface RexRawResult {
+  /** Exit status, or null when the process was killed or never started. */
+  code: number | null;
+  signal: string | null;
+  /** Node's process timeout fired (the child was killed). */
+  timedOut: boolean;
+  /** The binary does not exist. */
+  enoent: boolean;
+  stdout: string;
+  stderr: string;
+  /** Expected JSON output could not be parsed, or the output exceeded the buffer. */
+  malformed?: boolean;
+}
+
+export type RexFailureKind =
+  | "missing-binary"
+  | "unreachable"
+  | "invalid"
+  | "not-found"
+  | "ambiguous"
+  | "rejected"
+  | "failed"
+  | "timeout"
+  | "signal"
+  | "malformed"
+  | "unknown";
+
+/** Effect of a failed call on the server: nothing happened, the server rolled it back, or nobody knows. */
+export type RexOutcome = "none" | "rolled-back" | "unknown";
+
+export interface RexFailure {
+  ok: false;
+  op: RexOp;
+  kind: RexFailureKind;
+  outcome: RexOutcome;
+  /** First stderr line (control characters escaped) or a generic description. */
+  reason: string;
+  /** Recovery advice for the user when the kind has one. */
+  hint?: string;
+  raw: RexRawResult;
+}
+
+export interface RexSuccess {
+  ok: true;
+  op: RexOp;
+  stdout: string;
+  /** Parsed stdout when the op or `--json` promised JSON. */
+  json?: unknown;
+}
+
+export type RexResult = RexSuccess | RexFailure;

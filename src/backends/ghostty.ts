@@ -16,7 +16,7 @@ export interface BackendLaunchContext {
   targetDir: string;
   /** User env vars (already filtered); undefined when there are none. */
   envVars: Record<string, string> | undefined;
-  projectName: string | undefined;
+  projectName: string;
   onStop: string | undefined;
   launchId: string;
   /** Resolve a configured command to its binary, installing on request. */
