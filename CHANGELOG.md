@@ -24,7 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
-- Updated the build-tool `brace-expansion` override to 5.0.12 or later to address the denial-of-service advisories reported by Dependency Review.
+- Updated `brace-expansion`, Vite, Vitest and `source-map-js` to patched releases for the reported build and test tooling advisories.
 - Hardened command confirmation, resolved-command quoting, hook trust and redaction, project-relative pane paths, and state-file cleanup.
 - Title mutations reject control and bidi override characters and disclose unknown outcomes without automatically retrying a write.
 
