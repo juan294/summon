@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.0] - 2026-10-29
+
+### Added
+
+- `summon inspect <project> [--json]` reads workspace state and current native pane observations without activating Ghostty.
+- `summon focus <project> [pane]` targets the recorded root or named pane by exact native terminal identity, including after a tab moves to another window.
+- `summon title <project> [pane]` reads, sets or resets tab and pane title overrides, with Unicode validation and confirmed readback.
+- `summon keybindings --detach-tab` prints an optional whole-tab detachment binding after checking action support.
+- A Ghostty workflow guide with compatibility, recovery and opt-in SSH pane recipes, verified through real parsing and dry runs.
+
+### Changed
+
+- Doctor now reports installed capabilities and effective configuration, recommends Ghostty 1.4.0 while retaining 1.3.1 launch support, and limits automatic fixes to eligible missing settings in an unambiguous existing file.
+- The interactive monitor negotiates terminal visibility and pauses regular work when the terminal reports hidden. Unknown visibility retains normal polling; `SUMMON_NO_VISIBILITY=1` disables negotiation.
+- The project picker now confirms exact native focus, and monitor Enter focuses active workspaces instead of launching replacements. Legacy or closed targets receive recovery guidance.
+- Release verification now records candidate-bound probes, fixture cleanup and independent exploratory evidence before tagging. npm publishing uses the existing GitHub Actions provenance workflow.
+
+### Security
+
+- Hardened command confirmation, resolved-command quoting, hook trust and redaction, project-relative pane paths, and state-file cleanup.
+- Title mutations reject control and bidi override characters and disclose unknown outcomes without automatically retrying a write.
+
+### Fixed
+
+- Preserved unrelated doctor failures after `--fix` and prevented speculative changes when configuration evidence is unavailable.
+- Isolated test fixtures from host configuration and installed applications, and compiled native scripts only when the installed dictionary supports their capabilities.
+
 ## [1.8.0] - 2026-06-14
 
 ### Added
@@ -776,7 +803,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CodeQL security scanning
 - Dependabot for npm and GitHub Actions
 
-[Unreleased]: https://github.com/juan294/summon/compare/v1.8.0...develop
+[Unreleased]: https://github.com/juan294/summon/compare/v1.9.0...develop
+[1.9.0]: https://github.com/juan294/summon/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/juan294/summon/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/juan294/summon/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/juan294/summon/compare/v1.5.2...v1.6.0
