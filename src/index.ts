@@ -110,9 +110,8 @@ async function main(): Promise<void> {
     }
   }
 
-  // Load utils and trust now — needed for catch-block guards and SummonError checks below.
-  // These are still skipped on the --version and --help fast paths above.
-  const { PromptCancelled } = await import("./utils.js");
+  // Trust errors retain their concise launch-specific handling below.
+  // This import is still skipped on the --version and --help fast paths above.
   const { SummonError } = await import("./trust.js");
 
   try {
@@ -201,13 +200,29 @@ async function main(): Promise<void> {
       }
     }
   } catch (err) {
-    if (err instanceof PromptCancelled) {
-      process.exit(1);
-    }
-    // DO-L1 (#547): Surface the debug flag hint so users know how to get full diagnostics.
-    console.error("Re-run with SUMMON_DEBUG=1 for full details.");
-    throw err;
+    await reportError(err);
   }
 }
 
-main();
+/** Present operational failures without Node's uncaught source excerpt. */
+async function reportError(error: unknown): Promise<void> {
+  process.exitCode = 1;
+  // Error-only imports preserve the true lazy --version and --help paths.
+  const { PromptCancelled, getErrorMessage, isDebug } = await import("./utils.js");
+  if (error instanceof PromptCancelled) return;
+  const { SummonError } = await import("./trust.js");
+  if (error instanceof SummonError) {
+    console.error(error.message);
+    return;
+  }
+  const { fail, err } = await import("./ui/output.js");
+  fail(getErrorMessage(error));
+  if (isDebug()) {
+    err(error instanceof Error ? error.stack ?? error.message : getErrorMessage(error));
+  } else {
+    err("Re-run with SUMMON_DEBUG=1 for full details.");
+  }
+}
+
+// Also catch parser/import errors before command dispatch enters its own guard.
+void main().catch(reportError);

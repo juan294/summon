@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Kept ordinary CLI failures concise, with full stack diagnostics available through `SUMMON_DEBUG=1`.
 - Serialized project registry and machine configuration updates across CLI processes to preserve concurrent changes, and removed contender staging before waiting on a busy lock.
 - Restored monitor terminal modes on SIGINT and SIGTERM, and displayed the narrow-terminal warning at the actual terminal width.
 - Preserved unrelated doctor failures after `--fix` and prevented speculative changes when configuration evidence is unavailable.
