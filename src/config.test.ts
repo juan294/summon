@@ -33,7 +33,15 @@ vi.mock("node:fs", () => {
   const mtimes = new Map<string, number>();
   return {
     existsSync: (path: string) => store.has(path) || dirs.has(path),
-    mkdirSync: vi.fn((_path: string, _opts?: unknown) => { dirs.add(_path); }),
+    mkdirSync: vi.fn((_path: string, opts?: { recursive?: boolean }) => {
+      if (dirs.has(_path) && !opts?.recursive) throw Object.assign(new Error("EEXIST"), { code: "EEXIST" });
+      dirs.add(_path);
+    }),
+    rmdirSync: vi.fn((path: string) => {
+      if (!dirs.has(path)) throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+      if ([...store.keys()].some((key) => key.startsWith(path + "/"))) throw Object.assign(new Error("ENOTEMPTY"), { code: "ENOTEMPTY" });
+      dirs.delete(path);
+    }),
     readFileSync: vi.fn((path: string) => {
       if (store.get(path) === "__THROW_ENOENT__") {
         const error = new Error("ENOENT") as NodeJS.ErrnoException;
@@ -55,12 +63,23 @@ vi.mock("node:fs", () => {
       }
       return { mtimeMs: mtimes.get(path) ?? 1000 };
     }),
-    writeFileSync: vi.fn((path: string, data: string) => {
+    writeFileSync: vi.fn((path: string, data: string, opts?: { flag?: string }) => {
+      if (opts?.flag === "wx" && store.has(path)) throw Object.assign(new Error("EEXIST"), { code: "EEXIST" });
       store.set(path, data);
       // Bump mtime on write so cache is invalidated
       mtimes.set(path, (mtimes.get(path) ?? 1000) + 1);
     }),
     renameSync: vi.fn((src: string, dest: string) => {
+      if (dirs.has(src)) {
+        if (dirs.has(dest) && [...store.keys()].some((key) => key.startsWith(dest + "/"))) throw Object.assign(new Error("ENOTEMPTY"), { code: "ENOTEMPTY" });
+        dirs.delete(src);
+        dirs.add(dest);
+        for (const [key, value] of [...store]) if (key.startsWith(src + "/")) {
+          store.set(dest + key.slice(src.length), value);
+          store.delete(key);
+        }
+        return;
+      }
       // Atomic rename: move src content to dest, remove src
       const data = store.get(src);
       if (data === undefined) throw new Error(`ENOENT: no such file '${src}'`);
@@ -84,7 +103,7 @@ vi.mock("node:fs", () => {
       return names;
     }),
     unlinkSync: vi.fn((path: string) => {
-      if (!store.has(path)) throw new Error(`ENOENT: no such file '${path}'`);
+      if (!store.has(path)) throw Object.assign(new Error(`ENOENT: no such file '${path}'`), { code: "ENOENT" });
       store.delete(path);
     }),
     __store: store,
@@ -384,7 +403,7 @@ describe("file permissions (#47)", () => {
     );
     expect(initWrites.length).toBeGreaterThanOrEqual(2);
     for (const call of initWrites) {
-      expect(call[2]).toEqual({ mode: 0o600 });
+      expect(call[2]).toEqual({ mode: 0o600, flag: "wx" });
     }
   });
 
@@ -1157,5 +1176,90 @@ describe("saveCustomLayout uses atomicWrite (#561 AR-L1)", () => {
     saveCustomLayout("cleantmp", new Map([["panes", "3"]]));
     const tmpFiles = [...store.keys()].filter((k) => k.endsWith(".tmp"));
     expect(tmpFiles.length).toBe(0);
+  });
+});
+
+// Separate OS processes exercise the real config/cache modules and real filesystem.
+// Delay only the filesystem read boundary to make overlapping transactions repeatable.
+describe("cross-process KV mutations", () => {
+  it("preserves all acknowledged adds, sets and removals", async () => {
+    const fs = await vi.importActual<typeof import("node:fs")>("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { spawn } = await import("node:child_process");
+    const { build } = await import("tsup");
+    const dir = fs.mkdtempSync(join(tmpdir(), "summon-config-concurrent-"));
+    const home = join(dir, "home");
+    const configDir = join(home, ".config/summon");
+    fs.mkdirSync(configDir, { recursive: true });
+    for (const file of ["config", "projects"]) {
+      fs.writeFileSync(join(configDir, file), "# retained\nkeep=/keep\n" + Array.from({ length: 4 }, (_, i) => `old${i}=/old${i}\n`).join(""));
+    }
+    await build({ config: false, entry: { config: new URL("./config.ts", import.meta.url).pathname }, bundle: true, platform: "node", format: ["esm"], outDir: dir, outExtension: () => ({ js: ".mjs" }), silent: true });
+    fs.writeFileSync(join(dir, "worker.mjs"), `
+      import fs from 'node:fs';
+      import { syncBuiltinESMExports } from 'node:module';
+      const read = fs.readFileSync;
+      fs.readFileSync = function(file, ...args) {
+        const result = read.call(this, file, ...args);
+        if (String(file).endsWith('/summon/config') || String(file).endsWith('/summon/projects')) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 80);
+        return result;
+      };
+      syncBuiltinESMExports();
+      const config = await import('./config.mjs');
+      const [mode, id, gate] = process.argv.slice(2);
+      config.listProjects(); config.listConfig();
+      process.stdout.write('ready\\n');
+      while (!fs.existsSync(gate)) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5);
+      if (mode === 'add') { config.addProject('new' + id, '/new' + id); config.setConfig('env.NEW' + id, 'value' + id); }
+      else { if (!config.removeProject('old' + id) || !config.removeConfig('old' + id)) throw new Error('missing expected key'); }
+    `);
+    try {
+      for (const mode of ["add", "remove"]) {
+        const gate = join(dir, mode);
+        const workers = Array.from({ length: 4 }, (_, id) => {
+          const child = spawn(process.execPath, [join(dir, "worker.mjs"), mode, String(id), gate], { env: { ...process.env, HOME: home, SUMMON_NO_CACHE: "1" }, timeout: 10_000, stdio: ["ignore", "pipe", "pipe"] });
+          let stderr = "";
+          child.stderr.on("data", (data: Buffer) => { stderr += data.toString(); });
+          const ready = new Promise<void>((resolve, reject) => {
+            child.stdout.once("data", () => resolve());
+            child.once("error", reject);
+            child.once("exit", (code) => reject(new Error(`worker exited before ready (${code}): ${stderr}`)));
+          });
+          const done = new Promise<void>((resolve, reject) => {
+            child.once("error", reject);
+            child.once("exit", (code) => code === 0 ? resolve() : reject(new Error(`worker ${mode}/${id} exit ${code}: ${stderr}`)));
+          });
+          // Observe early rejection while the readiness barrier is still pending.
+          void done.catch(() => undefined);
+          return { child, ready, done };
+        });
+        try {
+          await Promise.all(workers.map((worker) => worker.ready));
+          fs.writeFileSync(gate, "go");
+          await Promise.all(workers.map((worker) => worker.done));
+        } finally {
+          for (const { child } of workers) if (child.exitCode === null) child.kill();
+          await Promise.allSettled(workers.map((worker) => worker.done));
+        }
+        const projects = readKVFromString(fs.readFileSync(join(configDir, "projects"), "utf8"));
+        const config = readKVFromString(fs.readFileSync(join(configDir, "config"), "utf8"));
+        for (let i = 0; i < 4; i++) {
+          expect(projects.get(`new${i}`)).toBe(`/new${i}`);
+          expect(config.get(`env.NEW${i}`)).toBe(`value${i}`);
+          if (mode === "remove") {
+            expect(projects.has(`old${i}`)).toBe(false);
+            expect(config.has(`old${i}`)).toBe(false);
+          }
+        }
+        for (const file of ["config", "projects"]) {
+          expect(fs.readFileSync(join(configDir, file), "utf8")).toContain("# retained\nkeep=/keep");
+          expect(fs.statSync(join(configDir, file)).mode & 0o777).toBe(0o600);
+        }
+      }
+      expect(fs.readdirSync(configDir).sort()).toEqual(["config", "projects"]);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

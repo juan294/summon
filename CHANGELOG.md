@@ -30,6 +30,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Serialized project registry and machine configuration updates across CLI processes to preserve concurrent changes.
+- Restored monitor terminal modes on SIGINT and SIGTERM, and displayed the narrow-terminal warning at the actual terminal width.
 - Preserved unrelated doctor failures after `--fix` and prevented speculative changes when configuration evidence is unavailable.
 - Isolated test fixtures from host configuration and installed applications, and compiled native scripts only when the installed dictionary supports their capabilities.
 

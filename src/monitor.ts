@@ -27,7 +27,7 @@ const NAME_WIDTH = 16;
 const STATE_WIDTH = 8;
 const UPTIME_WIDTH = 8;
 const FIXED_COLS = 2 + NAME_WIDTH + 2 + STATE_WIDTH + 2 + UPTIME_WIDTH + 2; // dot + spaces + padding
-const MIN_COLS = 60; // minimum terminal width floor to prevent wrapping on narrow terminals
+const MIN_COLS = 60; // below this width, show the narrow-terminal guard
 
 // Terminal control sequences
 const ENTER_ALT_SCREEN = "\x1b[?1049h";
@@ -317,9 +317,11 @@ export async function runMonitor(): Promise<void> {
     refreshTimer: ReturnType<typeof setInterval> | null;
     visibilityTimer: ReturnType<typeof setTimeout> | null;
     inputTimer: ReturnType<typeof setTimeout> | null;
+    onSigint: () => void;
+    onSigterm: () => void;
   };
   let session: Session;
-  const getWidth = () => Math.max(MIN_COLS, process.stdout.columns || 80);
+  const getWidth = () => process.stdout.columns || 80;
   const getHeight = () => process.stdout.rows || 24;
   const current = (s: Session) => session === s && !s.disposed && s.generation === generation;
 
@@ -410,6 +412,13 @@ export async function runMonitor(): Promise<void> {
     process.off("SIGWINCH", onResize);
     process.off("exit", cleanup);
     process.off("uncaughtException", onUncaughtException);
+    process.off("SIGINT", s.onSigint);
+    process.off("SIGTERM", s.onSigterm);
+  }
+  function onSignal(owner: Session, exitCode: number): void {
+    if (!current(owner)) return;
+    cleanup();
+    process.exit(exitCode);
   }
   const onResize = () => {
     if (!current(session)) return;
@@ -440,15 +449,20 @@ export async function runMonitor(): Promise<void> {
     }
   }
   function enter(): void {
-    session = {
+    const owner: Session = {
       generation: ++generation, disposed: false, hidden: false, fallback: false, dirty: true,
       wasRaw: !!process.stdin.isRaw, decoder: createMonitorInputDecoder(),
       visibility: createMonitorVisibility(!!process.stdin.isTTY && !!process.stdout.isTTY && process.env["SUMMON_NO_VISIBILITY"] !== "1"),
       refreshTimer: null, visibilityTimer: null, inputTimer: null,
+      onSigint: () => onSignal(owner, 130),
+      onSigterm: () => onSignal(owner, 143),
     };
+    session = owner;
     prevFrame = null;
     process.once("exit", cleanup);
     process.once("uncaughtException", onUncaughtException);
+    process.once("SIGINT", owner.onSigint);
+    process.once("SIGTERM", owner.onSigterm);
     process.on("SIGWINCH", onResize);
     // The decoder is installed before any query is emitted.
     process.stdin.on("data", onInput);
