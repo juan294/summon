@@ -1,5 +1,5 @@
 import { resolve } from "node:path";
-import { writeFileSync } from "node:fs";
+import { closeSync, fchmodSync, openSync, writeFileSync } from "node:fs";
 import {
   BOOLEAN_KEYS,
   VALID_KEYS,
@@ -171,8 +171,15 @@ export async function handleExportCommand({ args }: CommandContext): Promise<voi
   const output = lines.join("\n") + "\n";
   const [outputPath] = args;
   if (outputPath) {
-    writeFileSync(resolve(outputPath), output, { mode: 0o644 });
-    console.log(`Exported to: ${resolve(outputPath)}`);
+    const resolvedOutputPath = resolve(outputPath);
+    const fd = openSync(resolvedOutputPath, "w", 0o600);
+    try {
+      fchmodSync(fd, 0o600);
+      writeFileSync(fd, output);
+    } finally {
+      closeSync(fd);
+    }
+    console.log(`Exported to: ${resolvedOutputPath}`);
     return;
   }
 

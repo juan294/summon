@@ -1,0 +1,11 @@
+# Native Codex execpolicy. Project-layer trust and on-request approval are required.
+# These prompt decisions never constitute approval; the native client asks its user.
+prefix_rule(pattern=["git", "push"], decision="prompt")
+prefix_rule(pattern=["gh", "pr", "create"], decision="prompt")
+prefix_rule(pattern=["gh", "workflow", "run"], decision="prompt")
+prefix_rule(pattern=["gh", "release"], decision="prompt")
+prefix_rule(pattern=["vercel"], decision="prompt")
+prefix_rule(pattern=["vc"], decision="prompt")
+# Only unconditional exact-prefix forms are structurally forbidden here.
+prefix_rule(pattern=["git", "push", "--tags"], decision="forbidden")
+prefix_rule(pattern=["git", "push", "--mirror"], decision="forbidden")

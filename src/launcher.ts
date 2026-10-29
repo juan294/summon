@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { basename, join, resolve, sep } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { execFileSync, execSync } from "node:child_process";
 import {
   planLayout,
@@ -14,10 +14,10 @@ import {
 } from "./layout.js";
 import type { LayoutOptions } from "./layout.js";
 import { listConfig, listProjects, readKVFile, readKVFromString, readCustomLayout, isCustomLayout, LAYOUT_NAME_RE } from "./config.js";
-import { writeStatus } from "./status.js";
+import { writeStatus, readStatus, discardStatusRecord } from "./status.js";
 import type { WorkspaceStatus } from "./status.js";
-import { generateAppleScript, generateTreeAppleScript, generateFocusScript } from "./script.js";
-import { parseTreeDSL, extractPaneDefinitions, extractPaneCwds, resolveTreeCommands as resolveTreeCmds, buildTreePlan, findPaneByName } from "./tree.js";
+import { generateAppleScript, generateTreeAppleScript } from "./script.js";
+import { parseTreeDSL, extractPaneDefinitions, extractPaneCwds, resolveTreeCommands as resolveTreeCmds, buildTreePlan, collectLeaves, findPaneByName, assertPaneCwdContained } from "./tree.js";
 import type { LayoutNode, TreePlanOptions } from "./tree.js";
 import { resolveCommand as resolveCommandPath, getErrorMessage, SUMMON_WORKSPACE_ENV, promptUser, ACCESSIBILITY_SETTINGS_PATH, isDebug, supportsColor } from "./utils.js";
 import { fail, err } from "./ui/output.js";
@@ -29,6 +29,10 @@ import { isStarshipInstalled, ensurePresetConfig, getPresetConfigPath } from "./
 // Dependency direction: launcher -> command-spec (one-way, no circular risk).
 import { commandExecutable, replaceCommandExecutable } from "./command-spec.js";
 import { TabOpenError } from "./errors.js";
+import { focusTerminal } from "./ghostty-native.js";
+import type { FocusResult, NativeFailure } from "./ghostty-native.js";
+import { traditionalInventory, treeInventory, parseNativeCapture } from "./pane-inventory.js";
+import type { NativeMetadata, PaneDescriptor } from "./pane-inventory.js";
 
 /** Convert resolved layout options to a key-value config map suitable for saving as a custom layout. */
 export function optsToConfigMap(opts: Partial<LayoutOptions>): Map<string, string> {
@@ -87,17 +91,21 @@ export function resolveProjectName(targetDir: string): string {
   return sanitized;
 }
 
-/** Attempt to focus an existing Ghostty workspace by activating Ghostty. */
-export function focusWorkspace(projectName: string): boolean {
-  const script = generateFocusScript(`[${projectName}]`);
-  try {
-    execFileSync("osascript", [], { input: script, encoding: "utf-8" });
-    return true;
-  } catch {
-    return false;
-  }
+/** Resolve a recorded exact UUID without activating or querying the application. */
+export function resolveWorkspaceTerminal(projectName: string, paneName?: string): { kind: "target"; terminalId: string } | NativeFailure {
+  if (!PROJECT_NAME_RE.test(projectName)) return { kind: "unavailable", code: "missing", reason: "Invalid project name. Run summon inspect <project>." };
+  const status = readStatus(projectName);
+  if (!status?.native) return { kind: "unavailable", code: "missing", reason: "Exact native identity is unavailable. Select in Ghostty or explicitly relaunch when ready to capture identity; run summon inspect <project>." };
+  const terminalId = paneName === undefined ? status.native.rootTerminalId : status.native.panes.find(p => p.name === paneName)?.terminalId;
+  if (!terminalId) return { kind: "unavailable", code: "missing", reason: `Unknown pane. Valid panes: ${status.native.panes.map(p => p.name).join(", ")}. Run summon inspect ${projectName}.` };
+  return { kind: "target", terminalId };
 }
 
+/** Focus only a recorded exact UUID. Legacy/stale records never launch implicitly. */
+export function focusWorkspace(projectName: string, paneName?: string): FocusResult {
+  const target = resolveWorkspaceTerminal(projectName, paneName);
+  return target.kind === "target" ? focusTerminal(target.terminalId) : target;
+}
 
 async function prompt(question: string): Promise<string> {
   const answer = await promptUser(question);
@@ -159,11 +167,12 @@ export function withLaunchSpinner(label: string, fn: () => void): void {
   }
 }
 
-function executeScript(script: string, targetLabel?: string): void {
+function executeScript(script: string, inventory: PaneDescriptor[], targetLabel?: string): NativeMetadata | undefined {
+  let output = "";
   const label = `Summoning ${targetLabel ?? "workspace"}…`;
   withLaunchSpinner(label, () => {
     try {
-      execFileSync("osascript", [], { input: script, encoding: "utf-8", timeout: 30_000 });
+      output = execFileSync("osascript", [], { input: script, encoding: "utf-8", timeout: 30_000 });
       process.stderr.write("✓ Workspace ready.\n");
     } catch (caught) {
       const code = (caught as NodeJS.ErrnoException).code;
@@ -209,6 +218,10 @@ function executeScript(script: string, targetLabel?: string): void {
       throw new Error(`Failed to execute workspace script: ${message}`, { cause: caught });
     }
   });
+  // Parsing is deliberately outside launch rollback: an already-ready workspace stays open.
+  const native = parseNativeCapture(typeof output === "string" ? output : "", inventory);
+  if (!native) err("summon: warning: workspace launched, but exact native targeting is unavailable. Use summon inspect or explicitly relaunch to capture identity.");
+  return native;
 }
 
 
@@ -567,15 +580,8 @@ export function resolveConfig(targetDir: string, cliOverrides: CLIOverrides, sum
     if (projectCwds.size > 0) {
       // BE-M2 (#593): validate cwd containment at ingestion so that a malicious .summon
       // file cannot inject an out-of-project path before resolveTreeCommands runs.
-      const normalizedTarget = resolve(targetDir);
-      const prefix = normalizedTarget.endsWith(sep) ? normalizedTarget : normalizedTarget + sep;
       for (const [_paneName, cwd] of projectCwds) {
-        const resolved = resolve(normalizedTarget, cwd);
-        if (resolved !== normalizedTarget && !resolved.startsWith(prefix)) {
-          throw new Error(
-            `Tree DSL: pane cwd '${cwd}' resolves outside project directory '${normalizedTarget}'. Use a path within the project.`,
-          );
-        }
+        assertPaneCwdContained(targetDir, cwd);
       }
       const merged = new Map(mergedTreeLayout.paneCwds ?? []);
       for (const [k, v] of projectCwds) merged.set(k, v);
@@ -702,7 +708,9 @@ function executeOnStart(onStart: string, targetDir: string): void {
     // A hard abort (e.g. for SIGINT/SIGKILL) is unlikely from a hook and would be
     // surfaced via the stderr inherited above; treating all failures as warnings
     // allows pre-flight checks to fail gracefully without killing the workspace.
-    const message = `on-start command failed: ${onStart} — ${getErrorMessage(err)}`;
+    const message = isDebug()
+      ? `[debug] on-start command failed: ${onStart} — ${getErrorMessage(err)}`
+      : "on-start command failed; continuing workspace launch";
     console.warn(message);
   }
 }
@@ -759,7 +767,7 @@ async function launchTreeLayout(
   resolveStarship: () => string | null,
   projectName?: string,
   onStop?: string,
-): Promise<string[]> {
+): Promise<{ paneNames: string[]; native?: NativeMetadata }> {
   const resolvedTree = resolveTreeCmds(treeLayout.tree, treeLayout.panes, treeLayout.paneCwds, resolve(targetDir));
   const treePlan = buildTreePlan(resolvedTree, layoutOptsToTreePlanOpts(opts));
   const hasEnvVars = Object.keys(envVars).length > 0;
@@ -775,7 +783,7 @@ async function launchTreeLayout(
     ];
     appendDryRunExtras(headerLines, starshipPreset, dryRunStarshipPath);
     console.log(`${headerLines.join("\n")}\n${script}`);
-    return treePlan.leaves;
+    return { paneNames: treePlan.leaves };
   }
 
   ensureGhostty();
@@ -790,8 +798,8 @@ async function launchTreeLayout(
 
   const starshipConfigPath = resolveStarship();
   const script = generateTreeAppleScript(treePlan, targetDir, starshipConfigPath, hasEnvVars ? envVars : undefined, projectName, onStop);
-  executeScript(script, projectName);
-  return treePlan.leaves;
+  const native = executeScript(script, treeInventory(treePlan), projectName);
+  return { paneNames: treePlan.leaves, ...(native ? { native } : {}) };
 }
 
 /** Extract pane names from a traditional LayoutPlan. */
@@ -814,7 +822,7 @@ async function launchTraditionalLayout(
   resolveStarship: () => string | null,
   projectName?: string,
   onStop?: string,
-): Promise<string[]> {
+): Promise<{ paneNames: string[]; native?: NativeMetadata }> {
   const plan = planLayout(opts);
   const hasEnvVars = Object.keys(envVars).length > 0;
   const paneNames = traditionalPaneNames(plan);
@@ -830,7 +838,7 @@ async function launchTraditionalLayout(
     ];
     appendDryRunExtras(headerLines, starshipPreset, dryRunStarshipPath);
     console.log(`${headerLines.join("\n")}\n${script}`);
-    return paneNames;
+    return { paneNames };
   }
 
   ensureGhostty();
@@ -843,8 +851,8 @@ async function launchTraditionalLayout(
 
   const starshipConfigPath = resolveStarship();
   const script = generateAppleScript(plan, targetDir, starshipConfigPath, hasEnvVars ? envVars : undefined, projectName, onStop);
-  executeScript(script, projectName);
-  return paneNames;
+  const native = executeScript(script, traditionalInventory(plan), projectName);
+  return { paneNames, ...(native ? { native } : {}) };
 }
 
 export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Promise<void> {
@@ -908,6 +916,7 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
   decideCleanRestoredPanes(opts, cliOverrides ?? {}, config.projectOverrides, machineConfig, cliOverrides?.dryRun, projectName);
 
   let effectiveOnStart = onStart;
+  let effectiveOnStop = onStop;
 
   if (!cliOverrides?.dryRun) {
     const resolvedCommands: Array<[string, string]> = [];
@@ -918,12 +927,14 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
 
     maybePush("editor", opts.editor);
     maybePush("sidebar", opts.sidebarCommand);
+    maybePush("secondary-editor", opts.secondaryEditor);
     maybePush("shell", opts.shell);
     maybePush("on-start", onStart);
     maybePush("on-stop", onStop);
     if (treeLayout) {
-      for (const [paneName, cmd] of treeLayout.panes) {
-        maybePush(`pane.${paneName}`, cmd);
+      for (const paneName of collectLeaves(treeLayout.tree)) {
+        const inlineCommand = findPaneByName(treeLayout.tree, paneName)?.command;
+        maybePush(`pane.${paneName}`, inlineCommand || treeLayout.panes.get(paneName));
       }
     }
 
@@ -934,12 +945,17 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
     if (skipped.size > 0) {
       if (skipped.has("editor")) opts.editor = undefined;
       if (skipped.has("sidebar")) opts.sidebarCommand = undefined;
+      if (skipped.has("secondary-editor")) opts.secondaryEditor = undefined;
       if (skipped.has("shell")) opts.shell = undefined;
       if (skipped.has("on-start")) effectiveOnStart = undefined;
+      if (skipped.has("on-stop")) effectiveOnStop = undefined;
       if (treeLayout) {
         for (const key of skipped) {
           if (key.startsWith("pane.")) {
-            treeLayout.panes.delete(key.slice(5));
+            const paneName = key.slice(5);
+            treeLayout.panes.set(paneName, "");
+            const pane = findPaneByName(treeLayout.tree, paneName);
+            if (pane) pane.command = "";
           }
         }
       }
@@ -953,8 +969,8 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
   // SE-M1 (#595): surface on-stop command at launch time so users know it will run on exit.
   // on-stop is embedded in the AppleScript's EXIT trap and runs silently; a launch-time notice
   // makes the hook visible without requiring users to inspect the generated script.
-  if (onStop && !cliOverrides?.dryRun) {
-    process.stderr.write(`Note: on-stop will run on workspace exit: ${onStop}\n`);
+  if (effectiveOnStop && !cliOverrides?.dryRun) {
+    process.stderr.write("Note: on-stop will run on workspace exit.\n");
   }
 
   // Cache resolved command paths so the same binary is only looked up once
@@ -994,9 +1010,9 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
     return null;
   };
 
-  const paneNames = treeLayout
-    ? await launchTreeLayout(treeLayout, opts, cliOverrides ?? {}, targetDir, starshipPreset, envVars, ensureAndResolve, resolveStarship, projectName, onStop)
-    : await launchTraditionalLayout(opts, cliOverrides ?? {}, targetDir, starshipPreset, envVars, ensureAndResolve, resolveStarship, projectName, onStop);
+  const launched = treeLayout
+    ? await launchTreeLayout(treeLayout, opts, cliOverrides ?? {}, targetDir, starshipPreset, envVars, ensureAndResolve, resolveStarship, projectName, effectiveOnStop)
+    : await launchTraditionalLayout(opts, cliOverrides ?? {}, targetDir, starshipPreset, envVars, ensureAndResolve, resolveStarship, projectName, effectiveOnStop);
 
   // Write workspace status for monitoring features
   if (!cliOverrides?.dryRun) {
@@ -1007,7 +1023,8 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
       pid: process.pid,
       startedAt: new Date().toISOString(),
       layout: layoutLabel,
-      panes: paneNames,
+      panes: launched.paneNames,
+      ...(launched.native ? { native: launched.native } : {}),
       source: "summon",
       version: 1,
     };
@@ -1015,7 +1032,10 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
     try {
       writeStatus(status);
     } catch {
-      // Non-fatal: monitoring is optional, don't break launch
+      const discarded = discardStatusRecord(projectName);
+      err(discarded
+        ? "summon: warning: workspace launched, but status could not be saved; exact targeting is unavailable. Check config directory permissions and run summon doctor."
+        : "summon: warning: workspace launched, but status could not be saved or invalidated. Previous metadata may remain and target an older workspace; select manually in Ghostty, repair config directory permissions and run summon doctor before using exact commands.");
     }
   }
 }

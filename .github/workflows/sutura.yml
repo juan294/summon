@@ -1,0 +1,48 @@
+name: Sutura repair monitor
+run-name: "${{ format('{0}: {1} #{2} ({3}) on {4}', github.event.workflow_run.conclusion == 'success' && 'No repair needed' || (github.event.workflow_run.conclusion == 'failure' || github.event.workflow_run.conclusion == 'timed_out') && 'Repair requested' || 'Repair not triggered', github.event.workflow_run.name, github.event.workflow_run.run_number, github.event.workflow_run.conclusion, github.event.workflow_run.head_branch) }}"
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+
+permissions:
+  actions: read
+  checks: write
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: sutura-${{ github.event.workflow_run.id }}
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    name: Attempt verified CI repair
+    if: >-
+      ${{
+        github.event.workflow_run.conclusion == 'failure' ||
+        github.event.workflow_run.conclusion == 'timed_out'
+      }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create repository-scoped Sutura token
+        id: sutura-app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.SUTURA_APP_CLIENT_ID }}
+          private-key: ${{ secrets.SUTURA_APP_PRIVATE_KEY }}
+          permission-actions: read
+          permission-checks: write
+          permission-contents: write
+          permission-pull-requests: write
+      - name: Verify and repair failed CI
+        uses: juan294/sutura@2b26f5e02bf99739c06168d5b7d76dfca2465c4f # v0.4.0
+        with:
+          github-token: ${{ steps.sutura-app-token.outputs.token }}
+          run-id: ${{ github.event.workflow_run.id }}
+          capture-replay: true
+          runtime: auto
+          nebius-api-key: ${{ secrets.NEBIUS_API_KEY }}
+          contree-token: ${{ secrets.CONTREE_TOKEN }}
+          contree-project: ${{ vars.CONTREE_PROJECT }}

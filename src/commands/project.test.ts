@@ -78,6 +78,7 @@ beforeEach(() => {
   mockExistsSync.mockReturnValue(true);
   mockListProjects.mockReturnValue(new Map<string, string>());
   mockRenderRow.mockReturnValue("project row");
+  mockFocusWorkspace.mockReturnValue({kind:"focused",terminalId:"00000000-0000-4000-8000-000000000001"});
   Object.defineProperty(process.stdout, "columns", { value: 80, configurable: true });
 });
 
@@ -534,4 +535,16 @@ describe("UX-M5 (#559): error prefixes use 'summon: error:' style", () => {
     expect(allWrites).toContain("summon: error:");
     writeSpy.mockRestore();
   });
+});
+
+
+describe("P2 picker focus recovery",()=>{
+ it("never says Switched or launches after failed exact focus",async()=>{
+  mockLoadProjectRows.mockReturnValue([{name:"demo",directory:"/tmp/demo",state:"active",uptime:"1m",gitBranch:"main"}]);
+  mockPromptUser.mockResolvedValue("1");mockFocusWorkspace.mockReturnValue({kind:"unavailable",reason:"Missing exact identity; relaunch explicitly"});
+  const out=vi.spyOn(console,"log").mockImplementation(()=>{});const err=vi.spyOn(process.stderr,"write").mockImplementation(()=>true);const exit=vi.spyOn(process,"exit").mockImplementation(()=>{throw new Error("exit2");});
+  await expect(handleOpenCommand(makeContext())).rejects.toThrow("exit2");
+  expect(out.mock.calls.flat().join(" ")).not.toContain("Switched");expect(mockLaunch).not.toHaveBeenCalled();expect(exit).toHaveBeenCalledWith(2);
+  out.mockRestore();err.mockRestore();exit.mockRestore();
+ });
 });

@@ -1,0 +1,21 @@
+<!-- rpi:rule-map:start -->
+## Conditional rule access
+
+Before acting on a matching task/path, read the installed rule body below.
+The installation manifest records the selected components and exact mappings.
+This root map applies even when a session starts at the repository root and
+later edits a nested directory; it is an instruction contract, not a native
+Codex glob loader. Sessions started inside a subproject also read their actual
+root-to-current-directory instruction chain. Preserve project-specific overrides.
+
+| Task or path | Required resource | Essential constraint |
+| --- | --- | --- |
+| Deployment, CI, release or infrastructure configuration | `.rpi/rules/deployment-safety.md` | Local gates first; no Vercel Preview; production needs authorization. |
+| SQL, Supabase migrations, schema, data access or database tests | `.rpi/rules/supabase.md` | Reset/test locally; privileges and RLS are distinct; remote targets need authorization. |
+| Behavioral changes, tests, fixtures and validation | `.rpi/rules/testing.md` | TDD for behavioral code; every required check must run and pass. |
+| WebMCP, MCP tools, tool registration or agent-facing interfaces | `.rpi/rules/webmcp.md` | Validate on the server; isolate unstable browser APIs and test caller recovery. |
+
+If a required component is missing, report the exact missing path and run the
+read-only installation check before proceeding with dependent work. Never
+invent a successful read or silently treat an incomplete install as healthy.
+<!-- rpi:rule-map:end -->

@@ -1,402 +1,279 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-
-const mockExistsSync = vi.fn();
-const mockReadFileSync = vi.fn();
-const mockCopyFileSync = vi.fn();
-const mockAppendFileSync = vi.fn();
-const mockMkdirSync = vi.fn();
-const mockListConfig = vi.fn();
-const mockListProjects = vi.fn();
-const mockCheckAccessibility = vi.fn();
-const mockResolveCommand = vi.fn();
-const mockCommandExecutable = vi.fn();
-const mockDetectAllPorts = vi.fn();
-
-// __VERSION__ is injected by tsup at build time; define it for tests
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+const exec = vi.hoisted(() => vi.fn());
+let home = "";
+vi.mock("node:os", async (original) => ({
+  ...(await original<typeof import("node:os")>()),
+  homedir: () => home,
+}));
+vi.mock("node:child_process", () => ({ execFileSync: exec }));
+home = mkdtempSync(join(tmpdir(), "summon-doctor-"));
+const { handleDoctorCommand } = await import("./doctor.js");
+const { resetConfigCache } = await import("../config.js");
+const { GHOSTTY_PATHS } = await import("../utils.js");
+const originalPaths = [...GHOSTTY_PATHS];
+const app = join(home, "Applications/Ghostty.app");
+const target = join(home, ".config/ghostty/config");
+const scalarConfig =
+  "shell-integration = detect\nnotify-on-command-finish = unfocused\nscrollback-compression = true\nlink-osc8 = true\nclipboard-read = ask\nclipboard-write = allow\nvt-window-resize-allowed = false\nvt-xt-checksum-report = false\n";
+let effective = scalarConfig;
+let errors: ReturnType<typeof vi.spyOn>;
+const context = (values = {}) => ({
+  parsed: { values: {}, positionals: [], args: [] },
+  values,
+  subcommand: "doctor",
+  args: [],
+  overrides: {},
+});
+const output = () => errors.mock.calls.flat().join("\n");
+beforeEach(() => {
+  vi.restoreAllMocks();
+  vi.stubEnv("XDG_CONFIG_HOME", join(home, ".config"));
+  rmSync(join(home, ".config"), { recursive: true, force: true });
+  rmSync(join(home, "Library"), { recursive: true, force: true });
+  mkdirSync(join(home, ".config/ghostty"), { recursive: true });
+  mkdirSync(join(home, ".config/summon"), { recursive: true });
+  mkdirSync(join(app, "Contents/MacOS"), { recursive: true });
+  mkdirSync(join(app, "Contents/Resources"), { recursive: true });
+  writeFileSync(join(app, "Contents/MacOS/ghostty"), "");
+  writeFileSync(
+    join(app, "Contents/Resources/Ghostty.sdef"),
+    '<class name="terminal"><property name="id"/><property name="pid"/><property name="tty"/><property name="name override" access="rw"/></class><class name="tab"><property name="name override" access="rw"/></class>',
+  );
+  writeFileSync(target, "# existing preferences\n");
+  writeFileSync(join(home, ".config/summon/config"), "");
+  writeFileSync(join(home, ".config/summon/projects"), "");
+  GHOSTTY_PATHS.splice(0, GHOSTTY_PATHS.length, app);
+  resetConfigCache();
+  effective = scalarConfig;
+  exec.mockReset();
+  exec.mockImplementation((binary: string, args: string[]) => {
+    if (binary === "osascript") return "Finder";
+    if (binary === "/usr/bin/which")
+      return args[0] === "missing"
+        ? (() => {
+            throw new Error("missing");
+          })()
+        : "/usr/bin/nvim";
+    if (binary === "/bin/ps") return join(app, "Contents/MacOS/ghostty");
+    if (args[0] === "--version") return "Ghostty 1.4.0";
+    if (args[0] === "+list-actions") return "move_tab_to_new_window";
+    return readFileSync(target, "utf-8").includes("Added by summon")
+      ? scalarConfig
+      : effective;
+  });
+  errors = vi.spyOn(console, "error").mockImplementation(() => {});
+  vi.spyOn(process, "exit").mockImplementation(((code: number) => {
+    throw new Error(`exit:${code}`);
+  }) as never);
+});
+afterEach(() => vi.unstubAllEnvs());
+afterAll(() => {
+  GHOSTTY_PATHS.splice(0, GHOSTTY_PATHS.length, ...originalPaths);
+  rmSync(home, { recursive: true, force: true });
+});
 Object.defineProperty(globalThis, "__VERSION__", {
-  value: "0.0.0-test",
+  value: "test",
   configurable: true,
 });
-
-vi.mock("node:fs", () => ({
-  existsSync: (...args: unknown[]) => mockExistsSync(...args),
-  readFileSync: (...args: unknown[]) => mockReadFileSync(...args),
-  copyFileSync: (...args: unknown[]) => mockCopyFileSync(...args),
-  appendFileSync: (...args: unknown[]) => mockAppendFileSync(...args),
-  mkdirSync: (...args: unknown[]) => mockMkdirSync(...args),
-}));
-
-vi.mock("node:os", () => ({
-  homedir: () => "/Users/tester",
-}));
-
-vi.mock("../config.js", () => ({
-  listConfig: (...args: unknown[]) => mockListConfig(...args),
-  listProjects: (...args: unknown[]) => mockListProjects(...args),
-}));
-
-vi.mock("../utils.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../utils.js")>();
-  return {
-    ...actual,
-    checkAccessibility: (...args: unknown[]) => mockCheckAccessibility(...args),
-    resolveCommand: (...args: unknown[]) => mockResolveCommand(...args),
-    ACCESSIBILITY_REQUIRED_MSG: "Accessibility is required.",
-    ACCESSIBILITY_SETTINGS_PATH: "System Settings > Privacy & Security > Accessibility",
-    ACCESSIBILITY_ENABLE_HINT: "Enable Ghostty in the accessibility list.",
-  };
-});
-
-vi.mock("../command-spec.js", () => ({
-  commandExecutable: (...args: unknown[]) => mockCommandExecutable(...args),
-}));
-
-vi.mock("../ports.js", () => ({
-  detectAllPorts: (...args: unknown[]) => mockDetectAllPorts(...args),
-}));
-
-const { handleDoctorCommand } = await import("./doctor.js");
-
-function makeContext(overrides: Partial<Parameters<typeof handleDoctorCommand>[0]> = {}) {
-  return {
-    parsed: { values: {}, positionals: [], args: [] },
-    values: {},
-    subcommand: "doctor",
-    args: [],
-    overrides: {},
-    ...overrides,
-  };
-}
-
-beforeEach(() => {
-  vi.clearAllMocks();
-  mockListConfig.mockReturnValue(new Map());
-  mockListProjects.mockReturnValue(new Map([
-    ["api", "/tmp/api"],
-    ["web", "/tmp/web"],
-  ]));
-  mockCheckAccessibility.mockReturnValue(true);
-  mockResolveCommand.mockReturnValue("/usr/bin/nvim");
-  mockCommandExecutable.mockImplementation((cmd: string) => cmd.split(" ")[0]);
-  mockDetectAllPorts.mockReturnValue({ conflicts: new Map() });
-  mockExistsSync.mockReturnValue(false);
-  mockReadFileSync.mockReturnValue("");
-});
-
-describe("handleDoctorCommand", () => {
-  it("reports a clean setup when everything is configured", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    mockExistsSync.mockReturnValue(true);
-    mockReadFileSync.mockReturnValue(
-      "notify-on-command-finish = unfocused\nshell-integration = detect\n",
-    );
-    mockListConfig.mockReturnValue(new Map([
-      ["editor", "nvim"],
-      ["sidebar", "lazygit"],
-    ]));
-
-    await handleDoctorCommand(makeContext());
-
-    expect(errorSpy).toHaveBeenCalledWith('  ✓ PASS  editor command "nvim" found at /usr/bin/nvim');
-    expect(errorSpy).toHaveBeenCalledWith('  ✓ PASS  sidebar command "lazygit" found at /usr/bin/nvim');
-    expect(errorSpy).toHaveBeenCalledWith("  ✓ PASS  No port conflicts (2 projects checked)");
-    // Issue count summary shows "All checks passed" when clean
-    const allOutput = errorSpy.mock.calls.flat().join("\n");
-    expect(allOutput).toMatch(/✓ \d+\/\d+ checks passed\./);
+describe("doctor effective diagnostics", () => {
+  it("uses defaults when an explicit file has no keys, without speculative fixes", async () => {
+    await handleDoctorCommand(context({ fix: true }));
+    expect(output()).toMatch(/checks passed/);
+    expect(output()).toContain("Ghostty 1.4.0");
+    expect(output()).toContain("nativeIdentity: supported");
+    expect(readFileSync(target, "utf-8")).toBe("# existing preferences\n");
+    expect(output()).toContain("scrollback-compression=true");
   });
-
-  it("lists missing settings and exits with code 2 when issues remain", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
-      throw new Error(`exit:${code}`);
-    }) as never);
-    mockCheckAccessibility.mockReturnValue(false);
-    mockDetectAllPorts.mockReturnValue({ conflicts: new Map([[3000, ["api", "web"]]]) });
-
-    await expect(handleDoctorCommand(makeContext())).rejects.toThrow("exit:2");
-    expect(errorSpy).toHaveBeenCalledWith("Exit code 2: issues were found. See above for details.");
+  it("warns on 1.3.1 while retaining success", async () => {
+    exec.mockImplementationOnce(() => "Ghostty 1.3.1");
+    await handleDoctorCommand(context());
+    expect(output()).toContain("WARN");
+    expect(output()).toContain("1.4.0 recommended");
   });
-
-  it("backs up and appends missing settings in --fix mode", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    mockExistsSync.mockImplementation((path: string) =>
-      path === "/Users/tester/.config/ghostty/config"
-    );
-
-    await handleDoctorCommand(makeContext({ values: { fix: true } }));
-
-    expect(mockMkdirSync).toHaveBeenCalledWith("/Users/tester/.config/ghostty", { recursive: true });
-    expect(mockCopyFileSync).toHaveBeenCalledWith(
-      "/Users/tester/.config/ghostty/config",
-      expect.stringContaining("/Users/tester/.config/ghostty/config.bak."),
-    );
-    expect(mockAppendFileSync).toHaveBeenCalledWith(
-      "/Users/tester/.config/ghostty/config",
-      expect.stringContaining("# Added by summon doctor --fix"),
-    );
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("Added 2 setting(s) to /Users/tester/.config/ghostty/config"));
+  it("does not claim the security baseline for prereleases", async () => {
+    exec.mockImplementationOnce(() => "Ghostty 1.4.0-dev");
+    await handleDoctorCommand(context());
+    expect(output()).toContain("unverified security baseline");
   });
-
-  it("does not create a backup in --fix mode when the Ghostty config file is missing", async () => {
-    mockExistsSync.mockReturnValue(false);
-
-    await handleDoctorCommand(makeContext({ values: { fix: true } }));
-
-    expect(mockMkdirSync).toHaveBeenCalledWith("/Users/tester/.config/ghostty", { recursive: true });
-    expect(mockCopyFileSync).not.toHaveBeenCalled();
-    expect(mockAppendFileSync).toHaveBeenCalled();
-  });
-
-  it("reports missing configured commands", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
-      throw new Error(`exit:${code}`);
-    }) as never);
-    mockExistsSync.mockReturnValue(true);
-    mockReadFileSync.mockReturnValue(
-      "notify-on-command-finish = unfocused\nshell-integration = detect\n",
-    );
-    mockListConfig.mockReturnValue(new Map([["editor", "missing-editor --flag"]]));
-    mockResolveCommand.mockReturnValue(null);
-
-    await expect(handleDoctorCommand(makeContext())).rejects.toThrow("exit:2");
-    expect(errorSpy).toHaveBeenCalledWith('  ✗ FAIL  editor command "missing-editor" not found in PATH');
-    expect(errorSpy).toHaveBeenCalledWith('    Install "missing-editor" or change with: summon set editor <command>');
-    // Issue count shown in summary
-    const allOutput = errorSpy.mock.calls.flat().join("\n");
-    expect(allOutput).toMatch(/\d+\/\d+ checks passed/);
-  });
-
-  it("uses the full configured command when no executable can be parsed", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
-      throw new Error(`exit:${code}`);
-    }) as never);
-    mockExistsSync.mockReturnValue(true);
-    mockReadFileSync.mockReturnValue(
-      "notify-on-command-finish = unfocused\nshell-integration = detect\n",
-    );
-    mockListConfig.mockReturnValue(new Map([["editor", "   "]]));
-    mockCommandExecutable.mockReturnValue(null);
-
-    await expect(handleDoctorCommand(makeContext())).rejects.toThrow("exit:2");
-
-    expect(errorSpy).toHaveBeenCalledWith('  ✗ FAIL  editor command "   " not found in PATH');
-    expect(errorSpy).toHaveBeenCalledWith('    Install "   " or change with: summon set editor <command>');
-  });
-
-  it("shows '✓ N/N checks passed.' when there are no issues", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    mockExistsSync.mockReturnValue(true);
-    mockReadFileSync.mockReturnValue(
-      "notify-on-command-finish = unfocused\nshell-integration = detect\n",
-    );
-
-    await handleDoctorCommand(makeContext());
-
-    const output = errorSpy.mock.calls.flat().join("\n");
-    expect(output).toMatch(/✓ \d+\/\d+ checks passed\./);
-  });
-
-  it("prints issue count summary when issues are found", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
-      throw new Error(`exit:${code}`);
-    }) as never);
-    mockCheckAccessibility.mockReturnValue(false);
-
-    await expect(handleDoctorCommand(makeContext())).rejects.toThrow("exit:2");
-
-    const output = errorSpy.mock.calls.flat().join("\n");
-    expect(output).toMatch(/\d+\/\d+ checks passed/);
-  });
-
-  it("prints auto-fixable count in issue summary", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
-      throw new Error(`exit:${code}`);
-    }) as never);
-    // Missing ghost config settings are auto-fixable
-    mockExistsSync.mockReturnValue(false);
-
-    await expect(handleDoctorCommand(makeContext())).rejects.toThrow("exit:2");
-
-    const output = errorSpy.mock.calls.flat().join("\n");
-    expect(output).toMatch(/auto-fixable/);
-    expect(output).toContain("summon doctor --fix");
-  });
-
-  // #432 UX-M5: visual pass/fail indicators instead of raw booleans
-  it("shows a visual PASS indicator for passing checks, not the literal string 'true'", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    mockExistsSync.mockReturnValue(true);
-    mockReadFileSync.mockReturnValue(
-      "notify-on-command-finish = unfocused\nshell-integration = detect\n",
-    );
-
-    await handleDoctorCommand(makeContext());
-
-    const output = errorSpy.mock.calls.flat().join("\n");
-    expect(output).not.toContain("true");
-    // Should contain a pass symbol (✔ or ✓ or PASS)
-    expect(output).toMatch(/PASS|✔|✓/);
-  });
-
-  it("shows a visual FAIL indicator for failing checks, not the literal string 'false'", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
-      throw new Error(`exit:${code}`);
-    }) as never);
-    mockCheckAccessibility.mockReturnValue(false);
-
-    await expect(handleDoctorCommand(makeContext())).rejects.toThrow("exit:2");
-
-    const output = errorSpy.mock.calls.flat().join("\n");
-    expect(output).not.toContain("false");
-    // Should contain a fail symbol (✖ or ✗ or FAIL)
-    expect(output).toMatch(/FAIL|✖|✗/);
-  });
-
-  // #435 UX-M9: summary count of passed/failed checks
-  it("shows a passed/total summary count at the end of output", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    mockExistsSync.mockReturnValue(true);
-    mockReadFileSync.mockReturnValue(
-      "notify-on-command-finish = unfocused\nshell-integration = detect\n",
-    );
-
-    await handleDoctorCommand(makeContext());
-
-    const output = errorSpy.mock.calls.flat().join("\n");
-    // Should show something like "4/4 checks passed" or "All 4 checks passed"
-    expect(output).toMatch(/\d+\/\d+ checks passed|\d+ checks passed|all.*checks passed/i);
-  });
-
-  it("shows a next-steps hint when checks fail", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
-      throw new Error(`exit:${code}`);
-    }) as never);
-    mockCheckAccessibility.mockReturnValue(false);
-
-    await expect(handleDoctorCommand(makeContext())).rejects.toThrow("exit:2");
-
-    const output = errorSpy.mock.calls.flat().join("\n");
-    // Should hint at summon setup when accessibility fails
-    expect(output).toMatch(/summon setup|fix/i);
-  });
-
-  // #504 DO-S1: --verbose flag exposes diagnostic info without SUMMON_DEBUG
-  describe("--verbose flag", () => {
-    it("shows the summon version when --verbose is passed", async () => {
-      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-      mockExistsSync.mockReturnValue(true);
-      mockReadFileSync.mockReturnValue(
-        "notify-on-command-finish = unfocused\nshell-integration = detect\n",
-      );
-
-      await handleDoctorCommand(makeContext({ values: { verbose: true } }));
-
-      const output = errorSpy.mock.calls.flat().join("\n");
-      expect(output).toMatch(/summon.*version|version.*summon/i);
+  it("classifies missing app as FAIL, unknown version as UNAVAILABLE and retries next invocation", async () => {
+    GHOSTTY_PATHS.splice(0, GHOSTTY_PATHS.length, join(home, "missing.app"));
+    await expect(handleDoctorCommand(context())).rejects.toThrow("exit:2");
+    expect(output()).toContain("FAIL");
+    GHOSTTY_PATHS.splice(0, GHOSTTY_PATHS.length, app);
+    exec.mockImplementationOnce(() => {
+      throw new Error("timeout");
     });
-
-    it("shows the Node.js version when --verbose is passed", async () => {
-      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-      mockExistsSync.mockReturnValue(true);
-      mockReadFileSync.mockReturnValue(
-        "notify-on-command-finish = unfocused\nshell-integration = detect\n",
-      );
-
-      await handleDoctorCommand(makeContext({ values: { verbose: true } }));
-
-      const output = errorSpy.mock.calls.flat().join("\n");
-      expect(output).toMatch(/node(\.js)?.*v?\d+\.\d+/i);
-    });
-
-    it("shows the config directory path when --verbose is passed", async () => {
-      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-      mockExistsSync.mockReturnValue(true);
-      mockReadFileSync.mockReturnValue(
-        "notify-on-command-finish = unfocused\nshell-integration = detect\n",
-      );
-
-      await handleDoctorCommand(makeContext({ values: { verbose: true } }));
-
-      const output = errorSpy.mock.calls.flat().join("\n");
-      // Should show something about the config path (contains "summon" in the path)
-      expect(output).toMatch(/config.*summon|summon.*config/i);
-    });
-
-    it("shows Ghostty path accessibility when --verbose is passed", async () => {
-      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-      mockExistsSync.mockReturnValue(true);
-      mockReadFileSync.mockReturnValue(
-        "notify-on-command-finish = unfocused\nshell-integration = detect\n",
-      );
-
-      await handleDoctorCommand(makeContext({ values: { verbose: true } }));
-
-      const output = errorSpy.mock.calls.flat().join("\n");
-      expect(output).toMatch(/ghostty.*path|path.*ghostty/i);
-    });
-
-    it("shows trust DB path and trusted project count when --verbose is passed", async () => {
-      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-      mockExistsSync.mockReturnValue(true);
-      mockReadFileSync.mockReturnValue(
-        "notify-on-command-finish = unfocused\nshell-integration = detect\n",
-      );
-
-      await handleDoctorCommand(makeContext({ values: { verbose: true } }));
-
-      const output = errorSpy.mock.calls.flat().join("\n");
-      expect(output).toMatch(/trust/i);
-      // Should show a count of trusted projects (a number)
-      expect(output).toMatch(/\d+ (project|trusted)/i);
-    });
-
-    it("does NOT show verbose diagnostic section when --verbose is not passed", async () => {
-      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-      mockExistsSync.mockReturnValue(true);
-      mockReadFileSync.mockReturnValue(
-        "notify-on-command-finish = unfocused\nshell-integration = detect\n",
-      );
-
-      await handleDoctorCommand(makeContext());
-
-      const output = errorSpy.mock.calls.flat().join("\n");
-      // Verbose section header should be absent in non-verbose mode
-      expect(output).not.toMatch(/diagnostic info|system info/i);
-    });
+    await expect(handleDoctorCommand(context())).rejects.toThrow("exit:2");
+    expect(output()).toContain("UNAVAILABLE");
+    await handleDoctorCommand(context());
   });
-});
-
-describe("FE-M5 (#549): doctor diagnostic output goes to stderr", () => {
-  it("diagnostic report does not contaminate stdout", async () => {
-    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const exitSpy = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
-      throw new Error(`exit:${code}`);
-    }) as never);
-    mockExistsSync.mockReturnValue(false);
-
-    // Doctor exits 2 when issues are found — catch it
-    try {
-      await handleDoctorCommand(makeContext());
-    } catch {
-      // expected: exit:2 thrown by mocked process.exit
-    }
-
-    // The main diagnostic check output (PASS/FAIL lines) must go to stderr, not stdout
-    const stdoutOutput = logSpy.mock.calls.flat().join("\n");
-    const stderrOutput = errorSpy.mock.calls.flat().join("\n");
-    // The "Checking Ghostty configuration..." banner goes to stderr
-    expect(stderrOutput).toMatch(/checking/i);
-    // stdout should not contain diagnostic header lines
-    expect(stdoutOutput).not.toMatch(/^Checking /m);
-    logSpy.mockRestore();
-    errorSpy.mockRestore();
-    exitSpy.mockRestore();
+  it("does not fix any key when another effective scalar is invalid", async () => {
+    effective = scalarConfig
+      .replace("detect", "none")
+      .replace("link-osc8 = true", "link-osc8 = invalid");
+    await expect(handleDoctorCommand(context({ fix: true }))).rejects.toThrow(
+      "exit:2",
+    );
+    expect(readFileSync(target, "utf-8")).toBe("# existing preferences\n");
+    expect(output()).toContain("UNAVAILABLE");
+  });
+  it("unavailable dictionary/action evidence fails visibly rather than claiming success", async () => {
+    writeFileSync(join(app, "Contents/Resources/Ghostty.sdef"), "");
+    await expect(handleDoctorCommand(context())).rejects.toThrow("exit:2");
+    expect(output()).toContain("unavailable");
+  });
+  it("backs up an eligible existing target, appends only missing deficient settings and requeries", async () => {
+    effective = scalarConfig
+      .replace("detect", "none")
+      .replace("unfocused", "never");
+    await handleDoctorCommand(context({ fix: true }));
+    expect(readFileSync(target, "utf-8")).toContain(
+      "notify-on-command-finish = unfocused",
+    );
+    const backups = readdirSync(join(home, ".config/ghostty")).filter((n) =>
+      n.includes(".bak."),
+    );
+    expect(backups).toHaveLength(1);
+    expect(
+      readFileSync(join(home, ".config/ghostty", backups[0]!), "utf-8"),
+    ).toBe("# existing preferences\n");
+    expect(
+      exec.mock.calls.filter(([, args]) => args[0] === "+show-config"),
+    ).toHaveLength(2);
+  });
+  it.each([
+    "shell-integration = none\nnotify-on-command-finish = never\n",
+    "config-file = extra.conf\n",
+  ])("preserves explicit values/includes (%s)", async (content) => {
+    writeFileSync(target, content);
+    effective = scalarConfig
+      .replace("detect", "none")
+      .replace("unfocused", "never");
+    await expect(handleDoctorCommand(context({ fix: true }))).rejects.toThrow(
+      "exit:2",
+    );
+    expect(readFileSync(target, "utf-8")).toBe(content);
+    expect(output()).toMatch(/edit.*reload/i);
+  });
+  it.each([
+    "Library/Application Support/com.mitchellh.ghostty/config",
+    ".config/ghostty/config.ghostty",
+  ])("refuses ambiguous second source %s", async (relative) => {
+    const alternative = join(home, relative);
+    mkdirSync(join(alternative, ".."), { recursive: true });
+    writeFileSync(alternative, "shell-integration = none");
+    effective = scalarConfig.replace("detect", "none");
+    await expect(handleDoctorCommand(context({ fix: true }))).rejects.toThrow(
+      "exit:2",
+    );
+    expect(readFileSync(target, "utf-8")).toBe("# existing preferences\n");
+  });
+  it("refuses unknown app CLI overrides or XDG origins", async () => {
+    effective = scalarConfig.replace("detect", "none");
+    vi.stubEnv("XDG_CONFIG_HOME", join(home, "elsewhere"));
+    await expect(handleDoctorCommand(context({ fix: true }))).rejects.toThrow(
+      "exit:2",
+    );
+    vi.stubEnv("XDG_CONFIG_HOME", join(home, ".config"));
+    exec.mockImplementation((binary: string, args: string[]) =>
+      binary === "/bin/ps"
+        ? `${app}/Contents/MacOS/ghostty --config-file=other`
+        : args[0] === "--version"
+          ? "Ghostty 1.4.0"
+          : args[0] === "+list-actions"
+            ? "move_tab_to_new_window"
+            : binary === "osascript"
+              ? "Finder"
+              : effective,
+    );
+    await expect(handleDoctorCommand(context({ fix: true }))).rejects.toThrow(
+      "exit:2",
+    );
+    expect(readFileSync(target, "utf-8")).toBe("# existing preferences\n");
+  });
+  it("never creates a missing target or fixes unreadable effective values", async () => {
+    rmSync(target);
+    effective = "env = TOKEN=secret\nshell-integration = invalid\n";
+    await expect(handleDoctorCommand(context({ fix: true }))).rejects.toThrow(
+      "exit:2",
+    );
+    expect(readdirSync(join(home, ".config/ghostty"))).toEqual([]);
+    expect(output()).not.toContain("secret");
+    expect(output()).toContain("UNAVAILABLE");
+  });
+  it.each(["command", "port", "accessibility", "version"])(
+    "--fix cannot clear an unrelated %s failure",
+    async (kind) => {
+      effective = scalarConfig.replace("detect", "none");
+      if (kind === "command")
+        writeFileSync(join(home, ".config/summon/config"), "editor=missing\n");
+      if (kind === "port") {
+        const projects = ["api", "web"].map((name) => {
+          const dir = join(home, name);
+          mkdirSync(dir, { recursive: true });
+          writeFileSync(
+            join(dir, "package.json"),
+            JSON.stringify({ scripts: { dev: "vite --port 3000" } }),
+          );
+          return `${name}=${dir}`;
+        });
+        writeFileSync(
+          join(home, ".config/summon/projects"),
+          projects.join("\n"),
+        );
+      }
+      if (kind === "version")
+        exec.mockImplementationOnce(() => "malformed version");
+      if (kind === "accessibility")
+        exec.mockImplementation((binary: string, args: string[]) => {
+          if (binary === "osascript") throw new Error("assistive access");
+          if (binary === "/bin/ps") return `${app}/Contents/MacOS/ghostty`;
+          if (args[0] === "--version") return "Ghostty 1.4.0";
+          if (args[0] === "+list-actions") return "move_tab_to_new_window";
+          return readFileSync(target, "utf-8").includes("Added by summon")
+            ? scalarConfig
+            : effective;
+        });
+      await expect(handleDoctorCommand(context({ fix: true }))).rejects.toThrow(
+        "exit:2",
+      );
+      expect(readFileSync(target, "utf-8")).toContain("Added by summon");
+    },
+  );
+  it("reports configured executables and verbose trust/system details, with stderr only", async () => {
+    writeFileSync(
+      join(home, ".config/summon/config"),
+      "editor=nvim --flag\nsidebar=lazygit\n",
+    );
+    writeFileSync(
+      join(home, ".config/summon/trust.json"),
+      JSON.stringify({ one: "sha" }),
+    );
+    const stdout = vi.spyOn(console, "log").mockImplementation(() => {});
+    await handleDoctorCommand(context({ verbose: true }));
+    expect(output()).toContain('editor command "nvim" found');
+    expect(output()).toContain("Summon version:");
+    expect(output()).toContain("Node.js version:");
+    expect(output()).toContain("Ghostty path:");
+    expect(output()).toContain("1 project");
+    expect(stdout).not.toHaveBeenCalled();
   });
 });

@@ -1,0 +1,9 @@
+{
+  "id": "deny-3",
+  "mode": "entry",
+  "pointer": [
+    "permissions",
+    "deny"
+  ],
+  "value": "Bash(git push --mirror:*)"
+}

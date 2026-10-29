@@ -49,14 +49,6 @@ export function ensureAccessibility(): void {
 }
 
 /**
- * Result of confirmDangerousCommands for a single entry.
- * "proceed" — user confirmed or no dangerous commands.
- * "skip"    — user opted to skip this pane (UX-S2 #340).
- * "abort"   — user declined entirely.
- */
-export type CommandConfirmResult = "proceed" | "skip" | "abort";
-
-/**
  * Per-pane result after filtering.
  * The key is the config key (e.g. "shell", "pane.editor"); value is the command string.
  */
@@ -98,10 +90,6 @@ export async function confirmDangerousCommands(
     return { confirmed: commands, skipped };
   }
 
-  const lines = dangerous.map(([key, value]) => `  ${key} = ${value}`).join("\n");
-  const message = `Warning: config contains commands with shell metacharacters:\n${lines}`;
-  console.warn(message);
-
   if (!process.stdin.isTTY) {
     // Non-TTY automation context: refuse dangerous commands that require interactive confirmation.
     // Exit 2 signals "dangerous commands present, cannot confirm non-interactively" (BE-H3 #364).
@@ -109,6 +97,10 @@ export async function confirmDangerousCommands(
     fail("run summon interactively, or use safe commands without shell metacharacters.");
     process.exit(2);
   }
+
+  const lines = dangerous.map(([key, value]) => `  ${key} = ${value}`).join("\n");
+  const message = `Warning: config contains commands with shell metacharacters:\n${lines}`;
+  console.warn(message);
 
   for (const [key, value] of dangerous) {
     const answer = await promptLower(

@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { CONFIG_DIR } from "./paths.js";
 import { resolveCommand, SAFE_COMMAND_RE, getErrorMessage } from "./utils.js";
 
@@ -98,8 +98,15 @@ export function ensurePresetConfig(presetName: string): string {
 
 /** Pure path computation — no filesystem side effects. */
 export function getPresetConfigPath(presetName: string): string {
-  const p = join(STARSHIP_DIR, `${presetName}.toml`);
-  if (!resolve(p).startsWith(resolve(STARSHIP_DIR))) {
+  const root = resolve(STARSHIP_DIR);
+  const p = resolve(root, `${presetName}.toml`);
+  const relativePath = relative(root, p);
+  if (
+    !SAFE_COMMAND_RE.test(presetName)
+    || relativePath === ".."
+    || relativePath.startsWith(`..${sep}`)
+    || isAbsolute(relativePath)
+  ) {
     throw new Error(`Invalid preset path: ${presetName}`);
   }
   return p;

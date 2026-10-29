@@ -273,9 +273,6 @@ function writeKV(file: string, map: Map<string, string>): void {
 
 // --- Projects ---
 
-/** Regex that project names must NOT match — rejects '=', whitespace, and path separators. */
-export const PROJECT_NAME_RE = /[=\s/\\]/;
-
 export function addProject(name: string, path: string): void {
   if (!STRICT_PROJECT_NAME_RE.test(name)) {
     throw new Error(`Invalid project name: "${name}". Names must start with a letter, digit, or underscore, contain only letters, digits, and "_.-", and be 1-64 chars.`);
@@ -343,7 +340,7 @@ export const CLI_FLAGS = [
   "--editor-size", "--sidebar", "--shell", "--auto-resize",
   "--no-auto-resize", "--starship-preset", "--dry-run",
   "--env", "--new-window", "--new-tab", "--fullscreen", "--maximize", "--float", "--font-size", "--on-start", "--once",
-  "--clean", "--no-clean", "--no-project-config", "--verbose",
+  "--clean", "--no-clean", "--no-project-config", "--verbose", "--json", "--set", "--reset", "--detach-tab",
   "-h", "-v", "-l", "-e", "-p", "-s", "-n",
 ];
 

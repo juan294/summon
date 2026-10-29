@@ -866,44 +866,27 @@ describe("CLI integration", () => {
       expect(hasGranted || hasNotGranted).toBe(true);
     });
 
-    it("doctor --fix creates Ghostty config with missing settings when none exists", () => {
-      // Clean up any Ghostty config from previous tests
+    it("doctor --fix preserves a missing target rather than writing speculative settings", () => {
       rmSync(join(TEMP_HOME, ".config", "ghostty"), { recursive: true, force: true });
-
       const result = run("doctor", "--fix");
-      // Exit 0 if all issues fixed, or 2 if accessibility still missing
-      expect(result.status === 0 || result.status === 2).toBe(true);
-      // FE-M5: diagnostic output goes to stderr
-      expect(result.stderr).toContain("Added 2 setting(s)");
-      // Verify the config was created
-      const ghosttyConfig = join(TEMP_HOME, ".config", "ghostty", "config");
-      expect(existsSync(ghosttyConfig)).toBe(true);
-      const content = readFileSync(ghosttyConfig, "utf-8");
-      expect(content).toContain("notify-on-command-finish = unfocused");
-      expect(content).toContain("shell-integration = detect");
-      expect(content).toContain("# Added by summon doctor --fix");
+      expect([0, 2]).toContain(result.status);
+      expect(result.stderr).not.toContain("Added ");
+      expect(result.stderr).toContain("- No Ghostty config");
+      expect(existsSync(join(TEMP_HOME, ".config", "ghostty", "config"))).toBe(false);
     });
 
-    it("doctor --fix creates backup when config exists and adds only missing settings", () => {
+    it("doctor --fix preserves explicit values and effective defaults", () => {
       const ghosttyDir = join(TEMP_HOME, ".config", "ghostty");
       mkdirSync(ghosttyDir, { recursive: true });
       const ghosttyConfig = join(ghosttyDir, "config");
-      // Write config with one setting already present
-      writeFileSync(ghosttyConfig, "notify-on-command-finish = unfocused\n");
-
+      const original = "notify-on-command-finish = unfocused\n";
+      writeFileSync(ghosttyConfig, original);
       const result = run("doctor", "--fix");
-      // Exit 0 if all issues fixed, or 2 if accessibility still missing
-      expect(result.status === 0 || result.status === 2).toBe(true);
-      // FE-M5: diagnostic output goes to stderr
-      expect(result.stderr).toContain("Added 1 setting(s)");
-      expect(result.stderr).toContain("Backed up");
-      // Verify backup was created (filename includes timestamp)
-      const backups = readdirSync(ghosttyDir).filter(f => f.startsWith("config.bak"));
-      expect(backups.length).toBeGreaterThanOrEqual(1);
-      // Verify original setting is still present and new one added
-      const content = readFileSync(ghosttyConfig, "utf-8");
-      expect(content).toContain("notify-on-command-finish = unfocused");
-      expect(content).toContain("shell-integration = detect");
+      expect([0, 2]).toContain(result.status);
+      expect(result.stderr).not.toContain("Added ");
+      expect(result.stderr).not.toContain("Backed up");
+      expect(readdirSync(ghosttyDir).filter(f => f.startsWith("config.bak"))).toHaveLength(0);
+      expect(readFileSync(ghosttyConfig, "utf-8")).toBe(original);
     });
 
     it("doctor --fix skips when all settings are present", () => {
@@ -1128,7 +1111,7 @@ describe("CLI integration", () => {
       expect(result.stdout).toContain("summon layout");
     });
 
-    it("--layout accepts custom layout name when it exists", { timeout: 30_000 }, () => {
+    it("--layout accepts custom layout name when it exists", () => {
       run("set", "panes", "3");
       run("layout", "save", "mycustom");
       const result = run(".", "--layout", "mycustom", "--dry-run");
@@ -2038,4 +2021,30 @@ describe("CLI integration", () => {
       );
     });
   });
+});
+
+describe("P2 explicit native commands",()=>{
+ it("inspect missing record returns structured unavailable exit2",()=>{
+  const result=run("inspect","never-launched","--json");expect(result.status).toBe(2);
+  expect(JSON.parse(result.stdout)).toMatchObject({project:"never-launched",availability:"unavailable",state:"unknown",reason:expect.stringContaining("relaunch")});
+ });
+ it("focus legacy/missing record explains recovery, never launches",()=>{
+  const result=run("focus","never-launched");expect(result.status).toBe(2);expect(result.stderr).toContain("identity");expect(result.stdout).not.toContain("Summoning");
+ });
+ it("documents inspect/focus on lazy help paths",()=>{
+  for(const cmd of ["inspect","focus"]){const result=run(cmd,"--help");expect(result.status).toBe(0);expect(result.stdout).toContain(`Usage: summon ${cmd} <project>`);}
+ });
+});
+
+describe("P4 title CLI",()=>{
+ it("rejects empty/control/conflicting title flags before any native target action",()=>{
+  for(const args of [["--set="],["--set=bad\n"],["--set=x","--reset"]]){
+   const result=run("title","never-launched",...args);expect(result.status).toBe(1);expect(result.stderr).toMatch(/reset|control|exclusive/);expect(result.stdout).not.toContain("Summoning");
+  }
+ });
+ it("reads missing identity without implicit relaunch and documents new commands",()=>{
+  const missing=run("title","never-launched");expect(missing.status).toBe(2);expect(missing.stderr).toContain("identity");
+  const help=run("title","--help");expect(help.status).toBe(0);expect(help.stdout).toContain("--set");expect(help.stdout).toContain("--reset");
+  expect(run("keybindings","--help").stdout).toContain("--detach-tab");
+ });
 });

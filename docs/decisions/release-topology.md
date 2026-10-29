@@ -2,6 +2,7 @@
 
 **Status:** Accepted  
 **Date:** 2026-06-14  
+**Amended:** 2026-08-30
 **Issues:** #440 (DO-S1), #567
 
 ## Context
@@ -21,10 +22,13 @@ single-maintainer model, and the concrete steps to recover from a bad release.
 The release workflow is the **only** supported path for production releases:
 
 1. All development merges to `develop`.
-2. A release PR merges `develop` → `main`.
-3. An annotated tag is pushed from `main`: `git tag -a v<version> -m "v<version>"`.
-4. A GitHub Release is created from the tag.
-5. `release.yml` triggers: typecheck → lint → test → build → tarball validation →
+2. A release PR merges `develop` → `main` with a merge commit. Feature PRs into
+   `develop` may still squash.
+3. The post-merge `main` SHA is fixed as the candidate. Its required evidence
+   must pass before tagging.
+4. An annotated tag is pushed from `main`: `git tag -a v<version> -m "v<version>"`.
+5. A GitHub Release is created from the tag.
+6. `release.yml` triggers: typecheck → lint → test → build → tarball validation →
    AppleScript E2E smoke test → `npm publish --provenance` (OIDC trusted publishing) →
    post-publish tarball verification across Node 20.19 and 24.
 
@@ -35,15 +39,62 @@ The emergency fallback (`npm publish` from a local machine) is documented in
 `docs/publishing.md` but loses provenance. It exists only for cases where GitHub
 Actions is unavailable.
 
+### Why release PRs use merge commits
+
+Squashing `develop` into `main` creates equal content without shared ancestry.
+The next release then uses a stale merge base and can conflict before GitHub
+creates its synthetic merge ref. Pull-request checks can report `skipped`
+because no merge ref exists.
+
+Summon's history contains seven release reconciliations from `main` back into
+`develop`. The latest names the cause directly:
+`merge: back-merge main (v1.8.0 squash #625) into develop`.
+
+The 2026-08-30 conversion check used current remote refs and proved:
+
+- `git merge-tree --write-tree origin/main origin/develop` completed without a
+  conflict;
+- the resulting tree was exactly `origin/develop^{tree}`;
+- `main` had no file path absent from `develop`;
+- release tooling binds the exact post-merge SHA and does not parse a squash
+  commit message or shape;
+- `git log --first-parent main` keeps one entry per promotion PR.
+
+A merge commit therefore keeps the release `develop` head in the candidate's
+ancestry without changing the promoted tree. The checklist verifies both facts
+after every promotion. It also rejects `gh pr merge --squash` through the normal
+test suite. No routine back-merge is needed.
+
+Before the first merge-commit release, enable merge commits in the repository
+settings and reconcile the current branches once, between releases:
+
+```bash
+gh api -X PATCH repos/juan294/summon -f allow_merge_commit=true
+git fetch origin
+git checkout develop
+git merge -s ours origin/main
+git push origin develop
+```
+
+The one-time `ours` merge is safe only for the measured 2026-08-30 trees. Re-run
+the merge-tree and path checks if either remote branch changes before activation.
+
 ### Bus-factor risks
 
 With a single maintainer:
 
-- **Token expiry:** npm granular tokens expire (default 60 days). A stale token causes
-  a misleading 404 on publish. Check token age before each release.
 - **Account lockout:** If the GitHub account is inaccessible, the OIDC trusted
-  publisher cannot issue tokens. Keep a scoped npm token in a secure password manager
-  as a break-glass credential for the fallback path.
+  publisher cannot issue credentials. The break-glass path is an interactive
+  `npm login` + `npm publish` from a trusted machine (loses provenance). Do not
+  keep a long-lived publish token as a standby: npm removes direct publishing
+  from bypass-2FA granular tokens in Jan 2027, so a stashed token would silently
+  stop working exactly when it is needed (#641).
+- **Token expiry:** no longer applicable to CI. The workflow authenticates via
+  OIDC trusted publishing and carries no `NPM_TOKEN`. The failure mode that
+  replaces it is a *broken trust binding*: it is pinned to `juan294/summon` +
+  the workflow filename `release.yml`, so renaming that file breaks publishing
+  with an opaque 401. Verified registered on 2026-08-10 with the `npm publish`
+  permission and no environment restriction.
 - **Reviewer gap:** There is no second reviewer for release PRs. CI is the gate —
   do not merge a release PR if any required check is red.
 - **Key rotation:** If npm credentials are compromised, immediately rotate the npm
@@ -83,8 +134,8 @@ protected.
 git revert <bad-commit-sha>
 git push origin develop
 
-# PR develop → main as usual, or if the situation is urgent, cherry-pick the revert
-# directly to main after CI passes on develop.
+# PR develop → main through the normal merge-commit release path.
+# Never cherry-pick directly to main; main-only content breaks the topology.
 
 # After merging to main, re-tag
 git tag -a v<patch-version> -m "v<patch-version>"
@@ -123,9 +174,16 @@ When a release contains substantial changes and you want confidence before promo
 to `latest`, publish under the `next` tag first:
 
 ```bash
-# In the GitHub Release UI, use a pre-release flag, or publish manually under next:
+# Manual publish only -- see the caveat below.
 npm publish --tag next
 ```
+
+> **Caveat: the pre-release flag does not work as written.** `release.yml`
+> triggers on any `release: published` event, including pre-releases, and
+> publishes with no `--tag` argument -- so marking a GitHub Release as a
+> pre-release still lands the package on `latest`. Only the manual command above
+> honours `--tag next`, and it publishes without provenance. Treat the canary
+> path as unsupported until the workflow reads the pre-release flag.
 
 This does **not** affect what `npm install -g summon-ws` installs. Users can
 opt in with `npm install -g summon-ws@next`.
@@ -151,6 +209,8 @@ integration has changed significantly.
 ## Consequences
 
 - The release workflow remains the single gate for all npm publishes.
+- Release PRs retain one first-parent entry on `main` without a routine
+  `main`-to-`develop` reconciliation.
 - Rollbacks require two actions (deprecate + retag) and take under five minutes when
   the runbook is followed.
 - The bus-factor risk is accepted as a property of single-maintainer open-source.

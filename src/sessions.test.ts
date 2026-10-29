@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { O_NOFOLLOW } from "node:constants";
 
 // Must be a literal — vi.mock factory is hoisted before variable declarations
 const TEST_SESSIONS_DIR = "/tmp/test-summon-sessions";
@@ -27,6 +28,8 @@ vi.mock("node:path", async () => {
 vi.mock("node:fs", () => {
   const store = new Map<string, string>();
   const dirs = new Set<string>();
+  const fdPaths = new Map<number, string>();
+  let nextFd = 10;
   return {
     existsSync: (path: string) => store.has(path) || dirs.has(path),
     mkdirSync: vi.fn((_path: string, _opts?: unknown) => { dirs.add(_path as string); }),
@@ -53,8 +56,17 @@ vi.mock("node:fs", () => {
       }
       return names;
     }),
-    writeFileSync: vi.fn((path: string, data: string, _opts?: unknown) => {
-      store.set(path, data);
+    chmodSync: vi.fn(),
+    openSync: vi.fn((path: string) => {
+      const fd = nextFd++;
+      fdPaths.set(fd, path);
+      return fd;
+    }),
+    fchmodSync: vi.fn(),
+    closeSync: vi.fn((fd: number) => { fdPaths.delete(fd); }),
+    writeFileSync: vi.fn((pathOrFd: string | number, data: string, _opts?: unknown) => {
+      const path = typeof pathOrFd === "number" ? fdPaths.get(pathOrFd) : pathOrFd;
+      if (path !== undefined) store.set(path, data);
     }),
     unlinkSync: vi.fn((path: string) => {
       if (!store.has(path)) {
@@ -66,14 +78,16 @@ vi.mock("node:fs", () => {
     }),
     __store: store,
     __dirs: dirs,
+    __fdPaths: fdPaths,
   };
 });
 
 // Access internal store for cleanup
 import * as fs from "node:fs";
-const { __store: store, __dirs: dirs } = fs as unknown as {
+const { __store: store, __dirs: dirs, __fdPaths: fdPaths } = fs as unknown as {
   __store: Map<string, string>;
   __dirs: Set<string>;
+  __fdPaths: Map<number, string>;
 };
 
 // Import mocked path.resolve so traversal-guard tests can override it
@@ -92,6 +106,7 @@ import {
 beforeEach(() => {
   store.clear();
   dirs.clear();
+  fdPaths.clear();
 });
 
 describe("isValidSessionName", () => {
@@ -234,8 +249,16 @@ describe("writeSession validation", () => {
 
   it("creates SESSIONS_DIR with mode 0o700 and file with mode 0o600", () => {
     const mkdirSpy = vi.mocked(fs.mkdirSync);
+    const chmodSpy = vi.mocked(fs.chmodSync);
+    const openSpy = vi.mocked(fs.openSync);
+    const fchmodSpy = vi.mocked(fs.fchmodSync);
+    const closeSpy = vi.mocked(fs.closeSync);
     const writeFileSpy = vi.mocked(fs.writeFileSync);
     mkdirSpy.mockClear();
+    chmodSpy.mockClear();
+    openSpy.mockClear();
+    fchmodSpy.mockClear();
+    closeSpy.mockClear();
     writeFileSpy.mockClear();
 
     writeSession("newses", ["projA"]);
@@ -244,11 +267,33 @@ describe("writeSession validation", () => {
       TEST_SESSIONS_DIR,
       expect.objectContaining({ recursive: true, mode: 0o700 })
     );
-    expect(writeFileSpy).toHaveBeenCalledWith(
+    expect(chmodSpy).toHaveBeenCalledWith(TEST_SESSIONS_DIR, 0o700);
+    expect(openSpy).toHaveBeenCalledWith(
       `${TEST_SESSIONS_DIR}/newses`,
-      "projA\n",
-      expect.objectContaining({ mode: 0o600 })
+      expect.any(Number),
+      0o600,
     );
+    const fd = openSpy.mock.results.at(-1)?.value as number;
+    const flags = openSpy.mock.calls.at(-1)?.[1] as number;
+    expect(flags & O_NOFOLLOW).toBe(O_NOFOLLOW);
+    expect(fchmodSpy).toHaveBeenCalledWith(fd, 0o600);
+    expect(writeFileSpy).toHaveBeenCalledWith(
+      fd,
+      "projA\n",
+      "utf-8",
+    );
+    expect(closeSpy).toHaveBeenCalledWith(fd);
+  });
+
+  it("does not follow an existing session symlink", () => {
+    vi.mocked(fs.openSync).mockImplementationOnce(() => {
+      const error = new Error("symlink refused") as NodeJS.ErrnoException;
+      error.code = "ELOOP";
+      throw error;
+    });
+
+    expect(() => writeSession("newses", ["projA"])).toThrow("symlink refused");
+    expect(store.has(`${TEST_SESSIONS_DIR}/newses`)).toBe(false);
   });
 });
 

@@ -1,0 +1,9 @@
+{
+  "id": "ask-2",
+  "mode": "entry",
+  "pointer": [
+    "permissions",
+    "ask"
+  ],
+  "value": "Bash(gh pr create:*)"
+}

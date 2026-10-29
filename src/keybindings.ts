@@ -8,6 +8,7 @@ export function generateKeyTableConfig(
   paneNames: string[],
   layoutName: string,
   style: "arrows" | "vim" = "arrows",
+  options: { detachTab: boolean } = { detachTab: false },
 ): string {
   const tableName = "summon-nav";
   const lines: string[] = [];
@@ -42,6 +43,7 @@ export function generateKeyTableConfig(
 
   // Utility bindings
   lines.push(`keybind = ${tableName}:z = toggle_split_zoom`);
+  if (options.detachTab) lines.push(`keybind = ${tableName}:n = move_tab_to_new_window`);
   lines.push(`keybind = ${tableName}:escape = pop_key_table`);
 
   return lines.join("\n") + "\n";

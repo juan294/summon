@@ -1,0 +1,1652 @@
+{
+  "schema_version": 1,
+  "version": "2.0.2",
+  "managed_root_budget_bytes": 8192,
+  "components": [
+    {
+      "id": "skill:rpi-adopt",
+      "kind": "skill",
+      "category": "workflow",
+      "name": "rpi-adopt",
+      "source": "templates/skills/rpi-adopt",
+      "harnesses": [
+        "claude",
+        "codex"
+      ],
+      "scope": "user",
+      "selection": "default",
+      "dependencies": [],
+      "resources": [
+        {
+          "source": "templates/e2e-pro-playbook-template.md",
+          "destination": "references/e2e-pro-playbook.md"
+        },
+        {
+          "source": "templates/skills/rpi-bootstrap/references/lifecycle-contract.md",
+          "destination": "references/lifecycle-contract.md"
+        }
+      ],
+      "former_paths": [
+        ".claude/commands/adopt.md"
+      ],
+      "aliases": [
+        "adopt"
+      ],
+      "explicit_only": true,
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "native-manager"
+      }
+    },
+    {
+      "id": "skill:rpi-assess",
+      "kind": "skill",
+      "category": "workflow",
+      "name": "rpi-assess",
+      "source": "templates/skills/rpi-assess",
+      "harnesses": [
+        "claude",
+        "codex"
+      ],
+      "scope": "project",
+      "selection": "default",
+      "dependencies": [],
+      "resources": [
+        {
+          "source": "templates/references/handoff.md",
+          "destination": "references/handoff.md"
+        }
+      ],
+      "former_paths": [],
+      "aliases": [],
+      "explicit_only": false,
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "native-manager"
+      }
+    },
+    {
+      "id": "skill:rpi-brainstorm",
+      "kind": "skill",
+      "category": "workflow",
+      "name": "rpi-brainstorm",
+      "source": "templates/skills/rpi-brainstorm",
+      "harnesses": [
+        "claude",
+        "codex"
+      ],
+      "scope": "project",
+      "selection": "default",
+      "dependencies": [],
+      "resources": [],
+      "former_paths": [
+        ".claude/commands/brainstorm.md"
+      ],
+      "aliases": [
+        "brainstorm"
+      ],
+      "explicit_only": false,
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "native-manager"
+      }
+    },
+    {
+      "id": "skill:rpi-bootstrap",
+      "kind": "skill",
+      "category": "workflow",
+      "name": "rpi-bootstrap",
+      "source": "templates/skills/rpi-bootstrap",
+      "harnesses": [
+        "claude",
+        "codex"
+      ],
+      "scope": "user",
+      "selection": "default",
+      "dependencies": [],
+      "resources": [
+        {
+          "source": "templates/e2e-pro-playbook-template.md",
+          "destination": "references/e2e-pro-playbook.md"
+        },
+        "references/lifecycle-contract.md"
+      ],
+      "former_paths": [
+        ".claude/commands/bootstrap.md"
+      ],
+      "aliases": [
+        "bootstrap"
+      ],
+      "explicit_only": true,
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "native-manager"
+      }
+    },
+    {
+      "id": "skill:rpi-describe-pr",
+      "kind": "skill",
+      "category": "workflow",
+      "name": "rpi-describe-pr",
+      "source": "templates/skills/rpi-describe-pr",
+      "harnesses": [
+        "claude",
+        "codex"
+      ],
+      "scope": "project",
+      "selection": "default",
+      "dependencies": [],
+      "resources": [
+        {
+          "source": "templates/references/handoff.md",
+          "destination": "references/handoff.md"
+        }
+      ],
+      "former_paths": [
+        ".claude/commands/describe-pr.md"
+      ],
+      "aliases": [
+        "describe-pr"
+      ],
+      "explicit_only": false,
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "native-manager"
+      }
+    },
+    {
+      "id": "skill:rpi-detach",
+      "kind": "skill",
+      "category": "workflow",
+      "name": "rpi-detach",
+      "source": "templates/skills/rpi-detach",
+      "harnesses": [
+        "claude",
+        "codex"
+      ],
+      "scope": "user",
+      "selection": "default",
+      "dependencies": [],
+      "resources": [
+        {
+          "source": "templates/skills/rpi-bootstrap/references/lifecycle-contract.md",
+          "destination": "references/lifecycle-contract.md"
+        }
+      ],
+      "former_paths": [
+        ".claude/commands/detach.md"
+      ],
+      "aliases": [
+        "detach"
+      ],
+      "explicit_only": true,
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "native-manager"
+      }
+    },
+    {
+      "id": "skill:rpi-explore-release",
+      "kind": "skill",
+      "category": "workflow",
+      "name": "rpi-explore-release",
+      "source": "templates/skills/rpi-explore-release",
+      "harnesses": [
+        "claude",
+        "codex"
+      ],
+      "scope": "project",
+      "selection": "default",
+      "dependencies": [],
+      "resources": [
+        {
+          "source": "templates/e2e-pro-playbook-template.md",
+          "destination": "references/e2e-pro-playbook.md"
+        }
+      ],
+      "former_paths": [
+        ".claude/commands/explore-release.md"
+      ],
+      "aliases": [
+        "explore-release"
+      ],
+      "explicit_only": true,
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "native-manager"
+      }
+    },
+    {
+      "id": "skill:rpi-fix-ci",
+      "kind": "skill",
+      "category": "workflow",
+      "name": "rpi-fix-ci",
+      "source": "templates/skills/rpi-fix-ci",
+      "harnesses": [
+        "claude",
+        "codex"
+      ],
+      "scope": "project",
+      "selection": "default",
+      "dependencies": [],
+      "resources": [
+        {
+          "source": "templates/references/handoff.md",
+          "destination": "references/handoff.md"
+        }
+      ],
+      "former_paths": [
+        ".claude/commands/fix-ci.md"
+      ],
+      "aliases": [
+        "fix-ci"
+      ],
+      "explicit_only": true,
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "native-manager"
+      }
+    },
+    {
+      "id": "skill:rpi-implement",
+      "kind": "skill",
+      "category": "workflow",
+      "name": "rpi-implement",
+      "source": "templates/skills/rpi-implement",
+      "harnesses": [
+        "claude",
+        "codex"
+      ],
+      "scope": "project",
+      "selection": "default",
+      "dependencies": [],
+      "resources": [
+        {
+          "source": "templates/references/handoff.md",
+          "destination": "references/handoff.md"
+        },
+        {
+          "source": "templates/references/dispatch.md",
+          "destination": "references/dispatch.md"
+        },
+        {
+          "source": "templates/scripts/rpi-dispatch.py",
+          "destination": "scripts/rpi-dispatch.py"
+        },
+        {
+          "source": "templates/scripts/validate-findings.py",
+          "destination": "scripts/validate-findings.py"
+        }
+      ],
+      "former_paths": [
+        ".claude/commands/implement.md"
+      ],
+      "aliases": [
+        "implement"
+      ],
+      "explicit_only": true,
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "native-manager"
+      }
+    },
+    {
+      "id": "skill:rpi-plan",
+      "kind": "skill",
+      "category": "workflow",
+      "name": "rpi-plan",
+      "source": "templates/skills/rpi-plan",
+      "harnesses": [
+        "claude",
+        "codex"
+      ],
+      "scope": "project",
+      "selection": "default",
+      "dependencies": [],
+      "resources": [
+        {
+          "source": "methodology/pseudocode-notation.md",
+          "destination": "references/pseudocode-notation.md"
+        },
+        {
+          "source": "templates/references/handoff.md",
+          "destination": "references/handoff.md"
+        }
+      ],
+      "former_paths": [
+        ".claude/commands/plan.md"
+      ],
+      "aliases": [
+        "plan"
+      ],
+      "explicit_only": false,
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "native-manager"
+      }
+    },
+    {
+      "id": "skill:rpi-pre-launch",
+      "kind": "skill",
+      "category": "workflow",
+      "name": "rpi-pre-launch",
+      "source": "templates/skills/rpi-pre-launch",
+      "harnesses": [
+        "claude",
+        "codex"
+      ],
+      "scope": "project",
+      "selection": "default",
+      "dependencies": [],
+      "resources": [
+        {
+          "source": "templates/scripts/validate-findings.py",
+          "destination": "scripts/validate-findings.py"
+        },
+        {
+          "source": "templates/references/handoff.md",
+          "destination": "references/handoff.md"
+        },
+        {
+          "source": "templates/references/dispatch.md",
+          "destination": "references/dispatch.md"
+        },
+        {
+          "source": "templates/scripts/rpi-dispatch.py",
+          "destination": "scripts/rpi-dispatch.py"
+        }
+      ],
+      "former_paths": [
+        ".claude/commands/pre-launch.md"
+      ],
+      "aliases": [
+        "pre-launch"
+      ],
+      "explicit_only": false,
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "native-manager"
+      }
+    },
+    {
+      "id": "skill:rpi-release",
+      "kind": "skill",
+      "category": "workflow",
+      "name": "rpi-release",
+      "source": "templates/skills/rpi-release",
+      "harnesses": [
+        "claude",
+        "codex"
+      ],
+      "scope": "project",
+      "selection": "default",
+      "dependencies": [],
+      "resources": [
+        {
+          "source": "templates/e2e-pro-playbook-template.md",
+          "destination": "references/e2e-pro-playbook.md"
+        },
+        {
+          "source": "templates/references/handoff.md",
+          "destination": "references/handoff.md"
+        }
+      ],
+      "former_paths": [
+        ".claude/commands/release.md"
+      ],
+      "aliases": [
+        "release"
+      ],
+      "explicit_only": true,
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "native-manager"
+      }
+    },
+    {
+      "id": "skill:rpi-remediate",
+      "kind": "skill",
+      "category": "workflow",
+      "name": "rpi-remediate",
+      "source": "templates/skills/rpi-remediate",
+      "harnesses": [
+        "claude",
+        "codex"
+      ],
+      "scope": "project",
+      "selection": "default",
+      "dependencies": [],
+      "resources": [
+        {
+          "source": "templates/scripts/validate-findings.py",
+          "destination": "scripts/validate-findings.py"
+        },
+        {
+          "source": "templates/references/handoff.md",
+          "destination": "references/handoff.md"
+        },
+        {
+          "source": "templates/references/dispatch.md",
+          "destination": "references/dispatch.md"
+        },
+        {
+          "source": "templates/scripts/rpi-dispatch.py",
+          "destination": "scripts/rpi-dispatch.py"
+        }
+      ],
+      "former_paths": [
+        ".claude/commands/remediate.md"
+      ],
+      "aliases": [
+        "remediate"
+      ],
+      "explicit_only": true,
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "native-manager"
+      }
+    },
+    {
+      "id": "skill:rpi-research",
+      "kind": "skill",
+      "category": "workflow",
+      "name": "rpi-research",
+      "source": "templates/skills/rpi-research",
+      "harnesses": [
+        "claude",
+        "codex"
+      ],
+      "scope": "project",
+      "selection": "default",
+      "dependencies": [],
+      "resources": [
+        "references/research-contract.md",
+        {
+          "source": "templates/references/handoff.md",
+          "destination": "references/handoff.md"
+        }
+      ],
+      "former_paths": [
+        ".claude/commands/research.md"
+      ],
+      "aliases": [
+        "research"
+      ],
+      "explicit_only": false,
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "native-manager"
+      }
+    },
+    {
+      "id": "skill:rpi-status",
+      "kind": "skill",
+      "category": "workflow",
+      "name": "rpi-status",
+      "source": "templates/skills/rpi-status",
+      "harnesses": [
+        "claude",
+        "codex"
+      ],
+      "scope": "project",
+      "selection": "default",
+      "dependencies": [],
+      "resources": [],
+      "former_paths": [
+        ".claude/commands/status.md"
+      ],
+      "aliases": [
+        "status"
+      ],
+      "explicit_only": false,
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "native-manager"
+      }
+    },
+    {
+      "id": "skill:rpi-tool-design",
+      "kind": "skill",
+      "category": "workflow",
+      "name": "rpi-tool-design",
+      "source": "templates/skills/rpi-tool-design",
+      "harnesses": [
+        "claude",
+        "codex"
+      ],
+      "scope": "project",
+      "selection": "default",
+      "dependencies": [],
+      "resources": [
+        {
+          "source": "templates/skills/webmcp/SKILL.md",
+          "destination": "references/webmcp/DOMAIN.md"
+        },
+        {
+          "source": "templates/skills/webmcp/references/tool-design-framework.md",
+          "destination": "references/webmcp/references/tool-design-framework.md"
+        }
+      ],
+      "former_paths": [
+        ".claude/commands/tool-design.md"
+      ],
+      "aliases": [
+        "tool-design"
+      ],
+      "explicit_only": false,
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "native-manager"
+      }
+    },
+    {
+      "id": "skill:rpi-triage",
+      "kind": "skill",
+      "category": "workflow",
+      "name": "rpi-triage",
+      "source": "templates/skills/rpi-triage",
+      "harnesses": [
+        "claude",
+        "codex"
+      ],
+      "scope": "project",
+      "selection": "default",
+      "dependencies": [],
+      "resources": [
+        {
+          "source": "templates/references/handoff.md",
+          "destination": "references/handoff.md"
+        },
+        {
+          "source": "templates/references/triage-state.md",
+          "destination": "references/triage-state.md"
+        },
+        {
+          "source": "templates/scripts/rpi-triage-state.py",
+          "destination": "scripts/rpi-triage-state.py"
+        }
+      ],
+      "former_paths": [
+        ".claude/commands/triage.md"
+      ],
+      "aliases": [
+        "triage"
+      ],
+      "explicit_only": true,
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "native-manager"
+      }
+    },
+    {
+      "id": "skill:rpi-update",
+      "kind": "skill",
+      "category": "workflow",
+      "name": "rpi-update",
+      "source": "templates/skills/rpi-update",
+      "harnesses": [
+        "claude",
+        "codex"
+      ],
+      "scope": "user",
+      "selection": "default",
+      "dependencies": [],
+      "resources": [
+        {
+          "source": "templates/skills/rpi-bootstrap/references/lifecycle-contract.md",
+          "destination": "references/lifecycle-contract.md"
+        }
+      ],
+      "former_paths": [
+        ".claude/commands/update.md"
+      ],
+      "aliases": [
+        "update"
+      ],
+      "explicit_only": true,
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "native-manager"
+      }
+    },
+    {
+      "id": "skill:rpi-update-docs",
+      "kind": "skill",
+      "category": "workflow",
+      "name": "rpi-update-docs",
+      "source": "templates/skills/rpi-update-docs",
+      "harnesses": [
+        "claude",
+        "codex"
+      ],
+      "scope": "project",
+      "selection": "default",
+      "dependencies": [],
+      "resources": [
+        {
+          "source": "templates/references/handoff.md",
+          "destination": "references/handoff.md"
+        }
+      ],
+      "former_paths": [
+        ".claude/commands/update-docs.md"
+      ],
+      "aliases": [
+        "update-docs"
+      ],
+      "explicit_only": true,
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "native-manager"
+      }
+    },
+    {
+      "id": "skill:rpi-validate",
+      "kind": "skill",
+      "category": "workflow",
+      "name": "rpi-validate",
+      "source": "templates/skills/rpi-validate",
+      "harnesses": [
+        "claude",
+        "codex"
+      ],
+      "scope": "project",
+      "selection": "default",
+      "dependencies": [],
+      "resources": [
+        {
+          "source": "templates/references/handoff.md",
+          "destination": "references/handoff.md"
+        },
+        {
+          "source": "templates/references/dispatch.md",
+          "destination": "references/dispatch.md"
+        },
+        {
+          "source": "templates/scripts/rpi-dispatch.py",
+          "destination": "scripts/rpi-dispatch.py"
+        },
+        {
+          "source": "templates/scripts/validate-findings.py",
+          "destination": "scripts/validate-findings.py"
+        }
+      ],
+      "former_paths": [
+        ".claude/commands/validate.md"
+      ],
+      "aliases": [
+        "validate"
+      ],
+      "explicit_only": false,
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "native-manager"
+      }
+    },
+    {
+      "id": "skill:ci-workflow",
+      "kind": "skill",
+      "category": "domain",
+      "name": "ci-workflow",
+      "source": "templates/skills/ci-workflow",
+      "harnesses": [
+        "claude",
+        "codex"
+      ],
+      "scope": "project",
+      "selection": "default",
+      "dependencies": [],
+      "resources": [],
+      "former_paths": [
+        ".claude/skills/ci-workflow"
+      ],
+      "aliases": [],
+      "explicit_only": false,
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "native-manager"
+      }
+    },
+    {
+      "id": "skill:deployment-safety",
+      "kind": "skill",
+      "category": "domain",
+      "name": "deployment-safety",
+      "source": "templates/skills/deployment-safety",
+      "harnesses": [
+        "claude",
+        "codex"
+      ],
+      "scope": "project",
+      "selection": "default",
+      "dependencies": [],
+      "resources": [],
+      "former_paths": [
+        ".claude/skills/deployment-safety"
+      ],
+      "aliases": [],
+      "explicit_only": false,
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "native-manager"
+      }
+    },
+    {
+      "id": "skill:error-patterns",
+      "kind": "skill",
+      "category": "domain",
+      "name": "error-patterns",
+      "source": "templates/skills/error-patterns",
+      "harnesses": [
+        "claude",
+        "codex"
+      ],
+      "scope": "project",
+      "selection": "default",
+      "dependencies": [],
+      "resources": [
+        "references/error-catalog.md"
+      ],
+      "former_paths": [
+        ".claude/skills/error-patterns"
+      ],
+      "aliases": [],
+      "explicit_only": false,
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "native-manager"
+      }
+    },
+    {
+      "id": "skill:git-workflow",
+      "kind": "skill",
+      "category": "domain",
+      "name": "git-workflow",
+      "source": "templates/skills/git-workflow",
+      "harnesses": [
+        "claude",
+        "codex"
+      ],
+      "scope": "project",
+      "selection": "default",
+      "dependencies": [],
+      "resources": [],
+      "former_paths": [
+        ".claude/skills/git-workflow"
+      ],
+      "aliases": [],
+      "explicit_only": false,
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "native-manager"
+      }
+    },
+    {
+      "id": "skill:github-cli",
+      "kind": "skill",
+      "category": "domain",
+      "name": "github-cli",
+      "source": "templates/skills/github-cli",
+      "harnesses": [
+        "claude",
+        "codex"
+      ],
+      "scope": "project",
+      "selection": "default",
+      "dependencies": [],
+      "resources": [],
+      "former_paths": [
+        ".claude/skills/github-cli"
+      ],
+      "aliases": [],
+      "explicit_only": false,
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "native-manager"
+      }
+    },
+    {
+      "id": "skill:macos-rules",
+      "kind": "skill",
+      "category": "domain",
+      "name": "macos-rules",
+      "source": "templates/skills/macos-rules",
+      "harnesses": [
+        "claude",
+        "codex"
+      ],
+      "scope": "project",
+      "selection": "optional",
+      "dependencies": [],
+      "resources": [],
+      "former_paths": [
+        ".claude/skills/macos-rules"
+      ],
+      "aliases": [],
+      "explicit_only": false,
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "native-manager"
+      }
+    },
+    {
+      "id": "skill:multi-agent",
+      "kind": "skill",
+      "category": "domain",
+      "name": "multi-agent",
+      "source": "templates/skills/multi-agent",
+      "harnesses": [
+        "claude",
+        "codex"
+      ],
+      "scope": "project",
+      "selection": "default",
+      "dependencies": [],
+      "resources": [],
+      "former_paths": [
+        ".claude/skills/multi-agent"
+      ],
+      "aliases": [],
+      "explicit_only": false,
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "native-manager"
+      }
+    },
+    {
+      "id": "skill:python-rules",
+      "kind": "skill",
+      "category": "domain",
+      "name": "python-rules",
+      "source": "templates/skills/python-rules",
+      "harnesses": [
+        "claude",
+        "codex"
+      ],
+      "scope": "project",
+      "selection": "optional",
+      "dependencies": [],
+      "resources": [],
+      "former_paths": [
+        ".claude/skills/python-rules"
+      ],
+      "aliases": [],
+      "explicit_only": false,
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "native-manager"
+      }
+    },
+    {
+      "id": "skill:shell-tools",
+      "kind": "skill",
+      "category": "domain",
+      "name": "shell-tools",
+      "source": "templates/skills/shell-tools",
+      "harnesses": [
+        "claude",
+        "codex"
+      ],
+      "scope": "project",
+      "selection": "default",
+      "dependencies": [],
+      "resources": [],
+      "former_paths": [
+        ".claude/skills/shell-tools"
+      ],
+      "aliases": [],
+      "explicit_only": false,
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "native-manager"
+      }
+    },
+    {
+      "id": "skill:supabase",
+      "kind": "skill",
+      "category": "domain",
+      "name": "supabase",
+      "source": "templates/skills/supabase",
+      "harnesses": [
+        "claude",
+        "codex"
+      ],
+      "scope": "project",
+      "selection": "optional",
+      "dependencies": [],
+      "resources": [],
+      "former_paths": [
+        ".claude/skills/supabase"
+      ],
+      "aliases": [],
+      "explicit_only": false,
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "native-manager"
+      }
+    },
+    {
+      "id": "skill:systematic-debugging",
+      "kind": "skill",
+      "category": "domain",
+      "name": "systematic-debugging",
+      "source": "templates/skills/systematic-debugging",
+      "harnesses": [
+        "claude",
+        "codex"
+      ],
+      "scope": "project",
+      "selection": "default",
+      "dependencies": [],
+      "resources": [],
+      "former_paths": [
+        ".claude/skills/systematic-debugging"
+      ],
+      "aliases": [],
+      "explicit_only": false,
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "native-manager"
+      }
+    },
+    {
+      "id": "skill:webmcp",
+      "kind": "skill",
+      "category": "domain",
+      "name": "webmcp",
+      "source": "templates/skills/webmcp",
+      "harnesses": [
+        "claude",
+        "codex"
+      ],
+      "scope": "project",
+      "selection": "optional",
+      "dependencies": [],
+      "resources": [
+        "references/tool-design-framework.md"
+      ],
+      "former_paths": [
+        ".claude/skills/webmcp"
+      ],
+      "aliases": [],
+      "explicit_only": false,
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "native-manager"
+      }
+    },
+    {
+      "id": "skill:codex-simplify",
+      "kind": "skill",
+      "category": "helper",
+      "name": "codex-simplify",
+      "source": ".codex/skills/codex-simplify",
+      "harnesses": [
+        "codex"
+      ],
+      "scope": "project",
+      "selection": "default",
+      "dependencies": [],
+      "resources": [],
+      "former_paths": [
+        ".codex/skills/codex-simplify"
+      ],
+      "aliases": [],
+      "explicit_only": false,
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "native-manager"
+      }
+    },
+    {
+      "id": "rule:deployment-safety",
+      "kind": "rule",
+      "source": "templates/rules/deployment-safety.md",
+      "harnesses": [
+        "claude",
+        "codex"
+      ],
+      "scope": "project",
+      "selection": "default",
+      "dependencies": [],
+      "mapping": {
+        "mode": "conditional",
+        "paths": [
+          ".github/**",
+          "deploy/**",
+          "Dockerfile",
+          "docker-compose*",
+          "vercel.json",
+          "netlify.toml",
+          "fly.toml",
+          "**/deployment/**",
+          "**/infrastructure/**"
+        ],
+        "tasks": [
+          "deployment",
+          "infrastructure",
+          "release"
+        ]
+      },
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "cc-rpi"
+      }
+    },
+    {
+      "id": "rule:push-accountability",
+      "kind": "rule",
+      "source": "templates/rules/push-accountability.md",
+      "harnesses": [
+        "claude",
+        "codex"
+      ],
+      "scope": "project",
+      "selection": "default",
+      "dependencies": [],
+      "mapping": {
+        "mode": "universal"
+      },
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "cc-rpi"
+      }
+    },
+    {
+      "id": "rule:rpi-details",
+      "kind": "rule",
+      "source": "templates/rules/rpi-details.md",
+      "harnesses": [
+        "claude",
+        "codex"
+      ],
+      "scope": "project",
+      "selection": "default",
+      "dependencies": [],
+      "mapping": {
+        "mode": "universal"
+      },
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "cc-rpi"
+      }
+    },
+    {
+      "id": "rule:supabase",
+      "kind": "rule",
+      "source": "templates/rules/supabase.md",
+      "harnesses": [
+        "claude",
+        "codex"
+      ],
+      "scope": "project",
+      "selection": "default",
+      "dependencies": [],
+      "mapping": {
+        "mode": "conditional",
+        "paths": [
+          "supabase/**",
+          "**/*.sql",
+          "**/migrations/**"
+        ],
+        "tasks": [
+          "database",
+          "migration",
+          "Supabase"
+        ]
+      },
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "cc-rpi"
+      }
+    },
+    {
+      "id": "rule:testing",
+      "kind": "rule",
+      "source": "templates/rules/testing.md",
+      "harnesses": [
+        "claude",
+        "codex"
+      ],
+      "scope": "project",
+      "selection": "default",
+      "dependencies": [],
+      "mapping": {
+        "mode": "conditional",
+        "paths": [
+          "**/*.test.*",
+          "**/*.spec.*",
+          "**/test/**",
+          "**/tests/**",
+          "**/__tests__/**",
+          "vitest.config*",
+          "jest.config*",
+          "pytest.ini",
+          "pyproject.toml"
+        ],
+        "tasks": [
+          "test",
+          "implementation"
+        ]
+      },
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "cc-rpi"
+      }
+    },
+    {
+      "id": "rule:webmcp",
+      "kind": "rule",
+      "source": "templates/rules/webmcp.md",
+      "harnesses": [
+        "claude",
+        "codex"
+      ],
+      "scope": "project",
+      "selection": "default",
+      "dependencies": [],
+      "mapping": {
+        "mode": "conditional",
+        "paths": [
+          "**/*webmcp*",
+          "**/tools/**",
+          "**/*.tool.ts",
+          "**/*.tool.tsx",
+          "**/*.tool.js",
+          "**/*.tool.jsx"
+        ],
+        "tasks": [
+          "WebMCP",
+          "agent tool"
+        ]
+      },
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "cc-rpi"
+      }
+    },
+    {
+      "id": "instruction:rule-map",
+      "kind": "instruction",
+      "source": "templates/instructions/rule-map.md",
+      "harnesses": [
+        "claude",
+        "codex"
+      ],
+      "scope": "project",
+      "selection": "default",
+      "dependencies": [
+        "rule:deployment-safety",
+        "rule:supabase",
+        "rule:testing",
+        "rule:webmcp"
+      ],
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "cc-rpi"
+      }
+    },
+    {
+      "id": "hook:guard-bash",
+      "kind": "hook",
+      "source": "templates/hooks/guard-bash.sh",
+      "harnesses": [
+        "claude",
+        "codex"
+      ],
+      "scope": "project",
+      "selection": "default",
+      "dependencies": [
+        "resource:policy-engine"
+      ],
+      "outputs": {
+        "claude": "hooks/guard-bash.sh",
+        "codex": "hooks/guard-bash.sh"
+      },
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "cc-rpi"
+      }
+    },
+    {
+      "id": "hook:verify-edit",
+      "kind": "hook",
+      "source": "templates/hooks/verify-edit.sh",
+      "harnesses": [
+        "claude"
+      ],
+      "scope": "project",
+      "selection": "default",
+      "dependencies": [],
+      "outputs": {
+        "claude": "hooks/verify-edit.sh"
+      },
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "cc-rpi"
+      }
+    },
+    {
+      "id": "config:codex-package",
+      "kind": "config",
+      "source": "templates/adapters/codex-plugin.json",
+      "harnesses": [
+        "codex"
+      ],
+      "scope": "project",
+      "selection": "default",
+      "dependencies": [],
+      "outputs": {
+        "codex": ".codex-plugin/plugin.json"
+      },
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "native-manager"
+      },
+      "distribution_only": true
+    },
+    {
+      "id": "config:codex-marketplace",
+      "kind": "config",
+      "source": "templates/adapters/codex-marketplace.json",
+      "harnesses": [
+        "codex"
+      ],
+      "scope": "project",
+      "selection": "default",
+      "dependencies": [
+        "config:codex-package"
+      ],
+      "outputs": {
+        "codex": ".claude-plugin/marketplace.json"
+      },
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "native-manager"
+      },
+      "distribution_only": true
+    },
+    {
+      "id": "resource:candidate-identity",
+      "kind": "resource",
+      "source": "templates/scripts/rpi-candidate.py",
+      "scope": "project",
+      "selection": "default",
+      "harnesses": [
+        "claude",
+        "codex"
+      ],
+      "dependencies": [],
+      "outputs": {
+        "claude": ".rpi/scripts/rpi-candidate.py",
+        "codex": ".rpi/scripts/rpi-candidate.py"
+      },
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "cc-rpi"
+      }
+    },
+    {
+      "id": "resource:policy-engine",
+      "kind": "resource",
+      "source": "templates/scripts/rpi-policy.py",
+      "scope": "project",
+      "selection": "default",
+      "harnesses": [
+        "claude",
+        "codex"
+      ],
+      "dependencies": [
+        "resource:candidate-identity"
+      ],
+      "outputs": {
+        "claude": ".rpi/scripts/rpi-policy.py",
+        "codex": ".rpi/scripts/rpi-policy.py"
+      },
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "cc-rpi"
+      }
+    },
+    {
+      "id": "resource:diagnostics",
+      "kind": "resource",
+      "source": "templates/scripts/rpi-diagnostics.py",
+      "scope": "project",
+      "selection": "default",
+      "harnesses": [
+        "claude",
+        "codex"
+      ],
+      "dependencies": [
+        "resource:models",
+        "resource:distribution-engine",
+        "resource:lifecycle-engine",
+        "resource:configuration-engine",
+        "resource:package-engine",
+        "resource:distribution-manifest",
+        "resource:claude-adapter",
+        "resource:codex-adapter"
+      ],
+      "outputs": {
+        "claude": ".rpi/scripts/rpi-diagnostics.py",
+        "codex": ".rpi/scripts/rpi-diagnostics.py"
+      },
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "cc-rpi"
+      }
+    },
+    {
+      "id": "resource:models",
+      "kind": "resource",
+      "source": "templates/scripts/rpi-models.py",
+      "scope": "project",
+      "selection": "default",
+      "harnesses": [
+        "claude",
+        "codex"
+      ],
+      "dependencies": [
+        "resource:model-profiles"
+      ],
+      "outputs": {
+        "claude": ".rpi/scripts/rpi-models.py",
+        "codex": ".rpi/scripts/rpi-models.py"
+      },
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "cc-rpi"
+      }
+    },
+    {
+      "id": "resource:model-profiles",
+      "kind": "resource",
+      "source": "templates/adapters/model-profiles.json",
+      "scope": "project",
+      "selection": "default",
+      "harnesses": [
+        "claude",
+        "codex"
+      ],
+      "dependencies": [],
+      "outputs": {
+        "claude": ".rpi/adapters/model-profiles.json",
+        "codex": ".rpi/adapters/model-profiles.json"
+      },
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "cc-rpi"
+      }
+    },
+    {
+      "id": "resource:codex-permissions",
+      "kind": "resource",
+      "source": "templates/adapters/codex-permissions.rules",
+      "scope": "project",
+      "selection": "default",
+      "harnesses": [
+        "codex"
+      ],
+      "dependencies": [],
+      "outputs": {
+        "codex": ".codex/rules/rpi.rules"
+      },
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "cc-rpi"
+      },
+      "capability": true
+    },
+    {
+      "id": "config:claude-policy",
+      "kind": "config",
+      "source": "templates/adapters/claude-policy.json",
+      "scope": "project",
+      "selection": "default",
+      "harnesses": [
+        "claude"
+      ],
+      "dependencies": [
+        "hook:guard-bash",
+        "hook:verify-edit"
+      ],
+      "outputs": {
+        "claude": "configuration/claude-policy.json"
+      },
+      "destinations": {
+        "claude": ".claude/settings.json"
+      },
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "cc-rpi"
+      }
+    },
+    {
+      "id": "config:codex-hooks",
+      "kind": "config",
+      "source": "templates/adapters/codex-hooks.json",
+      "scope": "project",
+      "selection": "default",
+      "harnesses": [
+        "codex"
+      ],
+      "dependencies": [
+        "hook:guard-bash",
+        "resource:codex-permissions"
+      ],
+      "outputs": {
+        "codex": "configuration/codex-hooks.json"
+      },
+      "destinations": {
+        "codex": ".codex/hooks.json"
+      },
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "cc-rpi"
+      }
+    },
+    {
+      "id": "resource:verification-runner",
+      "kind": "resource",
+      "source": "templates/scripts/rpi-verify.py",
+      "scope": "project",
+      "selection": "default",
+      "harnesses": [
+        "claude",
+        "codex"
+      ],
+      "dependencies": [
+        "resource:candidate-identity"
+      ],
+      "outputs": {
+        "claude": ".rpi/scripts/rpi-verify.py",
+        "codex": ".rpi/scripts/rpi-verify.py"
+      },
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "cc-rpi"
+      }
+    },
+    {
+      "id": "resource:distribution-engine",
+      "kind": "resource",
+      "source": "templates/scripts/rpi-distribution.py",
+      "scope": "project",
+      "selection": "default",
+      "harnesses": [
+        "claude",
+        "codex"
+      ],
+      "dependencies": [],
+      "outputs": {
+        "claude": ".rpi/scripts/rpi-distribution.py",
+        "codex": ".rpi/scripts/rpi-distribution.py"
+      },
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "cc-rpi"
+      }
+    },
+    {
+      "id": "resource:lifecycle-engine",
+      "kind": "resource",
+      "source": "templates/scripts/rpi-lifecycle.py",
+      "scope": "project",
+      "selection": "default",
+      "harnesses": [
+        "claude",
+        "codex"
+      ],
+      "dependencies": [],
+      "outputs": {
+        "claude": ".rpi/scripts/rpi-lifecycle.py",
+        "codex": ".rpi/scripts/rpi-lifecycle.py"
+      },
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "cc-rpi"
+      }
+    },
+    {
+      "id": "resource:configuration-engine",
+      "kind": "resource",
+      "source": "templates/scripts/rpi-config.py",
+      "scope": "project",
+      "selection": "default",
+      "harnesses": [
+        "claude",
+        "codex"
+      ],
+      "dependencies": [],
+      "outputs": {
+        "claude": ".rpi/scripts/rpi-config.py",
+        "codex": ".rpi/scripts/rpi-config.py"
+      },
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "cc-rpi"
+      }
+    },
+    {
+      "id": "resource:package-engine",
+      "kind": "resource",
+      "source": "templates/scripts/rpi-package.py",
+      "scope": "project",
+      "selection": "default",
+      "harnesses": [
+        "claude",
+        "codex"
+      ],
+      "dependencies": [],
+      "outputs": {
+        "claude": ".rpi/scripts/rpi-package.py",
+        "codex": ".rpi/scripts/rpi-package.py"
+      },
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "cc-rpi"
+      }
+    },
+    {
+      "id": "resource:distribution-manifest",
+      "kind": "resource",
+      "source": "templates/distribution.json",
+      "scope": "project",
+      "selection": "default",
+      "harnesses": [
+        "claude",
+        "codex"
+      ],
+      "dependencies": [],
+      "outputs": {
+        "claude": ".rpi/distribution.json",
+        "codex": ".rpi/distribution.json"
+      },
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "cc-rpi"
+      }
+    },
+    {
+      "id": "resource:claude-adapter",
+      "kind": "resource",
+      "source": "templates/adapters/claude.json",
+      "scope": "project",
+      "selection": "default",
+      "harnesses": [
+        "claude",
+        "codex"
+      ],
+      "dependencies": [],
+      "outputs": {
+        "claude": ".rpi/adapters/claude.json",
+        "codex": ".rpi/adapters/claude.json"
+      },
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "cc-rpi"
+      }
+    },
+    {
+      "id": "resource:codex-adapter",
+      "kind": "resource",
+      "source": "templates/adapters/codex.json",
+      "scope": "project",
+      "selection": "default",
+      "harnesses": [
+        "claude",
+        "codex"
+      ],
+      "dependencies": [],
+      "outputs": {
+        "claude": ".rpi/adapters/codex.json",
+        "codex": ".rpi/adapters/codex.json"
+      },
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "cc-rpi"
+      }
+    }
+  ],
+  "consolidations": [
+    {
+      "id": "rule:remote-budget",
+      "into": "rule:push-accountability",
+      "reason": "Owner remote compute constraints and push accountability share one universal authored rule."
+    }
+  ],
+  "self_application": {
+    "claude": "direct",
+    "codex": "direct",
+    "domains": [
+      "ci-workflow",
+      "deployment-safety",
+      "error-patterns",
+      "git-workflow",
+      "github-cli",
+      "macos-rules",
+      "multi-agent",
+      "python-rules",
+      "shell-tools",
+      "systematic-debugging"
+    ],
+    "local_extensions": {
+      "claude": [
+        "drawio"
+      ],
+      "codex": []
+    }
+  },
+  "runtime_sources": [
+    "templates/distribution.json",
+    "templates/adapters/claude.json",
+    "templates/adapters/codex.json",
+    "templates/scripts/rpi-distribution.py",
+    "templates/scripts/rpi-lifecycle.py",
+    "templates/scripts/rpi-package.py",
+    "templates/AGENTS.md.template",
+    "templates/CLAUDE.md.template",
+    "templates/scripts/rpi-config.py"
+  ]
+}

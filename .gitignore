@@ -10,6 +10,7 @@ dist/
 !.claude/hooks/
 !.claude/skills/
 !.claude/agents/
+!.claude/scripts/
 !.claude/cc-rpi-sync.json
 .claude/settings.local.json
 .vscode/
@@ -27,10 +28,22 @@ scripts/agents/
 
 # Internal docs (agent reports, plans, research, decisions, PRs)
 docs/agents/
-docs/plans/
+docs/plans/*
+# Deviation notes stay tracked: /validate reads them, and a worktree teardown
+# would otherwise destroy them. git cannot re-include a path whose parent
+# directory is excluded, hence `docs/plans/*` rather than `docs/plans/`.
+!docs/plans/*-notes.md
 docs/research/
-docs/decisions/
+# ADRs are tracked: CLAUDE.md requires them to live here, and the schema
+# migration policy requires one per bump. Without this exception new ADRs
+# silently fail to commit (the three existing ones survive only by force-add).
+!docs/decisions/
 docs/prs/
+
+# Release probe intermediates (the manifest under docs/release/evidence/ is the
+# durable artifact; these are the raw inputs that produce it)
+.release-results.json
+.release-fixtures.json
 
 # Local summon config
 .summon

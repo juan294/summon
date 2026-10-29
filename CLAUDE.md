@@ -104,10 +104,10 @@ Summon generates AppleScript that drives Ghostty's native split system. The scri
 
 This project follows Research-Plan-Implement (RPI).
 
-1. /research -- Understand the codebase as-is
-2. /plan -- Create a phased implementation spec
-3. /implement -- Execute one phase at a time with review gates
-4. /validate -- Verify implementation against the plan
+1. /rpi-research -- Understand the codebase as-is
+2. /rpi-plan -- Create a phased implementation spec
+3. /rpi-implement -- Execute one phase at a time with review gates
+4. /rpi-validate -- Verify implementation against the plan
 
 Each phase is its own conversation. STOP after each phase.
 Use /clear between tasks, /compact when context is heavy.
@@ -128,7 +128,10 @@ pnpm run dev            # Watch mode
 
 1. All development happens on `develop`
 2. Never commit directly to `main`
-3. Release to production via PR: `develop` -> `main`
+3. Release to production via a **merge-commit** PR: `develop` -> `main`. Never
+   squash a release PR. A squash drops the shared ancestry and makes later
+   release PRs use a stale merge base. Feature PRs into `develop` may still
+   squash.
 4. Always run checks before committing (pre-commit hooks enforce this)
 5. Always commit before pulling -- `git pull --rebase` requires a clean tree (hook enforced)
 6. **Before any commit, verify the current branch** -- run `git branch --show-current` and confirm it matches your intent. If the user hasn't specified a branch, ask. (hook blocks push to main/master)
@@ -154,10 +157,18 @@ All commits must pass `pnpm typecheck && pnpm lint && pnpm build && pnpm test`.
 
 ## Deployment
 
+**`docs/release/release-checklist.md` is the single procedural authority for
+releases.** Follow it; do not reconstruct the steps from memory or from this
+summary.
+
 - `develop` deploys nowhere -- it's the integration branch
 - `main` is production: merging a PR to `main` is a release signal
-- npm publish is manual: `pnpm build && npm publish` (see docs/publishing.md)
-- Releases are tagged from `main`: `git tag v<version> && git push origin v<version>`
+- The release candidate is the **post-merge `main` SHA**, and the annotated tag
+  is created only after `pnpm analyze:release` exits 0
+- npm publish is **automatic** on GitHub Release `published`, via
+  `.github/workflows/release.yml`, which carries OIDC provenance. Do not run
+  `npm publish` by hand -- the manual path in `docs/publishing.md` is an
+  emergency fallback that loses provenance.
 
 ## Agent Behavior
 
@@ -206,3 +217,6 @@ See `docs/decisions/schema-migration-strategy.md` for the full policy.
 ## Known TODOs
 
 - **UX-L4**: Add "All projects clean" positive confirmation to briefing output when no issues are found (briefing.ts).
+<!-- rpi:claude-import:start -->
+@AGENTS.md
+<!-- rpi:claude-import:end -->

@@ -1,0 +1,121 @@
+# Implementation notes — `2026-07-28-e2e-pro-release-verification`
+
+## Deviations
+
+### Phase 1 — `.gitignore` exception for `docs/release/evidence/` not needed
+
+- **Plan said:** add a `.gitignore` exception so `docs/release/evidence/` is tracked (D-D).
+- **Found:** `docs/release/` was never ignored. `git check-ignore -v docs/release/evidence/schema.md`
+  returns non-zero — the directory is already tracked by default. Only `docs/agents/`,
+  `docs/plans/`, `docs/research/`, `docs/decisions/`, `docs/prs/` are excluded.
+- **Chose:** no exception added for evidence. Instead changed `docs/plans/` to `docs/plans/*` plus
+  `!docs/plans/*-notes.md`, so this notes file survives worktree teardown for `/validate`.
+- **Why:** adding a redundant negation would imply an exclusion that does not exist, and git cannot
+  re-include a path whose parent directory is excluded — the `docs/plans/*` form is required for
+  the notes file to be trackable at all.
+
+### Phase 2 — vitest JSON reporter instead of a custom reporter
+
+- **Plan said:** `src/release/manifest-reporter.ts`, a vitest custom reporter emitting the manifest.
+- **Found:** Vitest 4's reporter interface changed shape, and a custom reporter registered in
+  `vitest.config.ts` would attach to every run, not just release runs.
+- **Chose:** `pnpm test:release` runs the built-in `--reporter=json` alongside `--reporter=default`,
+  and `scripts/release/build-manifest.mjs` transforms that output into the manifest. Fixture
+  cleanup state, which the JSON reporter cannot carry, travels in a `.release-fixtures.json`
+  sidecar written by the probe suite's `afterAll`.
+- **Why:** the built-in JSON output is a stable contract, the transformation stays a plain
+  importable function (`groupIntoProbes`), and no global config is perturbed.
+
+### Phase 2 — generated manifests are not committed
+
+- **Plan said:** evidence tracked in-repo under `docs/release/evidence/` (D-D).
+- **Found:** committing a manifest per CI run would add a SHA-named file on every push, and each
+  is stale the moment its commit is superseded.
+- **Chose:** `docs/release/evidence/schema.md` is tracked and `docs/release/evidence/` remains a
+  tracked directory; per-run manifests are written to an explicit `--out` path (CI artifact,
+  90-day retention) and only a real release's manifest is attached to its GitHub Release. The raw
+  intermediates `.release-results.json` / `.release-fixtures.json` are gitignored.
+- **Why:** preserves D-D's intent (evidence outlives Actions log retention and is reviewable)
+  without turning the repo into a per-commit evidence dump.
+
+### Phase 2 — probes run against an immutable CLI snapshot
+
+- **Plan said:** probes invoke the built CLI at `dist/index.js`.
+- **Found:** under the full suite this is flaky. `src/index.test.ts:14` runs `execSync("pnpm build")`
+  in its `beforeAll`, and tsup cleans the output folder first, so `dist/` briefly disappears while
+  the probes are spawning it. Caught by the pre-commit hook: 8 probes failed with
+  "Cannot find module dist/index.js" even though an isolated `pnpm test:release` had passed.
+- **Chose:** `helpers.ts` snapshots `dist/` to a per-worker temp directory on first use (with
+  retry across the rebuild window) and every probe spawns that copy. Cleaned up in `afterAll`.
+- **Why:** a required probe that flakes on a concurrent rebuild is exactly the unreliability this
+  system exists to eliminate. Verified with three consecutive clean full-suite runs.
+
+### Phase 3 — fail-closed decision extracted so it is testable
+
+- **Plan said:** make the E2E fail when `SUMMON_E2E_REQUIRED=1` and the dictionary is unreachable.
+- **Found:** on a Mac with Ghostty installed the dictionary IS reachable, so the failure branch --
+  the single most important one -- could never be exercised by the suite itself.
+- **Chose:** extracted `decideE2E(mode, dictionaryAvailable) -> "run" | "skip" | "fail"` as a pure
+  function and unit-tested all six combinations, alongside the real suite.
+- **Why:** proves the fail-closed invariant on any machine, without uninstalling Ghostty. The
+  three-state contract is now verified rather than asserted.
+
+### Phase 3 — release.yml gained a Ghostty install step
+
+- **Plan said:** reorder release.yml so verification precedes publish.
+- **Found:** `release.yml` ran `pnpm test:e2e` with no Ghostty install step at all, so unlike
+  ci.yml it skipped 100% of the time by construction, not just in practice.
+- **Chose:** added the same best-effort `brew install --cask ghostty` step ci.yml already had.
+- **Why:** gives the advisory probe a chance to assert something; costs nothing when it fails.
+
+### Phase 4 — C26/C28 not fixable in-repo
+
+- **Plan said:** fold `MANUAL_TESTBED.md` and `docs/release-test-plan.md` into the checklist and
+  mark them superseded.
+- **Found:** neither is in git. `MANUAL_TESTBED.md` is untracked; `docs/release-test-plan.md` is
+  excluded via `.git/info/exclude:9`, a *local* exclude. Both exist only in the maintainer's
+  working copy, so they are absent from the worktree and cannot be changed by a commit.
+- **Chose:** the checklist's step 6 "Real-Ghostty arc" absorbs their substantive content (the
+  manual Ghostty gate at `publishing.md:103-107`). The two local files are left alone and flagged
+  to the maintainer.
+- **Why:** editing files that exist in no clone would create the illusion of a fix. Their
+  disposition is the maintainer's call since they are personal working documents.
+
+### Phase 4 — `docs/decisions/` un-ignored
+
+- **Plan said:** add a `!docs/decisions/` exception.
+- **Found:** confirmed the problem was real -- the directory was gitignored while `CLAUDE.md`
+  requires ADRs to live there, and the three existing ADRs survived only because they were
+  force-added. New ADRs would have silently failed to commit.
+- **Chose:** added the exception as planned.
+
+### Phase 6 — Definition of Done audit reports three NOT MET items
+
+- **Plan said:** walk template Section 15 and record met / inapplicable / open.
+- **Found:** three criteria are genuinely not met and cannot be met within Wave A+B scope:
+  unmapped-change detection (needs the Wave C census gate), real-vendor seam probes (the only
+  vendor is Ghostty, unreachable from CI), and generated per-release obligations (Wave E).
+- **Chose:** recorded them as NOT MET with reasons, plus a "Known residual risks" section naming
+  the three uncovered areas — the Ghostty launch path, flag-set parity drift, and the absent
+  census gate.
+- **Why:** the template explicitly rejects claiming completion for deleted waves. An audit that
+  reported all-green would make the system look more complete than it is, which is the exact
+  failure mode this adoption exists to eliminate.
+
+### Phase 6 — placeholder criterion restated
+
+- **Plan said:** `grep -c "<[A-Z_]\{4,\}>" docs/release/e2e-pro-playbook.md` == 0.
+- **Found:** 63 tokens remain, all inside the fenced report templates of Sections 7, 9, 13 and 14
+  (evidence manifest example, charter report template, epic template, agent brief). Those are
+  filled per release, not once at adoption -- removing them would destroy the templates.
+- **Chose:** restated the criterion as "zero placeholders outside code fences", which is met
+  (verified: 2 hits, one being prose *about* placeholders and one a runtime `<RUN_ID>`).
+- **Why:** the original phrasing would have forced either a false tick or gutting the templates.
+
+### Phase 6 — rehearsal fixtures are inline, not a `__fixtures__/` directory
+
+- **Plan said:** rehearsal fixtures live in `src/release/__fixtures__/`.
+- **Chose:** built them with a `goodManifest()` factory inside `src/release/rehearsal.test.ts`.
+- **Why:** every blocking case is the good manifest with exactly one field damaged. Expressing
+  that as a factory plus overrides makes the difference between pass and block visible at the call
+  site; twelve near-identical JSON files would hide it.

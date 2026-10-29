@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "harness": "claude",
+  "preamble": "The request is supplied as literal arguments: $ARGUMENTS\n\n",
+  "frontmatter": {
+    "argument-hint": "[request]"
+  },
+  "explicit_field": "disable-model-invocation",
+  "component_overrides": {
+    "skill:systematic-debugging": {
+      "user-invocable": false
+    },
+    "skill:error-patterns": {
+      "user-invocable": false
+    }
+  }
+}

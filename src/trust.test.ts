@@ -200,12 +200,14 @@ describe("trustProject", () => {
     );
     // Atomic write: writeFileSync goes to a unique temp path (pid + random hex suffix)
     expect(mockWriteFileSync).toHaveBeenCalledWith(
-      expect.stringMatching(new RegExp(`^${TRUST_FILE.replace(/\//g, "\\/")}\\.[0-9]+\\.[0-9a-f]+\\.tmp$`)),
+      expect.any(String),
       expect.stringContaining("/myproject"),
       { encoding: "utf-8", mode: 0o600 },
     );
-    // renameSync moves the unique temp path to the final path
     const writtenTmpPath = (mockWriteFileSync.mock.calls[0] as [string, ...unknown[]])[0];
+    expect(writtenTmpPath.startsWith(`${TRUST_FILE}.`)).toBe(true);
+    expect(writtenTmpPath.slice(TRUST_FILE.length + 1)).toMatch(/^[0-9]+\.[0-9a-f]+\.tmp$/);
+    // renameSync moves the unique temp path to the final path
     expect(mockRenameSync).toHaveBeenCalledWith(writtenTmpPath, TRUST_FILE);
   });
 

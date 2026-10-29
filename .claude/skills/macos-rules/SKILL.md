@@ -1,5 +1,5 @@
 ---
-name: "macOS Development"
+name: "macos-rules"
 description: "macOS-specific patterns: launchd agent configuration, brew vs pip, zsh regex quirks, file descriptor limits."
 ---
 
@@ -22,31 +22,33 @@ pipx install some-python-app
 
 ## zsh Regex and Special Characters
 
-Wrong -- complex regex in zsh triggers parse errors:
+Shell quoting and executable capabilities are separate. Single-quoted
+patterns pass literally to bash and zsh. macOS BSD grep does not support
+`-P`; wrapping it in `bash -c` does not add PCRE support.
+
+For JSON, parse JSON:
 
 ```bash
-grep -oP '(?<=version":")[^"]+' package.json
-# zsh: event not found
+python3 -c 'import json; print(json.load(open("package.json"))["version"])'
 ```
 
-Right -- use built-in Grep tool, or wrap in bash:
-
-```bash
-bash -c 'grep -oP '"'"'(?<=version":")[^"]+'"'"' package.json'
-```
+For plain text use `rg`, a supported `grep -E` pattern, or Python `re`.
+Discover which executable is installed and check its help before using
+nonportable flags. Use a script for complex parsing.
 
 ## launchd Agent Configuration
 
-Wrong -- run script directly (crashes if dir has .claude/):
+Historical sessions reported a location-dependent Claude CLI failure under
+launchd, with an unrecorded client version. That observation does not establish
+that all direct script launches crash or that current clients need a wrapper.
+For a reproduced failure, capture client/macOS versions, arguments, cwd,
+resource limits and sanitized logs before selecting a workaround.
 
-```xml
-<key>ProgramArguments</key>
-<array>
-  <string>/project/scripts/agent.sh</string>
-</array>
-```
+The following is the historical wrapper recipe; choose limits and environment
+from the actual job requirements rather than treating these numbers as native
+minimums. Installing or starting a scheduled job is an explicit opt-in.
 
-Right -- bash wrapper + resource limits + environment vars:
+Historical wrapper, resource-limit and environment example:
 
 ```xml
 <key>ProgramArguments</key>
@@ -67,17 +69,27 @@ Right -- bash wrapper + resource limits + environment vars:
 </dict>
 ```
 
+Scheduled jobs need authentication that works without interactive prompts.
+Inspect the installed client's supported authentication setup; a previously
+configured session may already work. `claude setup-token` is one supported
+setup route, not proof that every job must create a new token. Never print
+credentials or launch an inference probe without the relevant authorization.
+
 ## launchd Testing
 
-Wrong -- test from terminal (masks launchd-specific failures):
+Terminal execution alone does not verify the scheduler environment:
 
 ```bash
 ./scripts/agent.sh  # works in terminal, fails silently under launchd
 ```
 
-Right -- test with launchctl:
+For an explicitly authorized scheduled-job test, inspect launchctl and logs:
 
 ```bash
 launchctl start com.yourorg.agent
-launchctl list | grep yourorg  # check actual exit status
+launchctl list | grep yourorg  # exit code shows 0 even on crash -- check logs, not just this
 ```
+
+A historical failure returned zero despite an error. Check job logs and the
+expected output as well as status; a successful launch request is not evidence
+that the agent task completed.

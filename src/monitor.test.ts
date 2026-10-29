@@ -14,8 +14,10 @@ vi.mock("./status.js", async (importOriginal) => {
   };
 });
 const mockLaunch = vi.fn();
+const mockFocusWorkspace = vi.fn<(...args: unknown[]) => import("./ghostty-native.js").FocusResult>((..._args: unknown[])=>({kind:"focused",terminalId:"00000000-0000-4000-8000-000000000001"}));
 vi.mock("./launcher.js", () => ({
   launch: (...args: unknown[]) => mockLaunch(...args),
+  focusWorkspace: (...args: unknown[]) => mockFocusWorkspace(...args),
 }));
 
 const {
@@ -1008,10 +1010,29 @@ describe("runMonitor", () => {
     expect(setRawModeSpy).toHaveBeenCalledWith(false);
   });
 
+  it("P2 active Enter focuses exact identity without duplicate launch", async () => {
+    listProjects.mockReturnValue([["myapp", "/tmp/myapp"]]);
+    readAllStatuses.mockReturnValue([makeResolvedStatus({ project: "myapp", state: "active", uptime: 60_000 })]);
+    const monitorPromise = runMonitor(); process.stdin.emit("data", Buffer.from("\r"));
+    await monitorPromise; await vi.dynamicImportSettled();
+    expect(mockFocusWorkspace).toHaveBeenCalledWith("myapp");
+    expect(mockLaunch).not.toHaveBeenCalled();
+  });
+
+  it("P2 unavailable active focus shows recovery overlay and never launches", async () => {
+    listProjects.mockReturnValue([["myapp", "/tmp/myapp"]]);
+    readAllStatuses.mockReturnValue([makeResolvedStatus({project:"myapp",state:"active",uptime:60_000})]);
+    mockFocusWorkspace.mockReturnValueOnce({kind:"unavailable",code:"missing",reason:"Exact identity unavailable; relaunch explicitly"});
+    const monitorPromise=runMonitor();process.stdin.emit("data",Buffer.from("\r"));await vi.dynamicImportSettled();
+    expect(mockLaunch).not.toHaveBeenCalled();
+    expect(writeSpy.mock.calls.map((c: unknown[])=>String(c[0])).join("")).toContain("relaunch explicitly");
+    process.stdin.emit("data",Buffer.from(" "));process.stdin.emit("data",Buffer.from("q"));await monitorPromise;
+  });
+
   it("opens the selected project on Enter", async () => {
     listProjects.mockReturnValue([["myapp", "/tmp/myapp"]]);
     readAllStatuses.mockReturnValue([
-      makeResolvedStatus({ project: "myapp", state: "active", uptime: 60_000 }),
+      makeResolvedStatus({ project: "myapp", state: "stopped", uptime: null }),
     ]);
     getGitBranch.mockReturnValue("main");
 
@@ -1028,7 +1049,7 @@ describe("runMonitor", () => {
   it("FE-H4: prints launch feedback line BEFORE exiting alt-screen on Enter", async () => {
     listProjects.mockReturnValue([["myapp", "/tmp/myapp"]]);
     readAllStatuses.mockReturnValue([
-      makeResolvedStatus({ project: "myapp", state: "active", uptime: 60_000 }),
+      makeResolvedStatus({ project: "myapp", state: "stopped", uptime: null }),
     ]);
     getGitBranch.mockReturnValue("main");
 
@@ -1064,7 +1085,7 @@ describe("runMonitor", () => {
     const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => undefined as never);
     listProjects.mockReturnValue([["myapp", "/tmp/myapp"]]);
     readAllStatuses.mockReturnValue([
-      makeResolvedStatus({ project: "myapp", state: "active", uptime: 60_000 }),
+      makeResolvedStatus({ project: "myapp", state: "stopped", uptime: null }),
     ]);
     getGitBranch.mockReturnValue("main");
     mockLaunch.mockRejectedValueOnce(new Error("launch failed"));
@@ -1086,7 +1107,7 @@ describe("runMonitor", () => {
   it("UX-M5: shows error in stdout (not stderr) when launch fails", async () => {
     listProjects.mockReturnValue([["myapp", "/tmp/myapp"]]);
     readAllStatuses.mockReturnValue([
-      makeResolvedStatus({ project: "myapp", state: "active", uptime: 60_000 }),
+      makeResolvedStatus({ project: "myapp", state: "stopped", uptime: null }),
     ]);
     getGitBranch.mockReturnValue("main");
     mockLaunch.mockRejectedValueOnce(new Error("osascript error"));
@@ -1169,7 +1190,7 @@ describe("runMonitor", () => {
     // When a launch fails, the TUI should show an error message in-place and let user continue
     listProjects.mockReturnValue([["myapp", "/tmp/myapp"]]);
     readAllStatuses.mockReturnValue([
-      makeResolvedStatus({ project: "myapp", state: "active", uptime: 60_000 }),
+      makeResolvedStatus({ project: "myapp", state: "stopped", uptime: null }),
     ]);
     getGitBranch.mockReturnValue("main");
     mockLaunch.mockRejectedValueOnce(new Error("osascript: execution failed"));

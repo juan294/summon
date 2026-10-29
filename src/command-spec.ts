@@ -1,3 +1,5 @@
+import { shellQuote } from "./shell-escape.js";
+
 export interface CommandSpec {
   raw: string;
   executable: string | null;
@@ -98,7 +100,16 @@ function detectShellMeta(raw: string): boolean {
         index++;
         continue;
       }
-      if (char === ";" || char === "|" || char === "&" || char === "`" || char === "<" || char === ">") {
+      if (
+        char === ";"
+        || char === "|"
+        || char === "&"
+        || char === "`"
+        || char === "<"
+        || char === ">"
+        || char === "\n"
+        || char === "\r"
+      ) {
         return true;
       }
       if (char === "$" && (raw[index + 1] === "(" || raw[index + 1] === "{")) {
@@ -154,5 +165,8 @@ export function replaceCommandExecutable(raw: string, replacement: string): stri
   if (executable === null) {
     return raw;
   }
-  return raw.slice(0, start) + replacement + raw.slice(end);
+  const safeReplacement = /^[A-Za-z0-9_./:+-]+$/.test(replacement)
+    ? replacement
+    : shellQuote(replacement);
+  return raw.slice(0, start) + safeReplacement + raw.slice(end);
 }

@@ -9,7 +9,18 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash .claude/hooks/guard-bash.sh"
+            "command": "rpi_root=\"$PWD\"; while [ ! -f \"$rpi_root/.claude/hooks/guard-bash.sh\" ] && [ \"$rpi_root\" != / ]; do rpi_root=${rpi_root%/*}; rpi_root=${rpi_root:-/}; done; if [ ! -f \"$rpi_root/.claude/hooks/guard-bash.sh\" ]; then printf \"%s\\n\" \"RPI POLICY SKIPPED: no installed policy wrapper above the hook cwd.\" >&2; exit 0; fi; exec bash \"$rpi_root/.claude/hooks/guard-bash.sh\" claude"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/verify-edit.sh"
           }
         ]
       }
@@ -17,8 +28,6 @@
   },
   "permissions": {
     "allow": [
-      "Bash(git *)",
-      "Bash(gh *)",
       "Bash(pnpm *)",
       "Bash(npx *)",
       "Read",
@@ -29,6 +38,19 @@
       "Bash(pnpm run *)",
       "Bash(npm run *)"
     ],
-    "deny": []
+    "deny": [
+      "Bash(vercel)",
+      "Bash(vc)",
+      "Bash(git push --mirror:*)"
+    ],
+    "ask": [
+      "Bash(pnpm *vercel*)",
+      "Bash(gh release create:*)",
+      "Bash(gh release edit:*)",
+      "Bash(gh release upload:*)",
+      "Bash(vercel:*)",
+      "Bash(vc:*)",
+      "Bash(npx *vercel*)"
+    ]
   }
 }

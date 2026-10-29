@@ -1,0 +1,9 @@
+{
+  "id": "deny-1",
+  "mode": "entry",
+  "pointer": [
+    "permissions",
+    "deny"
+  ],
+  "value": "Bash(vc)"
+}

@@ -1,6 +1,6 @@
 # Remediate Pre-Launch Findings
 
-Model tier: **sonnet** — Sonnet 4.6 (1M context) session. All subagents:
+Model tier: **sonnet** — Sonnet 5 (1M context) session. All subagents:
 `model: "sonnet"`.
 
 Resolve all findings from the pre-launch audit. Creates GitHub issues,
@@ -25,8 +25,23 @@ Gather context before making any changes.
 
    The report uses a 16-section format. Findings live in sections 4-11
    (Frontend, Backend, Performance, DevOps/SRE, Security, Architecture,
-   QA, UX). Section 14 (Before/After/Later) is the wave-ordering index.
-   Section 15 (Open Questions) is NOT findings — skip it.
+   QA, UX), plus §11a (Agent-Facing Surface) when Specialist 9 ran —
+   §11a is omitted entirely otherwise. Section 14 (Before/After/Later)
+   is the wave-ordering index. Section 15 (Open Questions) is NOT
+   findings — skip it.
+
+   **Validate the report contract first** (deterministic gate, before any
+   parsing):
+
+   ```bash
+   python3 .claude/scripts/validate-findings.py <report-path>
+   ```
+
+   Exit 0 — findings satisfy the Output Contract; proceed. Non-zero — the
+   report has malformed findings (bad Finding-ID, missing required field, or
+   no `file:line`). **STOP** and report exactly which findings the validator
+   named. Do not parse a broken report: the consumer regex below would
+   silently drop the malformed ones, violating Rule #58 (100% coverage).
 
 2. **Extract EVERY finding** — all 5 severity tiers: launch-blocker,
    high, medium, low, strategic. No filtering by severity — Rule #58
@@ -34,13 +49,15 @@ Gather context before making any changes.
 
    Parser contract:
 
-   - Findings are the `#### <Finding-ID> <Title>` blocks in §4-§11.
-   - Finding ID regex: `(AR|FE|BE|PE|DO|SE|QA|UX)-(B|H|M|L|S)[0-9]+`
+   - Findings are the `#### <Finding-ID> <Title>` blocks in §4-§11,
+     plus §11a when present.
+   - Finding ID regex: `(AR|FE|BE|PE|DO|SE|QA|UX|AS)-(B|H|M|L|S)[0-9]+`
+     (machine-checked by `validate-findings.py` in step 1).
    - Each finding has structured fields (bold format:
      `**Severity:**`, `**Time horizon:**`, `**Evidence type:**`,
      `**Files:**`, `**What's happening:**`, `**Why it matters:**`,
-     `**Recommendation:**`, `**Expected impact:**`,
-     `**Effort estimate:**`).
+     `**Recommendation:**`, `**Regression risk:**`,
+     `**Expected impact:**`, `**Effort estimate:**`).
    - Parse every finding — never drop one.
 
 3. **Group related findings into work units:**
@@ -98,8 +115,8 @@ After user approval:
    gh issue create \
      --title "[remediate] <finding-id> <title>" \
      --body "<evidence type>, <file refs>, <what's happening>,
-   <why it matters>, <recommendation>, <expected impact>,
-   <effort>, <finding ID>" \
+   <why it matters>, <recommendation>, <regression risk>,
+   <expected impact>, <effort>, <finding ID>" \
      --label "<domain>,<severity>,<wave>"
    ```
 
@@ -109,7 +126,7 @@ After user approval:
    - Wave: `wave-1-before-launch`, `wave-2-after-launch`,
      `wave-3-later`
    - Domain: `architect`, `frontend`, `backend`, `performance`,
-     `devops-sre`, `security`, `qa-reliability`, `ux`
+     `devops-sre`, `security`, `qa-reliability`, `ux`, `agent-surface`
 
    Check that labels exist before using them. If they don't, create
    them or omit.
@@ -126,28 +143,54 @@ After user approval:
 
    a. Read the GitHub issue and all source files in your ownership set.
 
-   b. **TDD: Write a failing test FIRST** that captures the finding.
-      For non-testable findings (documentation, configuration, CI
-      changes), skip directly to implementation.
+   b. **Verify the recommendation before implementing it.** The finding's
+      Recommendation is a hypothesis, not an order. Before writing any code:
 
-   c. Implement the minimum fix to make the test pass.
+      - Read the **Regression risk** field. Independently confirm each
+        assumption it states actually holds — trace the real code paths,
+        don't take the finding's word. If the fix swaps mechanism X for
+        mechanism Y, verify Y covers every input X handles (every locale
+        source, every auth path, every caller), not just the one the
+        finding names.
+      - Identify the user-facing invariant the fix could break. Your
+        failing test in step (c) must assert that invariant survives —
+        not merely that the finding's symptom is gone. (Guard "the English
+        cookie user still sees an English body," not only "ISR is
+        restored.")
+      - If verification shows the recommendation is incomplete, wrong, or
+        trades away an invariant: **STOP. Do not implement.** Return to the
+        orchestrator with what you found and the unresolved trade. Halting
+        one finding beats shipping a regression.
 
-   d. Run verification sequentially:
+   c. **TDD: Write a failing test FIRST** that captures the finding AND
+      guards the invariant identified in step (b). For non-testable
+      findings (documentation, configuration, CI changes), skip directly
+      to implementation.
+
+   d. Implement the minimum fix to make the test pass.
+
+   e. Run verification sequentially:
 
       ```bash
-      $TEST_CMD; $TYPECHECK_CMD; $LINT_CMD
+      $TYPECHECK_CMD; $LINT_CMD; $BUILD_CMD; $TEST_CMD
       ```
 
-   e. Run `/simplify` on changed files.
+   f. Run `/simplify` on changed files.
 
-   f. Run verification again (in case `/simplify` introduced changes).
+   g. Run verification again (in case `/simplify` introduced changes).
 
-   g. Commit with message: `fix: <issue-title> (#<issue-number>)`
+   h. Commit with message: `fix: <issue-title> (#<issue-number>)`
 
-   h. Do NOT push. The orchestrator handles all pushes.
+   i. Do NOT push. The orchestrator handles all pushes.
 
 3. **Monitor Wave 1 agent progress.** As agents complete, log their
-   status (pass/fail, tests added, files modified).
+   status (pass/fail, tests added, files modified). If an agent **halted**
+   under step (b) — the recommendation failed verification or trades away
+   an invariant — do NOT auto-implement an alternative and do NOT silently
+   drop it. Collect every halted finding and surface it to the human with
+   the unresolved trade. The issue stays open; the finding is reported as
+   "halted — recommendation unsafe, needs human re-scope," not as resolved
+   (Rule #58 coverage is satisfied by the open issue).
 
 4. **Wave 3 — file-only.** Issues were created in step 1. No worktree
    agents are spawned for Wave 3. Report these as "filed, not fixed"
@@ -184,7 +227,7 @@ starting Wave 2.
 
    a. Merge: `gh pr merge <pr-number> --squash`
    b. Pull: `git pull`
-   c. Run full verification: `$TEST_CMD; $TYPECHECK_CMD; $LINT_CMD`
+   c. Run full verification: `$TYPECHECK_CMD; $LINT_CMD; $BUILD_CMD; $TEST_CMD`
    d. If tests break, fix before proceeding to the next merge.
    e. Close the corresponding GitHub issue after successful merge.
 
@@ -193,7 +236,7 @@ starting Wave 2.
 6. **Run Wave 1 final verification:**
 
    ```bash
-   $TEST_CMD; $TYPECHECK_CMD; $LINT_CMD; $BUILD_CMD
+   $TYPECHECK_CMD; $LINT_CMD; $BUILD_CMD; $TEST_CMD
    ```
 
 7. **Push to remote. Monitor CI:**
@@ -278,6 +321,7 @@ Generate a remediation report at `docs/agents/remediation-report.md`:
 - Issues created: [N]
 - Issues resolved (merged): [N] (Wave 1: X, Wave 2: Y)
 - Issues filed only (not fixed): [Z] (Wave 3)
+- Halted (recommendation unsafe — needs human re-scope): [N]
 - Tests added: [N]
 - Files modified: [N]
 - CI status: PASSING / FAILING
@@ -322,6 +366,12 @@ Present the report summary to the user.
 - **TDD mandatory.** Each agent writes a failing test before
   implementing. The only exception is non-testable work
   (documentation, configuration, CI changes).
+- **Recommendation is a hypothesis.** Verify the finding's assumptions in
+  real code before implementing (worktree step b). The guard test asserts
+  the invariant the fix could break, not just the finding's symptom. A
+  recommendation that fails verification or trades away a correctness,
+  security, or UX invariant **halts** — escalate to the human, never
+  auto-implement it literally.
 - **Agents do NOT push** (Central Commit Rule). Only the orchestrator
   pushes. Worktree agents commit locally, orchestrator batch-pushes.
 - **Sequential merges.** Merge PRs one at a time, test after each.

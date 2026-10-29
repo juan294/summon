@@ -1,4 +1,6 @@
 import { join } from "node:path";
+import { execFileSync } from "node:child_process";
+import { probeGhostty, type GhosttyConfigKey } from "../ghostty.js";
 import { homedir } from "node:os";
 import { listConfig, listProjects } from "../config.js";
 import {
@@ -18,13 +20,17 @@ import type { CommandContext } from "./types.js";
 const PASS = green(`${sym.ok} PASS`);
 const FAIL = red(`${sym.fail} FAIL`);
 
-export async function handleDoctorCommand({ values }: CommandContext): Promise<void> {
+export async function handleDoctorCommand({
+  values,
+}: CommandContext): Promise<void> {
   const {
     existsSync,
     readFileSync,
     copyFileSync,
     appendFileSync,
-    mkdirSync,
+    accessSync,
+    constants,
+    lstatSync,
   } = await import("node:fs");
 
   const fixFlag = values.fix;
@@ -41,80 +47,192 @@ export async function handleDoctorCommand({ values }: CommandContext): Promise<v
   console.error("Checking Ghostty configuration...\n");
 
   const ghosttyConfigPath = join(homedir(), ".config", "ghostty", "config");
-
-  if (!existsSync(ghosttyConfigPath)) {
-    console.error("  - No Ghostty config file found at ~/.config/ghostty/config");
-    console.error("    Create one to customize your terminal experience.");
-    console.error();
+  let diagnostics = probeGhostty();
+  let allGood = true;
+  const record = (ok: boolean): void => {
+    totalChecks++;
+    if (ok) passedChecks++;
+    else {
+      allGood = false;
+      totalIssues++;
+    }
+  };
+  record(!!diagnostics.app && !!diagnostics.version);
+  if (!diagnostics.app)
+    console.error(
+      `  ${FAIL}  Ghostty.app not found. Install Ghostty 1.3.1+ (1.4.0 recommended) from https://ghostty.org`,
+    );
+  else if (!diagnostics.version)
+    console.error(
+      "  UNAVAILABLE  Ghostty version probe failed; retry summon doctor.",
+    );
+  else {
+    const version = diagnostics.version;
+    console.error(
+      `  ${version.recommended ? PASS : "WARN"}  Ghostty ${version.text} — 1.4.0 recommended security baseline`,
+    );
+    if (!version.recommended)
+      console.error(
+        version.stable
+          ? "    Upgrade Ghostty for the recommended security fixes; existing launches remain supported."
+          : "    Prerelease: unverified security baseline; use a stable release for security assurance.",
+      );
+  }
+  for (const [name, result] of Object.entries(diagnostics.capabilities)) {
+    console.error(`    ${name}: ${result.state} — ${result.reason}`);
+    if (name !== "effectiveConfig") record(result.state !== "unavailable");
   }
 
-  let configContent = existsSync(ghosttyConfigPath)
-    ? readFileSync(ghosttyConfigPath, "utf-8")
-    : "";
-
-  const checks = [
+  const checks: Array<{
+    name: string;
+    key: GhosttyConfigKey;
+    recommended: string;
+    deficient: string;
+  }> = [
     {
       name: "Command Notifications",
       key: "notify-on-command-finish",
       recommended: "unfocused",
-      reason: "Get notified when long-running commands finish",
-      regex: /^\s*notify-on-command-finish\s*=/m,
+      deficient: "never",
     },
     {
       name: "Shell Integration",
       key: "shell-integration",
       recommended: "detect",
-      reason: "Enable prompt navigation, click-to-move cursor, and smart close",
-      regex: /^\s*shell-integration\s*=/m,
+      deficient: "none",
     },
   ];
-
-  // Apply --fix before running checks so the check loop sees updated content
-  let appliedFixes = false;
-  if (fixFlag) {
-    const toApply = checks.filter(c => !c.regex.test(configContent));
-    if (toApply.length > 0) {
-      const ghosttyDir = join(homedir(), ".config", "ghostty");
-      mkdirSync(ghosttyDir, { recursive: true });
-      if (existsSync(ghosttyConfigPath)) {
-        const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-        const backup = `${ghosttyConfigPath}.bak.${timestamp}`;
-        copyFileSync(ghosttyConfigPath, backup);
-        console.error(`  Backed up ${ghosttyConfigPath} → ${backup}`);
+  // Read the existing target only. Explicit preferences and includes are never rewritten.
+  if (!existsSync(ghosttyConfigPath))
+    console.error(
+      "  - No Ghostty config file found at ~/.config/ghostty/config; effective defaults still apply.",
+    );
+  let content: string | null = null;
+  try {
+    content = readFileSync(ghosttyConfigPath, "utf-8");
+  } catch {
+    /* missing/unreadable target */
+  }
+  const eligible = checks.filter(
+    (check) =>
+      diagnostics.capabilities.effectiveConfig.state === "supported" &&
+      diagnostics.config[check.key] === check.deficient &&
+      content !== null &&
+      !new RegExp(`^\\s*${check.key}\\s*=`, "m").test(content),
+  );
+  let safeOrigin = false;
+  if (eligible.length && content !== null) {
+    try {
+      const alternatives = [
+        join(homedir(), ".config/ghostty/config.ghostty"),
+        join(
+          homedir(),
+          "Library/Application Support/com.mitchellh.ghostty/config",
+        ),
+        join(
+          homedir(),
+          "Library/Application Support/com.mitchellh.ghostty/config.ghostty",
+        ),
+      ];
+      const xdg = process.env["XDG_CONFIG_HOME"];
+      accessSync(ghosttyConfigPath, constants.W_OK);
+      safeOrigin =
+        lstatSync(ghosttyConfigPath).isFile() &&
+        !/^\s*config-file\s*=/m.test(content) &&
+        !alternatives.some((path) => existsSync(path)) &&
+        (!xdg || xdg === join(homedir(), ".config"));
+      if (safeOrigin && fixFlag) {
+        // An application launched with config flags may override the ordinary source.
+        // Treat inaccessible process evidence as ambiguous, never as permission to write.
+        const commands = execFileSync("/bin/ps", ["-axo", "command="], {
+          encoding: "utf-8",
+          timeout: 2000,
+          maxBuffer: 1024 * 1024,
+          stdio: ["ignore", "pipe", "ignore"],
+        });
+        safeOrigin = !commands
+          .split("\n")
+          .some(
+            (line) =>
+              /Ghostty\.app\/Contents\/MacOS\/ghostty/.test(line) &&
+              /(?:^|\s)--/.test(line),
+          );
       }
-      const additions = toApply.map(s => `${s.key} = ${s.recommended}`).join("\n");
-      appendFileSync(ghosttyConfigPath, "\n# Added by summon doctor --fix\n" + additions + "\n");
-      console.error(`  Added ${toApply.length} setting(s) to ${ghosttyConfigPath}`);
-      console.error();
-      configContent = readFileSync(ghosttyConfigPath, "utf-8");
-      appliedFixes = true;
+    } catch {
+      safeOrigin = false;
     }
   }
-
-  let allGood = true;
-  const missingSettings: Array<{ key: string; recommended: string }> = [];
+  if (fixFlag && eligible.length && safeOrigin) {
+    try {
+      const backup = `${ghosttyConfigPath}.bak.${new Date().toISOString().replace(/[:.]/g, "-")}`;
+      copyFileSync(ghosttyConfigPath, backup);
+      appendFileSync(
+        ghosttyConfigPath,
+        "\n# Added by summon doctor --fix\n" +
+          eligible
+            .map((check) => `${check.key} = ${check.recommended}`)
+            .join("\n") +
+          "\n",
+      );
+      console.error(`  Backed up ${ghosttyConfigPath} → ${backup}`);
+      console.error(
+        `  Added ${eligible.length} setting(s); reload Ghostty configuration.`,
+      );
+      const refreshed = probeGhostty(diagnostics.app);
+      // Requery configuration without erasing an earlier failed version check.
+      diagnostics = {
+        ...diagnostics,
+        config: refreshed.config,
+        capabilities: refreshed.capabilities,
+      };
+    } catch {
+      console.error(
+        "  UNAVAILABLE  Could not back up/write configuration; edit and reload it manually, then retry summon doctor.",
+      );
+    }
+  }
 
   for (const check of checks) {
-    const isSet = check.regex.test(configContent);
-    totalChecks++;
-    if (isSet) {
-      passedChecks++;
-      console.error(`  ${PASS}  ${check.name} (${check.key}) is configured`);
-    } else {
-      allGood = false;
-      totalIssues++;
-      autoFixable++;
-      missingSettings.push({ key: check.key, recommended: check.recommended });
-      console.error(`  ${FAIL}  ${check.name}`);
-      if (!fixFlag) {
-        console.error("    Add to ~/.config/ghostty/config:");
-        console.error(`    ${check.key} = ${check.recommended}`);
-        console.error(`    ${check.reason}`);
-      }
-      console.error();
+    const value = diagnostics.config[check.key];
+    const ok = value !== null && value !== check.deficient;
+    record(ok);
+    if (ok)
+      console.error(
+        `  ${PASS}  ${check.name} (${check.key}=${value}) is configured`,
+      );
+    else {
+      if (safeOrigin && eligible.includes(check)) autoFixable++;
+      console.error(
+        `  ${value === null ? "UNAVAILABLE" : FAIL}  ${check.name} (${check.key}=${value ?? "unknown"})`,
+      );
+      console.error(
+        `    Review effective configuration; edit ${check.key} = ${check.recommended} if desired and reload Ghostty. Retry summon doctor.`,
+      );
+      if (value !== null && (!safeOrigin || !eligible.includes(check)))
+        console.error(
+          "    Explicit preferences or ambiguous configuration sources are preserved; edit and reload manually.",
+        );
     }
   }
-
+  const securityKeys: GhosttyConfigKey[] = [
+    "scrollback-compression",
+    "link-osc8",
+    "clipboard-read",
+    "clipboard-write",
+    "vt-window-resize-allowed",
+    "vt-xt-checksum-report",
+  ];
+  for (const key of securityKeys)
+    console.error(
+      `    ${key}=${diagnostics.config[key] ?? "UNAVAILABLE"} (advisory; unchanged)`,
+    );
+  const effectiveAvailable =
+    diagnostics.capabilities.effectiveConfig.state === "supported";
+  record(effectiveAvailable);
+  if (!effectiveAvailable)
+    console.error(
+      "  UNAVAILABLE  Effective configuration is incomplete; fix Ghostty configuration/probe access and retry summon doctor. No speculative fixes.",
+    );
   console.error();
   console.error("Checking permissions...\n");
 
@@ -150,12 +268,18 @@ export async function handleDoctorCommand({ values }: CommandContext): Promise<v
       totalChecks++;
       if (found) {
         passedChecks++;
-        console.error(`  ${PASS}  ${key} command "${binary}" found at ${found}`);
+        console.error(
+          `  ${PASS}  ${key} command "${binary}" found at ${found}`,
+        );
       } else {
         allGood = false;
         totalIssues++;
-        console.error(`  ${FAIL}  ${key} command "${binary ?? cmd}" not found in PATH`);
-        console.error(`    Install "${binary ?? cmd}" or change with: summon set ${key} <command>`);
+        console.error(
+          `  ${FAIL}  ${key} command "${binary ?? cmd}" not found in PATH`,
+        );
+        console.error(
+          `    Install "${binary ?? cmd}" or change with: summon set ${key} <command>`,
+        );
         console.error();
       }
     }
@@ -168,12 +292,16 @@ export async function handleDoctorCommand({ values }: CommandContext): Promise<v
   totalChecks++;
   if (conflicts.size === 0) {
     passedChecks++;
-    console.error(`  ${PASS}  No port conflicts (${listProjects().size} projects checked)`);
+    console.error(
+      `  ${PASS}  No port conflicts (${listProjects().size} projects checked)`,
+    );
   } else {
     allGood = false;
     for (const [port, projects] of conflicts) {
       totalIssues++;
-      console.error(`  ${FAIL}  Port conflict: port ${port} used by ${projects.join(", ")}`);
+      console.error(
+        `  ${FAIL}  Port conflict: port ${port} used by ${projects.join(", ")}`,
+      );
     }
   }
 
@@ -181,12 +309,23 @@ export async function handleDoctorCommand({ values }: CommandContext): Promise<v
 
   // Pass/fail summary (UX-M4, UX-M9)
   if (totalIssues === 0) {
-    console.error(green(`${sym.ok} ${passedChecks}/${totalChecks} checks passed.`));
+    console.error(
+      green(`${sym.ok} ${passedChecks}/${totalChecks} checks passed.`),
+    );
   } else {
     const failedChecks = totalChecks - passedChecks;
-    const fixablePart = autoFixable > 0 ? ` (${autoFixable} auto-fixable with --fix)` : "";
-    console.error(yellow(bold(`${passedChecks}/${totalChecks} checks passed — ${failedChecks} failed${fixablePart}.`)));
-    console.error(`  Run 'summon doctor --fix' to apply fixes, or 'summon setup' to reconfigure.`);
+    const fixablePart =
+      autoFixable > 0 ? ` (${autoFixable} auto-fixable with --fix)` : "";
+    console.error(
+      yellow(
+        bold(
+          `${passedChecks}/${totalChecks} checks passed — ${failedChecks} failed${fixablePart}.`,
+        ),
+      ),
+    );
+    console.error(
+      `  Run 'summon doctor --fix' to apply fixes, or 'summon setup' to reconfigure.`,
+    );
   }
 
   // Verbose diagnostic section (#504 DO-S1)
@@ -210,7 +349,9 @@ export async function handleDoctorCommand({ values }: CommandContext): Promise<v
     if (ghosttyFound) {
       console.error(`  Ghostty path:    ${ghosttyFound} ${dim("(found)")}`);
     } else {
-      console.error(`  Ghostty path:    ${GHOSTTY_PATHS.join(", ")} ${dim("(not found)")}`);
+      console.error(
+        `  Ghostty path:    ${GHOSTTY_PATHS.join(", ")} ${dim("(not found)")}`,
+      );
     }
 
     // Trust DB
@@ -219,7 +360,11 @@ export async function handleDoctorCommand({ values }: CommandContext): Promise<v
       try {
         const raw = readFileSync(TRUST_FILE, "utf-8");
         const parsed: unknown = JSON.parse(raw);
-        if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+        if (
+          parsed !== null &&
+          typeof parsed === "object" &&
+          !Array.isArray(parsed)
+        ) {
           trustedCount = Object.keys(parsed as Record<string, string>).length;
         }
       } catch {
@@ -227,12 +372,13 @@ export async function handleDoctorCommand({ values }: CommandContext): Promise<v
       }
     }
     console.error(`  Trust DB:        ${TRUST_FILE}`);
-    console.error(`  Trusted projects: ${trustedCount} project${trustedCount === 1 ? "" : "s"}`);
+    console.error(
+      `  Trusted projects: ${trustedCount} project${trustedCount === 1 ? "" : "s"}`,
+    );
     console.error();
   }
 
-  const issuesRemain = appliedFixes ? !accessOk : !allGood;
-  if (issuesRemain) {
+  if (!allGood) {
     console.error("Exit code 2: issues were found. See above for details.");
     process.exit(2);
   }

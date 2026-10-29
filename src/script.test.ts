@@ -25,6 +25,22 @@ describe("generateAppleScript", () => {
     expect(script).toContain('set initial working directory of cfg to "/Users/me/code/myapp"');
   });
 
+  it("repairs cleanup directory and log permissions before running on-stop", () => {
+    const plan = planLayout();
+    const script = generateAppleScript(
+      plan,
+      "/tmp/project",
+      null,
+      undefined,
+      "project",
+      "echo done",
+    );
+
+    expect(script).toMatch(/chmod 700 .*\.config\/summon.*\.config\/summon\/logs/);
+    expect(script).toMatch(/chmod 600 .*cleanup-project\.log/);
+    expect(script.indexOf("chmod 600")).toBeLessThan(script.indexOf("echo done"));
+  });
+
   it("full preset creates correct splits", () => {
     const plan = planLayout(getPreset("full"));
     const script = generateAppleScript(plan, "/tmp");
@@ -1750,21 +1766,13 @@ describe("emitCleanupTrap — meta-char payloads", () => {
 });
 
 describe("generateFocusScript", () => {
-  it("generates valid AppleScript", () => {
-    const script = generateFocusScript("[myapp]");
+  it("generates exact UUID targeting and validates the input", () => {
+    const id="00000000-0000-4000-8000-000000000001";
+    const script = generateFocusScript(id);
     expect(script).toContain('tell application "Ghostty"');
-    expect(script).toContain("activate");
-    expect(script).toContain("end tell");
-  });
-
-  it("includes tab title reference", () => {
-    const script = generateFocusScript("[myapp]");
-    expect(script).toContain("myapp");
-  });
-
-  it("escapes special characters in tab title", () => {
-    const script = generateFocusScript('[my "app]');
-    expect(script).toContain("my \\\"app");
+    expect(script).toContain(id);
+    expect(script).toContain("focused terminal");
+    expect(()=>generateFocusScript('[my "app]')).toThrow("identity");
   });
 });
 

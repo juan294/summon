@@ -1,0 +1,9 @@
+{
+  "id": "ask-3",
+  "mode": "entry",
+  "pointer": [
+    "permissions",
+    "ask"
+  ],
+  "value": "Bash(gh workflow run:*)"
+}

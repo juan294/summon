@@ -37,6 +37,7 @@ describe("command-spec", () => {
     expect(commandHasShellMeta('printf "hello\\$world"')).toBe(false);
     expect(commandHasShellMeta(String.raw`echo \$\(safe\)`)).toBe(false);
     expect(commandHasShellMeta("echo ';'")).toBe(false);
+    expect(commandHasShellMeta("printf first\nprintf second")).toBe(true);
   });
 
   it("preserves the original raw command string", () => {
@@ -51,6 +52,11 @@ describe("command-spec", () => {
   it("replaces the executable token without touching arguments", () => {
     expect(replaceCommandExecutable("npm run dev", "pnpm")).toBe("pnpm run dev");
     expect(replaceCommandExecutable('  "my tool" --watch', "other")).toBe("  other --watch");
+  });
+
+  it("quotes replacement executables containing shell metacharacters or spaces", () => {
+    expect(replaceCommandExecutable("tool --watch", "/tmp/tool dir/bin")).toBe("'/tmp/tool dir/bin' --watch");
+    expect(replaceCommandExecutable("tool", "/tmp/$(touch marker)/bin")).toBe("'/tmp/$(touch marker)/bin'");
   });
 
   it("returns the raw command unchanged when there is no executable", () => {
