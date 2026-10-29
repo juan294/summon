@@ -113,3 +113,121 @@ describe("sessionState (plan P10 table)", () => {
     expect(sessionState(cli, IDENTITY, "chapa")).toEqual({ state: "stopped", reason: "no live panes", liveBlocks: [] });
   });
 });
+
+// --- Phase 4: focus / inspect / title adapters ---
+
+describe("focusRex", async () => {
+  const { focusRex } = await import("./status.js");
+  const PANES = ["editor", "sidebar", "editor-2", "shell"];
+  const CLIENTS = { clients: [{ client_id: "client:app", connected_at: "2026-10-29T08:00:00Z", connection_state: "connected", info: { kind: "app" } }] };
+  const live = (blocks: string[]) => blocks;
+
+  it("focuses the named pane's block, then shows the session in the app", () => {
+    const cli = fakeCli({ focus: () => ({ ok: true, op: "focus", stdout: "" }), "client-ls": () => ({ ok: true, op: "client-ls", stdout: "", json: CLIENTS }), "do-select": () => ({ ok: true, op: "do-select", stdout: "" }) });
+    const result = focusRex(cli, IDENTITY, PANES, "chapa", live(["editor", "sidebar", "shell"]), "shell");
+    expect(result).toEqual({ kind: "focused", terminalId: "block:0000aaaa-0000-0000-0000-000000000012" });
+    expect(cli.calls.map((c) => [c.op, ...c.argv])).toEqual([
+      ["focus", "focus", "-s", IDENTITY.sessionId, "block:0000aaaa-0000-0000-0000-000000000012"],
+      ["client-ls", "api", "call", "client.list", "-"],
+      ["do-select", "-C", "client:app", "do", "session.select", `session_id=${IDENTITY.sessionId}`, `window_id=${IDENTITY.windowId}`, "--json"],
+    ]);
+  });
+
+  it("without a pane name targets the root when live, else the first live pane (partial)", () => {
+    const answers = { focus: () => ({ ok: true as const, op: "focus" as const, stdout: "" }), "client-ls": () => ({ ok: true as const, op: "client-ls" as const, stdout: "", json: CLIENTS }), "do-select": () => ({ ok: true as const, op: "do-select" as const, stdout: "" }) };
+    const root = fakeCli(answers);
+    expect(focusRex(root, IDENTITY, PANES, "chapa", live(["editor", "shell"]))).toMatchObject({ kind: "focused", terminalId: IDENTITY.rootBlockId });
+    const partial = fakeCli(answers);
+    expect(focusRex(partial, IDENTITY, PANES, "chapa", live(["shell"]))).toMatchObject({ kind: "focused", terminalId: "block:0000aaaa-0000-0000-0000-000000000012" });
+  });
+
+  it("refuses an unverified pane, an unknown pane and a closed pane without calling rex", () => {
+    const cli = fakeCli({});
+    expect(focusRex(cli, IDENTITY, PANES, "chapa", live(["editor"]), "editor-2")).toEqual({ kind: "unavailable", code: "missing", reason: "pane editor-2 could not be verified after recovery; run summon inspect chapa" });
+    expect(focusRex(cli, IDENTITY, PANES, "chapa", live(["editor"]), "nope")).toEqual({ kind: "unavailable", code: "missing", reason: "Unknown pane. Valid panes: editor, sidebar, editor-2, shell. Run summon inspect chapa." });
+    expect(focusRex(cli, IDENTITY, PANES, "chapa", live(["editor"]), "shell")).toEqual({ kind: "unavailable", code: "missing", reason: "pane shell is closed in Rex; run summon inspect chapa" });
+    expect(cli.calls).toEqual([]);
+  });
+
+  it("reports a failed focus or a session that no app can show", () => {
+    const noFocus = fakeCli({ focus: () => failure("focus", "failed", "boom") });
+    expect(focusRex(noFocus, IDENTITY, PANES, "chapa", live(["editor"]))).toEqual({ kind: "failed", code: "unavailable", reason: "boom" });
+    const noApp = fakeCli({ focus: () => ({ ok: true, op: "focus", stdout: "" }), "client-ls": () => ({ ok: true, op: "client-ls", stdout: "", json: { clients: [] } }) });
+    expect(focusRex(noApp, IDENTITY, PANES, "chapa", live(["editor"]))).toEqual({ kind: "failed", code: "unavailable", reason: "no Rex app is connected; open Rex and pick [chapa]" });
+  });
+});
+
+describe("inspectRex", async () => {
+  const { inspectRex } = await import("./status.js");
+  const PANES = ["editor", "sidebar", "editor-2", "shell"];
+
+  it("lists every recorded pane with pid, cwd and title from block calls; tty is never available", () => {
+    const cli = fakeCli({});
+    // Title answers are distinguished by argv: the fake receives the method as the last argv element.
+    cli.call = ((op, argv, opts) => {
+      cli.calls.push({ op, argv, ...opts });
+      if (argv.includes("title")) return { ok: true, op: "block-call", stdout: "", json: { title: "vim ~/code" } };
+      return { ok: true, op: "block-call", stdout: "", json: { foreground: { pid: 4242, cwd: "/Users/me/code/chapa" }, child: { pid: 4000 } } };
+    }) as typeof cli.call;
+    const result = inspectRex(cli, IDENTITY, PANES, "chapa", IDENTITY.blocks.map((b) => b.name));
+    expect(result.availability).toBe("available");
+    expect(result.panes.map((p) => [p.name, p.blockId, p.pid, p.tty, p.title, p.directory, p.availability])).toEqual([
+      ["editor", IDENTITY.rootBlockId, 4242, null, "vim ~/code", "/Users/me/code/chapa", "available"],
+      ["sidebar", "block:0000aaaa-0000-0000-0000-000000000011", 4242, null, "vim ~/code", "/Users/me/code/chapa", "available"],
+      ["editor-2", null, null, null, null, null, "unverified"],
+      ["shell", "block:0000aaaa-0000-0000-0000-000000000012", 4242, null, "vim ~/code", "/Users/me/code/chapa", "available"],
+    ]);
+    expect(cli.calls.filter((c) => c.op === "block-call").map((c) => c.argv)).toContainEqual(["block", "call", "-s", IDENTITY.sessionId, "-b", IDENTITY.rootBlockId, "process"]);
+    expect(cli.calls.filter((c) => c.op === "block-call").map((c) => c.argv)).toContainEqual(["block", "call", "-s", IDENTITY.sessionId, "-b", IDENTITY.rootBlockId, "title"]);
+    expect(cli.calls.some((c) => c.op === "block-ls")).toBe(false);
+  });
+
+  it("marks closed blocks (absent from the reader's live set) and degrades availability without any block call for them", () => {
+    const cli = fakeCli({ "block-call": () => ({ ok: true, op: "block-call", stdout: "", json: {} }) });
+    const result = inspectRex(cli, IDENTITY, ["editor", "sidebar", "shell"], "chapa", ["editor"]);
+    expect(result.availability).toBe("unavailable");
+    expect(result.reason).toBe("2 recorded panes are closed in Rex (sidebar, shell)");
+    expect(result.panes.map((p) => [p.name, p.availability, p.pid])).toEqual([["editor", "available", null], ["sidebar", "closed", null], ["shell", "closed", null]]);
+    expect(cli.calls.filter((c) => c.op === "block-call").every((c) => c.argv.includes(IDENTITY.rootBlockId))).toBe(true);
+  });
+});
+
+describe("titleRex", async () => {
+  const { titleRex } = await import("./status.js");
+  const PANES = ["editor", "sidebar", "shell"];
+  const blockLs = (label: string) => ({ ok: true as const, op: "block-ls" as const, stdout: "", json: { blocks: [{ block_id: IDENTITY.rootBlockId, label }] } });
+
+  it("reads, sets and resets a pane label through session.set_block_label", () => {
+    const cli = fakeCli({ "block-ls": () => blockLs("editor · vim"), "block-label": () => ({ ok: true, op: "block-label", stdout: "", json: { revision: 9 } }) });
+    expect(titleRex(cli, IDENTITY, PANES, "chapa", "pane", { kind: "read" }, "editor")).toEqual({ kind: "title", terminalId: IDENTITY.rootBlockId, scope: "pane", override: "editor · vim" });
+    expect(titleRex(cli, IDENTITY, PANES, "chapa", "pane", { kind: "set", text: "notes" }, "editor")).toEqual({ kind: "title", terminalId: IDENTITY.rootBlockId, scope: "pane", override: "notes" });
+    expect(titleRex(cli, IDENTITY, PANES, "chapa", "pane", { kind: "reset" }, "editor")).toEqual({ kind: "title", terminalId: IDENTITY.rootBlockId, scope: "pane", override: "editor · vim" });
+    const labelCalls = cli.calls.filter((c) => c.op === "block-label");
+    expect(labelCalls.map((c) => [c.argv, JSON.parse(c.input!)])).toEqual([
+      [["api", "call", "session.set_block_label", "-"], { session_id: IDENTITY.sessionId, block_id: IDENTITY.rootBlockId, label: "notes" }],
+      [["api", "call", "session.set_block_label", "-"], { session_id: IDENTITY.sessionId, block_id: IDENTITY.rootBlockId, label: "editor · vim" }],
+    ]);
+  });
+
+  it("reads, sets and resets the tab (window) label through session.set_window_label", () => {
+    const cli = fakeCli({
+      "session-view": () => ({ ok: true, op: "session-view", stdout: "", json: view([IDENTITY.rootBlockId]) }),
+      "window-rename": () => ({ ok: true, op: "window-rename", stdout: "", json: { revision: 10 } }),
+    });
+    expect(titleRex(cli, IDENTITY, PANES, "chapa", "tab", { kind: "read" })).toEqual({ kind: "title", terminalId: IDENTITY.windowId, scope: "tab", override: "[chapa]" });
+    expect(titleRex(cli, IDENTITY, PANES, "chapa", "tab", { kind: "set", text: "work" })).toEqual({ kind: "title", terminalId: IDENTITY.windowId, scope: "tab", override: "work" });
+    expect(titleRex(cli, IDENTITY, PANES, "chapa", "tab", { kind: "reset" })).toEqual({ kind: "title", terminalId: IDENTITY.windowId, scope: "tab", override: "[chapa]" });
+    expect(cli.calls.filter((c) => c.op === "window-rename").map((c) => JSON.parse(c.input!))).toEqual([
+      { session_id: IDENTITY.sessionId, window_id: IDENTITY.windowId, label: "work" },
+      { session_id: IDENTITY.sessionId, window_id: IDENTITY.windowId, label: "[chapa]" },
+    ]);
+  });
+
+  it("refuses unknown or unverified panes and reports server failures", () => {
+    const cli = fakeCli({ "block-label": () => failure("block-label", "failed", "bad_request: label too long") });
+    expect(titleRex(cli, IDENTITY, PANES, "chapa", "pane", { kind: "read" }, "nope")).toEqual({ kind: "unavailable", code: "missing", reason: "Unknown pane. Valid panes: editor, sidebar, shell. Run summon inspect chapa." });
+    expect(titleRex(cli, IDENTITY, ["editor", "late"], "chapa", "pane", { kind: "read" }, "late")).toEqual({ kind: "unavailable", code: "missing", reason: "pane late could not be verified after recovery; run summon inspect chapa" });
+    expect(titleRex(cli, IDENTITY, PANES, "chapa", "pane", { kind: "set", text: "x".repeat(200) }, "editor")).toEqual({ kind: "failed", code: "unavailable", reason: "bad_request: label too long" });
+    expect(cli.calls.map((c) => c.op)).toEqual(["block-label"]);
+  });
+});

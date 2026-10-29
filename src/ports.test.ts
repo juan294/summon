@@ -490,3 +490,16 @@ describe("detectAllPorts", () => {
     expect(conflicts.has(5000)).toBe(false);
   });
 });
+
+describe("four-state rows (plan P10, Phase 4)", () => {
+  it("passes partial and unknown states through to the assignments", async () => {
+    const dir = projectDir("proj-a");
+    writeFileSync(join(dir, ".summon"), "env.PORT=3000\n");
+    listProjects.mockReturnValue([["proj-a", dir]]);
+    readAllStatuses.mockReturnValue([{ project: "proj-a", state: "partial" }]);
+    expect((await detectAllPorts()).assignments[0]!.state).toBe("partial");
+    readAllStatuses.mockReturnValue([{ project: "proj-a", state: "unknown" }]);
+    expect((await detectAllPorts()).assignments[0]!.state).toBe("unknown");
+  });
+});
+

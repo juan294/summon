@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 import { exitWithUsageHint } from "../utils.js";
 import { validateProjectNameOrExit } from "../validation.js";
 import type { CommandContext } from "./types.js";
+import { isLiveState } from "../status.js";
 import type { ContextSnapshot } from "../snapshot.js";
 
 export async function handleStatusCommand({ values }: CommandContext): Promise<void> {
@@ -115,8 +116,8 @@ export async function handlePortsCommand(): Promise<void> {
     const portStr = String(assignment.port).padEnd(6);
     const projectStr = truncateLine(assignment.project, 16).padEnd(16);
     const sourceStr = truncateLine(assignment.source, 18).padEnd(18);
-    const dot = assignment.state === "active" ? green(sym.dotFilled) : dim(sym.dotEmpty);
-    const stateStr = assignment.state === "active" ? green("active") : dim(assignment.state);
+    const dot = isLiveState(assignment.state) ? (assignment.state === "active" ? green(sym.dotFilled) : yellow(sym.dotFilled)) : dim(sym.dotEmpty);
+    const stateStr = assignment.state === "active" ? green("active") : assignment.state === "partial" ? yellow("partial") : dim(assignment.state);
     const conflict = conflicts.has(assignment.port)
       ? truncateLine(yellow(" ← conflict"), conflictWidth)
       : "";

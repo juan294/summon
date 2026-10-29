@@ -23,6 +23,11 @@ export interface RexIdentity {
   blocks: RexBlockIdentity[];
 }
 
+/** The value as a plain object, or undefined. */
+export function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : undefined;
+}
+
 export function isKindId(value: unknown, kind: "session" | "window" | "block"): value is string {
   return typeof value === "string" && REX_ID_RE.test(value) && value.startsWith(`${kind}:`);
 }
@@ -86,12 +91,12 @@ export const REX_OPS = {
   "session-view": { mutating: false, json: true },
   "session-inspect": { mutating: false },
   "block-ls": { mutating: false },
-  "block-call": { mutating: false },
+  "block-call": { mutating: false, json: true },
   "focus": { mutating: true },
   "do-select": { mutating: true },
   "kill": { mutating: true },
-  "window-rename": { mutating: true },
-  "block-label": { mutating: true },
+  "window-rename": { mutating: true, json: true },
+  "block-label": { mutating: true, json: true },
 } as const satisfies Record<string, RexOpTraits>;
 
 export type RexOp = keyof typeof REX_OPS;

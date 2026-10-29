@@ -2,16 +2,17 @@ import { readFileSync } from "node:fs";
 import { launchArtifactPaths, listLaunchManifests, readLaunchManifest, writeLaunchManifest } from "../../launch-identity.js";
 import type { LaunchArtifactPaths, LaunchManifest } from "../../launch-identity.js";
 import { readStatus, readStatusRecord, unlinkIgnoringMissing, withOwnedRecord } from "../../status.js";
-import type { WorkspaceStatus } from "../../status.js";
+import { isLiveState } from "../../status.js";
+import type { WorkspaceState, WorkspaceStatus } from "../../status.js";
 import { err, note } from "../../ui/output.js";
 import { createRexCli, whoamiOf } from "./cli.js";
 import type { RexCli } from "./cli.js";
-import { pickAppClient, pollUntil, realClock, waitForAppClient } from "./app.js";
+import { pickAppClient, pollUntil, realClock, selectInApp, waitForAppClient } from "./app.js";
 import type { AppClientChoice, PollOptions } from "./app.js";
 import { listSessions, sessionState, viewSession } from "./status.js";
 import type { SessionView } from "./status.js";
 import { isKindId } from "./types.js";
-import type { RexBlockIdentity, RexFailure, RexResult } from "./types.js";
+import type { RexBlockIdentity, RexFailure } from "./types.js";
 import type { SessionCreateRequest } from "./layout.js";
 
 /**
@@ -77,13 +78,6 @@ export async function waitForToken(paths: LaunchArtifactPaths, rootName: string,
 }
 
 // --- Client actions ---
-
-export function selectInApp(cli: RexCli, clientId: string, sessionId: string, windowId?: string): RexResult {
-  const argv = ["-C", clientId, "do", "session.select", `session_id=${sessionId}`];
-  if (windowId) argv.push(`window_id=${windowId}`);
-  argv.push("--json");
-  return cli.call("do-select", argv);
-}
 
 function describeClient(choice: AppClientChoice): string {
   const { chosen } = choice;
@@ -300,7 +294,7 @@ export interface AdoptDeps {
   /** A CLI bound to a manifest's or record's server. */
   cliFor: (server: string) => RexCli;
   /** Liveness of a Ghostty record of the project. */
-  ghosttyState: (project: string) => "active" | "stopped" | "unknown";
+  ghosttyState: (project: string) => WorkspaceState;
 }
 
 export function adoptDeps(binary: string): AdoptDeps {
@@ -342,18 +336,22 @@ export function adoptOrphans(project: string, deps: AdoptDeps): string[] {
   const current = readStatusRecord(project);
   if (current && !current.launchId) return [`${project} has a record from an older Summon; run summon ${project} to replace it`];
   const gen = current?.launchId ?? null;
+  const manifests = listLaunchManifests(project).filter((m): m is LaunchManifest & { server: string } => m.launchId !== gen && m.backend === "rex" && m.server !== undefined);
+  if (manifests.length === 0) return [];
 
   // PASS 1: the current record.
   let live = false;
   if (current) {
-    if (current.backend === "rex" && current.rex) {
+    if (current.backend === "rex") {
+      // A Rex record whose identity was discarded cannot be verified (and must never reach the Ghostty resolver, which reads Rex records through this function).
+      if (!current.rex) return [`${project} record has no Rex identity; nothing adopted or removed`];
       const state = sessionState(deps.cliFor(current.rex.server), current.rex, project);
       if (state.state === "unknown") return [`${project} could not be verified on ${current.rex.server}: ${state.reason ?? "unknown"}; nothing adopted or removed`];
-      live = state.state === "active" || state.state === "partial";
+      live = isLiveState(state.state);
     } else {
       const state = deps.ghosttyState(project);
       if (state === "unknown") return [`${project} could not be verified; nothing adopted or removed`];
-      live = state === "active";
+      live = isLiveState(state);
     }
   }
 
@@ -368,8 +366,7 @@ export function adoptOrphans(project: string, deps: AdoptDeps): string[] {
     if (!listed) { listed = listSessions(cli); sessionLists.set(server, listed); }
     return listed;
   };
-  for (const manifest of listLaunchManifests(project)) {
-    if (manifest.launchId === gen || manifest.backend !== "rex" || !manifest.server) continue;
+  for (const manifest of manifests) {
     const id = manifest.launchId;
     const rootName = manifest.paneOrder[0];
     const paths = launchArtifactPaths(project, id);

@@ -2,6 +2,7 @@ import { existsSync, readFileSync, statSync, promises as fsPromises } from "node
 import { join } from "node:path";
 import { readKVFile, listProjects } from "./config.js";
 import { readAllStatuses } from "./status.js";
+import type { WorkspaceState } from "./status.js";
 import { isTrusted } from "./trust.js";
 import { runPool, IO_CONCURRENCY } from "./utils.js";
 
@@ -9,7 +10,7 @@ export interface PortAssignment {
   port: number;
   project: string;
   source: "config" | "env" | "package.json" | "framework-default";
-  state: "active" | "stopped" | "unknown";
+  state: WorkspaceState;
 }
 
 const PORT_ENV_KEYS = ["PORT", "DEV_PORT", "API_PORT", "VITE_PORT", "NEXT_PORT", "DB_PORT"];
@@ -53,7 +54,7 @@ const EXTENSIONS = [".js", ".mjs", ".ts", ".cjs"];
 export async function detectProjectPorts(
   projectName: string,
   projectDir: string,
-  state: "active" | "stopped" | "unknown",
+  state: WorkspaceState,
 ): Promise<PortAssignment[]> {
   const assignments: PortAssignment[] = [];
   const seenPorts = new Set<number>();

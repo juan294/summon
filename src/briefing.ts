@@ -1,6 +1,7 @@
 import { listProjects } from "./config.js";
 import { readAllStatuses, getGitBranch } from "./status.js";
-import type { ResolvedStatus } from "./status.js";
+import { isLiveState } from "./status.js";
+import type { ResolvedStatus, WorkspaceState } from "./status.js";
 import { bold, dim, green, yellow, cyan } from "./ui/ansi.js";
 import { sym } from "./ui/symbols.js";
 import { gitOutput, runPool, IO_CONCURRENCY } from "./utils.js";
@@ -17,8 +18,10 @@ export interface CommitSummary {
 export interface ProjectBriefing {
   name: string;
   directory: string;
-  state: "active" | "stopped" | "unknown";
+  state: WorkspaceState;
   uptime: number | null;
+  /** Why the state is `unknown` or `partial` (Rex), when known. */
+  reason?: string;
   gitBranch: string | null;
   overnightCommits: CommitSummary[];
   dirtyFiles: string[];
@@ -28,6 +31,8 @@ export interface ProjectBriefing {
 export interface BriefingSummary {
   totalProjects: number;
   activeCount: number;
+  /** Workspaces whose liveness could not be read (Rex `unknown`), listed as unverified. */
+  unverifiedCount: number;
   totalOvernightCommits: number;
   recommendation: string | null;
   allClean: boolean;
@@ -134,6 +139,7 @@ export async function collectBriefingData(): Promise<{ projects: ProjectBriefing
       directory,
       state: status?.state ?? "unknown",
       uptime: status?.uptime ?? null,
+      ...(status?.reason ? { reason: status.reason } : {}),
       gitBranch: gitData.branch,
       overnightCommits: gitData.commits,
       dirtyFiles: gitData.dirty,
@@ -141,7 +147,8 @@ export async function collectBriefingData(): Promise<{ projects: ProjectBriefing
     } satisfies ProjectBriefing;
   });
 
-  const activeCount = projects.filter(p => p.state === "active").length;
+  const activeCount = projects.filter(p => isLiveState(p.state)).length;
+  const unverifiedCount = projects.filter(p => p.state === "unknown").length;
   const totalOvernightCommits = projects.reduce((sum, p) => sum + p.overnightCommits.length, 0);
   const allClean = projects.length > 0 && projects.every(
     p => p.dirtyFiles.length === 0 && p.overnightCommits.length === 0,
@@ -152,6 +159,7 @@ export async function collectBriefingData(): Promise<{ projects: ProjectBriefing
     summary: {
       totalProjects: projects.length,
       activeCount,
+      unverifiedCount,
       totalOvernightCommits,
       recommendation: generateRecommendation(projects),
       allClean,
@@ -164,8 +172,11 @@ export async function collectBriefingData(): Promise<{ projects: ProjectBriefing
 export function formatProjectBriefing(project: ProjectBriefing): string {
   const lines: string[] = [];
   // UX-M2 (#601): use canonical sym glyphs so dots are consistent with ports/monitor outputs.
-  const dot = project.state === "active" ? green(sym.dotFilled) : dim(sym.dotEmpty);
-  const stateLabel = project.state === "active" ? green("active") : dim(project.state);
+  const dot = project.state === "active" ? green(sym.dotFilled) : project.state === "partial" ? yellow(sym.dotFilled) : dim(sym.dotEmpty);
+  const stateLabel = project.state === "active" ? green("active")
+    : project.state === "partial" ? yellow("partial")
+      : project.state === "unknown" ? dim(`unverified${project.reason ? ` (${project.reason})` : ""}`)
+        : dim(project.state);
 
   lines.push(`  ${dot} ${bold(project.name)}${" ".repeat(Math.max(1, 40 - project.name.length))}${stateLabel}`);
 
@@ -228,7 +239,8 @@ export function formatBriefingSummary(summary: BriefingSummary): string {
   const lines: string[] = [];
   const sep = dim("\u2500".repeat(48));
   lines.push(`  ${sep}`);
-  lines.push(`  ${summary.totalProjects} projects \u00B7 ${summary.activeCount} active \u00B7 ${summary.totalOvernightCommits} overnight commits`);
+  const unverified = summary.unverifiedCount > 0 ? ` \u00B7 ${summary.unverifiedCount} unverified` : "";
+  lines.push(`  ${summary.totalProjects} projects \u00B7 ${summary.activeCount} active${unverified} \u00B7 ${summary.totalOvernightCommits} overnight commits`);
   if (summary.allClean) {
     lines.push(`  ${green(sym.ok)} All projects clean`);
   }

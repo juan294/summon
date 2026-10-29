@@ -27,7 +27,9 @@ import type { BackendLaunchContext, BackendLaunchResult, TerminalBackend } from 
 import { createRexBackend } from "./backends/rex/backend.js";
 import { adoptOrphans, adoptDeps, maybeSwitchToExisting } from "./backends/rex/launch.js";
 import { createRexCli, discoverRex } from "./backends/rex/cli.js";
-import { sessionState } from "./backends/rex/status.js";
+import { focusRex, sessionState } from "./backends/rex/status.js";
+import type { ResolvedStatus } from "./status.js";
+import { isLiveState, rexCommandGate } from "./status.js";
 import { buildSessionCreateRequest } from "./backends/rex/layout.js";
 import type { SessionCreateInput } from "./backends/rex/layout.js";
 import { parseTreeDSL, extractPaneDefinitions, extractPaneCwds, resolveTreeCommands as resolveTreeCmds, buildTreePlan, collectLeaves, findPaneByName, assertPaneCwdContained } from "./tree.js";
@@ -102,18 +104,29 @@ export function resolveProjectName(targetDir: string): string {
 }
 
 /** Resolve a recorded exact UUID without activating or querying the application. */
-export function resolveWorkspaceTerminal(projectName: string, paneName?: string): { kind: "target"; terminalId: string } | NativeFailure {
+export function resolveWorkspaceTerminal(projectName: string, paneName?: string, status?: ResolvedStatus | null): { kind: "target"; terminalId: string } | NativeFailure {
   if (!PROJECT_NAME_RE.test(projectName)) return { kind: "unavailable", code: "missing", reason: "Invalid project name. Run summon inspect <project>." };
-  const status = readStatus(projectName);
+  if (status === undefined) status = readStatus(projectName);
+  if (status?.backend === "rex") return { kind: "unavailable", code: "missing", reason: `[${projectName}] runs in Rex; its panes are Rex blocks, not Ghostty terminals. Run summon inspect ${projectName}.` };
   if (!status?.native) return { kind: "unavailable", code: "missing", reason: "Exact native identity is unavailable. Select in Ghostty or explicitly relaunch when ready to capture identity; run summon inspect <project>." };
   const terminalId = paneName === undefined ? status.native.rootTerminalId : status.native.panes.find(p => p.name === paneName)?.terminalId;
   if (!terminalId) return { kind: "unavailable", code: "missing", reason: `Unknown pane. Valid panes: ${status.native.panes.map(p => p.name).join(", ")}. Run summon inspect ${projectName}.` };
   return { kind: "target", terminalId };
 }
 
-/** Focus only a recorded exact UUID. Legacy/stale records never launch implicitly. */
+/**
+ * Focus only a recorded exact identity. Legacy/stale records never launch implicitly. Under Rex
+ * the shared gate refuses `unknown` and `stopped` (plan P10) and the app attached to the
+ * caller's session is preferred (P7).
+ */
 export function focusWorkspace(projectName: string, paneName?: string): FocusResult {
-  const target = resolveWorkspaceTerminal(projectName, paneName);
+  const status = PROJECT_NAME_RE.test(projectName) ? readStatus(projectName) : null;
+  if (status?.backend === "rex") {
+    const gate = rexCommandGate(projectName, status);
+    if (!gate.ok) return gate.failure;
+    return focusRex(gate.cli, gate.identity, status.panes, projectName, gate.liveBlocks, paneName, process.env["REX_SESSION"]);
+  }
+  const target = resolveWorkspaceTerminal(projectName, paneName, status);
   return target.kind === "target" ? focusTerminal(target.terminalId) : target;
 }
 
@@ -778,7 +791,7 @@ function warnRexStillRunning(project: string): void {
   const binary = discoverRex().path;
   if (!binary) return;
   const state = sessionState(createRexCli(binary, record.rex.server), record.rex, project);
-  if (state.state === "active" || state.state === "partial") {
+  if (isLiveState(state.state)) {
     note(`Rex session [${project}] ${record.rex.sessionId} is still running; rex kill ${record.rex.sessionId} closes it`);
   }
 }

@@ -7,6 +7,12 @@ import { isBackendId } from "./backend.js";
 import type { BackendId } from "./backend.js";
 import { parseRexIdentity } from "./backends/rex/types.js";
 import type { RexIdentity } from "./backends/rex/types.js";
+import { createRexCli, discoverRex } from "./backends/rex/cli.js";
+import type { RexCli } from "./backends/rex/cli.js";
+import { listSessions, sessionState } from "./backends/rex/status.js";
+import type { SessionListing } from "./backends/rex/status.js";
+import type { NativeFailure } from "./ghostty-native.js";
+import { adoptDeps, adoptOrphans, refreshPaneMapping } from "./backends/rex/launch.js";
 
 import { parseNativeMetadata } from "./pane-inventory.js";
 import type { NativeMetadata } from "./pane-inventory.js";
@@ -42,7 +48,24 @@ export interface WorkspaceStatus {
   endedAt?: string;
 }
 
-export type WorkspaceState = "active" | "stopped" | "unknown";
+/** `partial`: a Rex session whose root pane closed while other recorded panes live (plan P10). */
+export type WorkspaceState = "active" | "partial" | "stopped" | "unknown";
+
+/** States with a live workspace to focus or count (plan P10 reader rules). */
+export function isLiveState(state: WorkspaceState): boolean {
+  return state === "active" || state === "partial";
+}
+
+export const REX_CLI_MISSING = "rex CLI not found; open the Rex app once or set REX_BIN_DIR.";
+
+/** The one wording every consumer prints for an `unknown` workspace (plan P10). */
+export function unverifiedMessage(project: string, reason: string | undefined): string {
+  return `[${project}] could not be verified: ${reason ?? "no liveness information"}. Open the Rex app and retry, or run summon doctor.`;
+}
+
+function noLongerExistsMessage(project: string, reason: string | undefined): string {
+  return `[${project}] no longer exists in Rex (${reason ?? "session gone"}); launch it again with summon ${project}.`;
+}
 
 export interface ResolvedStatus extends Omit<WorkspaceStatus, "pid"> {
   /** Recorded launcher pid; null for an unverified launch that has no record yet. */
@@ -53,6 +76,10 @@ export interface ResolvedStatus extends Omit<WorkspaceStatus, "pid"> {
   uptime: number | null;
   /** Why the state is `unknown` (or another non-active state), when a reason is known. */
   reason?: string;
+  /** Advisory lines from late adoption or pane-file refresh (Rex), for `summon status` to print. */
+  notices?: string[];
+  /** Rex only: recorded panes whose block is present in the session (drives focus targets). */
+  liveBlocks?: string[];
 }
 
 /** Who may write the shared record (plan §3 "Status write protocol"). */
@@ -342,17 +369,79 @@ export function parseWorkspaceStatus(raw: unknown): WorkspaceStatus | null {
   };
 }
 
-const REX_LIVENESS_PENDING = "Rex liveness is not available in this version";
+/**
+ * Per-read Rex context (plan P10 "grouped by server"): each server is listed once per read and
+ * each project is adopted at most once; `readAllStatuses` shares one context across its rows.
+ */
+export interface RexReadContext {
+  listings: Map<string, SessionListing>;
+  adopted: Set<string>;
+}
 
-export function readStatus(projectName: string): ResolvedStatus | null {
+export function newRexReadContext(): RexReadContext {
+  return { listings: new Map(), adopted: new Set() };
+}
+
+let rexBinaryMemo: string | null | undefined;
+
+/** The `rex` binary, discovered once per process (the TUI reads every 3 s; the location does not move mid-run). */
+export function rexBinaryPath(): string | null {
+  if (rexBinaryMemo === undefined) rexBinaryMemo = discoverRex().path;
+  return rexBinaryMemo;
+}
+
+/** @internal test hook */
+export function resetRexBinaryMemo(): void {
+  rexBinaryMemo = undefined;
+}
+
+/** Late adoption (P13) for a project, once per read context. */
+function adoptOnce(projectName: string, binary: string, ctx: RexReadContext): string[] {
+  if (ctx.adopted.has(projectName)) return [];
+  ctx.adopted.add(projectName);
+  return adoptOrphans(projectName, adoptDeps(binary));
+}
+
+/**
+ * A Rex record's state through `sessionState` (never a sidecar): late adoption first (P13),
+ * then the state probe, then a pane-file refresh for records with unverified panes.
+ */
+function resolveRexStatus(projectName: string, record: WorkspaceStatus, ctx: RexReadContext): ResolvedStatus {
+  // An identity that parseWorkspaceStatus discarded cannot be verified; adoption would read it back through this resolver.
+  if (!record.rex) return { ...record, state: "unknown", uptime: null, reason: "the record has no Rex identity; relaunch to capture it" };
+  const binary = rexBinaryPath();
+  if (!binary) return { ...record, state: "unknown", uptime: null, reason: REX_CLI_MISSING };
+  const notices = adoptOnce(projectName, binary, ctx);
+  let current = notices.length > 0 ? readStatusRecord(projectName) ?? record : record;
+  const identity = current.rex;
+  if (!identity) return { ...current, state: "unknown", uptime: null, reason: "the record has no Rex identity; relaunch to capture it", notices };
+  const cli = createRexCli(binary, identity.server);
+  let listing = ctx.listings.get(identity.server);
+  if (!listing) {
+    listing = listSessions(cli);
+    ctx.listings.set(identity.server, listing);
+  }
+  const state = sessionState(cli, identity, projectName, listing);
+  if (isLiveState(state.state) && identity.blocks.length < current.panes.length) {
+    notices.push(...refreshPaneMapping(current));
+    current = readStatusRecord(projectName) ?? current;
+  }
+  const started = Date.parse(current.startedAt);
+  return {
+    ...current,
+    state: state.state,
+    uptime: isLiveState(state.state) && !Number.isNaN(started) ? Date.now() - started : null,
+    ...(state.reason ? { reason: state.reason } : {}),
+    ...(notices.length > 0 ? { notices } : {}),
+    liveBlocks: state.liveBlocks,
+  };
+}
+
+export function readStatus(projectName: string, ctx: RexReadContext = newRexReadContext()): ResolvedStatus | null {
   const status = readStatusRecord(projectName);
   if (!status) return null;
 
-  // Rex liveness (`sessionState`, plan P10) ships in Phase 3; until then a Rex record is
-  // `unknown`, which no consumer treats as live.
-  if (status.backend === "rex") {
-    return { ...status, state: "unknown", uptime: null, reason: REX_LIVENESS_PENDING };
-  }
+  if (status.backend === "rex") return resolveRexStatus(projectName, status, ctx);
 
   // A record with a launch id never reads the legacy `<project>.active`/`.pid` paths (P12).
   let active: boolean;
@@ -381,7 +470,7 @@ const UNVERIFIED_LAUNCH = "unverified launch";
  * Phase 3 resolves them through adoption; here they are surfaced so `summon status` can
  * list them and never hide a session Summon may have created.
  */
-function unverifiedLaunchRows(launchDirProjects: string[], recordedProjects: Set<string>): ResolvedStatus[] {
+function unverifiedLaunchRows(launchDirProjects: string[], recordedProjects: Set<string>, ctx: RexReadContext): ResolvedStatus[] {
   const rows: ResolvedStatus[] = [];
   for (const projectName of launchDirProjects) {
     if (recordedProjects.has(projectName)) continue;
@@ -390,6 +479,17 @@ function unverifiedLaunchRows(launchDirProjects: string[], recordedProjects: Set
       manifests = listLaunchManifests(projectName);
     } catch {
       continue;
+    }
+    if (manifests.length === 0) continue;
+    // Late adoption (P13) may publish a record for a launch whose outcome was unknown.
+    const binary = manifests.some((m) => m.backend === "rex") ? rexBinaryPath() : null;
+    const notices = binary ? adoptOnce(projectName, binary, ctx) : [];
+    if (binary && readStatusRecord(projectName)) {
+      const adopted = readStatus(projectName, ctx);
+      if (adopted) {
+        rows.push({ ...adopted, ...(notices.length > 0 ? { notices: [...notices, ...(adopted.notices ?? [])] } : {}) });
+        continue;
+      }
     }
     for (const manifest of manifests) {
       rows.push({
@@ -406,6 +506,7 @@ function unverifiedLaunchRows(launchDirProjects: string[], recordedProjects: Set
         state: "unknown",
         uptime: null,
         reason: UNVERIFIED_LAUNCH,
+        ...(notices.length > 0 ? { notices } : {}),
       });
     }
   }
@@ -456,20 +557,22 @@ export function readAllStatuses(): ResolvedStatus[] {
     .filter((entry) => entry.isDirectory() && entry.name.endsWith(".launches"))
     .map((entry) => entry.name.slice(0, -".launches".length));
   const statuses: ResolvedStatus[] = [];
+  const ctx = newRexReadContext();
 
   const recordedProjects = new Set<string>();
   for (const file of files) {
     const projectName = file.replace(/\.json$/, "");
     recordedProjects.add(projectName);
-    const status = readStatus(projectName);
+    const status = readStatus(projectName, ctx);
     if (status) statuses.push(status);
   }
-  statuses.push(...unverifiedLaunchRows(launchDirProjects, recordedProjects));
+  statuses.push(...unverifiedLaunchRows(launchDirProjects, recordedProjects, ctx));
 
-  // Sort: active first (newest first), then stopped (newest first)
+  // Sort: live first (active, then partial; newest first), then the rest (newest first)
+  const rank = (state: WorkspaceState): number => (state === "active" ? 0 : state === "partial" ? 1 : 2);
   const result = statuses.sort((a, b) => {
-    if (a.state === "active" && b.state !== "active") return -1;
-    if (a.state !== "active" && b.state === "active") return 1;
+    const byState = rank(a.state) - rank(b.state);
+    if (byState !== 0) return byState;
     return Date.parse(b.startedAt) - Date.parse(a.startedAt);
   });
 
@@ -486,5 +589,25 @@ export async function getGitBranch(directory: string): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+// --- Rex workspace commands: the shared pre-flight (plan P10 reader rules) ---
+
+export type RexCommandGate =
+  | { ok: true; cli: RexCli; identity: RexIdentity; liveBlocks: string[] }
+  | { ok: false; failure: NativeFailure };
+
+/**
+ * Before `focus`, `inspect` or `title` touch a Rex workspace: `unknown` is never acted on,
+ * `stopped` says "launch again", and the CLI must be installed. Returns the bound CLI.
+ */
+export function rexCommandGate(project: string, status: ResolvedStatus): RexCommandGate {
+  const identity = status.rex;
+  if (!identity) return { ok: false, failure: { kind: "unavailable", code: "unavailable", reason: unverifiedMessage(project, "the record has no Rex identity") } };
+  if (status.state === "unknown") return { ok: false, failure: { kind: "unavailable", code: "unavailable", reason: unverifiedMessage(project, status.reason) } };
+  if (status.state === "stopped") return { ok: false, failure: { kind: "unavailable", code: "missing", reason: noLongerExistsMessage(project, status.reason) } };
+  const binary = rexBinaryPath();
+  if (!binary) return { ok: false, failure: { kind: "unavailable", code: "unavailable", reason: REX_CLI_MISSING } };
+  return { ok: true, cli: createRexCli(binary, identity.server), identity, liveBlocks: status.liveBlocks ?? [] };
 }
 

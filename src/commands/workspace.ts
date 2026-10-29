@@ -4,6 +4,9 @@ import { focusWorkspace, resolveWorkspaceTerminal } from "../launcher.js";
 import { readNativeInventory, titleTerminal, validateTitleText } from "../ghostty-native.js";
 import { validateProjectNameOrExit } from "../validation.js";
 import { escapeControlChars } from "../pane-inventory.js";
+import { inspectRex, titleRex } from "../backends/rex/status.js";
+import { rexCommandGate } from "../status.js";
+import type { ResolvedStatus } from "../status.js";
 import { exitWithUsageHint } from "../utils.js";
 import { fail } from "../ui/output.js";
 
@@ -35,6 +38,7 @@ export async function handleInspectCommand({
     "Usage: summon inspect <project> [--json]",
   );
   const status = readStatus(project);
+  if (status?.backend === "rex") return inspectRexWorkspace(project, status, values.json === true);
   const missing =
     "Exact native identity is unavailable. Select in Ghostty or explicitly relaunch when ready to capture identity.";
   const inventory = status?.native
@@ -89,6 +93,32 @@ export async function handleInspectCommand({
 
 
 
+/** `summon inspect` for a Rex record: block ids instead of terminal ids; the tty is never available. */
+function inspectRexWorkspace(project: string, status: ResolvedStatus, json: boolean): void {
+  const gate = rexCommandGate(project, status);
+  const inspected = gate.ok
+    ? inspectRex(gate.cli, gate.identity, status.panes, project, gate.liveBlocks)
+    : { availability: "unavailable" as const, reason: gate.failure.reason, panes: [] };
+  const available = inspected.availability === "available";
+  const reason = inspected.reason;
+  const result = {
+    project,
+    state: status.state,
+    backend: "rex",
+    availability: available ? "available" : "unavailable",
+    ...(reason ? { reason } : {}),
+    panes: inspected.panes,
+  };
+  if (json) console.log(JSON.stringify(result, null, 2));
+  else {
+    console.log(`${project}: ${result.state} (${result.availability}, Rex)`);
+    for (const pane of inspected.panes)
+      console.log(`  ${pane.name}  ${pane.blockId ?? "UNVERIFIED"}  PID ${pane.pid ?? "UNAVAILABLE"}  UNAVAILABLE  ${escapeControlChars(pane.title ?? "UNAVAILABLE")}`);
+    if (reason) console.log(reason);
+  }
+  if (!available) process.exit(2);
+}
+
 export async function handleTitleCommand({
   args,
   values,
@@ -104,22 +134,30 @@ export async function handleTitleCommand({
     const invalid = validateTitleText(values.set);
     if (invalid) exitWithUsageHint(invalid);
   }
-  const target = resolveWorkspaceTerminal(project, args[1]);
-  if (target.kind !== "target") {
-    fail(target.reason);
-    process.exit(2);
-  }
   const operation =
     values.set !== undefined
       ? { kind: "set" as const, text: values.set }
       : values.reset
         ? { kind: "reset" as const }
         : { kind: "read" as const };
-  const result = titleTerminal(
-    target.terminalId,
-    args[1] === undefined ? "tab" : "pane",
-    operation,
-  );
+  const scope = args[1] === undefined ? "tab" : "pane";
+  const status = readStatus(project);
+  let result;
+  if (status?.backend === "rex") {
+    const gate = rexCommandGate(project, status);
+    if (!gate.ok) {
+      fail(gate.failure.reason);
+      process.exit(2);
+    }
+    result = titleRex(gate.cli, gate.identity, status.panes, project, scope, operation, args[1]);
+  } else {
+    const target = resolveWorkspaceTerminal(project, args[1], status);
+    if (target.kind !== "target") {
+      fail(target.reason);
+      process.exit(2);
+    }
+    result = titleTerminal(target.terminalId, scope, operation);
+  }
   if (result.kind !== "title") {
     fail(result.reason);
     process.exit(2);

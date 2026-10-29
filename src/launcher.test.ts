@@ -62,7 +62,15 @@ vi.mock("./backends/rex/cli.js", () => ({
 // Mock status module (write is a no-op in tests)
 const mockReadStatus = vi.fn();
 const mockReadStatusRecord = vi.fn((_project: string): unknown => null);
-vi.mock("./status.js", () => ({ writeStatus: vi.fn(), discardStatusRecord: vi.fn(()=>true), readStatus: (...args: unknown[]) => mockReadStatus(...args), readStatusRecord: (project: string) => mockReadStatusRecord(project) }));
+vi.mock("./status.js", () => ({
+  writeStatus: vi.fn(),
+  discardStatusRecord: vi.fn(()=>true),
+  readStatus: (...args: unknown[]) => mockReadStatus(...args),
+  readStatusRecord: (project: string) => mockReadStatusRecord(project),
+  isLiveState: (state: string) => state === "active" || state === "partial",
+  unverifiedMessage: (project: string, reason?: string) => `[${project}] could not be verified: ${reason ?? "no liveness information"}.`,
+  rexCommandGate: vi.fn(() => ({ ok: false, failure: { kind: "unavailable", code: "unavailable", reason: "mock gate" } })),
+}));
 
 // Mock starship
 const mockIsStarshipInstalled = vi.fn(() => false);

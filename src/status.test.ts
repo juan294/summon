@@ -8,12 +8,38 @@ const TEST_STATUS_DIR = join(tmpdir(), `summon-status-test-${process.pid}`);
 
 // Mock the STATUS_DIR before importing status module
 import { vi } from "vitest";
+
+// Rex liveness is resolved through the Phase 3 adapters; here they are faked so each row of the
+// state table and the read protocol (adopt, probe, refresh) are pinned without a rex process.
+const rexMocks = vi.hoisted(() => ({
+  listSessions: vi.fn((..._args: unknown[]): unknown => ({ ok: true, sessions: [] })),
+  sessionState: vi.fn((..._args: unknown[]): unknown => ({ state: "stopped", reason: "Rex session no longer exists", liveBlocks: [] })),
+  adoptOrphans: vi.fn((..._args: unknown[]): string[] => []),
+  refreshPaneMapping: vi.fn((..._args: unknown[]): string[] => []),
+  discoverRex: vi.fn((): { path: string | null; searched: string[] } => ({ path: "/mock/rex", searched: ["PATH"] })),
+}));
+vi.mock("./backends/rex/status.js", async (original) => ({
+  ...(await original<typeof import("./backends/rex/status.js")>()),
+  listSessions: (...args: unknown[]) => rexMocks.listSessions(...args),
+  sessionState: (...args: unknown[]) => rexMocks.sessionState(...args),
+}));
+vi.mock("./backends/rex/launch.js", async (original) => ({
+  ...(await original<typeof import("./backends/rex/launch.js")>()),
+  adoptOrphans: (...args: unknown[]) => rexMocks.adoptOrphans(...args),
+  refreshPaneMapping: (...args: unknown[]) => rexMocks.refreshPaneMapping(...args),
+  adoptDeps: () => ({}),
+}));
+vi.mock("./backends/rex/cli.js", async (original) => ({
+  ...(await original<typeof import("./backends/rex/cli.js")>()),
+  discoverRex: () => rexMocks.discoverRex(),
+  createRexCli: (binary: string, server: string) => ({ binary, server, call: () => { throw new Error("no rex process in tests"); } }),
+}));
 vi.mock("./paths.js", () => ({
   STATUS_DIR: TEST_STATUS_DIR,
   CONFIG_DIR: join(tmpdir(), `summon-config-test-${process.pid}`),
 }));
 
-const { writeStatus, clearStatus, readStatus, readAllStatuses, getGitBranch, parseWorkspaceStatus, resetReadAllStatusesCache, readStatusRecord, withOwnedRecord, discardStatusRecord, statusTestHooks } = await import("./status.js");
+const { writeStatus, clearStatus, readStatus, readAllStatuses, getGitBranch, parseWorkspaceStatus, resetReadAllStatusesCache, readStatusRecord, withOwnedRecord, discardStatusRecord, statusTestHooks, resetRexBinaryMemo } = await import("./status.js");
 const { writeLaunchManifest } = await import("./launch-identity.js");
 import type { WorkspaceStatus } from "./status.js";
 import type { LaunchManifest } from "./launch-identity.js";
@@ -757,13 +783,136 @@ describe("per-launch liveness (plan P12)", () => {
     expect(readStatus("myapp")!.state).toBe("stopped");
   });
 
-  it("a Rex record resolves to unknown with a reason until Phase 3 ships sessionState", () => {
-    writeStatus(makeStatus({ project: "myapp", launchId: GEN_A, backend: "rex", rex: rexIdentity(), panes: ["editor", "sidebar", "shell"] }));
-    writeLaunchFiles("myapp", GEN_A);
-    const result = readStatus("myapp")!;
-    expect(result.state).toBe("unknown");
-    expect(result.uptime).toBeNull();
-    expect(result.reason).toContain("Rex liveness");
+  describe("Rex records resolve through sessionState (plan P10, Phase 4)", () => {
+    const rexRecord = (project = "myapp", extra: Partial<WorkspaceStatus> = {}) => makeStatus({ project, launchId: GEN_A, backend: "rex", rex: rexIdentity(), panes: ["editor"], startedAt: new Date(Date.now() - 60_000).toISOString(), ...extra });
+    beforeEach(() => {
+      rexMocks.listSessions.mockReset().mockReturnValue({ ok: true, sessions: [] });
+      rexMocks.sessionState.mockReset().mockReturnValue({ state: "stopped", reason: "Rex session no longer exists", liveBlocks: [] });
+      rexMocks.adoptOrphans.mockReset().mockReturnValue([]);
+      rexMocks.refreshPaneMapping.mockReset().mockReturnValue([]);
+      rexMocks.discoverRex.mockReset().mockReturnValue({ path: "/mock/rex", searched: ["PATH"] });
+      resetReadAllStatusesCache();
+      resetRexBinaryMemo();
+    });
+
+    it("a Rex record whose identity was discarded resolves to unknown with the real adoption (no reader recursion)", async () => {
+      const actual = await vi.importActual<typeof import("./backends/rex/launch.js")>("./backends/rex/launch.js");
+      rexMocks.adoptOrphans.mockImplementation((project: unknown, deps: unknown) => actual.adoptOrphans(project as string, deps as never));
+      // An identity naming a block outside `panes` is discarded by parseWorkspaceStatus.
+      writeStatus(rexRecord("myapp", { panes: ["other"] }));
+      const foreign: LaunchManifest = { version: 1, launchId: GEN_B, project: "myapp", directory: "/tmp/myapp", layout: "minimal", panes: ["editor"], paneOrder: ["editor"], blockLabels: {}, backend: "rex", server: "unix:///tmp/rex.sock", startedAt: new Date().toISOString() };
+      writeLaunchManifest(foreign);
+      const result = readStatus("myapp")!;
+      expect(result.rex).toBeUndefined();
+      expect(result).toMatchObject({ state: "unknown", reason: expect.stringContaining("no Rex identity") });
+      expect(rexMocks.sessionState).not.toHaveBeenCalled();
+      expect(readAllStatuses().map((r) => [r.project, r.state])).toEqual([["myapp", "unknown"]]);
+    });
+
+    it.each([
+      ["active", undefined, true],
+      ["partial", "root pane closed", true],
+      ["stopped", "no live panes", false],
+      ["unknown", "server unreachable", false],
+    ] as const)("maps %s with its reason and uptime only when live", (state, reason, live) => {
+      writeStatus(rexRecord());
+      rexMocks.sessionState.mockReturnValue({ state, ...(reason ? { reason } : {}), liveBlocks: live ? ["editor"] : [] });
+      const result = readStatus("myapp")!;
+      expect(result.state).toBe(state);
+      expect(result.reason).toBe(reason);
+      expect(live ? result.uptime! > 0 : result.uptime === null).toBe(true);
+      expect(rexMocks.sessionState).toHaveBeenCalledWith(expect.objectContaining({ binary: "/mock/rex", server: "unix:///tmp/rex.sock" }), rexIdentity(), "myapp", { ok: true, sessions: [] });
+    });
+
+    it("adopts orphans before probing, once per read, and surfaces the notices on the row", () => {
+      writeStatus(rexRecord());
+      rexMocks.adoptOrphans.mockReturnValue(["adopted earlier launch x of myapp (Rex session session:y)"]);
+      const result = readStatus("myapp")!;
+      expect(rexMocks.adoptOrphans).toHaveBeenCalledTimes(1);
+      expect(rexMocks.adoptOrphans).toHaveBeenCalledWith("myapp", expect.anything());
+      expect(rexMocks.adoptOrphans.mock.invocationCallOrder[0]!).toBeLessThan(rexMocks.sessionState.mock.invocationCallOrder[0]!);
+      expect(result.notices).toEqual(["adopted earlier launch x of myapp (Rex session session:y)"]);
+    });
+
+    it("re-reads the record only when adoption reported something", () => {
+      writeStatus(rexRecord());
+      rexMocks.sessionState.mockReturnValue({ state: "active", liveBlocks: ["editor"] });
+      const result = readStatus("myapp")!;
+      expect(result.notices).toBeUndefined();
+      expect(result.state).toBe("active");
+    });
+
+    it("re-reads the record after adoption replaced it", () => {
+      writeStatus(rexRecord());
+      rexMocks.adoptOrphans.mockImplementation(() => { writeStatus(rexRecord("myapp", { launchId: GEN_B, layout: "adopted" })); return ["adopted earlier launch"]; });
+      rexMocks.sessionState.mockReturnValue({ state: "active", liveBlocks: ["editor"] });
+      expect(readStatus("myapp")).toMatchObject({ launchId: GEN_B, layout: "adopted", state: "active" });
+    });
+
+    it("refreshes the pane mapping only for a live record with unverified panes, then re-reads it", () => {
+      writeStatus(rexRecord("myapp", { panes: ["editor", "shell"] }));
+      rexMocks.sessionState.mockReturnValue({ state: "active", liveBlocks: ["editor"] });
+      rexMocks.refreshPaneMapping.mockImplementation((record: unknown) => {
+        const r = record as WorkspaceStatus;
+        writeStatus({ ...r, rex: { ...r.rex!, blocks: [...r.rex!.blocks, { name: "shell", blockId: "block:0000aaaa-0000-0000-0000-000000000077", label: "shell" }] } });
+        return ["pane x of myapp has an unreadable pane file; summon clean --orphans names it"];
+      });
+      const result = readStatus("myapp")!;
+      expect(rexMocks.refreshPaneMapping).toHaveBeenCalledTimes(1);
+      expect(result.rex!.blocks.map((b) => b.name)).toEqual(["editor", "shell"]);
+      expect(result.notices).toEqual(["pane x of myapp has an unreadable pane file; summon clean --orphans names it"]);
+
+      // Complete record: no refresh. Stopped record with a gap: no refresh either.
+      rexMocks.refreshPaneMapping.mockClear();
+      readStatus("myapp");
+      expect(rexMocks.refreshPaneMapping).not.toHaveBeenCalled();
+      writeStatus(rexRecord("other", { panes: ["editor", "shell"] }));
+      rexMocks.sessionState.mockReturnValue({ state: "stopped", reason: "no live panes", liveBlocks: [] });
+      readStatus("other");
+      expect(rexMocks.refreshPaneMapping).not.toHaveBeenCalled();
+    });
+
+    it("is unknown without a rex binary, probing nothing", () => {
+      writeStatus(rexRecord());
+      rexMocks.discoverRex.mockReturnValue({ path: null, searched: ["PATH"] });
+      expect(readStatus("myapp")).toMatchObject({ state: "unknown", reason: expect.stringContaining("rex CLI not found") });
+      expect(rexMocks.adoptOrphans).not.toHaveBeenCalled();
+      expect(rexMocks.sessionState).not.toHaveBeenCalled();
+    });
+
+    it("readAllStatuses lists each server once, keeps Ghostty rows on the sidecars and sorts live rows first", () => {
+      writeStatus(rexRecord("rex-a"));
+      writeStatus(rexRecord("rex-b", { rex: { ...rexIdentity(), sessionId: "session:0000aaaa-0000-0000-0000-00000000000b" } }));
+      writeStatus(makeStatus({ project: "ghost", startedAt: new Date().toISOString() }));
+      writeFileSync(join(TEST_STATUS_DIR, "ghost.pid"), String(process.pid));
+      writeFileSync(join(TEST_STATUS_DIR, "ghost.active"), "");
+      rexMocks.sessionState.mockImplementation((_cli: unknown, _identity: unknown, project: unknown) => (project === "rex-b" ? { state: "partial", reason: "root pane closed", liveBlocks: ["editor"] } : { state: "unknown", reason: "boom", liveBlocks: [] }));
+      const rows = readAllStatuses();
+      expect(rows.map((r) => [r.project, r.state])).toEqual([["ghost", "active"], ["rex-b", "partial"], ["rex-a", "unknown"]]);
+      expect(rexMocks.listSessions).toHaveBeenCalledTimes(1);
+      expect(rexMocks.adoptOrphans).toHaveBeenCalledTimes(2);
+      expect(rexMocks.discoverRex).toHaveBeenCalledTimes(1);
+      // The 1 s cache bounds the probes: a second read within the TTL spawns nothing.
+      readAllStatuses();
+      expect(rexMocks.listSessions).toHaveBeenCalledTimes(1);
+    });
+
+    it("an unverified launch (manifest, no record) runs adoption and resolves through the record it published", () => {
+      const manifest: LaunchManifest = { version: 1, launchId: GEN_A, project: "orphan", directory: "/tmp/orphan", layout: "minimal", panes: ["editor"], paneOrder: ["editor"], blockLabels: { editor: "editor" }, backend: "rex", server: "unix:///tmp/rex.sock", startedAt: new Date().toISOString() };
+      writeLaunchManifest(manifest);
+      rexMocks.sessionState.mockReturnValue({ state: "active", liveBlocks: ["editor"] });
+      rexMocks.adoptOrphans.mockImplementationOnce(() => { writeStatus(rexRecord("orphan")); return ["adopted earlier launch"]; });
+      const rows = readAllStatuses();
+      expect(rows.map((r) => [r.project, r.state, r.reason])).toEqual([["orphan", "active", undefined]]);
+      expect(rows[0]!.notices).toEqual(["adopted earlier launch"]);
+      expect(rexMocks.adoptOrphans).toHaveBeenCalledTimes(1);
+
+      // Without adoption the manifest stays an unverified row.
+      resetReadAllStatusesCache();
+      clearStatus("orphan");
+      const again = readAllStatuses();
+      expect(again.map((r) => [r.project, r.state, r.reason])).toEqual([["orphan", "unknown", "unverified launch"]]);
+    });
   });
 });
 

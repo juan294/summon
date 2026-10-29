@@ -20,11 +20,12 @@ vi.mock("./launcher.js", () => ({
   focusWorkspace: (...args: unknown[]) => mockFocusWorkspace(...args),
 }));
 
+const monitorModule = await import("./monitor.js");
 const {
   formatUptime, stateColor, stateDot, renderRow, renderHeader, renderFooter,
   renderScreen, loadProjectRows, printStatusOnce, runMonitor, resetGitBranchCache,
   prefetchGitBranches, truncate,
-} = await import("./monitor.js");
+} = monitorModule;
 import type { ProjectRow } from "./monitor.js";
 
 const { listProjects } = await import("./config.js") as unknown as {
@@ -1457,3 +1458,91 @@ describe("UX-L1 (#616): narrow terminal renders single-line guard message", () =
     expect(screen).not.toContain("Terminal too narrow");
   });
 });
+
+describe("four-state rows (plan P10, Phase 4)", () => {
+  const { classifyState, renderRow, isLiveState } = monitorModule;
+
+  it("classifyState keeps unknown and partial distinct and splits active by uptime", () => {
+    expect(classifyState(makeResolvedStatus({ state: "unknown", uptime: null, reason: "server unreachable" }) as never)).toBe("unknown");
+    expect(classifyState(makeResolvedStatus({ state: "partial", uptime: 1000, reason: "root pane closed" }) as never)).toBe("partial");
+    expect(classifyState(makeResolvedStatus({ state: "stopped", uptime: null }) as never)).toBe("stopped");
+    expect(classifyState(makeResolvedStatus({ state: "active", uptime: 1000 }) as never)).toBe("active");
+    expect(classifyState(makeResolvedStatus({ state: "active", uptime: 5 * 60 * 60 * 1000 }) as never)).toBe("active-long");
+    expect(["active", "active-long", "partial"].every((s) => isLiveState(s as never))).toBe(true);
+    expect(["stopped", "unknown"].some((s) => isLiveState(s as never))).toBe(false);
+  });
+
+  it("renders the reason in the detail column for unknown and partial rows", () => {
+    const unknown = renderRow(makeRow({ state: "unknown", uptime: "\u2014", reason: "server unreachable" }), 80, false);
+    expect(unknown).toContain("unknown");
+    expect(unknown).toContain("server unreachable");
+    expect(unknown).not.toContain("/tmp/myapp");
+    const partial = renderRow(makeRow({ state: "partial", reason: "root pane closed" }), 80, false);
+    expect(partial).toContain("partial");
+    expect(partial).toContain("root pane closed");
+    const stopped = renderRow(makeRow({ state: "stopped" }), 80, false);
+    expect(stopped).toContain("/tmp/myapp");
+    const stoppedWithReason = renderRow(makeRow({ state: "stopped", reason: "empty Rex session remains; run summon clean myapp" }), 80, false);
+    expect(stoppedWithReason).toContain("empty Rex session remains");
+    expect(stoppedWithReason).not.toContain("/tmp/myapp");
+  });
+
+  it("loadProjectRows carries reason and notices, counts partial as active and sorts live rows first", () => {
+    listProjects.mockReturnValue([["a", "/tmp/a"], ["b", "/tmp/b"], ["c", "/tmp/c"]]);
+    readAllStatuses.mockReturnValue([
+      makeResolvedStatus({ project: "a", state: "unknown", uptime: null, reason: "server unreachable", notices: ["earlier launch x could not be verified"] }),
+      makeResolvedStatus({ project: "b", state: "partial", uptime: 60_000, reason: "root pane closed" }),
+      makeResolvedStatus({ project: "c", state: "active", uptime: 60_000 }),
+    ]);
+    getGitBranch.mockReturnValue("main");
+    const rows = monitorModule.loadProjectRows();
+    expect(rows.map((r) => [r.name, r.state, r.reason])).toEqual([["c", "active", undefined], ["b", "partial", "root pane closed"], ["a", "unknown", "server unreachable"]]);
+    expect(rows.find((r) => r.name === "a")!.notices).toEqual(["earlier launch x could not be verified"]);
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    monitorModule.printStatusOnce();
+    const output = logSpy.mock.calls.flat().join("\n");
+    logSpy.mockRestore();
+    expect(output).toContain("2 active / 3 total");
+    expect(output).toContain("note: earlier launch x could not be verified");
+    expect(output).toContain("server unreachable");
+  });
+});
+
+describe("handoff on the four states (plan P10, Phase 4)", () => {
+  let writeSpy: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    mockLaunch.mockReset();
+    mockFocusWorkspace.mockReset().mockReturnValue({ kind: "focused", terminalId: "00000000-0000-4000-8000-000000000001" });
+  });
+  afterEach(() => { writeSpy.mockRestore(); });
+
+  it("Enter on a partial row focuses it", async () => {
+    listProjects.mockReturnValue([["myapp", "/tmp/myapp"]]);
+    readAllStatuses.mockReturnValue([makeResolvedStatus({ project: "myapp", state: "partial", uptime: 60_000, reason: "root pane closed" })]);
+    const monitorPromise = runMonitor();
+    process.stdin.emit("data", Buffer.from("\r"));
+    await monitorPromise;
+    await vi.dynamicImportSettled();
+    expect(mockFocusWorkspace).toHaveBeenCalledWith("myapp");
+    expect(mockLaunch).not.toHaveBeenCalled();
+  });
+
+  it("Enter on an unknown row shows the reason and neither launches nor focuses", async () => {
+    listProjects.mockReturnValue([["myapp", "/tmp/myapp"]]);
+    readAllStatuses.mockReturnValue([makeResolvedStatus({ project: "myapp", state: "unknown", uptime: null, reason: "server unreachable" })]);
+    const monitorPromise = runMonitor();
+    process.stdin.emit("data", Buffer.from("\r"));
+    await new Promise((r) => setTimeout(r, 20));
+    const writes = writeSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("");
+    expect(writes).toContain("Cannot open (state unknown):");
+    expect(writes).toContain("server unreachable");
+    expect(mockLaunch).not.toHaveBeenCalled();
+    expect(mockFocusWorkspace).not.toHaveBeenCalled();
+    process.stdin.emit("data", Buffer.from(" "));
+    process.stdin.emit("data", Buffer.from("q"));
+    await monitorPromise;
+  });
+});
+

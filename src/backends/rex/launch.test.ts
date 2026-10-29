@@ -13,7 +13,8 @@ vi.mock("./../../paths.js", async (importOriginal) => {
 const { launchArtifactPaths, writeLaunchManifest, listLaunchManifests } = await import("../../launch-identity.js");
 const { readStatusRecord, withOwnedRecord, statusTestHooks } = await import("../../status.js");
 const { STATUS_DIR } = await import("../../paths.js");
-const { createWorkspace, readPaneFile, readPaneMapping, waitForToken, adoptOrphans, refreshPaneMapping, selectInApp, maybeSwitchToExisting, showWorkspace, showRecordedWorkspace } = await import("./launch.js");
+const { createWorkspace, readPaneFile, readPaneMapping, waitForToken, adoptOrphans, refreshPaneMapping, maybeSwitchToExisting, showWorkspace, showRecordedWorkspace } = await import("./launch.js");
+const { selectInApp } = await import("./app.js");
 type LaunchModule = typeof import("./launch.js");
 type CreateContext = Parameters<LaunchModule["createWorkspace"]>[2];
 type AdoptDeps = Parameters<LaunchModule["adoptOrphans"]>[1];
@@ -526,6 +527,17 @@ describe("adoptOrphans (plan P13 late adoption)", () => {
     expect(notices).toEqual([`earlier launch ${ID2} could not be verified on ${otherServer}: no socket; nothing adopted or removed`]);
     expect(readStatusRecord("chapa")).toBeNull();
     expect(existsSync(launchArtifactPaths("chapa", ID).manifest)).toBe(true);
+  });
+
+  it("refuses a Rex record without identity before any lookup (defense in depth against reader recursion)", async () => {
+    withOwnedRecord("chapa", "replace", () => { const r = recordFor(ID2); delete r.rex; return r; });
+    writeLaunchManifest(manifestFor());
+    writePane(ID, "editor", SESSION, blockId(1));
+    const cli = fakeCli({});
+    const ghosttyState = vi.fn(() => "stopped" as const);
+    expect(adoptOrphans("chapa", depsFor({ [SERVER]: cli }, { ghosttyState }))).toEqual(["chapa record has no Rex identity; nothing adopted or removed"]);
+    expect(cli.calls).toEqual([]);
+    expect(ghosttyState).not.toHaveBeenCalled();
   });
 
   it("abstains with a notice when a legacy record (no launchId) is present", async () => {

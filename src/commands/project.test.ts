@@ -52,6 +52,7 @@ vi.mock("../utils.js", async (importOriginal) => {
 vi.mock("../monitor.js", () => ({
   loadProjectRows: (...args: unknown[]) => mockLoadProjectRows(...args),
   renderRow: (...args: unknown[]) => mockRenderRow(...args),
+  isLiveState: (state: string) => state === "active" || state === "active-long" || state === "partial",
 }));
 
 const {
@@ -548,3 +549,34 @@ describe("P2 picker focus recovery",()=>{
   out.mockRestore();err.mockRestore();exit.mockRestore();
  });
 });
+
+describe("handleOpenCommand under the four-state table (plan P10, Phase 4)", () => {
+  beforeEach(() => {
+    vi.spyOn(process, "exit").mockImplementation(((code: number) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+  });
+
+  it("focuses a partial workspace, refuses an unknown one with its reason (exit 2) and never launches over it", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockLoadProjectRows.mockReturnValue([
+      { name: "api", directory: "/tmp/api", state: "partial", uptime: "1h", gitBranch: "main", reason: "root pane closed" },
+      { name: "web", directory: "/tmp/web", state: "unknown", uptime: "—", gitBranch: "—", reason: "server unreachable" },
+    ]);
+    mockFocusWorkspace.mockReturnValue({ kind: "focused", terminalId: "block:1" });
+    mockPromptUser.mockResolvedValueOnce("1");
+    await handleOpenCommand(makeContext());
+    expect(mockFocusWorkspace).toHaveBeenCalledWith("api");
+    expect(logSpy).toHaveBeenCalledWith("Switched to [api]");
+    expect(logSpy.mock.calls.some((c) => String(c[0]).includes("1 active / 2 total"))).toBe(true);
+
+    mockFocusWorkspace.mockClear();
+    mockLaunch.mockClear();
+    mockPromptUser.mockResolvedValueOnce("2");
+    await expect(handleOpenCommand(makeContext())).rejects.toThrow("exit:2");
+    expect(mockFocusWorkspace).not.toHaveBeenCalled();
+    expect(mockLaunch).not.toHaveBeenCalled();
+    logSpy.mockRestore();
+  });
+});
+

@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { BUNDLE_NAMES } from "./cli.js";
 import type { RexCli } from "./cli.js";
-import type { RexFailure } from "./types.js";
+import type { RexFailure, RexResult } from "./types.js";
 
 /**
  * Rex app clients (plan P7): deterministic choice of the app that shows a session, and the
@@ -97,6 +97,14 @@ export function chooseAppClient(all: readonly AppClient[], preferSession?: strin
     return a.clientId < b.clientId ? -1 : a.clientId > b.clientId ? 1 : 0;
   });
   return { chosen: sorted[0]!, others: sorted.slice(1) };
+}
+
+/** Show a session (and window) in an app client: `rex -C <client> do session.select …`. */
+export function selectInApp(cli: RexCli, clientId: string, sessionId: string, windowId?: string): RexResult {
+  const argv = ["-C", clientId, "do", "session.select", `session_id=${sessionId}`];
+  if (windowId) argv.push(`window_id=${windowId}`);
+  argv.push("--json");
+  return cli.call("do-select", argv);
 }
 
 /** One listing and the P7 choice; a failed listing counts as no client. */

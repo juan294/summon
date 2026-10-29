@@ -1,6 +1,8 @@
 import { rawResult } from "./cli.js";
 import type { RexCli } from "./cli.js";
 import { classifyRexFailure } from "./errors.js";
+import { pickAppClient, selectInApp } from "./app.js";
+import { asRecord } from "./types.js";
 import type { RexFailure, RexIdentity, RexResult } from "./types.js";
 
 /**
@@ -103,9 +105,13 @@ export function viewBlockIds(view: SessionView): Set<string> {
   return new Set(view.windows.flatMap((w) => w.blockIds));
 }
 
-/** The P10 state table over `ls` and `session.view`; `cli` must be bound to `identity.server`. */
-export function sessionState(cli: RexCli, identity: RexIdentity, project: string): RexSessionState {
-  const listed = listSessions(cli);
+export type SessionListing = ReturnType<typeof listSessions>;
+
+/**
+ * The P10 state table over `ls` and `session.view`; `cli` must be bound to `identity.server`.
+ * A caller that resolves several records on one server passes its own `listSessions` answer.
+ */
+export function sessionState(cli: RexCli, identity: RexIdentity, project: string, listed: SessionListing = listSessions(cli)): RexSessionState {
   if (!listed.ok) return { state: "unknown", reason: listed.reason, liveBlocks: [] };
   if (!listed.sessions.some((s) => s.sessionId === identity.sessionId)) return { state: "stopped", reason: "Rex session no longer exists", liveBlocks: [] };
   const viewed = viewSession(cli, identity.sessionId);
@@ -116,4 +122,160 @@ export function sessionState(cli: RexCli, identity: RexIdentity, project: string
   if (present.has(identity.rootBlockId)) return { state: "active", liveBlocks };
   if (liveBlocks.length > 0) return { state: "partial", reason: "root pane closed", liveBlocks };
   return { state: "stopped", reason: "no live panes", liveBlocks: [] };
+}
+
+// --- Phase 4: workspace commands under Rex (focus, inspect, title) ---
+
+/** Same shape as the Ghostty native failures so the commands print one way. */
+export interface RexCommandFailure {
+  kind: "unavailable" | "failed";
+  code: "missing" | "unavailable";
+  reason: string;
+}
+
+type BlockTarget = { ok: true; blockId: string; name: string } | { ok: false; failure: RexCommandFailure };
+
+/** A named pane's block: unknown names and panes without a block (unverified after recovery) are refused. */
+function blockOfPane(identity: RexIdentity, panes: readonly string[], project: string, paneName: string): BlockTarget {
+  if (!panes.includes(paneName)) return { ok: false, failure: { kind: "unavailable", code: "missing", reason: `Unknown pane. Valid panes: ${panes.join(", ")}. Run summon inspect ${project}.` } };
+  const block = identity.blocks.find((b) => b.name === paneName);
+  if (!block) return { ok: false, failure: { kind: "unavailable", code: "missing", reason: `pane ${paneName} could not be verified after recovery; run summon inspect ${project}` } };
+  return { ok: true, blockId: block.blockId, name: block.name };
+}
+
+function failed(result: RexFailure): RexCommandFailure {
+  return { kind: "failed", code: "unavailable", reason: result.reason };
+}
+
+export type RexFocusResult = { kind: "focused"; terminalId: string } | RexCommandFailure;
+
+/**
+ * Focus a pane (the named block, else the root, else the first live pane of a partial session)
+ * with `rex focus`, then show the session in the newest app. The caller resolved `state`.
+ */
+export function focusRex(cli: RexCli, identity: RexIdentity, panes: readonly string[], project: string, liveBlocks: readonly string[], paneName?: string, preferSession?: string): RexFocusResult {
+  let target: { blockId: string; name: string } | undefined;
+  if (paneName !== undefined) {
+    const resolved = blockOfPane(identity, panes, project, paneName);
+    if (!resolved.ok) return resolved.failure;
+    if (!liveBlocks.includes(resolved.name)) return { kind: "unavailable", code: "missing", reason: `pane ${resolved.name} is closed in Rex; run summon inspect ${project}` };
+    target = resolved;
+  } else {
+    const root = identity.blocks.find((b) => b.blockId === identity.rootBlockId);
+    target = root && liveBlocks.includes(root.name) ? root : identity.blocks.find((b) => liveBlocks.includes(b.name));
+  }
+  if (!target) return { kind: "unavailable", code: "missing", reason: `no live pane to focus; run summon inspect ${project}` };
+  const focused = cli.call("focus", ["focus", "-s", identity.sessionId, target.blockId]);
+  if (!focused.ok) return failed(focused);
+  const choice = pickAppClient(cli, preferSession);
+  if (!choice) return { kind: "failed", code: "unavailable", reason: `no Rex app is connected; open Rex and pick [${project}]` };
+  const selected = selectInApp(cli, choice.chosen.clientId, identity.sessionId, identity.windowId);
+  if (!selected.ok) return failed(selected);
+  return { kind: "focused", terminalId: target.blockId };
+}
+
+export interface RexInspectPane {
+  name: string;
+  blockId: string | null;
+  pid: number | null;
+  /** Rex does not expose the tty; always null (printed UNAVAILABLE). */
+  tty: null;
+  title: string | null;
+  directory: string | null;
+  availability: "available" | "closed" | "unverified";
+}
+
+export interface RexInspectResult {
+  availability: "available" | "unavailable";
+  reason?: string;
+  panes: RexInspectPane[];
+}
+
+/** Current labels from `block ls` for the session. */
+function blockLabels(cli: RexCli, sessionId: string): { ok: true; labels: Map<string, string> } | RexFailure {
+  const listed = cli.call("block-ls", ["block", "ls", "-s", sessionId, "--json"]);
+  if (!listed.ok) return listed;
+  const raw = asRecord(listed.json)?.["blocks"];
+  if (!Array.isArray(raw)) return malformed(listed);
+  const labels = new Map<string, string>();
+  for (const item of raw as unknown[]) {
+    const block = asRecord(item);
+    if (typeof block?.["block_id"] === "string" && typeof block["label"] === "string") labels.set(block["block_id"], block["label"]);
+  }
+  return { ok: true, labels };
+}
+
+function blockCall(cli: RexCli, sessionId: string, blockId: string, method: string): Record<string, unknown> | undefined {
+  const result = cli.call("block-call", ["block", "call", "-s", sessionId, "-b", blockId, method]);
+  return result.ok ? asRecord(result.json) : undefined;
+}
+
+/**
+ * Rows for every recorded pane: presence from the reader's `liveBlocks` (the `session.view`
+ * the state came from), pid and cwd from `block call process`, title from `block call title`.
+ */
+export function inspectRex(cli: RexCli, identity: RexIdentity, panes: readonly string[], project: string, liveBlocks: readonly string[]): RexInspectResult {
+  const rows: RexInspectPane[] = [];
+  const closed: string[] = [];
+  const unverified: string[] = [];
+  for (const name of panes) {
+    const block = identity.blocks.find((b) => b.name === name);
+    if (!block) {
+      unverified.push(name);
+      rows.push({ name, blockId: null, pid: null, tty: null, title: null, directory: null, availability: "unverified" });
+      continue;
+    }
+    if (!liveBlocks.includes(name)) {
+      closed.push(name);
+      rows.push({ name, blockId: block.blockId, pid: null, tty: null, title: null, directory: null, availability: "closed" });
+      continue;
+    }
+    const process = blockCall(cli, identity.sessionId, block.blockId, "process");
+    const foreground = asRecord(process?.["foreground"]);
+    const child = asRecord(process?.["child"]);
+    const pid = typeof foreground?.["pid"] === "number" ? foreground["pid"] : typeof child?.["pid"] === "number" ? child["pid"] : null;
+    const directory = typeof foreground?.["cwd"] === "string" ? foreground["cwd"] : null;
+    const titled = blockCall(cli, identity.sessionId, block.blockId, "title");
+    const title = typeof titled?.["title"] === "string" ? titled["title"] : null;
+    rows.push({ name, blockId: block.blockId, pid, tty: null, title, directory, availability: "available" });
+  }
+  // Availability follows the recorded blocks (all present = available); unverified panes are reported, not counted.
+  const problems: string[] = [];
+  if (closed.length > 0) problems.push(`${closed.length} recorded ${closed.length === 1 ? "pane is" : "panes are"} closed in Rex (${closed.join(", ")})`);
+  if (unverified.length > 0) problems.push(`${unverified.length} ${unverified.length === 1 ? "pane" : "panes"} could not be verified after recovery (${unverified.join(", ")}); run summon ${project} to relaunch`);
+  return { availability: closed.length > 0 ? "unavailable" : "available", ...(problems.length > 0 ? { reason: problems.join("; ") } : {}), panes: rows };
+}
+
+export type RexTitleOperation = { kind: "read" } | { kind: "set"; text: string } | { kind: "reset" };
+export type RexTitleResult = { kind: "title"; terminalId: string; scope: "tab" | "pane"; override: string } | RexCommandFailure;
+
+/**
+ * Pane labels through `session.set_block_label` (reset restores the recorded label); the tab is
+ * the session's window through `session.set_window_label` (reset restores `[project]`).
+ */
+export function titleRex(cli: RexCli, identity: RexIdentity, panes: readonly string[], project: string, scope: "tab" | "pane", operation: RexTitleOperation, paneName?: string): RexTitleResult {
+  if (scope === "pane") {
+    const resolved = blockOfPane(identity, panes, project, paneName ?? panes[0] ?? "");
+    if (!resolved.ok) return resolved.failure;
+    const recorded = identity.blocks.find((b) => b.blockId === resolved.blockId)?.label ?? "";
+    if (operation.kind === "read") {
+      const listed = blockLabels(cli, identity.sessionId);
+      if (!listed.ok) return failed(listed);
+      return { kind: "title", terminalId: resolved.blockId, scope, override: listed.labels.get(resolved.blockId) ?? "" };
+    }
+    const label = operation.kind === "set" ? operation.text : recorded;
+    const result = cli.call("block-label", ["api", "call", "session.set_block_label", "-"], { input: JSON.stringify({ session_id: identity.sessionId, block_id: resolved.blockId, label }) });
+    if (!result.ok) return failed(result);
+    return { kind: "title", terminalId: resolved.blockId, scope, override: label };
+  }
+  if (operation.kind === "read") {
+    const viewed = viewSession(cli, identity.sessionId);
+    if (!viewed.ok) return failed(viewed);
+    const window = viewed.view.windows.find((w) => w.windowId === identity.windowId);
+    return { kind: "title", terminalId: identity.windowId, scope, override: window?.label ?? "" };
+  }
+  const label = operation.kind === "set" ? operation.text : `[${project}]`;
+  const result = cli.call("window-rename", ["api", "call", "session.set_window_label", "-"], { input: JSON.stringify({ session_id: identity.sessionId, window_id: identity.windowId, label }) });
+  if (!result.ok) return failed(result);
+  return { kind: "title", terminalId: identity.windowId, scope, override: label };
 }

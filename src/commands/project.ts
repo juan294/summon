@@ -7,6 +7,7 @@ import {
 import { focusWorkspace, launch } from "../launcher.js";
 import { promptUser, exitWithUsageHint, PromptCancelled } from "../utils.js";
 import { fail } from "../ui/output.js";
+import { unverifiedMessage } from "../status.js";
 import { validateProjectNameOrExit } from "../validation.js";
 // PE-H1 (#473): Re-export from new leaf module for backward compatibility with callers.
 export { resolveTargetDirectory, expandHome } from "../cli/resolve-target.js";
@@ -70,7 +71,7 @@ export async function handleListCommand(): Promise<void> {
 }
 
 export async function handleOpenCommand({ overrides }: CommandContext): Promise<void> {
-  const { loadProjectRows, renderRow } = await import("../monitor.js");
+  const { loadProjectRows, renderRow, isLiveState } = await import("../monitor.js");
 
   const rows = loadProjectRows();
   if (rows.length === 0) {
@@ -78,7 +79,7 @@ export async function handleOpenCommand({ overrides }: CommandContext): Promise<
     process.exit(1);
   }
 
-  const activeCount = rows.filter((row) => row.state === "active" || row.state === "active-long").length;
+  const activeCount = rows.filter((row) => isLiveState(row.state)).length;
   const { nameWidth } = computeColumnWidths(rows);
   const colPad = " ".repeat(Math.max(0, nameWidth - "name".length));
   console.log(`  summon — select a project${colPad}  ${activeCount} active / ${rows.length} total\n`);
@@ -117,7 +118,12 @@ export async function handleOpenCommand({ overrides }: CommandContext): Promise<
     selectedRow = rows[index];
   }
 
-  if (selectedRow.state === "active" || selectedRow.state === "active-long") {
+  // Plan P10: an unknown workspace is never launched over or focused.
+  if (selectedRow.state === "unknown") {
+    fail(unverifiedMessage(selectedRow.name, selectedRow.reason));
+    process.exit(2);
+  }
+  if (isLiveState(selectedRow.state)) {
     const result = focusWorkspace(selectedRow.name);
     if (result.kind !== "focused") { fail(result.reason); process.exit(2); }
     console.log(`Switched to [${selectedRow.name}]`);
