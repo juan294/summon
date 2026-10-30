@@ -53,7 +53,8 @@ vi.mock("./snapshot.js", async (original) => ({
   writeSnapshotFile: (snapshot: unknown) => snapshotMocks.writeSnapshotFile(snapshot),
 }));
 
-const { writeStatus, publishStatus, clearStatus, readStatus, readAllStatuses, getGitBranch, parseWorkspaceStatus, resetReadAllStatusesCache, readStatusRecord, withOwnedRecord, statusTestHooks, resetRexBinaryMemo, newRexReadContext } = await import("./status.js");
+const { writeStatus, publishStatus, clearStatus, readStatus, readAllStatuses, getGitBranch, parseWorkspaceStatus, resetReadAllStatusesCache, readStatusRecord, withOwnedRecord, statusTestHooks, resetRexBinaryMemo, newRexReadContext, removeLaunchFileSet, NO_LIVE_PANES } = await import("./status.js");
+const { launchArtifactFiles } = await import("./launch-identity.js");
 const { writeLaunchManifest } = await import("./launch-identity.js");
 import type { WorkspaceStatus } from "./status.js";
 import type { LaunchManifest } from "./launch-identity.js";
@@ -883,6 +884,11 @@ describe("per-launch liveness (plan P12)", () => {
     });
 
     const SHELL_BLOCK = "block:0000aaaa-0000-0000-0000-000000000077";
+    /** The probe: partial once the identity knows the shell (root closed), else stopped with blocks that no recorded pane names. */
+    const stateFollowsShell = () => rexMocks.sessionState.mockImplementation((_cli: unknown, identity: unknown) => {
+      const known = (identity as { blocks: Array<{ name: string }> }).blocks.map((b) => b.name);
+      return known.includes("shell") ? { state: "partial", reason: "root pane closed", liveBlocks: ["shell"] } : { state: "stopped", reason: NO_LIVE_PANES, liveBlocks: [] };
+    });
     /** A refresh that finds the shell pane's file: the record gains its block under the lock. */
     const refreshFindsShell = () => rexMocks.refreshPaneMapping.mockImplementation((record: unknown) => {
       const r = record as WorkspaceStatus;
@@ -912,17 +918,50 @@ describe("per-launch liveness (plan P12)", () => {
 
     it("a stopped record with a gap is refreshed too (P13 next-read recovery): the delayed pane keeps the workspace alive", () => {
       writeStatus(rexRecord("myapp", { panes: ["editor", "shell"] }));
-      // Root closed; the shell block is present once the identity knows it.
-      rexMocks.sessionState.mockImplementation((_cli: unknown, identity: unknown) => {
-        const known = (identity as { blocks: Array<{ name: string }> }).blocks.map((b) => b.name);
-        return known.includes("shell") ? { state: "partial", reason: "root pane closed", liveBlocks: ["shell"] } : { state: "stopped", reason: "no live panes", liveBlocks: [] };
-      });
+      stateFollowsShell();
       refreshFindsShell();
       const result = readStatus("myapp")!;
       expect(rexMocks.refreshPaneMapping).toHaveBeenCalledTimes(1);
       expect(result).toMatchObject({ state: "partial", liveBlocks: ["shell"] });
       expect(result.rex!.blocks.map((b) => b.name)).toEqual(["editor", "shell"]);
       expect(readStatusRecord("myapp")!.endedAt).toBeUndefined();
+    });
+
+    it("a stop with blocks remaining while a pane is unverified is not reconciled; the late pane file recovers it on the next read", () => {
+      writeStatus(rexRecord("myapp", { panes: ["editor", "shell"] }));
+      stateFollowsShell();
+      // First read: the shell's pane file has not arrived.
+      snapshotMocks.collectSnapshot.mockClear();
+      rexMocks.refreshPaneMapping.mockReturnValueOnce({ notices: [], changed: false });
+      const first = readStatus("myapp")!;
+      expect(first).toMatchObject({ state: "stopped", reason: `${NO_LIVE_PANES}; 1 pane unverified` });
+      expect(readStatusRecord("myapp")!.endedAt).toBeUndefined();
+      expect(snapshotMocks.collectSnapshot).not.toHaveBeenCalled();
+      // Second read: the file is there.
+      refreshFindsShell();
+      resetReadAllStatusesCache();
+      const second = readStatus("myapp")!;
+      expect(second).toMatchObject({ state: "partial", liveBlocks: ["shell"] });
+      expect(second.rex!.blocks.map((b) => b.name)).toEqual(["editor", "shell"]);
+      // With every pane known, "no live panes" is a real stop and is reconciled.
+      rexMocks.sessionState.mockReturnValue({ state: "stopped", reason: NO_LIVE_PANES, liveBlocks: [] });
+      expect(readStatus("myapp")!.reason).toBe(NO_LIVE_PANES);
+      expect(readStatusRecord("myapp")!.endedAt).toBeDefined();
+    });
+
+    it("a Ghostty generation published during reconciliation is resolved through the Ghostty sidecars, not the Rex resolver", () => {
+      writeStatus(rexRecord("myapp"));
+      rexMocks.sessionState.mockReturnValue({ state: "stopped", reason: "empty Rex session remains; run summon clean myapp", liveBlocks: [] });
+      statusTestHooks.beforeLock = () => {
+        delete statusTestHooks.beforeLock;
+        writeLaunchFiles("myapp", GEN_B);
+        writeStatus(makeStatus({ project: "myapp", launchId: GEN_B, backend: "ghostty", startedAt: new Date().toISOString() }));
+      };
+      const result = readStatus("myapp")!;
+      expect(result).toMatchObject({ launchId: GEN_B, backend: "ghostty", state: "active" });
+      expect(result.reason).toBeUndefined();
+      expect(result.rex).toBeUndefined();
+      expect(rexMocks.sessionState).toHaveBeenCalledTimes(1);
     });
 
     it("a generation published during reconciliation is resolved afresh, never paired with the old generation's state", () => {
@@ -1208,6 +1247,7 @@ describe("publishStatus: a failed publication discards only the record observed 
   afterEach(() => {
     delete statusTestHooks.beforeLock;
     delete statusTestHooks.beforeWrite;
+    delete statusTestHooks.afterUnlock;
     chmodSync(TEST_STATUS_DIR, 0o700);
   });
 
@@ -1221,7 +1261,10 @@ describe("publishStatus: a failed publication discards only the record observed 
     writeStatus(makeStatus({ project: "p", launchId: GEN_A }));
     let locks = 0;
     statusTestHooks.beforeLock = () => { locks += 1; };
-    statusTestHooks.beforeWrite = () => { throw new Error("disk full"); };
+    statusTestHooks.beforeWrite = () => {
+      expect(existsSync(join(TEST_STATUS_DIR, "p.json.lock"))).toBe(true); // the failing write runs under the lock
+      throw new Error("disk full");
+    };
     expect(publishStatus(makeStatus({ project: "p", launchId: GEN_B }))).toBe("discarded");
     // One lock: the observation, the failed write and the discard are one critical section, so a
     // record another launch publishes after the lock is released is never the one discarded.
@@ -1230,6 +1273,19 @@ describe("publishStatus: a failed publication discards only the record observed 
     delete statusTestHooks.beforeWrite;
     writeStatus(makeStatus({ project: "p", launchId: GEN_A }));
     expect(readStatusRecord("p")?.launchId).toBe(GEN_A);
+  });
+
+  it("a record published the moment the lock is released survives: the discard happened inside the lock", () => {
+    writeStatus(makeStatus({ project: "p", launchId: GEN_A }));
+    statusTestHooks.beforeWrite = () => { throw new Error("disk full"); };
+    statusTestHooks.afterUnlock = () => {
+      // Another launch wins the lock right after this publication released it.
+      delete statusTestHooks.afterUnlock;
+      delete statusTestHooks.beforeWrite;
+      writeStatus(makeStatus({ project: "p", launchId: GEN_B }));
+    };
+    expect(publishStatus(makeStatus({ project: "p", launchId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc" }))).toBe("discarded");
+    expect(readStatusRecord("p")?.launchId).toBe(GEN_B);
   });
 
   it("a failed write with no record observed is discarded (nothing stale remains)", () => {
@@ -1245,6 +1301,47 @@ describe("publishStatus: a failed publication discards only the record observed 
     chmodSync(TEST_STATUS_DIR, 0o700);
     expect(readStatusRecord("p")?.launchId).toBe(GEN_A);
   });
+});
+
+describe("removeLaunchFileSet keeps the retry proof", () => {
+  const files = () => launchArtifactFiles("p", GEN_A, ["editor", "shell"]);
+  const write = (path: string) => writeFileSync(path, "x\n");
+  beforeEach(() => {
+    mkdirSync(launchDir("p"), { recursive: true });
+    for (const file of [...files().liveness, ...files().panes, files().manifest!, files().token!]) if (!file.endsWith(".tmp")) write(file);
+  });
+
+  it("a failing pane or sidecar removal keeps the manifest and the token; the retry removes everything", () => {
+    mkdirSync(files().panes.find((f) => f.endsWith(".pane.shell.tmp"))!); // only that unlink fails
+    const failures = removeLaunchFileSet(files());
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toContain(".pane.shell.tmp");
+    expect(existsSync(files().manifest!)).toBe(true);
+    expect(existsSync(files().token!)).toBe(true);
+    rmSync(files().panes.find((f) => f.endsWith(".pane.shell.tmp"))!, { recursive: true });
+    expect(removeLaunchFileSet(files())).toEqual([]);
+    expect(launchFileListExists()).toEqual([]);
+  });
+
+  it("a failing manifest removal keeps the token; the retry removes everything", () => {
+    rmSync(files().manifest!);
+    mkdirSync(files().manifest!); // a directory where the manifest is: unlink fails, nothing else does
+    const failures = removeLaunchFileSet(files());
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toContain(`${GEN_A}.json`);
+    expect(existsSync(files().token!)).toBe(true);
+    rmSync(files().manifest!, { recursive: true });
+    expect(removeLaunchFileSet(files())).toEqual([]);
+    expect(launchFileListExists()).toEqual([]);
+  });
+
+  it("a set without manifest or token (session not confirmed gone) removes only what it names", () => {
+    expect(removeLaunchFileSet({ liveness: files().liveness, panes: [] })).toEqual([]);
+    expect(existsSync(files().token!)).toBe(true);
+    expect(existsSync(files().manifest!)).toBe(true);
+  });
+
+  const launchFileListExists = () => [...files().liveness, ...files().panes, files().manifest!, files().token!].filter((f) => existsSync(f));
 });
 
 describe("clearStatus with a generation", () => {

@@ -7,7 +7,7 @@ import { collectSnapshot, writeSnapshotFile } from "./snapshot.js";
 import type { RexIdentity } from "./backends/rex/types.js";
 import { createRexCli, discoverRex } from "./backends/rex/cli.js";
 import type { RexCli } from "./backends/rex/cli.js";
-import { SESSION_GONE, listSessions, programStatusOf, sessionState } from "./backends/rex/status.js";
+import { NO_LIVE_PANES, SESSION_GONE, listSessions, programStatusOf, sessionState } from "./backends/rex/status.js";
 import type { ProgramStatus, SessionListing } from "./backends/rex/status.js";
 import type { NativeFailure } from "./ghostty-native.js";
 import { adoptDeps, adoptOrphans, refreshPaneMapping } from "./backends/rex/launch.js";
@@ -92,6 +92,11 @@ function adoptOnce(projectName: string, binary: string, ctx: RexReadContext): st
   return adoptOrphans(projectName, adoptDeps(binary));
 }
 
+/** A recorded pane whose block is not known yet (its pane file had not appeared when last looked). */
+function unverifiedPanes(record: WorkspaceStatus): number {
+  return record.panes.length - (record.rex?.blocks.length ?? 0);
+}
+
 function unknownRow(record: Omit<WorkspaceStatus, "pid"> & { pid: number | null }, reason: string, notices: string[] = []): ResolvedStatus {
   return { ...record, state: "unknown", uptime: null, reason, ...(notices.length > 0 ? { notices } : {}) };
 }
@@ -110,6 +115,8 @@ function resolveRexStatus(projectName: string, record: WorkspaceStatus, ctx: Rex
   const notices = [...adoptOnce(projectName, binary, ctx)];
   let current = notices.length > 0 ? readStatusRecord(projectName) ?? record : record;
   for (let attempt = 0; attempt < 2; attempt++) {
+    // The newer generation belongs to whichever backend launched it.
+    if (current.backend !== "rex") return resolveGhosttyStatus(projectName, current, notices);
     const resolved = resolveRexGeneration(projectName, current, binary, ctx, notices);
     if (resolved.kind === "resolved") return resolved.status;
     current = resolved.record;
@@ -117,6 +124,18 @@ function resolveRexStatus(projectName: string, record: WorkspaceStatus, ctx: Rex
     if (current.rex) ctx.listings.delete(current.rex.server);
   }
   return unknownRow(current, "the record changed while it was read; retry", notices);
+}
+
+/** Ghostty: the sidecars decide (a record with a launch id reads only its own per-launch files, P12). */
+function resolveGhosttyStatus(projectName: string, record: WorkspaceStatus, notices: string[] = []): ResolvedStatus {
+  const active = ghosttyLiveness(projectName, record) === "active";
+  const started = Date.parse(record.startedAt);
+  return {
+    ...record,
+    state: active ? "active" : "stopped",
+    uptime: active && !Number.isNaN(started) ? Date.now() - started : null,
+    ...(notices.length > 0 ? { notices } : {}),
+  };
 }
 
 type GenerationResult = { kind: "resolved"; status: ResolvedStatus } | { kind: "superseded"; record: WorkspaceStatus };
@@ -131,7 +150,7 @@ function resolveRexGeneration(projectName: string, record: WorkspaceStatus, bina
   const gen = record.launchId;
   let current = record;
   // An ended generation never gains pane files; a live or stopped one with unverified panes is refreshed before the probe.
-  if (gen && record.rex && !record.endedAt && record.rex.blocks.length < record.panes.length) {
+  if (gen && record.rex && !record.endedAt && unverifiedPanes(record) > 0) {
     const refreshed = refreshPaneMapping(record);
     notices.push(...refreshed.notices);
     if (refreshed.changed) {
@@ -149,9 +168,12 @@ function resolveRexGeneration(projectName: string, record: WorkspaceStatus, bina
     ctx.listings.set(identity.server, listing);
   }
   const state = sessionState(cli, identity, projectName, listing);
-  if (state.state === "stopped" && gen) {
+  // Blocks remain and a recorded pane is unverified: one of them may be ours, so the launch is not ended here (P13 next-read recovery).
+  const unverified = state.reason === NO_LIVE_PANES ? unverifiedPanes(current) : 0;
+  const reason = unverified > 0 ? `${state.reason}; ${unverified} pane${unverified === 1 ? "" : "s"} unverified` : state.reason;
+  if (state.state === "stopped" && gen && unverified === 0) {
     const confirmedGone = state.reason === SESSION_GONE;
-    if (needsReconciliation(current, removableLaunchFiles(projectName, current, gen, confirmedGone))) {
+    if (needsReconciliation(current, () => removableLaunchFiles(projectName, current, gen, confirmedGone))) {
       const notice = endRexLaunch(projectName, current, { confirmedGone });
       if (notice) notices.push(notice);
       const latest = readStatusRecord(projectName) ?? current;
@@ -168,7 +190,7 @@ function resolveRexGeneration(projectName: string, record: WorkspaceStatus, bina
       ...current,
       state: state.state,
       uptime: isLiveState(state.state) && !Number.isNaN(started) ? Date.now() - started : null,
-      ...(state.reason ? { reason: state.reason } : {}),
+      ...(reason ? { reason } : {}),
       ...(notices.length > 0 ? { notices } : {}),
       liveBlocks: state.liveBlocks,
       ...(programStatus ? { programStatus } : {}),
@@ -180,16 +202,7 @@ export function readStatus(projectName: string, ctx: RexReadContext = newRexRead
   const status = readStatusRecord(projectName);
   if (!status) return null;
 
-  if (status.backend === "rex") return resolveRexStatus(projectName, status, ctx);
-
-  // Ghostty: the sidecars decide (a record with a launch id reads only its own per-launch files, P12).
-  const active = ghosttyLiveness(projectName, status) === "active";
-  const started = Date.parse(status.startedAt);
-  return {
-    ...status,
-    state: active ? "active" : "stopped",
-    uptime: active && !isNaN(started) ? Date.now() - started : null,
-  };
+  return status.backend === "rex" ? resolveRexStatus(projectName, status, ctx) : resolveGhosttyStatus(projectName, status);
 }
 
 const UNVERIFIED_LAUNCH = "unverified launch";
@@ -340,7 +353,7 @@ export function rexCommandGate(project: string, status: ResolvedStatus): RexComm
 
 // --- Reconciliation of ended Rex launches (plan P12, phase-5.md) ---
 
-export { SESSION_GONE } from "./backends/rex/status.js";
+export { NO_LIVE_PANES, SESSION_GONE } from "./backends/rex/status.js";
 
 /** Step A (the snapshot) failed; the record write failure is `RecordWriteError`, anything else comes from the lock. */
 class SnapshotStepFailure extends Error {}
@@ -352,11 +365,11 @@ function removableLaunchFiles(project: string, record: WorkspaceStatus, launchId
   return confirmedGone ? files : { liveness: files.liveness, panes: [] };
 }
 
-/** Rule 1 of the reconciliation: no `endedAt` yet, or `endedAt` with removable per-launch files left behind. */
-function needsReconciliation(record: WorkspaceStatus, files: LaunchFileSet): boolean {
+/** Rule 1 of the reconciliation: no `endedAt` yet, or `endedAt` with removable per-launch files left behind (the set is built only then). */
+function needsReconciliation(record: WorkspaceStatus, files: () => LaunchFileSet): boolean {
   if (!record.launchId) return false;
   if (!record.endedAt) return true;
-  return launchFileList(files).some((file) => existsSync(file));
+  return launchFileList(files()).some((file) => existsSync(file));
 }
 
 export interface EndLaunchOptions {

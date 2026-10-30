@@ -23,9 +23,9 @@ export interface RexIdentity {
   blocks: RexBlockIdentity[];
 }
 
-/** The value as a plain object, or undefined. */
+/** A JSON object (never an array: `[[]]` as a layer would otherwise read as a layer without blocks). */
 export function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return value && typeof value === "object" ? (value as Record<string, unknown>) : undefined;
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
 }
 
 export function isKindId(value: unknown, kind: "session" | "window" | "block"): value is string {

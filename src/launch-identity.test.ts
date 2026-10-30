@@ -167,8 +167,8 @@ describe("launchArtifactFiles", () => {
   it("groups the liveness sidecars, the pane files and the manifest, and lists them as one", () => {
     const paths = launchArtifactPaths("chapa", ID);
     const files = launchArtifactFiles("chapa", ID, ["editor", "shell"]);
-    expect(files).toEqual({ liveness: [paths.pid, paths.active], panes: [paths.pane("editor").file, paths.pane("editor").tmp, paths.pane("shell").file, paths.pane("shell").tmp], manifest: paths.manifest });
-    expect(launchFileList(files)).toEqual([...files.liveness, ...files.panes, paths.manifest]);
+    expect(files).toEqual({ liveness: [paths.pid, paths.active], panes: [paths.pane("editor").tmp, paths.pane("shell").file, paths.pane("shell").tmp], manifest: paths.manifest, token: paths.pane("editor").file });
+    expect(launchFileList(files)).toEqual([...files.liveness, ...files.panes, paths.manifest, paths.pane("editor").file]);
     expect(launchFileList({ liveness: files.liveness, panes: [] })).toEqual(files.liveness);
   });
 });

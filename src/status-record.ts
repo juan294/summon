@@ -78,7 +78,7 @@ export interface OwnedRecordResult {
 export class RecordWriteError extends Error {}
 
 /** @internal test hook: runs just before the status lock is taken. */
-export const statusTestHooks: { beforeLock?: () => void; beforeWrite?: () => void } = {};
+export const statusTestHooks: { beforeLock?: () => void; beforeWrite?: () => void; afterUnlock?: () => void } = {};
 
 // --- Paths ---
 
@@ -144,39 +144,43 @@ export function withOwnedRecord(
   const file = statusFilePath(projectName);
   mkdirSync(STATUS_DIR, { recursive: true, mode: 0o700 });
   statusTestHooks.beforeLock?.();
-  return withFileLock(file, () => {
-    const exists = existsSync(file);
-    const current = exists ? readStatusRecord(projectName) : null;
-    if (expectation !== "replace") {
-      const superseded = expectation.launchId === null
-        ? exists
-        : current === null || current.launchId !== expectation.launchId;
-      if (superseded) return { outcome: "superseded", afterErrors: [] };
-    }
-    const next = action(current);
-    let outcome: "written" | "unchanged";
-    if (next === null) {
-      outcome = "unchanged";
-    } else {
-      try {
-        statusTestHooks.beforeWrite?.();
-        atomicWrite(file, JSON.stringify(next, null, 2) + "\n", { mode: 0o600 });
-      } catch (error) {
-        onWriteFailure?.();
-        throw new RecordWriteError(error instanceof Error ? error.message : String(error));
+  try {
+    return withFileLock(file, () => {
+      const exists = existsSync(file);
+      const current = exists ? readStatusRecord(projectName) : null;
+      if (expectation !== "replace") {
+        const superseded = expectation.launchId === null
+          ? exists
+          : current === null || current.launchId !== expectation.launchId;
+        if (superseded) return { outcome: "superseded", afterErrors: [] };
       }
-      outcome = "written";
-    }
-    const afterErrors: Error[] = [];
-    if (afterWrite) {
-      try {
-        afterWrite(outcome, next ?? current);
-      } catch (error) {
-        afterErrors.push(error instanceof Error ? error : new Error(String(error)));
+      const next = action(current);
+      let outcome: "written" | "unchanged";
+      if (next === null) {
+        outcome = "unchanged";
+      } else {
+        try {
+          statusTestHooks.beforeWrite?.();
+          atomicWrite(file, JSON.stringify(next, null, 2) + "\n", { mode: 0o600 });
+        } catch (error) {
+          onWriteFailure?.();
+          throw new RecordWriteError(error instanceof Error ? error.message : String(error));
+        }
+        outcome = "written";
       }
-    }
-    return { outcome, afterErrors };
-  });
+      const afterErrors: Error[] = [];
+      if (afterWrite) {
+        try {
+          afterWrite(outcome, next ?? current);
+        } catch (error) {
+          afterErrors.push(error instanceof Error ? error : new Error(String(error)));
+        }
+      }
+      return { outcome, afterErrors };
+    });
+  } finally {
+    statusTestHooks.afterUnlock?.();
+  }
 }
 
 /**
@@ -222,14 +226,19 @@ function removeFiles(files: readonly string[]): string[] {
 }
 
 /**
- * Remove a launch's files: the sidecars and pane files first, the manifest only when every one of
- * them went. A partial removal thus always leaves the file that makes the launch discoverable for a
- * retry (`summon clean --orphans`, the next status read). Returns every failure as `path: reason`.
+ * Remove a launch's files in steps, stopping at the first failure: the sidecars and other pane
+ * files, then the manifest (discovery), then the root token (the proof of which session the launch
+ * created). A partial removal thus keeps what a retry (`summon clean --orphans`, the next status
+ * read) needs to verify the session again and finish; the one stray it can leave is a token without
+ * a manifest after a session confirmed gone, which nothing reads. Returns every failure as `path: reason`.
  */
 export function removeLaunchFileSet(files: LaunchFileSet): string[] {
-  const failures = removeFiles([...files.liveness, ...files.panes]);
-  if (failures.length === 0 && files.manifest) failures.push(...removeFiles([files.manifest]));
-  return failures;
+  for (const step of [[...files.liveness, ...files.panes], files.manifest, files.token]) {
+    if (step === undefined) continue;
+    const failures = removeFiles(Array.isArray(step) ? step : [step]);
+    if (failures.length > 0) return failures;
+  }
+  return [];
 }
 
 export function unlinkIgnoringMissing(path: string): boolean {

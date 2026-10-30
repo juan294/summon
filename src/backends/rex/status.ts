@@ -36,6 +36,9 @@ export type RexWorkspaceState = "active" | "partial" | "stopped" | "unknown";
 /** The `stopped` reason that confirms the session is gone on the record's server. */
 export const SESSION_GONE = "Rex session no longer exists";
 
+/** The `stopped` reason when the session still has blocks, none of them a recorded pane. */
+export const NO_LIVE_PANES = "no live panes";
+
 export interface RexSessionState {
   state: RexWorkspaceState;
   reason?: string;
@@ -133,7 +136,7 @@ export function sessionState(cli: RexCli, identity: RexIdentity, project: string
   const liveBlocks = identity.blocks.filter((b) => present.has(b.blockId)).map((b) => b.name);
   if (present.has(identity.rootBlockId)) return { state: "active", liveBlocks };
   if (liveBlocks.length > 0) return { state: "partial", reason: "root pane closed", liveBlocks };
-  return { state: "stopped", reason: "no live panes", liveBlocks: [] };
+  return { state: "stopped", reason: NO_LIVE_PANES, liveBlocks: [] };
 }
 
 // --- Phase 4: workspace commands under Rex (focus, inspect, title) ---

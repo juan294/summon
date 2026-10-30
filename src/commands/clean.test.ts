@@ -113,9 +113,9 @@ describe("summon clean <project> (plan P17)", () => {
     expect(rex.calls.some((c) => c.op === "kill")).toBe(false);
   });
 
-  it("a malformed session view is unverifiable: no kill, exit 2, record untouched", async () => {
+  it.each([["layers: string", "malformed"], ["layers: [[]]", [[]]]])("a malformed session view (%s) is unverifiable: no kill, exit 2, record untouched", async (_label, layers) => {
     writeStatus(record());
-    const malformed = { session_id: SESSION, revision: 1, windows: [{ window_id: WINDOW, layers: "malformed" }] };
+    const malformed = { session_id: SESSION, revision: 1, windows: [{ window_id: WINDOW, layers }] };
     server({ [SESSION]: [] }, { "session-view": () => ok("session-view", malformed) });
     await expect(handleCleanCommand(context(["chapa"]))).rejects.toThrow("exit:2");
     expect(stderr()).toContain("[chapa] could not be verified");
@@ -298,7 +298,8 @@ describe("summon clean --orphans <project>", () => {
     } finally {
       chmodSync(paths().dir, 0o700);
     }
-    expect(stdout()).toMatch(/its Rex session is gone; a file could not be removed \(.*\.pane\.editor: .*\); the manifest is kept, run summon clean --orphans again\./);
+    // With one pane and a read-only directory the first unlink that can fail is the manifest's (the token comes after it).
+    expect(stdout()).toMatch(new RegExp(`its Rex session is gone; a file could not be removed \\(.*${GEN2}\\.json: .*\\); the manifest is kept, run summon clean --orphans again\\.`));
     expect(stdout()).not.toContain("files removed.");
     expect(existsSync(paths(GEN2).manifest)).toBe(true);
     expect(existsSync(paths(GEN2).pane("editor").file)).toBe(true);

@@ -83,6 +83,10 @@ describe("viewSession / parseSessionView", () => {
     expect(parseSessionView(window([{ blocks: {} }]))).toBeUndefined();
     expect(parseSessionView(window([{ blocks: ["block:a"] }]))).toBeUndefined();
     expect(parseSessionView(window([{ blocks: [{ block_id: 42 }] }]))).toBeUndefined();
+    // Arrays are not records: `[[]]` must not read as a layer without blocks.
+    expect(parseSessionView(window([[]]))).toBeUndefined();
+    expect(parseSessionView(window([{ blocks: [[]] }]))).toBeUndefined();
+    expect(parseSessionView({ ...base, windows: [[]] })).toBeUndefined();
     // Null or absent nested values are the valid empty representations.
     expect(parseSessionView(window([{ blocks: null }, {}]))).toEqual({ sessionId: "session:1", label: "x", revision: 1, windows: [{ windowId: "window:1", label: "", blockIds: [], hostIds: [] }] });
   });
@@ -105,8 +109,8 @@ describe("sessionState (plan P10 table)", () => {
     expect(sessionState(cli, IDENTITY, "chapa")).toMatchObject({ state: "unknown", reason: "boom" });
   });
 
-  it("a view with a malformed nested shape is unknown, never an empty stopped session", () => {
-    const json = { session_id: IDENTITY.sessionId, revision: 1, windows: [{ window_id: IDENTITY.windowId, layers: "malformed" }] };
+  it.each([["layers: string", "malformed"], ["layers: [[]]", [[]]]])("a view with a malformed nested shape (%s) is unknown, never an empty stopped session", (_label, layers) => {
+    const json = { session_id: IDENTITY.sessionId, revision: 1, windows: [{ window_id: IDENTITY.windowId, layers }] };
     const cli = fakeCli({ ls: ls(true), "session-view": () => ({ ok: true, op: "session-view", stdout: JSON.stringify(json), json }) });
     expect(sessionState(cli, IDENTITY, "chapa")).toMatchObject({ state: "unknown", liveBlocks: [] });
   });

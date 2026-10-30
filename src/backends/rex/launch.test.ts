@@ -526,6 +526,24 @@ describe("adoptOrphans (plan P13 late adoption)", () => {
     expect(existsSync(paths.pane("editor").file)).toBe(false);
   });
 
+  it("a selective removal failure keeps the manifest and the root token (the session proof), so the retry verifies and finishes", async () => {
+    writeLaunchManifest(manifestFor(ID, { panes: ["editor", "shell"], paneOrder: ["editor", "shell"] }));
+    writePane(ID, "editor", SESSION, blockId(1));
+    writePane(ID, "shell", SESSION, blockId(4));
+    const paths = launchArtifactPaths("chapa", ID);
+    mkdirSync(paths.pane("shell").tmp); // only this unlink fails
+    const cli = fakeCli({ "ls": () => ok("ls", { sessions: [] }) });
+    const first = adoptOrphans("chapa", depsFor({ [SERVER]: cli }));
+    expect(first[0]).toMatch(new RegExp(`^could not remove the files of earlier launch ${ID} \\(its Rex session is gone\\): .*pane\\.shell\\.tmp`));
+    expect(existsSync(paths.pane("shell").file)).toBe(false);
+    expect(existsSync(paths.pane("editor").file)).toBe(true);
+    expect(existsSync(paths.manifest)).toBe(true);
+    rmSync(paths.pane("shell").tmp, { recursive: true });
+    expect(adoptOrphans("chapa", depsFor({ [SERVER]: cli }))).toEqual([`removed the files of earlier launch ${ID} (its Rex session is gone)`]);
+    expect(existsSync(paths.pane("editor").file)).toBe(false);
+    expect(existsSync(paths.manifest)).toBe(false);
+  });
+
   it("keeps the files when the record changed between the read and the lock (superseded)", async () => {
     writeLaunchManifest(manifestFor());
     writePane(ID, "editor", SESSION, blockId(1));

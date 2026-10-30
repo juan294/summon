@@ -16,7 +16,7 @@ const STATUS_DIR = join(CONFIG_DIR, "status");
 const SNAPSHOTS_DIR = join(CONFIG_DIR, "snapshots");
 vi.mock("./paths.js", async (original) => ({ ...(await original<typeof import("./paths.js")>()), CONFIG_DIR, STATUS_DIR, SNAPSHOTS_DIR }));
 
-const { readStatus, readStatusRecord, writeStatus, resetRexBinaryMemo, resetReadAllStatusesCache, SESSION_GONE } = await import("./status.js");
+const { readStatus, readStatusRecord, writeStatus, resetRexBinaryMemo, resetReadAllStatusesCache, NO_LIVE_PANES, SESSION_GONE } = await import("./status.js");
 const { writeLaunchManifest, launchArtifactPaths } = await import("./launch-identity.js");
 const { gitSafeEnv } = await import("./utils.js");
 
@@ -42,13 +42,13 @@ function server(sessions: string[], blockIds: string[]): void {
   writeFileSync(fixture, JSON.stringify({ sessions: sessions.map((session_id) => ({ session_id, label: PROJECT })), view }));
 }
 
-function seed(panes: string[], known: Array<[string, string]>): void {
+function seed(panes: string[], known: Array<[string, string]>, options: { shellFile?: boolean } = {}): void {
   writeStatus({ project: PROJECT, directory: repoDir, pid: process.pid, startedAt: STARTED, layout: "pair", panes, source: "summon", version: 1, launchId: GEN, backend: "rex", rex: { server: SERVER, hostId: "host-1", sessionId: SESSION, windowId: WINDOW, rootBlockId: EDITOR, blocks: known.map(([name, blockId]) => ({ name, blockId, label: name })) } });
   writeLaunchManifest({ version: 1, launchId: GEN, project: PROJECT, directory: repoDir, layout: "pair", panes, paneOrder: panes, blockLabels: Object.fromEntries(panes.map((name) => [name, name])), backend: "rex", server: SERVER, startedAt: STARTED });
   writeFileSync(paths.pid, `${process.pid}\n`);
   writeFileSync(paths.active, `${GEN}\n`);
   writeFileSync(paths.pane("editor").file, `${SESSION}\n${EDITOR}\n`);
-  if (panes.includes("shell")) writeFileSync(paths.pane("shell").file, `${SESSION}\n${SHELL}\n`);
+  if (panes.includes("shell") && options.shellFile !== false) writeFileSync(paths.pane("shell").file, `${SESSION}\n${SHELL}\n`);
 }
 
 const files = () => ({ pid: existsSync(paths.pid), active: existsSync(paths.active), manifest: existsSync(paths.manifest), pane: existsSync(paths.pane("editor").file) });
@@ -153,5 +153,22 @@ describe("stopped reader with the real snapshot writer and a real repository", (
     const active = readStatus(PROJECT)!;
     expect(active).toMatchObject({ state: "active", liveBlocks: ["editor", "shell"] });
     expect(active.reason).toBeUndefined();
+  });
+
+  it("a read before the pane file arrives does not end the launch; the file arriving later still recovers it", { timeout: 15_000 }, () => {
+    seed(["editor", "shell"], [["editor", EDITOR]], { shellFile: false });
+    server([SESSION], [SHELL]); // the root closed; a block remains that no recorded pane names yet
+    const before = readStatus(PROJECT)!;
+    expect(before).toMatchObject({ state: "stopped", reason: `${NO_LIVE_PANES}; 1 pane unverified`, liveBlocks: [] });
+    expect(readStatusRecord(PROJECT)!.endedAt).toBeUndefined();
+    expect(existsSync(snapshotFile)).toBe(false);
+    expect(files()).toEqual({ pid: true, active: true, manifest: true, pane: true });
+
+    writeFileSync(paths.pane("shell").file, `${SESSION}\n${SHELL}\n`);
+    resetReadAllStatusesCache();
+    const after = readStatus(PROJECT)!;
+    expect(after).toMatchObject({ state: "partial", reason: "root pane closed", liveBlocks: ["shell"] });
+    expect(after.rex!.blocks.map((b) => b.name)).toEqual(["editor", "shell"]);
+    expect(readStatusRecord(PROJECT)!.endedAt).toBeUndefined();
   });
 });

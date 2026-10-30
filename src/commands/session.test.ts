@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockLaunch = vi.fn();
 const mockListProjects = vi.fn();
@@ -732,10 +732,17 @@ describe("session launch — spinner", () => {
 
 describe("session launch under Rex (plan P11)", () => {
   const REX = { ok: true, backend: "rex", placement: "inside-rex", server: "unix:///tmp/rex.sock", rexBinary: "/usr/local/bin/rex", notices: [] };
+  // Inside-rex detection is mocked; the caller's session must be controlled here too (the suite may run inside a Rex terminal).
+  let inheritedRexSession: string | undefined;
   beforeEach(() => {
+    inheritedRexSession = process.env["REX_SESSION"];
+    delete process.env["REX_SESSION"];
     mockResolveBackendForLaunch.mockReturnValue(REX);
     mockShowRecordedWorkspace.mockReturnValue({ shown: true, clientId: "client:app" });
     mockGetProject.mockImplementation((name: string) => ({ api: "/tmp/api", web: "/tmp/web", worker: "/tmp/worker" } as Record<string, string>)[name]);
+  });
+  afterEach(() => {
+    if (inheritedRexSession === undefined) delete process.env["REX_SESSION"]; else process.env["REX_SESSION"] = inheritedRexSession;
   });
 
   it("creates one session per project without new-tab and shows the first launched project at the end", async () => {
@@ -766,7 +773,6 @@ describe("session launch under Rex (plan P11)", () => {
       expect(mockLaunch.mock.calls[3]![1]["dryRun"]).toBe(true);
       expect(mockShowRecordedWorkspace).not.toHaveBeenCalled();
     } finally {
-      delete process.env["REX_SESSION"];
       logSpy.mockRestore();
     }
   });

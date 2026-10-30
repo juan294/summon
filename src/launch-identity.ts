@@ -75,25 +75,29 @@ export function launchArtifactPaths(project: string, launchId: string): LaunchAr
 export interface LaunchFileSet {
   /** The liveness sidecars (pid, active marker). */
   liveness: string[];
-  /** Rex pane files and their temp names. */
+  /** Rex pane files and their temp names, except the root pane's file. */
   panes: string[];
   /** The Rex manifest: what makes the launch discoverable; absent when it must stay. */
   manifest?: string;
+  /** The root pane's file: the proof of which session the launch created (P13 token); absent when it must stay. */
+  token?: string;
 }
 
-/** Every file a launch generation may own: the liveness sidecars, and (Rex) the pane files and the manifest. */
+/** Every file a launch generation may own: the liveness sidecars, and (Rex) the pane files, the manifest and the token. */
 export function launchArtifactFiles(project: string, launchId: string, paneOrder: readonly string[]): LaunchFileSet {
   const paths = launchArtifactPaths(project, launchId);
+  const [rootName] = paneOrder;
   return {
     liveness: [paths.pid, paths.active],
-    panes: paneOrder.flatMap((name) => [paths.pane(name).file, paths.pane(name).tmp]),
+    panes: paneOrder.flatMap((name, i) => (i === 0 ? [paths.pane(name).tmp] : [paths.pane(name).file, paths.pane(name).tmp])),
     manifest: paths.manifest,
+    token: rootName === undefined ? undefined : paths.pane(rootName).file,
   };
 }
 
 /** The set as one list (listing, presence checks). */
 export function launchFileList(files: LaunchFileSet): string[] {
-  return [...files.liveness, ...files.panes, ...(files.manifest ? [files.manifest] : [])];
+  return [...files.liveness, ...files.panes, files.manifest, files.token].filter((file): file is string => file !== undefined);
 }
 
 // --- Workspace environment (both backends) ---
