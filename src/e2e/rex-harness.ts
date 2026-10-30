@@ -86,9 +86,10 @@ export function rexGate(env: NodeJS.ProcessEnv = process.env, suite = "rex e2e",
   const mode = resolveRexMode(env);
   const prereq = mode === "off" ? "SUMMON_REX_E2E not set" : rexPrerequisiteFailure(needs);
   if (prereq && mode !== "required") console.log(`${suite} skipped: ${prereq}`);
-  // The log carries the machine load: under heavy concurrent load the server's first view of a session
-  // being created has been seen to stall past Summon's read timeout, which reads as `unknown` (guide §1).
-  if (mode !== "off") console.log(`${suite}: tree ${treeIdentity()}; load average ${loadavg().map((n) => n.toFixed(2)).join(" ")}`);
+  // The log names the tree under test and the machine load (under heavy concurrent load the server's first
+  // view of a session being created has been seen to stall past Summon's read timeout, which reads as
+  // `unknown`, guide §1). Written to stdout directly: vitest shows buffered console output only for failures.
+  if (mode !== "off") process.stdout.write(`${suite}: tree ${treeIdentity()}; load average ${loadavg().map((n) => n.toFixed(2)).join(" ")}\n`);
   return {
     mode,
     prereq,
