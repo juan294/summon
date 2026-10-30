@@ -1,12 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const TEST_STATUS_DIR = join(tmpdir(), `summon-clean-test-${process.pid}`);
 const TEST_SNAPSHOTS_DIR = join(tmpdir(), `summon-clean-snapshots-${process.pid}`);
 vi.mock("../paths.js", () => ({ STATUS_DIR: TEST_STATUS_DIR, CONFIG_DIR: join(tmpdir(), `summon-clean-config-${process.pid}`), SNAPSHOTS_DIR: TEST_SNAPSHOTS_DIR }));
+
+// The stranded-token tests make one unlink fail with the BSD user-immutable flag. Linux has no
+// `chflags` (its `chattr +i` needs root), so those tests run only where the command exists.
+const HAS_CHFLAGS = spawnSync("chflags", ["nouchg", "/nonexistent-summon-probe"], { stdio: "ignore" }).error === undefined;
 
 // The Rex server is faked at the op level; the command's own calls (view, kill) are recorded.
 type RexResult = import("../backends/rex/types.js").RexResult;
@@ -313,7 +317,7 @@ describe("summon clean --orphans <project>", () => {
     expect(existsSync(paths(GEN2).pane("editor").file)).toBe(false);
   });
 
-  it("a root token stranded after its manifest went is named as inert with its rm command; the same review then has nothing to find", async () => {
+  it.skipIf(!HAS_CHFLAGS)("a root token stranded after its manifest went is named as inert with its rm command; the same review then has nothing to find", async () => {
     writeStatus(record());
     writeLaunchManifest(manifest(GEN2));
     writePane(GEN2, SESSION2);
@@ -331,7 +335,7 @@ describe("summon clean --orphans <project>", () => {
     expect(existsSync(paths(GEN2).manifest)).toBe(false);
   });
 
-  it("the direct empty-orphan path (a live current record, an empty earlier session) prints the recovery command last, after the limitation, with nothing appended", async () => {
+  it.skipIf(!HAS_CHFLAGS)("the direct empty-orphan path (a live current record, an empty earlier session) prints the recovery command last, after the limitation, with nothing appended", async () => {
     writeStatus(record());
     writeLaunchManifest(manifest(GEN2));
     writePane(GEN2, SESSION2);

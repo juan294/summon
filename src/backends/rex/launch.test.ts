@@ -1,8 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync } from "node:fs";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+// The stranded-token test makes one unlink fail with the BSD user-immutable flag. Linux has no
+// `chflags` (its `chattr +i` needs root), so it runs only where the command exists.
+const HAS_CHFLAGS = spawnSync("chflags", ["nouchg", "/nonexistent-summon-probe"], { stdio: "ignore" }).error === undefined;
 
 const tmpHome = mkdtempSync(join(tmpdir(), "summon-rex-launch-"));
 vi.mock("./../../paths.js", async (importOriginal) => {
@@ -545,7 +549,7 @@ describe("adoptOrphans (plan P13 late adoption)", () => {
     expect(existsSync(paths.manifest)).toBe(false);
   });
 
-  it("a root token that cannot be removed after the manifest went is named as inert with its rm command, and no review is promised", async () => {
+  it.skipIf(!HAS_CHFLAGS)("a root token that cannot be removed after the manifest went is named as inert with its rm command, and no review is promised", async () => {
     writeLaunchManifest(manifestFor());
     writePane(ID, "editor", SESSION, blockId(1));
     const paths = launchArtifactPaths("chapa", ID);
