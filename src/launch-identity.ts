@@ -216,7 +216,7 @@ export interface CleanupTrapOptions {
  * aborts at startup when a standard descriptor is such a pty (PlatformInit saves the tty modes of
  * fds 0-2; tcgetattr fails with EIO), so the snapshot save and the on-stop hook get `/dev/null` as
  * stdin and stdout and never inherit the terminal (observed on Rex and Node 24, guide §4 F9).
-*/
+ */
 export function cleanupTrapLine(project: string, launchId: string, options: CleanupTrapOptions = {}): string {
   assertLaunchId(launchId);
   const parts: string[] = [

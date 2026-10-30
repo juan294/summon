@@ -130,6 +130,23 @@ function focusedBlock(sessionId: string): string | undefined {
   const focused = windows[0]?.["focused_block_id"];
   return typeof focused === "string" ? focused : undefined;
 }
+/** Type into a block (a write the server did not answer in time is retried: the server is slow while sessions change). */
+async function typeInto(sessionId: string, blockId: string, data: string): Promise<void> {
+  let last = "";
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const written = cli.call("block-call", ["block", "call", "-s", sessionId, "-b", blockId, "write", JSON.stringify({ data })]);
+    if (written.ok) return;
+    last = written.reason;
+    await sleep(500);
+  }
+  throw new Error(`block write to ${blockId} failed three times: ${last}`);
+}
+/** `rex kill` and the proof that the session is gone; a kill that timed out after doing its work passes on that proof. */
+async function killConfirmed(sessionId: string): Promise<void> {
+  const killed = cli.call("kill", ["kill", sessionId]);
+  if (!killed.ok && killed.kind !== "not-found" && killed.kind !== "timeout") throw new Error(`rex kill ${sessionId}: ${killed.reason}`);
+  await until(() => (sessionExists(sessionId) ? undefined : true), 5000, `${sessionId} gone`);
+}
 const rowOf = (out: string, project: string) => out.split("\n").find((line) => line.includes(project)) ?? "";
 /** Sessions labelled `project`: other suites and the owner create sessions on the same server meanwhile. */
 const ownSessions = (project: string): number => sessionsLabelled(project).length;
@@ -337,7 +354,15 @@ describe("rex cli e2e", () => {
     // markers before any Summon reader runs. A wrong `summon` is first on the panes' PATH (badbin): the trap must
     // reach the binary that created the launch (guide §4 F4), so the snapshot appears and badbin is never called.
     expect(existsSync(snapshotOf(one))).toBe(false);
-    expect(cli.call("kill", ["kill", sessionId]).ok).toBe(true);
+    // Positive control: the root pane's shell resolves `summon` to the shim (so `env.PATH` reached the pane and
+    // a trap that used the name would have hit it). The interrupt ends the editor's `sleep`; the typed line runs
+    // at the prompt that follows (the interrupt flushes pending input, so the line goes in a second write).
+    await typeInto(sessionId, record.rex!.rootBlockId, "\u0003");
+    await sleep(1000);
+    await typeInto(sessionId, record.rex!.rootBlockId, `command -v summon >> "$HOME/which.log"\n`);
+    const which = await until(() => (existsSync(join(home, "which.log")) ? readFileSync(join(home, "which.log"), "utf8").trim() : undefined), 8000, "the pane's command -v summon");
+    expect(which).toBe(join(home, "badbin", "summon"));
+    await killConfirmed(sessionId);
     await until(() => (existsSync(snapshotOf(one)) && !launchFiles(one, launchId).some((f) => f.endsWith(".pid") || f.endsWith(".active")) ? true : undefined), 8000, "the trap's snapshot and marker removal");
     const snapshot = JSON.parse(readFileSync(snapshotOf(one), "utf8")) as { project?: string; directory?: string; layout?: string };
     expect(snapshot.project).toBe(one);
@@ -345,9 +370,8 @@ describe("rex cli e2e", () => {
     // The label the launch hands the trap: the CLI `--layout` value, else `default` (both backends; the config's `pair` is not named).
     expect(snapshot.layout).toBe("default");
     expect(existsSync(badbinLog()), existsSync(badbinLog()) ? readFileSync(badbinLog(), "utf8") : "").toBe(false);
-    await until(() => (sessionExists(sessionId) ? undefined : true), 5000, "session gone");
 
-    // C10b one status read reconciles the ended launch.
+    // C10b one status read reconciles the ended launch (it re-saves the snapshot and reports it).
     const status = summon(["status", "--once"]);
     expect(status.status, status.out).toBe(0);
     contains(rowOf(status.stdout, one), /stopped/);
@@ -378,20 +402,9 @@ describe("rex cli e2e", () => {
     // legitimate ends; the read must report the one that happened. This branch is disjunctive on purpose: the
     // empty-session path is pinned unconditionally below (C12b). The interrupt flushes pending input, so "exit"
     // goes in a second write.
-    // A write the server did not answer in time is retried: the server is slow while other sessions change.
-    const type = async (blockId: string, data: string) => {
-      let last = "";
-      for (let attempt = 0; attempt < 3; attempt++) {
-        const written = cli.call("block-call", ["block", "call", "-s", sessionId, "-b", blockId, "write", JSON.stringify({ data })]);
-        if (written.ok) return;
-        last = written.reason;
-        await sleep(500);
-      }
-      throw new Error(`block write to ${blockId} failed three times: ${last}`);
-    };
-    for (const blockId of blocks) await type(blockId, "\u0003");
+    for (const blockId of blocks) await typeInto(sessionId, blockId, "\u0003");
     await sleep(1000);
-    for (const blockId of blocks) await type(blockId, "exit\n");
+    for (const blockId of blocks) await typeInto(sessionId, blockId, "exit\n");
     await until(() => noLiveBlocks(sessionId), 10_000, "every shell to exit");
     let destroyed = false;
     try {
@@ -452,8 +465,7 @@ describe("rex cli e2e", () => {
     expect(review.status, review.out).toBe(0);
     expect(review.out).toContain(`Rex session ${first} still has 4 blocks; close it yourself with: rex -S '${server}' kill ${first}`);
     expect(sessionExists(first)).toBe(true);
-    expect(cli.call("kill", ["kill", first]).ok).toBe(true);
-    await until(() => (sessionExists(first) ? undefined : true), 5000, "first session gone");
+    await killConfirmed(first);
     const removed = summon(["clean", "--orphans", three]);
     expect(removed.status, removed.out).toBe(0);
     // Adoption runs before the review (clean.ts) and, with a live current record, removes the files of a launch
@@ -514,10 +526,7 @@ describe("rex cli e2e", () => {
     expect(summon(["session", "add", "trio", one, two]).status).toBe(0);
     // Precondition, independent of what earlier scenarios left: neither project has a live session, so the
     // named session must create one per project (a live one would be switched to instead).
-    for (const project of [one, two]) {
-      for (const id of sessionsLabelled(project)) expect(cli.call("kill", ["kill", id]).ok).toBe(true);
-      await until(() => (sessionsLabelled(project).length === 0 ? true : undefined), 5000, `${project} sessions gone`);
-    }
+    for (const project of [one, two]) for (const id of sessionsLabelled(project)) await killConfirmed(id);
     expect(summon(["status", "--once"]).status).toBe(0);
     for (const project of [one, two]) expect(readRecord(project)?.endedAt ?? "no record", project).toBeTruthy();
     const before = { one: sessionsLabelled(one), two: sessionsLabelled(two) };
@@ -639,6 +648,8 @@ describe("rex cli e2e", () => {
       const seen = readFileSync(log, "utf8").trim().split("\n");
       return seen.length >= 2 ? seen : undefined;
     }, 10_000, "two startup lines");
+    await sleep(1000); // a third line would mean a pane started twice
+    expect(readFileSync(log, "utf8").trim().split("\n")).toHaveLength(2);
     // The pane starts in the configured directory as written (Rex sets the block's cwd; zsh reports it as given).
     expect(new Set(lines)).toEqual(new Set([`${SPELL}|${dir}`, `${SPELL}|${join(dir, "api")}`]));
     expect(blockLabels(record.rex!.sessionId).has("editor · sleep 300")).toBe(true);
@@ -679,8 +690,7 @@ describe("rex cli e2e", () => {
     contains(switched.stdout, `Switched to [${one}]`);
     // A stopped project (its session killed outside Summon and reconciled) is launched again with its flags.
     const ended = requireRecord(two);
-    expect(cli.call("kill", ["kill", ended.rex!.sessionId]).ok).toBe(true);
-    await until(() => (sessionExists(ended.rex!.sessionId) ? undefined : true), 5000, "two's session gone");
+    await killConfirmed(ended.rex!.sessionId);
     contains(rowOf(summon(["status", "--once"]).stdout, two), /stopped/);
     const relaunched = summon(["open", two, "--float"]);
     expect(relaunched.status, relaunched.out).toBe(0);

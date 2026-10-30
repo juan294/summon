@@ -38,6 +38,18 @@ export function rexWindowCount(): { process: string; count: number } {
   throw new Error(`System Events could not read the Rex windows (Accessibility for this terminal?): ${lastError}`);
 }
 
+/** `<short sha>` of HEAD, with `+dirty` when tracked files differ: the identity of the tree a log belongs to. */
+export function treeIdentity(): string {
+  const root = new URL("../../", import.meta.url);
+  try {
+    const sha = execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: root, encoding: "utf8", timeout: 10_000 }).trim();
+    const dirty = execFileSync("git", ["status", "--porcelain", "--untracked-files=no"], { cwd: root, encoding: "utf8", timeout: 10_000 }).trim() !== "";
+    return dirty ? `${sha}+dirty` : sha;
+  } catch (error) {
+    return `unknown (${error instanceof Error ? error.message : String(error)})`;
+  }
+}
+
 export interface RexPrerequisites {
   /** The app must have a window open: `focus`, `open` and a launch's selection act in a window (guide §4 F8). */
   window?: boolean;
@@ -76,7 +88,7 @@ export function rexGate(env: NodeJS.ProcessEnv = process.env, suite = "rex e2e",
   if (prereq && mode !== "required") console.log(`${suite} skipped: ${prereq}`);
   // The log carries the machine load: under heavy concurrent load the server's first view of a session
   // being created has been seen to stall past Summon's read timeout, which reads as `unknown` (guide §1).
-  if (mode !== "off") console.log(`${suite}: load average ${loadavg().map((n) => n.toFixed(2)).join(" ")}`);
+  if (mode !== "off") console.log(`${suite}: tree ${treeIdentity()}; load average ${loadavg().map((n) => n.toFixed(2)).join(" ")}`);
   return {
     mode,
     prereq,

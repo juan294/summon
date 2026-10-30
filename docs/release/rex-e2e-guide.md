@@ -8,7 +8,7 @@ Sequencing rule: no manual step starts while an automated item is red or pending
 
 | Item | State | How verified |
 | --- | --- | --- |
-| Rex app | `Rex Beta.app` in `/Applications`, app client "Mac Studio" connected, one owner session alive (`brave-brook`) | `rex api call client.list`, `session.list` |
+| Rex app | `Rex Beta.app` in `/Applications`, app client "Mac Studio" connected, one owner session alive (`amber-creek` at the time of writing; the name changes with every Rex window) | `rex api call client.list`, `session.list` |
 | Rex CLI | `/Applications/Rex Beta.app/Contents/Helpers/Rex Server.rex/Contents/MacOS/rex`, version `0.0.1793131181-gdd9a20`, api revision 7 | `summon doctor` on the candidate build |
 | Rex server | reachable at `unix:///Users/juan/Library/Application%20Support/rex/server.sock` | `rex --autostart=false whoami --json` |
 | Ghostty | installed; the owner's shell is Ghostty (`TERM_PROGRAM=ghostty`) | `ls /Applications` |
@@ -38,7 +38,7 @@ The lifecycle suite pins the behavior observed on the Rex build above (which act
 | Id | Check | Command | Pass condition |
 | --- | --- | --- | --- |
 | A1 | Static gate | `pnpm typecheck && pnpm lint && pnpm build` | all exit 0; `src/shell-escape.lint.test.ts` still present |
-| A2 | Unit and integration suite | `pnpm test` | 0 failures (3193 passed, 7 skipped at `70d72bd`) |
+| A2 | Unit and integration suite | `pnpm test` | 0 failures; the skips are the gated E2E cases that A5 to A9 run in required mode (counts in §2.3) |
 | A3 | Coverage gate | `pnpm test:coverage` | thresholds 95/90/95/95 hold |
 | A4 | Release probes | `pnpm test:release` | 0 failures (candidate identity, no-skip and charter validator probes) |
 | A5 | Rex native E2E, required mode | `SUMMON_REX_E2E_REQUIRED=1 pnpm exec vitest run src/e2e/rex-native.test.ts` | 2 passed: create, pane files within 8 s, startup variables in every pane, on-start once, switch on relaunch, read-only dry run, `--new-window` fallback with an unchanged window count; its sessions proven gone |
@@ -97,7 +97,7 @@ Filled by Claude after each run. A row is green only when the command above exit
 | A6 | 2026-10-30 | green: 2 passed, required mode, sessions proven gone | `assess-lifecycle-run2.log` |
 | A7 | 2026-10-30 | green: 12 passed, 0 skipped, 0 todo, cleanup verified, in five runs of the suite (8, 10, 12, 15, 16; the last two on the final file, consecutively). Runs 9, 11, 13 and 14 failed on the machine's load alone, each reported precisely by Summon: a `session.view` that stalled past the read window (run 9 at 3 s, run 14 at 8 s with load average 23), a `rex kill` that timed out after doing its work (run 11, now a note), vitest's 10 s hook default cutting the teardown (run 13, now 120 s), and in run 14 the trap's snapshot losing the race against the server's kill grace (the next read reconciles). Runs 1 to 7 are the development runs that found F9 and the 3 s timeout | `assess-cli-run15.log`, `assess-cli-run16.log` (green); `assess-cli-run1.log` (F9 found); `assess-cli-run9.log`, `-run14.log` (load) |
 | A8 | 2026-10-30 | green (C18 inside A7): all five rows of the detection table | same logs |
-| A9 | 2026-10-30 | green: 3 files, 25 passed, 0 skipped, required native mode, after the trap text changed (F9) | `assess-ghostty-run1.log` |
+| A9 | 2026-10-30 | green: 3 files, 25 passed, 0 skipped, required native mode, on an intermediate tree that already had the F9 trap text (`src/launch-identity.ts` did not change after it; the later changes are the read timeout, the harness and the CLI suite) | `assess-ghostty-run1.log` |
 
 **History.** `70d72bd` (guide written): A1 to A9 green with the first suite (3193 passed; `e2e-guide-*.log`; A7 had C19 as a todo and runs 13 and 14 of that suite green). `8a006f5` (F1, F4, F5 fixed): unit gate 3206 passed, coverage 96.82 / 91.87 / 98.85 / 98.38, `rex-native` 2, `rex-lifecycle` 2, `rex-cli` 10 passed (`findings-*.log`); A9 was not rerun there although F4 changed the trap text, a gap closed by the current table.
 
@@ -113,6 +113,7 @@ Tags: **Rex** = run from a block inside Rex Beta; **Ghostty** = run from a Ghost
 - [ ] Three disposable projects under `$TMPDIR/rc`: `rc-pair` (a git repo with one commit and a `package.json` whose `scripts.dev` is `sleep 600`), `rc-grid` (a git repo with one commit), `rc-tree` (a git repo with one commit and an `api/` directory). Register them: `rc add rc-pair $TMPDIR/rc/rc-pair`, and the same for the other two.
 - [ ] Exact fixture commands, so the expectations below are literal: `rc set editor "sleep 600"`, `rc set sidebar "sleep 600"`, `rc set layout pair`. Leave `shell` unset (the pane runs your login shell). Save the tree layout: write `$RC/.config/summon/layouts/rc-tree` with the four lines `tree=editor | worker`, `pane.editor=sleep 600`, `pane.worker=sleep 600`, `pane.worker.cwd=./api`.
 - [ ] `rc list` shows the three projects and nothing else; `rc status --once` shows them `stopped` with their directories.
+- [ ] Baseline of the real state, for M12: `ls -laTR ~/.config/summon > "$TMPDIR/rc-before.txt"` (nothing below should write there).
 
 ### M1. Detection and doctor
 
@@ -130,13 +131,13 @@ Tags: **Rex** = run from a block inside Rex Beta; **Ghostty** = run from a Ghost
 
 | # | Tag | Steps | Expected | Done |
 | --- | --- | --- | --- | --- |
-| 2.1 | Rex, Visual | `rc rc-pair` | one session `rc-pair` appears in the picker and is selected in this window; editor left, sidebar top right, shell bottom right; block labels `editor · sleep 600`, `sidebar · sleep 600`, `shell`; window label `[rc-pair]` | [ ] |
+| 2.1 | Rex, Visual | `rc rc-pair` | one session `rc-pair` appears in the picker and is selected in this window; four blocks, as `pair` has two editor panes: labels `editor · sleep 600` (twice: the editor on the left and the `right-1` pane), `sidebar · sleep 600` and `shell` on the right; window label `[rc-pair]`; the arrangement matches the dry run of M1.3 (block order editor, sidebar, right-1, shell) | [ ] |
 | 2.2 | Rex, Visual | `rc rc-grid --layout grid` and `rc rc-tree --layout rc-tree` | the split tree matches the preview `rc layout show rc-tree` prints; `rc-tree` has two blocks, `editor · sleep 600` and `worker · sleep 600`; in the worker pane `pwd` prints `…/rc-tree/api`; the first left/right split honors `editor-size` when auto-resize is on | [ ] |
 | 2.3 | Rex | in any pane of `rc-pair`: `echo $SUMMON_WORKSPACE $SUMMON_TAB_TITLE $SUMMON_LAUNCH_ID; echo $HOME` | `1 rc-pair <launchId>` and `$HOME` is `$RC`; `~/.config/rex` unchanged | [ ] |
 | 2.4 | Rex | `rc set on-start "echo start >> $RC/rc-start.log"`; `rc rc-grid --new-window`, then `rc rc-grid` again while it lives | the log has exactly one line after the launch (`wc -l`), and still one line after the second command (switch, not launch); `rc set on-start ""` afterwards | [ ] |
-| 2.5 | Rex | write a `.summon` in `rc-tree` with `editor=rm -rf ./api`; `rc rc-tree`; then `rc trust $TMPDIR/rc/rc-tree`; `rc rc-tree` again; then `rc rc-tree --no-project-config` | first run: exit 1 with `This project has a .summon file.` and the `summon trust` hint, nothing launched, `api/` still there; after trust: the dangerous-command confirmation prompt (answer `n`: nothing launched, `api/` still there); `--no-project-config`: launches with the fixture commands. Remove the `.summon` afterwards | [ ] |
+| 2.5 | Rex | Reset first: `rex ls`, `rex kill <id>` for every `rc-*` session listed, then `rc status --once` (every `rc-*` row `stopped`). Write a `.summon` in `rc-tree` with the one line `editor=sleep 601`; `rc rc-tree`; then `rc trust $TMPDIR/rc/rc-tree`; `rc rc-tree`; reset again; `rc rc-tree --no-project-config` | untrusted: exit 1 with `This project has a .summon file.` and the `summon trust` hint, nothing launched; trusted: launches with the file's value (block label `editor · sleep 601`); `--no-project-config` after the reset: launches with the fixture value (`editor · sleep 600`). A dangerous-command confirmation appears only for shell metacharacters (`;`, `\|`, `&`, backticks, redirects), not for a plain command. Remove the `.summon` afterwards | [ ] |
 | 2.6 | Rex | `rc set starship-preset <one of rc setup's presets>` | the prompt in each pane uses the preset (`STARSHIP_CONFIG` reached the shell); `rc set starship-preset ""` afterwards | [ ] |
-| 2.7 | Rex | `rc rc-tree --maximize --float --fullscreen --font-size 14` on a project with no live session | one `Rex cannot honor …; ignored` line per flag; the launch continues. On a switch nothing is printed (§4 F7): say whether that is acceptable | [ ] |
+| 2.7 | Rex | Reset first: `rex ls`, `rex kill <id>` for every `rc-*` session listed, then `rc status --once` (every `rc-*` row `stopped`). `rc rc-tree --maximize --float --fullscreen --font-size 14` | one `Rex cannot honor …; ignored` line per flag; the launch continues. On a switch nothing is printed (§4 F7): say whether that is acceptable | [ ] |
 | 2.8 | Rex, Visual | `rc rc-pair --new-window` while `rc-pair` lives | a second `rc-pair` session, shown in the **current** window with the notice that `--new-window` opens a new session, not a new window | [ ] |
 
 ### M3. Showing a workspace: switch, open, focus, apps
@@ -145,7 +146,7 @@ Tags: **Rex** = run from a block inside Rex Beta; **Ghostty** = run from a Ghost
 | --- | --- | --- | --- | --- |
 | 3.1 | Rex, Visual | from another Rex block or window: `rc rc-pair` | `Workspace [rc-pair] is already running in Rex; switched to it (use --new-window for a fresh one)`; the app jumps to the session; the on-start log of 2.4 is unchanged | [ ] |
 | 3.2 | Ghostty, Visual | `rc focus rc-pair` and `rc focus rc-pair sidebar` from Ghostty | the Rex app shows the session (record backend decides); the sidebar block gains focus | [ ] |
-| 3.3 | TTY, Visual | `rc open`, pick `rc-pair`; then `rc open rc-grid` while `rc-grid` is stopped (kill its session first: `rex kill <id from rc inspect rc-grid>`) and `rc switch rc-pair` | picker: `Switched to [rc-pair]`, picking a stopped project launches it; direct form: `rc-grid` launches (`Workspace [rc-grid] ready in Rex.`), `rc-pair` is focused without a picker; `rc open rc-pai` exits 1 with `Did you mean: rc-pair?` | [ ] |
+| 3.3 | TTY, Visual | Reset first: `rex ls`, `rex kill <id>` for every `rc-*` session listed, then `rc status --once` (every `rc-*` row `stopped`). `rc rc-pair`, then `rc open`, pick `rc-pair`; then `rc open rc-grid` (stopped) and `rc switch rc-pair` | picker: `Switched to [rc-pair]`, picking a stopped project launches it; direct form: `rc-grid` launches (`Workspace [rc-grid] ready in Rex.`), `rc-pair` is focused without a picker; `rc open rc-pai` exits 1 with `Did you mean: rc-pair?` | [ ] |
 | 3.4 | TTY, Visual | `rc status`, Enter on an active Rex row | focus; Enter on a stopped row launches; `q` quits | [ ] |
 | 3.5 | Other, Visual | from Terminal.app with `export TERM_PROGRAM=rex REX_SERVER=unix:///Users/juan/Library/Application%20Support/rex/server.sock` and the `rc` function: quit Rex Beta (Cmd-Q; the server keeps running, check `rex ls`), then (a) `rc open rc-pair` for the still-live session, then (b) `rc rc-tree` after killing `rc-tree`'s session (`rex kill <id>`), so it has no live session | (a) exit 2, `no Rex app is connected; open Rex and pick [rc-pair]`, the app is **not** started; (b) Summon opens the app, waits up to 8 s, selects the new session; if the app is slow: `Created in Rex but no Rex app is connected; open Rex and pick [rc-tree], or run summon open rc-tree`, exit 0, session exists; `rc open rc-tree` once the app is up shows it | [ ] |
 | 3.6 | Rex | two Rex app **clients** connected (`rex api call client.list` lists two `client_id`s; a second window of the same app is not a second client; skip when only one exists). (a) from a block of client A: `rc rc-pair`; (b) from Terminal.app with the environment of 3.5: `rc open rc-pair` | (a) shown in A, the app attached to the caller's session, with no notice (the caller's apps are preferred, plan P7); (b) the newest connected client wins with `Several Rex apps are connected; using <client>, not <others>` | [ ] |
@@ -190,7 +191,7 @@ Each row starts from a live `rc-pair` launched by `rc rc-pair`; relaunch it afte
 
 | # | Tag | Steps | Expected | Done |
 | --- | --- | --- | --- | --- |
-| 7.1 | Rex, Visual | `rc session add trio rc-pair rc-grid rc-tree`; `rc session trio` | three sessions, one per project, `[1/3] Launched …` lines, and the app shows `rc-pair` again at the end (plan P11; the automated C16 cannot read which session the app shows) | [ ] |
+| 7.1 | Rex, Visual | Reset first: `rex ls`, `rex kill <id>` for every `rc-*` session listed, then `rc status --once` (every `rc-*` row `stopped`). `rc session add trio rc-pair rc-grid rc-tree`; `rc session trio` | three new sessions, one per project, `[1/3] Launched …` lines, and the app shows `rc-pair` again at the end (plan P11; the automated C16 cannot read which session the app shows) | [ ] |
 | 7.2 | Rex | `rc session trio --dry-run` | three requests printed, nothing created or selected | [ ] |
 | 7.3 | Rex | `rc session trio` again while all three live | three switch lines, no new sessions | [ ] |
 | 7.4 | Rex | an untrusted `.summon` in `rc-tree` (as in 2.5, not trusted); `rc session --all` | `--all` launches every project of the isolated registry (only `rc-*`, never your real projects): `rc-tree` is skipped with the `summon trust` hint, the other two launch or switch; remove the `.summon` afterwards | [ ] |
@@ -210,20 +211,20 @@ The per-launch files, the locked record and the cleanup trap are shared by both 
 
 | # | Tag | Steps | Expected | Done |
 | --- | --- | --- | --- | --- |
-| 9.1 | Ghostty, Visual | `rc rc-pair` from Ghostty (no Rex session alive) | the Ghostty workspace as in 1.9.0; `status` active; `focus`, `inspect`, `title` work; close the window, then **before any other rc command** `ls $RC/.config/summon/snapshots/`: the snapshot file is there, written by the trap; then `rc status --once` reconciles | [ ] |
+| 9.1 | Ghostty, Visual | `rc rc-pair` from Ghostty (no Rex session alive) | the Ghostty workspace as in 1.9.0; `status` active; `focus`, `inspect`, `title` work; close the window, then **before any other rc command** `ls $RC/.config/summon/snapshots/`: the snapshot file is there, written by the trap (§4 F9: expected from the fix, first observed here); then `rc status --once` reconciles | [ ] |
 | 9.2 | Ghostty | `rc rc-pair` from Ghostty while a Rex `rc-pair` session lives | Ghostty launch wins the record; stderr `Rex session [rc-pair] <id> is still running; rex kill <id> closes it` | [ ] |
 | 9.3 | Ghostty | `rc status --once` with both kinds of workspaces | each row resolves through its own backend | [ ] |
 | 9.4 | Ghostty | `rc clean --orphans rc-pair` after 9.2 | the Rex orphan is reported with its kill line; Ghostty files untouched | [ ] |
 
 ### M10. Upgrade from 1.9.0 state
 
-Run against a **copy** of the real state in a second isolated home, never the live directory: `export RC2="$TMPDIR/summon-rc-legacy"; mkdir -p "$RC2/.config"; cp -R ~/.config/summon "$RC2/.config/summon"; rc2() { HOME="$RC2" summon "$@"; }` while no 1.9.0 workspace is being launched, then `rc2 set env.HOME "$RC2"` so the panes of 10.2 write into the copy.
+Run against a **copy** of the real state in a second isolated home, never the live directory: `export RC2="$TMPDIR/summon-rc-legacy"; mkdir -p "$RC2/.config"; cp -R ~/.config/summon "$RC2/.config/summon"; rc2() { HOME="$RC2" summon "$@"; }` while no 1.9.0 workspace is being launched. Then curate the copy so nothing launches a real project: `rc2 set env.HOME "$RC2"`, `rc2 set editor "sleep 600"`, `rc2 set sidebar "sleep 600"`, `rc2 set on-start ""`, `rc2 set on-stop ""`, `rc2 add rc-legacy $TMPDIR/rc/rc-pair`, and make `rc-legacy`'s legacy record from one real 1.9.0 record (pick a `<real>` under `$RC2/.config/summon/status/` without a `launchId` field): `sed -e 's/"project": *"<real>"/"project": "rc-legacy"/' -e "s#\"directory\": *\"[^\"]*\"#\"directory\": \"$TMPDIR/rc/rc-pair\"#" "$RC2/.config/summon/status/<real>.json" > "$RC2/.config/summon/status/rc-legacy.json"`. Only `rc-legacy` is ever launched here.
 
 | # | Tag | Steps | Expected | Done |
 | --- | --- | --- | --- | --- |
-| 10.1 | Any | `rc2 status --once` against the copied state | legacy records (no `launchId`) show their 1.9.0 liveness; nothing is rewritten or deleted (`diff -r ~/.config/summon/status "$RC2/.config/summon/status"` shows no change to the legacy records) | [ ] |
-| 10.2 | Ghostty | `rc2 <one legacy project>` | the new record has `launchId` and `backend`; the legacy sidecars are ignored from then on; the real `~/.config/summon/status` is untouched | [ ] |
-| 10.3 | Any | `rc2 clean --orphans <that legacy project>` | legacy records are left alone with the notice from an older Summon | [ ] |
+| 10.1 | Any | `rc2 status --once` against the copied state (read-only: the copied registry still names your real projects; never launch them from `$RC2`, and never run `rc2 session --all`) | legacy records (no `launchId`) show their 1.9.0 liveness; nothing is rewritten or deleted (`diff -r ~/.config/summon/status "$RC2/.config/summon/status"` shows no change to the legacy records) | [ ] |
+| 10.2 | Ghostty | `rc2 rc-legacy` (the curated fixture below, with a hand-made legacy record) | the new record has `launchId` and `backend`; the legacy record's sidecars are ignored from then on; the real `~/.config/summon/status` is untouched | [ ] |
+| 10.3 | Any | `rc2 clean --orphans rc-legacy` | the legacy record is left alone with the notice from an older Summon | [ ] |
 
 ### M11. Impressions (free form)
 
@@ -236,7 +237,7 @@ Run against a **copy** of the real state in a second isolated home, never the li
 
 - [ ] `rex ls` lists no `rc-*` session; kill any that remains (`rex kill <id>`) and list again until none is left.
 - [ ] `rc status --once` shows every `rc-*` project `stopped`; `ls "$RC/.config/summon/status/"` has no `.pid` or `.active` file.
-- [ ] `ls -la ~/.config/summon` has the same modification times as before M0 (nothing in this part wrote there; M11's last item is the exception, by your choice).
+- [ ] Nothing wrote to the real state: `find ~/.config/summon -newer "$TMPDIR/rc-before.txt"` prints nothing, and `ls -laTR ~/.config/summon | diff "$TMPDIR/rc-before.txt" -` is empty (M11's last item is the exception, by your choice: run it after this check or accept its writes).
 - [ ] Remove the sandboxes: `rm -rf "$RC" "$RC2" "$TMPDIR/rc"`.
 - [ ] Restore the global `summon` you want on PATH: `npm install -g summon-ws@1.9.0` (or keep the link until the release).
 
