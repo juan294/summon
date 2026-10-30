@@ -257,7 +257,7 @@ describe("rex cli e2e", () => {
     const launchId = record.launchId!;
     expect(record.rex!.server).toBe(server);
     const viewed = viewSession(cli, sessionId);
-    expect(viewed.ok && viewed.view.label).toBe(one);
+    expect(viewed.ok && viewed.view.label, viewed.ok ? "" : `session.view failed: ${viewed.reason}`).toBe(one);
     expect(viewed.ok && viewed.view.windows[0]!.label).toBe(`[${one}]`);
     await until(() => (PANES.every((pane) => launchFiles(one, launchId).includes(`${launchId}.pane.${pane}`)) ? true : undefined), 8000, "the four pane files");
 
@@ -373,7 +373,13 @@ describe("rex cli e2e", () => {
     expect(which, "the pane resolves summon to some binary").toMatch(/^\//);
     const resolved = (() => { try { return realpathSync(which); } catch { return which; } })();
     expect(resolved.startsWith(root), `${which} resolves to ${resolved}, inside the candidate's tree`).toBe(false);
-    console.log(`C10a: the root pane resolves summon to ${which}${resolved !== which ? ` (${resolved})` : ""}`);
+    // ...and that Summon, given the trap's exact command line under a scratch home, writes no snapshot there:
+    // so a trap that called `summon` by name could not have produced the file the assertion below finds.
+    const scratch = join(home, "scratch-home");
+    mkdirSync(scratch, { recursive: true });
+    const other = spawnSync(which, ["snapshot", "save", "--dir", projectDir("one"), "--project", one, "--layout", "default", "--launch", launchId], { env: { ...childEnv(), HOME: scratch }, encoding: "utf8", timeout: 30_000 });
+    expect(existsSync(join(scratch, ".config", "summon", "snapshots", `${one}.json`)), `${which} wrote the snapshot (status ${other.status}): ${other.stdout}${other.stderr}`).toBe(false);
+    console.log(`C10a: the root pane resolves summon to ${which}${resolved !== which ? ` (${resolved})` : ""}; with the trap's flags it exited ${other.status} and wrote nothing`);
     await killConfirmed(sessionId);
     await until(() => (existsSync(snapshotOf(one)) && !launchFiles(one, launchId).some((f) => f.endsWith(".pid") || f.endsWith(".active")) ? true : undefined), 8000, "the trap's snapshot and marker removal");
     const snapshot = JSON.parse(readFileSync(snapshotOf(one), "utf8")) as { project?: string; directory?: string; layout?: string };
