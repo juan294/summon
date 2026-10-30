@@ -3,6 +3,7 @@
 import { realpathSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import { EDITOR_SIZE_DEFAULT } from "./layout.js";
+import type { LayoutPlan } from "./layout.js";
 
 // ---------- Types ----------
 
@@ -54,6 +55,9 @@ export function assertPaneCwdContained(targetDir: string, cwd: string): void {
     );
   }
 }
+
+/** A planned layout of either kind, as both backends and the dry run receive it. */
+export type PlannedLayout = { kind: "traditional"; plan: LayoutPlan } | { kind: "tree"; plan: TreeLayoutPlan };
 
 export interface TreeLayoutPlan {
   tree: LayoutNode;

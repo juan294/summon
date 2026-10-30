@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import type { BackendLaunchContext } from "./backends/ghostty.js";
 
 // Mock child_process before importing launcher
 const mockExecSync = vi.fn();
@@ -143,7 +144,9 @@ vi.mock("./script.js", () => ({
 
 // Import after mocks are set up
 const { launch, resolveConfig, optsToConfigMap, focusWorkspace, resolveProjectName, probePaneCount, decideCleanRestoredPanes, layoutOptsToTreePlanOpts, commandFixHint } = await import("./launcher.js");
-const { closeWorkspaceWindow, isStaticLaunchSpinner, withLaunchSpinner } = await import("./backends/ghostty.js");
+const { closeWorkspaceWindow, isStaticLaunchSpinner, withLaunchSpinner, GhosttyBackend, ghosttyCommandEntries } = await import("./backends/ghostty.js");
+const { planLayout } = await import("./layout.js");
+const { buildTreePlan, findPaneByName, parseTreeDSL, resolveTreeCommands } = await import("./tree.js");
 const { listConfig, listProjects } = await import("./config.js");
 const { existsSync } = await import("node:fs");
 const { TabOpenError } = await import("./errors.js");
@@ -4895,5 +4898,117 @@ describe("absolute command paths and fix hints", () => {
     expect(commandFixHint("shell", "mywork")).toBe("change your config with: summon set shell <command>");
     expect(commandFixHint("pane.enhance", "mywork")).toBe("change `pane.enhance=` in layout mywork: summon layout edit mywork");
     expect(commandFixHint("pane.enhance")).toBe("change `pane.enhance=` in your layout file");
+  });
+
+  describe("dry-run command check (Phase 2)", () => {
+    const dryRunOutput = async (): Promise<{ stdout: string; notes: string[] }> => {
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      try {
+        const stderr = await stderrOf(() => launch("/tmp/workspace", { dryRun: true }));
+        const notes = stderr.split("\n").filter((line) => line.startsWith("summon: note:") && line.includes("a real launch"));
+        return { stdout: logSpy.mock.calls.map((c) => String(c[0])).join("\n"), notes };
+      } finally {
+        logSpy.mockRestore();
+      }
+    };
+
+    it("notes a missing absolute pane command and still prints the script (T2.1)", async () => {
+      useTreeLayout("/opt/homebrew/bin/nope");
+
+      const { stdout, notes } = await dryRunOutput();
+
+      expect(stdout).toContain("-- tree layout");
+      expect(notes).toEqual(["summon: note: pane `enhance`: `/opt/homebrew/bin/nope` was not found or is not executable; a real launch stops here."]);
+      expect(mockQuestion).not.toHaveBeenCalled();
+      expect(mockExecFileSync).not.toHaveBeenCalledWith("osascript", expect.anything(), expect.anything());
+    });
+
+    it("notes a missing command once per executable and labels config keys (T2.2)", async () => {
+      vi.mocked(listConfig).mockReturnValue(new Map([["editor", "nope-tool --wait"], ["sidebar", "nope-tool"], ["shell", "./bin/tool"]]));
+      whichMissing("nope-tool");
+
+      const { notes } = await dryRunOutput();
+
+      expect(notes).toEqual([
+        "summon: note: `editor`: `nope-tool` is not on your PATH; a real launch stops here.",
+        "summon: note: `shell`: `./bin/tool` is not a command name or an absolute path; a real launch stops here.",
+      ]);
+    });
+
+    it("says a real launch offers an install for a missing command it knows how to install", async () => {
+      vi.mocked(listConfig).mockReturnValue(new Map([["editor", "claude"]]));
+      whichMissing("claude");
+
+      const { notes } = await dryRunOutput();
+
+      expect(notes).toEqual(["summon: note: `editor`: `claude` is not on your PATH; a real launch offers to install it."]);
+      expect(mockQuestion).not.toHaveBeenCalled();
+      expect(mockExecFileSync).not.toHaveBeenCalledWith("npm", expect.anything(), expect.anything());
+    });
+
+    it("treats an inherited object name as a command with no install method", async () => {
+      vi.mocked(listConfig).mockReturnValue(new Map([["editor", "toString"]]));
+      whichMissing("toString");
+
+      expect((await dryRunOutput()).notes).toEqual(["summon: note: `editor`: `toString` is not on your PATH; a real launch stops here."]);
+      const text = await stderrOf(() => expect(launch("/tmp/workspace")).rejects.toThrow("is required but not installed"));
+      expect(text).toContain("no known install method was found");
+    });
+
+    it("does not check commands under Rex (T2.3)", async () => {
+      useTreeLayout("/opt/homebrew/bin/nope");
+      mockResolveBackendForLaunch.mockReturnValue({ ok: true, backend: "rex", placement: "inside-rex", server: "unix:///tmp/rex.sock", rexBinary: "/usr/local/bin/rex", notices: [] });
+
+      const { stdout, notes } = await dryRunOutput();
+
+      expect(stdout).toContain("-- Backend: rex");
+      expect(notes).toEqual([]);
+      expect(mockStatSync).not.toHaveBeenCalled();
+    });
+
+    it("prints no note when every command resolves (T2.4)", async () => {
+      useTreeLayout("/opt/homebrew/bin/gh-glance");
+      mockStatSync.mockImplementation(() => ({ isFile: () => true }));
+
+      expect((await dryRunOutput()).notes).toEqual([]);
+
+      useTreeLayout("vim");
+      expect((await dryRunOutput()).notes).toEqual([]);
+    });
+
+    it("lists the same keys, in the same order, that the Ghostty backend resolves, and stores each result back (T2.5)", async () => {
+      const resolvedKeys = async (launchWith: (ctx: BackendLaunchContext) => Promise<unknown>): Promise<string[]> => {
+        const ensureAndResolve = vi.fn(async (cmd: string, _key: string) => `/r/${cmd}`);
+        const ctx: BackendLaunchContext = {
+          targetDir: "/tmp/workspace",
+          envVars: undefined,
+          projectName: "workspace",
+          onStop: undefined,
+          launchId: "l-1",
+          layoutLabel: "custom",
+          ensureAndResolve,
+          resolveStarship: () => null,
+        };
+        const outSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+        try {
+          await stderrOf(() => launchWith(ctx));
+        } finally {
+          outSpy.mockRestore();
+        }
+        return ensureAndResolve.mock.calls.map((c) => c[1]);
+      };
+
+      const plan = planLayout({ editor: "vim", sidebarCommand: "lazygit", secondaryEditor: "nvim", shell: "htop" });
+      const traditionalKeys = ghosttyCommandEntries({ kind: "traditional", plan }).map((e) => e.key);
+      expect(traditionalKeys).toEqual(["editor", "sidebar", "editor", "shell"]);
+      expect(await resolvedKeys((ctx) => GhosttyBackend.launchTraditional(plan, ctx))).toEqual(traditionalKeys);
+      expect([plan.editor, plan.sidebarCommand, plan.secondaryEditor, plan.shellCommand]).toEqual(["/r/vim", "/r/lazygit", "/r/nvim", "/r/htop"]);
+
+      const treePlan = buildTreePlan(resolveTreeCommands(parseTreeDSL("a | b | c"), new Map([["a", "vim"], ["b", ""], ["c", "htop"]])));
+      const treeKeys = ghosttyCommandEntries({ kind: "tree", plan: treePlan }).map((e) => e.key);
+      expect(treeKeys).toEqual(["pane.a", "pane.c"]);
+      expect(await resolvedKeys((ctx) => GhosttyBackend.launchTree(treePlan, ctx))).toEqual(treeKeys);
+      expect(["a", "b", "c"].map((name) => findPaneByName(treePlan.tree, name)?.command)).toEqual(["/r/vim", "", "/r/htop"]);
+    });
   });
 });

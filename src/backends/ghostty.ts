@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import type { LayoutPlan } from "../layout.js";
-import type { TreeLayoutPlan } from "../tree.js";
+import type { PlannedLayout, TreeLayoutPlan } from "../tree.js";
 import { findPaneByName } from "../tree.js";
 import { generateAppleScript, generateTreeAppleScript } from "../script.js";
 import { ensureGhostty, ensureAccessibility, printAccessibilityHint, isAccessibilityError } from "../launch-guards.js";
@@ -157,6 +157,51 @@ function executeScript(script: string, inventory: PaneDescriptor[], targetLabel?
   return native;
 }
 
+/** A command the Ghostty backend resolves before launch; `set` stores the resolved command back. */
+export interface GhosttyCommandEntry {
+  /** Config key (`editor`, `sidebar`, `shell`) or `pane.<leaf>` for a tree pane. */
+  key: string;
+  /** Tree pane name; absent for a config key. */
+  pane?: string;
+  command: string;
+  set: (resolved: string) => void;
+}
+
+/** Traditional plan fields in resolution order, with the config key each one reports under. */
+const TRADITIONAL_COMMAND_FIELDS = [
+  ["editor", "editor"],
+  ["sidebar", "sidebarCommand"],
+  ["editor", "secondaryEditor"],
+  ["shell", "shellCommand"],
+] as const;
+
+/**
+ * Every command a Ghostty launch resolves, in resolution order. The backend and the dry-run
+ * check both read this list, so the dry run checks exactly what a real launch would.
+ */
+export function ghosttyCommandEntries(layout: PlannedLayout): GhosttyCommandEntry[] {
+  const entries: GhosttyCommandEntry[] = [];
+  if (layout.kind === "traditional") {
+    const { plan } = layout;
+    for (const [key, field] of TRADITIONAL_COMMAND_FIELDS) {
+      const command = plan[field];
+      if (command) entries.push({ key, command, set: (v) => { plan[field] = v; } });
+    }
+    return entries;
+  }
+  for (const leafName of layout.plan.leaves) {
+    const pane = findPaneByName(layout.plan.tree, leafName);
+    if (pane?.command) entries.push({ key: `pane.${leafName}`, pane: leafName, command: pane.command, set: (v) => { pane.command = v; } });
+  }
+  return entries;
+}
+
+async function resolveCommands(layout: PlannedLayout, ctx: BackendLaunchContext): Promise<void> {
+  for (const entry of ghosttyCommandEntries(layout)) {
+    entry.set(await ctx.ensureAndResolve(entry.command, entry.key));
+  }
+}
+
 /**
  * Ghostty adapter over the existing AppleScript launch path. Behavior is unchanged from the
  * pre-backend launcher: guards, command resolution, script generation and execution run in
@@ -168,11 +213,7 @@ export const GhosttyBackend: TerminalBackend = {
   async launchTraditional(plan, ctx) {
     ensureGhostty();
     ensureAccessibility();
-
-    if (plan.editor) plan.editor = await ctx.ensureAndResolve(plan.editor, "editor");
-    if (plan.sidebarCommand) plan.sidebarCommand = await ctx.ensureAndResolve(plan.sidebarCommand, "sidebar");
-    if (plan.secondaryEditor) plan.secondaryEditor = await ctx.ensureAndResolve(plan.secondaryEditor, "editor");
-    if (plan.shellCommand) plan.shellCommand = await ctx.ensureAndResolve(plan.shellCommand, "shell");
+    await resolveCommands({ kind: "traditional", plan }, ctx);
 
     const starshipConfigPath = ctx.resolveStarship();
     const script = generateAppleScript(plan, ctx.targetDir, starshipConfigPath, ctx.envVars, ctx.projectName, ctx.onStop, ctx.launchId);
@@ -182,13 +223,7 @@ export const GhosttyBackend: TerminalBackend = {
   async launchTree(plan, ctx) {
     ensureGhostty();
     ensureAccessibility();
-
-    for (const leafName of plan.leaves) {
-      const pane = findPaneByName(plan.tree, leafName);
-      if (pane?.command) {
-        pane.command = await ctx.ensureAndResolve(pane.command, `pane.${leafName}`);
-      }
-    }
+    await resolveCommands({ kind: "tree", plan }, ctx);
 
     const starshipConfigPath = ctx.resolveStarship();
     const script = generateTreeAppleScript(plan, ctx.targetDir, starshipConfigPath, ctx.envVars, ctx.projectName, ctx.onStop, ctx.launchId);

@@ -521,6 +521,8 @@ This creates three panes:
 
 Pane names must start with a letter or underscore and contain only letters, digits, underscores, and hyphens.
 
+A pane command starts with a command on your PATH (`pane.enhance=gh-glance`) or a full path to an executable (`pane.enhance=/opt/homebrew/bin/gh-glance`). Summon does not accept `~/` or relative paths (`./bin/tool`, `bin/tool`). Before a Ghostty launch, Summon checks each command and stops with the fix if one is missing; `--dry-run` prints a `summon: note:` line on stderr for each command that a real launch would reject (or offer to install). Under Rex, Summon does not check pane commands: a missing command shows its error in the pane.
+
 #### Per-Pane Working Directories
 
 Each named pane can have its own working directory via `pane.<name>.cwd`. Paths are resolved relative to the target directory:

@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import type { LayoutPlan } from "../../layout.js";
-import type { LayoutNode, TreeLayoutPlan } from "../../tree.js";
+import type { LayoutNode, PlannedLayout } from "../../tree.js";
 import { formatTitle } from "../../pane-inventory.js";
 import { shellQuote } from "../../shell-escape.js";
 import { bootstrapLine, buildEnvVarsList, cleanupTrapLine, paneFileLine } from "../../launch-identity.js";
@@ -44,7 +44,7 @@ export interface SessionCreateRequest {
 }
 
 export interface SessionCreateInput {
-  layout: { kind: "traditional"; plan: LayoutPlan } | { kind: "tree"; plan: TreeLayoutPlan };
+  layout: PlannedLayout;
   targetDir: string;
   project: string;
   launchId: string;

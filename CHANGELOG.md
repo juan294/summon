@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A command whose executable is an absolute path (`pane.enhance=/opt/homebrew/bin/gh-glance`) no longer fails a Ghostty launch as "required but not installed". Summon accepts a full path to an executable file, keeps it as written, and reports a missing path, a `~/` or relative path, and a missing command on PATH with different messages. For a tree pane the fix hint now names `summon layout edit <layout>` and the `pane.<name>=` line instead of `summon set <name>`, which `summon set` rejects.
+- `--dry-run` under Ghostty now prints one `summon: note:` line on stderr for each command that a real launch would reject (or offer to install). The script on stdout and the exit code do not change. Rex launches do not check commands.
 - `summon snapshot save --dir … --project … --layout …`, the call made by the workspace cleanup trap, was rejected by the global flag parser ("Unknown flag '--dir'") so the on-exit snapshot never saved. The flags are now parsed like every other option (and `--layout` is validated as a preset only for launches); `--launch <id>` performs a generation-checked save.
 
 ## [1.9.0] - 2026-10-29

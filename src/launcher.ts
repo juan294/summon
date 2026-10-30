@@ -22,7 +22,7 @@ import { generateAppleScript, generateTreeAppleScript } from "./script.js";
 import { newLaunchId } from "./launch-identity.js";
 import { resolveBackendForLaunch } from "./backend.js";
 import type { BackendId, LaunchContext } from "./backend.js";
-import { GhosttyBackend } from "./backends/ghostty.js";
+import { GhosttyBackend, ghosttyCommandEntries } from "./backends/ghostty.js";
 import type { BackendLaunchContext, BackendLaunchResult, TerminalBackend } from "./backends/ghostty.js";
 import { createRexBackend } from "./backends/rex/backend.js";
 import { adoptOrphans, adoptDeps, maybeSwitchToExisting } from "./backends/rex/launch.js";
@@ -33,8 +33,9 @@ import { isLiveState, rexCommandGate } from "./status.js";
 import { buildSessionCreateRequest } from "./backends/rex/layout.js";
 import type { SessionCreateInput } from "./backends/rex/layout.js";
 import { parseTreeDSL, extractPaneDefinitions, extractPaneCwds, resolveTreeCommands as resolveTreeCmds, buildTreePlan, collectLeaves, findPaneByName, assertPaneCwdContained } from "./tree.js";
-import type { LayoutNode, TreePlanOptions } from "./tree.js";
+import type { LayoutNode, PlannedLayout, TreePlanOptions } from "./tree.js";
 import { resolveCommand as resolveCommandPath, describeCommandFailure, getErrorMessage, SUMMON_WORKSPACE_ENV, promptUser, isDebug } from "./utils.js";
+import type { CommandFailureKind } from "./utils.js";
 import { fail, err, note } from "./ui/output.js";
 import { confirmDangerousCommands } from "./launch-guards.js";
 import { assertTrusted, assertTrustedContent } from "./trust.js";
@@ -147,6 +148,30 @@ const KNOWN_INSTALL_COMMANDS: Record<string, () => [string, string[]] | null> = 
   },
 };
 
+/** The install command for a known tool, or null (own keys only, so `toString` is not a tool). */
+function knownInstallCommand(cmd: string): [string, string[]] | null {
+  return Object.hasOwn(KNOWN_INSTALL_COMMANDS, cmd) ? KNOWN_INSTALL_COMMANDS[cmd]!() : null;
+}
+
+/** Why a command did not resolve, worded once for the launch error and the dry-run note. */
+const COMMAND_FAILURE_REASONS: Record<CommandFailureKind, string> = {
+  "missing-path": "was not found or is not executable",
+  "bad-form": "is not a command name or an absolute path",
+  "missing-name": "is not on your PATH",
+};
+
+type CommandCheck =
+  | { resolved: string }
+  | { failure: CommandFailureKind; install: [string, string[]] | null };
+
+/** Resolve a command, or say why not and how a launch could install it. Never prompts or installs. */
+function checkCommand(cmd: string): CommandCheck {
+  const resolved = resolveCommandPath(cmd);
+  if (resolved) return { resolved };
+  const failure = describeCommandFailure(cmd);
+  return { failure, install: failure === "missing-name" ? knownInstallCommand(cmd) : null };
+}
+
 /**
  * Where to change a failing command: `summon set <key>` for a config key, the layout file for a
  * tree pane (`pane.<leaf>`), which `summon set` does not accept.
@@ -168,23 +193,22 @@ function stopLaunch(headline: string, detail: string, errorMessage = headline): 
 }
 
 async function ensureCommand(cmd: string, hint: string): Promise<string> {
-  const resolved = resolveCommandPath(cmd);
-  if (resolved) return resolved;
+  const check = checkCommand(cmd);
+  if ("resolved" in check) return check.resolved;
 
-  const failure = describeCommandFailure(cmd);
-  if (failure === "missing-path") {
-    stopLaunch(`\`${cmd}\` was not found or is not executable.`, `Please fix the path or ${hint}`);
+  const reason = `\`${cmd}\` ${COMMAND_FAILURE_REASONS[check.failure]}`;
+  if (check.failure === "missing-path") {
+    stopLaunch(`${reason}.`, `Please fix the path or ${hint}`);
   }
-  if (failure === "bad-form") {
+  if (check.failure === "bad-form") {
     stopLaunch(
-      `\`${cmd}\` is not a command name or an absolute path. Use a command on your PATH (for example \`gh-glance\`) or a full path that starts with \`/\`.`,
+      `${reason}. Use a command on your PATH (for example \`gh-glance\`) or a full path that starts with \`/\`.`,
       `Please ${hint}`,
-      `\`${cmd}\` is not a command name or an absolute path.`,
+      `${reason}.`,
     );
   }
 
-  const getInstall = KNOWN_INSTALL_COMMANDS[cmd];
-  const installCmd = getInstall ? getInstall() : null;
+  const installCmd = check.install;
 
   if (!installCmd) {
     stopLaunch(
@@ -753,6 +777,30 @@ function printDryRun(
     ? rexDryRunBody(headerLines, layout, ctx, starshipConfigPath, launchContext.server)
     : ghosttyScript(starshipConfigPath);
   console.log(`${headerLines.join("\n")}\n${body}`);
+  // Rex does not resolve commands before launch (plan D5), so only a Ghostty dry run checks them.
+  if (launchContext.backend !== "rex") {
+    for (const line of dryRunCommandNotes(layout)) note(line);
+  }
+}
+
+/**
+ * One line per executable a real Ghostty launch would not resolve, without prompting or
+ * installing. A missing command with a known install method gets an install offer, not a stop.
+ */
+function dryRunCommandNotes(layout: PlannedLayout): string[] {
+  const notes: string[] = [];
+  const checked = new Set<string>();
+  for (const { key, pane, command } of ghosttyCommandEntries(layout)) {
+    const executable = commandExecutable(command);
+    if (!executable || checked.has(executable)) continue;
+    checked.add(executable);
+    const check = checkCommand(executable);
+    if ("resolved" in check) continue;
+    const label = pane ? `pane \`${pane}\`` : `\`${key}\``;
+    const outcome = check.install ? "a real launch offers to install it" : "a real launch stops here";
+    notes.push(`${label}: \`${executable}\` ${COMMAND_FAILURE_REASONS[check.failure]}; ${outcome}.`);
+  }
+  return notes;
 }
 
 async function launchTreeLayout(
