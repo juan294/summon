@@ -93,6 +93,8 @@ Filled by Claude after each run. A row is green only when the command above exit
 
 Final gate on the tree with the reviewed suite (2026-10-30, `e2e-guide-gate-final.log`): typecheck, lint, build exit 0; 82 files, 3193 passed, 16 skipped (the 9 gated Rex CLI cases and the 7 pre-existing skips), 1 todo; coverage 96.81 / 91.86 / 98.84 / 98.37; release probes 82 passed; `src/shell-escape.lint.test.ts` present. The handoff is in `docs/plans/2026-10-29-rex-backend-notes.md`.
 
+Rerun on the findings tree `8a006f5` (F1, F4, F5 fixed; 2026-10-30, one Rex window open): A5 `rex-native` 2 passed, A6 `rex-lifecycle` 2 passed, A7 `rex-cli` 10 passed (C19 is a real case now, no todo), all in required mode, nothing left on the server or under `~/.config/summon/status` (`findings-rex-native-run2.log`, `findings-rex-lifecycle-run2.log`, `findings-rex-cli-run2.log`). Unit gate on the same tree: `findings-gate-final.log` (3206 passed, 17 skipped; coverage 96.82 / 91.87 / 98.85 / 98.38).
+
 ## 3. Manual part (run by the owner, after §2 is green)
 
 Tags: **Rex** = run from a block inside Rex Beta; **Ghostty** = run from a Ghostty tab; **Other** = run from Terminal.app or iTerm; **Visual** = needs eyes on the app; **TTY** = needs an interactive terminal. Every `summon` below is the linked candidate (M0), never the released 1.9.0. Replace `[ ]` with `[x]` or a short note.
