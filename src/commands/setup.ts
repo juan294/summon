@@ -12,9 +12,9 @@ export async function handleSetupCommand(): Promise<void> {
 }
 
 /** The wizard's backend (plan P15): under Rex it skips the Ghostty install and Accessibility steps. Detection notices are shown as for a launch. */
-export function detectedSetupBackend(): SetupOptions {
+export function detectedSetupBackend(options: { showNotices?: boolean } = {}): SetupOptions {
   const detection = resolveBackendForLaunch();
-  for (const notice of detection.notices) err(notice);
+  if (options.showNotices ?? true) for (const notice of detection.notices) err(notice);
   return detection.ok ? { backend: detection.backend } : {};
 }
 

@@ -148,7 +148,8 @@ async function main(): Promise<void> {
         console.log("Press Ctrl+C at any time to skip setup. Re-run later with: summon setup");
         const { runSetup } = await import("./setup.js");
         const { detectedSetupBackend } = await import("./commands/setup.js");
-        await runSetup(detectedSetupBackend());
+        // A directory target launches right after the wizard, and the launch prints the detection notices itself.
+        await runSetup(detectedSetupBackend({ showNotices: !isDirectoryTarget }));
         // UX-M3 (#476): After wizard completes (returns normally), continue with the original
         // launch intent when the user was targeting a directory. Cancellation (Ctrl+C) exits
         // inside runSetup itself, so this code only runs on successful completion.

@@ -55,6 +55,7 @@ const {
   handleCompletionsCommand,
   handleKeybindingsCommand,
   handleSetupCommand,
+  detectedSetupBackend,
 } = await import("./setup.js");
 
 function makeContext(overrides: Partial<Parameters<typeof handleCompletionsCommand>[0]> = {}) {
@@ -99,6 +100,16 @@ describe("handleSetupCommand", () => {
     await handleSetupCommand();
 
     expect(writeSpy).toHaveBeenCalledWith("REX_SERVER unix:///tmp/none.sock did not answer; ignored\n");
+    writeSpy.mockRestore();
+  });
+
+  it("can leave the notices to a launch that follows the wizard", async () => {
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    mockResolveBackendForLaunch.mockReturnValueOnce({ ok: true, backend: "ghostty", placement: "outside", notices: ["REX_SERVER unix:///tmp/none.sock did not answer; ignored"] });
+
+    expect(detectedSetupBackend({ showNotices: false })).toEqual({ backend: "ghostty" });
+
+    expect(writeSpy).not.toHaveBeenCalled();
     writeSpy.mockRestore();
   });
 
