@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { execFileSync, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -185,8 +185,9 @@ describe("rex cli e2e", () => {
       git(["commit", "-q", "--allow-empty", "-m", "init"]);
       expect(summon(["add", name(topic), dir]).status).toBe(0);
     }
-    // A wrong `summon` first on the panes' PATH: the cleanup trap must run the binary that created the launch
-    // (guide §4 F4), never the `summon` found by name. Every call it receives is logged.
+    // A wrong `summon` on the panes' PATH (first in `env.PATH`; a login zsh's path_helper may still put a global
+    // one ahead of it): the cleanup trap must run the binary that created the launch (guide §4 F4), never the
+    // `summon` found by name. Every call the shim receives is logged; C10a records what the pane resolves.
     const badbin = join(home, "badbin");
     mkdirSync(badbin);
     writeFileSync(join(badbin, "summon"), `#!/bin/sh\nprintf '%s\\n' "$*" >> "$HOME/badbin.log"\nexit 1\n`);
@@ -354,14 +355,25 @@ describe("rex cli e2e", () => {
     // markers before any Summon reader runs. A wrong `summon` is first on the panes' PATH (badbin): the trap must
     // reach the binary that created the launch (guide §4 F4), so the snapshot appears and badbin is never called.
     expect(existsSync(snapshotOf(one))).toBe(false);
-    // Positive control: the root pane's shell resolves `summon` to the shim (so `env.PATH` reached the pane and
-    // a trap that used the name would have hit it). The interrupt ends the editor's `sleep`; the typed line runs
-    // at the prompt that follows (the interrupt flushes pending input, so the line goes in a second write).
+    // Positive control: what the root pane's shell resolves `summon` to. It is never the candidate (the candidate
+    // is `dist/index.js`, not a `summon` on any PATH), so a trap that used the name would run another Summon or
+    // the shim (a login zsh's path_helper puts /etc/paths ahead of `env.PATH`, so a global `summon` may come
+    // first and the shim is a fallback). The interrupt ends the editor's `sleep`; the typed line runs at the
+    // prompt that follows (the interrupt flushes pending input, so the line goes in a second write). The file
+    // is read only once it has content (`>>` creates it before the write lands).
     await typeInto(sessionId, record.rex!.rootBlockId, "\u0003");
     await sleep(1000);
-    await typeInto(sessionId, record.rex!.rootBlockId, `command -v summon >> "$HOME/which.log"\n`);
-    const which = await until(() => (existsSync(join(home, "which.log")) ? readFileSync(join(home, "which.log"), "utf8").trim() : undefined), 8000, "the pane's command -v summon");
-    expect(which).toBe(join(home, "badbin", "summon"));
+    await typeInto(sessionId, record.rex!.rootBlockId, `command -v summon >> "$HOME/which.log"; printf 'done\\n' >> "$HOME/which.log"\n`);
+    const which = await until(() => {
+      const file = join(home, "which.log");
+      if (!existsSync(file)) return undefined;
+      const lines = readFileSync(file, "utf8").split("\n");
+      return lines.includes("done") ? lines[0]! : undefined;
+    }, 8000, "the pane's command -v summon");
+    expect(which, "the pane resolves summon to some binary").toMatch(/^\//);
+    const resolved = (() => { try { return realpathSync(which); } catch { return which; } })();
+    expect(resolved.startsWith(root), `${which} resolves to ${resolved}, inside the candidate's tree`).toBe(false);
+    console.log(`C10a: the root pane resolves summon to ${which}${resolved !== which ? ` (${resolved})` : ""}`);
     await killConfirmed(sessionId);
     await until(() => (existsSync(snapshotOf(one)) && !launchFiles(one, launchId).some((f) => f.endsWith(".pid") || f.endsWith(".active")) ? true : undefined), 8000, "the trap's snapshot and marker removal");
     const snapshot = JSON.parse(readFileSync(snapshotOf(one), "utf8")) as { project?: string; directory?: string; layout?: string };
