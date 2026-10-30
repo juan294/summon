@@ -24,6 +24,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `summon <project>` from a pane of a Summon workspace no longer warns that the launch would nest splits inside the pane, nor asks to continue, when the backend is Rex: a Rex launch creates its own session.
+- `summon setup` run inside Rex now detects Rex like the first-launch wizard: it says `Rex detected (Ghostty not required)`, skips the Ghostty install and Accessibility steps, and its banner names Rex.
+- Shell completion completes `--orphans` and project names after `summon clean` (zsh, bash, fish), and zsh and bash complete `true`/`false` after `summon set <boolean key>` again (they compared a literal string since 2026-05-11).
+- `summon session` says `Switched to <project>` for a workspace that was already running and `Dry run printed for <project>` under `--dry-run`, and its summary counts each outcome, instead of `Launched` for every project.
+- `summon status --once` prints a reason the detail column cuts off in full on the next line, so a recommended command such as `summon clean <project>` stays visible at 80 columns.
+- `summon ports` with registered projects but no detected port explains where ports are read from instead of asking to register a project.
+- `summon clean --orphans` names each leftover launch once (the adoption pass no longer prints a second note about the same session).
+- The cleanup trap removes the launch's liveness files before it runs the `on-stop` hook and the snapshot save, so a trap the terminal cuts short under load no longer leaves a `.pid` that a reused process id could make look alive.
 - The cleanup trap's `summon snapshot save` and the `on-stop` hook no longer inherit the pane's terminal (`</dev/null >/dev/null 2>&1`). After `rex kill` or a window close the pty is already hung up, and Node aborts at startup when a standard descriptor is such a pty, so the trap never wrote the on-exit snapshot itself (observed under Rex, where the next status read's reconciliation hid it; a terminal window close is expected to behave the same).
 - Rex reads (`ls`, `session.view`, `client.list`, block calls) give the server 8 s instead of 3 s to answer. A server that is gone still fails at once; on a loaded machine a `session.view` during a launch could exceed 3 s and read as `could not be verified`.
 - A registered project that was never launched showed as `unknown` in `summon status`, the picker and the briefing, the state Summon reserves for a workspace whose liveness could not be read, so `summon open` and the monitor's Enter key refused to launch it. It is `stopped` now, and launches.

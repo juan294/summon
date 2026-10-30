@@ -123,8 +123,8 @@ describe("shell fragments", () => {
     expect(line).not.toContain("chapa.json");
     expect(line).not.toContain("status/chapa.active");
     expect(line).not.toContain("status/chapa.pid");
+    expect(line.indexOf("rm -f")).toBeLessThan(line.indexOf("echo bye"));
     expect(line.indexOf("echo bye")).toBeLessThan(line.indexOf("snapshot save"));
-    expect(line.indexOf("snapshot save")).toBeLessThan(line.indexOf("rm -f"));
   });
 
   it("cleanupTrapLine detaches the snapshot save and the on-stop hook from the terminal", () => {
@@ -137,6 +137,17 @@ describe("shell fragments", () => {
     expect(snapshotPart.endsWith(" </dev/null >/dev/null 2>&1")).toBe(true);
     const onStopPart = parts.find((part) => part.startsWith("echo bye"))!;
     expect(onStopPart).toBe(`echo bye </dev/null >> "$HOME/.config/summon/logs/cleanup-chapa.log" 2>&1`);
+  });
+
+  it("cleanupTrapLine removes the liveness files before the slower hook and snapshot (F21)", () => {
+    // A terminal kills the pane's processes shortly after the hangup. Removing the pid and active
+    // files first keeps liveness right even when the trap is cut short; the snapshot follows.
+    const line = cleanupTrapLine("chapa", ID, { onStop: "echo bye", targetDir: "/tmp/chapa", layout: "full" });
+    const parts = line.slice(line.indexOf("{ ") + 2, line.lastIndexOf("; }")).split("; ");
+    const rmIndex = parts.findIndex((part) => part.startsWith("rm -f "));
+    expect(rmIndex).toBeGreaterThanOrEqual(0);
+    expect(rmIndex).toBeLessThan(parts.findIndex((part) => part.startsWith("echo bye")));
+    expect(rmIndex).toBeLessThan(parts.findIndex((part) => part.includes("snapshot save")));
   });
 
   it("cleanupTrapLine omits on-stop and snapshot parts when not configured", () => {

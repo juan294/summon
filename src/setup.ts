@@ -720,7 +720,7 @@ const INSTALL_HINTS: Record<string, string> = {
 // Phase 2 — Wizard functions
 // ---------------------------------------------------------------------------
 
-function printWelcome(): void {
+function printWelcome(underRex = false): void {
   console.log();
 
   // Color functions for the logo gradient: cyan → brightCyan → green
@@ -740,7 +740,7 @@ function printWelcome(): void {
       const colorFn = logoColors[i] ?? cyan;
       console.log(`  ${mascotLine}${gap}${colorFn(SUMMON_LOGO[i]!)}`);
     } else if (i === taglineIdx) {
-      console.log(`  ${mascotLine}${gap}Summon your Ghostty workspace.`);
+      console.log(`  ${mascotLine}${gap}Summon your ${underRex ? "Rex" : "Ghostty"} workspace.`);
     } else if (i === subtitleIdx) {
       console.log(`  ${mascotLine}${gap}Let's set up your defaults.`);
     } else {
@@ -1137,7 +1137,7 @@ export async function runSetup(options: SetupOptions = {}): Promise<void> {
   }
 
   debugLog("wizard start");
-  printWelcome();
+  printWelcome(underRex);
 
   // UX-H3 (#282): accessibility check runs AFTER the first selectLayout prompt
   // so users can read the welcome before being presented with a system-permission dialog.

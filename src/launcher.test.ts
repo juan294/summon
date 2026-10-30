@@ -1897,7 +1897,7 @@ describe("on-start hook (#107)", () => {
       const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
       // Must NOT throw — launch should continue even when on-start fails
-      await expect(launch("/tmp/workspace", { "on-start": "false" })).resolves.toBeUndefined();
+      await expect(launch("/tmp/workspace", { "on-start": "false" })).resolves.toBe("launched");
       // Must warn about the failure
       expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("on-start command failed"));
 
@@ -2505,6 +2505,21 @@ describe("custom tree layout integration (Phase 4)", () => {
       await launch("/tmp/workspace", { "new-window": "true" });
 
       expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining("existing summon workspace"));
+      warnSpy.mockRestore();
+    });
+
+    it("skips the warning and the prompt for a Rex launch, which creates a session and never splits the caller's pane (F14)", async () => {
+      process.env.SUMMON_WORKSPACE = "1";
+      Object.defineProperty(process.stdin, "isTTY", { value: true, writable: true });
+      mockResolveBackendForLaunch.mockReturnValue({ ok: true, backend: "rex", placement: "inside-rex", server: "unix:///tmp/rex.sock", rexBinary: "/usr/local/bin/rex", notices: [] });
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      mockQuestion.mockClear();
+
+      // The mocked Rex CLI may fail the launch later; only the guard matters here.
+      await launch("/tmp/workspace").catch(() => undefined);
+
+      expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining("existing summon workspace"));
+      expect(mockQuestion).not.toHaveBeenCalledWith(expect.stringContaining("Continue anyway?"), expect.anything());
       warnSpy.mockRestore();
     });
 
@@ -3311,7 +3326,7 @@ describe("R19: on-start failure diagnostics (#190)", () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
     // Launch continues (does not reject) — failure is non-fatal
-    await expect(launch("/tmp/workspace", { "on-start": "broken-command" })).resolves.toBeUndefined();
+    await expect(launch("/tmp/workspace", { "on-start": "broken-command" })).resolves.toBe("launched");
 
     const warnMessages = warnSpy.mock.calls.map((c) => c[0] as string);
     const failMsg = warnMessages.find((m) => m.includes("on-start command failed"));
@@ -3667,7 +3682,7 @@ describe("AR-M1: process.exit -> thrown errors in launcher (#306)", () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
     // Should NOT throw — warn and continue
-    await expect(launch("/tmp/workspace", { "on-start": "bad-command" })).resolves.toBeUndefined();
+    await expect(launch("/tmp/workspace", { "on-start": "bad-command" })).resolves.toBe("launched");
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("on-start command failed"));
 
     warnSpy.mockRestore();
@@ -4480,7 +4495,7 @@ describe("P2 capture failure isolation",()=>{
   it.each(["", "SUMMON_NATIVE_UNAVAILABLE", "SUMMON_NATIVE_V1\ninvalid", "x".repeat(65537)])("launch stays successful for invalid capture",async output=>{
     const status=await import("./status.js");
     mockExecFileSync.mockImplementation((bin:string,args:string[],opts?:{input?:string})=> bin === "/usr/bin/which" ? "/usr/bin/stub\n" : opts?.input ? output : "");
-    await expect(launch("/tmp/workspace",{layout:"minimal"})).resolves.toBeUndefined();
+    await expect(launch("/tmp/workspace",{layout:"minimal"})).resolves.toBe("launched");
     expect(status.publishStatus).toHaveBeenCalledWith(expect.objectContaining({project:"workspace",version:1}));
     expect(vi.mocked(status.publishStatus).mock.calls[0]?.[0].native).toBeUndefined();
     expect(mockExecFileSync.mock.calls.filter(c=>String(c[2]?.input).includes("close front window"))).toHaveLength(0);
@@ -4489,12 +4504,12 @@ describe("P2 capture failure isolation",()=>{
     const status=await import("./status.js"); const err=vi.spyOn(process.stderr,"write").mockImplementation(()=>true);
     mockExecFileSync.mockImplementation((bin:string,args:string[],opts?:{input?:string})=>bin === "/usr/bin/which" ? "/usr/bin/stub\n" : opts?.input ? `SUMMON_NATIVE_V1\n${id}\n00000000-0000-4000-8000-000000000002\n` : "");
     vi.mocked(status.publishStatus).mockReturnValueOnce("discarded");
-    await expect(launch("/tmp/workspace",{layout:"minimal"})).resolves.toBeUndefined();
+    await expect(launch("/tmp/workspace",{layout:"minimal"})).resolves.toBe("launched");
     expect(status.publishStatus).toHaveBeenCalledWith(expect.objectContaining({native:expect.objectContaining({rootTerminalId:id})}));
     expect(err).toHaveBeenCalledWith(expect.stringContaining("status could not be saved; exact targeting is unavailable"));
     // The publication layer owns the discard (bound to the record observed under its lock); the launcher only words the outcome.
     vi.mocked(status.publishStatus).mockReturnValueOnce("unsaved");
-    await expect(launch("/tmp/workspace",{layout:"minimal"})).resolves.toBeUndefined();
+    await expect(launch("/tmp/workspace",{layout:"minimal"})).resolves.toBe("launched");
     expect(err).toHaveBeenCalledWith(expect.stringContaining("could not be saved or invalidated. Previous metadata may remain"));
     err.mockRestore();
   });

@@ -3,10 +3,18 @@ import { probeGhosttyDetach } from "../ghostty.js";
 import { fail } from "../ui/output.js";
 import { exitWithUsageHint } from "../utils.js";
 import type { CommandContext } from "./types.js";
+import { resolveBackendForLaunch } from "../backend.js";
+import type { SetupOptions } from "../setup.js";
 
 export async function handleSetupCommand(): Promise<void> {
   const { runSetup } = await import("../setup.js");
-  await runSetup();
+  await runSetup(detectedSetupBackend());
+}
+
+/** The wizard's backend (plan P15): under Rex it skips the Ghostty install and Accessibility steps. */
+export function detectedSetupBackend(): SetupOptions {
+  const detection = resolveBackendForLaunch();
+  return detection.ok ? { backend: detection.backend } : {};
 }
 
 export async function handleCompletionsCommand({ args }: CommandContext): Promise<void> {

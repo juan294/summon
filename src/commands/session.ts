@@ -123,7 +123,9 @@ async function cmdLaunch(ctx: CommandContext, name: string | undefined): Promise
   }
 
   const total = projects.length;
+  // Every project that opened (launched or switched to), in order: the first is shown again at the end.
   const launched: string[] = [];
+  const counts = { launched: 0, switched: 0, "dry-run": 0 };
   const skippedUntrusted: string[] = [];
   const failedTab: string[] = [];
   // Treat first-launch placement the same regardless of whether earlier
@@ -145,8 +147,10 @@ async function cmdLaunch(ctx: CommandContext, name: string | undefined): Promise
       delete overrides["new-window"];
     }
     try {
-      await runWithSpinner(`[${i + 1}/${total}] Summoning ${proj}...`, () => launch(dir, overrides));
-      console.log(`[${i + 1}/${total}] Launched ${proj}`);
+      const outcome = (await runWithSpinner(`[${i + 1}/${total}] Summoning ${proj}...`, () => launch(dir, overrides))) ?? "launched";
+      const step = `[${i + 1}/${total}]`;
+      console.log(outcome === "switched" ? `${step} Switched to ${proj}` : outcome === "dry-run" ? `${step} Dry run printed for ${proj}` : `${step} Launched ${proj}`);
+      counts[outcome]++;
       launched.push(proj);
       openedFirst = true;
     } catch (caught) {
@@ -181,7 +185,10 @@ async function cmdLaunch(ctx: CommandContext, name: string | undefined): Promise
     if (!shown.shown) note(`could not show [${launched[0]}] in Rex: ${shown.reason}`);
   }
 
-  const parts = [`${launched.length} launched`];
+  const parts: string[] = [];
+  if (counts.launched > 0 || launched.length === 0) parts.push(`${counts.launched} launched`);
+  if (counts.switched > 0) parts.push(`${counts.switched} switched`);
+  if (counts["dry-run"] > 0) parts.push(`${counts["dry-run"]} dry run${counts["dry-run"] === 1 ? "" : "s"} printed`);
   if (failedTab.length > 0) {
     parts.push(`${failedTab.length} failed (tab did not open): ${failedTab.join(", ")}`);
   }

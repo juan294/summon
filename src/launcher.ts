@@ -569,8 +569,10 @@ export function resolveConfig(targetDir: string, cliOverrides: CLIOverrides, sum
 async function warnIfNested(
   opts: Partial<LayoutOptions>,
   dryRun: boolean | undefined,
+  backend: BackendId,
 ): Promise<boolean> {
-  if (!process.env[SUMMON_WORKSPACE_ENV] || opts.newWindow || dryRun || !process.stdin.isTTY) {
+  // A Rex launch creates its own session and never splits the caller's pane (F14).
+  if (backend === "rex" || !process.env[SUMMON_WORKSPACE_ENV] || opts.newWindow || dryRun || !process.stdin.isTTY) {
     return false;
   }
   console.warn("Warning: You're inside an existing summon workspace.");
@@ -894,7 +896,10 @@ function resolveLaunchBackend(dryRun: boolean | undefined): LaunchContext {
   return { ok: true, backend: "ghostty", placement: "outside", notices: [...detection.notices, `${detection.reason} Dry run continues with the Ghostty script.`] };
 }
 
-export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Promise<void> {
+/** What a launch did: created a workspace, switched to a live Rex one (P2), or printed a dry run. */
+export type LaunchOutcome = "launched" | "switched" | "dry-run";
+
+export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Promise<LaunchOutcome> {
   if (!existsSync(targetDir)) {
     const msg = `Directory not found: ${targetDir}`;
     fail(msg);
@@ -947,7 +952,7 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
     // and on-start, so a switch never reruns them. A dry run skips both (P2) and runs no Rex command.
     for (const line of adoptOrphans(projectName, adoptDeps(launchContext.rexBinary))) note(line);
     const decision = maybeSwitchToExisting(projectName, cliOverrides?.["new-window"] === "true", { cliFor: (server) => createRexCli(launchContext.rexBinary, server), callerSession });
-    if (decision.kind === "switched") return;
+    if (decision.kind === "switched") return "switched";
     if (decision.kind === "refused") {
       fail(decision.reason);
       process.exit(2);
@@ -973,7 +978,7 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
 
   const { opts, machineConfig, starshipPreset, onStart, onStop, envVars, treeLayout } = config;
 
-  if (await warnIfNested(opts, cliOverrides?.dryRun)) {
+  if (await warnIfNested(opts, cliOverrides?.dryRun, launchContext.backend)) {
     throw new Error("Launch aborted by user (nested workspace).");
   }
   if (launchContext.backend === "ghostty") {
@@ -1124,4 +1129,5 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
       err("summon: warning: workspace launched, but status could not be saved or invalidated. Previous metadata may remain and target an older workspace; select manually in Ghostty, repair config directory permissions and run summon doctor before using exact commands.");
     }
   }
+  return dryRun ? "dry-run" : "launched";
 }

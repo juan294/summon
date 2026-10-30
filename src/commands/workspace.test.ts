@@ -199,7 +199,7 @@ describe("workspace commands with real status fixtures", () => {
         clean: "false",
         "no-project-config": "true",
       }),
-    ).resolves.toBeUndefined();
+    ).resolves.toBe("launched");
     expect(readStatus("demo")).toBeNull();
     expect(readFileSync(join(STATUS_DIR, "demo.pid"), "utf8")).toBe(
       String(process.pid),

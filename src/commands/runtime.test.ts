@@ -56,6 +56,11 @@ vi.mock("../briefing.js", () => ({
   runBriefing: (...args: unknown[]) => mockRunBriefing(...args),
 }));
 
+const mockListProjects = vi.fn(() => new Map<string, string>());
+vi.mock("../config.js", () => ({
+  listProjects: () => mockListProjects(),
+}));
+
 vi.mock("../ports.js", () => ({
   detectAllPorts: (...args: unknown[]) => mockDetectAllPorts(...args),
 }));
@@ -289,6 +294,18 @@ describe("handlePortsCommand", () => {
 
     expect(logSpy).toHaveBeenCalledWith("No port assignments detected.");
     expect(logSpy).toHaveBeenCalledWith("Run `summon add <name> <path>` to register a project.");
+  });
+
+  it("explains where ports come from when projects are registered but none declares a port (F15)", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockDetectAllPorts.mockReturnValue({ assignments: [], conflicts: new Map() });
+    mockListProjects.mockReturnValueOnce(new Map([["api", "/tmp/api"], ["web", "/tmp/web"]]));
+
+    await handlePortsCommand();
+
+    expect(logSpy).toHaveBeenCalledWith("No port assignments detected in 2 registered projects.");
+    expect(logSpy).toHaveBeenCalledWith("Ports are read from PORT-style variables in a trusted .summon, --port/-p flags of dev-server scripts in package.json, and framework config files.");
+    expect(logSpy).not.toHaveBeenCalledWith("Run `summon add <name> <path>` to register a project.");
   });
 
   it("prints a colorized status table and conflict warnings", async () => {

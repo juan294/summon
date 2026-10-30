@@ -147,7 +147,8 @@ async function main(): Promise<void> {
       if (parsed.subcommand === undefined || isDirectoryTarget) {
         console.log("Press Ctrl+C at any time to skip setup. Re-run later with: summon setup");
         const { runSetup } = await import("./setup.js");
-        await runSetup();
+        const { detectedSetupBackend } = await import("./commands/setup.js");
+        await runSetup(detectedSetupBackend());
         // UX-M3 (#476): After wizard completes (returns normally), continue with the original
         // launch intent when the user was targeting a directory. Cancellation (Ctrl+C) exits
         // inside runSetup itself, so this code only runs on successful completion.

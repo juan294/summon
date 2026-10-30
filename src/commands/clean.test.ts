@@ -272,6 +272,20 @@ describe("summon clean --orphans <project>", () => {
     expect(readStatusRecord("chapa")!.launchId).toBe(GEN);
   });
 
+  it("says each leftover launch once: the review line, not also the adoption pass's note (F12)", async () => {
+    writeStatus(record());
+    writeLaunchManifest(manifest(GEN2));
+    const SESSION3 = "session:0000aaaa-0000-0000-0000-000000000003";
+    writeLaunchManifest(manifest(GEN3, { startedAt: "2026-10-29T08:30:00.000Z" }));
+    writePane(GEN3, SESSION3);
+    server({ [SESSION]: [BLOCK], [SESSION3]: ["block:0000aaaa-0000-0000-0000-000000000031"] });
+    await handleCleanCommand(context(["chapa"], { orphans: true }));
+    expect(stdout()).toContain(`Rex session ${SESSION3} still has 1 block; close it yourself with: rex -S '${SERVER}' kill ${SESSION3}`);
+    expect(stdout()).toContain(`launch ${GEN2} of [chapa] (started 2026-10-29T08:00:00.000Z, server ${SERVER}): never confirmed its session; left in place as evidence.`);
+    expect(stderr()).not.toContain("extra Rex session");
+    expect(stderr()).not.toContain("never confirmed its session; summon clean --orphans names it");
+  });
+
   it("removes the files of a gone orphan, reports an unreachable manifest server, and never touches the current launch", async () => {
     writeStatus(record());
     writeLaunchManifest(manifest(GEN2));

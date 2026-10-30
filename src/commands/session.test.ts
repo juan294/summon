@@ -806,3 +806,37 @@ describe("session launch under Rex (plan P11)", () => {
     errSpy.mockRestore();
   });
 });
+
+describe("session launch reports what each project did (F19)", () => {
+  function setup(): ReturnType<typeof vi.spyOn> {
+    mockReadSession.mockReturnValue(["api", "web"]);
+    mockGetProject.mockImplementation((name: string) => ({ api: "/tmp/api", web: "/tmp/web" } as Record<string, string>)[name]);
+    return vi.spyOn(console, "log").mockImplementation(() => {});
+  }
+
+  it("says Switched to, not Launched, for a workspace that was already running", async () => {
+    const logSpy = setup();
+    mockLaunch.mockResolvedValueOnce("launched").mockResolvedValueOnce("switched");
+
+    await handleSessionCommand(makeContext({ args: ["myteam"] }));
+
+    const logs = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(logs).toContain("[1/2] Launched api");
+    expect(logs).toContain("[2/2] Switched to web");
+    expect(logs.some((l: string) => l.includes("Session complete: 1 launched, 1 switched."))).toBe(true);
+    logSpy.mockRestore();
+  });
+
+  it("does not claim a launch for a dry run", async () => {
+    const logSpy = setup();
+    mockLaunch.mockResolvedValue("dry-run");
+
+    await handleSessionCommand(makeContext({ args: ["myteam"], overrides: { dryRun: true } }));
+
+    const logs = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(logs).toContain("[1/2] Dry run printed for api");
+    expect(logs.some((l: string) => l.includes("Launched"))).toBe(false);
+    expect(logs.some((l: string) => l.includes("Session complete: 2 dry runs printed."))).toBe(true);
+    logSpy.mockRestore();
+  });
+});

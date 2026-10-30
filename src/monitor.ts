@@ -339,6 +339,9 @@ export function printStatusOnce(): void {
   const width = process.stdout.columns || 80;
   for (const row of rows) {
     console.log(renderRow(row, width, false));
+    // A reason the detail column cuts off is printed in full: it often ends with the command to run (F16).
+    const detail = row.state !== "active" && row.state !== "active-long" ? row.reason : undefined;
+    if (detail && getDisplayWidth(detail) > Math.max(0, width - FIXED_COLS)) console.log(`      ${dim(`reason: ${detail}`)}`);
     for (const line of row.notices ?? []) console.log(`      ${dim(`note: ${line}`)}`);
   }
 }

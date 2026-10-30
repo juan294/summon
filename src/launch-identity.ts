@@ -202,8 +202,8 @@ export interface CleanupTrapOptions {
 }
 
 /**
- * Root-pane EXIT/HUP trap: on-stop (logged), `summon snapshot save --launch <id>`, then removal
- * of this launch's own pid and active files only. The pane files, the manifest, the shared
+ * Root-pane EXIT/HUP trap: removal of this launch's own pid and active files only, then on-stop
+ * (logged), then `summon snapshot save --launch <id>`. The pane files, the manifest, the shared
  * record and the legacy `<project>.active`/`.pid` paths are never named here (P12).
  *
  * SE-L1: the trap runs inside the root pane with the project directory as cwd and the pane's
@@ -216,10 +216,16 @@ export interface CleanupTrapOptions {
  * aborts at startup when a standard descriptor is such a pty (PlatformInit saves the tty modes of
  * fds 0-2; tcgetattr fails with EIO), so the snapshot save and the on-stop hook get `/dev/null` as
  * stdin and stdout and never inherit the terminal (observed on Rex and Node 24, guide §4 F9).
+ *
+ * The terminal kills the pane's processes shortly after the hangup (about 2 s on Rex), so the trap
+ * can be cut short under load. The liveness files go first: they are what a stale reader would
+ * trust (a reused pid could look alive). The snapshot checks ownership against the record, not
+ * these files, and Rex reconciliation saves one when the trap never got there (F21).
  */
 export function cleanupTrapLine(project: string, launchId: string, options: CleanupTrapOptions = {}): string {
   assertLaunchId(launchId);
   const parts: string[] = [
+    `rm -f ${shellArtifact(project, launchId, "pid")} ${shellArtifact(project, launchId, "active")} 2>/dev/null`,
     // SE-L3: mode 700 restricts the log directory to the owning user, like STATUS_DIR.
     'mkdir -p "$HOME/.config/summon" "$HOME/.config/summon/logs"',
     'chmod 700 "$HOME/.config/summon" "$HOME/.config/summon/logs"',
@@ -241,8 +247,6 @@ export function cleanupTrapLine(project: string, launchId: string, options: Clea
       + ` </dev/null >/dev/null 2>&1`,
     );
   }
-
-  parts.push(`rm -f ${shellArtifact(project, launchId, "pid")} ${shellArtifact(project, launchId, "active")} 2>/dev/null`);
 
   return `__summon_cleanup() { ${parts.join("; ")}; }; trap '__summon_cleanup' EXIT HUP`; // lint-allow-escape: composition of the individually checked parts above
 }

@@ -357,7 +357,7 @@ export const CLI_FLAGS = [
   "--editor-size", "--sidebar", "--shell", "--auto-resize",
   "--no-auto-resize", "--starship-preset", "--dry-run",
   "--env", "--new-window", "--new-tab", "--fullscreen", "--maximize", "--float", "--font-size", "--on-start", "--once",
-  "--clean", "--no-clean", "--no-project-config", "--verbose", "--json", "--set", "--reset", "--detach-tab",
+  "--clean", "--no-clean", "--no-project-config", "--verbose", "--json", "--set", "--reset", "--detach-tab", "--orphans",
   "-h", "-v", "-l", "-e", "-p", "-s", "-n",
 ];
 

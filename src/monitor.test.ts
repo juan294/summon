@@ -759,6 +759,24 @@ describe("printStatusOnce", () => {
     );
   });
 
+  it("prints a reason the column cuts off in full below the row, so its command stays visible (F16)", () => {
+    const columns = process.stdout.columns;
+    Object.defineProperty(process.stdout, "columns", { value: 80, configurable: true });
+    listProjects.mockReturnValue([["rc-pair", "/tmp/rc-pair"], ["short", "/tmp/short"]]);
+    readAllStatuses.mockReturnValue([
+      makeResolvedStatus({ project: "rc-pair", directory: "/tmp/rc-pair", state: "stopped", uptime: null, reason: "empty Rex session remains; run summon clean rc-pair" }),
+      makeResolvedStatus({ project: "short", directory: "/tmp/short", state: "stopped", uptime: null, reason: "Rex session no longer exists" }),
+    ]);
+    try {
+      printStatusOnce();
+    } finally {
+      Object.defineProperty(process.stdout, "columns", { value: columns, configurable: true });
+    }
+    const lines = vi.mocked(console.log).mock.calls.map((c) => String(c[0]));
+    expect(lines.some((l) => l.includes("reason: empty Rex session remains; run summon clean rc-pair"))).toBe(true);
+    expect(lines.some((l) => l.includes("reason: Rex session no longer exists"))).toBe(false);
+  });
+
   it("prints each row for multiple projects", () => {
     listProjects.mockReturnValue([
       ["alpha", "/tmp/alpha"],

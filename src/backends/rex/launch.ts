@@ -376,8 +376,13 @@ function extraSessionNotice(project: string, sessionId: string, launchId: string
   return `extra Rex session [${project}] ${sessionId} from earlier launch ${launchId}; rex kill ${sessionId} closes it`;
 }
 
-/** Verify every orphan (no mutation), then adopt at most one and remove confirmed-gone launches, under the lock. */
-export function adoptOrphans(project: string, deps: AdoptDeps): string[] {
+/**
+ * Verify every orphan (no mutation), then adopt at most one and remove confirmed-gone launches, under the lock.
+ * `reportLeftovers: false` leaves out the notes about launches that stay in place (`summon clean --orphans`
+ * reviews each of them right after, so the note would say the same thing twice, F12).
+ */
+export function adoptOrphans(project: string, deps: AdoptDeps, options: { reportLeftovers?: boolean } = {}): string[] {
+  const reportLeftovers = options.reportLeftovers ?? true;
   const current = readStatusRecord(project);
   if (current && !current.launchId) return [`${project} has a record from an older Summon; run summon ${project} to replace it`];
   const gen = current?.launchId ?? null;
@@ -452,7 +457,7 @@ export function adoptOrphans(project: string, deps: AdoptDeps): string[] {
     decisions.push({ kind: "adopt", manifest, record, sessionId: root.sessionId });
   }
 
-  const reports = decisions.filter((d): d is Extract<Decision, { kind: "report" }> => d.kind === "report").map((d) => d.notice);
+  const reports = reportLeftovers ? decisions.filter((d): d is Extract<Decision, { kind: "report" }> => d.kind === "report").map((d) => d.notice) : [];
   if (unknowns.length > 0) return [...unknowns, ...reports];
 
   // PASS 2: mutations in startedAt order, each under the lock with the generation read above.
@@ -460,7 +465,7 @@ export function adoptOrphans(project: string, deps: AdoptDeps): string[] {
   const superseded = `another launch of ${project} published meanwhile; nothing adopted or removed`;
   let adopted = false;
   for (const decision of decisions) {
-    if (decision.kind === "report") { notices.push(decision.notice); continue; }
+    if (decision.kind === "report") { if (reportLeftovers) notices.push(decision.notice); continue; }
     if (decision.kind === "remove") {
       const removal = removeOrphanLaunch(project, gen, decision.manifest);
       if (removal.outcome === "superseded") { notices.push(superseded); return notices; }
@@ -470,7 +475,7 @@ export function adoptOrphans(project: string, deps: AdoptDeps): string[] {
       continue;
     }
     if (adopted) {
-      notices.push(extraSessionNotice(project, decision.sessionId, decision.manifest.launchId));
+      if (reportLeftovers) notices.push(extraSessionNotice(project, decision.sessionId, decision.manifest.launchId));
       continue;
     }
     const { outcome } = withOwnedRecord(project, { launchId: gen }, () => decision.record);

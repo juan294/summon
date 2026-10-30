@@ -151,7 +151,7 @@ async function cleanOrphans(project: string): Promise<void> {
     note(`${project} has a record from an older Summon; run summon ${project} to replace it, then review its launches`);
     return;
   }
-  for (const line of adoptOrphans(project, adoptDeps(binary))) note(line);
+  for (const line of adoptOrphans(project, adoptDeps(binary), { reportLeftovers: false })) note(line);
   const gen = readStatusRecord(project)?.launchId ?? null;
   const swept = sweepDeadGhosttyLaunches(project, gen ?? undefined);
   if (swept > 0) out(`${swept} stale Ghostty launch file pair${swept === 1 ? "" : "s"} of [${project}] removed.`);

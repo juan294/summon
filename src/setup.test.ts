@@ -1244,6 +1244,8 @@ describe("printValidation", () => {
     expect(allOutput.some((s) => s.includes("Rex") && s.includes("detected (Ghostty not required)"))).toBe(true);
     expect(allOutput.some((s) => s.includes("Ghostty") && s.includes("not found"))).toBe(false);
     expect(allOutput.some((s) => s.includes("Accessibility permission"))).toBe(false);
+    expect(allOutput.some((s) => s.includes("Summon your Rex workspace."))).toBe(true);
+    expect(allOutput.some((s) => s.includes("Summon your Ghostty workspace."))).toBe(false);
 
     Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, writable: true });
     logSpy.mockRestore();

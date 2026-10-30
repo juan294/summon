@@ -42,6 +42,11 @@ vi.mock("../layout.js", () => ({
   planLayout: (...args: unknown[]) => mockPlanLayout(...args),
 }));
 
+const mockResolveBackendForLaunch = vi.fn((): unknown => ({ ok: true, backend: "ghostty", placement: "outside", notices: [] }));
+vi.mock("../backend.js", () => ({
+  resolveBackendForLaunch: () => mockResolveBackendForLaunch(),
+}));
+
 vi.mock("../setup.js", () => ({
   runSetup: (...args: unknown[]) => mockRunSetup(...args),
 }));
@@ -72,10 +77,27 @@ beforeEach(() => {
 });
 
 describe("handleSetupCommand", () => {
-  it("runs the interactive setup workflow", async () => {
+  it("runs the interactive setup workflow with the detected backend", async () => {
     await handleSetupCommand();
 
     expect(mockRunSetup).toHaveBeenCalledOnce();
+    expect(mockRunSetup).toHaveBeenCalledWith({ backend: "ghostty" });
+  });
+
+  it("tells the wizard it runs under Rex, so it skips the Ghostty-only steps (F20)", async () => {
+    mockResolveBackendForLaunch.mockReturnValueOnce({ ok: true, backend: "rex", placement: "inside-rex", server: "unix:///tmp/rex.sock", rexBinary: "/usr/local/bin/rex", notices: [] });
+
+    await handleSetupCommand();
+
+    expect(mockRunSetup).toHaveBeenCalledWith({ backend: "rex" });
+  });
+
+  it("runs the wizard without a backend when neither terminal is detected", async () => {
+    mockResolveBackendForLaunch.mockReturnValueOnce({ ok: false, reason: "Neither Ghostty.app nor the Rex CLI was found. Install one.", notices: [] });
+
+    await handleSetupCommand();
+
+    expect(mockRunSetup).toHaveBeenCalledWith({});
   });
 });
 
