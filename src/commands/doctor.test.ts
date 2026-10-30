@@ -14,6 +14,7 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  chmodSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -354,5 +355,20 @@ describe("doctor Rex section (plan P15, Phase 3)", () => {
     expect(output()).not.toContain("Ghostty.app not found");
     expect(output()).not.toContain("Accessibility permission");
     expect(output()).toMatch(/\d+\/\d+ checks passed\./);
+  });
+});
+describe("doctor configured commands", () => {
+  it("accepts an executable absolute path for editor without calling which (T1.9)", async () => {
+    const editor = join(home, "bin/hx");
+    mkdirSync(join(home, "bin"), { recursive: true });
+    writeFileSync(editor, "#!/bin/sh\n");
+    chmodSync(editor, 0o755);
+    writeFileSync(join(home, ".config/summon/config"), `editor=${editor}\n`);
+    resetConfigCache();
+
+    await handleDoctorCommand(context());
+
+    expect(output()).toContain(`editor command "${editor}" found at ${editor}`);
+    expect(exec).not.toHaveBeenCalledWith("/usr/bin/which", [editor], expect.anything());
   });
 });

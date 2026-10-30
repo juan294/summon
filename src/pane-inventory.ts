@@ -1,5 +1,6 @@
 import type { LayoutPlan } from "./layout.js";
 import type { TreeLayoutPlan } from "./tree.js";
+import { CONTROL_CHARS_RE } from "./utils.js";
 
 export interface PaneDescriptor {
   name: string;
@@ -11,8 +12,6 @@ export interface NativeMetadata {
 }
 /** Bounded, control-free text for names and labels that end up in native selectors or titles. */
 export const MAX_TEXT_LENGTH = 256;
-// eslint-disable-next-line no-control-regex -- native selectors cannot contain terminal controls
-const CONTROL_CHARS_RE = /[\x00-\x1f\x7f-\x9f]/;
 export function isPlainText(value: unknown, options: { allowEmpty?: boolean } = {}): value is string {
   if (typeof value !== "string" || value.length > MAX_TEXT_LENGTH || CONTROL_CHARS_RE.test(value)) return false;
   return options.allowEmpty === true || value.length > 0;

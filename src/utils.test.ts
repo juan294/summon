@@ -73,7 +73,7 @@ vi.mock("node:readline", () => ({
 }));
 
 // Import after mocks
-const { SAFE_COMMAND_RE, GHOSTTY_PATHS, GHOSTTY_APP_NAME, SUMMON_WORKSPACE_ENV, resolveCommand, promptUser, getErrorMessage, exitWithUsageHint, formatUserError, checkAccessibility, openAccessibilitySettings, isAccessibilityError, isGhosttyInstalled, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT, ACCESSIBILITY_REQUIRED_MSG, PromptCancelled, isDebug, debugLog, supportsColor, confirm, gitSafeEnv, resetGitSafeEnvCache, atomicWrite, resetGitOutputCache } = await import("./utils.js");
+const { SAFE_COMMAND_RE, GHOSTTY_PATHS, GHOSTTY_APP_NAME, SUMMON_WORKSPACE_ENV, resolveCommand, isExecutableFile, describeCommandFailure, promptUser, getErrorMessage, exitWithUsageHint, formatUserError, checkAccessibility, openAccessibilitySettings, isAccessibilityError, isGhosttyInstalled, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT, ACCESSIBILITY_REQUIRED_MSG, PromptCancelled, isDebug, debugLog, supportsColor, confirm, gitSafeEnv, resetGitSafeEnvCache, atomicWrite, resetGitOutputCache } = await import("./utils.js");
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -233,6 +233,74 @@ describe("resolveCommand", () => {
     mockExecFileSync.mockReturnValue("/usr/bin/my-editor.v2\n");
     expect(resolveCommand("my-editor.v2")).toBe("/usr/bin/my-editor.v2");
     expect(mockExecFileSync).toHaveBeenCalled();
+  });
+});
+
+describe("resolveCommand with absolute paths", () => {
+  let dir: string;
+  let executable: string;
+  let plainFile: string;
+
+  beforeAll(async () => {
+    const { mkdtempSync, writeFileSync, chmodSync } = await vi.importActual<typeof import("node:fs")>("node:fs");
+    dir = mkdtempSync(join(tmpdir(), "summon-abs-cmd-"));
+    executable = join(dir, "gh-glance");
+    plainFile = join(dir, "notes.txt");
+    writeFileSync(executable, "#!/bin/sh\n");
+    chmodSync(executable, 0o755);
+    writeFileSync(plainFile, "text\n");
+    chmodSync(plainFile, 0o644);
+  });
+
+  afterEach(() => {
+    mockExecFileSync.mockClear();
+  });
+
+  it("returns an executable absolute path unchanged without calling which", () => {
+    expect(resolveCommand(executable)).toBe(executable);
+    expect(mockExecFileSync).not.toHaveBeenCalled();
+  });
+
+  it("returns null for a missing path, a directory and a non-executable file", () => {
+    expect(resolveCommand(join(dir, "missing"))).toBeNull();
+    expect(resolveCommand(dir)).toBeNull();
+    expect(resolveCommand(plainFile)).toBeNull();
+    expect(mockExecFileSync).not.toHaveBeenCalled();
+  });
+
+  it("rejects control characters before touching the filesystem or which", async () => {
+    // A real executable whose name contains a newline: only the control-character guard rejects it
+    const { writeFileSync, chmodSync } = await vi.importActual<typeof import("node:fs")>("node:fs");
+    const newlineName = join(dir, "x\nrm");
+    writeFileSync(newlineName, "#!/bin/sh\n");
+    chmodSync(newlineName, 0o755);
+    expect(isExecutableFile(newlineName)).toBe(true);
+    expect(resolveCommand(newlineName)).toBeNull();
+    expect(resolveCommand(`${executable}\nrm`)).toBeNull();
+    expect(resolveCommand(`${executable}\0`)).toBeNull();
+    expect(resolveCommand("vim\n")).toBeNull();
+    expect(mockExecFileSync).not.toHaveBeenCalled();
+  });
+
+  it("isExecutableFile accepts only executable regular files", () => {
+    expect(isExecutableFile(executable)).toBe(true);
+    expect(isExecutableFile(plainFile)).toBe(false);
+    expect(isExecutableFile(dir)).toBe(false);
+    expect(isExecutableFile(join(dir, "missing"))).toBe(false);
+  });
+});
+
+describe("describeCommandFailure", () => {
+  it.each([
+    ["/opt/homebrew/bin/nope", "missing-path"],
+    ["~/bin/tool", "bad-form"],
+    ["./bin/tool", "bad-form"],
+    ["bin/tool", "bad-form"],
+    ["foo;", "bad-form"],
+    ["/opt/x\nrm", "bad-form"],
+    ["gh-glance", "missing-name"],
+  ] as const)("classifies %s as %s", (cmd, kind) => {
+    expect(describeCommandFailure(cmd)).toBe(kind);
   });
 });
 

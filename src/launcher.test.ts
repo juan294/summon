@@ -84,9 +84,13 @@ vi.mock("./starship.js", () => ({
 }));
 
 // Mock fs.existsSync for directory and Ghostty.app checks
+const mockStatSync = vi.fn((_path: string): { isFile: () => boolean } => { throw new Error("ENOENT"); });
 vi.mock("node:fs", () => ({
   existsSync: vi.fn(() => true),
   realpathSync: vi.fn((path: string) => path),
+  statSync: (path: string) => mockStatSync(path),
+  accessSync: () => {},
+  constants: { X_OK: 1 },
   readFileSync: vi.fn((path: string) => { if(path.endsWith("Ghostty.sdef")) return '<class name="terminal"><property name="id"/><property name="pid"/><property name="tty"/></class>'; throw new Error("fixture absent"); }),
 }));
 
@@ -138,7 +142,7 @@ vi.mock("./script.js", () => ({
 }));
 
 // Import after mocks are set up
-const { launch, resolveConfig, optsToConfigMap, focusWorkspace, resolveProjectName, probePaneCount, decideCleanRestoredPanes, layoutOptsToTreePlanOpts } = await import("./launcher.js");
+const { launch, resolveConfig, optsToConfigMap, focusWorkspace, resolveProjectName, probePaneCount, decideCleanRestoredPanes, layoutOptsToTreePlanOpts, commandFixHint } = await import("./launcher.js");
 const { closeWorkspaceWindow, isStaticLaunchSpinner, withLaunchSpinner } = await import("./backends/ghostty.js");
 const { listConfig, listProjects } = await import("./config.js");
 const { existsSync } = await import("node:fs");
@@ -179,6 +183,8 @@ beforeEach(() => {
   // Trust mocks default to no-op (trusted)
   mockAssertTrusted.mockImplementation(() => {});
   mockAssertTrustedContent.mockImplementation(() => {});
+  // Default: no absolute path exists, so absolute commands fail as a missing path
+  mockStatSync.mockImplementation(() => { throw new Error("ENOENT"); });
 });
 
 afterEach(() => {
@@ -4792,5 +4798,102 @@ describe("Rex launch (plan P2, P8, P13, P15; Phase 3)", () => {
     stderrText = "";
     await launch("/tmp/workspace");
     expect(stderrText).not.toContain("is still running");
+  });
+});
+
+describe("absolute command paths and fix hints", () => {
+  const useTreeLayout = (enhance: string): void => {
+    mockIsCustomLayout.mockReturnValue(true);
+    mockReadCustomLayout.mockReturnValue(
+      new Map([
+        ["tree", "main | enhance"],
+        ["pane.main", "claude"],
+        ["pane.enhance", enhance],
+      ]),
+    );
+    mockReadKVFile.mockReturnValue(new Map([["layout", "mywork"]]));
+  };
+  const whichMissing = (name: string): void => {
+    mockExecFileSync.mockImplementation((bin: string, args?: string[]) => {
+      if (bin === "/usr/bin/which" && args?.[0] === name) throw new Error("not found");
+      if (bin === "/usr/bin/which") return "/usr/bin/stub\n";
+      return "";
+    });
+  };
+  const stderrOf = async (run: () => Promise<unknown>): Promise<string> => {
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    try {
+      await run();
+      // Read the calls before mockRestore, which clears them
+      return writeSpy.mock.calls.map((c) => String(c[0])).join("");
+    } finally {
+      writeSpy.mockRestore();
+    }
+  };
+
+  it("launches a tree pane whose command is an executable absolute path (T1.4)", async () => {
+    useTreeLayout("/opt/homebrew/bin/gh-glance");
+    mockStatSync.mockImplementation(() => ({ isFile: () => true }));
+
+    await launch("/tmp/workspace");
+
+    expect(mockStatSync).toHaveBeenCalledWith("/opt/homebrew/bin/gh-glance");
+    expect(mockExecFileSync).not.toHaveBeenCalledWith("/usr/bin/which", ["/opt/homebrew/bin/gh-glance"], expect.anything());
+    expect(JSON.stringify(mockGenerateTreeAppleScript.mock.calls[0]?.[0])).toContain("/opt/homebrew/bin/gh-glance");
+  });
+
+  it("stops with a missing-path message and a layout hint, without an install prompt (T1.5)", async () => {
+    useTreeLayout("/opt/homebrew/bin/nope");
+
+    const text = await stderrOf(() => expect(launch("/tmp/workspace")).rejects.toThrow());
+
+    expect(text).toContain("`/opt/homebrew/bin/nope` was not found or is not executable.");
+    expect(text).toContain("summon layout edit mywork");
+    expect(text).not.toContain("summon set");
+    expect(mockQuestion).not.toHaveBeenCalled();
+  });
+
+  it("rejects a home-relative path with the rule, without an install prompt (T1.6)", async () => {
+    useTreeLayout("~/bin/tool --flag");
+
+    const text = await stderrOf(() => expect(launch("/tmp/workspace")).rejects.toThrow());
+
+    expect(text).toContain("`~/bin/tool` is not a command name or an absolute path.");
+    expect(text).toContain("full path that starts with `/`");
+    expect(mockQuestion).not.toHaveBeenCalled();
+  });
+
+  it("names the layout file, not summon set, for a missing bare command in a tree pane (T1.7)", async () => {
+    useTreeLayout("nope-tool");
+    whichMissing("nope-tool");
+
+    const text = await stderrOf(() => expect(launch("/tmp/workspace")).rejects.toThrow());
+
+    expect(text).toContain("is required but not installed, and no known install method was found.");
+    expect(text).toContain("`pane.enhance=` in layout mywork: summon layout edit mywork");
+    expect(text).not.toContain("summon set enhance");
+  });
+
+  it("names the layout file when an install is declined for a tree pane (T1.8)", async () => {
+    mockIsCustomLayout.mockReturnValue(true);
+    mockReadCustomLayout.mockReturnValue(new Map([["tree", "main | sidebar"], ["pane.main", "claude"], ["pane.sidebar", "lazygit"]]));
+    mockReadKVFile.mockReturnValue(new Map([["layout", "mywork"]]));
+    whichMissing("lazygit");
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("n"));
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await expect(launch("/tmp/workspace")).rejects.toThrow();
+
+    const logged = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    logSpy.mockRestore();
+    expect(logged).toContain("summon layout edit mywork");
+    expect(logged).not.toContain("summon set sidebar");
+  });
+
+  it("commandFixHint keeps summon set for config keys and names the layout for pane keys", () => {
+    expect(commandFixHint("editor")).toBe("change your config with: summon set editor <command>");
+    expect(commandFixHint("shell", "mywork")).toBe("change your config with: summon set shell <command>");
+    expect(commandFixHint("pane.enhance", "mywork")).toBe("change `pane.enhance=` in layout mywork: summon layout edit mywork");
+    expect(commandFixHint("pane.enhance")).toBe("change `pane.enhance=` in your layout file");
   });
 });

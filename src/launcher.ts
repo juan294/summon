@@ -34,7 +34,7 @@ import { buildSessionCreateRequest } from "./backends/rex/layout.js";
 import type { SessionCreateInput } from "./backends/rex/layout.js";
 import { parseTreeDSL, extractPaneDefinitions, extractPaneCwds, resolveTreeCommands as resolveTreeCmds, buildTreePlan, collectLeaves, findPaneByName, assertPaneCwdContained } from "./tree.js";
 import type { LayoutNode, TreePlanOptions } from "./tree.js";
-import { resolveCommand as resolveCommandPath, getErrorMessage, SUMMON_WORKSPACE_ENV, promptUser, isDebug } from "./utils.js";
+import { resolveCommand as resolveCommandPath, describeCommandFailure, getErrorMessage, SUMMON_WORKSPACE_ENV, promptUser, isDebug } from "./utils.js";
 import { fail, err, note } from "./ui/output.js";
 import { confirmDangerousCommands } from "./launch-guards.js";
 import { assertTrusted, assertTrustedContent } from "./trust.js";
@@ -147,17 +147,51 @@ const KNOWN_INSTALL_COMMANDS: Record<string, () => [string, string[]] | null> = 
   },
 };
 
-async function ensureCommand(cmd: string, configKey: string): Promise<string> {
+/**
+ * Where to change a failing command: `summon set <key>` for a config key, the layout file for a
+ * tree pane (`pane.<leaf>`), which `summon set` does not accept.
+ */
+export function commandFixHint(configKey: string, layoutName?: string): string {
+  if (configKey.startsWith("pane.")) {
+    return layoutName
+      ? `change \`${configKey}=\` in layout ${layoutName}: summon layout edit ${layoutName}`
+      : `change \`${configKey}=\` in your layout file`;
+  }
+  return `change your config with: summon set ${configKey} <command>`;
+}
+
+/** Print the failure and its fix, then stop the launch. */
+function stopLaunch(headline: string, detail: string, errorMessage = headline): never {
+  fail(headline);
+  err(detail);
+  throw new Error(errorMessage);
+}
+
+async function ensureCommand(cmd: string, hint: string): Promise<string> {
   const resolved = resolveCommandPath(cmd);
   if (resolved) return resolved;
+
+  const failure = describeCommandFailure(cmd);
+  if (failure === "missing-path") {
+    stopLaunch(`\`${cmd}\` was not found or is not executable.`, `Please fix the path or ${hint}`);
+  }
+  if (failure === "bad-form") {
+    stopLaunch(
+      `\`${cmd}\` is not a command name or an absolute path. Use a command on your PATH (for example \`gh-glance\`) or a full path that starts with \`/\`.`,
+      `Please ${hint}`,
+      `\`${cmd}\` is not a command name or an absolute path.`,
+    );
+  }
 
   const getInstall = KNOWN_INSTALL_COMMANDS[cmd];
   const installCmd = getInstall ? getInstall() : null;
 
   if (!installCmd) {
-    fail(`\`${cmd}\` is required but not installed, and no known install method was found.`);
-    err(`Please install \`${cmd}\` manually or change your config with: summon set ${configKey} <command>`);
-    throw new Error(`\`${cmd}\` is required but not installed.`);
+    stopLaunch(
+      `\`${cmd}\` is required but not installed, and no known install method was found.`,
+      `Please install \`${cmd}\` manually or ${hint}`,
+      `\`${cmd}\` is required but not installed.`,
+    );
   }
 
   const [installBin, installArgs] = installCmd;
@@ -167,7 +201,7 @@ async function ensureCommand(cmd: string, configKey: string): Promise<string> {
   const answer = await prompt(`Install it now with \`${installDisplay}\`? [y/N] `);
 
   if (answer !== "y" && answer !== "yes") {
-    console.log(`Exiting — \`${cmd}\` is needed for this workspace layout. Change it with: summon set ${configKey} <command>`);
+    console.log(`Exiting — \`${cmd}\` is needed for this workspace layout. To use another command, ${hint}`);
     throw new Error(`\`${cmd}\` is needed for this workspace layout.`);
   }
 
@@ -201,6 +235,8 @@ interface ResolvedConfig {
     tree: LayoutNode;
     panes: Map<string, string>;
     paneCwds?: Map<string, string>;
+    /** Custom layout that defined the tree, named in command fix hints. */
+    layoutName: string;
   };
 }
 
@@ -359,7 +395,7 @@ function resolveLayoutBase(
       const tree = parseTreeDSL(treeExpr);
       const panes = extractPaneDefinitions(customData);
       const paneCwds = extractPaneCwds(customData);
-      return { base, treeLayout: { tree, panes, paneCwds: paneCwds.size > 0 ? paneCwds : undefined } };
+      return { base, treeLayout: { tree, panes, paneCwds: paneCwds.size > 0 ? paneCwds : undefined, layoutName: layoutKey } };
     }
 
     // Traditional custom layout (no tree= key)
@@ -966,7 +1002,7 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
       return replaceCommandExecutable(cmdString, cached);
     }
 
-    const resolvedBinary = await ensureCommand(binary, configKey);
+    const resolvedBinary = await ensureCommand(binary, commandFixHint(configKey, treeLayout?.layoutName));
     resolvedCache.set(binary, resolvedBinary);
     return replaceCommandExecutable(cmdString, resolvedBinary);
   };

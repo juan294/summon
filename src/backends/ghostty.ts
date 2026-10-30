@@ -186,7 +186,7 @@ export const GhosttyBackend: TerminalBackend = {
     for (const leafName of plan.leaves) {
       const pane = findPaneByName(plan.tree, leafName);
       if (pane?.command) {
-        pane.command = await ctx.ensureAndResolve(pane.command, leafName);
+        pane.command = await ctx.ensureAndResolve(pane.command, `pane.${leafName}`);
       }
     }
 

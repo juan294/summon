@@ -43,8 +43,13 @@ vi.mock("./starship.js", () => ({
 
 // Mock fs for validateSetup's Ghostty check
 const mockExistsSync = vi.fn((_path: string) => false);
+// resolveCommand checks absolute paths with statSync/accessSync; default: nothing exists
+const mockStatSync = vi.fn((_path: string): { isFile: () => boolean } => { throw new Error("ENOENT"); });
 vi.mock("node:fs", () => ({
   existsSync: (path: string) => mockExistsSync(path),
+  statSync: (path: string) => mockStatSync(path),
+  accessSync: () => {},
+  constants: { X_OK: 1 },
 }));
 
 // Import test-only utils directly from utils.js (not re-exported through setup.js)
@@ -1003,6 +1008,20 @@ describe("selectShell", () => {
 });
 
 describe("validateSetup", () => {
+  it("accepts an executable absolute editor path without a warning (T1.10)", () => {
+    mockExecFileSync.mockReturnValue("/usr/bin/stub\n");
+    mockExistsSync.mockReturnValue(true);
+    mockStatSync.mockImplementationOnce(() => ({ isFile: () => true }));
+    const result = validateSetup({
+      layout: "pair",
+      editor: "/opt/homebrew/bin/hx",
+      sidebar: "lazygit",
+      shell: "true",
+    });
+    expect(result.warnings).toHaveLength(0);
+    expect(mockStatSync).toHaveBeenCalledWith("/opt/homebrew/bin/hx");
+  });
+
   it("returns no warnings when all tools are available", () => {
     mockExecFileSync.mockReturnValue("/usr/bin/stub\n");
     mockExistsSync.mockReturnValue(true);
@@ -4195,6 +4214,17 @@ describe("wizard back navigation (FE-M9)", () => {
 
 // FE-M10 (#345) — validateBuilderCommand renderer state drift fix
 describe("validateBuilderCommand (FE-M10)", () => {
+  it("accepts an executable absolute path without a suggestion (T1.11)", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockStatSync.mockImplementationOnce(() => ({ isFile: () => true }));
+    const result = await validateBuilderCommand("/opt/homebrew/bin/gh-glance", []);
+    const logged = logSpy.mock.calls.length;
+    logSpy.mockRestore();
+    expect(result).toEqual({ cmd: "/opt/homebrew/bin/gh-glance", rendererStale: false });
+    expect(logged).toBe(0);
+    expect(mockQuestion).not.toHaveBeenCalled();
+  });
+
   it("returns {cmd, rendererStale: false} for 'shell' special value", async () => {
     const result = await validateBuilderCommand("shell", []);
     expect(result.cmd).toBe("shell");
