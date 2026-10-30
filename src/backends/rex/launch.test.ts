@@ -14,7 +14,7 @@ vi.mock("./../../paths.js", async (importOriginal) => {
 const { launchArtifactPaths, writeLaunchManifest, listLaunchManifests } = await import("../../launch-identity.js");
 const { readStatusRecord, withOwnedRecord, statusTestHooks } = await import("../../status.js");
 const { STATUS_DIR } = await import("../../paths.js");
-const { createWorkspace, readPaneFile, readPaneMapping, waitForToken, adoptOrphans, refreshPaneMapping, maybeSwitchToExisting, showWorkspace, showRecordedWorkspace } = await import("./launch.js");
+const { createWorkspace, readPaneFile, readPaneMapping, waitForToken, adoptOrphans, refreshPaneMapping, maybeSwitchToExisting, showWorkspace, showRecordedWorkspace, strandedTokenNotice } = await import("./launch.js");
 const { selectInApp } = await import("./app.js");
 type LaunchModule = typeof import("./launch.js");
 type CreateContext = Parameters<LaunchModule["createWorkspace"]>[2];
@@ -560,10 +560,25 @@ describe("adoptOrphans (plan P13 late adoption)", () => {
     }
     expect(notices).toHaveLength(1);
     expect(notices[0]).toContain(`could not remove the files of earlier launch ${ID} (its Rex session is gone): the root pane file could not be removed after the manifest went (`);
-    expect(notices[0]).toContain(`the file is inert and no review will find it; remove it with: rm -f ${JSON.stringify(token)}`);
+    // The command is the last line, literally quoted, with nothing after it.
+    expect(notices[0]).toMatch(/the file is inert and no review will find it\. Remove it with:\n {2}rm -f '[^\n]*'$/);
+    expect(notices[0]!.split("\n").at(-1)).toBe(`  rm -f '${token}'`);
     expect(notices[0]).not.toContain("clean --orphans");
     expect(existsSync(paths.manifest)).toBe(false);
     expect(listLaunchManifests("chapa")).toEqual([]);
+  });
+
+  it("the recovery command is literal shell: run as printed, a path with substitutions, backticks and quotes removes exactly that file", () => {
+    const dir = join(tmpHome, "weird $(echo pwned) `echo x` it's $HOME");
+    mkdirSync(dir, { recursive: true });
+    const token = join(dir, "token");
+    writeFileSync(token, "x\n");
+    const notice = strandedTokenNotice({ failures: [`${token}: EPERM`], stranded: token })!;
+    expect(notice.command).toBe(`rm -f '${dir.replace(/'/g, "'\\''")}/token'`);
+    execFileSync("sh", ["-c", notice.command], { cwd: tmpHome });
+    expect(existsSync(token)).toBe(false);
+    expect(existsSync(dir)).toBe(true);
+    expect(strandedTokenNotice({ failures: ["x: y"] })).toBeUndefined();
   });
 
   it("keeps the files when the record changed between the read and the lock (superseded)", async () => {

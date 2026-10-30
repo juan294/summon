@@ -245,7 +245,7 @@ describe("summon clean --orphans <project>", () => {
     await handleCleanCommand(context(["chapa"], { orphans: true }));
     expect(stdout()).toContain(`launch ${GEN2} of [chapa] (started 2026-10-29T08:00:00.000Z, server ${SERVER}): never confirmed its session; left in place as evidence.`);
     expect(stdout()).toContain(`launch ${GEN3} of [chapa] (started 2026-10-29T08:30:00.000Z, server ${SERVER}): has an unreadable pane file; left in place as evidence.`);
-    expect(stdout()).toContain(`rm -f ${JSON.stringify(paths(GEN2).manifest)}`);
+    expect(stdout()).toContain(`Remove it with:\n  rm -f '${paths(GEN2).manifest}'`);
     expect(existsSync(paths(GEN2).manifest)).toBe(true);
     expect(existsSync(paths(GEN3).pane("editor").file)).toBe(true);
     expect(rex.calls.some((c) => c.op === "kill")).toBe(false);
@@ -263,7 +263,7 @@ describe("summon clean --orphans <project>", () => {
     expect(rex.calls.filter((c) => c.op === "kill").map((c) => c.argv)).toEqual([["kill", SESSION2]]);
     expect(stdout()).toContain(`closed its empty Rex session ${SESSION2}; files removed.`);
     expect(existsSync(paths(GEN2).manifest)).toBe(false);
-    expect(stdout()).toContain(`Rex session ${SESSION3} still has 1 block; close it yourself with: rex -S ${SERVER} kill ${SESSION3}`);
+    expect(stdout()).toContain(`Rex session ${SESSION3} still has 1 block; close it yourself with: rex -S '${SERVER}' kill ${SESSION3}`);
     expect(existsSync(paths(GEN3).manifest)).toBe(true);
     expect(readStatusRecord("chapa")!.launchId).toBe(GEN);
   });
@@ -325,10 +325,31 @@ describe("summon clean --orphans <project>", () => {
     } finally {
       execFileSync("chflags", ["nouchg", token]);
     }
-    expect(stderr()).toContain(`the file is inert and no review will find it; remove it with: rm -f ${JSON.stringify(token)}`);
+    expect(stderr()).toContain(`the file is inert and no review will find it. Remove it with:\n  rm -f '${token}'\n`);
     expect(stderr()).not.toContain("clean --orphans");
     expect(stdout()).toContain("No earlier launches of [chapa] to review.");
     expect(existsSync(paths(GEN2).manifest)).toBe(false);
+  });
+
+  it("the direct empty-orphan path (a live current record, an empty earlier session) prints the recovery command last, after the limitation, with nothing appended", async () => {
+    writeStatus(record());
+    writeLaunchManifest(manifest(GEN2));
+    writePane(GEN2, SESSION2);
+    const token = paths(GEN2).pane("editor").file;
+    server({ [SESSION]: [BLOCK], [SESSION2]: [] });
+    execFileSync("chflags", ["uchg", token]);
+    try {
+      await handleCleanCommand(context(["chapa"], { orphans: true }));
+    } finally {
+      execFileSync("chflags", ["nouchg", token]);
+    }
+    expect(rex.calls.filter((c) => c.op === "kill").map((c) => c.argv)).toEqual([["kill", SESSION2]]);
+    const line = logs.find((l) => l.includes(`closed its empty Rex session ${SESSION2}`))!;
+    expect(line).toContain(`closed its empty Rex session ${SESSION2}; the root pane file could not be removed after the manifest went (`);
+    expect(line).toContain(`no review will find it. Rex has no conditional destroy: anything added to it after the check was closed with it. Remove it with:\n  rm -f '${token}'`);
+    expect(line.trimEnd().split("\n").at(-1)).toBe(`  rm -f '${token}'`);
+    expect(existsSync(paths(GEN2).manifest)).toBe(false);
+    expect(existsSync(token)).toBe(true);
   });
 
   it("names a manifest without a server and leaves it; a legacy current record stops the review", async () => {

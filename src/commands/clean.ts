@@ -7,7 +7,8 @@ import { SESSION_GONE, endRexLaunch, requireRexBinary, unverifiedMessage } from 
 import { createRexCli } from "../backends/rex/cli.js";
 import { listSessions, sessionState, viewBlockIds, viewSession } from "../backends/rex/status.js";
 import type { SessionListing, SessionView } from "../backends/rex/status.js";
-import { adoptDeps, adoptOrphans, readPaneFile, readPaneMapping, removeOrphanLaunch, strandedTokenNotice } from "../backends/rex/launch.js";
+import { adoptDeps, adoptOrphans, readPaneFile, readPaneMapping, removeOrphanLaunch, strandedTokenNotice, withRecoveryCommand } from "../backends/rex/launch.js";
+import { shellQuote } from "../shell-escape.js";
 import { isLaunchId, launchArtifactFiles, launchArtifactPaths, launchFileList, launchesDir, listLaunchManifests } from "../launch-identity.js";
 import type { LaunchManifest } from "../launch-identity.js";
 import type { RexIdentity } from "../backends/rex/types.js";
@@ -114,7 +115,7 @@ function reviewOrphan(project: string, manifest: LaunchManifest, gen: string | n
   if (root === "absent" || root === "malformed" || readPaneMapping(manifest, root.sessionId).malformed.length > 0) {
     const files = launchArtifactFiles(project, id, manifest.paneOrder);
     const present = launchFileList(files).filter((file) => existsSync(file));
-    return `${where}: ${root === "absent" ? "never confirmed its session" : "has an unreadable pane file"}; left in place as evidence. Remove it with:\n  rm -f ${present.map((file) => JSON.stringify(file)).join(" ")}`;
+    return withRecoveryCommand(`${where}: ${root === "absent" ? "never confirmed its session" : "has an unreadable pane file"}; left in place as evidence.`, `rm -f ${present.map(shellQuote).join(" ")}`);
   }
   if (!manifest.server) return `${where}: manifest names no server; left in place.`;
   const cli = createRexCli(binary, manifest.server);
@@ -124,20 +125,23 @@ function reviewOrphan(project: string, manifest: LaunchManifest, gen: string | n
     listings.set(manifest.server, listed);
   }
   if (!listed.ok) return `${where}: server unreachable (${listed.reason}); left in place.`;
-  const removed = (done: string): string => {
+  /** The line for a removal; `tail` (the P17 limitation) comes before a recovery command, which is always last. */
+  const removed = (done: string, tail = ""): string => {
     const removal = removeOrphanLaunch(project, gen, manifest);
-    if (removal.outcome === "superseded") return `${where}: ${done}; the current record is not this launch's, files left in place.`;
-    if (removal.failures.length > 0) return `${where}: ${done}; ${strandedTokenNotice(removal) ?? `a file could not be removed (${removal.failures[0]}); the manifest is kept, run summon clean --orphans again`}.`;
-    return `${where}: ${done}; files removed.`;
+    if (removal.outcome === "superseded") return `${where}: ${done}; the current record is not this launch's, files left in place.${tail}`;
+    const stranded = strandedTokenNotice(removal);
+    if (stranded) return withRecoveryCommand(`${where}: ${done}; ${stranded.sentence}.${tail}`, stranded.command);
+    if (removal.failures.length > 0) return `${where}: ${done}; a file could not be removed (${removal.failures[0]}); the manifest is kept, run summon clean --orphans again.${tail}`;
+    return `${where}: ${done}; files removed.${tail}`;
   };
   if (!listed.sessions.some((s) => s.sessionId === root.sessionId)) return removed("its Rex session is gone");
   const viewed = viewSession(cli, root.sessionId);
   if (!viewed.ok) return viewed.kind === "not-found" ? removed("its Rex session is gone") : `${where}: session could not be read (${viewed.reason}); left in place.`;
   const blocks = viewBlockIds(viewed.view).size;
-  if (blocks > 0) return `${where}: Rex session ${root.sessionId} still has ${blocks} block${blocks === 1 ? "" : "s"}; close it yourself with: rex -S ${manifest.server} kill ${root.sessionId}`;
+  if (blocks > 0) return `${where}: Rex session ${root.sessionId} still has ${blocks} block${blocks === 1 ? "" : "s"}; close it yourself with: rex -S ${shellQuote(manifest.server)} kill ${root.sessionId}`;
   const killed = cli.call("kill", ["kill", root.sessionId], { timeoutMs: 10_000 });
   if (!killed.ok) return `${where}: could not close its empty Rex session ${root.sessionId} (${killed.reason}); left in place.`;
-  return `${removed(`closed its empty Rex session ${root.sessionId}`)} ${LIMITATION}`;
+  return removed(`closed its empty Rex session ${root.sessionId}`, ` ${LIMITATION}`);
 }
 
 async function cleanOrphans(project: string): Promise<void> {

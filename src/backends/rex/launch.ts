@@ -5,6 +5,7 @@ import { ghosttyLiveness, isLiveState, readStatusRecord, removeLaunchFileSet, re
 import type { LaunchRemoval } from "../../status-record.js";
 import type { WorkspaceState, WorkspaceStatus } from "../../status-record.js";
 import { err, note } from "../../ui/output.js";
+import { shellQuote } from "../../shell-escape.js";
 import { createRexCli, whoamiOf } from "./cli.js";
 import type { RexCli } from "./cli.js";
 import { pickAppClient, pollUntil, realClock, selectInApp, waitForAppClient } from "./app.js";
@@ -341,10 +342,27 @@ export function removeOrphanLaunch(project: string, gen: string | null, manifest
   return outcome === "superseded" ? { outcome } : { outcome: "removed", ...removal };
 }
 
-/** The one failed removal no retry can finish: the root token left after its manifest went. Undefined otherwise. */
-export function strandedTokenNotice(removal: LaunchRemoval): string | undefined {
+/**
+ * The one failed removal no retry can finish: the root token left after its manifest went. The
+ * sentence says so; the command removes exactly that file (literal shell quoting: the path holds
+ * the user's home directory) and is printed on its own line, last, with nothing after it.
+ */
+export function strandedTokenNotice(removal: LaunchRemoval): { sentence: string; command: string } | undefined {
   if (!removal.stranded) return undefined;
-  return `the root pane file could not be removed after the manifest went (${removal.failures[0]}); the file is inert and no review will find it; remove it with: rm -f ${JSON.stringify(removal.stranded)}`;
+  return {
+    sentence: `the root pane file could not be removed after the manifest went (${removal.failures[0]}); the file is inert and no review will find it`,
+    command: `rm -f ${shellQuote(removal.stranded)}`,
+  };
+}
+
+/** A notice (a complete sentence) whose recovery command is its last line, with nothing after it. */
+export function withRecoveryCommand(text: string, command: string): string {
+  return `${text} Remove it with:\n  ${command}`;
+}
+
+function strandedLine(removal: LaunchRemoval): string | undefined {
+  const stranded = strandedTokenNotice(removal);
+  return stranded && withRecoveryCommand(`${stranded.sentence}.`, stranded.command);
 }
 
 function hostIdOf(view: SessionView, cli: RexCli): string | undefined {
@@ -448,7 +466,7 @@ export function adoptOrphans(project: string, deps: AdoptDeps): string[] {
       if (removal.outcome === "superseded") { notices.push(superseded); return notices; }
       notices.push(removal.failures.length === 0
         ? `removed the files of earlier launch ${decision.manifest.launchId} (its Rex session is gone)`
-        : `could not remove the files of earlier launch ${decision.manifest.launchId} (its Rex session is gone): ${strandedTokenNotice(removal) ?? `${removal.failures[0]}; ${cleanHint}`}`);
+        : `could not remove the files of earlier launch ${decision.manifest.launchId} (its Rex session is gone): ${strandedLine(removal) ?? `${removal.failures[0]}; ${cleanHint}`}`);
       continue;
     }
     if (adopted) {
