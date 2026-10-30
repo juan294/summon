@@ -30,7 +30,7 @@ The release workflow is the **only** supported path for production releases:
 5. A GitHub Release is created from the tag.
 6. `release.yml` triggers: typecheck → lint → test → build → tarball validation →
    AppleScript E2E smoke test → `npm publish --provenance` (OIDC trusted publishing) →
-   post-publish tarball verification across Node 20.19 and 24.
+   post-publish tarball verification across Node 22.12 and 24.
 
 This path is preferred because it attaches npm provenance attestation (OIDC), making
 the published package supply-chain verifiable.

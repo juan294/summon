@@ -16,7 +16,7 @@ concurrency:
 jobs:
   # Node-version-invariant checks run ONCE on the cheap Linux runner.
   # typecheck (tsc), lint (eslint) and build (tsup) produce identical results
-  # across Node 20/22/24, so fanning them across the version matrix only paid
+  # across Node 22/24, so fanning them across the version matrix only paid
   # for redundant work. They are also platform-agnostic (no osascript/Ghostty),
   # so they run on ubuntu-latest — billed 1× versus 10× for macOS runners.
   checks:
@@ -55,8 +55,8 @@ jobs:
     timeout-minutes: 15
     strategy:
       matrix:
-        # Vite 8 supports Node 20.19+ and 22.12+. Node 24 added for forward-compat.
-        node-version: [20, 22, 24]
+        # Vite 8 supports Node 22.12+; that is the project floor. Node 24 added for forward-compat.
+        node-version: [22, 24]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0

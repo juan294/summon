@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking:** the Node.js engine requirement is now `>=22.12` (was `>=20.19`), the Vite 8 floor. The bundle targets `node22`, CI tests Node 22 and 24, and the post-publish smoke matrix covers Node 22.12 and 24.
 - `summon open <project>` (and `summon switch <project>`) act on one project directly: a running workspace is focused, a stopped one launches with the flags given, and one whose liveness cannot be read is refused with the reason (exit 2). The notices that already said `run summon open <project>` now describe a command that exists. Without a name both still show the picker. Shell completions offer project names for `open` and `switch`.
 - Every launch now has a launch id. Liveness sidecars live under `status/<project>.launches/<launchId>.*`, the cleanup trap removes only its own files, and the shared status record is written only by Node under a file lock with an explicit ownership expectation. Records gain optional `launchId`, `backend`, `rex` and `endedAt` fields (schema version stays 1; see `docs/decisions/status-record-launch-ownership-and-backend.md`).
 - The terminal backend is resolved automatically right after config resolution: the terminal running Summon decides (`TERM_PROGRAM`), an inherited `REX_SERVER` counts only when `rex whoami` answers on it, otherwise Ghostty if installed, else Rex if installed.

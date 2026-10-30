@@ -405,7 +405,7 @@ export async function runPool<T, R>(
 /**
  * Default concurrency cap for parallel I/O fan-out (git subprocesses, fs scans).
  * Parallel on big machines, gentle on small ones. `os.availableParallelism` is
- * always present on the supported Node range (>=20.19).
+ * always present on the supported Node range (>=22.12).
  */
 export function ioConcurrency(): number {
   return Math.max(2, Math.min(8, availableParallelism()));

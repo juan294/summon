@@ -777,8 +777,8 @@ describe("printStatusOnce", () => {
   });
 });
 
-// TUI tests require Node >= 20.19 (project minimum). Since the project enforces
-// Node >= 20.19 in package.json engines, this suite always runs on supported toolchains.
+// TUI tests require Node >= 22.12 (project minimum). Since the project enforces
+// Node >= 22.12 in package.json engines, this suite always runs on supported toolchains.
 describe("runMonitor", () => {
   let writeSpy: ReturnType<typeof vi.spyOn>;
   let resumeSpy: ReturnType<typeof vi.spyOn>;
@@ -1375,7 +1375,7 @@ describe("FE-M3 (#611): renderScreen clears to end-of-line on each row", () => {
 // --- UX-L1 (#616): legend improvements and narrow terminal guard ---
 
 describe("UX-L1 (#616): help overlay legend shows glyph/label mapping", () => {
-  // Node >= 20.19 is the project minimum — no skipIf guard needed (QA-L2 policy)
+  // Node >= 22.12 is the project minimum — no skipIf guard needed (QA-L2 policy)
   let writeSpy2: ReturnType<typeof vi.spyOn>;
   let resumeSpy2: ReturnType<typeof vi.spyOn>;
 

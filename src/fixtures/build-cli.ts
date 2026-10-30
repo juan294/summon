@@ -15,7 +15,7 @@ export async function buildCliInto(projectRoot: string, outDir: string): Promise
     outDir,
     platform: "node",
     format: ["esm"],
-    target: "node20",
+    target: "node22",
     splitting: false,
     define: { __VERSION__: JSON.stringify(version) },
     silent: true,

@@ -226,7 +226,7 @@ Verified against repository evidence on 2026-07-28. Research:
 | Merge strategy | merge commit for `develop` -> `main`; feature PRs may still squash |
 | Release artifact | npm tarball `summon-ws-<version>.tgz` |
 | Deployment provider | npm registry (no hosting provider) |
-| Local test target | Node >=20.19 on macOS |
+| Local test target | Node >=22.12 on macOS |
 | Preview target | NONE -- no preview infrastructure exists |
 | Staging target | NONE |
 | Production target | npm `latest` dist-tag plus end-user Macs |

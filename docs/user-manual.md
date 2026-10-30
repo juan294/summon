@@ -4,7 +4,7 @@ Complete usage reference for summon.
 
 ## Prerequisites
 
-- **Node.js >= 20.19**
+- **Node.js >= 22.12**
 - **macOS** (AppleScript is macOS-only)
 - **[Ghostty](https://ghostty.org) 1.3.1+** with AppleScript enabled (default)
 

@@ -3,7 +3,7 @@
 [![CI](https://github.com/juan294/summon/actions/workflows/ci.yml/badge.svg)](https://github.com/juan294/summon/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/juan294/summon/actions/workflows/codeql.yml/badge.svg)](https://github.com/juan294/summon/actions/workflows/codeql.yml)
 [![npm version](https://img.shields.io/npm/v/summon-ws)](https://www.npmjs.com/package/summon-ws)
-[![Node.js](https://img.shields.io/badge/node-%3E%3D20.19-brightgreen)](https://nodejs.org)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D22.12-brightgreen)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-6-blue)](https://www.typescriptlang.org)
 [![license](https://img.shields.io/npm/l/summon-ws)](./LICENSE)
 
@@ -17,7 +17,7 @@ Summon your Ghostty or Rex workspace with one command. Native splits, no tmux.
 npm i -g summon-ws
 ```
 
-Requires Node >= 20.19, macOS, and one of two terminals: [Ghostty](https://ghostty.org) 1.3.1+ (1.4.0 is the recommended security baseline) or Rex (beta). Summon detects the terminal that runs it; Rex needs no extra setup.
+Requires Node >= 22.12, macOS, and one of two terminals: [Ghostty](https://ghostty.org) 1.3.1+ (1.4.0 is the recommended security baseline) or Rex (beta). Summon detects the terminal that runs it; Rex needs no extra setup.
 
 Run `summon doctor` to inspect version, capabilities and effective settings. See the [Ghostty workflow guide](docs/ghostty.md) for compatibility, exact pane focus, titles, visibility-aware monitoring and opt-in SSH recipes, and [Summon under Rex](docs/rex.md) for what differs in Rex.
 

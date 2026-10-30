@@ -250,7 +250,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
-  # Validate the published tarball on Node 20.19 (minimum) and 24 (latest).
+  # Validate the published tarball on Node 22.12 (minimum) and 24 (latest).
   # Node 22 is already smoke-tested inside the publish job above.
   # Runs after publish so the matrix doesn't gate the release itself.
   smoke-matrix:
@@ -258,7 +258,7 @@ jobs:
     runs-on: macos-latest
     strategy:
       matrix:
-        node-version: ['20.19.0', '24']
+        node-version: ['22.12.0', '24']
     steps:
       - name: Download tarball artifact
         uses: actions/download-artifact@v8

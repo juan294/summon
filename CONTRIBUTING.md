@@ -23,7 +23,7 @@ errors, build failures, or subtly wrong test results.
 
 | Tool | Required version | Notes |
 |------|-----------------|-------|
-| Node.js | `>=20.19` | ESM `require()` interop landed in 20.19 |
+| Node.js | `>=22.12` | Vite 8 floor; ESM `require()` interop is on by default from 22.12 |
 | pnpm | `10.29.2` | Pinned via `packageManager` in package.json |
 | TypeScript | `^6.0` | Strict mode + `noUncheckedIndexedAccess` |
 | Vitest | `^4.x` | Dev dep; do not downgrade to v3 |
@@ -32,27 +32,27 @@ errors, build failures, or subtly wrong test results.
 ### Checking your versions
 
 ```bash
-node --version      # must be >= 20.19
+node --version      # must be >= 22.12
 pnpm --version      # must be 10.29.2
 ```
 
 ### Staying current with Node
 
-Use a version manager (nvm, fnm, or Volta). The project targets Node 20.19 as the
-minimum; CI also runs on Node 22 and 24. To match the minimum locally:
+Use a version manager (nvm, fnm, or Volta). The project targets Node 22.12 as the
+minimum; CI also runs on Node 24. To match the minimum locally:
 
 ```bash
 # with nvm:
-nvm install 20.19
-nvm use 20.19
+nvm install 22.12
+nvm use 22.12
 
 # .nvmrc snippet (place in your local clone root if desired):
-# lts/iron
+# lts/jod
 ```
 
 > Note: a `.nvmrc` file is intentionally not committed to the repository — it would
 > pin contributors to the minimum and prevent easy testing on newer Node versions.
-> Pick the LTS release that matches `>=20.19` for your workflow.
+> Pick the LTS release that matches `>=22.12` for your workflow.
 
 ### pnpm
 

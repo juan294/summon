@@ -6,9 +6,9 @@ CLI tool that launches configurable multi-pane terminal workspaces in Ghostty (A
 
 ## Stack
 
-TypeScript 6 · Node >= 20.19 · pnpm@10.29.2 · tsup · Vitest 4 · ESLint · zero runtime deps · macOS only
+TypeScript 6 · Node >= 22.12 · pnpm@10.29.2 · tsup · Vitest 4 · ESLint · zero runtime deps · macOS only
 
-Contributors need Node >=20.19. DevDeps use current stable majors (TS 6, Vitest 4, Vite 8) — ensure your toolchain is up to date before contributing.
+Contributors need Node >=22.12. DevDeps use current stable majors (TS 6, Vitest 4, Vite 8) — ensure your toolchain is up to date before contributing.
 
 ## Build & Run
 

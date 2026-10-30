@@ -108,7 +108,7 @@ browser, no datastore, no auth, and no vendor API. Read the maneuvers as:
 | 2 | Edit after every error | After a failed launch, fix the config and relaunch; stale state must clear. |
 | 3 | Interrupt mid-flow | SIGINT during launch; Ctrl-C at a prompt. No orphaned `.tmp`, `.pid`, or `.active` files. |
 | 4 | Second session or role | Two concurrent `summon` invocations -- concurrent-write safety (the #524 class). |
-| 5 | **Locale and viewport** -> **shell, terminal size, Node version** | zsh vs bash; a narrow terminal (monitor TUI truncation); Node 20 vs 24. |
+| 5 | **Locale and viewport** -> **shell, terminal size, Node version** | zsh vs bash; a narrow terminal (monitor TUI truncation); Node 22 vs 24. |
 | 6 | Compare copy with outcome | Error messages match real behavior; `summon doctor` claims match reality. |
 | 7 | Read back downstream state | Inspect `~/.config/summon/**`: schema `version` present, no leaked keys, no residue. |
 | 8 | Should this exist? | Challenge unsafe behavior -- e.g. the install-software-on-launch prompt (`launcher.ts:216-268`). |
