@@ -64,31 +64,40 @@ export function listSessions(cli: RexCli): { ok: true; sessions: RexSessionSumma
   return { ok: true, sessions };
 }
 
+/** An optional list field: null or absent is empty, an array is itself, anything else is malformed (undefined). */
+function nullableArray(value: unknown): unknown[] | undefined {
+  if (value === null || value === undefined) return [];
+  return Array.isArray(value) ? (value as unknown[]) : undefined;
+}
+
 export function parseSessionView(json: unknown): SessionView | undefined {
   if (!json || typeof json !== "object") return;
   const raw = json as Record<string, unknown>;
   if (typeof raw["session_id"] !== "string" || typeof raw["revision"] !== "number") return;
-  const windowsRaw = raw["windows"];
-  if (windowsRaw !== null && windowsRaw !== undefined && !Array.isArray(windowsRaw)) return;
+  const windowsRaw = nullableArray(raw["windows"]);
+  if (!windowsRaw) return;
   const windows: SessionWindowView[] = [];
-  for (const item of (windowsRaw ?? []) as unknown[]) {
+  for (const item of windowsRaw) {
     if (!item || typeof item !== "object") return;
     const w = item as Record<string, unknown>;
     if (typeof w["window_id"] !== "string") return;
     const blockIds: string[] = [];
     const hostIds: string[] = [];
-    const layers = w["layers"];
-    if (Array.isArray(layers)) {
-      for (const layer of layers as unknown[]) {
-        const blocks = layer && typeof layer === "object" ? (layer as Record<string, unknown>)["blocks"] : undefined;
-        if (!Array.isArray(blocks)) continue;
-        for (const block of blocks as unknown[]) {
-          const id = block && typeof block === "object" ? (block as Record<string, unknown>)["block_id"] : undefined;
-          if (typeof id !== "string") continue;
-          const hostId = (block as Record<string, unknown>)["host_id"];
-          blockIds.push(id);
-          hostIds.push(typeof hostId === "string" ? hostId : "");
-        }
+    // Null or absent `layers`/`blocks` mean "none"; any other non-array shape is malformed. A
+    // malformed view must never read as an empty session: `summon clean` destroys on that reading.
+    const layers = nullableArray(w["layers"]);
+    if (!layers) return;
+    for (const layer of layers) {
+      const record = asRecord(layer);
+      if (!record) return;
+      const blocks = nullableArray(record["blocks"]);
+      if (!blocks) return;
+      for (const item of blocks) {
+        const block = asRecord(item);
+        if (!block || typeof block["block_id"] !== "string") return;
+        const hostId = block["host_id"];
+        blockIds.push(block["block_id"]);
+        hostIds.push(typeof hostId === "string" ? hostId : "");
       }
     }
     windows.push({ windowId: w["window_id"], label: typeof w["label"] === "string" ? w["label"] : "", blockIds, hostIds });

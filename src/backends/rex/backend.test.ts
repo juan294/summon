@@ -71,14 +71,16 @@ describe("createRexBackend", () => {
     outSpy.mockRestore();
   });
 
-  it("drops blocks whose pane has no name in the display order (sidebar without a command) and forwards --new-window", async () => {
-    const { d, create } = deps({ kind: "created-unselected", ids: IDS, notices: [] });
+  it("names only the display panes in the manifest (sidebar without a command stays in paneOrder) and forwards --new-window", async () => {
+    const editorOnly = { ...IDS, blocks: [IDS.blocks[0]!] };
+    const { d, create } = deps({ kind: "created-unselected", ids: editorOnly, notices: [] });
     const plan = planLayout({ editor: "vim", ...getPreset("minimal") });
     plan.sidebarCommand = "";
     plan.newWindow = true;
     const outSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     const result = await createRexBackend(CONTEXT, d).launchTraditional(plan, ctx());
     outSpy.mockRestore();
+    // createWorkspace applies the display-pane policy to the ids; the adapter records them as given.
     expect(result?.rex?.blocks.map((b) => b.name)).toEqual(["editor"]);
     const [manifest, , context] = create.mock.calls[0]! as unknown as [Record<string, unknown>, unknown, Record<string, unknown>];
     expect(manifest["panes"]).toEqual(["editor"]);

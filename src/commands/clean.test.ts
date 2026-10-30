@@ -113,6 +113,16 @@ describe("summon clean <project> (plan P17)", () => {
     expect(rex.calls.some((c) => c.op === "kill")).toBe(false);
   });
 
+  it("a malformed session view is unverifiable: no kill, exit 2, record untouched", async () => {
+    writeStatus(record());
+    const malformed = { session_id: SESSION, revision: 1, windows: [{ window_id: WINDOW, layers: "malformed" }] };
+    server({ [SESSION]: [] }, { "session-view": () => ok("session-view", malformed) });
+    await expect(handleCleanCommand(context(["chapa"]))).rejects.toThrow("exit:2");
+    expect(stderr()).toContain("[chapa] could not be verified");
+    expect(rex.calls.some((c) => c.op === "kill")).toBe(false);
+    expect(readStatusRecord("chapa")!.endedAt).toBeUndefined();
+  });
+
   it("refuses with the live pane names (recorded and unrecorded) and leaves everything in place", async () => {
     writeStatus(record());
     writeSidecars(GEN);
@@ -201,6 +211,27 @@ describe("summon clean <project> (plan P17)", () => {
     expect(existsSync(paths(GEN2).pid)).toBe(true);
     expect(existsSync(paths(GEN3).pid)).toBe(false);
   });
+
+  it("the Ghostty sweep removes only files whose pid is proven dead", async () => {
+    // Kept: a live pid without its marker (bootstrap window), a malformed marker beside a live pid, an unreadable pid file.
+    writeStatus({ ...record(), backend: "ghostty", rex: undefined });
+    const bootstrapping = "3f3f3f3f-3f3f-4f3f-8f3f-3f3f3f3f3f3f";
+    const unreadable = "4f4f4f4f-4f4f-4f4f-8f4f-4f4f4f4f4f4f";
+    mkdirSync(paths().dir, { recursive: true });
+    writeFileSync(paths(bootstrapping).pid, `${process.pid}\n`);                 // pid written, marker not yet: alive
+    writeSidecars(GEN2, process.pid);
+    writeFileSync(paths(GEN2).active, "garbage\n");                                // malformed marker, live pid: alive
+    writeFileSync(paths(unreadable).pid, "\n");                                    // no pid to prove anything: kept
+    writeSidecars(GEN3, 2_147_483_000);                                            // dead pid: removed, marker or not
+    await handleCleanCommand(context(["chapa"]));
+    expect(stdout()).toContain("1 stale launch file pair removed.");
+    expect(existsSync(paths(bootstrapping).pid)).toBe(true);
+    expect(existsSync(paths(GEN2).pid)).toBe(true);
+    expect(existsSync(paths(GEN2).active)).toBe(true);
+    expect(existsSync(paths(unreadable).pid)).toBe(true);
+    expect(existsSync(paths(GEN3).pid)).toBe(false);
+    expect(existsSync(paths(GEN3).active)).toBe(false);
+  });
 });
 
 describe("summon clean --orphans <project>", () => {
@@ -254,6 +285,30 @@ describe("summon clean --orphans <project>", () => {
     expect(existsSync(paths(GEN3).manifest)).toBe(true);
     expect(existsSync(paths().pid)).toBe(true);
     expect(readStatusRecord("chapa")!.launchId).toBe(GEN);
+  });
+
+  it("reports a file that could not be removed, keeps the manifest, and the next review removes everything", async () => {
+    writeStatus(record());
+    writeLaunchManifest(manifest(GEN2));
+    writePane(GEN2, SESSION2);
+    server({ [SESSION]: [BLOCK] });
+    chmodSync(paths().dir, 0o500);
+    try {
+      await handleCleanCommand(context(["chapa"], { orphans: true }));
+    } finally {
+      chmodSync(paths().dir, 0o700);
+    }
+    expect(stdout()).toMatch(/its Rex session is gone; a file could not be removed \(.*\.pane\.editor: .*\); the manifest is kept, run summon clean --orphans again\./);
+    expect(stdout()).not.toContain("files removed.");
+    expect(existsSync(paths(GEN2).manifest)).toBe(true);
+    expect(existsSync(paths(GEN2).pane("editor").file)).toBe(true);
+    // The next review: adoption (which runs first) finds the manifest again and removes everything.
+    logs.length = 0;
+    errs.length = 0;
+    await handleCleanCommand(context(["chapa"], { orphans: true }));
+    expect(stderr()).toContain(`removed the files of earlier launch ${GEN2} (its Rex session is gone)`);
+    expect(existsSync(paths(GEN2).manifest)).toBe(false);
+    expect(existsSync(paths(GEN2).pane("editor").file)).toBe(false);
   });
 
   it("names a manifest without a server and leaves it; a legacy current record stops the review", async () => {

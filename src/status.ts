@@ -1,7 +1,8 @@
 import { existsSync, readdirSync } from "node:fs";
 import { STATUS_DIR } from "./paths.js";
 import { gitOutput, getErrorMessage } from "./utils.js";
-import { launchArtifactFiles, listLaunchManifests, readLaunchManifest } from "./launch-identity.js";
+import { launchArtifactFiles, launchFileList, listLaunchManifests, readLaunchManifest } from "./launch-identity.js";
+import type { LaunchFileSet } from "./launch-identity.js";
 import { collectSnapshot, writeSnapshotFile } from "./snapshot.js";
 import type { RexIdentity } from "./backends/rex/types.js";
 import { createRexCli, discoverRex } from "./backends/rex/cli.js";
@@ -10,7 +11,7 @@ import { SESSION_GONE, listSessions, programStatusOf, sessionState } from "./bac
 import type { ProgramStatus, SessionListing } from "./backends/rex/status.js";
 import type { NativeFailure } from "./ghostty-native.js";
 import { adoptDeps, adoptOrphans, refreshPaneMapping } from "./backends/rex/launch.js";
-import { RecordWriteError, ghosttyLiveness, isLiveState, readStatusRecord, removeLaunchArtifacts, withOwnedRecord } from "./status-record.js";
+import { RecordWriteError, ghosttyLiveness, isLiveState, readStatusRecord, removeLaunchFileSet, rexIdentityMissing, withOwnedRecord } from "./status-record.js";
 import type { WorkspaceState, WorkspaceStatus } from "./status-record.js";
 
 // The record layer (types, parser, locked writes) lives in status-record.ts; every consumer keeps importing it from here.
@@ -91,19 +92,56 @@ function adoptOnce(projectName: string, binary: string, ctx: RexReadContext): st
   return adoptOrphans(projectName, adoptDeps(binary));
 }
 
+function unknownRow(record: Omit<WorkspaceStatus, "pid"> & { pid: number | null }, reason: string, notices: string[] = []): ResolvedStatus {
+  return { ...record, state: "unknown", uptime: null, reason, ...(notices.length > 0 ? { notices } : {}) };
+}
+
 /**
- * A Rex record's state through `sessionState` (never a sidecar): late adoption first (P13),
- * then the state probe, then a pane-file refresh for records with unverified panes.
+ * A Rex record's state through `sessionState` (never a sidecar): late adoption first (P13), then
+ * one generation resolved at a time. A re-read that shows another launch's generation (published
+ * while this one was refreshed or reconciled) resolves that generation afresh instead of pairing
+ * its record with the state probed for the old one; a second supersession is `unknown`.
  */
 function resolveRexStatus(projectName: string, record: WorkspaceStatus, ctx: RexReadContext): ResolvedStatus {
   // An identity that parseWorkspaceStatus discarded cannot be verified; adoption would read it back through this resolver.
-  if (!record.rex) return { ...record, state: "unknown", uptime: null, reason: "the record has no Rex identity; relaunch to capture it" };
+  if (!record.rex) return unknownRow(record, rexIdentityMissing(projectName));
   const binary = rexBinaryPath();
-  if (!binary) return { ...record, state: "unknown", uptime: null, reason: REX_CLI_MISSING };
+  if (!binary) return unknownRow(record, REX_CLI_MISSING);
   const notices = [...adoptOnce(projectName, binary, ctx)];
   let current = notices.length > 0 ? readStatusRecord(projectName) ?? record : record;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const resolved = resolveRexGeneration(projectName, current, binary, ctx, notices);
+    if (resolved.kind === "resolved") return resolved.status;
+    current = resolved.record;
+    // The newer generation's session was created before its record: its server is listed again.
+    if (current.rex) ctx.listings.delete(current.rex.server);
+  }
+  return unknownRow(current, "the record changed while it was read; retry", notices);
+}
+
+type GenerationResult = { kind: "resolved"; status: ResolvedStatus } | { kind: "superseded"; record: WorkspaceStatus };
+
+/**
+ * One generation of a Rex record: the pane-file refresh for a record with unverified panes (P13
+ * next-read recovery, whatever state the probe then finds), the state probe over the refreshed
+ * identity, then reconciliation of a stopped launch. Every re-read after a generation-bound write
+ * must still carry this generation; otherwise the newer record is handed back unresolved.
+ */
+function resolveRexGeneration(projectName: string, record: WorkspaceStatus, binary: string, ctx: RexReadContext, notices: string[]): GenerationResult {
+  const gen = record.launchId;
+  let current = record;
+  // An ended generation never gains pane files; a live or stopped one with unverified panes is refreshed before the probe.
+  if (gen && record.rex && !record.endedAt && record.rex.blocks.length < record.panes.length) {
+    const refreshed = refreshPaneMapping(record);
+    notices.push(...refreshed.notices);
+    if (refreshed.changed) {
+      const latest = readStatusRecord(projectName) ?? record;
+      if (latest.launchId !== gen) return { kind: "superseded", record: latest };
+      current = latest;
+    }
+  }
   const identity = current.rex;
-  if (!identity) return { ...current, state: "unknown", uptime: null, reason: "the record has no Rex identity; relaunch to capture it", notices };
+  if (!identity) return { kind: "resolved", status: unknownRow(current, rexIdentityMissing(projectName), notices) };
   const cli = createRexCli(binary, identity.server);
   let listing = ctx.listings.get(identity.server);
   if (!listing) {
@@ -111,29 +149,30 @@ function resolveRexStatus(projectName: string, record: WorkspaceStatus, ctx: Rex
     ctx.listings.set(identity.server, listing);
   }
   const state = sessionState(cli, identity, projectName, listing);
-  if (isLiveState(state.state) && identity.blocks.length < current.panes.length) {
-    notices.push(...refreshPaneMapping(current));
-    current = readStatusRecord(projectName) ?? current;
-  }
-  if (state.state === "stopped" && current.launchId) {
+  if (state.state === "stopped" && gen) {
     const confirmedGone = state.reason === SESSION_GONE;
-    if (needsReconciliation(current, removableLaunchFiles(projectName, current, current.launchId, confirmedGone))) {
+    if (needsReconciliation(current, removableLaunchFiles(projectName, current, gen, confirmedGone))) {
       const notice = endRexLaunch(projectName, current, { confirmedGone });
       if (notice) notices.push(notice);
-      current = readStatusRecord(projectName) ?? current;
+      const latest = readStatusRecord(projectName) ?? current;
+      if (latest.launchId !== gen) return { kind: "superseded", record: latest };
+      current = latest;
     }
   }
   const started = Date.parse(current.startedAt);
   // `active` is exactly "the root block is present" (state table); the program status is read on request only.
   const programStatus = ctx.programStatus && state.state === "active" ? programStatusOf(cli, identity.sessionId, identity.rootBlockId) : undefined;
   return {
-    ...current,
-    state: state.state,
-    uptime: isLiveState(state.state) && !Number.isNaN(started) ? Date.now() - started : null,
-    ...(state.reason ? { reason: state.reason } : {}),
-    ...(notices.length > 0 ? { notices } : {}),
-    liveBlocks: state.liveBlocks,
-    ...(programStatus ? { programStatus } : {}),
+    kind: "resolved",
+    status: {
+      ...current,
+      state: state.state,
+      uptime: isLiveState(state.state) && !Number.isNaN(started) ? Date.now() - started : null,
+      ...(state.reason ? { reason: state.reason } : {}),
+      ...(notices.length > 0 ? { notices } : {}),
+      liveBlocks: state.liveBlocks,
+      ...(programStatus ? { programStatus } : {}),
+    },
   };
 }
 
@@ -182,7 +221,7 @@ function unverifiedLaunchRows(launchDirProjects: string[], recordedProjects: Set
       }
     }
     for (const manifest of manifests) {
-      rows.push({
+      rows.push(unknownRow({
         project: manifest.project,
         directory: manifest.directory,
         pid: null,
@@ -193,11 +232,7 @@ function unverifiedLaunchRows(launchDirProjects: string[], recordedProjects: Set
         version: 1,
         launchId: manifest.launchId,
         backend: manifest.backend,
-        state: "unknown",
-        uptime: null,
-        reason: UNVERIFIED_LAUNCH,
-        ...(notices.length > 0 ? { notices } : {}),
-      });
+      }, UNVERIFIED_LAUNCH, notices));
     }
   }
   return rows;
@@ -311,17 +346,17 @@ export { SESSION_GONE } from "./backends/rex/status.js";
 class SnapshotStepFailure extends Error {}
 
 /** The files the end-of-launch steps remove for this record: always the sidecars; the session files only once the session is confirmed gone. */
-function removableLaunchFiles(project: string, record: WorkspaceStatus, launchId: string, confirmedGone: boolean): string[] {
+function removableLaunchFiles(project: string, record: WorkspaceStatus, launchId: string, confirmedGone: boolean): LaunchFileSet {
   const panes = readLaunchManifest(project, launchId)?.paneOrder ?? record.panes;
   const files = launchArtifactFiles(project, launchId, panes);
-  return confirmedGone ? [...files.liveness, ...files.session] : files.liveness;
+  return confirmedGone ? files : { liveness: files.liveness, panes: [] };
 }
 
 /** Rule 1 of the reconciliation: no `endedAt` yet, or `endedAt` with removable per-launch files left behind. */
-function needsReconciliation(record: WorkspaceStatus, files: readonly string[]): boolean {
+function needsReconciliation(record: WorkspaceStatus, files: LaunchFileSet): boolean {
   if (!record.launchId) return false;
   if (!record.endedAt) return true;
-  return files.some((file) => existsSync(file));
+  return launchFileList(files).some((file) => existsSync(file));
 }
 
 export interface EndLaunchOptions {
@@ -367,7 +402,7 @@ export function endRexLaunch(project: string, record: WorkspaceStatus, options: 
         return { ...current, endedAt: new Date().toISOString() };
       },
       (_outcome, final) => {
-        if (final?.endedAt) fileFailures.push(...removeLaunchArtifacts(files));
+        if (final?.endedAt) fileFailures.push(...removeLaunchFileSet(files));
       },
     );
     if (outcome === "superseded") return undefined;

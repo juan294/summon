@@ -46,6 +46,11 @@ export function resolveBackendForLaunch(probes: BackendProbes = {}): Detection {
   });
 }
 
+/** The caller's own Rex session (P7 app preference): `REX_SESSION` only when Summon runs inside Rex. */
+export function callerRexSession(context: Pick<LaunchContext, "placement">): string | undefined {
+  return context.placement === "inside-rex" ? process.env["REX_SESSION"] : undefined;
+}
+
 /** Resolve the backend of an existing workspace from its record (plan P6). */
 export function resolveBackendForRecord(record: Pick<WorkspaceStatus, "backend" | "rex">): { backend: BackendId; server?: string } {
   const backend = record.backend ?? "ghostty";

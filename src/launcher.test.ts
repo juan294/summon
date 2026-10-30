@@ -27,9 +27,9 @@ vi.mock("./config.js", () => ({
 // Mock backend detection: the table is covered by backend-detect.test.ts; here the launcher's
 // seam is exercised by steering the resolved detection directly.
 const mockResolveBackendForLaunch = vi.fn((): unknown => ({ ok: true, backend: "ghostty", placement: "outside", notices: [] }));
-vi.mock("./backend.js", () => ({
+vi.mock("./backend.js", async (original) => ({
+  ...(await original<typeof import("./backend.js")>()),
   resolveBackendForLaunch: () => mockResolveBackendForLaunch(),
-  isBackendId: (value: unknown) => value === "ghostty" || value === "rex",
 }));
 
 // Rex launch path (Phase 3): the adapter, adoption and switch decision are mocked; their own
@@ -64,8 +64,7 @@ vi.mock("./backends/rex/cli.js", () => ({
 const mockReadStatus = vi.fn();
 const mockReadStatusRecord = vi.fn((_project: string): unknown => null);
 vi.mock("./status.js", () => ({
-  writeStatus: vi.fn(),
-  discardStatusRecord: vi.fn(()=>true),
+  publishStatus: vi.fn(() => "published"),
   readStatus: (...args: unknown[]) => mockReadStatus(...args),
   readStatusRecord: (project: string) => mockReadStatusRecord(project),
   isLiveState: (state: string) => state === "active" || state === "partial",
@@ -4482,17 +4481,22 @@ describe("P2 capture failure isolation",()=>{
     const status=await import("./status.js");
     mockExecFileSync.mockImplementation((bin:string,args:string[],opts?:{input?:string})=> bin === "/usr/bin/which" ? "/usr/bin/stub\n" : opts?.input ? output : "");
     await expect(launch("/tmp/workspace",{layout:"minimal"})).resolves.toBeUndefined();
-    expect(status.writeStatus).toHaveBeenCalledWith(expect.objectContaining({project:"workspace",version:1}));
-    expect(vi.mocked(status.writeStatus).mock.calls[0]?.[0].native).toBeUndefined();
+    expect(status.publishStatus).toHaveBeenCalledWith(expect.objectContaining({project:"workspace",version:1}));
+    expect(vi.mocked(status.publishStatus).mock.calls[0]?.[0].native).toBeUndefined();
     expect(mockExecFileSync.mock.calls.filter(c=>String(c[2]?.input).includes("close front window"))).toHaveLength(0);
   });
   it("maps successful capture and warns without throwing on status write failure",async()=>{
     const status=await import("./status.js"); const err=vi.spyOn(process.stderr,"write").mockImplementation(()=>true);
     mockExecFileSync.mockImplementation((bin:string,args:string[],opts?:{input?:string})=>bin === "/usr/bin/which" ? "/usr/bin/stub\n" : opts?.input ? `SUMMON_NATIVE_V1\n${id}\n00000000-0000-4000-8000-000000000002\n` : "");
-    vi.mocked(status.writeStatus).mockImplementationOnce(()=>{throw new Error("disk");});
+    vi.mocked(status.publishStatus).mockReturnValueOnce("discarded");
     await expect(launch("/tmp/workspace",{layout:"minimal"})).resolves.toBeUndefined();
-    expect(status.writeStatus).toHaveBeenCalledWith(expect.objectContaining({native:expect.objectContaining({rootTerminalId:id})}));
-    expect(err).toHaveBeenCalledWith(expect.stringContaining("status could not be saved"));err.mockRestore();
+    expect(status.publishStatus).toHaveBeenCalledWith(expect.objectContaining({native:expect.objectContaining({rootTerminalId:id})}));
+    expect(err).toHaveBeenCalledWith(expect.stringContaining("status could not be saved; exact targeting is unavailable"));
+    // The publication layer owns the discard (bound to the record observed under its lock); the launcher only words the outcome.
+    vi.mocked(status.publishStatus).mockReturnValueOnce("unsaved");
+    await expect(launch("/tmp/workspace",{layout:"minimal"})).resolves.toBeUndefined();
+    expect(err).toHaveBeenCalledWith(expect.stringContaining("could not be saved or invalidated. Previous metadata may remain"));
+    err.mockRestore();
   });
 });
 
@@ -4529,12 +4533,12 @@ describe("backend seam (plan P15, Phase 1)", () => {
   it("publishes the status record with the launch id and backend", async () => {
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
     await launch("/tmp/workspace");
-    expect(status.writeStatus).toHaveBeenCalledWith(expect.objectContaining({
+    expect(status.publishStatus).toHaveBeenCalledWith(expect.objectContaining({
       project: "workspace",
       backend: "ghostty",
       launchId: ANY_LAUNCH_ID,
     }));
-    const written = vi.mocked(status.writeStatus).mock.calls[0]?.[0];
+    const written = vi.mocked(status.publishStatus).mock.calls[0]?.[0];
     const dryRunId = mockGenerateAppleScript.mock.calls[0]?.[6];
     expect(written?.launchId).toBe(dryRunId);
   });
@@ -4558,7 +4562,7 @@ describe("backend seam (plan P15, Phase 1)", () => {
     expect(stderrText).toContain("Rex detected but its CLI was not found at PATH");
     expect(stderrText).toContain("Neither Ghostty.app nor the Rex CLI was found. Install one. Dry run continues with the Ghostty script.");
     expect(output).toContain("-- Backend: ghostty");
-    expect(status.writeStatus).not.toHaveBeenCalled();
+    expect(status.publishStatus).not.toHaveBeenCalled();
   });
 
   it("prints detection notices and continues on Ghostty when the table says so", async () => {
@@ -4573,7 +4577,7 @@ describe("backend seam (plan P15, Phase 1)", () => {
       errSpy.mockRestore();
     }
     expect(stderrText).toContain("Rex detected but its CLI was not found at PATH");
-    expect(status.writeStatus).toHaveBeenCalledWith(expect.objectContaining({ backend: "ghostty" }));
+    expect(status.publishStatus).toHaveBeenCalledWith(expect.objectContaining({ backend: "ghostty" }));
   });
 });
 
@@ -4620,12 +4624,15 @@ describe("Rex dry run (plan P2, Phase 2)", () => {
     const launchId = /-- Launch: ([0-9a-f-]{36})/.exec(output)![1];
     expect(output).toContain(`"SUMMON_LAUNCH_ID=${launchId}"`);
     expect(output).toContain('"FOO=bar"');
+    // The printed request is the one a real launch sends: the root cleanup trap carries the layout label.
+    expect(output).toContain('--layout \\"default\\"');
+    expect(output).not.toContain('--layout \\"unknown\\"');
 
     expect(mockGenerateAppleScript).not.toHaveBeenCalled();
     expect(mockGenerateTreeAppleScript).not.toHaveBeenCalled();
     expect(terminalCalls()).toEqual([]);
     expect(mockExecSync).not.toHaveBeenCalled();
-    expect(statusModule.writeStatus).not.toHaveBeenCalled();
+    expect(statusModule.publishStatus).not.toHaveBeenCalled();
   });
 
   it("prints the tree request with the tree's pane order", async () => {
@@ -4658,7 +4665,7 @@ describe("Rex dry run (plan P2, Phase 2)", () => {
     expect(output).toContain("-- Note: workspace is recorded as a Rex workspace (session:0123); while it is running, a real run switches to it instead of creating this one");
     expect(output).toContain('"label": "workspace"');
     expect(terminalCalls()).toEqual([]);
-    expect(statusModule.writeStatus).not.toHaveBeenCalled();
+    expect(statusModule.publishStatus).not.toHaveBeenCalled();
   });
 
   it("does not note a Ghostty record", async () => {
@@ -4710,7 +4717,7 @@ describe("Rex launch (plan P2, P8, P13, P15; Phase 3)", () => {
     await launch("/tmp/workspace", { "on-start": "echo hi" });
     expect(rexLaunches).toEqual([]);
     expect(mockRunSetup).not.toHaveBeenCalled();
-    expect(statusModule.writeStatus).not.toHaveBeenCalled();
+    expect(statusModule.publishStatus).not.toHaveBeenCalled();
     expect(mockExecSync).not.toHaveBeenCalled();
   });
 
@@ -4735,7 +4742,7 @@ describe("Rex launch (plan P2, P8, P13, P15; Phase 3)", () => {
     await launch("/tmp/workspace", { layout: "full" });
     expect(rexLaunches[0]).toMatchObject({ kind: "traditional", ctx: { projectName: "workspace", layoutLabel: "full", targetDir: "/tmp/workspace" } });
     expect(mockCreateRexBackend).toHaveBeenCalledWith(REX_CONTEXT, expect.objectContaining({ callerSession: process.env["REX_SESSION"] }));
-    expect(statusModule.writeStatus).toHaveBeenCalledWith(expect.objectContaining({
+    expect(statusModule.publishStatus).toHaveBeenCalledWith(expect.objectContaining({
       project: "workspace",
       backend: "rex",
       layout: "full",
@@ -4743,7 +4750,7 @@ describe("Rex launch (plan P2, P8, P13, P15; Phase 3)", () => {
       launchId: ANY_LAUNCH_ID,
       rex: REX_IDENTITY,
     }));
-    const written = vi.mocked(statusModule.writeStatus).mock.calls[0]![0];
+    const written = vi.mocked(statusModule.publishStatus).mock.calls[0]![0];
     expect(written.native).toBeUndefined();
     // Named focus targets resolve through the identity, never through display position.
     expect(written.rex!.blocks.find((b) => b.name === "editor-2")!.blockId).toBe("block:0000aaaa-0000-0000-0000-000000000011");
@@ -4771,7 +4778,7 @@ describe("Rex launch (plan P2, P8, P13, P15; Phase 3)", () => {
     expect(mockSessionState).not.toHaveBeenCalled();
     expect(rexLaunches).toEqual([]);
     expect(rexCalls()).toEqual([]);
-    expect(statusModule.writeStatus).not.toHaveBeenCalled();
+    expect(statusModule.publishStatus).not.toHaveBeenCalled();
   });
 
   it("a non-TTY launch under Rex keeps the dangerous-command gate", async () => {
@@ -4786,7 +4793,7 @@ describe("Rex launch (plan P2, P8, P13, P15; Phase 3)", () => {
     expect(stderrText).toContain("interactive confirmation");
     expect(mockAdoptOrphans).toHaveBeenCalledWith("workspace");
     expect(rexLaunches).toEqual([]);
-    expect(statusModule.writeStatus).not.toHaveBeenCalled();
+    expect(statusModule.publishStatus).not.toHaveBeenCalled();
   });
 
   it("a Ghostty launch over a live Rex session of the same project warns and goes on", async () => {
@@ -4796,7 +4803,7 @@ describe("Rex launch (plan P2, P8, P13, P15; Phase 3)", () => {
     await launch("/tmp/workspace");
     expect(stderrText).toContain("summon: note: Rex session [workspace] session:0000aaaa-0000-0000-0000-000000000001 is still running; rex kill session:0000aaaa-0000-0000-0000-000000000001 closes it");
     expect(mockAdoptOrphans).not.toHaveBeenCalled();
-    expect(statusModule.writeStatus).toHaveBeenCalledWith(expect.objectContaining({ backend: "ghostty" }));
+    expect(statusModule.publishStatus).toHaveBeenCalledWith(expect.objectContaining({ backend: "ghostty" }));
     mockSessionState.mockReturnValue({ state: "stopped", liveBlocks: [] });
     stderrText = "";
     await launch("/tmp/workspace");

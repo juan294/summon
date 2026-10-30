@@ -16,11 +16,11 @@ import {
 import type { LayoutOptions } from "./layout.js";
 export { traditionalPaneNames } from "./layout.js";
 import { listConfig, listProjects, readKVFile, readKVFromString, readCustomLayout, isCustomLayout, LAYOUT_NAME_RE } from "./config.js";
-import { writeStatus, readStatus, readStatusRecord, discardStatusRecord } from "./status.js";
+import { publishStatus, readStatus, readStatusRecord } from "./status.js";
 import type { WorkspaceStatus } from "./status.js";
 import { generateAppleScript, generateTreeAppleScript } from "./script.js";
 import { newLaunchId } from "./launch-identity.js";
-import { resolveBackendForLaunch } from "./backend.js";
+import { callerRexSession, resolveBackendForLaunch } from "./backend.js";
 import type { BackendId, LaunchContext } from "./backend.js";
 import { GhosttyBackend, ghosttyCommandEntries } from "./backends/ghostty.js";
 import type { BackendLaunchContext, BackendLaunchResult, TerminalBackend } from "./backends/ghostty.js";
@@ -125,6 +125,7 @@ export function focusWorkspace(projectName: string, paneName?: string): FocusRes
   if (status?.backend === "rex") {
     const gate = rexCommandGate(projectName, status);
     if (!gate.ok) return gate.failure;
+    // No detection row here (focus does not launch): REX_SESSION is set by Rex terminals only, so it is the caller's session when present.
     return focusRex(gate.cli, gate.identity, status.panes, projectName, gate.liveBlocks, paneName, process.env["REX_SESSION"]);
   }
   const target = resolveWorkspaceTerminal(projectName, paneName, status);
@@ -758,6 +759,7 @@ function rexDryRunBody(headerLines: string[], layout: SessionCreateInput["layout
     envVars: ctx.envVars,
     starshipConfigPath,
     onStop: ctx.onStop,
+    layoutLabel: ctx.layoutLabel,
   });
   headerLines.push(`-- Server: ${server}`);
   headerLines.push(`-- Pane order (block_ids): ${paneOrder.join(", ")}`);
@@ -936,14 +938,15 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
   for (const notice of launchContext.notices) err(notice);
   const projectName = resolveProjectName(targetDir);
   const dryRun = cliOverrides?.dryRun === true;
+  const callerSession = callerRexSession(launchContext);
   const backend: TerminalBackend = launchContext.backend === "rex"
-    ? createRexBackend(launchContext, { callerSession: launchContext.placement === "inside-rex" ? process.env["REX_SESSION"] : undefined })
+    ? createRexBackend(launchContext, { callerSession })
     : GhosttyBackend;
   if (launchContext.backend === "rex" && !dryRun) {
     // P13 late adoption, then the P2 reuse decision: both before the wizard, the pane probe
     // and on-start, so a switch never reruns them. A dry run skips both (P2) and runs no Rex command.
     for (const line of adoptOrphans(projectName, adoptDeps(launchContext.rexBinary))) note(line);
-    const decision = maybeSwitchToExisting(projectName, cliOverrides?.["new-window"] === "true", { cliFor: (server) => createRexCli(launchContext.rexBinary, server) });
+    const decision = maybeSwitchToExisting(projectName, cliOverrides?.["new-window"] === "true", { cliFor: (server) => createRexCli(launchContext.rexBinary, server), callerSession });
     if (decision.kind === "switched") return;
     if (decision.kind === "refused") {
       fail(decision.reason);
@@ -1112,14 +1115,13 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
       ...(launched.rex ? { rex: launched.rex } : {}),
     };
 
-    try {
-      // A user-initiated launch always publishes (expectation "replace", plan P12).
-      writeStatus(status);
-    } catch {
-      const discarded = discardStatusRecord(projectName);
-      err(discarded
-        ? "summon: warning: workspace launched, but status could not be saved; exact targeting is unavailable. Check config directory permissions and run summon doctor."
-        : "summon: warning: workspace launched, but status could not be saved or invalidated. Previous metadata may remain and target an older workspace; select manually in Ghostty, repair config directory permissions and run summon doctor before using exact commands.");
+    // A user-initiated launch always publishes (expectation "replace", plan P12); a failed write
+    // discards only the record observed under the publication's own lock.
+    const published = publishStatus(status);
+    if (published === "discarded") {
+      err("summon: warning: workspace launched, but status could not be saved; exact targeting is unavailable. Check config directory permissions and run summon doctor.");
+    } else if (published === "unsaved") {
+      err("summon: warning: workspace launched, but status could not be saved or invalidated. Previous metadata may remain and target an older workspace; select manually in Ghostty, repair config directory permissions and run summon doctor before using exact commands.");
     }
   }
 }

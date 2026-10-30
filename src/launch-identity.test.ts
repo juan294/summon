@@ -15,6 +15,8 @@ const {
   newLaunchId,
   isLaunchId,
   launchArtifactPaths,
+  launchArtifactFiles,
+  launchFileList,
   launchesDir,
   bootstrapLine,
   paneFileLine,
@@ -160,6 +162,16 @@ function manifest(overrides: Partial<LaunchManifest> = {}): LaunchManifest {
     ...overrides,
   };
 }
+
+describe("launchArtifactFiles", () => {
+  it("groups the liveness sidecars, the pane files and the manifest, and lists them as one", () => {
+    const paths = launchArtifactPaths("chapa", ID);
+    const files = launchArtifactFiles("chapa", ID, ["editor", "shell"]);
+    expect(files).toEqual({ liveness: [paths.pid, paths.active], panes: [paths.pane("editor").file, paths.pane("editor").tmp, paths.pane("shell").file, paths.pane("shell").tmp], manifest: paths.manifest });
+    expect(launchFileList(files)).toEqual([...files.liveness, ...files.panes, paths.manifest]);
+    expect(launchFileList({ liveness: files.liveness, panes: [] })).toEqual(files.liveness);
+  });
+});
 
 describe("launch manifests", () => {
   it("round-trips through write and read", () => {

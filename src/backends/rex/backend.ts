@@ -85,15 +85,14 @@ export function createRexBackend(context: RexLaunchContext, deps: RexBackendDeps
     if (outcome.kind === "failed") throw new Error(outcome.failure.hint ? `${outcome.reason}. ${outcome.failure.hint}` : outcome.reason);
     if (outcome.kind === "unknown") throw new Error(unknownOutcomeMessage(ctx.projectName, outcome.candidates, outcome.reason));
     out(`${sym.ok} Workspace [${ctx.projectName}] ready in Rex.`);
-    const named = new Set(panes);
+    // `ids.blocks` names only the panes Summon shows (createWorkspace applies the display-pane policy).
     const identity: RexIdentity = {
       server: context.server,
       hostId: outcome.ids.hostId,
       sessionId: outcome.ids.sessionId,
       windowId: outcome.ids.windowId,
       rootBlockId: outcome.ids.rootBlockId,
-      // The record names only the panes Summon shows (a sidebar block without a command exists in Rex but has no pane name).
-      blocks: outcome.ids.blocks.filter((b) => named.has(b.name)),
+      blocks: outcome.ids.blocks,
     };
     return { rex: identity };
   }

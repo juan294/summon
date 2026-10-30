@@ -112,7 +112,11 @@ function inspectRexWorkspace(project: string, status: ResolvedStatus, json: bool
     for (const pane of inspected.panes)
       console.log(`  ${pane.name}  ${pane.blockId ?? "UNVERIFIED"}  PID ${pane.pid ?? "UNAVAILABLE"}  UNAVAILABLE  ${escapeControlChars(pane.title ?? "UNAVAILABLE")}`);
     const program = inspected.programStatus;
-    if (program) console.log(`  program: ${program.state}${program.kind ? ` (${program.kind})` : ""}${program.app ? ` ${program.app}` : ""}${program.title ? ` ${escapeControlChars(program.title)}` : ""}${program.msg ? ` ${escapeControlChars(program.msg)}` : ""}`);
+    // Every program-status text comes from the pane's programs (OSC 7501): all of it is escaped.
+    if (program) {
+      const fields = [program.kind && `(${program.kind})`, program.app, program.title, program.msg].filter((f): f is string => Boolean(f));
+      console.log(`  program: ${[program.state, ...fields.map(escapeControlChars)].join(" ")}`);
+    }
     if (reason) console.log(reason);
   }
   if (!available) process.exit(2);

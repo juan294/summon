@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -206,6 +206,17 @@ describe("createWorkspace", () => {
     expect(select.argv).toEqual(["-C", "client:app", "do", "session.select", `session_id=${SESSION}`, `window_id=${WINDOW}`, "--json"]);
     expect(cli.calls.map((c) => c.op)).toEqual(["ls", "session-create", "client-ls", "do-select"]);
     expect(readStatusRecord("chapa")).toBeNull();
+  });
+
+  it("records only the display panes from a creation answer", async () => {
+    const manifest = manifestFor(ID, { panes: ["editor"], paneOrder: ["editor", "sidebar"], blockLabels: { editor: "editor · vim", sidebar: "sidebar" } });
+    const answer = { session_id: SESSION, initial_windows: [{ window_id: WINDOW, block_ids: [blockId(1), blockId(2)], revision: 1 }] };
+    const cli = fakeCli({ "ls": () => ok("ls", { sessions: [] }), "session-create": () => ok("session-create", answer), "client-ls": () => ok("client-ls", { clients: [CLIENT] }), "do-select": () => ok("do-select", {}) });
+    const outcome = await createWorkspace(manifest, fullBuild().request, ctxFor(cli));
+    expect(outcome.kind).toBe("created");
+    if (outcome.kind !== "created") return;
+    expect(outcome.ids.blocks).toEqual([{ name: "editor", blockId: blockId(1), label: "editor · vim" }]);
+    expect(outcome.ids.rootBlockId).toBe(blockId(1));
   });
 
   it("inside Rex it prefers the app attached to the caller's session from one listing", async () => {
@@ -494,6 +505,27 @@ describe("adoptOrphans (plan P13 late adoption)", () => {
     expect(readStatusRecord("chapa")).toBeNull();
   });
 
+  it("reports a removal that failed instead of claiming it, keeps the manifest, and removes everything on the retry", async () => {
+    writeLaunchManifest(manifestFor());
+    writePane(ID, "editor", SESSION, blockId(1));
+    const paths = launchArtifactPaths("chapa", ID);
+    const cli = fakeCli({ "ls": () => ok("ls", { sessions: [] }) });
+    chmodSync(paths.dir, 0o500);
+    let notices: string[];
+    try {
+      notices = adoptOrphans("chapa", depsFor({ [SERVER]: cli }));
+    } finally {
+      chmodSync(paths.dir, 0o700);
+    }
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toMatch(new RegExp(`^could not remove the files of earlier launch ${ID} \\(its Rex session is gone\\): .*; summon clean --orphans names it$`));
+    expect(existsSync(paths.manifest)).toBe(true);
+    expect(existsSync(paths.pane("editor").file)).toBe(true);
+    expect(adoptOrphans("chapa", depsFor({ [SERVER]: cli }))).toEqual([`removed the files of earlier launch ${ID} (its Rex session is gone)`]);
+    expect(existsSync(paths.manifest)).toBe(false);
+    expect(existsSync(paths.pane("editor").file)).toBe(false);
+  });
+
   it("keeps the files when the record changed between the read and the lock (superseded)", async () => {
     writeLaunchManifest(manifestFor());
     writePane(ID, "editor", SESSION, blockId(1));
@@ -527,6 +559,18 @@ describe("adoptOrphans (plan P13 late adoption)", () => {
     expect(notices).toEqual([`earlier launch ${ID2} could not be verified on ${otherServer}: no socket; nothing adopted or removed`]);
     expect(readStatusRecord("chapa")).toBeNull();
     expect(existsSync(launchArtifactPaths("chapa", ID).manifest)).toBe(true);
+  });
+
+  it("records only display panes on adoption, so the published identity survives the record parser", async () => {
+    // A command-less sidebar is in paneOrder (it has a block) but not in panes (it has no name).
+    writeLaunchManifest(manifestFor(ID, { panes: ["editor"], paneOrder: ["editor", "sidebar"], blockLabels: { editor: "editor · vim", sidebar: "sidebar" } }));
+    writePane(ID, "editor", SESSION, blockId(1));
+    writePane(ID, "sidebar", SESSION, blockId(2));
+    const cli = fakeCli({ "ls": () => ok("ls", { sessions: [{ session_id: SESSION, label: "chapa" }] }), "session-view": () => liveView([blockId(1), blockId(2)]) });
+    expect(adoptOrphans("chapa", depsFor({ [SERVER]: cli }))).toEqual([`adopted earlier launch ${ID} of chapa (Rex session ${SESSION})`]);
+    const record = readStatusRecord("chapa")!;
+    expect(record.rex).toBeDefined();
+    expect(record.rex!.blocks).toEqual([{ name: "editor", blockId: blockId(1), label: "editor · vim" }]);
   });
 
   it("refuses a Rex record without identity before any lookup (defense in depth against reader recursion)", async () => {
@@ -607,11 +651,12 @@ describe("refreshPaneMapping", () => {
     writeLaunchManifest(manifestFor());
     const record = recordFor(ID, { rex: { server: SERVER, hostId: "host-1", sessionId: SESSION, windowId: WINDOW, rootBlockId: blockId(1), blocks: [{ name: "editor", blockId: blockId(1), label: "editor · vim" }] } });
     withOwnedRecord("chapa", "replace", () => record);
-    expect(refreshPaneMapping(record)).toEqual([]);
+    expect(refreshPaneMapping(record)).toEqual({ notices: [], changed: false });
     writePane(ID, "shell", SESSION, blockId(4));
     writePane(ID, "right-1", SESSION, blockId(3), { raw: "nope" });
     writePane(ID, "sidebar", "session:0000bbbb-0000-0000-0000-000000000009", blockId(5));
-    const notices = refreshPaneMapping(record);
+    const { notices, changed } = refreshPaneMapping(record);
+    expect(changed).toBe(true);
     expect(notices).toEqual(["pane sidebar of chapa has a pane file from another session; summon clean --orphans names it", "pane right-1 of chapa has an unreadable pane file; summon clean --orphans names it"]);
     const refreshed = readStatusRecord("chapa")!;
     expect(refreshed.rex!.blocks).toEqual([{ name: "editor", blockId: blockId(1), label: "editor · vim" }, { name: "shell", blockId: blockId(4), label: "shell" }]);
@@ -619,16 +664,17 @@ describe("refreshPaneMapping", () => {
     // Generation changed meanwhile: nothing written.
     withOwnedRecord("chapa", "replace", () => recordFor(ID2));
     writePane(ID, "editor-2", SESSION, blockId(2));
-    expect(refreshPaneMapping(record)).toEqual(notices); // defective files are still reported; nothing is written
+    // Defective files are still reported; nothing is written, but the caller is told the record moved on.
+    expect(refreshPaneMapping(record)).toEqual({ notices, changed: true });
     expect(readStatusRecord("chapa")!.launchId).toBe(ID2);
     expect(readStatusRecord("chapa")!.rex!.blocks.map((b) => b.name)).toEqual(["editor"]);
   });
 
   it("does nothing for a record without unverified panes or without a Rex identity", () => {
     const complete = recordFor(ID, { panes: ["editor"] });
-    expect(refreshPaneMapping(complete)).toEqual([]);
+    expect(refreshPaneMapping(complete)).toEqual({ notices: [], changed: false });
     const ghostty = recordFor(ID); delete ghostty.rex;
-    expect(refreshPaneMapping(ghostty)).toEqual([]);
+    expect(refreshPaneMapping(ghostty)).toEqual({ notices: [], changed: false });
   });
 });
 
@@ -659,6 +705,14 @@ describe("maybeSwitchToExisting (plan P2) and showWorkspace", () => {
     expect(cli.calls).toEqual([]);
   });
 
+  it("a Rex record whose identity was discarded refuses an ordinary launch without a Rex call; --new-window proceeds", () => {
+    withOwnedRecord("chapa", "replace", () => { const r = recordFor(ID); delete r.rex; return r; });
+    const cli = fakeCli({});
+    expect(maybeSwitchToExisting("chapa", false, { cliFor: () => cli })).toEqual({ kind: "refused", reason: "chapa is recorded in Rex but the record has no Rex identity; run summon chapa --new-window to relaunch" });
+    expect(maybeSwitchToExisting("chapa", true, { cliFor: () => cli })).toEqual({ kind: "proceed" });
+    expect(cli.calls).toEqual([]);
+  });
+
   it("proceeds when the session is stopped and refuses with the reason when it cannot be verified", () => {
     withOwnedRecord("chapa", "replace", liveRecord);
     expect(maybeSwitchToExisting("chapa", false, { cliFor: () => fakeCli({ "ls": () => ok("ls", { sessions: [] }) }) })).toEqual({ kind: "proceed" });
@@ -673,6 +727,23 @@ describe("maybeSwitchToExisting (plan P2) and showWorkspace", () => {
     expect(cli.calls.map((c) => c.op)).toEqual(["ls", "session-view", "client-ls", "do-select"]);
     expect(cli.calls.find((c) => c.op === "do-select")!.argv).toEqual(["-C", "client:app", "do", "session.select", `session_id=${SESSION}`, `window_id=${WINDOW}`, "--json"]);
     expect(stderrText).toContain("Workspace [chapa] is already running in Rex; switched to it (use --new-window for a fresh one)");
+  });
+
+  it("reuse prefers the app attached to the caller's session over a newer unrelated app, with the several-apps notice (P7)", () => {
+    withOwnedRecord("chapa", "replace", liveRecord);
+    const attached = { client_id: "client:mine", connected_at: "2026-10-29T07:00:00Z", connection_state: "connected", info: { kind: "app", label: "Laptop" }, session_ids: ["session:caller"] };
+    const cli = fakeCli({ "ls": lsPresent, "session-view": () => ok("session-view", viewJson([blockId(1), blockId(5)])), "client-ls": () => ok("client-ls", { clients: [CLIENT, attached] }), "do-select": () => ok("do-select", {}) });
+    expect(maybeSwitchToExisting("chapa", false, { cliFor: () => cli, callerSession: "session:caller" })).toEqual({ kind: "switched" });
+    expect(cli.calls.find((c) => c.op === "do-select")!.argv[1]).toBe("client:mine");
+    expect(stderrText).not.toContain("Several Rex apps");
+    // Without a caller session the newest app wins and the user is told which one.
+    cli.calls.length = 0;
+    expect(maybeSwitchToExisting("chapa", false, { cliFor: () => cli })).toEqual({ kind: "switched" });
+    expect(cli.calls.find((c) => c.op === "do-select")!.argv[1]).toBe("client:app");
+    expect(stderrText).toContain("summon: note: Several Rex apps are connected; using Studio (client:app), not client:mine");
+    // showRecordedWorkspace carries the same preference.
+    cli.calls.length = 0;
+    expect(showWorkspace(cli, liveRecord(), [], "session:caller")).toEqual({ shown: true, clientId: "client:mine" });
   });
 
   it("a partial session focuses the first live pane before selecting", () => {

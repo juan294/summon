@@ -16,7 +16,7 @@ vi.mock("../launcher.js", () => ({
 
 const mockResolveBackendForLaunch = vi.fn((): unknown => ({ ok: true, backend: "ghostty", placement: "outside", notices: [] }));
 const mockShowRecordedWorkspace = vi.fn((..._args: unknown[]): unknown => ({ shown: true, clientId: "client:app" }));
-vi.mock("../backend.js", () => ({ resolveBackendForLaunch: () => mockResolveBackendForLaunch() }));
+vi.mock("../backend.js", async (original) => ({ ...(await original<typeof import("../backend.js")>()), resolveBackendForLaunch: () => mockResolveBackendForLaunch() }));
 vi.mock("../backends/rex/launch.js", () => ({ showRecordedWorkspace: (...args: unknown[]) => mockShowRecordedWorkspace(...args) }));
 
 vi.mock("../config.js", () => ({
@@ -748,8 +748,27 @@ describe("session launch under Rex (plan P11)", () => {
     expect(mockLaunch.mock.calls[0]![1]["new-window"]).toBe("true");
     expect(mockLaunch.mock.calls[1]![1]["new-window"]).toBeUndefined();
     expect(mockShowRecordedWorkspace).toHaveBeenCalledTimes(1);
-    expect(mockShowRecordedWorkspace).toHaveBeenCalledWith("api", "/usr/local/bin/rex");
+    expect(mockShowRecordedWorkspace).toHaveBeenCalledWith("api", "/usr/local/bin/rex", undefined);
     logSpy.mockRestore();
+  });
+
+  it("passes the caller's own Rex session to the final show (P7) and skips the show on a dry run (P2)", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockReadSession.mockReturnValue(["api", "web"]);
+    mockLaunch.mockResolvedValue(undefined);
+    process.env["REX_SESSION"] = "session:caller";
+    try {
+      await handleSessionCommand(makeContext({ args: ["pair"] }));
+      expect(mockShowRecordedWorkspace).toHaveBeenCalledWith("api", "/usr/local/bin/rex", "session:caller");
+      mockShowRecordedWorkspace.mockClear();
+      await handleSessionCommand(makeContext({ args: ["pair"], overrides: { dryRun: true } }));
+      expect(mockLaunch).toHaveBeenCalledTimes(4);
+      expect(mockLaunch.mock.calls[3]![1]["dryRun"]).toBe(true);
+      expect(mockShowRecordedWorkspace).not.toHaveBeenCalled();
+    } finally {
+      delete process.env["REX_SESSION"];
+      logSpy.mockRestore();
+    }
   });
 
   it("one untrusted project does not stop the others, and the first launched one is shown", async () => {
@@ -760,7 +779,7 @@ describe("session launch under Rex (plan P11)", () => {
     mockLaunch.mockRejectedValueOnce(new SummonError("untrusted")).mockResolvedValue(undefined);
     await handleSessionCommand(makeContext({ args: ["myteam"] }));
     expect(mockLaunch).toHaveBeenCalledTimes(3);
-    expect(mockShowRecordedWorkspace).toHaveBeenCalledWith("web", "/usr/local/bin/rex");
+    expect(mockShowRecordedWorkspace).toHaveBeenCalledWith("web", "/usr/local/bin/rex", undefined);
     logSpy.mockRestore();
     warnSpy.mockRestore();
   });

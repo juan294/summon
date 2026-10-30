@@ -1,5 +1,5 @@
 import { launch } from "../launcher.js";
-import { resolveBackendForLaunch } from "../backend.js";
+import { callerRexSession, resolveBackendForLaunch } from "../backend.js";
 import { showRecordedWorkspace } from "../backends/rex/launch.js";
 import { listProjects, getProject } from "../config.js";
 import {
@@ -175,8 +175,9 @@ async function cmdLaunch(ctx: CommandContext, name: string | undefined): Promise
     }
   }
 
-  if (rex && launched.length > 1) {
-    const shown = showRecordedWorkspace(launched[0]!, rex.rexBinary);
+  // A dry run never switches (P2): the per-project dry runs printed their requests and nothing was launched.
+  if (rex && launched.length > 1 && !ctx.overrides.dryRun) {
+    const shown = showRecordedWorkspace(launched[0]!, rex.rexBinary, callerRexSession(rex));
     if (!shown.shown) note(`could not show [${launched[0]}] in Rex: ${shown.reason}`);
   }
 

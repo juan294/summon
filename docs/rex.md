@@ -37,11 +37,11 @@ The Rex server holds the session; a Rex app shows it. After creating the session
 
 ## Launching a project that is already running
 
-Running `summon <project>` while the project's recorded session is alive switches to that session instead of creating a second one, and prints `Workspace [<project>] is already running in Rex; switched to it (use --new-window for a fresh one)`. The check reads the status record and asks the server; a session that cannot be verified (server unreachable) refuses the launch with exit 2 and the reason, so a live workspace is never duplicated by accident.
+Running `summon <project>` while the project's recorded session is alive switches to that session instead of creating a second one, and prints `Workspace [<project>] is already running in Rex; switched to it (use --new-window for a fresh one)`. The check reads the status record and asks the server; a session that cannot be verified (server unreachable, or a record whose Rex identity could not be read) refuses the launch with exit 2 and the reason, so a live workspace is never duplicated by accident. The session is shown in the app attached to the shell running Summon when there is one, else in the newest connected app, with a note when several apps are connected (the same choice a launch makes).
 
 `--new-window` skips the switch and creates a fresh session. Rex opens new windows with their own, server-chosen session and does not let a client move a session into another window, so the new session is shown in the current window with a notice. This is the behavior asserted by the Rex end-to-end suite, not a workaround that can be removed later.
 
-`--dry-run` never switches, never creates and never asks the server: it prints the `session.create` request a real launch would send (one block per pane, the environment wrapper, the pane order the block ids arrive in), the server it would target, and a note when a Rex workspace is already recorded.
+`--dry-run` never switches, never creates and never changes anything on the server: it prints the `session.create` request a real launch would send (one block per pane, the environment wrapper, the pane order the block ids arrive in), the server it would target, and a note when a Rex workspace is already recorded. Backend detection runs before the dry-run guard, so the one read-only probe of the detection table (`rex whoami` on an inherited `REX_SERVER`, see above) can still run; no other Rex command does.
 
 ## Status, open, focus, inspect, title
 
@@ -52,7 +52,7 @@ A Rex workspace resolves to one of four states, each with a reason when it is no
 | `active` | The session exists and the root pane's block is present (other recorded panes may be closed; `summon inspect` lists them) |
 | `partial` | The session exists but the root pane's block is gone while other recorded panes are alive (`exit` in the root shell, or the root block closed) |
 | `stopped` | The session no longer exists, or it exists with no live recorded pane (reason `empty Rex session remains; run summon clean <project>` or `no live panes`) |
-| `unknown` | The server did not answer; nothing is assumed, nothing is launched over it, `open` and `focus` refuse with exit 2 and the reason |
+| `unknown` | The server did not answer, or answered with a shape Summon cannot read, or the record's identity could not be read; nothing is assumed, nothing is launched over it, `open` and `focus` refuse with exit 2 and the reason |
 
 `summon inspect` lists block ids instead of terminal ids; the tty is not available under Rex and prints `UNAVAILABLE` without changing the exit code. For the root pane it also prints the program status a program announced through OSC 7501 (`blocked`, `error`, `working`, `done`, with the title and message when given); `summon status` shows the same as a glyph before the project name. Programs that do not emit OSC 7501 show nothing. `summon title` sets the block label (pane) or the window label (tab); `reset` restores the block label recorded at launch or `[<project>]` for the window.
 
@@ -66,7 +66,7 @@ The root pane's shell installs the same cleanup trap as under Ghostty. `rex kill
 
 Rex has no conditional destroy. Anything added to the session between the second check and `rex kill` is closed with it; the command says so in its output. After the close, Summon saves a snapshot, marks the record as ended and removes this launch's files, in that order, under the status lock; a step that fails is reported and retried on the next status read.
 
-`summon clean --orphans <project>` reviews every earlier launch of the project: launches whose session the server confirms gone have their files removed; empty sessions are closed and their files removed; sessions that still have blocks are left alone with the exact `rex kill` command printed; launches that never confirmed their session, or left an unreadable pane file, are printed with the exact `rm` command and never deleted automatically (they may still be evidence). Both forms also remove the liveness files of earlier Ghostty launches whose process is dead.
+`summon clean --orphans <project>` reviews every earlier launch of the project: launches whose session the server confirms gone have their files removed (a file that cannot be removed is reported and the manifest kept, so the next review finds the launch again); empty sessions are closed and their files removed; sessions that still have blocks are left alone with the exact `rex kill` command printed; launches that never confirmed their session, or left an unreadable pane file, are printed with the exact `rm` command and never deleted automatically (they may still be evidence). Both forms also remove the liveness files of earlier Ghostty launches whose recorded pid is proven dead (a launch still writing its files, or one whose pid cannot be read, is kept).
 
 ## Per-launch files
 
@@ -80,7 +80,7 @@ Every launch gets an id. Its files live under `~/.config/summon/status/<project>
 
 The shared record `~/.config/summon/status/<project>.json` is written only by Summon under a file lock and names the launch it belongs to, so a relaunch, a reconciliation and a `clean` never overwrite each other's state.
 
-A pane is **unverified** when its pane file had not appeared when Summon last looked (a slow shell start, a pane whose shell never ran). The launch still succeeds with a notice; the next status read fills the mapping in when the file has arrived. Until then `summon focus <project> <pane>` refuses that pane with exit 2 and `summon inspect` lists it as unverified. A pane that never recovers stays unverified while the session lives: `summon <project>` switches to the live session rather than recreating it, so use `--new-window` for a fresh one. A launch whose creation answer was lost entirely (`unknown outcome`) is adopted on the next status read from its manifest and pane files.
+A pane is **unverified** when its pane file had not appeared when Summon last looked (a slow shell start, a pane whose shell never ran). The launch still succeeds with a notice; the next status read fills the mapping in when the file has arrived, before it asks the server, so a pane whose file arrived late counts as live from that read on. Until then `summon focus <project> <pane>` refuses that pane with exit 2 and `summon inspect` lists it as unverified. A pane that never recovers stays unverified while the session lives: `summon <project>` switches to the live session rather than recreating it, so use `--new-window` for a fresh one. A launch whose creation answer was lost entirely (`unknown outcome`) is adopted on the next status read from its manifest and pane files.
 
 ## `summon doctor`
 

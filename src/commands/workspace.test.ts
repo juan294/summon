@@ -531,6 +531,16 @@ describe("workspace commands under Rex (plan P10, Phase 4)", () => {
     logSpy.mockRestore();
   });
 
+  it("inspect escapes control characters in every program status field, kind and app included", async () => {
+    seedRex();
+    rexExec({ program: [{ state: "blocked", kind: "question\u001b[31m", app: "claude\u0007", title: "T\u001b]0;x\u0007", msg: "m\n" }] });
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    await handleInspectCommand(context(["demo"]));
+    const line = logSpy.mock.calls.map((c) => String(c[0])).find((l) => l.startsWith("  program:"))!;
+    expect(line).toBe("  program: blocked (question\\u001b[31m) claude\\u0007 T\\u001b]0;x\\u0007 m\\u000a");
+    logSpy.mockRestore();
+  });
+
   it("inspect on a partial session (root closed) reports state partial with the closed panes named", async () => {
     seedRex();
     rexExec({ live: ["shell"] });

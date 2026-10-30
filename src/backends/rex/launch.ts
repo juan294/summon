@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { launchArtifactFiles, launchArtifactPaths, listLaunchManifests, readLaunchManifest, writeLaunchManifest } from "../../launch-identity.js";
 import type { LaunchArtifactPaths, LaunchManifest } from "../../launch-identity.js";
-import { ghosttyLiveness, isLiveState, readStatusRecord, removeLaunchArtifacts, withOwnedRecord } from "../../status-record.js";
+import { ghosttyLiveness, isLiveState, readStatusRecord, removeLaunchFileSet, rexIdentityMissing, withOwnedRecord } from "../../status-record.js";
 import type { WorkspaceState, WorkspaceStatus } from "../../status-record.js";
 import { err, note } from "../../ui/output.js";
 import { createRexCli, whoamiOf } from "./cli.js";
@@ -135,13 +135,22 @@ function parseCreateAnswer(json: unknown): CreateAnswer | undefined {
   return { sessionId: raw["session_id"], windowId: first["window_id"], blockIds };
 }
 
+/**
+ * The identity's blocks, in builder order, for the panes Summon shows: a command-less sidebar
+ * block exists in Rex and in `paneOrder` but has no pane name, and `parseRexIdentity` rejects a
+ * block the record's `panes` do not name. Creation and late adoption share this one policy.
+ */
 function blockIdentities(manifest: LaunchManifest, blocks: Map<string, string>): RexBlockIdentity[] {
   const result: RexBlockIdentity[] = [];
   for (const name of manifest.paneOrder) {
     const blockId = blocks.get(name);
-    if (blockId !== undefined) result.push({ name, blockId, label: manifest.blockLabels[name] ?? "" });
+    if (blockId !== undefined && manifest.panes.includes(name)) result.push({ name, blockId, label: manifest.blockLabels[name] ?? "" });
   }
   return result;
+}
+
+function multipleAppsNotice(choice: AppClientChoice): string {
+  return `Several Rex apps are connected; using ${describeClient(choice)}, not ${choice.others.map((c) => c.clientId).join(", ")}`;
 }
 
 /** The window that shows `rootBlockId`, else the one labelled `[project]`, else the first. */
@@ -234,9 +243,7 @@ export async function createWorkspace(manifest: LaunchManifest, request: Session
     notices.push(`Created in Rex but no Rex app is connected; open Rex and pick [${project}], or run summon open ${project}`);
     return { kind: "created-unselected", ids, notices };
   }
-  if (choice.others.length > 0) {
-    notices.push(`Several Rex apps are connected; using ${describeClient(choice)}, not ${choice.others.map((c) => c.clientId).join(", ")}`);
-  }
+  if (choice.others.length > 0) notices.push(multipleAppsNotice(choice));
 
   // 7. --new-window (P9 fallback, verified on the owner's machine on 2026-10-29): `client.window.new`
   // opens a window holding a fresh server-chosen session and `session.select` does not move the
@@ -254,37 +261,44 @@ export async function createWorkspace(manifest: LaunchManifest, request: Session
 
 // --- refreshPaneMapping (current generation) ---
 
+export interface PaneRefresh {
+  notices: string[];
+  /** The record on disk may differ from the one given: a locked write happened, or the lock found another generation. */
+  changed: boolean;
+}
+
 /**
  * Fill in the blocks of panes whose file appeared after adoption, under the lock with the
  * record's own generation. Malformed or foreign files are reported, never deleted.
  */
-export function refreshPaneMapping(record: WorkspaceStatus): string[] {
+export function refreshPaneMapping(record: WorkspaceStatus): PaneRefresh {
   const identity = record.rex;
-  if (!identity || !record.launchId) return [];
+  const unchanged: PaneRefresh = { notices: [], changed: false };
+  if (!identity || !record.launchId) return unchanged;
   const known = new Set(identity.blocks.map((b) => b.name));
   const missing = record.panes.filter((name) => !known.has(name));
-  if (missing.length === 0) return [];
+  if (missing.length === 0) return unchanged;
   const paths = launchArtifactPaths(record.project, record.launchId);
-  const manifest = readLaunchManifest(record.project, record.launchId);
   const notices: string[] = [];
-  const found: RexBlockIdentity[] = [];
+  const found: Array<[name: string, blockId: string]> = [];
   for (const name of missing) {
     const read = readPaneFile(paths.pane(name).file);
     if (read === "absent") continue;
     if (read === "malformed") notices.push(`pane ${name} of ${record.project} has an unreadable pane file; summon clean --orphans names it`);
     else if (read.sessionId !== identity.sessionId) notices.push(`pane ${name} of ${record.project} has a pane file from another session; summon clean --orphans names it`);
-    else found.push({ name, blockId: read.blockId, label: manifest?.blockLabels[name] ?? "" });
+    else found.push([name, read.blockId]);
   }
-  if (found.length > 0) {
-    withOwnedRecord(record.project, { launchId: record.launchId }, (current) => {
-      if (!current?.rex) return null;
-      const present = new Set(current.rex.blocks.map((b) => b.name));
-      const additions = found.filter((b) => !present.has(b.name));
-      if (additions.length === 0) return null;
-      return { ...current, rex: { ...current.rex, blocks: [...current.rex.blocks, ...additions] } };
-    });
-  }
-  return notices;
+  if (found.length === 0) return { notices, changed: false };
+  // The manifest is read only for the labels of the panes found (the common case finds none).
+  const labels = readLaunchManifest(record.project, record.launchId)?.blockLabels ?? {};
+  const { outcome } = withOwnedRecord(record.project, { launchId: record.launchId }, (current) => {
+    if (!current?.rex) return null;
+    const present = new Set(current.rex.blocks.map((b) => b.name));
+    const additions: RexBlockIdentity[] = found.filter(([name]) => !present.has(name)).map(([name, blockId]) => ({ name, blockId, label: labels[name] ?? "" }));
+    if (additions.length === 0) return null;
+    return { ...current, rex: { ...current.rex, blocks: [...current.rex.blocks, ...additions] } };
+  });
+  return { notices, changed: outcome !== "unchanged" };
 }
 
 // --- adoptOrphans (P13 late adoption, two passes) ---
@@ -311,10 +325,19 @@ type Decision =
   | { kind: "remove"; manifest: LaunchManifest }
   | { kind: "adopt"; manifest: LaunchManifest; record: WorkspaceStatus; sessionId: string };
 
-/** Every file of a launch whose session is confirmed gone; returns the failures (`path: reason`). */
-export function removeLaunchFiles(manifest: LaunchManifest): string[] {
-  const files = launchArtifactFiles(manifest.project, manifest.launchId, manifest.paneOrder);
-  return removeLaunchArtifacts([...files.session, ...files.liveness]);
+export type OrphanRemoval = { outcome: "superseded" } | { outcome: "removed"; failures: string[] };
+
+/**
+ * Remove every file of an earlier launch whose session is confirmed gone, under the status lock
+ * with the generation the caller read (`gen`, null for no record). Failures are returned, never
+ * hidden: the manifest stays when another file could not go (`removeLaunchFileSet`).
+ */
+export function removeOrphanLaunch(project: string, gen: string | null, manifest: LaunchManifest): OrphanRemoval {
+  let failures: string[] = [];
+  const { outcome } = withOwnedRecord(project, { launchId: gen }, () => null, () => {
+    failures = removeLaunchFileSet(launchArtifactFiles(manifest.project, manifest.launchId, manifest.paneOrder));
+  });
+  return outcome === "superseded" ? { outcome } : { outcome: "removed", failures };
 }
 
 function hostIdOf(view: SessionView, cli: RexCli): string | undefined {
@@ -414,9 +437,11 @@ export function adoptOrphans(project: string, deps: AdoptDeps): string[] {
   for (const decision of decisions) {
     if (decision.kind === "report") { notices.push(decision.notice); continue; }
     if (decision.kind === "remove") {
-      const { outcome } = withOwnedRecord(project, { launchId: gen }, () => null, () => removeLaunchFiles(decision.manifest));
-      if (outcome === "superseded") { notices.push(superseded); return notices; }
-      notices.push(`removed the files of earlier launch ${decision.manifest.launchId} (its Rex session is gone)`);
+      const removal = removeOrphanLaunch(project, gen, decision.manifest);
+      if (removal.outcome === "superseded") { notices.push(superseded); return notices; }
+      notices.push(removal.failures.length === 0
+        ? `removed the files of earlier launch ${decision.manifest.launchId} (its Rex session is gone)`
+        : `could not remove the files of earlier launch ${decision.manifest.launchId} (its Rex session is gone): ${removal.failures[0]}; ${cleanHint}`);
       continue;
     }
     if (adopted) {
@@ -435,12 +460,17 @@ export function adoptOrphans(project: string, deps: AdoptDeps): string[] {
 
 export type ShowResult = { shown: true; clientId: string } | { shown: false; reason: string };
 
-/** Select the recorded session in the newest app client; for a partial workspace focus the first live pane first. */
-export function showWorkspace(cli: RexCli, record: WorkspaceStatus, liveBlocks: string[] = []): ShowResult {
+/**
+ * Select the recorded session in an app client chosen as at creation (P7: the caller's attached
+ * app when `callerSession` names one, else the newest, with the same notice when several are
+ * connected); for a partial workspace focus the first live pane first.
+ */
+export function showWorkspace(cli: RexCli, record: WorkspaceStatus, liveBlocks: string[] = [], callerSession?: string): ShowResult {
   const identity = record.rex;
   if (!identity) return { shown: false, reason: "the record has no Rex identity" };
-  const choice = pickAppClient(cli);
+  const choice = pickAppClient(cli, callerSession);
   if (!choice) return { shown: false, reason: `no Rex app is connected; open Rex and pick [${record.project}]` };
+  if (choice.others.length > 0) note(multipleAppsNotice(choice));
   const firstLive = identity.blocks.find((b) => liveBlocks.includes(b.name));
   if (firstLive && !liveBlocks.includes(identity.blocks[0]?.name ?? "")) {
     const focused = cli.call("focus", ["focus", "-s", identity.sessionId, firstLive.blockId]);
@@ -455,29 +485,38 @@ export type SwitchDecision = { kind: "switched" } | { kind: "proceed" } | { kind
 
 export interface SwitchDeps {
   cliFor: (server: string) => RexCli;
+  /** `REX_SESSION` of the shell running Summon, when inside Rex (P7). */
+  callerSession?: string | undefined;
 }
 
-/** Plan P2: a live recorded Rex workspace is shown instead of created, unless --new-window asks for a fresh one. */
+/**
+ * Plan P2: a live recorded Rex workspace is shown instead of created, unless --new-window asks
+ * for a fresh one. A Rex record that cannot be verified (identity discarded by the parser, or the
+ * server not answering) is `unknown` and refuses an ordinary launch (P10); --new-window stays the
+ * explicit way to replace it.
+ */
 export function maybeSwitchToExisting(project: string, newWindow: boolean, deps: SwitchDeps): SwitchDecision {
   const record = readStatusRecord(project);
-  if (!record || record.backend !== "rex" || !record.rex) return { kind: "proceed" };
+  if (!record || record.backend !== "rex") return { kind: "proceed" };
   if (newWindow) return { kind: "proceed" };
-  for (const line of refreshPaneMapping(record)) note(line);
-  const current = readStatusRecord(project) ?? record;
+  if (!record.rex) return { kind: "refused", reason: `${project} is recorded in Rex but ${rexIdentityMissing(project)}` };
+  const refreshed = refreshPaneMapping(record);
+  for (const line of refreshed.notices) note(line);
+  const current = refreshed.changed ? readStatusRecord(project) ?? record : record;
   const identity = current.rex ?? record.rex;
   const cli = deps.cliFor(identity.server);
   const state = sessionState(cli, identity, project);
   if (state.state === "unknown") return { kind: "refused", reason: `${project} is recorded in Rex but could not be verified on ${identity.server}: ${state.reason ?? "unknown"}. Open the Rex app and retry, or run summon doctor.` };
   if (state.state === "stopped") return { kind: "proceed" };
-  const shown = showWorkspace(cli, { ...current, rex: identity }, state.liveBlocks);
+  const shown = showWorkspace(cli, { ...current, rex: identity }, state.liveBlocks, deps.callerSession);
   if (shown.shown) err(`Workspace [${project}] is already running in Rex; switched to it (use --new-window for a fresh one)`);
   else err(`Workspace [${project}] is already running in Rex but could not be shown (${shown.reason}); run summon open ${project}`);
   return { kind: "switched" };
 }
 
 /** Show a project's recorded Rex workspace (used by `summon session` to return to the first project). */
-export function showRecordedWorkspace(project: string, binary: string): ShowResult {
+export function showRecordedWorkspace(project: string, binary: string, callerSession?: string): ShowResult {
   const record = readStatusRecord(project);
   if (!record?.rex) return { shown: false, reason: `${project} has no Rex record` };
-  return showWorkspace(createRexCli(binary, record.rex.server), record);
+  return showWorkspace(createRexCli(binary, record.rex.server), record, [], callerSession);
 }

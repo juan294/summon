@@ -15,7 +15,7 @@ const rexMocks = vi.hoisted(() => ({
   listSessions: vi.fn((..._args: unknown[]): unknown => ({ ok: true, sessions: [] })),
   sessionState: vi.fn((..._args: unknown[]): unknown => ({ state: "stopped", reason: "Rex session no longer exists", liveBlocks: [] })),
   adoptOrphans: vi.fn((..._args: unknown[]): string[] => []),
-  refreshPaneMapping: vi.fn((..._args: unknown[]): string[] => []),
+  refreshPaneMapping: vi.fn((..._args: unknown[]): unknown => ({ notices: [], changed: false })),
   discoverRex: vi.fn((): { path: string | null; searched: string[] } => ({ path: "/mock/rex", searched: ["PATH"] })),
   programStatusOf: vi.fn((..._args: unknown[]): unknown => undefined),
 }));
@@ -53,7 +53,7 @@ vi.mock("./snapshot.js", async (original) => ({
   writeSnapshotFile: (snapshot: unknown) => snapshotMocks.writeSnapshotFile(snapshot),
 }));
 
-const { writeStatus, clearStatus, readStatus, readAllStatuses, getGitBranch, parseWorkspaceStatus, resetReadAllStatusesCache, readStatusRecord, withOwnedRecord, discardStatusRecord, statusTestHooks, resetRexBinaryMemo, newRexReadContext } = await import("./status.js");
+const { writeStatus, publishStatus, clearStatus, readStatus, readAllStatuses, getGitBranch, parseWorkspaceStatus, resetReadAllStatusesCache, readStatusRecord, withOwnedRecord, statusTestHooks, resetRexBinaryMemo, newRexReadContext } = await import("./status.js");
 const { writeLaunchManifest } = await import("./launch-identity.js");
 import type { WorkspaceStatus } from "./status.js";
 import type { LaunchManifest } from "./launch-identity.js";
@@ -803,7 +803,7 @@ describe("per-launch liveness (plan P12)", () => {
       rexMocks.listSessions.mockReset().mockReturnValue({ ok: true, sessions: [] });
       rexMocks.sessionState.mockReset().mockReturnValue({ state: "stopped", reason: "Rex session no longer exists", liveBlocks: [] });
       rexMocks.adoptOrphans.mockReset().mockImplementation(() => []);
-      rexMocks.refreshPaneMapping.mockReset().mockImplementation(() => []);
+      rexMocks.refreshPaneMapping.mockReset().mockImplementation(() => ({ notices: [], changed: false }));
       rexMocks.discoverRex.mockReset().mockReturnValue({ path: "/mock/rex", searched: ["PATH"] });
       resetReadAllStatusesCache();
       resetRexBinaryMemo();
@@ -882,27 +882,79 @@ describe("per-launch liveness (plan P12)", () => {
       expect(readStatus("myapp")).toMatchObject({ launchId: GEN_B, layout: "adopted", state: "active" });
     });
 
-    it("refreshes the pane mapping only for a live record with unverified panes, then re-reads it", () => {
+    const SHELL_BLOCK = "block:0000aaaa-0000-0000-0000-000000000077";
+    /** A refresh that finds the shell pane's file: the record gains its block under the lock. */
+    const refreshFindsShell = () => rexMocks.refreshPaneMapping.mockImplementation((record: unknown) => {
+      const r = record as WorkspaceStatus;
+      writeStatus({ ...r, rex: { ...r.rex!, blocks: [...r.rex!.blocks, { name: "shell", blockId: SHELL_BLOCK, label: "shell" }] } });
+      return { notices: ["pane x of myapp has an unreadable pane file; summon clean --orphans names it"], changed: true };
+    });
+
+    it("refreshes the pane mapping of a record with unverified panes before the probe, which then sees the refreshed identity", () => {
       writeStatus(rexRecord("myapp", { panes: ["editor", "shell"] }));
-      rexMocks.sessionState.mockReturnValue({ state: "active", liveBlocks: ["editor"] });
-      rexMocks.refreshPaneMapping.mockImplementation((record: unknown) => {
-        const r = record as WorkspaceStatus;
-        writeStatus({ ...r, rex: { ...r.rex!, blocks: [...r.rex!.blocks, { name: "shell", blockId: "block:0000aaaa-0000-0000-0000-000000000077", label: "shell" }] } });
-        return ["pane x of myapp has an unreadable pane file; summon clean --orphans names it"];
-      });
+      rexMocks.sessionState.mockImplementation((_cli: unknown, identity: unknown) => ({ state: "active", liveBlocks: (identity as { blocks: Array<{ name: string }> }).blocks.map((b) => b.name) }));
+      refreshFindsShell();
       const result = readStatus("myapp")!;
       expect(rexMocks.refreshPaneMapping).toHaveBeenCalledTimes(1);
+      expect(rexMocks.refreshPaneMapping.mock.invocationCallOrder[0]!).toBeLessThan(rexMocks.sessionState.mock.invocationCallOrder[0]!);
       expect(result.rex!.blocks.map((b) => b.name)).toEqual(["editor", "shell"]);
+      // The returned liveness comes from the refreshed identity, never from a probe of the gap.
+      expect(result.liveBlocks).toEqual(["editor", "shell"]);
       expect(result.notices).toEqual(["pane x of myapp has an unreadable pane file; summon clean --orphans names it"]);
 
-      // Complete record: no refresh. Stopped record with a gap: no refresh either.
+      // Complete record: no refresh. Ended record with a gap: no refresh either (its files are gone; the monitor reads it every tick).
       rexMocks.refreshPaneMapping.mockClear();
       readStatus("myapp");
+      writeStatus(rexRecord("ended", { panes: ["editor", "shell"], endedAt: "2026-10-29T12:00:00.000Z" }));
+      readStatus("ended");
       expect(rexMocks.refreshPaneMapping).not.toHaveBeenCalled();
-      writeStatus(rexRecord("other", { panes: ["editor", "shell"] }));
-      rexMocks.sessionState.mockReturnValue({ state: "stopped", reason: "no live panes", liveBlocks: [] });
-      readStatus("other");
-      expect(rexMocks.refreshPaneMapping).not.toHaveBeenCalled();
+    });
+
+    it("a stopped record with a gap is refreshed too (P13 next-read recovery): the delayed pane keeps the workspace alive", () => {
+      writeStatus(rexRecord("myapp", { panes: ["editor", "shell"] }));
+      // Root closed; the shell block is present once the identity knows it.
+      rexMocks.sessionState.mockImplementation((_cli: unknown, identity: unknown) => {
+        const known = (identity as { blocks: Array<{ name: string }> }).blocks.map((b) => b.name);
+        return known.includes("shell") ? { state: "partial", reason: "root pane closed", liveBlocks: ["shell"] } : { state: "stopped", reason: "no live panes", liveBlocks: [] };
+      });
+      refreshFindsShell();
+      const result = readStatus("myapp")!;
+      expect(rexMocks.refreshPaneMapping).toHaveBeenCalledTimes(1);
+      expect(result).toMatchObject({ state: "partial", liveBlocks: ["shell"] });
+      expect(result.rex!.blocks.map((b) => b.name)).toEqual(["editor", "shell"]);
+      expect(readStatusRecord("myapp")!.endedAt).toBeUndefined();
+    });
+
+    it("a generation published during reconciliation is resolved afresh, never paired with the old generation's state", () => {
+      writeStatus(rexRecord("myapp"));
+      const sessionB = "session:0000bbbb-0000-0000-0000-00000000000b";
+      rexMocks.sessionState.mockImplementation((_cli: unknown, identity: unknown) => ((identity as { sessionId: string }).sessionId === sessionB ? { state: "active", liveBlocks: ["editor"] } : { state: "stopped", reason: "empty Rex session remains; run summon clean myapp", liveBlocks: [] }));
+      statusTestHooks.beforeLock = () => {
+        delete statusTestHooks.beforeLock;
+        writeStatus(rexRecord("myapp", { launchId: GEN_B, rex: { ...rexIdentity(), sessionId: sessionB } }));
+      };
+      const result = readStatus("myapp")!;
+      expect(result).toMatchObject({ launchId: GEN_B, state: "active", liveBlocks: ["editor"] });
+      expect(result.rex!.sessionId).toBe(sessionB);
+      expect(result.reason).toBeUndefined();
+      expect(rexMocks.sessionState).toHaveBeenCalledTimes(2);
+      expect(rexMocks.listSessions).toHaveBeenCalledTimes(2);
+      expect(readStatusRecord("myapp")!.endedAt).toBeUndefined();
+    });
+
+    it("a generation published during the pane-file refresh is resolved afresh; a second supersession is unknown", () => {
+      writeStatus(rexRecord("myapp", { panes: ["editor", "shell"] }));
+      const GEN_C = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+      const gens = [GEN_B, GEN_C];
+      rexMocks.refreshPaneMapping.mockImplementation(() => {
+        const next = gens.shift();
+        if (next) writeStatus(rexRecord("myapp", { launchId: next, panes: ["editor", "shell"] }));
+        return { notices: [], changed: true };
+      });
+      rexMocks.sessionState.mockReturnValue({ state: "active", liveBlocks: ["editor"] });
+      const result = readStatus("myapp")!;
+      expect(result).toMatchObject({ launchId: GEN_C, state: "unknown", reason: "the record changed while it was read; retry" });
+      expect(rexMocks.sessionState).not.toHaveBeenCalled();
     });
 
     it("is unknown without a rex binary, probing nothing", () => {
@@ -1152,20 +1204,50 @@ describe("withOwnedRecord (plan §3 status write protocol)", () => {
   });
 });
 
-describe("discardStatusRecord and clearStatus with a generation", () => {
-  it("discardStatusRecord removes the record only while the generation holds", () => {
-    writeStatus(makeStatus({ project: "p", launchId: GEN_B }));
-    expect(discardStatusRecord("p", GEN_A)).toBe(false);
+describe("publishStatus: a failed publication discards only the record observed under its own lock", () => {
+  afterEach(() => {
+    delete statusTestHooks.beforeLock;
+    delete statusTestHooks.beforeWrite;
+    chmodSync(TEST_STATUS_DIR, 0o700);
+  });
+
+  it("publishes with replace semantics", () => {
+    writeStatus(makeStatus({ project: "p", launchId: GEN_A }));
+    expect(publishStatus(makeStatus({ project: "p", launchId: GEN_B }))).toBe("published");
     expect(readStatusRecord("p")?.launchId).toBe(GEN_B);
-    expect(discardStatusRecord("p", GEN_B)).toBe(true);
+  });
+
+  it("a failed write discards the record observed under the same lock, taking the lock once", () => {
+    writeStatus(makeStatus({ project: "p", launchId: GEN_A }));
+    let locks = 0;
+    statusTestHooks.beforeLock = () => { locks += 1; };
+    statusTestHooks.beforeWrite = () => { throw new Error("disk full"); };
+    expect(publishStatus(makeStatus({ project: "p", launchId: GEN_B }))).toBe("discarded");
+    // One lock: the observation, the failed write and the discard are one critical section, so a
+    // record another launch publishes after the lock is released is never the one discarded.
+    expect(locks).toBe(1);
     expect(existsSync(join(TEST_STATUS_DIR, "p.json"))).toBe(false);
-    expect(discardStatusRecord("p")).toBe(true);
+    delete statusTestHooks.beforeWrite;
+    writeStatus(makeStatus({ project: "p", launchId: GEN_A }));
+    expect(readStatusRecord("p")?.launchId).toBe(GEN_A);
   });
 
-  it("discardStatusRecord returns false instead of throwing on an invalid project name", () => {
-    expect(discardStatusRecord("../../etc/evil")).toBe(false);
+  it("a failed write with no record observed is discarded (nothing stale remains)", () => {
+    statusTestHooks.beforeWrite = () => { throw new Error("disk full"); };
+    expect(publishStatus(makeStatus({ project: "p", launchId: GEN_B }))).toBe("discarded");
+    expect(existsSync(join(TEST_STATUS_DIR, "p.json"))).toBe(false);
   });
 
+  it("is unsaved when the lock cannot be taken: the previous record stays", () => {
+    writeStatus(makeStatus({ project: "p", launchId: GEN_A }));
+    chmodSync(TEST_STATUS_DIR, 0o500);
+    expect(publishStatus(makeStatus({ project: "p", launchId: GEN_B }))).toBe("unsaved");
+    chmodSync(TEST_STATUS_DIR, 0o700);
+    expect(readStatusRecord("p")?.launchId).toBe(GEN_A);
+  });
+});
+
+describe("clearStatus with a generation", () => {
   it("clearStatus with a generation removes that launch's own files and the legacy paths", () => {
     writeStatus(makeStatus({ project: "p", launchId: GEN_A }));
     writeLaunchFiles("p", GEN_A);
@@ -1242,7 +1324,7 @@ describe("reconciliation of ended Rex launches (plan P12, Phase 5)", () => {
     rexMocks.listSessions.mockReset().mockReturnValue({ ok: true, sessions: [] });
     rexMocks.sessionState.mockReset();
     rexMocks.adoptOrphans.mockReset().mockImplementation(() => []);
-    rexMocks.refreshPaneMapping.mockReset().mockImplementation(() => []);
+    rexMocks.refreshPaneMapping.mockReset().mockImplementation(() => ({ notices: [], changed: false }));
     rexMocks.discoverRex.mockReset().mockReturnValue({ path: "/mock/rex", searched: ["PATH"] });
     snapshotMocks.collectSnapshot.mockReset().mockImplementation((project: unknown, directory: unknown, layout: unknown) => ({ project, directory, layout, timestamp: "2026-10-29T12:00:00.000Z", git: { branch: "main", dirty: [], recentCommits: [] }, version: 1 }));
     snapshotMocks.writeSnapshotFile.mockReset().mockImplementation((snapshot: unknown) => { writeFileSync(snapshotFile((snapshot as { project: string }).project), JSON.stringify(snapshot)); });
@@ -1295,13 +1377,16 @@ describe("reconciliation of ended Rex launches (plan P12, Phase 5)", () => {
     expect(readStatus("myapp")!.state).toBe("stopped");
   });
 
-  it("is superseded by a relaunch between the read and the lock: nothing written, files kept", () => {
+  it("is superseded by a relaunch between the read and the lock: nothing written, files kept, the new generation resolved on its own", () => {
     seedStopped();
-    statusTestHooks.beforeLock = () => { writeFileSync(join(TEST_STATUS_DIR, "myapp.json"), JSON.stringify(rexRecord({ launchId: GEN_B }))); };
+    // The old generation's probe says stopped; the relaunch (gen B) is live.
+    rexMocks.sessionState.mockReturnValueOnce({ state: "stopped", reason: "Rex session no longer exists", liveBlocks: [] }).mockReturnValue({ state: "active", liveBlocks: ["editor"] });
+    statusTestHooks.beforeLock = () => { delete statusTestHooks.beforeLock; writeFileSync(join(TEST_STATUS_DIR, "myapp.json"), JSON.stringify(rexRecord({ launchId: GEN_B }))); };
     const row = readStatus("myapp")!;
     expect(snapshotMocks.writeSnapshotFile).not.toHaveBeenCalled();
     expect(readStatusRecord("myapp")!.endedAt).toBeUndefined();
     expect(files()).toEqual({ pid: true, active: true, manifest: true, pane: true });
+    expect(row).toMatchObject({ launchId: GEN_B, state: "active" });
     expect(row.notices).toBeUndefined();
   });
 

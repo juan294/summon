@@ -2,13 +2,13 @@ import { existsSync, readdirSync } from "node:fs";
 import type { CommandContext } from "./types.js";
 import { fail, note, out } from "../ui/output.js";
 import { projectArgOrExit } from "../validation.js";
-import { isLaunchLive, readStatusRecord, unlinkIgnoringMissing, withOwnedRecord } from "../status-record.js";
+import { launchLiveness, readStatusRecord, unlinkIgnoringMissing } from "../status-record.js";
 import { SESSION_GONE, endRexLaunch, requireRexBinary, unverifiedMessage } from "../status.js";
 import { createRexCli } from "../backends/rex/cli.js";
 import { listSessions, sessionState, viewBlockIds, viewSession } from "../backends/rex/status.js";
 import type { SessionListing, SessionView } from "../backends/rex/status.js";
-import { adoptDeps, adoptOrphans, readPaneFile, readPaneMapping, removeLaunchFiles } from "../backends/rex/launch.js";
-import { isLaunchId, launchArtifactFiles, launchArtifactPaths, launchesDir, listLaunchManifests } from "../launch-identity.js";
+import { adoptDeps, adoptOrphans, readPaneFile, readPaneMapping, removeOrphanLaunch } from "../backends/rex/launch.js";
+import { isLaunchId, launchArtifactFiles, launchArtifactPaths, launchFileList, launchesDir, listLaunchManifests } from "../launch-identity.js";
 import type { LaunchManifest } from "../launch-identity.js";
 import type { RexIdentity } from "../backends/rex/types.js";
 
@@ -20,7 +20,7 @@ import type { RexIdentity } from "../backends/rex/types.js";
 
 const LIMITATION = "Rex has no conditional destroy: anything added to it after the check was closed with it.";
 
-/** Ghostty per-launch files of launches other than the current one whose shell is dead. */
+/** Ghostty per-launch files of launches other than the current one whose shell is proven dead (its pid, not its marker). */
 function sweepDeadGhosttyLaunches(project: string, currentLaunchId: string | undefined): number {
   let names: string[];
   try {
@@ -35,7 +35,7 @@ function sweepDeadGhosttyLaunches(project: string, currentLaunchId: string | und
     const launchId = match[1];
     const paths = launchArtifactPaths(project, launchId);
     if (existsSync(paths.manifest)) continue; // a Rex launch: handled by adoption
-    if (isLaunchLive(project, launchId)) continue;
+    if (launchLiveness(project, launchId) !== "dead") continue;
     if (unlinkIgnoringMissing(paths.pid) && unlinkIgnoringMissing(paths.active)) removed += 1;
   }
   return removed;
@@ -113,7 +113,7 @@ function reviewOrphan(project: string, manifest: LaunchManifest, gen: string | n
   const where = `launch ${id} of [${project}] (started ${manifest.startedAt}, server ${manifest.server ?? "none"})`;
   if (root === "absent" || root === "malformed" || readPaneMapping(manifest, root.sessionId).malformed.length > 0) {
     const files = launchArtifactFiles(project, id, manifest.paneOrder);
-    const present = [...files.session, ...files.liveness].filter((file) => existsSync(file));
+    const present = launchFileList(files).filter((file) => existsSync(file));
     return `${where}: ${root === "absent" ? "never confirmed its session" : "has an unreadable pane file"}; left in place as evidence. Remove it with:\n  rm -f ${present.map((file) => JSON.stringify(file)).join(" ")}`;
   }
   if (!manifest.server) return `${where}: manifest names no server; left in place.`;
@@ -124,9 +124,12 @@ function reviewOrphan(project: string, manifest: LaunchManifest, gen: string | n
     listings.set(manifest.server, listed);
   }
   if (!listed.ok) return `${where}: server unreachable (${listed.reason}); left in place.`;
-  const removed = (done: string): string => (withOwnedRecord(project, { launchId: gen }, () => null, () => { removeLaunchFiles(manifest); }).outcome === "superseded"
-    ? `${where}: ${done}; the current record is not this launch's, files left in place.`
-    : `${where}: ${done}; files removed.`);
+  const removed = (done: string): string => {
+    const removal = removeOrphanLaunch(project, gen, manifest);
+    if (removal.outcome === "superseded") return `${where}: ${done}; the current record is not this launch's, files left in place.`;
+    if (removal.failures.length > 0) return `${where}: ${done}; a file could not be removed (${removal.failures[0]}); the manifest is kept, run summon clean --orphans again.`;
+    return `${where}: ${done}; files removed.`;
+  };
   if (!listed.sessions.some((s) => s.sessionId === root.sessionId)) return removed("its Rex session is gone");
   const viewed = viewSession(cli, root.sessionId);
   if (!viewed.ok) return viewed.kind === "not-found" ? removed("its Rex session is gone") : `${where}: session could not be read (${viewed.reason}); left in place.`;

@@ -3,6 +3,7 @@ import { STATUS_DIR } from "./paths.js";
 import { debugLog, atomicWrite, confinedPath } from "./utils.js";
 import { withFileLock } from "./file-lock.js";
 import { isLaunchId, launchArtifactPaths } from "./launch-identity.js";
+import type { LaunchFileSet } from "./launch-identity.js";
 import { isBackendId } from "./backend.js";
 import type { BackendId } from "./backend.js";
 import { parseRexIdentity } from "./backends/rex/types.js";
@@ -49,6 +50,11 @@ export interface WorkspaceStatus {
 
 /** `partial`: a Rex session whose root pane closed while other recorded panes live (plan P10). */
 export type WorkspaceState = "active" | "partial" | "stopped" | "unknown";
+
+/** The one reason every reader gives for a Rex record whose identity the parser discarded (plan P10). */
+export function rexIdentityMissing(project: string): string {
+  return `the record has no Rex identity; run summon ${project} --new-window to relaunch`;
+}
 
 /** States with a live workspace to focus or count (plan P10 reader rules). */
 export function isLiveState(state: WorkspaceState): boolean {
@@ -123,12 +129,17 @@ export function readStatusRecord(projectName: string): WorkspaceStatus | null {
  * - `{ launchId: null }` requires that NO record file exists (a legacy record is present).
  * - `{ launchId: g }` requires a record whose `launchId` is g (a legacy record never matches).
  * - `"replace"` is for user-initiated launches only: it always publishes.
+ *
+ * `onWriteFailure` runs under the same lock when the record write itself fails, before
+ * `RecordWriteError` is thrown: the file it sees is the record observed under this lock, so cleanup
+ * done there can never touch a record another process publishes after the lock is released.
  */
 export function withOwnedRecord(
   projectName: string,
   expectation: RecordExpectation,
   action: (current: WorkspaceStatus | null) => WorkspaceStatus | null,
   afterWrite?: (outcome: "written" | "unchanged", record: WorkspaceStatus | null) => void,
+  onWriteFailure?: () => void,
 ): OwnedRecordResult {
   const file = statusFilePath(projectName);
   mkdirSync(STATUS_DIR, { recursive: true, mode: 0o700 });
@@ -151,6 +162,7 @@ export function withOwnedRecord(
         statusTestHooks.beforeWrite?.();
         atomicWrite(file, JSON.stringify(next, null, 2) + "\n", { mode: 0o600 });
       } catch (error) {
+        onWriteFailure?.();
         throw new RecordWriteError(error instanceof Error ? error.message : String(error));
       }
       outcome = "written";
@@ -178,8 +190,26 @@ export function writeStatus(status: WorkspaceStatus): void {
   withOwnedRecord(status.project, "replace", () => status);
 }
 
-/** Remove launch artifacts, tolerating absent ones; returns `path: reason` for every other failure. */
-export function removeLaunchArtifacts(files: readonly string[]): string[] {
+export type PublishOutcome = "published" | "discarded" | "unsaved";
+
+/**
+ * `writeStatus` for the launcher: when the write itself fails, the record observed under the same
+ * lock is discarded there (stale metadata must not target an older workspace, Phase 1), and a
+ * record another launch publishes once the lock is released is never touched. `unsaved` means the
+ * lock could not be taken or the discard failed: previous metadata may remain.
+ */
+export function publishStatus(status: WorkspaceStatus): PublishOutcome {
+  let discarded = false;
+  try {
+    withOwnedRecord(status.project, "replace", () => status, undefined, () => { discarded = unlinkIgnoringMissing(statusFilePath(status.project)); });
+    return "published";
+  } catch {
+    return discarded ? "discarded" : "unsaved";
+  }
+}
+
+/** Remove files, tolerating absent ones; returns `path: reason` for every other failure. */
+function removeFiles(files: readonly string[]): string[] {
   const failures: string[] = [];
   for (const file of files) {
     try {
@@ -191,29 +221,20 @@ export function removeLaunchArtifacts(files: readonly string[]): string[] {
   return failures;
 }
 
+/**
+ * Remove a launch's files: the sidecars and pane files first, the manifest only when every one of
+ * them went. A partial removal thus always leaves the file that makes the launch discoverable for a
+ * retry (`summon clean --orphans`, the next status read). Returns every failure as `path: reason`.
+ */
+export function removeLaunchFileSet(files: LaunchFileSet): string[] {
+  const failures = removeFiles([...files.liveness, ...files.panes]);
+  if (failures.length === 0 && files.manifest) failures.push(...removeFiles([files.manifest]));
+  return failures;
+}
+
 export function unlinkIgnoringMissing(path: string): boolean {
   try { unlinkSync(path); return true; }
   catch (error) { return (error as NodeJS.ErrnoException).code === "ENOENT"; }
-}
-
-/**
- * Discard metadata only after a failed replacement; root-shell liveness sidecars stay
- * authoritative. With a `launchId` the record is removed only while it still belongs to
- * that generation. Returns true when the record is gone (or was already absent).
- */
-export function discardStatusRecord(projectName: string, launchId?: string): boolean {
-  let removed = false;
-  try {
-    const { outcome } = withOwnedRecord(
-      projectName,
-      launchId ? { launchId } : "replace",
-      () => null,
-      () => { removed = unlinkIgnoringMissing(statusFilePath(projectName)); },
-    );
-    return outcome !== "superseded" && removed;
-  } catch {
-    return false;
-  }
 }
 
 /** Remove the record and its liveness files (explicit user command; "replace" unless a generation is given). */
@@ -247,18 +268,26 @@ function readPidFile(path: string): number | null {
   }
 }
 
-/** Liveness of a record that carries a launch id: its own `.active` names it and its own `.pid` is alive. */
-export function isLaunchLive(projectName: string, launchId: string): boolean {
+export type LaunchLiveness = "alive" | "dead" | "unknown";
+
+/**
+ * Liveness of a launch from its own sidecars: `alive` when its `.active` names it and its `.pid` is
+ * alive (what a record needs to count as active); `dead` when its `.pid` names a process that is
+ * not alive (what a sweep needs before removing anything); `unknown` otherwise, which covers an
+ * unreadable pid file and the bootstrap window between the pid and marker writes.
+ */
+export function launchLiveness(projectName: string, launchId: string): LaunchLiveness {
   const paths = launchArtifactPaths(projectName, launchId);
-  let marker: string;
+  const pid = readPidFile(paths.pid);
+  if (pid === null) return "unknown";
+  if (!isPidAlive(pid)) return "dead";
+  let marker: string | undefined;
   try {
     marker = readFileSync(paths.active, "utf-8").trim();
   } catch {
-    return false;
+    marker = undefined;
   }
-  if (marker !== launchId) return false;
-  const pid = readPidFile(paths.pid);
-  return pid !== null && isPidAlive(pid);
+  return marker === launchId ? "alive" : "unknown";
 }
 
 function isPidAlive(pid: number): boolean {
@@ -276,7 +305,7 @@ function isPidAlive(pid: number): boolean {
 
 /** Ghostty liveness from the sidecars: a record with a launch id reads only its own per-launch files (P12). */
 export function ghosttyLiveness(projectName: string, status: WorkspaceStatus): "active" | "stopped" {
-  if (status.launchId) return isLaunchLive(projectName, status.launchId) ? "active" : "stopped";
+  if (status.launchId) return launchLiveness(projectName, status.launchId) === "alive" ? "active" : "stopped";
   const markerExists = existsSync(markerFilePath(projectName));
   const shellPid = readPidFile(pidFilePath(projectName));
   return markerExists && shellPid !== null && isPidAlive(shellPid) ? "active" : "stopped";
