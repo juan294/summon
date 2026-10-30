@@ -9,8 +9,6 @@
 
 Summon your Ghostty or Rex workspace with one command. Native splits, no tmux.
 
-**[Browse the Layout Gallery](https://juan294.github.io/summon/)**
-
 ---
 
 ## Install
@@ -240,7 +238,6 @@ Auto-clean is skipped when:
 
 ## Docs
 
-- [Workspace Gallery](https://juan294.github.io/summon/gallery/) -- visual showcase of layout examples
 - [Architecture](docs/architecture.md) -- module map, AppleScript generation, layout algorithm
 - [User Manual](docs/user-manual.md) -- full command reference, walkthrough, troubleshooting
 - [Ghostty Workflows](docs/ghostty.md) -- version/capability diagnostics, pane focus, titles, visibility and SSH
