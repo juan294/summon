@@ -97,16 +97,14 @@ export async function handlePortsCommand(): Promise<void> {
   const { detectAllPorts } = await import("../ports.js");
   const { green, dim, yellow, truncateLine } = await import("../ui/ansi.js");
   const { sym } = await import("../ui/symbols.js");
-  const { assignments, conflicts } = await detectAllPorts();
+  const { assignments, conflicts, projectCount } = await detectAllPorts();
 
   if (assignments.length === 0) {
-    const { listProjects } = await import("../config.js");
-    const registered = listProjects().size;
-    if (registered === 0) {
+    if (projectCount === 0) {
       console.log("No port assignments detected.");
       console.log("Run `summon add <name> <path>` to register a project.");
     } else {
-      console.log(`No port assignments detected in ${registered} registered project${registered === 1 ? "" : "s"}.`);
+      console.log(`No port assignments detected in ${projectCount} registered project${projectCount === 1 ? "" : "s"}.`);
       console.log("Ports are read from PORT-style variables in a trusted .summon, --port/-p flags of dev-server scripts in package.json, and framework config files.");
     }
     return;

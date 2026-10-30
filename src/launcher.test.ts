@@ -2515,8 +2515,8 @@ describe("custom tree layout integration (Phase 4)", () => {
       const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
       mockQuestion.mockClear();
 
-      // The mocked Rex CLI may fail the launch later; only the guard matters here.
-      await launch("/tmp/workspace").catch(() => undefined);
+      await expect(launch("/tmp/workspace")).resolves.toBe("launched");
+      expect(rexLaunches).toHaveLength(1);
 
       expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining("existing summon workspace"));
       expect(mockQuestion).not.toHaveBeenCalledWith(expect.stringContaining("Continue anyway?"), expect.anything());

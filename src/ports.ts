@@ -128,13 +128,16 @@ export async function detectProjectPorts(
 export async function detectAllPorts(): Promise<{
   assignments: PortAssignment[];
   conflicts: Map<number, string[]>;
+  /** How many registered projects were read (an empty result means something different with none). */
+  projectCount: number;
 }> {
   const projects = listProjects();
   const statusMap = new Map(
     readAllStatuses().map((status) => [status.project, status.state]),
   );
 
-  const perProject = await runPool([...projects], IO_CONCURRENCY, ([name, dir]) =>
+  const entries = [...projects];
+  const perProject = await runPool(entries, IO_CONCURRENCY, ([name, dir]) =>
     detectProjectPorts(name, dir, statusMap.get(name) ?? "stopped"),
   );
   const allAssignments: PortAssignment[] = perProject.flat();
@@ -154,5 +157,5 @@ export async function detectAllPorts(): Promise<{
     if (projs.length > 1) conflicts.set(port, projs);
   }
 
-  return { assignments: allAssignments, conflicts };
+  return { assignments: allAssignments, conflicts, projectCount: entries.length };
 }

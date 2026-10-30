@@ -588,8 +588,7 @@ describe("clean completions and boolean config values (F17, F18)", () => {
 
   test("zsh completes project names and --orphans after clean", () => {
     const script = generateZshCompletion();
-    expect(script).toMatch(/remove\|inspect\|focus\|title\|open\|switch\|clean\)/);
-    expect(script).toContain("--orphans");
+    expect(script).toContain("        clean)\n          compadd -a project_names\n          compadd -- --orphans\n          ;;");
   });
 
   test("zsh and bash compare the config key itself, not the literal text \\${words[2]}", () => {

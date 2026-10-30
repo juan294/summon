@@ -123,7 +123,7 @@ async function cmdLaunch(ctx: CommandContext, name: string | undefined): Promise
   }
 
   const total = projects.length;
-  // Every project that opened (launched or switched to), in order: the first is shown again at the end.
+  // Every project that succeeded (launched, switched to, or printed as a dry run), in order: under Rex the first is shown again at the end.
   const launched: string[] = [];
   const counts = { launched: 0, switched: 0, "dry-run": 0 };
   const skippedUntrusted: string[] = [];
@@ -147,7 +147,7 @@ async function cmdLaunch(ctx: CommandContext, name: string | undefined): Promise
       delete overrides["new-window"];
     }
     try {
-      const outcome = (await runWithSpinner(`[${i + 1}/${total}] Summoning ${proj}...`, () => launch(dir, overrides))) ?? "launched";
+      const outcome = (await runWithSpinner(`[${i + 1}/${total}] Summoning ${proj}...`, () => launch(dir, overrides)));
       const step = `[${i + 1}/${total}]`;
       console.log(outcome === "switched" ? `${step} Switched to ${proj}` : outcome === "dry-run" ? `${step} Dry run printed for ${proj}` : `${step} Launched ${proj}`);
       counts[outcome]++;

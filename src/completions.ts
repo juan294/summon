@@ -210,9 +210,12 @@ ${argLines}
       ;;
     args)
       case "\${words[1]}" in
-        remove|inspect|focus|title|open|switch|clean)
+        remove|inspect|focus|title|open|switch)
           compadd -a project_names
-          [[ "\${words[1]}" == "clean" ]] && compadd -- --orphans
+          ;;
+        clean)
+          compadd -a project_names
+          compadd -- --orphans
           ;;
         set)
           if (( CURRENT == 2 )); then

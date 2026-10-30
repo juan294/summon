@@ -378,8 +378,8 @@ function extraSessionNotice(project: string, sessionId: string, launchId: string
 
 /**
  * Verify every orphan (no mutation), then adopt at most one and remove confirmed-gone launches, under the lock.
- * `reportLeftovers: false` leaves out the notes about launches that stay in place (`summon clean --orphans`
- * reviews each of them right after, so the note would say the same thing twice, F12).
+ * `reportLeftovers: false` leaves out the notes that `summon clean --orphans` repeats in its review of each
+ * launch right after (F12); a fact the review does not check (foreign pane files) is still reported.
  */
 export function adoptOrphans(project: string, deps: AdoptDeps, options: { reportLeftovers?: boolean } = {}): string[] {
   const reportLeftovers = options.reportLeftovers ?? true;
@@ -409,7 +409,8 @@ export function adoptOrphans(project: string, deps: AdoptDeps, options: { report
   const decisions: Decision[] = [];
   const unknowns: string[] = [];
   const cleanHint = "summon clean --orphans names it";
-  const report = (notice: string): void => { decisions.push({ kind: "report", notice }); };
+  // `repeated`: the `clean --orphans` review says the same about this launch, so `reportLeftovers: false` drops it.
+  const report = (notice: string, repeated = true): void => { if (reportLeftovers || !repeated) decisions.push({ kind: "report", notice }); };
   const sessionLists = new Map<string, ReturnType<typeof listSessions>>();
   const sessionsOn = (server: string, cli: RexCli) => {
     let listed = sessionLists.get(server);
@@ -435,7 +436,7 @@ export function adoptOrphans(project: string, deps: AdoptDeps, options: { report
       else unknowns.push(`earlier launch ${id} could not be verified on ${manifest.server}: ${viewed.reason}; nothing adopted or removed`);
       continue;
     }
-    if (mapping.foreign.length > 0) { report(`earlier launch ${id} of ${project} has pane files that do not belong to its session (${mapping.foreign.join(", ")}); ${cleanHint}`); continue; }
+    if (mapping.foreign.length > 0) { report(`earlier launch ${id} of ${project} has pane files that do not belong to its session (${mapping.foreign.join(", ")}); ${cleanHint}`, false); continue; }
     if (live) { report(extraSessionNotice(project, root.sessionId, id)); continue; }
     const window = windowFor(viewed.view, project, root.blockId);
     if (!window) { report(`earlier launch ${id} of ${project} left an empty Rex session ${root.sessionId}; rex kill ${root.sessionId} closes it`); continue; }
@@ -457,7 +458,7 @@ export function adoptOrphans(project: string, deps: AdoptDeps, options: { report
     decisions.push({ kind: "adopt", manifest, record, sessionId: root.sessionId });
   }
 
-  const reports = reportLeftovers ? decisions.filter((d): d is Extract<Decision, { kind: "report" }> => d.kind === "report").map((d) => d.notice) : [];
+  const reports = decisions.filter((d): d is Extract<Decision, { kind: "report" }> => d.kind === "report").map((d) => d.notice);
   if (unknowns.length > 0) return [...unknowns, ...reports];
 
   // PASS 2: mutations in startedAt order, each under the lock with the generation read above.
@@ -465,7 +466,7 @@ export function adoptOrphans(project: string, deps: AdoptDeps, options: { report
   const superseded = `another launch of ${project} published meanwhile; nothing adopted or removed`;
   let adopted = false;
   for (const decision of decisions) {
-    if (decision.kind === "report") { if (reportLeftovers) notices.push(decision.notice); continue; }
+    if (decision.kind === "report") { notices.push(decision.notice); continue; }
     if (decision.kind === "remove") {
       const removal = removeOrphanLaunch(project, gen, decision.manifest);
       if (removal.outcome === "superseded") { notices.push(superseded); return notices; }

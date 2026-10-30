@@ -51,6 +51,8 @@ function makeContext(overrides: {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockLaunch.mockReset();
+  mockLaunch.mockResolvedValue("launched");
   mockListSessions.mockReturnValue([]);
   mockListProjects.mockReturnValue(new Map<string, string>());
   mockGetProject.mockReturnValue(undefined);
@@ -156,7 +158,7 @@ describe("session launch <name>", () => {
       const map: Record<string, string> = { api: "/tmp/api", web: "/tmp/web", worker: "/tmp/worker" };
       return map[name];
     });
-    mockLaunch.mockResolvedValue(undefined);
+    mockLaunch.mockResolvedValue("launched");
 
     await handleSessionCommand(makeContext({ args: ["myteam"] }));
 
@@ -199,9 +201,9 @@ describe("session launch <name>", () => {
       return map[name];
     });
     mockLaunch
-      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce("launched")
       .mockRejectedValueOnce(new Error("osascript failed"))
-      .mockResolvedValueOnce(undefined);
+      .mockResolvedValueOnce("launched");
 
     await expect(
       handleSessionCommand(makeContext({ args: ["myteam"] })),
@@ -224,7 +226,7 @@ describe("session launch --all", () => {
       const map: Record<string, string> = { api: "/tmp/api", web: "/tmp/web" };
       return map[name];
     });
-    mockLaunch.mockResolvedValue(undefined);
+    mockLaunch.mockResolvedValue("launched");
 
     await handleSessionCommand(makeContext({ values: { all: true }, args: [] }));
 
@@ -271,9 +273,9 @@ describe("session launch — skip untrusted projects and continue", () => {
     });
     // Second project is untrusted; first and third succeed.
     mockLaunch
-      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce("launched")
       .mockRejectedValueOnce(new SummonError("This project has a .summon file. Run 'summon trust .' to allow it."))
-      .mockResolvedValueOnce(undefined);
+      .mockResolvedValueOnce("launched");
 
     await handleSessionCommand(makeContext({ values: { all: true }, args: [] }));
 
@@ -312,9 +314,9 @@ describe("session launch — skip tab-open failures and continue", () => {
     });
     // Second project fails with TabOpenError; first and third succeed.
     mockLaunch
-      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce("launched")
       .mockRejectedValueOnce(new TabOpenError("Ghostty did not open a new tab."))
-      .mockResolvedValueOnce(undefined);
+      .mockResolvedValueOnce("launched");
 
     await handleSessionCommand(makeContext({ values: { all: true }, args: [] }));
 
@@ -345,7 +347,7 @@ describe("session launch — skip tab-open failures and continue", () => {
       return map[name];
     });
     mockLaunch
-      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce("launched")
       .mockRejectedValueOnce(new Error("osascript failed"));
 
     await expect(
@@ -367,7 +369,7 @@ describe("session launch --new-window <name>", () => {
       const map: Record<string, string> = { api: "/tmp/api", web: "/tmp/web" };
       return map[name];
     });
-    mockLaunch.mockResolvedValue(undefined);
+    mockLaunch.mockResolvedValue("launched");
 
     await handleSessionCommand(
       makeContext({ args: ["myteam"], overrides: { "new-window": "true" } }),
@@ -627,7 +629,7 @@ describe("session launch — partial failure shows already-launched list", () =>
       return map[name];
     });
     mockLaunch
-      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce("launched")
       .mockRejectedValueOnce(new Error("osascript timeout"));
 
     await expect(
@@ -652,7 +654,7 @@ describe("session launch — spinner", () => {
 
     mockReadSession.mockReturnValue(["api"]);
     mockGetProject.mockReturnValue("/tmp/api");
-    mockLaunch.mockResolvedValue(undefined);
+    mockLaunch.mockResolvedValue("launched");
 
     await handleSessionCommand(makeContext({ args: ["mysession"] }));
 
@@ -679,7 +681,7 @@ describe("session launch — spinner", () => {
 
     mockReadSession.mockReturnValue(["api"]);
     mockGetProject.mockReturnValue("/tmp/api");
-    mockLaunch.mockResolvedValue(undefined);
+    mockLaunch.mockResolvedValue("launched");
 
     await handleSessionCommand(makeContext({ args: ["mysession"] }));
 
@@ -710,7 +712,7 @@ describe("session launch — spinner", () => {
 
     mockReadSession.mockReturnValue(["api"]);
     mockGetProject.mockReturnValue("/tmp/api");
-    mockLaunch.mockResolvedValue(undefined);
+    mockLaunch.mockResolvedValue("launched");
 
     await handleSessionCommand(makeContext({ args: ["mysession"] }));
 
@@ -748,7 +750,7 @@ describe("session launch under Rex (plan P11)", () => {
   it("creates one session per project without new-tab and shows the first launched project at the end", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     mockReadSession.mockReturnValue(["api", "web", "worker"]);
-    mockLaunch.mockResolvedValue(undefined);
+    mockLaunch.mockResolvedValue("launched");
     await handleSessionCommand(makeContext({ args: ["myteam"], overrides: { "new-window": "true" } }));
     expect(mockLaunch).toHaveBeenCalledTimes(3);
     for (const call of mockLaunch.mock.calls) expect(call[1]["new-tab"]).toBeUndefined();
@@ -762,7 +764,7 @@ describe("session launch under Rex (plan P11)", () => {
   it("passes the caller's own Rex session to the final show (P7) and skips the show on a dry run (P2)", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     mockReadSession.mockReturnValue(["api", "web"]);
-    mockLaunch.mockResolvedValue(undefined);
+    mockLaunch.mockResolvedValue("launched");
     process.env["REX_SESSION"] = "session:caller";
     try {
       await handleSessionCommand(makeContext({ args: ["pair"] }));
@@ -782,7 +784,7 @@ describe("session launch under Rex (plan P11)", () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const { SummonError } = await import("../trust.js");
     mockReadSession.mockReturnValue(["api", "web", "worker"]);
-    mockLaunch.mockRejectedValueOnce(new SummonError("untrusted")).mockResolvedValue(undefined);
+    mockLaunch.mockRejectedValueOnce(new SummonError("untrusted")).mockResolvedValue("launched");
     await handleSessionCommand(makeContext({ args: ["myteam"] }));
     expect(mockLaunch).toHaveBeenCalledTimes(3);
     expect(mockShowRecordedWorkspace).toHaveBeenCalledWith("web", "/usr/local/bin/rex", undefined);
@@ -794,7 +796,7 @@ describe("session launch under Rex (plan P11)", () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     mockReadSession.mockReturnValue(["api"]);
-    mockLaunch.mockResolvedValue(undefined);
+    mockLaunch.mockResolvedValue("launched");
     await handleSessionCommand(makeContext({ args: ["solo"] }));
     expect(mockShowRecordedWorkspace).not.toHaveBeenCalled();
 

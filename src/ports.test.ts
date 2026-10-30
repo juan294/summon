@@ -312,13 +312,15 @@ describe("detectAllPorts", () => {
     writeFileSync(join(dir, ".summon"), "env.PORT=3100\n");
     listProjects.mockReturnValue([["proj-fresh", dir]]);
     readAllStatuses.mockReturnValue([]);
-    const { assignments } = await detectAllPorts();
+    const { assignments, projectCount } = await detectAllPorts();
     expect(assignments.map((a) => [a.project, a.state])).toEqual([["proj-fresh", "stopped"]]);
+    expect(projectCount).toBe(1);
   });
 
   it("returns empty when no projects registered", async () => {
     listProjects.mockReturnValue([]);
-    const { assignments, conflicts } = await detectAllPorts();
+    const { assignments, conflicts, projectCount } = await detectAllPorts();
+    expect(projectCount).toBe(0);
     expect(assignments).toEqual([]);
     expect(conflicts.size).toBe(0);
   });

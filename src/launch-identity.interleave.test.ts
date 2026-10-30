@@ -160,10 +160,9 @@ describe("real-process ownership interleavings (plan Phase 1)", () => {
     const pathsB = launchArtifactPaths(PROJECT, GEN_B);
     const shellB = spawnShell(bootstrapLine(PROJECT, GEN_B, "ghostty"));
     await waitFor(() => existsSync(pathsB.active), 5_000, "launch B bootstrap");
-    // A's trap is still inside on-stop (its liveness files are already gone: the trap removes them first, F21).
+    // A's trap removes its liveness files first (F21), while it is still inside the slow on-stop.
+    await waitFor(() => !existsSync(pathsA.active) && !existsSync(pathsA.pid), 5_000, "A's trap removes its liveness files first");
     expect(shellA.exitCode).toBeNull();
-    expect(existsSync(pathsA.active)).toBe(false);
-    expect(existsSync(pathsA.pid)).toBe(false);
 
     expect(await exited(shellA)).toBe(0);
 

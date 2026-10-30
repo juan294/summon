@@ -92,6 +92,16 @@ describe("handleSetupCommand", () => {
     expect(mockRunSetup).toHaveBeenCalledWith({ backend: "rex" });
   });
 
+  it("shows the detection notices before the wizard, as a launch does", async () => {
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    mockResolveBackendForLaunch.mockReturnValueOnce({ ok: true, backend: "ghostty", placement: "outside", notices: ["REX_SERVER unix:///tmp/none.sock did not answer; ignored"] });
+
+    await handleSetupCommand();
+
+    expect(writeSpy).toHaveBeenCalledWith("REX_SERVER unix:///tmp/none.sock did not answer; ignored\n");
+    writeSpy.mockRestore();
+  });
+
   it("runs the wizard without a backend when neither terminal is detected", async () => {
     mockResolveBackendForLaunch.mockReturnValueOnce({ ok: false, reason: "Neither Ghostty.app nor the Rex CLI was found. Install one.", notices: [] });
 

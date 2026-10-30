@@ -286,6 +286,17 @@ describe("summon clean --orphans <project>", () => {
     expect(stderr()).not.toContain("never confirmed its session; summon clean --orphans names it");
   });
 
+  it("still reports pane files that do not belong to the launch's session, which the review does not check (F12)", async () => {
+    writeStatus(record());
+    const SESSION3 = "session:0000aaaa-0000-0000-0000-000000000003";
+    writeLaunchManifest(manifest(GEN3, { panes: ["editor", "shell"], paneOrder: ["editor", "shell"], blockLabels: { editor: "editor", shell: "shell" } }));
+    writePane(GEN3, SESSION3);
+    writeFileSync(launchArtifactPaths("chapa", GEN3).pane("shell").file, `${SESSION2}\nblock:0000aaaa-0000-0000-0000-000000000032\n`);
+    server({ [SESSION]: [BLOCK], [SESSION3]: [BLOCK] });
+    await handleCleanCommand(context(["chapa"], { orphans: true }));
+    expect(stderr()).toContain(`earlier launch ${GEN3} of chapa has pane files that do not belong to its session (shell)`);
+  });
+
   it("removes the files of a gone orphan, reports an unreachable manifest server, and never touches the current launch", async () => {
     writeStatus(record());
     writeLaunchManifest(manifest(GEN2));

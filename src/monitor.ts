@@ -110,6 +110,11 @@ function displayPadEnd(str: string, targetWidth: number): string {
   return w < targetWidth ? str + " ".repeat(targetWidth - w) : str;
 }
 
+/** The reason a non-active row shows in its detail column (Rex: partial, stopped, unknown), if any. */
+function rowDetail(row: ProjectRow): string | undefined {
+  return row.state !== "active" && row.state !== "active-long" && row.reason ? row.reason : undefined;
+}
+
 export function renderRow(row: ProjectRow, width: number, selected: boolean): string {
   const colorFn = stateColor(row.state);
   const dot = colorFn(stateDot(row.state));
@@ -125,7 +130,7 @@ export function renderRow(row: ProjectRow, width: number, selected: boolean): st
   // For stopped/unknown workspaces, show the directory path (dimmed) instead of em dash;
   // any non-active state with a reason (Rex: partial, stopped, unknown) shows the reason instead.
   const isStopped = row.state === "stopped" || row.state === "unknown";
-  const detail = row.state !== "active" && row.state !== "active-long" && row.reason ? row.reason : undefined;
+  const detail = rowDetail(row);
   const rawBranchText = detail ?? (isStopped ? row.directory : row.gitBranch);
   const branchText = truncate(rawBranchText, branchWidth);
   const branch = isStopped || detail ? dim(branchText) : branchText;
@@ -340,7 +345,7 @@ export function printStatusOnce(): void {
   for (const row of rows) {
     console.log(renderRow(row, width, false));
     // A reason the detail column cuts off is printed in full: it often ends with the command to run (F16).
-    const detail = row.state !== "active" && row.state !== "active-long" ? row.reason : undefined;
+    const detail = rowDetail(row);
     if (detail && getDisplayWidth(detail) > Math.max(0, width - FIXED_COLS)) console.log(`      ${dim(`reason: ${detail}`)}`);
     for (const line of row.notices ?? []) console.log(`      ${dim(`note: ${line}`)}`);
   }

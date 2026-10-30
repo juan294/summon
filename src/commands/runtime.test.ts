@@ -56,11 +56,6 @@ vi.mock("../briefing.js", () => ({
   runBriefing: (...args: unknown[]) => mockRunBriefing(...args),
 }));
 
-const mockListProjects = vi.fn(() => new Map<string, string>());
-vi.mock("../config.js", () => ({
-  listProjects: () => mockListProjects(),
-}));
-
 vi.mock("../ports.js", () => ({
   detectAllPorts: (...args: unknown[]) => mockDetectAllPorts(...args),
 }));
@@ -288,7 +283,7 @@ describe("handleBriefingCommand", () => {
 describe("handlePortsCommand", () => {
   it("prints an empty-state message when no ports are detected", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-    mockDetectAllPorts.mockReturnValue({ assignments: [], conflicts: new Map() });
+    mockDetectAllPorts.mockReturnValue({ assignments: [], conflicts: new Map(), projectCount: 0 });
 
     await handlePortsCommand();
 
@@ -298,8 +293,7 @@ describe("handlePortsCommand", () => {
 
   it("explains where ports come from when projects are registered but none declares a port (F15)", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-    mockDetectAllPorts.mockReturnValue({ assignments: [], conflicts: new Map() });
-    mockListProjects.mockReturnValueOnce(new Map([["api", "/tmp/api"], ["web", "/tmp/web"]]));
+    mockDetectAllPorts.mockReturnValue({ assignments: [], conflicts: new Map(), projectCount: 2 });
 
     await handlePortsCommand();
 

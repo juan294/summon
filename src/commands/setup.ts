@@ -1,6 +1,6 @@
 import { resolveConfig, traditionalPaneNames } from "../launcher.js";
 import { probeGhosttyDetach } from "../ghostty.js";
-import { fail } from "../ui/output.js";
+import { err, fail } from "../ui/output.js";
 import { exitWithUsageHint } from "../utils.js";
 import type { CommandContext } from "./types.js";
 import { resolveBackendForLaunch } from "../backend.js";
@@ -11,9 +11,10 @@ export async function handleSetupCommand(): Promise<void> {
   await runSetup(detectedSetupBackend());
 }
 
-/** The wizard's backend (plan P15): under Rex it skips the Ghostty install and Accessibility steps. */
+/** The wizard's backend (plan P15): under Rex it skips the Ghostty install and Accessibility steps. Detection notices are shown as for a launch. */
 export function detectedSetupBackend(): SetupOptions {
   const detection = resolveBackendForLaunch();
+  for (const notice of detection.notices) err(notice);
   return detection.ok ? { backend: detection.backend } : {};
 }
 
