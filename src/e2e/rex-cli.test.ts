@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { execFileSync, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,21 +14,25 @@ import { fileURLToPath } from "node:url";
  * messages are the ones the owner sees. The pane shells resolve `$HOME` themselves (bootstrap and trap
  * are typed shell text), so the sandbox is handed to them through the `env.HOME` config key; without it
  * their pane files would land in the real home. Projects are named `e2e-<suffix>-<name>` (the status
- * table shows 16 characters); only sessions with that prefix are killed. An interrupted run leaves those
- * sessions and its `summon-rex-cli-*` temp directory (afterAll does not run): kill and remove them by hand.
- * Run the Rex suites one at a time: they share the server.
+ * table shows 16 characters). The suite records every session it creates and, at the end, kills those
+ * plus any session labelled with its prefix, then proves they are gone; when that proof fails the
+ * sandbox is kept with a `RECOVERY.json` naming the sessions, and the suite fails. An interrupted run
+ * leaves its sessions and its `summon-rex-cli-*` temp directory (afterAll does not run): kill and
+ * remove them by hand. Run the Rex suites one at a time: they share the server.
  */
 
-const { rexGate, sleep, until } = await import("./rex-harness.js");
+const { destroySessions, rexGate, sleep, until } = await import("./rex-harness.js");
 const { discoverRex, createRexCli, defaultRexServer } = await import("../backends/rex/cli.js");
 const { listSessions, viewSession } = await import("../backends/rex/status.js");
-const harness = rexGate(process.env, "rex-cli e2e");
+const harness = rexGate(process.env, "rex-cli e2e", { window: true });
 const { prereq } = harness;
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const dist = join(root, "dist", "index.js");
 const DEAD_SERVER = "unix:///tmp/summon-e2e-none.sock";
 const PANES = ["editor", "sidebar", "right-1", "shell"];
+/** A value with every character the env wrapper and the config file must carry literally. */
+const SPELL = "it's \"magic\" $HOME `tick` \\back ünï 50% done";
 
 interface Record_ { launchId?: string; backend?: string; panes?: string[]; endedAt?: string; rex?: { server: string; sessionId: string; windowId: string; rootBlockId: string; blocks: Array<{ name: string; blockId: string; label: string }> } }
 interface Run { status: number | null; stdout: string; stderr: string; out: string }
@@ -38,9 +42,16 @@ let server = "";
 let binary = "";
 let cli: ReturnType<typeof createRexCli>;
 let suffix = "";
+/** Every session this run created (the teardown proves each one gone). */
+const owned = new Set<string>();
 const name = (topic: string) => `e2e-${suffix}-${topic}`;
 const statusDir = () => join(home, ".config", "summon", "status");
 const launchesDirOf = (project: string) => join(statusDir(), `${project}.launches`);
+const snapshotOf = (project: string) => join(home, ".config", "summon", "snapshots", `${project}.json`);
+const badbinLog = () => join(home, "badbin.log");
+const rexShimDir = () => join(home, "rexshim");
+const rexShimLog = () => join(home, "rexshim.log");
+const projectDir = (topic: string) => (topic === "five" ? join(home, "projects", "odd dir's", name(topic)) : join(home, "projects", name(topic)));
 const readRecord = (project: string): Record_ | null => {
   const file = join(statusDir(), `${project}.json`);
   return existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as Record_) : null;
@@ -64,38 +75,68 @@ function summon(args: string[], opts: { env?: Record<string, string | undefined>
   if (result.error) throw result.error;
   return { status: result.status, stdout: result.stdout, stderr: result.stderr, out: result.stdout + result.stderr };
 }
+/** The environment of a run whose `rex` is the shim that withholds the `session.create` answer (C21). */
+const withheldAnswer = () => ({ PATH: `${rexShimDir()}:${process.env.PATH ?? ""}` });
+/** The environment of a run with the persistent cache on (C22). */
+const warmCache = () => ({ SUMMON_NO_CACHE: undefined });
 
-const windowLabel = (sessionId: string): string | undefined => {
-  const viewed = viewSession(cli, sessionId);
-  return viewed.ok ? viewed.view.windows[0]?.label : undefined;
-};
-/** Block ids of a session as the server lists them now (every window). */
-function liveBlocks(sessionId: string): string[] {
-  const viewed = viewSession(cli, sessionId);
-  return viewed.ok ? viewed.view.windows.flatMap((w) => w.blockIds) : [];
+/** The record a launch just wrote; its session joins the teardown list. */
+function launched(project: string): Record_ {
+  const record = readRecord(project);
+  if (!record?.rex) throw new Error(`no Rex record for ${project} after its launch`);
+  owned.add(record.rex.sessionId);
+  return record;
 }
-function sessionExists(sessionId: string): boolean {
-  const listed = listSessions(cli);
-  return listed.ok && listed.sessions.some((s) => s.sessionId === sessionId);
-}
-function blockLabels(sessionId: string): Set<string> {
-  const raw = cli.call("session-view", ["api", "call", "session.view", "-"], { input: JSON.stringify({ session_id: sessionId }) });
-  if (!raw.ok) return new Set();
-  const windows = (raw as { json: Record<string, unknown> }).json["windows"] as Array<Record<string, unknown>>;
-  const layers = windows.flatMap((w) => w["layers"] as Array<Record<string, unknown>>);
-  return new Set(layers.flatMap((layer) => (layer["blocks"] as Array<Record<string, unknown>>).map((b) => String(b["label"]))));
-}
-const rowOf = (out: string, project: string) => out.split("\n").find((line) => line.includes(project)) ?? "";
-/** Sessions labelled `project`: other suites and the owner create sessions on the same server meanwhile. */
-const ownSessions = (project: string): number => {
-  const listed = listSessions(cli);
-  return listed.ok ? listed.sessions.filter((s) => s.label === project).length : -1;
-};
 /** The record a previous scenario must have left; a clear failure instead of a null dereference. */
 const requireRecord = (project: string): Record_ => {
   const record = readRecord(project);
   if (!record?.rex) throw new Error(`no Rex record for ${project}: an earlier scenario did not complete`);
   return record;
+};
+const windowLabel = (sessionId: string): string | undefined => {
+  const viewed = viewSession(cli, sessionId);
+  return viewed.ok ? viewed.view.windows[0]?.label : undefined;
+};
+/** A lookup that did not answer is an error, never "absent": a poll must not pass on a server hiccup. */
+function sessionExists(sessionId: string): boolean {
+  const listed = listSessions(cli);
+  if (!listed.ok) throw new Error(`session list unavailable: ${listed.reason}`);
+  return listed.sessions.some((s) => s.sessionId === sessionId);
+}
+/**
+ * Block ids of a session as the server lists them now (every window); empty only for a session confirmed
+ * gone; undefined when `session.view` did not answer while the session is listed (the server times out
+ * a view while it tears a session down), which a poll retries and an assertion fails on.
+ */
+function liveBlocks(sessionId: string): string[] | undefined {
+  const viewed = viewSession(cli, sessionId);
+  if (viewed.ok) return viewed.view.windows.flatMap((w) => w.blockIds);
+  return sessionExists(sessionId) ? undefined : [];
+}
+const noLiveBlocks = (sessionId: string) => (liveBlocks(sessionId)?.length === 0 ? true : undefined);
+function rawView(sessionId: string): Record<string, unknown> {
+  const raw = cli.call("session-view", ["api", "call", "session.view", "-"], { input: JSON.stringify({ session_id: sessionId }) });
+  if (!raw.ok) throw new Error(`session.view of ${sessionId} failed: ${raw.reason}`);
+  return (raw as { json: Record<string, unknown> }).json;
+}
+function blockLabels(sessionId: string): Set<string> {
+  const windows = rawView(sessionId)["windows"] as Array<Record<string, unknown>>;
+  const layers = windows.flatMap((w) => w["layers"] as Array<Record<string, unknown>>);
+  return new Set(layers.flatMap((layer) => (layer["blocks"] as Array<Record<string, unknown>>).map((b) => String(b["label"]))));
+}
+/** The block the server reports as focused in the session's first window (`focused_block_id`). */
+function focusedBlock(sessionId: string): string | undefined {
+  const windows = rawView(sessionId)["windows"] as Array<Record<string, unknown>>;
+  const focused = windows[0]?.["focused_block_id"];
+  return typeof focused === "string" ? focused : undefined;
+}
+const rowOf = (out: string, project: string) => out.split("\n").find((line) => line.includes(project)) ?? "";
+/** Sessions labelled `project`: other suites and the owner create sessions on the same server meanwhile. */
+const ownSessions = (project: string): number => sessionsLabelled(project).length;
+const sessionsLabelled = (project: string): string[] => {
+  const listed = listSessions(cli);
+  if (!listed.ok) throw new Error(`session list unavailable: ${listed.reason}`);
+  return listed.sessions.filter((s) => s.label === project).map((s) => s.sessionId);
 };
 const ghosttyInstalled = existsSync("/Applications/Ghostty.app") || existsSync(join(homedir(), "Applications", "Ghostty.app"));
 /** Like `toContain`, with the whole text in the failure message (vitest shortens long strings). */
@@ -103,6 +144,8 @@ const contains = (text: string, needle: string | RegExp) => {
   const found = typeof needle === "string" ? text.includes(needle) : needle.test(text);
   expect(found, `expected ${JSON.stringify(needle instanceof RegExp ? String(needle) : needle)} in:\n${text}`).toBe(true);
 };
+/** Wait for the launch files of `launchId` to be exactly `expected` (poll: the panes write them). */
+const launchFiles = (project: string, launchId: string): string[] => (existsSync(launchesDirOf(project)) ? readdirSync(launchesDirOf(project)).filter((f) => f.startsWith(launchId)) : []);
 
 describe("rex cli e2e", () => {
   beforeAll(() => {
@@ -112,37 +155,68 @@ describe("rex cli e2e", () => {
     cli = createRexCli(binary, server);
     suffix = Math.random().toString(16).slice(2, 6);
     home = mkdtempSync(join(tmpdir(), "summon-rex-cli-"));
-    mkdirSync(join(home, ".config"), { recursive: true });
+    mkdirSync(join(home, ".config", "summon", "layouts"), { recursive: true });
     // The candidate under test is the built CLI: build it so a stale dist/ never passes for the sources.
     execFileSync("pnpm", ["build"], { cwd: root, encoding: "utf8", timeout: 60_000, stdio: ["ignore", "pipe", "pipe"] });
-    for (const topic of ["one", "two", "three", "four"]) {
-      const dir = join(home, "projects", name(topic));
+    // `eight` is registered and never launched (C19). `five` lives under a directory with a space and a quote (C22).
+    for (const topic of ["one", "two", "three", "four", "five", "six", "seven", "eight"]) {
+      const dir = projectDir(topic);
       mkdirSync(dir, { recursive: true });
-      // A git repository with a commit (the snapshot reads HEAD), so a reconciliation writes a real snapshot.
+      // A git repository with a commit (the snapshot reads HEAD), so a trap or a reconciliation writes a real snapshot.
       const git = (args: string[]) => execFileSync("git", ["-c", "user.name=e2e", "-c", "user.email=e2e@example.com", ...args], { cwd: dir, env: childEnv(), encoding: "utf8", timeout: 10_000 });
       git(["init", "-q"]);
       git(["commit", "-q", "--allow-empty", "-m", "init"]);
       expect(summon(["add", name(topic), dir]).status).toBe(0);
     }
-    for (const [key, value] of [["editor", "sleep 300"], ["sidebar", "sleep 300"], ["shell", "true"], ["layout", "pair"], ["env.HOME", home]]) {
-      expect(summon(["set", key!, value!]).status).toBe(0);
+    // A wrong `summon` first on the panes' PATH: the cleanup trap must run the binary that created the launch
+    // (guide §4 F4), never the `summon` found by name. Every call it receives is logged.
+    const badbin = join(home, "badbin");
+    mkdirSync(badbin);
+    writeFileSync(join(badbin, "summon"), `#!/bin/sh\nprintf '%s\\n' "$*" >> "$HOME/badbin.log"\nexit 1\n`);
+    chmodSync(join(badbin, "summon"), 0o755);
+    // A `rex` that forwards every call to the real CLI and withholds the answer of `session.create` (C21).
+    mkdirSync(rexShimDir());
+    writeFileSync(join(rexShimDir(), "rex"), [
+      "#!/bin/sh",
+      `REAL=${JSON.stringify(binary)}`,
+      'for a in "$@"; do',
+      '  if [ "$a" = "session.create" ]; then',
+      '    "$REAL" "$@" >/dev/null 2>&1',
+      `    printf '%s\\n' "$*" >> ${JSON.stringify(rexShimLog())}`,
+      "    exit 1",
+      "  fi",
+      "done",
+      'exec "$REAL" "$@"',
+      "",
+    ].join("\n"));
+    chmodSync(join(rexShimDir(), "rex"), 0o755);
+    // A custom tree layout with a per-pane working directory (C22).
+    mkdirSync(join(projectDir("five"), "api"));
+    writeFileSync(join(home, ".config", "summon", "layouts", "cwdtree"), "tree=editor | worker\npane.editor=sleep 300\npane.worker=sleep 300\npane.worker.cwd=./api\n");
+    for (const [key, value] of [["editor", "sleep 300"], ["sidebar", "sleep 300"], ["shell", "true"], ["layout", "pair"], ["env.HOME", home], ["env.PATH", `${badbin}:${process.env.PATH ?? ""}`], ["env.SPELL", SPELL]]) {
+      const set = summon(["set", key!, value!]);
+      expect(set.status, set.out).toBe(0);
     }
   });
 
-  afterAll(() => {
+  afterAll(async () => {
     if (!home) return;
+    const failures: string[] = [];
     const listed = listSessions(cli);
     if (listed.ok) {
-      for (const session of listed.sessions) {
-        if (session.label.startsWith(`e2e-${suffix}-`)) {
-          try { cli.call("kill", ["kill", session.sessionId]); } catch { /* best effort */ }
-        }
-      }
+      for (const session of listed.sessions) if (session.label.startsWith(`e2e-${suffix}-`)) owned.add(session.sessionId);
     } else {
-      console.warn(`rex-cli e2e: could not list sessions (${listed.reason}); sessions labelled e2e-${suffix}-* may remain: rex kill them by hand`);
+      failures.push(`could not list sessions (${listed.reason}); sessions labelled e2e-${suffix}-* may remain`);
     }
-    rmSync(home, { recursive: true, force: true });
-  });
+    failures.push(...await destroySessions(cli, [...owned]));
+    if (failures.length === 0) {
+      rmSync(home, { recursive: true, force: true });
+      return;
+    }
+    // C20: a cleanup that cannot be verified fails the suite and keeps what the owner needs to finish it.
+    writeFileSync(join(home, "RECOVERY.json"), JSON.stringify({ server, prefix: `e2e-${suffix}-`, sessions: [...owned], failures, hint: `rex -S '${server}' kill <session>` }, null, 2) + "\n");
+    throw new Error(`rex-cli e2e: cleanup not verified; sandbox kept at ${home} (see RECOVERY.json):\n${failures.join("\n")}`);
+  }, 120_000); // a dozen kills plus the absence poll exceed vitest's 10 s hook default on a loaded machine
 
   it("prerequisites are present", (ctx) => {
     if (!harness.gate(ctx)) return;
@@ -156,21 +230,18 @@ describe("rex cli e2e", () => {
     const two = name("two");
 
     // C1 launch.
-    const launched = summon([one]);
-    expect(launched.status, launched.out).toBe(0);
-    const record = readRecord(one);
-    expect(record?.backend).toBe("rex");
-    expect(record?.panes).toEqual(PANES);
-    const sessionId = record!.rex!.sessionId;
-    const launchId = record!.launchId!;
-    expect(record!.rex!.server).toBe(server);
+    const launch = summon([one]);
+    expect(launch.status, launch.out).toBe(0);
+    const record = launched(one);
+    expect(record.backend).toBe("rex");
+    expect(record.panes).toEqual(PANES);
+    const sessionId = record.rex!.sessionId;
+    const launchId = record.launchId!;
+    expect(record.rex!.server).toBe(server);
     const viewed = viewSession(cli, sessionId);
     expect(viewed.ok && viewed.view.label).toBe(one);
     expect(viewed.ok && viewed.view.windows[0]!.label).toBe(`[${one}]`);
-    await until(() => {
-      const files = existsSync(launchesDirOf(one)) ? readdirSync(launchesDirOf(one)) : [];
-      return PANES.every((pane) => files.includes(`${launchId}.pane.${pane}`)) ? true : undefined;
-    }, 8000, "the four pane files");
+    await until(() => (PANES.every((pane) => launchFiles(one, launchId).includes(`${launchId}.pane.${pane}`)) ? true : undefined), 8000, "the four pane files");
 
     // C2 status --once: one active; a registered project that was never launched has no record and reads
     // `stopped` with its directory (guide §4 F5: `unknown` is reserved for a liveness that could not be read).
@@ -185,16 +256,21 @@ describe("rex cli e2e", () => {
     contains(inspect.stdout, `${one}: active (available, Rex)`);
     // Block id instead of a terminal id, the shell's pid from the server, and the tty never available under Rex.
     const editorLine = inspect.stdout.split("\n").find((line) => line.trim().startsWith("editor ")) ?? "";
-    expect(editorLine.trim().split(/\s+/).slice(0, 5), editorLine).toEqual(["editor", record!.rex!.rootBlockId, "PID", expect.stringMatching(/^\d+$/), "UNAVAILABLE"]);
+    expect(editorLine.trim().split(/\s+/).slice(0, 5), editorLine).toEqual(["editor", record.rex!.rootBlockId, "PID", expect.stringMatching(/^\d+$/), "UNAVAILABLE"]);
     const inspected = JSON.parse(summon(["inspect", one, "--json"]).stdout) as { backend: string; panes: Array<{ name: string; blockId?: string }> };
     expect(inspected.backend).toBe("rex");
     expect(inspected.panes.map((p) => p.name)).toEqual(PANES);
-    expect(inspected.panes.find((p) => p.name === "editor")?.blockId).toBe(record!.rex!.rootBlockId);
+    expect(inspected.panes.find((p) => p.name === "editor")?.blockId).toBe(record.rex!.rootBlockId);
     for (const pane of inspected.panes) expect(pane.blockId, pane.name).toMatch(/^block:/);
 
-    // C4 focus a pane; an unknown pane name exits 2.
+    // C4 focus a pane: the server's `focused_block_id` moves to that pane's block and back; an unknown pane name exits 2.
+    const blockOf = new Map(record.rex!.blocks.map((b) => [b.name, b.blockId]));
     const focused = summon(["focus", one, "sidebar"]);
     expect(focused.status, focused.out).toBe(0);
+    expect(focusedBlock(sessionId)).toBe(blockOf.get("sidebar"));
+    const refocused = summon(["focus", one, "editor"]);
+    expect(refocused.status, refocused.out).toBe(0);
+    expect(focusedBlock(sessionId)).toBe(record.rex!.rootBlockId);
     const missing = summon(["focus", one, "nope"]);
     expect(missing.status, missing.out).toBe(2);
     contains(missing.stderr, `Unknown pane. Valid panes: editor, sidebar, right-1, shell. Run summon inspect ${one}.`);
@@ -220,8 +296,10 @@ describe("rex cli e2e", () => {
     expect(readRecord(one)!.launchId).toBe(launchId);
     expect(ownSessions(one)).toBe(1);
 
-    // C7 dry run: the request, the note, no mutation.
+    // C7 dry run: the request, the note, no mutation (revision and focused block unchanged; the app's
+    // selection is not readable through the API and stays a visual check, guide M1.3).
     const before = viewSession(cli, sessionId);
+    const focusBefore = focusedBlock(sessionId);
     const dry = summon([one, "--dry-run"]);
     expect(dry.status, dry.out).toBe(0);
     contains(dry.stdout, "-- Backend: rex");
@@ -229,6 +307,7 @@ describe("rex cli e2e", () => {
     contains(dry.stdout, `-- Note: ${one} is recorded as a Rex workspace (${sessionId})`);
     const after = viewSession(cli, sessionId);
     expect(after.ok && before.ok && after.view.revision).toBe(before.ok ? before.view.revision : -1);
+    expect(focusedBlock(sessionId)).toBe(focusBefore);
     expect(readRecord(one)!.launchId).toBe(launchId);
 
     // C8 flags Rex cannot honor on a switch: nothing is created, so nothing is printed (guide §4 F7);
@@ -240,7 +319,7 @@ describe("rex cli e2e", () => {
     expect(readRecord(one)!.launchId).toBe(launchId);
   });
 
-  it("C9-C11: clean refuses a live session, a kill outside Summon is reconciled on the next read", { timeout: 120_000 }, async (ctx) => {
+  it("C9-C11: clean refuses a live session; a kill outside Summon fires the trap, which saves the snapshot itself; the next read reconciles", { timeout: 120_000 }, async (ctx) => {
     if (!harness.gate(ctx)) return;
     const one = name("one");
     const record = requireRecord(one);
@@ -254,19 +333,29 @@ describe("rex cli e2e", () => {
     contains(refused.stderr, `[${one}] still has live panes (editor, right-1, shell, sidebar); not cleaned. Close them or run rex kill ${sessionId} yourself.`);
     expect(sessionExists(sessionId)).toBe(true);
 
-    // C10 rex kill, then one status read reconciles.
+    // C10a the trap: `rex kill` ends the root shell, whose EXIT trap saves the snapshot and removes the liveness
+    // markers before any Summon reader runs. A wrong `summon` is first on the panes' PATH (badbin): the trap must
+    // reach the binary that created the launch (guide §4 F4), so the snapshot appears and badbin is never called.
+    expect(existsSync(snapshotOf(one))).toBe(false);
     expect(cli.call("kill", ["kill", sessionId]).ok).toBe(true);
+    await until(() => (existsSync(snapshotOf(one)) && !launchFiles(one, launchId).some((f) => f.endsWith(".pid") || f.endsWith(".active")) ? true : undefined), 8000, "the trap's snapshot and marker removal");
+    const snapshot = JSON.parse(readFileSync(snapshotOf(one), "utf8")) as { project?: string; directory?: string; layout?: string };
+    expect(snapshot.project).toBe(one);
+    expect(snapshot.directory).toBe(projectDir("one"));
+    // The label the launch hands the trap: the CLI `--layout` value, else `default` (both backends; the config's `pair` is not named).
+    expect(snapshot.layout).toBe("default");
+    expect(existsSync(badbinLog()), existsSync(badbinLog()) ? readFileSync(badbinLog(), "utf8") : "").toBe(false);
     await until(() => (sessionExists(sessionId) ? undefined : true), 5000, "session gone");
+
+    // C10b one status read reconciles the ended launch.
     const status = summon(["status", "--once"]);
     expect(status.status, status.out).toBe(0);
     contains(rowOf(status.stdout, one), /stopped/);
     contains(rowOf(status.stdout, one), "Rex session no longer exists");
     // `--once` prints the reconciliation notice under the row, on stdout.
     contains(status.stdout, "note: workspace ended outside Summon; snapshot saved ");
-    expect(existsSync(join(home, ".config", "summon", "snapshots", `${one}.json`))).toBe(true);
     expect(readRecord(one)!.endedAt).toBeDefined();
-    const left = existsSync(launchesDirOf(one)) ? readdirSync(launchesDirOf(one)).filter((f) => f.startsWith(launchId)) : [];
-    expect(left).toEqual([]);
+    expect(launchFiles(one, launchId)).toEqual([]);
     const second = summon(["status", "--once"]);
     expect(second.out).not.toContain("workspace ended outside Summon");
 
@@ -280,20 +369,30 @@ describe("rex cli e2e", () => {
     if (!harness.gate(ctx)) return;
     const two = name("two");
     expect(summon([two]).status).toBe(0);
-    const launched = readRecord(two)!;
-    const sessionId = launched.rex!.sessionId;
-    const blocks = liveBlocks(sessionId);
+    const launch = launched(two);
+    const sessionId = launch.rex!.sessionId;
+    const blocks = liveBlocks(sessionId) ?? [];
     expect(blocks).toHaveLength(4);
     // Observed on Rex 0.0.1793131181-gdd9a20 (guide §4 F6): when every shell of a session shown in the app exits,
     // the session is usually destroyed within a few seconds, and sometimes stays as an empty session. Both are
     // legitimate ends; the read must report the one that happened. This branch is disjunctive on purpose: the
     // empty-session path is pinned unconditionally below (C12b). The interrupt flushes pending input, so "exit"
     // goes in a second write.
-    const type = (blockId: string, data: string) => cli.call("block-call", ["block", "call", "-s", sessionId, "-b", blockId, "write", JSON.stringify({ data })]);
-    for (const blockId of blocks) expect(type(blockId, "\u0003").ok).toBe(true);
+    // A write the server did not answer in time is retried: the server is slow while other sessions change.
+    const type = async (blockId: string, data: string) => {
+      let last = "";
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const written = cli.call("block-call", ["block", "call", "-s", sessionId, "-b", blockId, "write", JSON.stringify({ data })]);
+        if (written.ok) return;
+        last = written.reason;
+        await sleep(500);
+      }
+      throw new Error(`block write to ${blockId} failed three times: ${last}`);
+    };
+    for (const blockId of blocks) await type(blockId, "\u0003");
     await sleep(1000);
-    for (const blockId of blocks) expect(type(blockId, "exit\n").ok).toBe(true);
-    await until(() => (liveBlocks(sessionId).length === 0 ? true : undefined), 10_000, "every shell to exit");
+    for (const blockId of blocks) await type(blockId, "exit\n");
+    await until(() => noLiveBlocks(sessionId), 10_000, "every shell to exit");
     let destroyed = false;
     try {
       await until(() => (sessionExists(sessionId) ? undefined : true), 5000, "destruction");
@@ -319,11 +418,12 @@ describe("rex cli e2e", () => {
     const made = execFileSync(binary, ["-S", server, "--autostart=false", "new", `${two}-empty`, "--json", "--shell", "none", "--", "/bin/sh", "-c", "exit 0"], { encoding: "utf8", timeout: 15_000 });
     const json = JSON.parse(made) as { session_id: string; initial_windows: Array<{ window_id: string; block_ids: string[] }> };
     const emptyId = json.session_id;
-    await until(() => (liveBlocks(emptyId).length === 0 ? true : undefined), 15_000, "the probe program to exit");
+    owned.add(emptyId);
+    await until(() => noLiveBlocks(emptyId), 15_000, "the probe program to exit");
     expect(sessionExists(emptyId)).toBe(true);
     const rootBlockId = json.initial_windows[0]!.block_ids[0]!;
-    const rex = { ...launched.rex!, sessionId: emptyId, windowId: json.initial_windows[0]!.window_id, rootBlockId, blocks: [{ name: "editor", blockId: rootBlockId, label: "editor" }] };
-    writeRecord(two, { ...launched, panes: ["editor"], endedAt: undefined, rex });
+    const rex = { ...launch.rex!, sessionId: emptyId, windowId: json.initial_windows[0]!.window_id, rootBlockId, blocks: [{ name: "editor", blockId: rootBlockId, label: "editor" }] };
+    writeRecord(two, { ...launch, panes: ["editor"], endedAt: undefined, rex });
     const empty = summon(["status", "--once"]);
     contains(rowOf(empty.stdout, two), /stopped/);
     contains(rowOf(empty.stdout, two), "empty Rex session remains");
@@ -339,11 +439,11 @@ describe("rex cli e2e", () => {
     if (!harness.gate(ctx)) return;
     const three = name("three");
     expect(summon([three]).status).toBe(0);
-    const first = readRecord(three)!.rex!.sessionId;
+    const first = launched(three).rex!.sessionId;
     const fresh = summon([three, "--new-window"]);
     expect(fresh.status, fresh.out).toBe(0);
     expect(fresh.stderr).toContain(`Rex shows [${three}] in the current window; --new-window opens a new session, not a new window`);
-    const second = readRecord(three)!.rex!.sessionId;
+    const second = launched(three).rex!.sessionId;
     expect(second).not.toBe(first);
     expect(sessionExists(first)).toBe(true);
 
@@ -366,7 +466,7 @@ describe("rex cli e2e", () => {
     const launchId = randomUUID();
     const manifestPath = join(launchesDirOf(three), `${launchId}.json`);
     writeFileSync(manifestPath, JSON.stringify({
-      version: 1, launchId, project: three, directory: join(home, "projects", three), layout: "pair",
+      version: 1, launchId, project: three, directory: projectDir("three"), layout: "pair",
       panes: PANES, paneOrder: PANES, blockLabels: {}, backend: "rex", server, startedAt: new Date().toISOString(),
     }, null, 2) + "\n");
     const unconfirmed = summon(["clean", "--orphans", three]);
@@ -387,7 +487,7 @@ describe("rex cli e2e", () => {
     const created = summon([four, "--maximize", "--float", "--fullscreen", "--font-size", "14"]);
     expect(created.status, created.out).toBe(0);
     for (const flag of ["maximize", "float", "fullscreen", "font-size"]) contains(created.stderr, `Rex cannot honor ${flag}; ignored`);
-    const record = readRecord(four)!;
+    const record = launched(four);
     const first = record.rex!.sessionId;
     writeRecord(four, { ...record, rex: { ...record.rex!, server: DEAD_SERVER } });
     const status = summon(["status", "--once"]);
@@ -401,32 +501,43 @@ describe("rex cli e2e", () => {
     expect(readRecord(four)!.rex!.sessionId).toBe(first);
     const replaced = summon([four, "--new-window"]);
     expect(replaced.status, replaced.out).toBe(0);
-    const after = readRecord(four)!;
+    const after = launched(four);
     expect(after.rex!.sessionId).not.toBe(first);
     expect(after.rex!.server).toBe(server);
     expect(sessionExists(after.rex!.sessionId)).toBe(true);
   });
 
-  it("C16: a named session creates one Rex session per project and a dry run creates none", { timeout: 180_000 }, (ctx) => {
+  it("C16: a named session creates one Rex session per project and a dry run creates none", { timeout: 180_000 }, async (ctx) => {
     if (!harness.gate(ctx)) return;
     const one = name("one");
     const two = name("two");
     expect(summon(["session", "add", "trio", one, two]).status).toBe(0);
-    const before = { one: ownSessions(one), two: ownSessions(two) };
+    // Precondition, independent of what earlier scenarios left: neither project has a live session, so the
+    // named session must create one per project (a live one would be switched to instead).
+    for (const project of [one, two]) {
+      for (const id of sessionsLabelled(project)) expect(cli.call("kill", ["kill", id]).ok).toBe(true);
+      await until(() => (sessionsLabelled(project).length === 0 ? true : undefined), 5000, `${project} sessions gone`);
+    }
+    expect(summon(["status", "--once"]).status).toBe(0);
+    for (const project of [one, two]) expect(readRecord(project)?.endedAt ?? "no record", project).toBeTruthy();
+    const before = { one: sessionsLabelled(one), two: sessionsLabelled(two) };
+    expect(before).toEqual({ one: [], two: [] });
     const dry = summon(["session", "trio", "--dry-run"]);
     expect(dry.status, dry.out).toBe(0);
     expect(dry.stdout.split("-- Backend: rex")).toHaveLength(3);
-    expect({ one: ownSessions(one), two: ownSessions(two) }).toEqual(before);
+    expect({ one: sessionsLabelled(one), two: sessionsLabelled(two) }).toEqual(before);
     const run = summon(["session", "trio"]);
     expect(run.status, run.out).toBe(0);
     contains(run.stdout, `[1/2] Launched ${one}`);
     contains(run.stdout, `[2/2] Launched ${two}`);
-    for (const project of [one, two]) {
-      const record = readRecord(project)!;
+    for (const [project, earlier] of [[one, before.one], [two, before.two]] as const) {
+      const record = launched(project);
       expect(record.backend).toBe("rex");
       expect(record.endedAt).toBeUndefined();
-      expect(sessionExists(record.rex!.sessionId)).toBe(true);
+      expect(sessionsLabelled(project).filter((id) => !earlier.includes(id))).toEqual([record.rex!.sessionId]);
     }
+    // Which session the app shows at the end (the first one, plan P11) is not readable through the API
+    // (`client.inspect` lists attached sessions, not the shown one): guide M7.1 checks it by eye.
   });
 
   it("C17: doctor reports the Rex section from a Rex shell", { timeout: 60_000 }, (ctx) => {
@@ -458,10 +569,104 @@ describe("rex cli e2e", () => {
     expect(backendOf({ TERM_PROGRAM: undefined, REX_SERVER: DEAD_SERVER })).toBe(fallback);
   });
 
-  it("C19: summon open <project> focuses a live workspace, refuses an unknown one and names a mistyped project", { timeout: 120_000 }, (ctx) => {
+  it("C21: a lost session.create answer is recovered from the panes' own files, within the launch or on the next read, without a duplicate", { timeout: 180_000 }, async (ctx) => {
+    if (!harness.gate(ctx)) return;
+    const six = name("six");
+    const seven = name("seven");
+
+    // C21a the answer is withheld but the panes start promptly: the launch confirms the session through the
+    // root pane's file (token) and maps the panes from their files; a pane whose file was late is filled in
+    // by the next read. One session, the launch of the one manifest.
+    const prompt = summon([six], { env: withheldAnswer() });
+    expect(prompt.status, prompt.out).toBe(0);
+    contains(prompt.stdout, `Workspace [${six}] ready in Rex.`);
+    expect(readFileSync(rexShimLog(), "utf8").trim().split("\n")).toHaveLength(1);
+    const six1 = launched(six);
+    expect(sessionsLabelled(six)).toEqual([six1.rex!.sessionId]);
+    const manifests = readdirSync(launchesDirOf(six)).filter((f) => f.endsWith(".json"));
+    expect(manifests).toEqual([`${six1.launchId}.json`]);
+    const read = summon(["status", "--once"]);
+    contains(rowOf(read.stdout, six), /active/);
+    const inspected = JSON.parse(summon(["inspect", six, "--json"]).stdout) as { panes: Array<{ name: string; blockId?: string }> };
+    expect(inspected.panes.map((p) => p.name)).toEqual(PANES);
+    for (const pane of inspected.panes) expect(pane.blockId, `${pane.name} mapped`).toMatch(/^block:/);
+    expect(new Set(inspected.panes.map((p) => p.blockId))).toEqual(new Set(liveBlocks(six1.rex!.sessionId)));
+
+    // C21b the answer is withheld and every pane's zsh is slow (ZDOTDIR with a sleeping .zshenv longer than
+    // the 8 s token wait): the launch ends with the unknown outcome, names the session that appeared and
+    // records nothing. Once the panes have written their files the next `summon <p>` adopts that session
+    // (manifest plus pane files, plan P13) and switches to it: one session, no duplicate.
+    const slowZdot = join(home, "slow-zdot");
+    mkdirSync(slowZdot);
+    writeFileSync(join(slowZdot, ".zshenv"), "sleep 12\n");
+    const lost = summon([seven, "--env", `ZDOTDIR=${slowZdot}`], { env: withheldAnswer() });
+    expect(lost.status, lost.out).toBe(1);
+    const appeared = sessionsLabelled(seven);
+    expect(appeared).toHaveLength(1);
+    owned.add(appeared[0]!);
+    contains(lost.stderr, `Rex did not confirm the workspace (rex exited with status 1; no pane file confirmed the session within 8 s). Sessions that appeared meanwhile: ${appeared[0]}. Check the Rex picker for [${seven}]; nothing was recorded. If it is there, the next summon ${seven} adopts it.`);
+    expect(readRecord(seven)).toBeNull();
+    const manifestId = readdirSync(launchesDirOf(seven)).filter((f) => f.endsWith(".json")).map((f) => f.slice(0, -5));
+    expect(manifestId).toHaveLength(1);
+    await until(() => (PANES.every((pane) => launchFiles(seven, manifestId[0]!).includes(`${manifestId[0]}.pane.${pane}`)) ? true : undefined), 20_000, "the slow panes' files");
+    const adopted = summon([seven]);
+    expect(adopted.status, adopted.out).toBe(0);
+    contains(adopted.stderr, `Workspace [${seven}] is already running in Rex; switched to it`);
+    const record = launched(seven);
+    expect(record.launchId).toBe(manifestId[0]);
+    expect(record.rex!.sessionId).toBe(appeared[0]);
+    expect(record.rex!.blocks.map((b) => b.name).sort()).toEqual([...PANES].sort());
+    expect(sessionsLabelled(seven)).toEqual(appeared);
+    const status = summon(["status", "--once"]);
+    contains(rowOf(status.stdout, seven), /active/);
+  });
+
+  it("C22: environment values and a quoted path reach the panes literally, a tree pane starts in its own directory, and a warm cache follows config changes", { timeout: 120_000 }, async (ctx) => {
+    if (!harness.gate(ctx)) return;
+    const five = name("five");
+    const dir = projectDir("five");
+    // Every pane's zsh logs the value and its working directory while reading .zshenv, before any typed input.
+    const zdot = join(home, "zdot");
+    mkdirSync(zdot);
+    const log = join(zdot, "startup.log");
+    writeFileSync(join(zdot, ".zshenv"), `print -r -- "$SPELL|$PWD" >> ${JSON.stringify(log)}\n`);
+    const launch = summon([five, "--layout", "cwdtree", "--env", `ZDOTDIR=${zdot}`]);
+    expect(launch.status, launch.out).toBe(0);
+    const record = launched(five);
+    expect(record.panes).toEqual(["editor", "worker"]);
+    const lines = await until(() => {
+      if (!existsSync(log)) return undefined;
+      const seen = readFileSync(log, "utf8").trim().split("\n");
+      return seen.length >= 2 ? seen : undefined;
+    }, 10_000, "two startup lines");
+    // The pane starts in the configured directory as written (Rex sets the block's cwd; zsh reports it as given).
+    expect(new Set(lines)).toEqual(new Set([`${SPELL}|${dir}`, `${SPELL}|${join(dir, "api")}`]));
+    expect(blockLabels(record.rex!.sessionId).has("editor · sleep 300")).toBe(true);
+
+    // Warm cache: the persistent cache is on (no SUMMON_NO_CACHE), warmed by a listing; a config change and a
+    // registry change made with the cache on are seen by the next cached read.
+    const cacheFile = join(home, ".config", "summon", "cache.json");
+    expect(summon(["list"], { env: warmCache() }).status).toBe(0);
+    expect(summon([five, "--dry-run"], { env: warmCache() }).status).toBe(0);
+    expect(existsSync(cacheFile)).toBe(true);
+    expect(summon(["set", "editor", "sleep 301"], { env: warmCache() }).status).toBe(0);
+    const dry = summon([name("one"), "--dry-run"], { env: warmCache() });
+    expect(dry.status, dry.out).toBe(0);
+    contains(dry.stdout, "editor · sleep 301");
+    expect(dry.stdout).not.toContain("editor · sleep 300");
+    expect(summon(["set", "editor", "sleep 300"], { env: warmCache() }).status).toBe(0);
+    const nine = name("nine");
+    mkdirSync(join(home, "projects", nine));
+    expect(summon(["add", nine, join(home, "projects", nine)], { env: warmCache() }).status).toBe(0);
+    contains(summon(["list"], { env: warmCache() }).stdout, nine);
+  });
+
+  it("C19: summon open <project> focuses a live workspace, launches a stopped or never-launched one, refuses an unknown one and names a mistyped project", { timeout: 180_000 }, async (ctx) => {
     if (!harness.gate(ctx)) return;
     const one = name("one");
+    const two = name("two");
     const four = name("four");
+    const eight = name("eight");
     const live = requireRecord(one);
     expect(live.endedAt).toBeUndefined();
     const opened = summon(["open", one]);
@@ -472,14 +677,35 @@ describe("rex cli e2e", () => {
     const switched = summon(["switch", one]);
     expect(switched.status, switched.out).toBe(0);
     contains(switched.stdout, `Switched to [${one}]`);
+    // A stopped project (its session killed outside Summon and reconciled) is launched again with its flags.
+    const ended = requireRecord(two);
+    expect(cli.call("kill", ["kill", ended.rex!.sessionId]).ok).toBe(true);
+    await until(() => (sessionExists(ended.rex!.sessionId) ? undefined : true), 5000, "two's session gone");
+    contains(rowOf(summon(["status", "--once"]).stdout, two), /stopped/);
+    const relaunched = summon(["open", two, "--float"]);
+    expect(relaunched.status, relaunched.out).toBe(0);
+    contains(relaunched.stdout, `Workspace [${two}] ready in Rex.`);
+    contains(relaunched.stderr, "Rex cannot honor float; ignored");
+    const fresh = launched(two);
+    expect(fresh.launchId).not.toBe(ended.launchId);
+    expect(fresh.endedAt).toBeUndefined();
+    // A registered project that was never launched (no record) is launched too (guide §4 F5).
+    expect(readRecord(eight)).toBeNull();
+    const first = summon(["open", eight]);
+    expect(first.status, first.out).toBe(0);
+    contains(first.stdout, `Workspace [${eight}] ready in Rex.`);
+    expect(launched(eight).backend).toBe("rex");
     // A record whose server does not answer is unknown: refused with the reason, nothing launched.
     const record = requireRecord(four);
+    // `four` has two sessions since C15 (the orphan of the dead-server record and its replacement): none is added.
+    const fourBefore = sessionsLabelled(four);
     writeRecord(four, { ...record, rex: { ...record.rex!, server: DEAD_SERVER } });
     try {
       const refused = summon(["open", four]);
       expect(refused.status, refused.out).toBe(2);
       contains(refused.stderr, `[${four}] could not be verified`);
       expect(readRecord(four)!.rex!.sessionId).toBe(record.rex!.sessionId);
+      expect(sessionsLabelled(four)).toEqual(fourBefore);
     } finally {
       writeRecord(four, record);
     }

@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { execFileSync } from "node:child_process";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -11,33 +10,14 @@ import { join } from "node:path";
  * It creates sessions labelled `summon-e2e-<suffix>` on the local server and destroys only those.
  */
 
-const { rexGate, until } = await import("./rex-harness.js");
+const { destroySessions, rexGate, rexWindowCount, until } = await import("./rex-harness.js");
 const { discoverRex, createRexCli, defaultRexServer } = await import("../backends/rex/cli.js");
 const { listSessions, viewSession } = await import("../backends/rex/status.js");
 const { readStatusRecord, clearStatus } = await import("../status.js");
 const { launchArtifactPaths, launchesDir } = await import("../launch-identity.js");
 const { launch } = await import("../launcher.js");
-const harness = rexGate(process.env, "rex-native e2e");
+const harness = rexGate(process.env, "rex-native e2e", { window: true });
 const { prereq } = harness;
-
-const REX_PROCESS_NAMES = ["Rex Beta", "Rex"];
-
-function systemEvents(script: string): string {
-  return execFileSync("osascript", ["-e", script], { encoding: "utf8", timeout: 10_000 }).trim();
-}
-
-function rexWindowCount(): { process: string; count: number } {
-  let lastError = "";
-  for (const name of REX_PROCESS_NAMES) {
-    try {
-      const count = Number.parseInt(systemEvents(`tell application "System Events" to count windows of process "${name}"`), 10);
-      if (Number.isInteger(count)) return { process: name, count };
-    } catch (error) {
-      lastError = error instanceof Error ? error.message : String(error);
-    }
-  }
-  throw new Error(`System Events could not read the Rex windows (Accessibility for this terminal?): ${lastError}`);
-}
 
 function splitDirections(node: unknown, out: string[] = []): string[] {
   if (!node || typeof node !== "object") return out;
@@ -72,12 +52,14 @@ describe("rex native e2e", () => {
     const savedEnv = { ...process.env };
     const logSpy: string[] = [];
     const stderrSpy: string[] = [];
+    let cleanupFailures: string[];
     const origLog = console.log;
     const origStderrWrite = process.stderr.write.bind(process.stderr);
     console.log = (...args: unknown[]) => { logSpy.push(args.map(String).join(" ")); };
     process.stderr.write = ((chunk: unknown) => { stderrSpy.push(String(chunk)); return origStderrWrite(String(chunk)); }) as typeof process.stderr.write;
     try {
-      execFileSync("mkdir", ["-p", dir, zdot]);
+      mkdirSync(dir, { recursive: true });
+      mkdirSync(zdot, { recursive: true });
       writeFileSync(onStart, `#!/bin/sh\nprintf 'start\\n' >> ${JSON.stringify(onStartLog)}\n`);
       chmodSync(onStart, 0o755);
       // Startup-file proof: zsh reads .zshenv before anything else, so the variables must already exist.
@@ -179,14 +161,15 @@ describe("rex native e2e", () => {
     } finally {
       console.log = origLog;
       process.stderr.write = origStderrWrite;
-      for (const sessionId of sessions) {
-        try { cli.call("kill", ["kill", sessionId]); } catch { /* best effort */ }
-      }
+      // The suite's own sessions must be proven gone (guide C20): a kill the server rejected or a
+      // session still listed fails the test instead of leaving it for the owner to find.
+      cleanupFailures = await destroySessions(cli, sessions);
       try { clearStatus(project); } catch { /* best effort */ }
       rmSync(launchesDir(project), { recursive: true, force: true });
       rmSync(root, { recursive: true, force: true });
       for (const key of Object.keys(process.env)) if (!(key in savedEnv)) delete process.env[key];
       Object.assign(process.env, savedEnv);
     }
+    expect(cleanupFailures, `sessions of ${project} not confirmed gone`).toEqual([]);
   });
 });

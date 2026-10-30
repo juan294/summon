@@ -181,7 +181,7 @@ describe("createRexCli / probeWhoami (Phase 3)", () => {
     const exec = vi.fn(() => "{}");
     const cli = createRexCli("/mock/rex", "unix:///mock/server.sock", exec);
     cli.call("ls", ["ls", "--json"]);
-    expect(exec).toHaveBeenLastCalledWith("/mock/rex", ["--color", "never", "--timeout", "3s", "--autostart=false", "-S", "unix:///mock/server.sock", "ls", "--json"], expect.objectContaining({ timeout: 5000 }));
+    expect(exec).toHaveBeenLastCalledWith("/mock/rex", ["--color", "never", "--timeout", "8s", "--autostart=false", "-S", "unix:///mock/server.sock", "ls", "--json"], expect.objectContaining({ timeout: 10_000 }));
     cli.call("session-create", ["api", "call", "session.create", "-"], { input: "{}", timeoutMs: 10_000, autostart: true });
     expect(exec).toHaveBeenLastCalledWith("/mock/rex", ["--color", "never", "--timeout", "10s", "--autostart=true", "-S", "unix:///mock/server.sock", "api", "call", "session.create", "-"], expect.objectContaining({ input: "{}", timeout: 12_000 }));
   });

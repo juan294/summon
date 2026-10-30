@@ -211,7 +211,12 @@ export interface CleanupTrapOptions {
  * confirmDangerousCommands; it is inlined as a shell fragment so pipes and redirects work, and
  * its output goes to the cleanup log, never to the terminal. escapeAppleScript is applied by
  * the AppleScript emitter at the outer boundary.
- */
+ *
+ * The trap runs after `rex kill` or a window close, when the pane's pty is already hung up. Node
+ * aborts at startup when a standard descriptor is such a pty (PlatformInit saves the tty modes of
+ * fds 0-2; tcgetattr fails with EIO), so the snapshot save and the on-stop hook get `/dev/null` as
+ * stdin and stdout and never inherit the terminal (observed on Rex and Node 24, guide §4 F9).
+*/
 export function cleanupTrapLine(project: string, launchId: string, options: CleanupTrapOptions = {}): string {
   assertLaunchId(launchId);
   const parts: string[] = [
@@ -223,7 +228,7 @@ export function cleanupTrapLine(project: string, launchId: string, options: Clea
   if (options.onStop) {
     parts.push(`: >> ${shellLogFile(project)}`);
     parts.push(`chmod 600 ${shellLogFile(project)}`);
-    parts.push(`${options.onStop} >> ${shellLogFile(project)} 2>&1`); // lint-allow-escape: onStop is a trusted command fragment from validated config (SE-L1 above)
+    parts.push(`${options.onStop} </dev/null >> ${shellLogFile(project)} 2>&1`); // lint-allow-escape: onStop is a trusted command fragment from validated config (SE-L1 above)
   }
 
   if (options.targetDir) {
@@ -233,7 +238,7 @@ export function cleanupTrapLine(project: string, launchId: string, options: Clea
       + ` --project "${shellDoubleQuote(project)}"`
       + ` --layout "${shellDoubleQuote(options.layout ?? "unknown")}"`
       + ` --launch '${shellLaunchId(launchId)}'`
-      + ` 2>/dev/null`,
+      + ` </dev/null >/dev/null 2>&1`,
     );
   }
 

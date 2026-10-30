@@ -132,7 +132,13 @@ export interface RexCli {
   call(op: RexOp, argv: readonly string[], opts?: RexCallOptions): RexResult;
 }
 
-export const REX_READ_TIMEOUT_MS = 3000;
+/**
+ * Rex's own `--timeout` for reads (`ls`, `session.view`, `client.list`, block calls). A server that is
+ * gone fails at once (connection refused), so this only bounds a server that is slow to answer: on a
+ * loaded machine a `session.view` during a launch burst (four login shells starting) took more than
+ * 3 s and read as "could not be verified" (rex-e2e guide, 2026-10-30), so the window is 8 s.
+ */
+export const REX_READ_TIMEOUT_MS = 8000;
 
 export function createRexCli(binary: string, server: string, exec: RexExec = execFileSync): RexCli {
   return {

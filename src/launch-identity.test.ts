@@ -114,8 +114,8 @@ describe("shell fragments", () => {
     const line = cleanupTrapLine("chapa", ID, { onStop: "echo bye", targetDir: "/tmp/chapa", layout: "full" });
     expect(line.startsWith("__summon_cleanup() { ")).toBe(true);
     expect(line.endsWith("; }; trap '__summon_cleanup' EXIT HUP")).toBe(true);
-    expect(line).toContain(`echo bye >> "$HOME/.config/summon/logs/cleanup-chapa.log" 2>&1`);
-    expect(line).toContain(`summon snapshot save --dir "/tmp/chapa" --project "chapa" --layout "full" --launch '${ID}' 2>/dev/null`);
+    expect(line).toContain(`echo bye </dev/null >> "$HOME/.config/summon/logs/cleanup-chapa.log" 2>&1`);
+    expect(line).toContain(`summon snapshot save --dir "/tmp/chapa" --project "chapa" --layout "full" --launch '${ID}' </dev/null >/dev/null 2>&1`);
     expect(line).toContain(`rm -f "${dir}/${ID}.pid" "${dir}/${ID}.active" 2>/dev/null`);
     // Never named: pane files, manifest, shared record, legacy paths.
     expect(line).not.toContain(".pane.");
@@ -125,6 +125,18 @@ describe("shell fragments", () => {
     expect(line).not.toContain("status/chapa.pid");
     expect(line.indexOf("echo bye")).toBeLessThan(line.indexOf("snapshot save"));
     expect(line.indexOf("snapshot save")).toBeLessThan(line.indexOf("rm -f"));
+  });
+
+  it("cleanupTrapLine detaches the snapshot save and the on-stop hook from the terminal", () => {
+    // The trap runs after `rex kill` or a window close, when the pane's pty is already hung up. Node aborts at
+    // startup (PlatformInit saves the tty modes of fds 0-2; tcgetattr fails with EIO) when any standard
+    // descriptor is such a pty, so the programs the trap starts must not inherit them (guide §4 F9).
+    const line = cleanupTrapLine("chapa", ID, { onStop: "echo bye", targetDir: "/tmp/chapa", layout: "full" });
+    const parts = line.slice(line.indexOf("{ ") + 2, line.lastIndexOf("; }")).split("; ");
+    const snapshotPart = parts.find((part) => part.includes("snapshot save"))!;
+    expect(snapshotPart.endsWith(" </dev/null >/dev/null 2>&1")).toBe(true);
+    const onStopPart = parts.find((part) => part.startsWith("echo bye"))!;
+    expect(onStopPart).toBe(`echo bye </dev/null >> "$HOME/.config/summon/logs/cleanup-chapa.log" 2>&1`);
   });
 
   it("cleanupTrapLine omits on-stop and snapshot parts when not configured", () => {
@@ -231,7 +243,7 @@ describe("the trap runs the binary that created the launch (guide F4)", () => {
   it("types the registered node and script paths, double-quoted, instead of a bare summon", () => {
     registerSelfInvocation("/usr/local/bin/node", '/opt/my "tools"/summon/dist/index.js');
     const line = cleanupTrapLine("chapa", ID, { targetDir: "/tmp/chapa", layout: "full" });
-    expect(line).toContain(`"/usr/local/bin/node" "/opt/my \\"tools\\"/summon/dist/index.js" snapshot save --dir "/tmp/chapa" --project "chapa" --layout "full" --launch '${ID}' 2>/dev/null`);
+    expect(line).toContain(`"/usr/local/bin/node" "/opt/my \\"tools\\"/summon/dist/index.js" snapshot save --dir "/tmp/chapa" --project "chapa" --layout "full" --launch '${ID}' </dev/null >/dev/null 2>&1`);
     expect(line).not.toMatch(/[;{] *summon snapshot/);
   });
 

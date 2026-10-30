@@ -11,7 +11,7 @@ import { join } from "node:path";
  * (Rex 0.0.1793131181-gdd9a20, api revision 7); a later Rex build that behaves differently fails.
  */
 
-const { rexGate, sleep, until, withRexEnv } = await import("./rex-harness.js");
+const { destroySessions, rexGate, sleep, until, withRexEnv } = await import("./rex-harness.js");
 const { discoverRex, createRexCli, defaultRexServer } = await import("../backends/rex/cli.js");
 const { readStatusRecord, readStatus, clearStatus, resetReadAllStatusesCache } = await import("../status.js");
 const { launchArtifactPaths, launchesDir } = await import("../launch-identity.js");
@@ -47,6 +47,7 @@ describe("rex lifecycle observations (plan D6, Phase 5 step 0)", () => {
     process.stderr.write = (() => true) as typeof process.stderr.write;
     const created: Array<{ project: string; sessionId: string }> = [];
     const observed: Record<string, { trapFired: boolean; state: string; reason?: string }> = {};
+    let cleanupFailures: string[];
     try {
       await withRexEnv(async () => {
       async function launchOne(name: string, editor = "sleep 300") {
@@ -127,13 +128,16 @@ describe("rex lifecycle observations (plan D6, Phase 5 step 0)", () => {
     } finally {
       console.log = origLog;
       process.stderr.write = origStderrWrite;
-      for (const { project, sessionId } of created) {
-        try { cli.call("kill", ["kill", sessionId]); } catch { /* best effort */ }
+      // Most of these sessions are already gone (killed or closed by the observation itself); the
+      // rest are killed here and every one is proven absent (guide C20).
+      cleanupFailures = await destroySessions(cli, created.map((c) => c.sessionId));
+      for (const { project } of created) {
         try { clearStatus(project); } catch { /* best effort */ }
         try { clearSnapshot(project); } catch { /* best effort */ }
         rmSync(launchesDir(project), { recursive: true, force: true });
       }
       rmSync(root, { recursive: true, force: true });
     }
+    expect(cleanupFailures, "lifecycle sessions not confirmed gone").toEqual([]);
   });
 });
