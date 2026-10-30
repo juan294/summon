@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { launchArtifactFiles, launchArtifactPaths, listLaunchManifests, readLaunchManifest, writeLaunchManifest } from "../../launch-identity.js";
 import type { LaunchArtifactPaths, LaunchManifest } from "../../launch-identity.js";
 import { ghosttyLiveness, isLiveState, readStatusRecord, removeLaunchFileSet, rexIdentityMissing, withOwnedRecord } from "../../status-record.js";
+import type { LaunchRemoval } from "../../status-record.js";
 import type { WorkspaceState, WorkspaceStatus } from "../../status-record.js";
 import { err, note } from "../../ui/output.js";
 import { createRexCli, whoamiOf } from "./cli.js";
@@ -325,7 +326,7 @@ type Decision =
   | { kind: "remove"; manifest: LaunchManifest }
   | { kind: "adopt"; manifest: LaunchManifest; record: WorkspaceStatus; sessionId: string };
 
-export type OrphanRemoval = { outcome: "superseded" } | { outcome: "removed"; failures: string[] };
+export type OrphanRemoval = { outcome: "superseded" } | ({ outcome: "removed" } & LaunchRemoval);
 
 /**
  * Remove every file of an earlier launch whose session is confirmed gone, under the status lock
@@ -333,11 +334,17 @@ export type OrphanRemoval = { outcome: "superseded" } | { outcome: "removed"; fa
  * hidden: the manifest stays when another file could not go (`removeLaunchFileSet`).
  */
 export function removeOrphanLaunch(project: string, gen: string | null, manifest: LaunchManifest): OrphanRemoval {
-  let failures: string[] = [];
+  let removal: LaunchRemoval = { failures: [] };
   const { outcome } = withOwnedRecord(project, { launchId: gen }, () => null, () => {
-    failures = removeLaunchFileSet(launchArtifactFiles(manifest.project, manifest.launchId, manifest.paneOrder));
+    removal = removeLaunchFileSet(launchArtifactFiles(manifest.project, manifest.launchId, manifest.paneOrder));
   });
-  return outcome === "superseded" ? { outcome } : { outcome: "removed", failures };
+  return outcome === "superseded" ? { outcome } : { outcome: "removed", ...removal };
+}
+
+/** The one failed removal no retry can finish: the root token left after its manifest went. Undefined otherwise. */
+export function strandedTokenNotice(removal: LaunchRemoval): string | undefined {
+  if (!removal.stranded) return undefined;
+  return `the root pane file could not be removed after the manifest went (${removal.failures[0]}); the file is inert and no review will find it; remove it with: rm -f ${JSON.stringify(removal.stranded)}`;
 }
 
 function hostIdOf(view: SessionView, cli: RexCli): string | undefined {
@@ -441,7 +448,7 @@ export function adoptOrphans(project: string, deps: AdoptDeps): string[] {
       if (removal.outcome === "superseded") { notices.push(superseded); return notices; }
       notices.push(removal.failures.length === 0
         ? `removed the files of earlier launch ${decision.manifest.launchId} (its Rex session is gone)`
-        : `could not remove the files of earlier launch ${decision.manifest.launchId} (its Rex session is gone): ${removal.failures[0]}; ${cleanHint}`);
+        : `could not remove the files of earlier launch ${decision.manifest.launchId} (its Rex session is gone): ${strandedTokenNotice(removal) ?? `${removal.failures[0]}; ${cleanHint}`}`);
       continue;
     }
     if (adopted) {

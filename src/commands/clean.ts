@@ -7,7 +7,7 @@ import { SESSION_GONE, endRexLaunch, requireRexBinary, unverifiedMessage } from 
 import { createRexCli } from "../backends/rex/cli.js";
 import { listSessions, sessionState, viewBlockIds, viewSession } from "../backends/rex/status.js";
 import type { SessionListing, SessionView } from "../backends/rex/status.js";
-import { adoptDeps, adoptOrphans, readPaneFile, readPaneMapping, removeOrphanLaunch } from "../backends/rex/launch.js";
+import { adoptDeps, adoptOrphans, readPaneFile, readPaneMapping, removeOrphanLaunch, strandedTokenNotice } from "../backends/rex/launch.js";
 import { isLaunchId, launchArtifactFiles, launchArtifactPaths, launchFileList, launchesDir, listLaunchManifests } from "../launch-identity.js";
 import type { LaunchManifest } from "../launch-identity.js";
 import type { RexIdentity } from "../backends/rex/types.js";
@@ -127,7 +127,7 @@ function reviewOrphan(project: string, manifest: LaunchManifest, gen: string | n
   const removed = (done: string): string => {
     const removal = removeOrphanLaunch(project, gen, manifest);
     if (removal.outcome === "superseded") return `${where}: ${done}; the current record is not this launch's, files left in place.`;
-    if (removal.failures.length > 0) return `${where}: ${done}; a file could not be removed (${removal.failures[0]}); the manifest is kept, run summon clean --orphans again.`;
+    if (removal.failures.length > 0) return `${where}: ${done}; ${strandedTokenNotice(removal) ?? `a file could not be removed (${removal.failures[0]}); the manifest is kept, run summon clean --orphans again`}.`;
     return `${where}: ${done}; files removed.`;
   };
   if (!listed.sessions.some((s) => s.sessionId === root.sessionId)) return removed("its Rex session is gone");

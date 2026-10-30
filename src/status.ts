@@ -415,7 +415,7 @@ export function endRexLaunch(project: string, record: WorkspaceStatus, options: 
         return { ...current, endedAt: new Date().toISOString() };
       },
       (_outcome, final) => {
-        if (final?.endedAt) fileFailures.push(...removeLaunchFileSet(files));
+        if (final?.endedAt) fileFailures.push(...removeLaunchFileSet(files).failures);
       },
     );
     if (outcome === "superseded") return undefined;

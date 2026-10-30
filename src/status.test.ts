@@ -1313,30 +1313,44 @@ describe("removeLaunchFileSet keeps the retry proof", () => {
 
   it("a failing pane or sidecar removal keeps the manifest and the token; the retry removes everything", () => {
     mkdirSync(files().panes.find((f) => f.endsWith(".pane.shell.tmp"))!); // only that unlink fails
-    const failures = removeLaunchFileSet(files());
-    expect(failures).toHaveLength(1);
-    expect(failures[0]).toContain(".pane.shell.tmp");
+    const removal = removeLaunchFileSet(files());
+    expect(removal.failures).toHaveLength(1);
+    expect(removal.failures[0]).toContain(".pane.shell.tmp");
+    expect(removal.stranded).toBeUndefined();
     expect(existsSync(files().manifest!)).toBe(true);
     expect(existsSync(files().token!)).toBe(true);
     rmSync(files().panes.find((f) => f.endsWith(".pane.shell.tmp"))!, { recursive: true });
-    expect(removeLaunchFileSet(files())).toEqual([]);
+    expect(removeLaunchFileSet(files())).toEqual({ failures: [] });
     expect(launchFileListExists()).toEqual([]);
   });
 
   it("a failing manifest removal keeps the token; the retry removes everything", () => {
     rmSync(files().manifest!);
     mkdirSync(files().manifest!); // a directory where the manifest is: unlink fails, nothing else does
-    const failures = removeLaunchFileSet(files());
-    expect(failures).toHaveLength(1);
-    expect(failures[0]).toContain(`${GEN_A}.json`);
+    const removal = removeLaunchFileSet(files());
+    expect(removal.failures).toHaveLength(1);
+    expect(removal.failures[0]).toContain(`${GEN_A}.json`);
+    expect(removal.stranded).toBeUndefined();
     expect(existsSync(files().token!)).toBe(true);
     rmSync(files().manifest!, { recursive: true });
-    expect(removeLaunchFileSet(files())).toEqual([]);
+    expect(removeLaunchFileSet(files())).toEqual({ failures: [] });
     expect(launchFileListExists()).toEqual([]);
   });
 
+  it("a failing token removal after the manifest went is reported as stranded: nothing left to rediscover", () => {
+    rmSync(files().token!);
+    mkdirSync(files().token!); // only the token's unlink fails
+    const removal = removeLaunchFileSet(files());
+    expect(removal.failures).toHaveLength(1);
+    expect(removal.failures[0]).toContain(".pane.editor");
+    expect(removal.stranded).toBe(files().token);
+    expect(existsSync(files().manifest!)).toBe(false);
+    // Without a manifest in the set (a sidecar-only removal) a token is never stranded.
+    expect(removeLaunchFileSet({ liveness: [], panes: [], token: files().token }).stranded).toBeUndefined();
+  });
+
   it("a set without manifest or token (session not confirmed gone) removes only what it names", () => {
-    expect(removeLaunchFileSet({ liveness: files().liveness, panes: [] })).toEqual([]);
+    expect(removeLaunchFileSet({ liveness: files().liveness, panes: [] })).toEqual({ failures: [] });
     expect(existsSync(files().token!)).toBe(true);
     expect(existsSync(files().manifest!)).toBe(true);
   });

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -542,6 +543,27 @@ describe("adoptOrphans (plan P13 late adoption)", () => {
     expect(adoptOrphans("chapa", depsFor({ [SERVER]: cli }))).toEqual([`removed the files of earlier launch ${ID} (its Rex session is gone)`]);
     expect(existsSync(paths.pane("editor").file)).toBe(false);
     expect(existsSync(paths.manifest)).toBe(false);
+  });
+
+  it("a root token that cannot be removed after the manifest went is named as inert with its rm command, and no review is promised", async () => {
+    writeLaunchManifest(manifestFor());
+    writePane(ID, "editor", SESSION, blockId(1));
+    const paths = launchArtifactPaths("chapa", ID);
+    const token = paths.pane("editor").file;
+    const cli = fakeCli({ "ls": () => ok("ls", { sessions: [] }) });
+    execFileSync("chflags", ["uchg", token]); // macOS: the token stays readable, only its unlink fails (EPERM)
+    let notices: string[];
+    try {
+      notices = adoptOrphans("chapa", depsFor({ [SERVER]: cli }));
+    } finally {
+      execFileSync("chflags", ["nouchg", token]);
+    }
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toContain(`could not remove the files of earlier launch ${ID} (its Rex session is gone): the root pane file could not be removed after the manifest went (`);
+    expect(notices[0]).toContain(`the file is inert and no review will find it; remove it with: rm -f ${JSON.stringify(token)}`);
+    expect(notices[0]).not.toContain("clean --orphans");
+    expect(existsSync(paths.manifest)).toBe(false);
+    expect(listLaunchManifests("chapa")).toEqual([]);
   });
 
   it("keeps the files when the record changed between the read and the lock (superseded)", async () => {

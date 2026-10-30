@@ -225,20 +225,32 @@ function removeFiles(files: readonly string[]): string[] {
   return failures;
 }
 
+export interface LaunchRemoval {
+  /** Every failure as `path: reason`; empty when everything went. */
+  failures: string[];
+  /** The root token when its own removal failed after the manifest went: inert, and no longer discoverable by a retry. */
+  stranded?: string;
+}
+
 /**
  * Remove a launch's files in steps, stopping at the first failure: the sidecars and other pane
  * files, then the manifest (discovery), then the root token (the proof of which session the launch
  * created). A partial removal thus keeps what a retry (`summon clean --orphans`, the next status
- * read) needs to verify the session again and finish; the one stray it can leave is a token without
- * a manifest after a session confirmed gone, which nothing reads. Returns every failure as `path: reason`.
+ * read) needs to verify the session again and finish. The one stray it can leave is a token whose
+ * own removal failed after the manifest went (`stranded`): nothing reads it, and no retry finds it.
  */
-export function removeLaunchFileSet(files: LaunchFileSet): string[] {
-  for (const step of [[...files.liveness, ...files.panes], files.manifest, files.token]) {
-    if (step === undefined) continue;
-    const failures = removeFiles(Array.isArray(step) ? step : [step]);
-    if (failures.length > 0) return failures;
+export function removeLaunchFileSet(files: LaunchFileSet): LaunchRemoval {
+  const others = removeFiles([...files.liveness, ...files.panes]);
+  if (others.length > 0) return { failures: others };
+  if (files.manifest) {
+    const manifest = removeFiles([files.manifest]);
+    if (manifest.length > 0) return { failures: manifest };
   }
-  return [];
+  if (files.token) {
+    const token = removeFiles([files.token]);
+    if (token.length > 0) return { failures: token, ...(files.manifest ? { stranded: files.token } : {}) };
+  }
+  return { failures: [] };
 }
 
 export function unlinkIgnoringMissing(path: string): boolean {

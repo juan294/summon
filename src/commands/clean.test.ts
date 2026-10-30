@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -310,6 +311,24 @@ describe("summon clean --orphans <project>", () => {
     expect(stderr()).toContain(`removed the files of earlier launch ${GEN2} (its Rex session is gone)`);
     expect(existsSync(paths(GEN2).manifest)).toBe(false);
     expect(existsSync(paths(GEN2).pane("editor").file)).toBe(false);
+  });
+
+  it("a root token stranded after its manifest went is named as inert with its rm command; the same review then has nothing to find", async () => {
+    writeStatus(record());
+    writeLaunchManifest(manifest(GEN2));
+    writePane(GEN2, SESSION2);
+    const token = paths(GEN2).pane("editor").file;
+    server({ [SESSION]: [BLOCK] });
+    execFileSync("chflags", ["uchg", token]); // macOS: readable, not unlinkable
+    try {
+      await handleCleanCommand(context(["chapa"], { orphans: true }));
+    } finally {
+      execFileSync("chflags", ["nouchg", token]);
+    }
+    expect(stderr()).toContain(`the file is inert and no review will find it; remove it with: rm -f ${JSON.stringify(token)}`);
+    expect(stderr()).not.toContain("clean --orphans");
+    expect(stdout()).toContain("No earlier launches of [chapa] to review.");
+    expect(existsSync(paths(GEN2).manifest)).toBe(false);
   });
 
   it("names a manifest without a server and leaves it; a legacy current record stops the review", async () => {
