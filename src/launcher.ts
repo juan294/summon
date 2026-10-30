@@ -950,7 +950,8 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
   if (launchContext.backend === "rex" && !dryRun) {
     // P13 late adoption, then the P2 reuse decision: both before the wizard, the pane probe
     // and on-start, so a switch never reruns them. A dry run skips both (P2) and runs no Rex command.
-    for (const line of adoptOrphans(projectName, adoptDeps(launchContext.rexBinary))) note(line);
+    // A session the record's --new-window launch announced is not repeated on every launch (F12); status still names it.
+    for (const line of adoptOrphans(projectName, adoptDeps(launchContext.rexBinary), { repeatAnnounced: false })) note(line);
     const decision = maybeSwitchToExisting(projectName, cliOverrides?.["new-window"] === "true", { cliFor: (server) => createRexCli(launchContext.rexBinary, server), callerSession });
     if (decision.kind === "switched") return "switched";
     if (decision.kind === "refused") {

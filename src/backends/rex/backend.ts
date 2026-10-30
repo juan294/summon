@@ -12,7 +12,7 @@ import type { RexCli } from "./cli.js";
 import { discoverRexApp, openRexApp } from "./app.js";
 import { buildSessionCreateRequest } from "./layout.js";
 import type { SessionCreateInput } from "./layout.js";
-import { createWorkspace } from "./launch.js";
+import { createWorkspace, keptSession } from "./launch.js";
 import type { CreateContext, LaunchOutcome } from "./launch.js";
 import type { RexIdentity } from "./types.js";
 
@@ -23,6 +23,7 @@ export interface RexBackendDeps {
   cliFor?: (binary: string, server: string) => RexCli;
   probeWhoami?: typeof probeWhoami;
   createWorkspace?: typeof createWorkspace;
+  keptSession?: typeof keptSession;
   app?: CreateContext["app"];
   /** `REX_SESSION` of the shell running Summon, when inside Rex (P7). */
   callerSession?: string | undefined;
@@ -43,7 +44,8 @@ export function unknownOutcomeMessage(project: string, candidates: string[] | "u
  * `unknown` outcomes (nothing recorded); returns the identity otherwise.
  */
 export function createRexBackend(context: RexLaunchContext, deps: RexBackendDeps = {}): TerminalBackend {
-  const cli = (deps.cliFor ?? createRexCli)(context.rexBinary, context.server);
+  const cliFor = deps.cliFor ?? createRexCli;
+  const cli = cliFor(context.rexBinary, context.server);
   const whoami = deps.probeWhoami ?? probeWhoami;
   const create = deps.createWorkspace ?? createWorkspace;
   const app = deps.app ?? { discover: discoverRexApp, open: openRexApp };
@@ -61,6 +63,8 @@ export function createRexBackend(context: RexLaunchContext, deps: RexBackendDeps
       onStop: ctx.onStop,
       layoutLabel: ctx.layoutLabel,
     });
+    // Read before the new record replaces the earlier one (F12).
+    const kept = newWindow ? (deps.keptSession ?? keptSession)(ctx.projectName, (server) => cliFor(context.rexBinary, server)) : undefined;
     const manifest: LaunchManifest = {
       version: 1,
       launchId: ctx.launchId,
@@ -73,6 +77,7 @@ export function createRexBackend(context: RexLaunchContext, deps: RexBackendDeps
       backend: "rex",
       server: context.server,
       startedAt: new Date().toISOString(),
+      ...(kept && kept.keeps.length > 0 ? { keeps: kept.keeps } : {}),
     };
     const outcome: LaunchOutcome = await create(manifest, build.request, {
       cli,
@@ -84,6 +89,7 @@ export function createRexBackend(context: RexLaunchContext, deps: RexBackendDeps
     for (const line of outcome.notices) note(line);
     if (outcome.kind === "failed") throw new Error(outcome.failure.hint ? `${outcome.reason}. ${outcome.failure.hint}` : outcome.reason);
     if (outcome.kind === "unknown") throw new Error(unknownOutcomeMessage(ctx.projectName, outcome.candidates, outcome.reason));
+    if (kept) note(kept.notice);
     out(`${sym.ok} Workspace [${ctx.projectName}] ready in Rex.`);
     // `ids.blocks` names only the panes Summon shows (createWorkspace applies the display-pane policy).
     const identity: RexIdentity = {

@@ -230,6 +230,13 @@ describe("launch manifests", () => {
     expect(parseLaunchManifest({ ...manifest(), ...patch })).toBeNull();
   });
 
+  it("parseLaunchManifest keeps the launch ids of keeps (F12) and drops a malformed list, never the manifest", () => {
+    const other = "1f1f1f1f-1f1f-4f1f-8f1f-1f1f1f1f1f1f";
+    expect(parseLaunchManifest({ ...manifest(), keeps: [other, "not-an-id", 7] })).toEqual(manifest());
+    expect(parseLaunchManifest({ ...manifest(), keeps: [other, "not-an-id"] })).toEqual({ ...manifest(), keeps: [other] });
+    expect(parseLaunchManifest({ ...manifest(), keeps: "nope" })).toEqual(manifest());
+  });
+
   it("parseLaunchManifest accepts a manifest without server and drops unknown keys", () => {
     const { server: _server, ...withoutServer } = manifest();
     expect(parseLaunchManifest({ ...withoutServer, extra: true })).toEqual(withoutServer);

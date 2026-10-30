@@ -18,7 +18,7 @@ vi.mock("./../../paths.js", async (importOriginal) => {
 const { launchArtifactPaths, writeLaunchManifest, listLaunchManifests } = await import("../../launch-identity.js");
 const { readStatusRecord, withOwnedRecord, statusTestHooks } = await import("../../status.js");
 const { STATUS_DIR } = await import("../../paths.js");
-const { createWorkspace, readPaneFile, readPaneMapping, waitForToken, adoptOrphans, refreshPaneMapping, maybeSwitchToExisting, showWorkspace, showRecordedWorkspace, strandedTokenNotice } = await import("./launch.js");
+const { createWorkspace, readPaneFile, readPaneMapping, waitForToken, adoptOrphans, refreshPaneMapping, maybeSwitchToExisting, keptSession, showWorkspace, showRecordedWorkspace, strandedTokenNotice } = await import("./launch.js");
 const { selectInApp } = await import("./app.js");
 type LaunchModule = typeof import("./launch.js");
 type CreateContext = Parameters<LaunchModule["createWorkspace"]>[2];
@@ -676,6 +676,12 @@ describe("adoptOrphans (plan P13 late adoption)", () => {
       "session-view": (_argv, input) => (JSON.parse(input!).session_id === SESSION ? liveView([blockId(1)]) : ok("session-view", { ...viewJson([blockId(9)]), session_id: "session:0000cccc-0000-0000-0000-000000000001", windows: [{ window_id: "window:0000cccc-0000-0000-0000-000000000002", label: "[chapa]", layers: [{ layer_id: "l", kind: "tiled", bounds: [0, 0, 1, 1], layout: null, blocks: [{ block_id: blockId(9) }] }] }] })),
     });
     expect(adoptOrphans("chapa", depsFor({ [SERVER]: cli }))).toEqual([`extra Rex session [chapa] ${SESSION} from earlier launch ${ID}; rex kill ${SESSION} closes it`]);
+    // The launch path (F12): an extra the record's launch never announced (a lost answer, a launch in between) is still said.
+    expect(adoptOrphans("chapa", depsFor({ [SERVER]: cli }), { repeatAnnounced: false })).toEqual([`extra Rex session [chapa] ${SESSION} from earlier launch ${ID}; rex kill ${SESSION} closes it`]);
+    // The record's --new-window launch announced it (`keeps`): the launch path is quiet, status (the default) still says it.
+    writeLaunchManifest(manifestFor(ID2, { keeps: [ID] }));
+    expect(adoptOrphans("chapa", depsFor({ [SERVER]: cli }), { repeatAnnounced: false })).toEqual([]);
+    expect(adoptOrphans("chapa", depsFor({ [SERVER]: cli }))).toEqual([`extra Rex session [chapa] ${SESSION} from earlier launch ${ID}; rex kill ${SESSION} closes it`]);
     expect(readStatusRecord("chapa")!.launchId).toBe(ID2);
 
     // Two adoptable orphans, no live record: the oldest is adopted, the newer is reported as extra.
@@ -687,7 +693,8 @@ describe("adoptOrphans (plan P13 late adoption)", () => {
       "ls": () => ok("ls", { sessions: [{ session_id: SESSION, label: "chapa" }, { session_id: session2, label: "chapa" }] }),
       "session-view": (_argv, input) => (JSON.parse(input!).session_id === SESSION ? liveView([blockId(1)]) : ok("session-view", { ...viewJson([blockId(6)]), session_id: session2 })),
     });
-    const notices = adoptOrphans("chapa", depsFor({ [SERVER]: cli2 }));
+    // The launch path still says it: this extra was never chosen, and the adoption happens once.
+    const notices = adoptOrphans("chapa", depsFor({ [SERVER]: cli2 }), { repeatAnnounced: false });
     expect(notices).toEqual([
       `adopted earlier launch ${ID} of chapa (Rex session ${SESSION})`,
       `extra Rex session [chapa] ${session2} from earlier launch ${ID2}; rex kill ${session2} closes it`,
@@ -702,6 +709,8 @@ describe("adoptOrphans (plan P13 late adoption)", () => {
     const cli = fakeCli({ "ls": () => ok("ls", { sessions: [{ session_id: SESSION, label: "chapa" }] }), "session-view": () => liveView([blockId(1)]) });
     const notices = adoptOrphans("chapa", depsFor({ [SERVER]: cli }, { ghosttyState: () => "active" }));
     expect(notices[0]).toContain("extra Rex session");
+    // A Ghostty launch announced nothing: the launch path still says it (F12).
+    expect(adoptOrphans("chapa", depsFor({ [SERVER]: cli }, { ghosttyState: () => "active" }), { repeatAnnounced: false })[0]).toContain("extra Rex session");
   });
 });
 
@@ -762,6 +771,29 @@ describe("maybeSwitchToExisting (plan P2) and showWorkspace", () => {
     withOwnedRecord("chapa", "replace", liveRecord);
     expect(maybeSwitchToExisting("chapa", true, { cliFor: () => cli })).toEqual({ kind: "proceed" });
     expect(cli.calls).toEqual([]);
+  });
+
+  it("keptSession names a live recorded session that --new-window leaves open, with the launches it keeps, and nothing else (F12)", () => {
+    const cli = fakeCli({});
+    expect(keptSession("chapa", () => cli)).toBeUndefined();
+    withOwnedRecord("chapa", "replace", () => { const r = recordFor(ID); delete r.backend; delete r.rex; return r; });
+    expect(keptSession("chapa", () => cli)).toBeUndefined();
+    withOwnedRecord("chapa", "replace", () => { const r = recordFor(ID); delete r.rex; return r; });
+    expect(keptSession("chapa", () => cli)).toBeUndefined();
+    expect(cli.calls).toEqual([]);
+    withOwnedRecord("chapa", "replace", liveRecord);
+    const servers: string[] = [];
+    const on = (c: RexCli) => (server: string) => { servers.push(server); return c; };
+    const notice = `the earlier [chapa] session ${SESSION} stays open; summon chapa now switches to this one, and rex kill ${SESSION} closes the earlier one`;
+    const live = fakeCli({ "ls": lsPresent, "session-view": () => ok("session-view", viewJson([blockId(1)])) });
+    expect(keptSession("chapa", on(live))).toEqual({ notice, keeps: [ID] });
+    expect(servers).toEqual([SERVER]);
+    // Partial (root closed, sidebar alive) is still open; the record's own launch carries what it kept forward.
+    writeLaunchManifest(manifestFor(ID, { keeps: [ID2] }));
+    const partial = fakeCli({ "ls": lsPresent, "session-view": () => ok("session-view", viewJson([blockId(5)])) });
+    expect(keptSession("chapa", on(partial))).toEqual({ notice, keeps: [ID, ID2] });
+    expect(keptSession("chapa", on(fakeCli({ "ls": () => ok("ls", { sessions: [] }) })))).toBeUndefined();
+    expect(keptSession("chapa", on(fakeCli({ "ls": () => fail("ls", "unreachable", "none", "no socket") })))).toBeUndefined();
   });
 
   it("a Rex record whose identity was discarded refuses an ordinary launch without a Rex call; --new-window proceeds", () => {

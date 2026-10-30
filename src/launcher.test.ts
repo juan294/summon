@@ -34,7 +34,7 @@ vi.mock("./backend.js", async (original) => ({
 
 // Rex launch path (Phase 3): the adapter, adoption and switch decision are mocked; their own
 // suites cover them. The fake backend records what the launcher hands it.
-const mockAdoptOrphans = vi.fn((_project: string): string[] => []);
+const mockAdoptOrphans = vi.fn((_project: string, _options?: { repeatAnnounced?: boolean }): string[] => []);
 const mockMaybeSwitch = vi.fn((..._args: unknown[]): unknown => ({ kind: "proceed" }));
 const mockSessionState = vi.fn((..._args: unknown[]): unknown => ({ state: "stopped", liveBlocks: [] }));
 const rexLaunches: Array<{ kind: string; plan: unknown; ctx: Record<string, unknown> }> = [];
@@ -50,7 +50,7 @@ const mockCreateRexBackend = vi.fn((_context: unknown, _deps: unknown) => ({
 }));
 vi.mock("./backends/rex/backend.js", () => ({ createRexBackend: (context: unknown, deps: unknown) => mockCreateRexBackend(context, deps) }));
 vi.mock("./backends/rex/launch.js", () => ({
-  adoptOrphans: (project: string) => mockAdoptOrphans(project),
+  adoptOrphans: (project: string, _deps: unknown, options?: { repeatAnnounced?: boolean }) => mockAdoptOrphans(project, options),
   adoptDeps: vi.fn(() => ({})),
   maybeSwitchToExisting: (...args: unknown[]) => mockMaybeSwitch(...args),
 }));
@@ -4718,7 +4718,7 @@ describe("Rex launch (plan P2, P8, P13, P15; Phase 3)", () => {
     }
     expect(order).toEqual(["adopt", "switch", "setup", "on-start"]);
     expect(mockRunSetup).toHaveBeenCalledWith({ backend: "rex" });
-    expect(mockAdoptOrphans).toHaveBeenCalledWith("workspace");
+    expect(mockAdoptOrphans).toHaveBeenCalledWith("workspace", { repeatAnnounced: false });
     expect(mockMaybeSwitch).toHaveBeenCalledWith("workspace", false, expect.objectContaining({ cliFor: expect.any(Function) }));
     expect(stderrText).toContain("summon: note: adopted earlier launch x");
     expect(stderrText).toContain("summon: note: Rex cannot honor clean; ignored");
@@ -4806,7 +4806,7 @@ describe("Rex launch (plan P2, P8, P13, P15; Phase 3)", () => {
       Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, configurable: true });
     }
     expect(stderrText).toContain("interactive confirmation");
-    expect(mockAdoptOrphans).toHaveBeenCalledWith("workspace");
+    expect(mockAdoptOrphans).toHaveBeenCalledWith("workspace", { repeatAnnounced: false });
     expect(rexLaunches).toEqual([]);
     expect(statusModule.publishStatus).not.toHaveBeenCalled();
   });

@@ -380,14 +380,18 @@ function extraSessionNotice(project: string, sessionId: string, launchId: string
  * Verify every orphan (no mutation), then adopt at most one and remove confirmed-gone launches, under the lock.
  * `reportLeftovers: false` leaves out the notes that `summon clean --orphans` repeats in its review of each
  * launch right after (F12); a fact the review does not check (foreign pane files) is still reported.
+ * `repeatAnnounced: false` (the launch path, F12) leaves out a live session beside a live record when the
+ * record's own `--new-window` launch already announced it (`keeps` in its manifest, see `keptSession`); any other
+ * extra session is still reported, and status always says it.
  */
-export function adoptOrphans(project: string, deps: AdoptDeps, options: { reportLeftovers?: boolean } = {}): string[] {
+export function adoptOrphans(project: string, deps: AdoptDeps, options: { reportLeftovers?: boolean; repeatAnnounced?: boolean } = {}): string[] {
   const reportLeftovers = options.reportLeftovers ?? true;
   const current = readStatusRecord(project);
   if (current && !current.launchId) return [`${project} has a record from an older Summon; run summon ${project} to replace it`];
   const gen = current?.launchId ?? null;
   const manifests = listLaunchManifests(project).filter((m): m is LaunchManifest & { server: string } => m.launchId !== gen && m.backend === "rex" && m.server !== undefined);
   if (manifests.length === 0) return [];
+  const announced = new Set(options.repeatAnnounced === false && gen ? readLaunchManifest(project, gen)?.keeps ?? [] : []);
 
   // PASS 1: the current record.
   let live = false;
@@ -437,7 +441,7 @@ export function adoptOrphans(project: string, deps: AdoptDeps, options: { report
       continue;
     }
     if (mapping.foreign.length > 0) { report(`earlier launch ${id} of ${project} has pane files that do not belong to its session (${mapping.foreign.join(", ")}); ${cleanHint}`, false); continue; }
-    if (live) { report(extraSessionNotice(project, root.sessionId, id)); continue; }
+    if (live) { if (!announced.has(id)) report(extraSessionNotice(project, root.sessionId, id)); continue; }
     const window = windowFor(viewed.view, project, root.blockId);
     if (!window) { report(`earlier launch ${id} of ${project} left an empty Rex session ${root.sessionId}; rex kill ${root.sessionId} closes it`); continue; }
     const hostId = hostIdOf(viewed.view, cli);
@@ -543,6 +547,20 @@ export function maybeSwitchToExisting(project: string, newWindow: boolean, deps:
   if (shown.shown) err(`Workspace [${project}] is already running in Rex; switched to it (use --new-window for a fresh one)`);
   else err(`Workspace [${project}] is already running in Rex but could not be shown (${shown.reason}); run summon open ${project}`);
   return { kind: "switched" };
+}
+
+/**
+ * `--new-window` beside a live recorded session (F12): the earlier session stays open and later launches
+ * switch to the new one. Said once, after that launch; `keeps` (the earlier launch and those it had
+ * announced) goes into the new manifest so a later launch does not repeat it.
+ */
+export function keptSession(project: string, cliFor: (server: string) => RexCli): { notice: string; keeps: string[] } | undefined {
+  const record = readStatusRecord(project);
+  if (record?.backend !== "rex" || !record.rex) return;
+  if (!isLiveState(sessionState(cliFor(record.rex.server), record.rex, project).state)) return;
+  const id = record.rex.sessionId;
+  const keeps = record.launchId ? [record.launchId, ...(readLaunchManifest(project, record.launchId)?.keeps ?? [])] : [];
+  return { notice: `the earlier [${project}] session ${id} stays open; summon ${project} now switches to this one, and rex kill ${id} closes the earlier one`, keeps };
 }
 
 /** Show a project's recorded Rex workspace (used by `summon session` to return to the first project). */

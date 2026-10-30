@@ -268,6 +268,8 @@ export interface LaunchManifest {
   backend: BackendId;
   server?: string;
   startedAt: string;
+  /** Earlier launches whose live session this `--new-window` launch announced it leaves open (F12); later launches do not repeat them. */
+  keeps?: string[];
 }
 
 function isStringArray(value: unknown): value is string[] {
@@ -299,6 +301,8 @@ export function parseLaunchManifest(raw: unknown): LaunchManifest | null {
     backend: d["backend"],
     ...(typeof d["server"] === "string" ? { server: d["server"] } : {}),
     startedAt: d["startedAt"],
+    // Advisory only: a malformed list is dropped, never the manifest.
+    ...(isStringArray(d["keeps"]) ? { keeps: d["keeps"].filter((id) => isLaunchId(id)) } : {}),
   };
 }
 

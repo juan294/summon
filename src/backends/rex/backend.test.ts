@@ -43,6 +43,7 @@ function deps(outcome: LaunchOutcome, extra: Partial<RexBackendDeps> = {}) {
     createWorkspace: create,
     app: { discover: () => null, open: () => false },
     callerSession: "session:caller",
+    keptSession: vi.fn(() => undefined),
     ...extra,
   };
   return { d, create, cli };
@@ -86,6 +87,40 @@ describe("createRexBackend", () => {
     expect(manifest["panes"]).toEqual(["editor"]);
     expect(manifest["paneOrder"]).toEqual(["editor", "sidebar"]);
     expect(context["newWindow"]).toBe(true);
+  });
+
+  it("--new-window says once, after the launch, that the earlier session stays open and records what it keeps; a plain launch never asks (F12)", async () => {
+    const notice = "the earlier [x] session session:old stays open; summon x now switches to this one, and rex kill session:old closes the earlier one";
+    const keptSession = vi.fn((_project: string, _cliFor: (server: string) => unknown) => ({ notice, keeps: [ID] }));
+    const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const outSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const stderr = () => errSpy.mock.calls.map((c) => String(c[0])).join("");
+    const plan = planLayout({ editor: "vim", ...getPreset("minimal") });
+    const { d, cli, create } = deps({ kind: "created", ids: IDS, clientId: "client:app", notices: [] }, { keptSession });
+    await createRexBackend(CONTEXT, d).launchTraditional(plan, ctx());
+    expect(keptSession).not.toHaveBeenCalled();
+    expect(create.mock.calls[0]![0]).not.toHaveProperty("keeps");
+    plan.newWindow = true;
+    await createRexBackend(CONTEXT, d).launchTraditional(plan, ctx());
+    expect(keptSession).toHaveBeenCalledWith("x", expect.any(Function));
+    expect(keptSession.mock.calls[0]![1]("unix:///other.sock")).toBe(cli);
+    expect(d.cliFor).toHaveBeenLastCalledWith("/usr/local/bin/rex", "unix:///other.sock");
+    expect(create.mock.calls[1]![0]).toMatchObject({ keeps: [ID] });
+    expect(stderr()).toContain(`summon: note: ${notice}`);
+    // Created but not shown is still a new session: the note stays.
+    errSpy.mockClear();
+    const unselected = deps({ kind: "created-unselected", ids: IDS, notices: [] }, { keptSession });
+    await createRexBackend(CONTEXT, unselected.d).launchTraditional(plan, ctx());
+    expect(stderr()).toContain(notice);
+    // A launch that fails or is unconfirmed says nothing about the earlier session.
+    const failure = { ok: false as const, op: "session-create" as const, kind: "rejected" as const, outcome: "rolled-back" as const, reason: "boom", raw: { code: 1, signal: null, timedOut: false, enoent: false, stdout: "", stderr: "" } };
+    for (const outcome of [{ kind: "failed" as const, reason: "boom", failure, notices: [] }, { kind: "unknown" as const, reason: "timeout", candidates: [], notices: [] }]) {
+      errSpy.mockClear();
+      await expect(createRexBackend(CONTEXT, deps(outcome, { keptSession }).d).launchTraditional(plan, ctx())).rejects.toThrow();
+      expect(stderr()).not.toContain("stays open");
+    }
+    errSpy.mockRestore();
+    outSpy.mockRestore();
   });
 
   it("launches a tree layout with its leaves as panes", async () => {
