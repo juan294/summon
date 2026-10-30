@@ -137,7 +137,7 @@ export async function collectBriefingData(): Promise<{ projects: ProjectBriefing
     return {
       name,
       directory,
-      state: status?.state ?? "unknown",
+      state: status?.state ?? "stopped", // no record: never launched, nothing to verify
       uptime: status?.uptime ?? null,
       ...(status?.reason ? { reason: status.reason } : {}),
       gitBranch: gitData.branch,

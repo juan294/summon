@@ -135,7 +135,7 @@ export async function detectAllPorts(): Promise<{
   );
 
   const perProject = await runPool([...projects], IO_CONCURRENCY, ([name, dir]) =>
-    detectProjectPorts(name, dir, statusMap.get(name) ?? "unknown"),
+    detectProjectPorts(name, dir, statusMap.get(name) ?? "stopped"),
   );
   const allAssignments: PortAssignment[] = perProject.flat();
 

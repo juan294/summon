@@ -21,6 +21,8 @@ const {
   bootstrapLine,
   paneFileLine,
   cleanupTrapLine,
+  clearSelfInvocation,
+  registerSelfInvocation,
   parseLaunchManifest,
   writeLaunchManifest,
   readLaunchManifest,
@@ -220,5 +222,26 @@ describe("launch manifests", () => {
     writeFileSync(join(dir, "stray.json"), "{}");
     writeFileSync(join(dir, "2b2b2b2b-2b2b-4b2b-8b2b-2b2b2b2b2b2b.json"), "{broken");
     expect(listLaunchManifests("chapa").map((m) => m.launchId)).toEqual([ID, OTHER]);
+  });
+});
+
+describe("the trap runs the binary that created the launch (guide F4)", () => {
+  afterEach(() => clearSelfInvocation());
+
+  it("types the registered node and script paths, double-quoted, instead of a bare summon", () => {
+    registerSelfInvocation("/usr/local/bin/node", '/opt/my "tools"/summon/dist/index.js');
+    const line = cleanupTrapLine("chapa", ID, { targetDir: "/tmp/chapa", layout: "full" });
+    expect(line).toContain(`"/usr/local/bin/node" "/opt/my \\"tools\\"/summon/dist/index.js" snapshot save --dir "/tmp/chapa" --project "chapa" --layout "full" --launch '${ID}' 2>/dev/null`);
+    expect(line).not.toMatch(/[;{] *summon snapshot/);
+  });
+
+  it("falls back to summon on PATH when no invocation is registered (library use, tests)", () => {
+    const line = cleanupTrapLine("chapa", ID, { targetDir: "/tmp/chapa" });
+    expect(line).toContain(`; summon snapshot save --dir "/tmp/chapa"`);
+  });
+
+  it("ignores a registration without a script path", () => {
+    registerSelfInvocation("/usr/local/bin/node", undefined);
+    expect(cleanupTrapLine("chapa", ID, { targetDir: "/tmp/chapa" })).toContain("; summon snapshot save");
   });
 });

@@ -319,13 +319,13 @@ Owner decision (2026-10-30): v1.9.0 was just announced, so the Rex release (v2.0
 
 | Id | Finding | Disposition |
 | --- | --- | --- |
-| F1 | `summon open <project>` is documented (`docs/rex.md`, `CHANGELOG.md`, runtime notices, plan §6) but the command is an interactive picker that ignores the argument | Open, owner decision: implement the positional form (recommended) or correct the texts; C19 is `it.todo` until then |
+| F1 | `summon open <project>` is documented (`docs/rex.md`, `CHANGELOG.md`, runtime notices, plan §6) but the command is an interactive picker that ignores the argument | Fixed (owner decision 2026-10-30): positional `open`/`switch` in `src/commands/project.ts` through `loadProjectRow` (one status read); C19 pins it |
 | F2 | The `summon-rc` sandbox derives the Rex socket from its `HOME` | Documented in the guide §1; no change |
 | F3 | The typed bootstrap and trap resolve `$HOME` inside the pane shell, so a sandboxed Summon never sees its pane files; the first suite run wrote into the real `~/.config/summon/status` (removed by hand) | Harness constraint; the suite hands the sandbox to the blocks through `env.HOME`; manual testing uses the real home after a backup. No product change |
-| F4 | The trap calls `summon snapshot save` by name; with 1.9.0 on PATH the on-exit snapshot of a candidate launch fails silently under Ghostty | Manual prerequisite (`npm link`); candidate change (absolute binary path in the trap) left to the owner |
-| F5 | A never-launched project reads `unknown` in `status --once` and the picker, the label the Rex table uses for an unreachable server | Pre-existing (`0c6afb1`); owner decision |
+| F4 | The trap calls `summon snapshot save` by name; with 1.9.0 on PATH the on-exit snapshot of a candidate launch fails silently under Ghostty | Fixed (owner decision 2026-10-30): `src/self.ts` records the node binary and script at the CLI entry; the trap types both through `shellDoubleQuote` (`summonCommand` is listed in `SHELL_FRAGMENT_SAFE_CALL` of the lint gate instead of a marker, so every line stays individually checked; the script path is `realpath`-resolved at registration), falling back to `summon` on PATH without a registration |
+| F5 | A never-launched project reads `unknown` in `status --once` and the picker, the label the Rex table uses for an unreachable server, and is therefore refused by the picker and the monitor's Enter (P10) | Fixed (owner decision 2026-10-30): no record means `stopped` in the monitor rows, the briefing and `ports` |
 | F6 | A Rex session shown in the app is destroyed when its last block closes, and usually (not always) when its last shell exits; an empty session persists when no app shows it | Documented; the suite accepts both ends; no change |
-| F7 | `Rex cannot honor <flag>` notices are printed only when a session is created, not on a switch | Owner decision (M2.7 asks) |
+| F7 | `Rex cannot honor <flag>` notices are printed only when a session is created, not on a switch | Kept (2026-10-30, Claude's assessment accepted by the owner's "fix everything based on your recommendation"): nothing is created on a switch, and a `maximize` in the global config would otherwise print the notice on every switch; M2.7 asks whether it feels wrong |
 
 ### Handoff (guide and suite)
 
@@ -335,3 +335,19 @@ Owner decision (2026-10-30): v1.9.0 was just announced, so the Rex release (v2.0
 - **Reviews:** independent fresh-context review of the suite, the guide and the doc lines: CHANGES REQUESTED on the first pass (eight should-fix items: the Ghostty gating variable in A9, a server-wide session count in C16, a disjunctive C13 assertion, four guide inaccuracies on exit code, help text, the refusal wording and the cleanup prefix, and the untracked `summon-rc` helper), all applied together with the nits; re-review: APPROVED (one evidence item, the A7 log files cited by the guide were then copied to `logs/rex-e2e-2026-10-30/`, and two nits applied before the commit).
 - **Risks and unsupported paths:** C12a depends on Rex timing (F6); the suite needs a connected Rex app and Accessibility like the other Rex suites; the Ghostty GUI suite opens and closes a Ghostty window on the owner's desktop.
 - **Next action:** owner acceptance of the guide and the suite, decisions on F1, F4, F5 and F7, then the manual part M0-M11.
+
+## Guide findings F1, F4, F5 fixed (2026-10-30)
+
+Owner instruction: "fix everything based on your recommendation and best assessment", optimizing for no bugs, the lowest user friction and delight. F1, F4 and F5 are fixed; F7 is kept as recommended.
+
+- **F1:** `summon open <project>` and `summon switch <project>` (`src/commands/project.ts`, `openRow` shared with the picker, `projectArgOrExit` for the argument; `loadProjectRow` in `src/monitor.ts` resolves one project through `readProjectStatus` in `src/status.ts`, which lists a manifest without a record as `unknown` exactly like the full listing, so a lost Rex launch is never launched over from `open` either, a review finding). A mistyped name exits 1 with the "Did you mean" suggestions of `projectSuggestions`. Help, completions (project names for `open`/`switch`), README, user manual and `CHANGELOG.md` updated.
+- **F4:** `src/self.ts` (`registerSelfInvocation`, called first thing in `main()` of `src/index.ts`); `summonCommand()` in `src/launch-identity.ts` types `"<node>" "<script>"` into the trap, both through `shellDoubleQuote`, else `summon`. No new `lint-allow-escape` marker: `summonCommand` joined `SHELL_FRAGMENT_SAFE_CALL` in the lint gate (review item). The in-process test suites keep the `summon`-on-PATH behavior (no registration under vitest), so the Rex and Ghostty E2E suites are unaffected.
+- **F5:** `neverLaunchedRow` in `src/monitor.ts` (also used by `loadProjectRow`), `briefing.ts` and `ports.ts` default to `stopped`. `docs/rex.md` states that a project with no record is `stopped`, not `unknown`.
+- Tests first (red, then green): `src/commands/project.test.ts` (four `open <project>` cases), `src/monitor.test.ts` (no-record row is `stopped`; `loadProjectRow`), `src/briefing.test.ts`, `src/ports.test.ts`, `src/launch-identity.test.ts` (registered invocation, fallback, registration without a script); `src/e2e/rex-cli.test.ts` C2 and C19 against the real server.
+
+### Handoff (F1, F4, F5)
+
+- **Candidate identity:** worktree `/Users/juan/code/summon-rex-findings`, branch `fix/rex-guide-findings` on local `develop` at `0dc0bb0`.
+- **Checks (2026-10-30, `findings-gate-final.log` in `logs/rex-e2e-2026-10-30/`):** typecheck, lint, build exit 0; 3206 passed, 17 skipped; coverage 96.82/91.87/98.85/98.38; release probes passed; lint gate present. Rex suites on the pre-review tree: lifecycle 2 passed; native and the CLI suite failed only on the environment (the Rex app had no window: `Rex Beta has no window to act in`), so their green run on this tree is still owed once a window exists (guide §4 F8).
+- **Reviews:** independent fresh-context review: CHANGES REQUESTED on the first pass (four should-fix: the bin symlink in `argv[1]` not resolved, the manual's `switch` section, `loadProjectRow` reading a manifest-only launch as `stopped`, `self.ts` missing from `CLAUDE.md`; seven nits), all applied; APPROVED on re-review with nothing outstanding.
+- **Next action:** owner acceptance; a Rex window, then `rex-native` and `rex-cli` in required mode on this tree; fast-forward into local `develop`; then the manual part of the guide.

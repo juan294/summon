@@ -50,6 +50,15 @@ const registry: Record<string, () => Promise<CommandHandler>> = {
 };
 
 async function main(): Promise<void> {
+  // Remember how this process was started: the cleanup trap typed into a workspace runs this
+  // same binary for its snapshot, not whatever `summon` is on the pane's PATH when the shell exits.
+  const { registerSelfInvocation } = await import("./self.js");
+  const { realpathSync } = await import("node:fs");
+  let script = process.argv[1];
+  // Resolve the bin symlink of a global install: the trap must run this build, not whatever the
+  // symlink points at when the shell exits (an upgrade or a rollback in between).
+  try { if (script) script = realpathSync(script); } catch { /* keep the path as typed */ }
+  registerSelfInvocation(process.execPath, script);
   // Load the CLI parser dynamically — skipped entirely on the --version fast path above.
   const { parseCli, buildOverrides } = await import("./cli/parse.js");
 

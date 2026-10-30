@@ -37,6 +37,7 @@ src/
   backend.ts            BackendId, LaunchContext, resolveBackendForLaunch, resolveBackendForRecord
   backend-detect.ts     Pure backend detection table over an env snapshot plus injected probe results
   launch-identity.ts    Per-launch ids and artifacts: newLaunchId, launchArtifactPaths, bootstrap/trap shell fragments, launch manifests
+  self.ts               How this process was started (node binary, resolved script), registered by index.ts so the cleanup trap runs the same Summon
   file-lock.ts          withFileLock: cross-process lock (directory rename, dead-owner recovery) for config and status records
   backends/ghostty.ts   GhosttyBackend adapter: AppleScript launch, executeScript, spinner, rollback
   backends/rex/cli.ts   discoverRex (PATH, REX_BIN_DIR, app bundles), defaultRexServer

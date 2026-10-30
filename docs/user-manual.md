@@ -184,11 +184,14 @@ Machine config:
   editor-size → 75
 ```
 
-### `summon open`
+### `summon open [project]`
 
-Interactively select and launch a registered project. Lists all projects and prompts you to pick one by number. Any CLI flags passed are forwarded to the launch. Enter `0` to cancel and exit without launching.
+With a project name: focus its workspace when it is running, launch it when it is stopped. A workspace whose liveness cannot be read (the Rex server is not answering) is refused with the reason and exit code 2, so nothing is launched over it. A name that is not registered exits 1 with the closest registered names. `summon switch` is an alias.
+
+Without a name: lists all projects with their state and prompts you to pick one by number; the pick is handled the same way. Any CLI flags passed are forwarded to a launch. Enter `0` to cancel and exit without launching.
 
 ```bash
+summon open myapp
 summon open
 summon open --layout minimal
 ```
@@ -288,11 +291,12 @@ The TUI refreshes every 3 seconds and supports keyboard navigation:
 
 When stdout is not a TTY (e.g., piped), `--once` mode is used automatically.
 
-### `summon switch`
+### `summon switch [project]`
 
-Interactively select a registered project to launch or focus. Active projects are switched to (focused); stopped projects launch a new workspace. This is an alias for interactive open with status indicators.
+Alias for `summon open`: with a name, focus the running workspace or launch the stopped one; without a name, pick one interactively.
 
 ```bash
+summon switch myapp
 summon switch
 ```
 

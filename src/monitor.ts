@@ -1,5 +1,5 @@
 import { sym } from "./ui/symbols.js";
-import { readAllStatuses, getGitBranch, isLiveState as isLiveWorkspaceState, unverifiedMessage } from "./status.js";
+import { readAllStatuses, readProjectStatus, getGitBranch, isLiveState as isLiveWorkspaceState, unverifiedMessage } from "./status.js";
 import type { ProgramState } from "./backends/rex/status.js";
 import type { ResolvedStatus } from "./status.js";
 import { listProjects } from "./config.js";
@@ -282,6 +282,22 @@ function statusToRow(name: string, directory: string, status: ResolvedStatus): P
   };
 }
 
+/** A registered project with no status record was never launched: stopped, with nothing to verify. */
+function neverLaunchedRow(name: string, directory: string): ProjectRow {
+  return { name, directory, state: "stopped", uptime: "\u2014", gitBranch: "\u2014" };
+}
+
+/**
+ * One project's row from one status read (`summon open <project>`); undefined when it is not registered.
+ * A launch with a manifest but no record is `unknown` here as in the full listing (never launched over).
+ */
+export function loadProjectRow(name: string): ProjectRow | undefined {
+  const directory = listProjects().get(name);
+  if (directory === undefined) return undefined;
+  const status = readProjectStatus(name);
+  return status ? statusToRow(name, directory, status) : neverLaunchedRow(name, directory);
+}
+
 export function loadProjectRows(): ProjectRow[] {
   const projects = listProjects();
   const statuses = readAllStatuses({ programStatus: true });
@@ -296,11 +312,7 @@ export function loadProjectRows(): ProjectRow[] {
   for (const [name, directory] of projects) {
     seen.add(name);
     const status = statusMap.get(name);
-    if (status) {
-      rows.push(statusToRow(name, directory, status));
-    } else {
-      rows.push({ name, directory, state: "unknown", uptime: "\u2014", gitBranch: "\u2014" });
-    }
+    rows.push(status ? statusToRow(name, directory, status) : neverLaunchedRow(name, directory));
   }
 
   for (const status of statuses) {

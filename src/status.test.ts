@@ -53,7 +53,7 @@ vi.mock("./snapshot.js", async (original) => ({
   writeSnapshotFile: (snapshot: unknown) => snapshotMocks.writeSnapshotFile(snapshot),
 }));
 
-const { writeStatus, publishStatus, clearStatus, readStatus, readAllStatuses, getGitBranch, parseWorkspaceStatus, resetReadAllStatusesCache, readStatusRecord, withOwnedRecord, statusTestHooks, resetRexBinaryMemo, newRexReadContext, removeLaunchFileSet, NO_LIVE_PANES } = await import("./status.js");
+const { writeStatus, publishStatus, clearStatus, readStatus, readAllStatuses, readProjectStatus, getGitBranch, parseWorkspaceStatus, resetReadAllStatusesCache, readStatusRecord, withOwnedRecord, statusTestHooks, resetRexBinaryMemo, newRexReadContext, removeLaunchFileSet, NO_LIVE_PANES } = await import("./status.js");
 const { launchArtifactFiles } = await import("./launch-identity.js");
 const { writeLaunchManifest } = await import("./launch-identity.js");
 import type { WorkspaceStatus } from "./status.js";
@@ -1389,6 +1389,13 @@ describe("readAllStatuses discovery of unverified launches (plan P13 §6)", () =
       backend: "rex", server: "unix:///tmp/rex.sock", startedAt: "2026-10-29T10:00:00.000Z",
     };
   }
+
+  it("readProjectStatus resolves one project the same way: the unverified row for a manifest without a record, null for nothing", () => {
+    mkdirSync(TEST_STATUS_DIR, { recursive: true });
+    writeLaunchManifest(manifest("orphan", GEN_A));
+    expect(readProjectStatus("orphan")).toMatchObject({ project: "orphan", launchId: GEN_A, state: "unknown", uptime: null, reason: "unverified launch" });
+    expect(readProjectStatus("nothing")).toBeNull();
+  });
 
   it("lists a manifest without a record as an unverified launch row", () => {
     mkdirSync(TEST_STATUS_DIR, { recursive: true });

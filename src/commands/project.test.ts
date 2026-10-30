@@ -49,8 +49,16 @@ vi.mock("../utils.js", async (importOriginal) => {
   };
 });
 
+const mockLoadProjectRow = vi.fn();
+const mockProjectSuggestions = vi.fn((..._args: unknown[]) => [] as string[]);
+vi.mock("../cli/resolve-target.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../cli/resolve-target.js")>()),
+  projectSuggestions: (...args: unknown[]) => mockProjectSuggestions(...args),
+}));
+
 vi.mock("../monitor.js", () => ({
   loadProjectRows: (...args: unknown[]) => mockLoadProjectRows(...args),
+  loadProjectRow: (...args: unknown[]) => mockLoadProjectRow(...args),
   renderRow: (...args: unknown[]) => mockRenderRow(...args),
   isLiveState: (state: string) => state === "active" || state === "active-long" || state === "partial",
 }));
@@ -580,3 +588,66 @@ describe("handleOpenCommand under the four-state table (plan P10, Phase 4)", () 
   });
 });
 
+
+describe("summon open <project> (guide F1: the documented direct form)", () => {
+  beforeEach(() => {
+    vi.spyOn(process, "exit").mockImplementation(((code: number) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+    mockLoadProjectRow.mockReset();
+    mockProjectSuggestions.mockReset();
+    mockProjectSuggestions.mockReturnValue([]);
+    mockFocusWorkspace.mockReset();
+    mockLaunch.mockReset();
+  });
+
+  it("focuses a live workspace without showing the picker", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockLoadProjectRow.mockReturnValue({ name: "api", directory: "/tmp/api", state: "active", uptime: "1h", gitBranch: "main" });
+    mockFocusWorkspace.mockReturnValue({ kind: "focused", terminalId: "block:1" });
+    await handleOpenCommand(makeContext({ args: ["api"] }));
+    expect(mockLoadProjectRow).toHaveBeenCalledWith("api");
+    expect(mockFocusWorkspace).toHaveBeenCalledWith("api");
+    expect(logSpy).toHaveBeenCalledWith("Switched to [api]");
+    expect(mockLoadProjectRows).not.toHaveBeenCalled();
+    expect(mockPromptUser).not.toHaveBeenCalled();
+    expect(mockLaunch).not.toHaveBeenCalled();
+    logSpy.mockRestore();
+  });
+
+  it("launches a stopped workspace with the forwarded overrides", async () => {
+    mockLoadProjectRow.mockReturnValue({ name: "api", directory: "/tmp/api", state: "stopped", uptime: "—", gitBranch: "—" });
+    await handleOpenCommand(makeContext({ args: ["api"], overrides: { layout: "minimal" } }));
+    expect(mockLaunch).toHaveBeenCalledWith("/tmp/api", { layout: "minimal" });
+    expect(mockFocusWorkspace).not.toHaveBeenCalled();
+  });
+
+  it("refuses an unknown workspace with its reason (exit 2) and never launches over it", async () => {
+    const err = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    mockLoadProjectRow.mockReturnValue({ name: "web", directory: "/tmp/web", state: "unknown", uptime: "—", gitBranch: "—", reason: "server unreachable" });
+    await expect(handleOpenCommand(makeContext({ args: ["web"] }))).rejects.toThrow("exit:2");
+    expect(err.mock.calls.flat().join("")).toContain("[web] could not be verified: server unreachable");
+    expect(mockLaunch).not.toHaveBeenCalled();
+    expect(mockFocusWorkspace).not.toHaveBeenCalled();
+    err.mockRestore();
+  });
+
+  it("rejects an empty name or more than one positional with the usage hint", async () => {
+    await expect(handleOpenCommand(makeContext({ args: ["a", "b"] }))).rejects.toThrow("usage:Usage: summon open [project]");
+    await expect(handleOpenCommand(makeContext({ args: [""] }))).rejects.toThrow("usage:");
+    expect(mockLoadProjectRow).not.toHaveBeenCalled();
+  });
+
+  it("names an unregistered project with suggestions (exit 1)", async () => {
+    const err = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    mockLoadProjectRow.mockReturnValue(undefined);
+    mockProjectSuggestions.mockReturnValue(["chapa", "chapa-cli"]);
+    await expect(handleOpenCommand(makeContext({ args: ["chap"] }))).rejects.toThrow("exit:1");
+    const text = err.mock.calls.flat().join("");
+    expect(text).toContain('"chap" is not a registered project');
+    expect(text).toContain("summon list");
+    expect(text).toContain("Did you mean: chapa, chapa-cli?");
+    expect(mockLaunch).not.toHaveBeenCalled();
+    err.mockRestore();
+  });
+});

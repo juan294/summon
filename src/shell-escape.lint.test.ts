@@ -80,7 +80,7 @@ const PRECISE_DANGER_PATTERNS: RegExp[] = [
 // region's own quoting helpers count as safe calls: each is itself a checked line.
 const SHELL_FRAGMENT_REGION_START = /^\/\/ --- Shell fragments/;
 const SECTION_HEADER = /^\/\/ --- /;
-const SHELL_FRAGMENT_SAFE_CALL = /(shellLaunchId|shellArtifact|shellLaunchDir|shellPaneFile|shellLogFile|paneFileLine)\s*\(/;
+const SHELL_FRAGMENT_SAFE_CALL = /(shellLaunchId|shellArtifact|shellLaunchDir|shellPaneFile|shellLogFile|paneFileLine|summonCommand)\s*\(/;
 
 // Patterns that confirm the interpolated value goes through a helper
 const SAFE_CALL = /(shellQuote|shellDoubleQuote|escapeAppleScript|escapeTabTitle)\s*\(/;

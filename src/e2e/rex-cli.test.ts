@@ -172,12 +172,12 @@ describe("rex cli e2e", () => {
       return PANES.every((pane) => files.includes(`${launchId}.pane.${pane}`)) ? true : undefined;
     }, 8000, "the four pane files");
 
-    // C2 status --once: one active; a registered project that was never launched has no record and shows
-    // `unknown` with its directory (monitor behavior since 0c6afb1, see the guide §4 F5).
+    // C2 status --once: one active; a registered project that was never launched has no record and reads
+    // `stopped` with its directory (guide §4 F5: `unknown` is reserved for a liveness that could not be read).
     const status = summon(["status", "--once"]);
     expect(status.status, status.out).toBe(0);
     contains(rowOf(status.stdout, one), /active/);
-    contains(rowOf(status.stdout, two), /unknown\s+—\s+\//);
+    contains(rowOf(status.stdout, two), /stopped\s+—\s+\//);
 
     // C3 inspect, text and JSON.
     const inspect = summon(["inspect", one]);
@@ -458,5 +458,35 @@ describe("rex cli e2e", () => {
     expect(backendOf({ TERM_PROGRAM: undefined, REX_SERVER: DEAD_SERVER })).toBe(fallback);
   });
 
-  it.todo("C19: summon open <project> (guide §4 F1: the command is a picker that ignores the argument; pinned once the owner decides)");
+  it("C19: summon open <project> focuses a live workspace, refuses an unknown one and names a mistyped project", { timeout: 120_000 }, (ctx) => {
+    if (!harness.gate(ctx)) return;
+    const one = name("one");
+    const four = name("four");
+    const live = requireRecord(one);
+    expect(live.endedAt).toBeUndefined();
+    const opened = summon(["open", one]);
+    expect(opened.status, opened.out).toBe(0);
+    contains(opened.stdout, `Switched to [${one}]`);
+    expect(opened.stdout).not.toContain("Select [");
+    // The same through the alias.
+    const switched = summon(["switch", one]);
+    expect(switched.status, switched.out).toBe(0);
+    contains(switched.stdout, `Switched to [${one}]`);
+    // A record whose server does not answer is unknown: refused with the reason, nothing launched.
+    const record = requireRecord(four);
+    writeRecord(four, { ...record, rex: { ...record.rex!, server: DEAD_SERVER } });
+    try {
+      const refused = summon(["open", four]);
+      expect(refused.status, refused.out).toBe(2);
+      contains(refused.stderr, `[${four}] could not be verified`);
+      expect(readRecord(four)!.rex!.sessionId).toBe(record.rex!.sessionId);
+    } finally {
+      writeRecord(four, record);
+    }
+    // A name that is not registered: exit 1 with the closest registered names.
+    const typo = summon(["open", `e2e-${suffix}-on`]);
+    expect(typo.status, typo.out).toBe(1);
+    contains(typo.stderr, `"e2e-${suffix}-on" is not a registered project`);
+    contains(typo.stderr, `Did you mean: ${one}`);
+  });
 });

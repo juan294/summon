@@ -42,12 +42,12 @@ const SUBCOMMAND_SPECS: SubcommandSpec[] = [
   { name: "setup",        desc: "Interactive setup wizard" },
   { name: "completions",  desc: "Generate shell completions" },
   { name: "doctor",       desc: "Check terminal setup (Ghostty config, Rex server)" },
-  { name: "open",         desc: "Select and launch a project" },
+  { name: "open",         desc: "Focus a running workspace or launch a stopped one (no name: pick)" },
   { name: "inspect",      desc: "Inspect exact native workspace panes" },
   { name: "title",        desc: "Read, set or reset native titles" },
   { name: "focus",        desc: "Focus an existing workspace pane" },
   { name: "status",       desc: "Show workspace status across all projects" },
-  { name: "switch",       desc: "Switch to an active project" },
+  { name: "switch",       desc: "Alias for open" },
   { name: "snapshot",     desc: "Manage context snapshots" },
   { name: "briefing",     desc: "Morning briefing across all projects" },
   { name: "ports",        desc: "Show port assignments across projects" },
@@ -208,7 +208,7 @@ ${argLines}
       ;;
     args)
       case "\${words[1]}" in
-        remove|inspect|focus|title)
+        remove|inspect|focus|title|open|switch)
           compadd -a project_names
           ;;
         set)
@@ -360,7 +360,7 @@ export function generateBashCompletion(): string {
 
   # Context-specific completions
   case "\${words[1]}" in
-    remove|inspect|focus|title)
+    remove|inspect|focus|title|open|switch)
       COMPREPLY=($(compgen -W "$project_names" -- "$cur"))
       ;;
     set)
@@ -457,7 +457,7 @@ complete -c summon -f
 ${subcommandLines}
 ${globalFlagLines}
 complete -c summon -l layout -s l -d 'Layout preset or tree DSL' -a '${layoutPresets}'
-complete -c summon -n '__fish_seen_subcommand_from inspect focus title' -a '(cut -d= -f1 ~/.config/summon/projects 2>/dev/null)' -d 'Project'
+complete -c summon -n '__fish_seen_subcommand_from inspect focus title open switch' -a '(cut -d= -f1 ~/.config/summon/projects 2>/dev/null)' -d 'Project'
 complete -c summon -n '__fish_seen_subcommand_from title' -l set -r -d 'Set title override'
 complete -c summon -n '__fish_seen_subcommand_from title' -l reset -d 'Clear title override'
 complete -c summon -n '__fish_seen_subcommand_from keybindings' -l detach-tab -d 'Include detach-tab binding'

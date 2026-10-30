@@ -307,6 +307,15 @@ describe("detectProjectPorts", () => {
 });
 
 describe("detectAllPorts", () => {
+  it("reports a project without a status record as stopped, never unknown (guide F5)", async () => {
+    const dir = projectDir("proj-fresh");
+    writeFileSync(join(dir, ".summon"), "env.PORT=3100\n");
+    listProjects.mockReturnValue([["proj-fresh", dir]]);
+    readAllStatuses.mockReturnValue([]);
+    const { assignments } = await detectAllPorts();
+    expect(assignments.map((a) => [a.project, a.state])).toEqual([["proj-fresh", "stopped"]]);
+  });
+
   it("returns empty when no projects registered", async () => {
     listProjects.mockReturnValue([]);
     const { assignments, conflicts } = await detectAllPorts();

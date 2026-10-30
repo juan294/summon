@@ -70,7 +70,7 @@ export async function handleInspectCommand({
       : undefined);
   const result = {
     project,
-    state: status?.state ?? "unknown",
+    state: status?.state ?? "stopped", // no record: never launched
     availability: available ? "available" : "unavailable",
     ...(explanation ? { reason: explanation } : {}),
     panes,

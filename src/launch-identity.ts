@@ -4,6 +4,9 @@ import { join } from "node:path";
 import { STATUS_DIR } from "./paths.js";
 import { atomicWrite, debugLog, confinedPath, SUMMON_WORKSPACE_ENV } from "./utils.js";
 import { shellDoubleQuote } from "./shell-escape.js";
+import { selfInvocation } from "./self.js";
+
+export { clearSelfInvocation, registerSelfInvocation } from "./self.js";
 import { isBackendId } from "./backend.js";
 import type { BackendId } from "./backend.js";
 import { PANE_NAME_RE } from "./tree.js";
@@ -155,6 +158,17 @@ function shellPaneFile(project: string, launchId: string, paneName: string): { f
   return { file: `"${path}"`, tmp: `"${path}.tmp"` }; // lint-allow-escape: path is the checked line above
 }
 
+/**
+ * The command that runs `summon snapshot save` from the trap: the node binary and script this
+ * process was started with (registered by the CLI entry), so the binary that created the launch
+ * is the one that saves its snapshot, whatever `summon` is on the pane's PATH at exit time.
+ * Listed in SHELL_FRAGMENT_SAFE_CALL of src/shell-escape.lint.test.ts: both paths are double-quoted here.
+ */
+function summonCommand(): string {
+  const self = selfInvocation();
+  return self ? `"${shellDoubleQuote(self.execPath)}" "${shellDoubleQuote(self.script)}"` : "summon";
+}
+
 /** Quoted cleanup log file of a project. */
 function shellLogFile(project: string): string {
   return `"$HOME/.config/summon/logs/cleanup-${shellDoubleQuote(project)}.log"`;
@@ -214,7 +228,7 @@ export function cleanupTrapLine(project: string, launchId: string, options: Clea
 
   if (options.targetDir) {
     parts.push(
-      `summon snapshot save`
+      `${summonCommand()} snapshot save`
       + ` --dir "${shellDoubleQuote(options.targetDir)}"`
       + ` --project "${shellDoubleQuote(project)}"`
       + ` --layout "${shellDoubleQuote(options.layout ?? "unknown")}"`

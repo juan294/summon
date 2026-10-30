@@ -10,6 +10,7 @@ vi.mock("./status.js", async (importOriginal) => {
   return {
     ...original,
     readAllStatuses: vi.fn().mockReturnValue([]),
+    readProjectStatus: vi.fn().mockReturnValue(null),
     getGitBranch: vi.fn().mockReturnValue(null),
   };
 });
@@ -31,8 +32,9 @@ import type { ProjectRow } from "./monitor.js";
 const { listProjects } = await import("./config.js") as unknown as {
   listProjects: ReturnType<typeof vi.fn>;
 };
-const { readAllStatuses, getGitBranch } = await import("./status.js") as unknown as {
+const { readAllStatuses, readProjectStatus, getGitBranch } = await import("./status.js") as unknown as {
   readAllStatuses: ReturnType<typeof vi.fn>;
+  readProjectStatus: ReturnType<typeof vi.fn>;
   getGitBranch: ReturnType<typeof vi.fn>;
 };
 
@@ -448,9 +450,11 @@ describe("loadProjectRows", () => {
     expect(rows[0]!.state).toBe("active");
     // With async path, gitBranch is "…" on first call (placeholder until prefetch completes)
     expect(rows[0]!.gitBranch).toBe("…");
-    // Unknown project second (no status found)
+    // A project with no record was never launched: stopped, never "unknown" (that state means the
+    // liveness could not be read and is refused by open, focus and Enter; guide F5).
     expect(rows[1]!.name).toBe("api");
-    expect(rows[1]!.state).toBe("unknown");
+    expect(rows[1]!.state).toBe("stopped");
+    expect(rows[1]!.reason).toBeUndefined();
 
     // After prefetch, branch is available
     await prefetchGitBranches(rows, () => {});
@@ -1568,3 +1572,20 @@ describe("program status glyph (Rex, Phase 5)", () => {
   });
 });
 
+
+describe("loadProjectRow (summon open <project>)", () => {
+  it("builds one row from one status read, and a stopped row for a registered project without a record", async () => {
+    const { loadProjectRow } = await import("./monitor.js");
+    readAllStatuses.mockClear();
+    listProjects.mockReturnValue(new Map([["api", "/tmp/api"], ["web", "/tmp/web"]]));
+    readProjectStatus.mockReturnValue(makeResolvedStatus({ project: "api", directory: "/tmp/api", state: "partial", reason: "root pane closed" }));
+    expect(loadProjectRow("api")).toMatchObject({ name: "api", directory: "/tmp/api", state: "partial", reason: "root pane closed" });
+    expect(readProjectStatus).toHaveBeenCalledWith("api");
+    readProjectStatus.mockReturnValue(makeResolvedStatus({ project: "api", directory: "/tmp/api", state: "unknown", uptime: null, reason: "unverified launch" }));
+    expect(loadProjectRow("api")).toMatchObject({ name: "api", state: "unknown", reason: "unverified launch" });
+    readProjectStatus.mockReturnValue(null);
+    expect(loadProjectRow("web")).toMatchObject({ name: "web", directory: "/tmp/web", state: "stopped" });
+    expect(loadProjectRow("nope")).toBeUndefined();
+    expect(readAllStatuses).not.toHaveBeenCalled();
+  });
+});

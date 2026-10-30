@@ -54,6 +54,8 @@ A Rex workspace resolves to one of four states, each with a reason when it is no
 | `stopped` | The session no longer exists, or it exists with no live recorded pane (reason `empty Rex session remains; run summon clean <project>` or `no live panes`) |
 | `unknown` | The server did not answer, or answered with a shape Summon cannot read, or the record's identity could not be read; nothing is assumed, nothing is launched over it, `open` and `focus` refuse with exit 2 and the reason |
 
+A registered project that was never launched has no record and is `stopped`, not `unknown`: `summon open <project>`, the picker and the monitor's Enter key launch it.
+
 `summon inspect` lists block ids instead of terminal ids; the tty is not available under Rex and prints `UNAVAILABLE` without changing the exit code. For the root pane it also prints the program status a program announced through OSC 7501 (`blocked`, `error`, `working`, `done`, with the title and message when given); `summon status` shows the same as a glyph before the project name. Programs that do not emit OSC 7501 show nothing. `summon title` sets the block label (pane) or the window label (tab); `reset` restores the block label recorded at launch or `[<project>]` for the window.
 
 ## When a workspace ends outside Summon

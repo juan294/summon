@@ -420,15 +420,16 @@ describe("collectBriefingData", () => {
     expect(summary.activeCount).toBe(1);
   });
 
-  it("handles unknown state when no status found", async () => {
+  it("reports a project with no record as stopped, not as unverified", async () => {
     listProjects.mockReturnValue([["myapp", "/tmp/myapp"]]);
     readAllStatuses.mockReturnValue([]);
     getGitBranch.mockReturnValue("main");
     execFileSync.mockReturnValue("");
 
-    const { projects } = await collectBriefingData();
-    expect(projects[0]!.state).toBe("unknown");
+    const { projects, summary } = await collectBriefingData();
+    expect(projects[0]!.state).toBe("stopped");
     expect(projects[0]!.uptime).toBeNull();
+    expect(summary.unverifiedCount).toBe(0);
   });
 
   it("counts overnight commits in summary", async () => {

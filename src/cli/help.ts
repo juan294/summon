@@ -84,7 +84,7 @@ async function buildHelp(): Promise<string> {
     wrap(`  ${cmd("summon title <project> [pane]")}  Read/set/reset native titles`),
     wrap(`  ${cmd("summon focus <project> [pane]")}  Focus an exact existing pane`),
     wrap(`  ${cmd("summon inspect <project>")}       Inspect native panes (--json)`),
-    wrap(`  ${cmd("summon open")}                 Select and launch a registered project ${note("(alias: switch)")}`),
+    wrap(`  ${cmd("summon open [project]")}       Focus a running workspace or launch a stopped one ${note("(alias: switch; no name: pick)")}`),
     "",
     h("SESSIONS"),
     wrap(`  ${cmd("summon session <name>")}          Launch a saved multi-project session`),
@@ -279,14 +279,16 @@ Options:
 In TUI mode: ↑↓/jk navigate, Enter focuses active projects or launches stopped projects, r refreshes, q quits.
 Automatically uses --once when stdout is not a TTY (e.g., piped output).`,
 
-  open: `Usage: summon open
+  open: `Usage: summon open [project]
 
-Interactively select a registered project to launch with status indicators.
-Active projects are focused (switched to); stopped projects launch a new workspace.`,
+Without a project: interactively select a registered project, with status indicators.
+With a project: act on it directly. A running workspace is focused (switched to), a stopped
+one launches a new workspace with the flags given, and one whose liveness cannot be read
+(Rex server not answering) is refused with the reason (exit 2).`,
 
-  switch: `Usage: summon switch
+  switch: `Usage: summon switch [project]
 
-Alias for 'summon open'. Switch to an active workspace or launch a stopped one.`,
+Alias for 'summon open'. Switch to a running workspace or launch a stopped one.`,
 
   snapshot: `Usage: summon snapshot <save|show|clear> [project]
 

@@ -121,14 +121,14 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 | `summon list` | List all registered projects |
 | `summon set <key> [value]` | Set a machine-level config value |
 | `summon config` | Show current machine configuration |
-| `summon open` | Pick a project interactively: focus active workspaces or launch stopped ones |
+| `summon open [project]` | Focus a running workspace or launch a stopped one; without a name, pick one interactively |
 | `summon export [path]` | Export resolved config as a `.summon` file |
 | `summon doctor [--fix] [--verbose]` | Check version, capabilities and effective settings (--fix appends eligible missing settings to an unambiguous existing file; --verbose adds diagnostic info) |
 | `summon freeze <name>` | Save current resolved config as a reusable custom layout |
 | `summon keybindings [--vim] [--detach-tab]` | Print pane navigation config, optionally including whole-tab detachment |
 | `summon layout <action>` | Manage custom layouts (create, save, list, show, delete, edit) |
 | `summon status [--once]` | Interactive workspace status dashboard across all projects |
-| `summon switch` | Alias for the interactive `summon open` picker |
+| `summon switch [project]` | Alias for `summon open` |
 | `summon inspect <project> [--json]` | Read workspace state and current native pane observations |
 | `summon focus <project> [pane]` | Focus the recorded root or named pane by exact native identity |
 | `summon title <project> [pane] [--set <text> \| --reset]` | Read, set or clear a tab/pane title override |
@@ -144,7 +144,7 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 | `summon trust <dir>` | Trust a project's `.summon` file (required before first launch in untrusted directories) |
 | `summon completions <shell>` | Generate shell completion script (`zsh`, `bash`, `fish`) |
 
-`summon open` and `summon switch` use the same picker. For a direct target, use `summon focus myapp` to focus an existing recorded pane or `summon myapp` to launch explicitly. Missing or legacy native identity produces recovery guidance; focus does not automatically launch a replacement.
+`summon open myapp` and `summon switch myapp` focus the workspace when it is running and launch it when it is stopped; without a name both show the same picker. `summon focus myapp` only focuses an existing recorded pane, and `summon myapp` launches explicitly. Missing or legacy native identity produces recovery guidance; focus does not automatically launch a replacement.
 
 ## CLI Flags
 

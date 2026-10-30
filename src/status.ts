@@ -251,6 +251,14 @@ function unverifiedLaunchRows(launchDirProjects: string[], recordedProjects: Set
   return rows;
 }
 
+/**
+ * One project's status as `readAllStatuses` would list it: its record, or the unverified-launch row
+ * of a manifest without a record (after one late-adoption attempt), or null when there is nothing.
+ */
+export function readProjectStatus(projectName: string, ctx: RexReadContext = newRexReadContext()): ResolvedStatus | null {
+  return readStatus(projectName, ctx) ?? unverifiedLaunchRows([projectName], new Set(), ctx)[0] ?? null;
+}
+
 // PE-M1 #607 / PE-L3 #570: bounded-TTL in-process cache for readAllStatuses.
 // TTL is intentionally short (1000ms) so the monitor's 3-second refresh loop
 // still re-checks isPidAlive for any process that died between ticks WITHOUT a
