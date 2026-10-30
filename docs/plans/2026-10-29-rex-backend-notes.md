@@ -310,3 +310,28 @@ The acceptance validation of the remediation (`docs/agents/validation-report.md`
 - **Invariants to carry:** `asRecord` never returns an array; a stop with blocks remaining and a recorded pane unverified is not ended; a superseding record resolves through its own backend; the manifest and the root token are the last two files to go, in that order; `afterUnlock` is the hook that models "published right after release".
 - **Risks and unsupported paths:** a launch whose unverified pane never recovers stays unreconciled (no snapshot, sidecars kept) until its session empties or dies; a root token can be stranded after a manifest removal when its own unlink fails (documented, inert); the validator's first coverage failure on `5630085` remains undiagnosed (its log was lost to this session's worktree removal).
 - **Next action:** owner acceptance; then fast-forward `fix/rex-validation-2` into local `develop` and remove the worktree and branch. `origin/develop` already carries `3d666c7` through a push this session did not make; whether this follow-up is pushed is the owner's decision.
+
+## Release verification guide and CLI E2E suite (2026-10-30)
+
+Owner decision (2026-10-30): v1.9.0 was just announced, so the Rex release (v2.0.0) waits until every Rex feature has been tested, automated first (by Claude) and then by hand (by the owner). `docs/release/rex-e2e-guide.md` is the test contract for that: the automated items A1-A9 with their results, the manual steps M0-M11 and the findings made while writing and running it (F1-F7). `src/e2e/rex-cli.test.ts` is the new automated piece: the built CLI as a child process under a sandbox home with the environment a Rex terminal exports, against the real server, gated like the other Rex suites.
+
+### Findings and dispositions (guide)
+
+| Id | Finding | Disposition |
+| --- | --- | --- |
+| F1 | `summon open <project>` is documented (`docs/rex.md`, `CHANGELOG.md`, runtime notices, plan §6) but the command is an interactive picker that ignores the argument | Open, owner decision: implement the positional form (recommended) or correct the texts; C19 is `it.todo` until then |
+| F2 | The `summon-rc` sandbox derives the Rex socket from its `HOME` | Documented in the guide §1; no change |
+| F3 | The typed bootstrap and trap resolve `$HOME` inside the pane shell, so a sandboxed Summon never sees its pane files; the first suite run wrote into the real `~/.config/summon/status` (removed by hand) | Harness constraint; the suite hands the sandbox to the blocks through `env.HOME`; manual testing uses the real home after a backup. No product change |
+| F4 | The trap calls `summon snapshot save` by name; with 1.9.0 on PATH the on-exit snapshot of a candidate launch fails silently under Ghostty | Manual prerequisite (`npm link`); candidate change (absolute binary path in the trap) left to the owner |
+| F5 | A never-launched project reads `unknown` in `status --once` and the picker, the label the Rex table uses for an unreachable server | Pre-existing (`0c6afb1`); owner decision |
+| F6 | A Rex session shown in the app is destroyed when its last block closes, and usually (not always) when its last shell exits; an empty session persists when no app shows it | Documented; the suite accepts both ends; no change |
+| F7 | `Rex cannot honor <flag>` notices are printed only when a session is created, not on a switch | Owner decision (M2.7 asks) |
+
+### Handoff (guide and suite)
+
+- **Objective and scope:** the owner asked for an end-to-end guide covering automated and manual Rex testing, the automated part run by Claude before any manual step. Delivered: the guide, the CLI suite, one line each in `docs/rex.md` and `CLAUDE.md`. No product code changed.
+- **Candidate identity:** worktree `/Users/juan/code/summon-rex-e2e`, branch `test/rex-e2e-guide` on local `develop` at `70d72bd`.
+- **Checks (2026-10-30, logs in `logs/rex-e2e-2026-10-30/` of the primary checkout, names in the guide §2.3):** A1-A4 green on the final tree with the reviewed suite (`e2e-guide-gate-final.log`: typecheck, lint, build exit 0; 82 files, 3193 passed, 16 skipped, 1 todo; coverage 96.81/91.86/98.84/98.37; release probes 82 passed), and on the baseline tree before the suite existed (7 skipped); A5 and A6 green in required mode (2 passed each); A7 green in required mode (9 passed, 1 todo) in two consecutive runs of the reviewed suite (13, 14) after three of the first version (8, 10, 11); A9: the advisory Ghostty E2E run passed 23 with 2 skipped, and the GUI case in required mode passed 9 (its first required run failed only because the gitignored `logs/` directory did not exist in the worktree; the owner's Ghostty window was untouched, checked through the app's own window list afterwards).
+- **Reviews:** independent fresh-context review of the suite, the guide and the doc lines: CHANGES REQUESTED on the first pass (eight should-fix items: the Ghostty gating variable in A9, a server-wide session count in C16, a disjunctive C13 assertion, four guide inaccuracies on exit code, help text, the refusal wording and the cleanup prefix, and the untracked `summon-rc` helper), all applied together with the nits; re-review: APPROVED (one evidence item, the A7 log files cited by the guide were then copied to `logs/rex-e2e-2026-10-30/`, and two nits applied before the commit).
+- **Risks and unsupported paths:** C12a depends on Rex timing (F6); the suite needs a connected Rex app and Accessibility like the other Rex suites; the Ghostty GUI suite opens and closes a Ghostty window on the owner's desktop.
+- **Next action:** owner acceptance of the guide and the suite, decisions on F1, F4, F5 and F7, then the manual part M0-M11.

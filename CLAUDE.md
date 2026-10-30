@@ -97,6 +97,7 @@ src/
     rex-harness.ts      Rex E2E gate (SUMMON_REX_E2E advisory, SUMMON_REX_E2E_REQUIRED), prerequisites, polling helpers (coverage-excluded)
     rex-native.test.ts  Rex launch/adopt/switch E2E against a real server (run the two Rex E2E files one at a time)
     rex-lifecycle.test.ts Observed Rex lifecycle table (which actions fire the cleanup trap)
+    rex-cli.test.ts     Rex CLI E2E: the built CLI as a child process under a sandbox home (docs/release/rex-e2e-guide.md)
   *.test.ts             Co-located unit tests
 ```
 
