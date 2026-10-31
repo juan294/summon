@@ -87,9 +87,14 @@ describe("native pane inventory", () => {
 });
 
 describe("escapeControlChars", () => {
-  it("escapes controls, bidi overrides and invisible zero-width marks; keeps plain and wide text", () => {
-    expect(escapeControlChars("a\x1b[31m\tb\u202e\u2066\u200b\u200f")).toBe("a\\u001b[31m\\u0009b\\u202e\\u2066\\u200b\\u200f");
+  it("escapes controls and bidi overrides; keeps plain and wide text", () => {
+    expect(escapeControlChars("a\x1b[31m\tb\u202e\u2066")).toBe("a\\u001b[31m\\u0009b\\u202e\\u2066");
     expect(escapeControlChars("editor · 日本 ✳")).toBe("editor · 日本 ✳");
-    expect(isDisplaySafe("id\u200b")).toBe(false);
+  });
+
+  it("leaves a ZWJ emoji sequence unchanged, so it displays as one grapheme (FE-L1)", () => {
+    const family = "\u{1F468}\u200d\u{1F469}\u200d\u{1F467}";
+    expect(escapeControlChars(`build ${family}`)).toBe(`build ${family}`);
+    expect(isDisplaySafe(family)).toBe(true);
   });
 });

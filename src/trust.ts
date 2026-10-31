@@ -233,6 +233,15 @@ const terminalIO = (): TrustPromptIO => ({
 });
 
 /**
+ * One line of a shown `.summon`: escapeControlChars, plus the zero-width marks (U+200B to U+200F) that could hide
+ * text in a file about to be trusted. A tab stays a tab; it cannot spoof anything.
+ */
+function showable(line: string): string {
+  return line.split("\t").map(escapeControlChars).join("\t")
+    .replace(/[\u200b-\u200f]/g, (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`);
+}
+
+/**
  * UX-M4: run `attempt` (a direct launch, a dry run, `open` or the monitor's Enter); when the trust gate refuses
  * `.summon` on a terminal, show the checked bytes line by line with controls, bidi and zero-width marks escaped (so
  * the file cannot drive the terminal or hide text), ask `Trust this file and continue? [y/N]`, trust exactly those
@@ -248,7 +257,7 @@ export async function withTrustPrompt<T>(attempt: () => Promise<T>, io: TrustPro
     if (!(error instanceof UntrustedSummonError) || !io.interactive) throw error;
     const file = join(error.dir, ".summon");
     io.write(`${file} ${error.changed ? "changed since you trusted it" : "is not trusted yet"}:\n\n`);
-    const lines = error.content.split(/\r?\n/).map((line) => `  ${escapeControlChars(line)}`);
+    const lines = error.content.split(/\r?\n/).map((line) => `  ${showable(line)}`);
     io.write(lines.join("\n").trimEnd() + "\n\n");
     if (!(await io.confirm("Trust this file and continue?"))) throw new PromptCancelled("Trust declined.");
     storeTrust(error.dir, hashContent(error.content));

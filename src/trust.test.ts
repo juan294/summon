@@ -1004,8 +1004,8 @@ describe("UX-M4: withTrustPrompt offers to trust and launch on a TTY", () => {
     await expect(withTrustPrompt(async () => { assertTrustedContent("/proj", hostile); }, t.io)).rejects.toBeInstanceOf(PromptCancelled);
     const shown = t.output.join("");
     // eslint-disable-next-line no-control-regex -- the point is to find raw control characters
-    expect(shown).not.toMatch(/[\x1b\x07\u202e\u200b\t\r]/);
-    // Line by line: each line is escaped and indented, and CRLF reads as one line break.
-    expect(shown).toContain("  editor = vim\\u001b]0;pwned\\u0007\\u202e\\u200b\\u0009x\n  sidebar = htop");
+    expect(shown).not.toMatch(/[\x1b\x07\u202e\u200b\r]/);
+    // Line by line: each line is escaped and indented, a tab stays a tab, and CRLF reads as one line break.
+    expect(shown).toContain("  editor = vim\\u001b]0;pwned\\u0007\\u202e\\u200b\tx\n  sidebar = htop");
   });
 });
