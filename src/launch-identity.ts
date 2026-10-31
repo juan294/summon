@@ -290,13 +290,18 @@ function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
 
+/** BE-L3: a list of pane identifiers (PANE_NAME_RE), so no stored name can turn a pane file path into another file. */
+export function isPaneNameList(value: unknown): value is string[] {
+  return isStringArray(value) && value.every((name) => PANE_NAME_RE.test(name));
+}
+
 export function parseLaunchManifest(raw: unknown): LaunchManifest | null {
   if (typeof raw !== "object" || raw === null) return null;
   const d = raw as Record<string, unknown>;
   if (d["version"] !== 1) return null;
   if (!isLaunchId(d["launchId"])) return null;
   if (typeof d["project"] !== "string" || typeof d["directory"] !== "string" || typeof d["layout"] !== "string") return null;
-  if (!isStringArray(d["panes"]) || !isStringArray(d["paneOrder"])) return null;
+  if (!isPaneNameList(d["panes"]) || !isPaneNameList(d["paneOrder"])) return null;
   if (typeof d["blockLabels"] !== "object" || d["blockLabels"] === null || Array.isArray(d["blockLabels"])) return null;
   const labels = d["blockLabels"] as Record<string, unknown>;
   if (!Object.values(labels).every((label) => typeof label === "string")) return null;

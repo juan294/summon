@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, unlinkSync } from "node:fs";
 import { STATUS_DIR } from "./paths.js";
 import { debugLog, atomicWrite, confinedPath } from "./utils.js";
 import { withFileLock } from "./file-lock.js";
-import { isLaunchId, launchArtifactPaths } from "./launch-identity.js";
+import { isLaunchId, isPaneNameList, launchArtifactPaths } from "./launch-identity.js";
 import type { LaunchFileSet } from "./launch-identity.js";
 import { isBackendId } from "./backend.js";
 import type { BackendId } from "./backend.js";
@@ -339,12 +339,9 @@ export function parseWorkspaceStatus(raw: unknown): WorkspaceStatus | null {
   if (typeof d["layout"] !== "string") return null;
   if (!Array.isArray(d["panes"])) return null;
 
-  // Validate that every pane element is a string (BE-M5 #379).
-  // If any element is not a string, return empty panes rather than rejecting the record.
-  const rawPanes = d["panes"] as unknown[];
-  const validPanes = rawPanes.every((p) => typeof p === "string")
-    ? rawPanes as string[]
-    : [];
+  // Every pane element must be a pane identifier (BE-M5 #379, BE-L3: never a path that names another launch's file).
+  // Otherwise the record keeps empty panes rather than being rejected.
+  const validPanes = isPaneNameList(d["panes"]) ? d["panes"] : [];
 
   const warn = (message: string) => process.stderr.write(`summon: warning: ${message}\n`);
 

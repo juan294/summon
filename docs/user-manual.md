@@ -1003,12 +1003,16 @@ All files use `key=value` format, one entry per line.
 |---|---|
 | `SHELL` | Login shell used to execute pane commands. Must be an absolute path (e.g., `/bin/zsh`). Falls back to `/bin/bash` if unset or invalid. |
 | `NO_COLOR` | When set, disables ANSI colors in the setup wizard. Follows the [NO_COLOR](https://no-color.org) standard. |
+| `FORCE_COLOR` | `1` turns ANSI colors on and `0` turns them off, whether or not stdout is a terminal. `NO_COLOR` wins over it. |
 | `COLORTERM` | When set to `truecolor` or `24bit`, the setup wizard shows colored palette swatches for Starship presets. |
 | `STARSHIP_CONFIG` | Set automatically by summon when `starship-preset` is configured. Points each workspace to a cached preset TOML file. Do not set manually. |
 | `SUMMON_WORKSPACE` | Set to `1` in all panes inside a summon workspace. Used to detect nested launches — if you run `summon` inside an existing workspace, you'll see a warning prompt suggesting `--new-window` instead. There is no warning when the backend is Rex, because a Rex launch creates its own session. |
 | `SUMMON_DEBUG` | Set to `1` to enable debug output. Each message is timestamped and written to stderr only; Summon does not write debug output to a file. Useful for diagnosing launch issues or AppleScript failures. |
-| `SUMMON_NO_CACHE` | Set to `1` to disable the persistent cross-invocation read cache (`~/.config/summon/cache.json`). Machine config and the project registry are then read from disk on every invocation. |
+| `SUMMON_NO_CACHE` | No effect. It disabled a cross-invocation read cache (`~/.config/summon/cache.json`), which is gone: machine config and the project registry are read from disk on every invocation. An old `cache.json` is no longer read, and you can delete it. |
+| `SUMMON_NO_SPINNER` | When set (to any value), launch progress is printed as plain lines instead of an animated spinner. |
+| `SUMMON_NO_VISIBILITY` | Set to `1` to keep normal status-monitor polling instead of negotiating terminal visibility reports. |
 | `EDITOR` | Editor used by `summon layout edit` to open a custom layout file. Falls back to `vi` if unset. |
+| `XDG_CONFIG_HOME` | Read by `summon doctor --fix`. When it points anywhere other than `~/.config`, doctor does not edit the Ghostty config, because Ghostty may load another file. |
 | `TERM_PROGRAM` | Set by your terminal. Summon reads it to pick the backend: `rex` selects Rex, `ghostty` selects Ghostty (see [Prerequisites](#prerequisites)). |
 | `REX_SERVER` | The Rex server that a Rex terminal exports. Inside a Rex terminal, Summon launches on this server (else on the default socket, `~/Library/Application Support/rex/server.sock`). With no `TERM_PROGRAM`, it counts only when `rex whoami` answers on it. Inside Ghostty or another terminal it is ignored. |
 | `REX_BIN_DIR` | A directory that contains the `rex` CLI. Summon looks for `rex` there after `PATH` and before the Rex app bundles. |
@@ -1083,7 +1087,13 @@ Files are plain text (`key=value` format) and safe to edit manually.
 
 ### `.summon` File Trust Gate
 
-Before a project's `.summon` file is acted upon, its SHA-256 hash must be recorded as trusted. This is a direnv-style model: on first launch in a directory with a `.summon` file, summon prompts you to trust it. You can also grant trust explicitly:
+Before a project's `.summon` file is acted upon, its SHA-256 hash must be recorded as trusted. This is a direnv-style model. A launch with an untrusted file says why: `This project has a .summon file.` when it was never trusted, or `This project's .summon file changed since you trusted it.` (for example after `git pull`). On a terminal, summon then shows the file (control characters escaped) and asks:
+
+```
+Trust and launch? [y/N]
+```
+
+`y` trusts exactly the content shown and launches; `n`, Enter, Escape or Ctrl+C trusts nothing and exits with 130. Without a terminal (scripts, CI) nothing is asked: the launch fails with exit 1, as before. `summon session --all` never asks; it skips the untrusted project and continues. You can also grant trust explicitly:
 
 ```bash
 summon trust .                    # trust the .summon file in current directory
