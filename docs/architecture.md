@@ -21,8 +21,8 @@ Technical reference for contributors.
 | `ui/symbols.ts` | Canonical glyph vocabulary — `sym.ok`, `sym.warn`, `sym.fail`, `sym.info`, `sym.bullet` | **pure** | none |
 | `launcher.ts` | Orchestrator `launch()`: trust and config (through config-resolve), backend resolution (seam), Rex adoption and switch, wizard, nested-workspace and pane-count checks, on-start, dispatch to a backend or the dry run, status publication | yes | config, config-resolve, command-install, dry-run, layout, tree, utils, validation, starship, status-record, launch-guards, trust, command-spec, launch-identity, ui/output, backend, backends/* |
 | `config-resolve.ts` | Config layering (CLI > project > global > preset > defaults) — `resolveConfig`, `readTrustedSummonFile` (one trusted `.summon` read), `optsToConfigMap`, `pickConfigValue`, `CLIOverrides`, env-var collection and the env-key denylist | yes | config, layout, tree, trust, validation, ui/output |
-| `command-install.ts` | Command checks for a launch — `checkCommand` (no side effects), `ensureCommand` (stop or install prompt), `commandFixHint`, `KNOWN_INSTALL_COMMANDS` | yes | utils, backends/rex/launcher-tab, ui/output |
-| `dry-run.ts` | Dry-run output for both backends — `printTraditionalDryRun`, `printTreeDryRun`: header, AppleScript or Rex `session.create` request, Ghostty command notes | yes | script, status-record, backend, backends/ghostty, backends/rex/layout, starship, command-spec, command-install, ui/output |
+| `command-install.ts` | Command checks for a launch — `checkCommand` (no side effects), `ensureCommand` (stop, or offer the install method of a known tool), `commandFixHint` | yes | utils, backends/rex/launcher-tab, ui/output |
+| `dry-run.ts` | Dry-run output for both backends — `printTraditionalDryRun`, `printTreeDryRun`: header, AppleScript or Rex `session.create` request, Ghostty command notes | yes | script, status-record, backends/ghostty, backends/rex/layout, starship, command-spec, command-install, ui/output |
 | `workspace-focus.ts` | `focusWorkspace`, `resolveWorkspaceTerminal` — focus a recorded workspace on either backend without the launch path | yes | status, backends/rex/status, ghostty-native, validation |
 | `backend.ts` | `BackendId`, `isBackendId`, `LaunchContext`, `resolveBackendForLaunch` (one `rex` lookup per detection), `callerRexSession`, `REX_UNHONORED_FLAGS`, `GHOSTTY_ONLY_CONFIG_KEYS` | yes | backend-detect, backends/rex/cli, utils |
 | `backend-detect.ts` | Pure backend detection table over an env snapshot plus injected probes (`detectBackend`, `snapshotEnv`) | **pure** | none |
@@ -66,7 +66,7 @@ Technical reference for contributors.
 | `tree.ts` | Tree data model, DSL parser, plan builder (pure — no side effects) | **pure** | layout |
 | `status.ts` | Status reader over both backends: `readStatus`/`readProjectStatus`/`readAllStatuses` (`active`/`partial`/`stopped`/`unknown`), `hasRexState`, `rexCommandGate`, git branch lookup. A read writes nothing unless it passes `{ reconcile: true }`, which runs the steps of `backends/rex/reconcile.ts`; every status command passes it. No re-export of `status-record.ts` | yes | status-record, launch-identity, backends/rex/cli, backends/rex/status, backends/rex/reconcile, paths, utils |
 | `briefing.ts` | Morning project briefing — overnight commits, dirty files, recommendations | yes | config, status, status-record, ui/ansi |
-| `monitor.ts` | Interactive TUI dashboard — real-time workspace status with keyboard navigation | yes | status, status-record, config, ui/ansi, workspace-focus and launcher (dynamic, on Enter) |
+| `monitor.ts` | Interactive TUI dashboard — real-time workspace status with keyboard navigation | yes | status, status-record, config, trust, ui/ansi, workspace-focus and launcher (dynamic, on Enter) |
 | `ports.ts` | Port detection — scans `.summon` env vars, `package.json`, framework configs for port assignments | yes | config, status, status-record, trust, utils |
 | `snapshot.ts` | Context snapshot save/restore — git branch, dirty files, recent commits, layout | yes | paths |
 | `keybindings.ts` | Ghostty key table config generator (pure function) | **pure** | none |
@@ -173,7 +173,6 @@ graph TD
 
     dryrun --> script[script.ts]
     dryrun --> statusrecord
-    dryrun --> backend
     dryrun --> ghosttybk
     dryrun --> rex
     dryrun --> starship
@@ -183,6 +182,7 @@ graph TD
 
     workspacefocus --> status
     workspacefocus --> rex
+    workspacefocus --> ghosttynative[ghostty-native.ts]
     workspacefocus --> validation
 
     backend --> backenddetect[backend-detect.ts]
@@ -258,6 +258,7 @@ graph TD
 
     monitor --> status
     monitor --> statusrecord
+    monitor --> trust
     monitor --> config
     monitor --> uiansi
     monitor --> uisymbols

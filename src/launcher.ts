@@ -3,8 +3,6 @@ import { basename, resolve } from "node:path";
 import { execFileSync, execSync } from "node:child_process";
 import { planLayout, traditionalPaneNames } from "./layout.js";
 import type { LayoutOptions } from "./layout.js";
-// UX-M4: the monitor's Enter handoff takes the trust prompt from the launcher it already loads lazily.
-export { withTrustPrompt } from "./trust.js";
 import { listProjects } from "./config.js";
 import { pickConfigValue, readTrustedSummonFile, resolveConfig } from "./config-resolve.js";
 import type { CLIOverrides, ResolvedConfig } from "./config-resolve.js";

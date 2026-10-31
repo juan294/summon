@@ -3677,31 +3677,6 @@ describe("SE-M1: every .summon read is content-pinned", () => {
     expect(mockExecSync.mock.calls.flat()).not.toContain("touch /tmp/pwned");
   });
 
-  it("readTrustedSummonFile reads once, with no existence check: a missing or unreadable file is checked as no file", async () => {
-    const fs = await import("node:fs");
-    vi.mocked(fs.existsSync).mockClear();
-    for (const code of ["ENOENT", "EISDIR"]) {
-      mockAssertTrusted.mockClear();
-      mockAssertTrustedContent.mockClear();
-      vi.mocked(fs.readFileSync).mockImplementationOnce(() => { throw Object.assign(new Error(code), { code }); });
-      expect(readTrustedSummonFile("/tmp/workspace", {})).toBe("");
-      expect(mockAssertTrusted).toHaveBeenCalledWith("/tmp/workspace");
-      expect(mockAssertTrustedContent).not.toHaveBeenCalled();
-    }
-    expect(vi.mocked(fs.existsSync)).not.toHaveBeenCalledWith(SUMMON);
-  });
-
-  it("readTrustedSummonFile returns the checked bytes, skips with --no-project-config and propagates a refusal", async () => {
-    const { SummonError } = await import("./trust.js");
-    summonContent = "editor=nvim\n";
-    expect(readTrustedSummonFile("/tmp/workspace", {})).toBe("editor=nvim\n");
-    expect(mockAssertTrustedContent).toHaveBeenCalledWith("/tmp/workspace", "editor=nvim\n");
-    mockAssertTrustedContent.mockClear();
-    expect(readTrustedSummonFile("/tmp/workspace", { "no-project-config": "true" })).toBeUndefined();
-    expect(mockAssertTrustedContent).not.toHaveBeenCalled();
-    mockAssertTrustedContent.mockImplementation(() => { throw new SummonError("untrusted"); });
-    expect(() => readTrustedSummonFile("/tmp/workspace", {})).toThrow(SummonError);
-  });
 });
 
 // --- UX-L2 (#519): single-launch spinner ---

@@ -34,7 +34,7 @@ src/
   script.ts             AppleScript generator (pure function — builds script string)
   launcher.ts           Orchestrator launch(): trust and config, resolve backend (P15 seam), Rex switch, wizard, on-start, dispatch to a backend, publish status
   config-resolve.ts     Config layering and .summon read: resolveConfig, readTrustedSummonFile (single trusted read), optsToConfigMap, CLIOverrides, env-key denylist
-  command-install.ts    Launch command checks: checkCommand, ensureCommand (install prompt), commandFixHint, KNOWN_INSTALL_COMMANDS
+  command-install.ts    Launch command checks: checkCommand, ensureCommand (stop, or offer the install method of a known tool), commandFixHint
   dry-run.ts            Dry-run output for both backends (header, AppleScript or Rex session.create request, command notes)
   workspace-focus.ts    focusWorkspace, resolveWorkspaceTerminal: focus a recorded workspace without loading the launch path
   backend.ts            BackendId, LaunchContext, resolveBackendForLaunch

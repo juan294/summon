@@ -19,10 +19,13 @@ vi.mock("./status.js", async (importOriginal) => {
 });
 const mockLaunch = vi.fn();
 const mockFocusWorkspace = vi.fn<(...args: unknown[]) => import("./ghostty-native.js").FocusResult>((..._args: unknown[])=>({kind:"focused",terminalId:"00000000-0000-4000-8000-000000000001"}));
-// UX-M4: the Enter handoff launches through the trust prompt (re-exported by launcher.js); by default it runs the launch once.
+// UX-M4: the Enter handoff launches through the trust prompt (from trust.js, as `open` does); by default it runs the launch once.
 const mockWithTrustPrompt = vi.fn(async (attempt: () => Promise<unknown>) => attempt());
 vi.mock("./launcher.js", () => ({
   launch: (...args: unknown[]) => mockLaunch(...args),
+}));
+vi.mock("./trust.js", async (original) => ({
+  ...(await original<typeof import("./trust.js")>()),
   withTrustPrompt: (attempt: () => Promise<unknown>) => mockWithTrustPrompt(attempt),
 }));
 vi.mock("./workspace-focus.js", () => ({

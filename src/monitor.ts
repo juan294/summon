@@ -12,6 +12,7 @@ import { runPool, IO_CONCURRENCY, PromptCancelled } from "./utils.js";
 import { createMonitorInputDecoder, type MonitorInput } from "./monitor-input.js";
 import { createMonitorVisibility, type VisibilityEffects } from "./monitor-visibility.js";
 import { selfInvocation } from "./self.js";
+import { withTrustPrompt } from "./trust.js";
 import { MONITOR_READ_ARG, MONITOR_READ_OPTIONS, MONITOR_REX_BINARY_ENV } from "./monitor-read.js";
 
 export { MONITOR_READ_ARG } from "./monitor-read.js";
@@ -744,7 +745,7 @@ export async function runMonitor(options: MonitorOptions = {}): Promise<void> {
         const result = focusWorkspace(selected.name);
         if (result.kind !== "focused") throw new Error(result.reason);
       } else {
-        const { launch, withTrustPrompt } = await import("./launcher.js");
+        const { launch } = await import("./launcher.js");
         // UX-M4: a new or changed `.summon` is shown and offered for trust here, on the normal screen.
         await withTrustPrompt(() => launch(selected.directory));
       }

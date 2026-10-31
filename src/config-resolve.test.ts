@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { CLIOverrides } from "./config-resolve.js";
 
 // Moved from launcher.test.ts with config resolution (AR-M2): the same config, trust and fs mocks.
@@ -31,8 +31,9 @@ vi.mock("./trust.js", () => ({
   assertTrustedContent: vi.fn(),
 }));
 
-const { resolveConfig, optsToConfigMap } = await import("./config-resolve.js");
+const { resolveConfig, optsToConfigMap, readTrustedSummonFile } = await import("./config-resolve.js");
 const { listConfig, listProjects } = await import("./config.js");
+const { assertTrusted, assertTrustedContent } = await import("./trust.js");
 
 /** resolveConfig with the `.summon` content the trusted read would hand it: whatever mockReadKVFile says about that file. */
 function resolveConfigWithMockedSummon(targetDir: string, overrides: CLIOverrides): ReturnType<typeof resolveConfig> {
@@ -944,3 +945,36 @@ describe("AR-M1: secondary-editor round-trips through optsToConfigMap (#543)", (
   });
 });
 
+// Moved from launcher.test.ts with readTrustedSummonFile (AR-M2 review): the one trusted `.summon` read.
+describe("readTrustedSummonFile", () => {
+  const SUMMON = "/tmp/workspace/.summon";
+  afterEach(() => {
+    vi.mocked(assertTrustedContent).mockReset();
+  });
+
+  it("reads once, with no existence check: a missing or unreadable file is checked as no file", async () => {
+    const fs = await import("node:fs");
+    vi.mocked(fs.existsSync).mockClear();
+    for (const code of ["ENOENT", "EISDIR"]) {
+      vi.mocked(assertTrusted).mockClear();
+      vi.mocked(assertTrustedContent).mockClear();
+      vi.mocked(fs.readFileSync).mockImplementationOnce(() => { throw Object.assign(new Error(code), { code }); });
+      expect(readTrustedSummonFile("/tmp/workspace", {})).toBe("");
+      expect(assertTrusted).toHaveBeenCalledWith("/tmp/workspace");
+      expect(assertTrustedContent).not.toHaveBeenCalled();
+    }
+    expect(vi.mocked(fs.existsSync)).not.toHaveBeenCalledWith(SUMMON);
+  });
+
+  it("returns the checked bytes, skips with --no-project-config and propagates a refusal", async () => {
+    const { SummonError } = await vi.importActual<typeof import("./trust.js")>("./trust.js");
+    mockReadKVFile.mockReturnValue(new Map([["editor", "nvim"]]));
+    expect(readTrustedSummonFile("/tmp/workspace", {})).toBe("editor=nvim\n");
+    expect(assertTrustedContent).toHaveBeenCalledWith("/tmp/workspace", "editor=nvim\n");
+    vi.mocked(assertTrustedContent).mockClear();
+    expect(readTrustedSummonFile("/tmp/workspace", { "no-project-config": "true" })).toBeUndefined();
+    expect(assertTrustedContent).not.toHaveBeenCalled();
+    vi.mocked(assertTrustedContent).mockImplementation(() => { throw new SummonError("untrusted"); });
+    expect(() => readTrustedSummonFile("/tmp/workspace", {})).toThrow(SummonError);
+  });
+});
