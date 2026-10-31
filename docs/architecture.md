@@ -6,11 +6,11 @@ Technical reference for contributors.
 
 | Module | Role | Side Effects | Dependencies |
 |--------|------|:------------:|--------------|
-| `index.ts` | CLI entry point — thin dispatch registry (~134 lines) | yes | config, launcher, commands/*, cli/parse, utils |
-| `cli/parse.ts` | CLI argument parsing — `parseCli`, `buildOverrides` | yes | layout, validation, utils, config, commands/layout-support |
-| `cli/help.ts` | Help text (lazily imported on the `--help` path) — `showHelp`, `hasSubcommandHelp`, `showSubcommandHelp` | yes | layout, ui/width |
+| `index.ts` | CLI entry point — thin dispatch registry (~250 lines); every module is loaded through dynamic `import()` | yes | commands/* (lazy registry), cli/parse, cli/help, cli/resolve-target, config, trust, utils, launcher, setup, self, ui/output |
+| `cli/parse.ts` | CLI argument parsing — `parseCli`, `buildOverrides` | yes | layout, validation, utils, ui/output, commands/layout-support |
+| `cli/help.ts` | Help text (lazily imported on the `--help` path) — `showHelp`, `hasSubcommandHelp`, `showSubcommandHelp` | yes | config, ui/ansi, setup-gallery (dynamic) |
 | `commands/config.ts` | `handleConfigCommand`, `handleExportCommand`, `handleFreezeCommand`, `handleSetCommand` | yes | config, utils, validation |
-| `commands/doctor.ts` | `handleDoctorCommand` | yes | config, utils |
+| `commands/doctor.ts` | `handleDoctorCommand`: Ghostty checks (when applicable) and Rex checks (CLI, server, connected apps) | yes | config, utils, ghostty, backend, backends/rex/cli, backends/rex/app, command-spec, paths, ui/ansi, ui/symbols |
 | `commands/layout.ts` | `handleLayoutCommand` — create/save/list/show/delete/edit | yes | config, layout, utils, ui/layout-preview |
 | `commands/layout-support.ts` | Shared layout validation helpers — `validateLayoutOrExit`, `validateLayoutNameOrExit`, `layoutNotFoundOrExit` | yes | config, layout, utils |
 | `commands/project.ts` | `handleAddCommand`, `handleListCommand`, `handleOpenCommand`, `handleRemoveCommand` | yes | config, launcher, utils, validation, status |
@@ -19,49 +19,51 @@ Technical reference for contributors.
 | `commands/types.ts` | `CommandHandler` and `CommandContext` interfaces | **pure** | none |
 | `cli/resolve-target.ts` | Resolves the launch target directory from a project name, path, or `.` — `resolveTargetDirectory`, `expandHome`; "Did you mean" hint on a mistyped name | yes | config, status-record, cli/suggest, node:path, node:os |
 | `ui/symbols.ts` | Canonical glyph vocabulary — `sym.ok`, `sym.warn`, `sym.fail`, `sym.info`, `sym.bullet` | **pure** | none |
-| `launcher.ts` | Orchestrator — config resolution, backend resolution (seam), dispatch to a backend, rollback on failure | yes | config, layout, script, tree, utils, validation, starship, status, launch-guards, trust, paths, backend, backends/* |
-| `backend.ts` | `BackendId`, `LaunchContext`, `resolveBackendForLaunch` (one `rex` lookup per detection), `resolveBackendForRecord` | yes | backend-detect, backends/rex/cli |
+| `launcher.ts` | Orchestrator — config resolution, backend resolution (seam), dispatch to a backend, status publication | yes | config, layout, script, tree, utils, validation, starship, status, launch-guards, trust, command-spec, launch-identity, ghostty-native, ui/output, backend, backends/* |
+| `backend.ts` | `BackendId`, `LaunchContext`, `resolveBackendForLaunch` (one `rex` lookup per detection), `resolveBackendForRecord` | yes | backend-detect, backends/rex/cli, utils |
 | `backend-detect.ts` | Pure backend detection table over an env snapshot plus injected probes (`detectBackend`, `snapshotEnv`) | **pure** | none |
-| `backends/ghostty.ts` | Ghostty adapter — AppleScript launch, `executeScript`, spinner, rollback | yes | script, utils |
-| `backends/rex/cli.ts` | `discoverRex`, `defaultRexServer`, `createRexCli` (bounded `rex` invocations), `probeWhoami` | yes | types, errors |
-| `backends/rex/types.ts` | `RexIdentity`, `REX_OPS` trait table, result types | **pure** | none |
-| `backends/rex/errors.ts` | `classifyRexFailure` — CLI failure classifier | **pure** | none |
+| `backends/ghostty.ts` | Ghostty adapter — `ensureGhostty`/`ensureAccessibility` guards, command resolution, AppleScript launch, `executeScript`, spinner, rollback | yes | script, tree, launch-guards, pane-inventory, errors, ui/output, utils |
+| `backends/rex/cli.ts` | `discoverRex`, `defaultRexServer`, `createRexCli` (bounded `rex` invocations), `probeWhoami` | yes | types, errors, utils |
+| `backends/rex/types.ts` | `RexIdentity`, `REX_OPS` trait table, result types | **pure** | pane-inventory |
+| `backends/rex/errors.ts` | `classifyRexFailure` — CLI failure classifier | **pure** | types, pane-inventory, ui/width |
 | `backends/rex/layout.ts` | `buildSessionCreateRequest` — layout plan to `session.create` request, pane order and block labels | **pure** | tree, launch-identity, pane-inventory, shell-escape |
 | `backends/rex/app.ts` | App client listing and choice, `selectInApp`, `waitForAppClient`, `openRexApp` | yes | cli |
-| `backends/rex/launch.ts` | `createWorkspace`, `adoptOrphans`, `showWorkspace`, `maybeSwitchToExisting`, pane mapping | yes | cli, app, status, status-record, launch-identity |
-| `backends/rex/status.ts` | `sessionState` (four-state table), `focusRex`, `inspectRex`, `titleRex`, program status | yes | cli, app |
-| `backends/rex/backend.ts` | `createRexBackend` — the Rex `Backend` adapter | yes | layout, launch, cli |
-| `status-record.ts` | Record layer — `WorkspaceStatus`, `readStatusRecord`, `withOwnedRecord` (locked, ownership-checked writes), artifact removal, Ghostty liveness | yes | paths, file-lock, launch-identity, utils |
-| `launch-identity.ts` | Per-launch ids and artifact paths, bootstrap/trap shell fragments, launch manifests | yes | paths, shell-escape, utils |
+| `backends/rex/launch.ts` | `createWorkspace`, `adoptOrphans`, `showWorkspace`, `maybeSwitchToExisting`, pane mapping | yes | cli, app, status, types, status-record, launch-identity, shell-escape, ui/output |
+| `backends/rex/status.ts` | `sessionState` (four-state table), `focusRex`, `inspectRex`, `titleRex`, program status | yes | cli, errors, app, types |
+| `backends/rex/backend.ts` | `createRexBackend` — the Rex `Backend` adapter | yes | layout, launch, cli, app, ui/output, ui/symbols |
+| `status-record.ts` | Record layer — `WorkspaceStatus`, `readStatusRecord`, `withOwnedRecord` (locked, ownership-checked writes), `writeStatus`, `publishStatus`, artifact removal, Ghostty liveness | yes | paths, file-lock, launch-identity, backend, backends/rex/types, pane-inventory, utils |
+| `launch-identity.ts` | Per-launch ids and artifact paths, bootstrap/trap shell fragments, launch manifests | yes | paths, shell-escape, self, backend, tree, utils |
+| `file-lock.ts` | `withFileLock`: cross-process lock (directory rename, dead-owner recovery) for config and status records | yes | Node stdlib only |
+| `self.ts` | How this process was started (node binary, resolved script), registered by `index.ts` so the cleanup trap runs the same Summon (`registerSelfInvocation`, `selfInvocation`) | yes | none |
 | `commands/workspace.ts` | `handleFocusCommand`, `handleInspectCommand`, `handleTitleCommand` — per-backend | yes | launcher, status, backends/rex/status |
-| `commands/clean.ts` | `handleCleanCommand` — close an empty Rex session, review earlier launches | yes | status, backends/rex/* |
+| `commands/clean.ts` | `handleCleanCommand` — close an empty Rex session, review earlier launches | yes | status, status-record, launch-identity, backends/rex/*, validation, shell-escape, ui/output |
 | `cli/suggest.ts` | `suggestProjects` — "did you mean" ranking (prefix, subsequence, edit distance, lazy recency lookup) | **pure** | edit-distance |
 | `edit-distance.ts` | `editDistance` — optimal string alignment distance shared by `setup.ts` and `cli/suggest.ts` | **pure** | none |
-| `launch-guards.ts` | Pre-launch safety checks — `ensureGhostty`, `ensureAccessibility`, `confirmDangerousCommands` (extracted from launcher.ts) | yes | utils, command-spec |
+| `launch-guards.ts` | Pre-launch safety checks — `ensureGhostty`, `ensureAccessibility`, `confirmDangerousCommands` (extracted from launcher.ts) | yes | utils, command-spec, ui/output |
 | `config.ts` | Config file read/write (`~/.config/summon/` and `.summon`), first-run detection, in-process mtime memoization layered over the persistent `cache.ts` | yes | paths, cache |
 | `cache.ts` | Persistent cross-invocation read-through KV cache at `~/.config/summon/cache.json`, keyed by path + `mtimeMs` + `size`; opt-out via `SUMMON_NO_CACHE` — `getCachedKV`, `putCachedKV`, `flushCacheToDisk`, `invalidateCachedKV`, `resetPersistentCache` | yes | paths, utils |
 | `paths.ts` | Canonical path constants — `CONFIG_DIR`, `STATUS_DIR`, `SNAPSHOTS_DIR`, `LAYOUTS_DIR`, `SESSIONS_DIR`, `TRUST_FILE`, `CACHE_FILE` | **pure** | Node stdlib only |
-| `sessions.ts` | Named session save/restore — persist and replay workspace configs — `listSessions`, `readSession`, `writeSession`, `deleteSession`, `sessionExists`, `isValidSessionName` | yes | paths, utils |
+| `sessions.ts` | Named session save/restore — persist and replay workspace configs — `listSessions`, `readSession`, `writeSession`, `deleteSession`, `sessionExists`, `isValidSessionName` | yes | config, paths |
 | `errors.ts` | Named error classes — `TabOpenError` (recoverable new-tab failure surfaced by `session --all`) | **pure** | none |
-| `trust.ts` | `.summon` file trust management — SHA-256 allowlist (`assertTrusted`, `trustProject`, `isTrusted`, `hashSummonFile`) | yes | paths, utils |
-| `command-spec.ts` | Command string analysis — `analyzeCommand`, `commandHasShellMeta`, `commandExecutable`, `replaceCommandExecutable` | **pure** | none |
+| `trust.ts` | `.summon` file trust management — SHA-256 allowlist (`assertTrusted`, `trustProject`, `isTrusted`, `hashSummonFile`) | yes | paths, utils, ui/output |
+| `command-spec.ts` | Command string analysis — `analyzeCommand`, `commandHasShellMeta`, `commandExecutable`, `replaceCommandExecutable` | **pure** | shell-escape |
 | `shell-escape.ts` | AppleScript/shell escape primitives — `escapeAppleScript`, `shellQuote`, `shellDoubleQuote` | **pure** | none |
 | `setup.ts` | Interactive setup wizard — back-navigation, numbered-select, accessibility prompt | yes | config, utils, starship, setup-gallery, ui/ansi, edit-distance |
 | `setup-gallery.ts` | Template gallery data — `LAYOUT_INFO`, `GRID_TEMPLATES`, `GridTemplate` (extracted from setup.ts) | **pure** | none |
-| `ui/ansi.ts` | ANSI color/style helpers — `bold`, `dim`, `green`, `yellow`, `cyan`, `magenta`, `brightCyan`, `colorSwatch` (extracted from setup.ts) | **pure** | none |
-| `ui/output.ts` | Single user-facing output writer — `out` (stdout), `err` (stderr), `fail` (unified `summon: error:` prefix) | yes | ui/ansi, utils |
+| `ui/ansi.ts` | ANSI color/style helpers — `bold`, `dim`, `green`, `yellow`, `cyan`, `magenta`, `brightCyan`, `colorSwatch` (extracted from setup.ts) | **pure** | utils, ui/width |
+| `ui/output.ts` | Single user-facing output writer — `out` (stdout), `err` (stderr), `fail` (unified `summon: error:` prefix) | yes | utils |
 | `ui/width.ts` | Display-width primitives for CJK/emoji/fullwidth-safe truncation — `isWideCodePoint`, `getDisplayWidth`, `truncate` | **pure** | none |
-| `ui/layout-preview.ts` | Layout preview renderer for the setup wizard and layout list command | **pure** | layout |
+| `ui/layout-preview.ts` | Layout preview renderer for the setup wizard and layout list command | **pure** | ui/ansi, ui/width |
 | `utils.ts` | Shared utilities — `SAFE_COMMAND_RE`, `GHOSTTY_PATHS`, `resolveCommand`, `promptUser`, `getErrorMessage`, `isDebug`, `debugLog`, `gitSafeEnv`, `confirm`, `supportsColor`, `PromptCancelled` | yes | Node stdlib only |
 | `layout.ts` | Layout calculation and presets | **pure** | none |
-| `script.ts` | AppleScript generator — builds script string from LayoutPlan or TreeLayoutPlan; options-object API | **pure** | tree, shell-escape |
+| `script.ts` | AppleScript generator — builds script string from LayoutPlan or TreeLayoutPlan; options-object API | **pure** | tree, shell-escape, launch-identity, pane-inventory, ghostty-native, utils |
 | `completions.ts` | Shell completion script generator (zsh, bash, fish) | **pure** | config, layout |
-| `starship.ts` | Starship detection, preset listing, TOML config caching | yes | config, utils |
+| `starship.ts` | Starship detection, preset listing, TOML config caching | yes | paths, utils |
 | `tree.ts` | Tree data model, DSL parser, plan builder (pure — no side effects) | **pure** | layout |
-| `status.ts` | Workspace status tracking — read/write status JSON + active marker files, git branch lookup | yes | paths |
+| `status.ts` | Status reader over both backends: `readStatus`/`readAllStatuses` (`active`/`partial`/`stopped`/`unknown`), Rex adoption and reconciliation, `endRexLaunch`, git branch lookup; re-exports `status-record.ts` | yes | status-record, launch-identity, snapshot, backends/rex/cli, backends/rex/status, backends/rex/launch, paths, utils |
 | `briefing.ts` | Morning project briefing — overnight commits, dirty files, recommendations | yes | config, status, ui/ansi |
 | `monitor.ts` | Interactive TUI dashboard — real-time workspace status with keyboard navigation | yes | status, config, ui/ansi |
-| `ports.ts` | Port detection — scans `.summon` env vars, `package.json`, framework configs for port assignments | yes | config |
+| `ports.ts` | Port detection — scans `.summon` env vars, `package.json`, framework configs for port assignments | yes | config, status, trust, utils |
 | `snapshot.ts` | Context snapshot save/restore — git branch, dirty files, recent commits, layout | yes | paths |
 | `keybindings.ts` | Ghostty key table config generator (pure function) | **pure** | none |
 | `validation.ts` | Input validation helpers (`ENV_KEY_RE`, `parseIntInRange`, `parsePositiveFloat`, `validateProjectNameOrExit`) | **pure** | utils |
@@ -72,40 +74,64 @@ Technical reference for contributors.
 
 ```mermaid
 graph TD
-    index[index.ts] --> cliparse[cli/parse.ts]
-    index --> cmds[commands/*]
-    index --> config[config.ts]
-    index --> launcher[launcher.ts]
-    index --> utils[utils.ts]
-    index --> resolvetarget[cli/resolve-target.ts]
-    index -.->|dynamic| help[cli/help.ts]
+    %% every index.ts edge is a dynamic import()
+    index[index.ts] -.-> cliparse[cli/parse.ts]
+    index -.-> cmds[commands/*]
+    index -.-> clean[commands/clean.ts]
+    index -.-> config[config.ts]
+    index -.-> launcher[launcher.ts]
+    index -.-> utils[utils.ts]
+    index -.-> resolvetarget[cli/resolve-target.ts]
+    index -.-> help[cli/help.ts]
+    index -.-> trust[trust.ts]
+    index -.-> setup[setup.ts]
+    index -.-> self[self.ts]
+    index -.-> uioutput[ui/output.ts]
 
     cliparse --> layout[layout.ts]
     cliparse --> validation[validation.ts]
     cliparse --> utils
-    cliparse --> config
+    cliparse --> uioutput
     cliparse --> layoutsupport[commands/layout-support.ts]
 
-    help --> layout
-    help --> uiwidth[ui/width.ts]
+    help --> config
+    help --> uiansi[ui/ansi.ts]
+    help -.->|dynamic| setupgallery[setup-gallery.ts]
 
     cmds --> config
     cmds --> launcher
     cmds --> utils
     cmds --> validation
     cmds --> status[status.ts]
-    cmds --> monitor[monitor.ts]
-    cmds --> snapshot[snapshot.ts]
-    cmds --> briefing[briefing.ts]
-    cmds --> ports[ports.ts]
     cmds --> resolvetarget
     cmds --> uisymbols[ui/symbols.ts]
-    cmds --> uioutput[ui/output.ts]
+    cmds --> uioutput
     cmds --> errors[errors.ts]
+    cmds --> sessions[sessions.ts]
+    cmds --> backend[backend.ts]
+    cmds --> rex["backends/rex/*"]
+    cmds -.->|dynamic| monitor[monitor.ts]
+    cmds -.->|dynamic| snapshot[snapshot.ts]
+    cmds -.->|dynamic| briefing[briefing.ts]
+    cmds -.->|dynamic| ports[ports.ts]
+    cmds -.->|dynamic| launchidentity[launch-identity.ts]
     cmds -.->|dynamic| completions[completions.ts]
     cmds -.->|dynamic| keybindings[keybindings.ts]
-    cmds -.->|dynamic| setup[setup.ts]
-    cmds -.->|dynamic| sessions[sessions.ts]
+    cmds -.->|dynamic| setup
+
+    clean --> status
+    clean --> statusrecord[status-record.ts]
+    clean --> launchidentity
+    clean --> rex
+    clean --> validation
+    clean --> shellescape[shell-escape.ts]
+    clean --> uioutput
+
+    resolvetarget --> config
+    resolvetarget --> statusrecord
+    resolvetarget --> uioutput
+    resolvetarget --> suggest[cli/suggest.ts]
+    suggest --> editdistance[edit-distance.ts]
 
     launcher --> config
     launcher --> layout
@@ -116,36 +142,82 @@ graph TD
     launcher --> starship[starship.ts]
     launcher --> status
     launcher --> launchguards[launch-guards.ts]
-    launcher --> trust[trust.ts]
-    launcher --> paths[paths.ts]
-    launcher --> errors
+    launcher --> trust
+    launcher --> commandspec[command-spec.ts]
+    launcher --> launchidentity
     launcher --> uioutput
+    launcher --> backend
+    launcher --> ghosttybk[backends/ghostty.ts]
+    launcher --> rex
     launcher -.->|dynamic| setup
 
+    backend --> backenddetect[backend-detect.ts]
+    backend --> rex
+    backend --> utils
+
+    ghosttybk --> script
+    ghosttybk --> tree
+    ghosttybk --> launchguards
+    ghosttybk --> errors
+    ghosttybk --> uioutput
+    ghosttybk --> utils
+
+    rex --> launchidentity
+    rex --> statusrecord
+    rex --> layout
+    rex --> shellescape
+    rex --> uioutput
+    rex --> uisymbols
+    rex --> uiwidth[ui/width.ts]
+    rex --> utils
+
+    status --> statusrecord
+    status --> launchidentity
+    status --> rex
+    status --> snapshot
+    status --> paths[paths.ts]
+    status --> utils
+
+    statusrecord --> filelock[file-lock.ts]
+    statusrecord --> launchidentity
+    statusrecord --> backend
+    statusrecord --> rex
+    statusrecord --> paths
+    statusrecord --> utils
+
+    launchidentity --> self
+    launchidentity --> backend
+    launchidentity --> tree
+    launchidentity --> shellescape
+    launchidentity --> paths
+    launchidentity --> utils
+
     launchguards --> utils
-    launchguards --> commandspec[command-spec.ts]
+    launchguards --> commandspec
 
     script --> tree
-    script --> shellescape[shell-escape.ts]
+    script --> shellescape
+    script --> launchidentity
 
     trust --> paths
     trust --> utils
 
     config --> paths
     config --> cache[cache.ts]
+    config --> filelock
     cache --> paths
     cache --> utils
 
     sessions --> paths
-    sessions --> utils
-    uioutput --> uiansi[ui/ansi.ts]
+    sessions --> config
     uioutput --> utils
 
     setup --> config
     setup --> utils
     setup --> starship
-    setup --> setupgallery[setup-gallery.ts]
-    setup --> uiansi[ui/ansi.ts]
+    setup --> setupgallery
+    setup --> uiansi
+    setup --> editdistance
 
     briefing --> config
     briefing --> status
@@ -159,16 +231,15 @@ graph TD
     monitor --> uiwidth
 
     tree --> layout
-    starship --> config
+    starship --> paths
     starship --> utils
     validation --> utils
     completions --> config
     completions --> layout
-    status --> paths
     snapshot --> paths
     ports --> config
-    ports --> uiwidth
-    briefing --> uiwidth
+    ports --> status
+    ports --> trust
 
     config -.- cfg_fns["addProject, removeProject,
     getProject, listProjects,
@@ -235,7 +306,7 @@ graph TD
     uisymbols -.- sym_fns["sym (ok, warn, fail,
     info, bullet)"]
     resolvetarget -.- rt_fns["resolveTargetDirectory,
-    expandHome"]
+    expandHome, projectSuggestions"]
     completions -.- comp_fns["generateZshCompletion,
     generateBashCompletion,
     generateFishCompletion"]
@@ -243,9 +314,12 @@ graph TD
     parseIntInRange,
     parsePositiveFloat,
     validateProjectNameOrExit"]
-    status -.- status_fns["writeStatus, readAllStatuses,
-    getGitBranch, resetGitBranchCache,
-    WorkspaceStatus, ResolvedStatus"]
+    status -.- status_fns["readStatus, readAllStatuses,
+    getGitBranch, rexCommandGate,
+    endRexLaunch, ResolvedStatus"]
+    statusrecord -.- sr_fns["writeStatus, publishStatus,
+    readStatusRecord, withOwnedRecord,
+    WorkspaceStatus"]
     briefing -.- briefing_fns["collectBriefing,
     resetGitDataCache,
     ProjectBriefing"]
@@ -277,11 +351,12 @@ graph TD
     style snapshot_fns fill:none,stroke-dasharray:5
     style sym_fns fill:none,stroke-dasharray:5
     style rt_fns fill:none,stroke-dasharray:5
+    style sr_fns fill:none,stroke-dasharray:5
 ```
 
-`layout.ts`, `script.ts`, `tree.ts`, `shell-escape.ts`, `command-spec.ts`, `setup-gallery.ts`, `ui/ansi.ts`, `ui/width.ts`, `completions.ts`, and `validation.ts` are pure modules with no side effects. `utils.ts` and `paths.ts` only use Node stdlib. `config.ts` depends on `paths.ts` for directory constants and uses in-process mtime-based memoization layered over the persistent `cache.ts` read-through cache (`~/.config/summon/cache.json`, keyed by path + `mtimeMs` + `size`, disabled by `SUMMON_NO_CACHE=1`) to avoid redundant disk reads both within and across invocations. `starship.ts` handles Starship binary detection (cached), preset listing, and TOML config file generation — it depends on `config.ts` and `utils.ts`.
+`layout.ts`, `script.ts`, `tree.ts`, `shell-escape.ts`, `command-spec.ts`, `setup-gallery.ts`, `ui/ansi.ts`, `ui/width.ts`, `completions.ts`, and `validation.ts` are pure modules with no side effects. `utils.ts` and `paths.ts` only use Node stdlib. `config.ts` depends on `paths.ts` for directory constants and uses in-process mtime-based memoization layered over the persistent `cache.ts` read-through cache (`~/.config/summon/cache.json`, keyed by path + `mtimeMs` + `size`, disabled by `SUMMON_NO_CACHE=1`) to avoid redundant disk reads both within and across invocations. `starship.ts` handles Starship binary detection (cached), preset listing, and TOML config file generation — it depends on `paths.ts` and `utils.ts`.
 
-`index.ts` is a thin dispatch registry (~134 lines) that delegates to `commands/*` handlers and `cli/parse.ts`. Command handlers are statically imported; the help text (`cli/help.ts`), full setup wizard, `completions.ts`, `keybindings.ts`, `monitor.ts`, `ports.ts`, `snapshot.ts`, and the named-session store (`sessions.ts`) are loaded via dynamic `import()` where needed — this keeps the `--version`/`--help` and simple-subcommand paths from pulling in the full launch graph. `launcher.ts` also dynamically imports `setup.ts` when no editor is configured. `launcher.ts` imports `assertTrusted` from `trust.ts` and pre-launch checks from `launch-guards.ts`. All user-facing output is funnelled through `ui/output.ts` (`out`/`err`/`fail`, the unified `summon: error:` prefix); `briefing.ts` and `monitor.ts` import color helpers from `ui/ansi.ts` (not `setup.ts`) and width-aware truncation from `ui/width.ts` for TUI rendering.
+`index.ts` is a thin dispatch registry (~250 lines) that delegates to `commands/*` handlers and `cli/parse.ts`. It has no static runtime imports: `cli/parse.ts`, `config.ts`, `trust.ts`, `utils.ts`, `launcher.ts`, the help text (`cli/help.ts`) and each command handler (through the lazy registry) are loaded via dynamic `import()` where needed, and the handlers load the full setup wizard, `completions.ts`, `keybindings.ts`, `monitor.ts`, `ports.ts` and `snapshot.ts` the same way. This keeps the `--version`/`--help` and simple-subcommand paths from pulling in the full launch graph. `launcher.ts` also dynamically imports `setup.ts` when no editor is configured. `launcher.ts` imports `assertTrusted` from `trust.ts`, `confirmDangerousCommands` from `launch-guards.ts` and both backends; `backends/ghostty.ts` imports `ensureGhostty` and `ensureAccessibility`. All user-facing output is funnelled through `ui/output.ts` (`out`/`err`/`fail`, the unified `summon: error:` prefix); `briefing.ts` and `monitor.ts` import color helpers from `ui/ansi.ts` (not `setup.ts`), and `monitor.ts` imports width-aware truncation from `ui/width.ts` for TUI rendering.
 
 All interactive prompts use `promptUser()` from `utils.ts`. On Ctrl+C or EOF, `promptUser` throws `PromptCancelled` instead of calling `process.exit`, allowing callers to clean up before exiting.
 
@@ -315,7 +390,8 @@ flowchart TD
     --auto-resize, --no-auto-resize, --dry-run,
     --env, --font-size, --on-start,
     --clean, --no-clean,
-    --new-window, --fullscreen, --maximize, --float"]
+    --new-window, --fullscreen, --maximize, --float,
+    --orphans (clean only)"]
     parse --> helpcheck{"--help flag?"}
 
     helpcheck -->|yes| showhelp["dynamic import cli/help.ts
@@ -353,10 +429,11 @@ flowchart TD
     SHA-256 hash stored in trust file"]
     dispatch -->|"completions"| compgen["completions.ts:
     generateZsh/Bash/FishCompletion()"]
-    dispatch -->|"doctor"| doctor["check Ghostty config
-    for recommended settings"]
-    dispatch -->|"open"| open["interactive project picker
-    → launch selected project"]
+    dispatch -->|"doctor"| doctor["Ghostty checks when applicable,
+    Rex checks: CLI, server, connected apps"]
+    dispatch -->|"open"| open["open project: focus when live,
+    launch when stopped;
+    no name: interactive picker"]
     dispatch -->|"export"| export["export resolved config
     as .summon file"]
     dispatch -->|"keybindings"| keybindgen["keybindings.ts:
@@ -367,8 +444,9 @@ flowchart TD
     create / save / list / show / delete / edit"]
     dispatch -->|"status"| statusdash["monitor.ts: runMonitor()
     or printStatusOnce() (--once)"]
-    dispatch -->|"switch"| switchcmd["interactive project picker
-    with status indicators → focus/launch"]
+    dispatch -->|"switch"| switchcmd["alias of open: a named project
+    focuses or launches directly,
+    else the picker"]
     dispatch -->|"briefing"| briefingcmd["briefing.ts: collectBriefing()
     overnight commits, dirty files, recommendations"]
     dispatch -->|"ports"| portscmd["ports.ts: detectAllPorts()
@@ -377,6 +455,11 @@ flowchart TD
     save / show / clear context snapshots"]
     dispatch -->|"session"| sessioncmd["commands/session.ts:
     launch / add / remove / list / show / --all"]
+    dispatch -->|"clean"| cleancmd["commands/clean.ts:
+    close an empty Rex session,
+    --orphans reviews earlier launches"]
+    dispatch -->|"focus / inspect / title"| workspacecmd["commands/workspace.ts:
+    per backend, Ghostty native or Rex"]
     dispatch -->|"default (launch target)"| resolve["resolve target directory
     (., absolute path, or project name)"]
 
@@ -391,18 +474,7 @@ flowchart TD
     trustcheck -->|trusted| resolvecfg
     trustprompt -->|accepted| resolvecfg
     trustprompt -->|denied| abort1["exit 1"]
-    launch --> resolvecfg["resolveConfig(targetDir, cliOverrides)"]
-    resolvecfg --> editorcheck{"editor configured?
-    (from any config layer)"}
-    editorcheck -->|yes| ghostty
-    editorcheck -->|"no + TTY"| wizardredirect["setup.ts: runSetup()
-    (auto-redirect)"]
-    wizardredirect --> resolvecfg2["re-resolve config"]
-    resolvecfg2 --> ghostty
-    editorcheck -->|"no + non-TTY"| abortnoedit["exit 1: run summon setup
-    or summon set editor"]
-    ghostty["ensureGhostty()
-    check Ghostty is running"]
+    resolvecfg["resolveConfig(targetDir, cliOverrides)"]
 
     resolvecfg --> readkv["readKVFile(targetDir/.summon)"]
     resolvecfg --> resolvekey["resolve layout key
@@ -411,48 +483,87 @@ flowchart TD
     if layout is a known name"]
     resolvecfg --> layer["layer each key:
     CLI > project > global > preset/custom"]
+    resolvecfg --> envvars["collectEnvVars()
+    machine < project < CLI"]
 
-    layer --> security{"project .summon has
+    resolvecfg --> detect["backend.ts: resolveBackendForLaunch()
+    table in backend-detect.ts"]
+    detect -->|"rex, not dry-run"| adopt["adoptOrphans()
+    late adoption of lost launches"]
+    adopt --> switchcheck{"maybeSwitchToExisting():
+    recorded session live,
+    no --new-window?"}
+    switchcheck -->|switched| switched["show the session in a Rex app
+    (no new launch)"]
+    switchcheck -->|refused| abortrex["exit 2"]
+    switchcheck -->|proceed| editorcheck
+    detect -->|"ghostty or dry-run"| editorcheck
+
+    editorcheck{"editor configured?
+    (from any config layer)"}
+    editorcheck -->|yes| nestcheck
+    editorcheck -->|"no + TTY"| wizardredirect["setup.ts: runSetup()
+    (auto-redirect)"]
+    wizardredirect --> resolvecfg2["re-resolve config"]
+    resolvecfg2 --> nestcheck
+    editorcheck -->|"no + non-TTY"| abortnoedit["exit 1: run summon setup
+    or summon set editor"]
+
+    nestcheck{"Ghostty only:
+    SUMMON_WORKSPACE env set?"}
+    nestcheck -->|yes| warnNest["warn: nested workspace
+    (suggest --new-window)"]
+    warnNest -->|continue| security
+    nestcheck -->|no| security
+
+    security{"project .summon has
     shell metacharacters?"}
     security -->|yes| confirm["prompt user for
     confirmation (TTY only)"]
-    confirm -->|denied/non-TTY| abort["exit 1"]
-    confirm -->|accepted| nestcheck
+    confirm -->|denied| abort["exit 1"]
+    confirm -->|non-TTY| aborttty["exit 2"]
+    confirm -->|accepted| onstart
     security -->|no| onstart{"on-start hook
     configured?"}
     onstart -->|yes| runonstart["execute on-start command
     in target directory"]
-    runonstart --> nestcheck
-    onstart -->|no| nestcheck{"SUMMON_WORKSPACE
-    env set?"}
-    nestcheck -->|yes| warnNest["warn: nested workspace
-    (suggest --new-window)"]
-    warnNest --> layoutfork
-    nestcheck -->|no| layoutfork{"tree layout
+    runonstart --> layoutfork
+    onstart -->|no| layoutfork{"tree layout
     configured?"}
 
     layoutfork -->|yes| treepath["resolveTreeCommands()
     → buildTreePlan()"]
-    treepath --> treegen["generateTreeAppleScript(plan,
-    targetDir, starshipConfig, envVars)"]
-    treegen --> exec
-
     layoutfork -->|no| plan["planLayout(resolvedOpts)
     compute pane counts and sizes"]
-    plan --> ensure["ensureCommand() for editor,
-    sidebar, secondaryEditor, shellCommand"]
-    ensure --> envvars["collectEnvVars()
-    machine < project < CLI"]
-    envvars --> gen["generateAppleScript(plan, targetDir,
-    starshipConfig, envVars)
+    treepath --> backendfork{"backend?"}
+    plan --> backendfork
+
+    backendfork -->|ghostty| ghostty["backends/ghostty.ts, Ghostty only:
+    ensureGhostty(), ensureAccessibility()"]
+    ghostty --> ensure["ensureCommand() for each
+    pane command"]
+    ensure --> gen["generateAppleScript() or
+    generateTreeAppleScript()
     build script string"]
-    gen --> exec["execute via
+    gen --> exec["executeScript():
     execFileSync('osascript', { input: script })"]
+
+    backendfork -->|rex| rexwho["backends/rex/backend.ts:
+    rex whoami on the server"]
+    rexwho --> rexbuild["buildSessionCreateRequest()
+    build the launch manifest"]
+    rexbuild --> rexcreate["createWorkspace():
+    write the manifest, session.create, record ids,
+    select the session in a connected Rex app"]
+
+    exec --> publish["publishStatus():
+    status record under the file lock"]
+    rexcreate --> publish
 ```
 
 ## Setup Wizard
 
-`setup.ts` implements the interactive first-run onboarding wizard. The full wizard is loaded via dynamic `import()` from `index.ts` to avoid adding to the startup cost of normal launches. However, `renderLayoutPreview` is statically imported by `index.ts` for the `layout list` command.
+`setup.ts` implements the interactive first-run onboarding wizard. The full wizard is loaded via dynamic `import()` from `index.ts` to avoid adding to the startup cost of normal launches. `renderLayoutPreview` lives in `ui/layout-preview.ts`, which `commands/layout.ts` imports for the `layout list` command.
 
 ### First-Run Detection
 
@@ -495,7 +606,7 @@ ANSI colors are controlled by `supportsColor()` from `utils.ts`, called at invoc
 
 ### Code Splitting
 
-tsup automatically code-splits `setup.ts` and `completions.ts` into separate chunks. These chunks are only loaded when needed (`summon setup` or `summon completions`), keeping the main entry point lean for normal workspace launches. Note: `renderLayoutPreview` is now statically imported from `setup.ts` by `index.ts` for the `layout list` command, while the full setup wizard remains dynamically loaded.
+tsup automatically code-splits `setup.ts` and `completions.ts` into separate chunks. These chunks are only loaded when needed (`summon setup` or `summon completions`), keeping the main entry point lean for normal workspace launches. `renderLayoutPreview` comes from `ui/layout-preview.ts` (imported by `commands/layout.ts`), so `layout list` does not load the setup wizard.
 
 ## AppleScript Generation
 
@@ -548,7 +659,7 @@ implemented by `emitVerifiedKeystroke` in `script.ts`:
    the count to increase.
 4. **Sentinel error** — if all attempts fail, the script raises
    `error "summon-newtab-failed"` or `error "summon-newwindow-failed"`.
-5. **Error mapping** — `executeScript` in `launcher.ts` catches these sentinels
+5. **Error mapping** — `executeScript` in `backends/ghostty.ts` catches these sentinels
    before the rollback step: `summon-newtab-failed` maps to `TabOpenError`
    (recoverable — `session --all` skips and continues); `summon-newwindow-failed`
    maps to a plain `Error`. Neither triggers `closeWorkspaceWindow()` because no
@@ -558,9 +669,11 @@ implemented by `emitVerifiedKeystroke` in `script.ts`:
 (2026-06-10). Worst case: 2 × (0.15 + 0.6) ≈ 1.5s, only when a keystroke is
 actually dropped; the typical path takes one settle delay + one poll.
 
-### No tmux, No Session Persistence
+### No tmux, No Session Persistence (Ghostty)
 
-Unlike termplex, summon does not create persistent sessions. Each `summon` invocation creates a new Ghostty window with splits. Closing the window ends everything. There is no detach/reattach. This is a Ghostty limitation -- if they add session persistence in the future, summon can adopt it.
+Under Ghostty, unlike termplex, summon does not create persistent sessions. Each `summon` invocation creates a new Ghostty window with splits. Closing the window ends everything. There is no detach/reattach. This is a Ghostty limitation -- if they add session persistence in the future, summon can adopt it.
+
+The Rex backend differs: the Rex server holds the session and a Rex app only shows it. While the recorded session is alive, `summon <project>` switches to it instead of creating a second one (see Backends and `docs/rex.md`).
 
 ## Shell Completions
 
@@ -602,7 +715,7 @@ The module imports `VALID_KEYS`, `CLI_FLAGS`, and `listCustomLayouts()` from `co
 
 ### osascript Execution
 
-`executeScript` uses `execFileSync` (not `execSync`) to pass the generated AppleScript to `osascript` via stdin, avoiding shell interpretation of the script content. On failure, `closeWorkspaceWindow()` is called to roll back any partially-opened window.
+`executeScript` in `backends/ghostty.ts` uses `execFileSync` (not `execSync`) to pass the generated AppleScript to `osascript` via stdin, avoiding shell interpretation of the script content. On failure, `closeWorkspaceWindow()` is called to roll back any partially-opened window.
 
 ## Config Resolution
 
@@ -750,7 +863,7 @@ Config files live at `~/.config/summon/`:
 | `projects` | Project name-to-path mappings |
 | `layouts/` | Custom layout files (key=value, may include `tree=` DSL) |
 | `starship/` | Cached Starship preset TOML files (auto-generated by `ensurePresetConfig()`) |
-| `status/` | Workspace status JSON files + `.active` marker files (managed by `status.ts`) |
+| `status/` | Workspace status records (`<project>.json`) and per-launch files under `<project>.launches/` (`.pid`, `.active`, Rex manifests and pane files), managed by `status-record.ts` and `launch-identity.ts` |
 | `snapshots/` | Context snapshot JSON files per project (managed by `snapshot.ts`) |
 | `sessions/` | Named session files — saved workspace configs for replay (managed by `sessions.ts`) |
 | `cache.json` | Persistent read-through cache for `config` and `projects` (managed by `cache.ts`; disable with `SUMMON_NO_CACHE=1`) |
@@ -763,7 +876,7 @@ A `.summon` file in the project root uses the same `key=value` format.
 
 ## Build Pipeline
 
-1. **tsup** compiles `src/index.ts` to `dist/index.js` (ESM, target node18, minified)
+1. **tsup** compiles `src/index.ts` to `dist/index.js` (ESM, target node22, minified)
 2. **Shebang injection**: `#!/usr/bin/env node` banner prepended
 3. **Version injection**: `__VERSION__` replaced with `package.json` version at build time
 4. **Code splitting**: `setup.ts` and `completions.ts` are auto-split into separate chunks via dynamic `import()`

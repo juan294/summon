@@ -123,6 +123,19 @@ chmod +x dist/index.js
 ./dist/index.js . --layout minimal   # test minimal preset
 ```
 
+### Testing Against Real Rex
+
+The Rex end-to-end suites need Rex (beta) with a connected app and an open window. Run them one file at a time; they create and remove their own sessions:
+
+```bash
+pnpm run build
+SUMMON_REX_E2E_REQUIRED=1 pnpm exec vitest run src/e2e/rex-native.test.ts
+SUMMON_REX_E2E_REQUIRED=1 pnpm exec vitest run src/e2e/rex-lifecycle.test.ts
+SUMMON_REX_E2E_REQUIRED=1 pnpm exec vitest run src/e2e/rex-cli.test.ts
+```
+
+See [docs/rex.md](docs/rex.md#end-to-end-tests) and [docs/release/rex-e2e-guide.md](docs/release/rex-e2e-guide.md) for prerequisites and the manual steps.
+
 ## Commit Format
 
 Use lowercase [Conventional Commits](https://www.conventionalcommits.org/):

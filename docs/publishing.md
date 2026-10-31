@@ -106,7 +106,7 @@ npm i -g ./summon-ws-<version>.tgz
 summon --version
 summon --help
 
-# Test a real launch (requires Ghostty running):
+# Test a real launch (requires Ghostty running; from a Rex terminal it creates a Rex session):
 summon .
 
 # Clean up:
@@ -120,9 +120,12 @@ rm summon-ws-<version>.tgz
 - [ ] Verify all presets create correct layouts
 - [ ] Verify commands run in correct panes
 
+#### 2b. Real Rex Test
+- [ ] Run the Rex end-to-end suites and the manual steps in `docs/release/rex-e2e-guide.md`
+
 #### 3. Version Strategy
 - Follow semver: breaking changes = major, features = minor, fixes = patch
-- The project is stable (1.x). Minor releases add features, patch releases fix bugs.
+- The project is stable (2.x; 2.0.0 raised the Node floor to 22.12). Minor releases add features, patch releases fix bugs.
 
 #### 4. Create GitHub Release
 - [ ] Merge the release PR to `main`

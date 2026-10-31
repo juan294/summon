@@ -99,6 +99,8 @@ src/
     rex-native.test.ts  Rex launch/adopt/switch E2E against a real server (run the two Rex E2E files one at a time)
     rex-lifecycle.test.ts Observed Rex lifecycle table (which actions fire the cleanup trap)
     rex-cli.test.ts     Rex CLI E2E: the built CLI as a child process under a sandbox home (docs/release/rex-e2e-guide.md)
+  fixtures/
+    build-cli.ts        Bundles the CLI into a private directory for subprocess suites (never races the shared dist/)
   *.test.ts             Co-located unit tests
 ```
 
@@ -231,7 +233,7 @@ primary injection defense. See src/shell-escape.ts for the escape functions it p
 
 ## Schema Migrations
 
-JSON files written by summon (`status/*.json`, `snapshot/*.json`) include a `version` field (currently `1`).
+JSON files written by summon (`status/*.json`, `status/<project>.launches/*.json` launch manifests, `snapshot/*.json`) include a `version` field (currently `1`).
 
 **Policy:**
 - Backward compatibility is required for at least one major version after a schema bump.

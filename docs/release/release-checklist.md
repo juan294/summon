@@ -128,6 +128,10 @@ and the AppleScript dictionary is unresolvable on a hosted runner. On a Mac with
 - [ ] `summon session --all` opens every project without a tab-creation failure
 - [ ] Record the run date in the manifest's `cadence[].lastRunAt`
 
+### Real-Rex arc (releases that change Rex behavior)
+
+- [ ] The Rex suites and manual steps in `docs/release/rex-e2e-guide.md` pass on a Mac with Rex (beta)
+
 ## 7. Authorize and tag
 
 **STOP.** Present the evidence summary to the maintainer. Only after approval:

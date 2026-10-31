@@ -6,11 +6,24 @@ Complete usage reference for summon.
 
 - **Node.js >= 22.12**
 - **macOS** (AppleScript is macOS-only)
-- **[Ghostty](https://ghostty.org) 1.3.1+** with AppleScript enabled (default)
+- One of these terminals:
+  - **[Ghostty](https://ghostty.org) 1.3.1+** with AppleScript enabled (default)
+  - **Rex** (beta) with its `rex` CLI. Open the Rex app once so it installs its CLI.
+
+Summon detects the terminal on each launch. There is no flag and no config key for it. The terminal that runs Summon decides:
+
+| Where `summon` runs | Terminal used |
+|---|---|
+| Inside Rex (`TERM_PROGRAM=rex`) | Rex, on the server the terminal inherited (`REX_SERVER`, else the default socket). If the `rex` CLI is not found: Ghostty when installed (with a notice), otherwise the launch fails |
+| Inside Ghostty (`TERM_PROGRAM=ghostty`) | Ghostty. Inherited `REX_*` variables are ignored |
+| Inside another terminal (iTerm, Apple Terminal, VS Code, ...) | Ghostty when installed, otherwise Rex when its CLI is found |
+| No `TERM_PROGRAM` (scripts, launchd, editors) | Rex when an inherited `REX_SERVER` answers `rex whoami`; otherwise Ghostty when installed, otherwise Rex when its CLI is found |
+
+Summon looks for the `rex` CLI on `PATH`, then in `REX_BIN_DIR`, then inside `Rex.app` and `Rex Beta.app` under `/Applications` and `~/Applications`. `summon doctor` prints the terminal this shell launches in, and every `--dry-run` prints it on its `-- Backend:` line. See [Summon under Rex](rex.md) for the full Rex contract.
 
 ### Ghostty Configuration
 
-Ensure AppleScript is enabled in your Ghostty config (it's on by default):
+With Ghostty, ensure AppleScript is enabled in your Ghostty config (it's on by default):
 
 ```
 # ~/.config/ghostty/config
@@ -61,6 +74,7 @@ At any step, press `b` or `B` to go back to the previous choice. Press `Ctrl+C` 
 After confirming, the wizard:
 - Saves your choices to `~/.config/summon/config`
 - Checks that your chosen tools are installed (shows install hints for missing ones)
+- Under Rex, skips the Ghostty install and Accessibility checks
 - Continues to launch your workspace with the new settings
 
 You can re-run the wizard anytime with `summon setup`.
@@ -89,6 +103,8 @@ summon .
 # Zoom a pane
 #   Use Ghostty's toggle_split_zoom keybinding
 ```
+
+Under Rex, use Rex's own pane navigation, configured in `~/.config/rex/init.lua`.
 
 ## Command Reference
 
@@ -152,6 +168,8 @@ The wizard:
 
 Requires an interactive terminal (TTY). In non-interactive environments, configure manually with `summon set`.
 
+Under Rex, the wizard says that Rex was detected and skips the Ghostty install and Accessibility checks.
+
 ### `summon set <key> [value]`
 
 Set a machine-level config value. Omit the value to reset to a plain shell.
@@ -207,11 +225,21 @@ summon export .summon            # write to file
 
 ### `summon doctor [--fix] [--verbose]`
 
-Check your Ghostty config for recommended settings and macOS Accessibility permission. Reports on:
+Check your terminal setup: the Ghostty config for recommended settings, macOS Accessibility permission, and the Rex installation. The Ghostty checks report on:
 
 - `notify-on-command-finish = unfocused` — notifications for long commands
 - `shell-integration = detect` — shell integration for status tracking
 - Accessibility permission — required for pane resizing via System Events
+
+When Rex is installed and Ghostty is not, the Ghostty checks are reported as not applicable and do not count as issues.
+
+The `Checking Rex...` section reports on:
+
+- Where the `rex` CLI was found, or every location searched (the section is then not applicable)
+- `rex version`
+- Whether the Rex server answers at the socket this shell would use. A failure counts as an issue only when Rex is the backend of this shell; otherwise it is informational.
+- The connected Rex apps
+- The backend this shell launches in, with its placement and server
 
 Exits with code 2 if any issues are found, 0 when all clear.
 
@@ -250,6 +278,8 @@ The generated key table provides:
 - Zoom toggle (`z`)
 - Escape to exit key table
 
+Rex key bindings are not generated: `summon keybindings` produces Ghostty configuration only. Configure Rex pane navigation in `~/.config/rex/init.lua`.
+
 ### `summon layout <action>`
 
 Manage custom layouts. See [Custom Layouts](#custom-layouts) for full details on the tree DSL and layout file format.
@@ -276,7 +306,18 @@ Layout names must start with a letter and contain only letters, digits, hyphens,
 
 ### `summon status [--once]`
 
-Interactive workspace status dashboard showing all registered projects with real-time updates. Displays project name, state (active/stopped), uptime, and current git branch.
+Interactive workspace status dashboard showing all registered projects with real-time updates. Displays project name, state, uptime, and current git branch.
+
+A Ghostty workspace is `active` or `stopped`. A Rex workspace has one of four states, with a reason when it is not `active`:
+
+| State | Meaning |
+|---|---|
+| `active` | The Rex session exists and the root pane's block is present (other recorded panes may be closed) |
+| `partial` | The session exists, but the root pane's block is gone while other recorded panes are alive (for example, after `exit` in the root shell) |
+| `stopped` | The session no longer exists, or it exists with no live recorded pane (reason `empty Rex session remains; run summon clean <project>` or `no live panes`) |
+| `unknown` | Summon could not read the workspace's liveness: the Rex server did not answer, its answer had a shape Summon cannot read, the record's Rex identity could not be read, or the `rex` CLI is missing. Summon assumes nothing and never launches over it |
+
+A registered project that was never launched has no record and is `stopped`. For a Rex workspace, a glyph before the project name shows the program status that the root pane's program announced through OSC 7501 (`blocked`, `error`, `working`, `done`). A Rex workspace that ended outside Summon (for example, `rex kill`) is reconciled on the next status read: Summon saves a snapshot, marks the record as ended, removes the launch's files and prints one notice.
 
 ```bash
 summon status                     # interactive TUI with auto-refresh
@@ -285,7 +326,7 @@ summon status --once              # print status table once and exit
 
 The TUI refreshes every 3 seconds and supports keyboard navigation:
 - `↑`/`↓` or `j`/`k` — navigate projects
-- `Enter` — focus an active workspace or launch a stopped one
+- `Enter` — focus an active or partial workspace, or launch a stopped one (an `unknown` workspace is refused with the reason)
 - `r` — force refresh
 - `q` — quit
 
@@ -308,7 +349,7 @@ Morning briefing across all registered projects. Shows overnight commits, dirty 
 summon briefing
 ```
 
-The briefing detects agent commits (Claude, Copilot, etc.) via regex heuristics and highlights them separately.
+The briefing detects agent commits (Claude, Copilot, etc.) via regex heuristics and highlights them separately. Rex workspaces whose liveness could not be read (`unknown`) are listed as unverified.
 
 ### `summon ports`
 
@@ -320,24 +361,26 @@ summon ports
 
 ### `summon session`
 
-Launch multiple registered projects at once — one Ghostty tab per project.
+Launch multiple registered projects at once: one Ghostty tab per project, or one Rex session per project under Rex.
 
-A *session* is a named list of registered project names stored at `~/.config/summon/sessions/<name>`. The order of projects in the file defines the tab order.
+A *session* is a named list of registered project names stored at `~/.config/summon/sessions/<name>`. The order of projects in the file defines the launch order (the tab order under Ghostty).
 
 ```bash
 # Save a session
 summon session add daily api web worker
 
-# Launch it — opens 3 tabs in the current Ghostty window
+# Launch it — opens 3 tabs in the current Ghostty window (3 sessions under Rex)
 summon session daily
 
 # Launch every registered project
 summon session --all
 ```
 
-The first project lands in the currently selected tab; each subsequent project opens a new tab via a verified Cmd+T keystroke (System Events), retried and confirmed against Ghostty's tab count before panes are built. A project whose tab cannot be opened is reported and skipped, and the session continues with the remaining projects. Launch is otherwise sequential; a hard error (osascript failure, missing directory) aborts the session.
+Under Ghostty, the first project lands in the currently selected tab; each subsequent project opens a new tab via a verified Cmd+T keystroke (System Events), retried and confirmed against Ghostty's tab count before panes are built. A project whose tab cannot be opened is reported and skipped, and the session continues with the remaining projects. Launch is otherwise sequential; a hard error (osascript failure, missing directory) aborts the session.
 
-CLI flags on `summon session` (e.g. `--starship-preset`, `--layout`) apply to every project unless overridden by that project's `.summon` file. Passing `--new-window` opens the first project in a new window; the remaining projects open as tabs in that window.
+Under Rex, each project gets its own session. A project whose session is already running is switched to (`Switched to <project>`) instead of launched again. When more than one project succeeded, Summon shows the first project's session again at the end. The summary counts each outcome (launched, switched, dry runs printed).
+
+CLI flags on `summon session` (e.g. `--starship-preset`, `--layout`) apply to every project unless overridden by that project's `.summon` file. Passing `--new-window` opens the first project in a new window; the remaining projects open as tabs in that window. Under Rex, `--new-window` applies to the first project only: it gets a fresh session, and the other projects launch or switch as usual.
 
 | Subcommand | Description |
 |---|---|
@@ -361,6 +404,30 @@ summon snapshot clear <project>   # remove a saved snapshot
 
 Snapshots are stored as JSON files in `~/.config/summon/snapshots/`.
 
+### `summon clean <project> [--orphans]`
+
+Close a project's empty Rex session and remove the files of its launch. `summon status` recommends it with the reason `empty Rex session remains; run summon clean <project>`.
+
+`summon clean <project>` closes the recorded Rex session only when Summon's own check (`session.view`) shows it empty: no blocks at all. The check runs twice, the second time immediately before the close. After the close, Summon saves a snapshot, marks the record as ended and removes the launch's files, in that order. A step that fails is reported and retried on the next status read.
+
+It refuses with exit code 2 when the session cannot be verified (for example, the Rex server does not answer) or still has panes. The refusal names the recorded panes that are alive and counts the unrecorded blocks. A project with no workspace record also exits 2. For a Ghostty workspace there is nothing to close.
+
+Rex has no conditional destroy. Anything added to the session between the second check and the close is closed with it; the command says so in its output.
+
+With `--orphans`, Summon reviews every earlier launch of the project (every launch other than the current one):
+
+- A launch whose session the server confirms gone has its files removed. A file that cannot be removed is reported, and the next `summon clean --orphans` finds the launch again.
+- An empty session is closed and its files are removed.
+- A session that still has blocks is left alone, and Summon prints the exact `rex kill` command.
+- A launch that never confirmed its session, or that left an unreadable pane file, is left in place as evidence, and Summon prints the exact `rm` command. Summon never deletes these files itself.
+
+Both forms also remove the liveness files of earlier Ghostty launches whose recorded process is proven dead. A Rex record, and every `--orphans` review, needs the `rex` CLI; without it the command exits 2.
+
+```bash
+summon clean myapp                # close the empty Rex session of myapp
+summon clean myapp --orphans      # review earlier launches of myapp
+```
+
 ### CLI Flags
 
 Flags override both machine and per-project config for a single launch.
@@ -376,18 +443,18 @@ Flags override both machine and per-project config for a single launch.
 | `--auto-resize` | Resize sidebar to match editor-size (default: on) |
 | `--no-auto-resize` | Disable auto-resize |
 | `--starship-preset <preset>` | Starship prompt preset name (per-workspace) |
-| `--font-size <n>` | Override font size for workspace panes |
+| `--font-size <n>` | Override font size for workspace panes (ignored under Rex) |
 | `--env KEY=VALUE` | Set environment variable for all panes (repeatable) |
 | `--on-start <cmd>` | Run a command in the target directory before workspace creation |
-| `--new-window` | Open workspace in a new Ghostty window |
-| `--new-tab` | Open workspace in a new Ghostty tab |
-| `--clean` | Auto-close stale panes from a prior Ghostty session (default: off) |
+| `--new-window` | Open workspace in a new Ghostty window. Under Rex, create a fresh session (shown in the current window) instead of switching to the running one |
+| `--new-tab` | Open workspace in a new Ghostty tab (no separate meaning under Rex) |
+| `--clean` | Auto-close stale panes from a prior Ghostty session (default: off; ignored under Rex) |
 | `--no-clean` | Skip auto-close of restored panes |
-| `--fullscreen` | Start workspace in fullscreen mode |
-| `--maximize` | Start workspace maximized |
-| `--float` | Float workspace window on top |
+| `--fullscreen` | Start workspace in fullscreen mode (ignored under Rex) |
+| `--maximize` | Start workspace maximized (ignored under Rex) |
+| `--float` | Float workspace window on top (ignored under Rex) |
 | `--no-project-config` | Skip the `.summon` file (do not require trust) |
-| `-n`, `--dry-run` | Print generated AppleScript without executing |
+| `-n`, `--dry-run` | Print the generated AppleScript (Ghostty) or Rex `session.create` request without executing. Its header lines include `-- Backend:` and `-- Launch:` |
 | `-h`, `--help` | Show help message |
 | `-v`, `--version` | Show version number |
 
@@ -441,6 +508,8 @@ summon completions fish | source
 - `summon --layout <TAB>` — layout presets
 - `summon --starship-preset <TAB>` — Starship preset names (dynamic)
 - `summon --<TAB>` — all CLI flags
+
+`summon open <TAB>`, `summon switch <TAB>` and `summon clean <TAB>` complete registered project names, and `summon clean` also completes `--orphans`. In zsh and bash, `summon set <boolean key> <TAB>` completes `true` and `false`.
 
 Project names are read dynamically from `~/.config/summon/projects`,
 so newly added projects are immediately completable.
@@ -681,7 +750,7 @@ summon set shell "python -m http.server"
 
 ## Pre-Launch Hooks
 
-The `on-start` option runs a command in the target directory before the workspace opens. If it fails, the workspace is not created.
+The `on-start` option runs a command in the target directory before the workspace opens. If it fails, Summon prints `on-start command failed; continuing workspace launch` and opens the workspace anyway.
 
 ```bash
 # Install deps before launching
@@ -779,6 +848,10 @@ float=true
 
 If both `--fullscreen` and `--maximize` are set, fullscreen takes priority.
 
+Under Rex, `maximize`, `float`, `fullscreen`, `font-size` and `clean` have no equivalent. Each one that is set prints one notice (`Rex cannot honor <key>; ignored`) and the launch continues. For `clean`, only the `--clean` flag prints the notice; a `clean=true` config value is ignored silently.
+
+Under Rex, `--new-window` creates a fresh session instead of switching to the running one. Rex opens new windows with their own session and does not let a client move a session into another window, so Summon shows the new session in the current window with a notice. When the earlier session is still alive, the launch says once that it stays open and that `rex kill <id>` closes it. `--new-tab` has no separate meaning under Rex: a workspace is always one session in the current window.
+
 ## Font Size
 
 Override the font size for all panes in a workspace.
@@ -798,7 +871,7 @@ summon set font-size 14
 font-size=24
 ```
 
-Useful for presentations, pairing sessions, or projects where you want a different density than your global Ghostty setting.
+Useful for presentations, pairing sessions, or projects where you want a different density than your global Ghostty setting. Under Rex, `font-size` is ignored with a notice.
 
 ## Per-project Config
 
@@ -846,15 +919,15 @@ When summon launches, config values are resolved in this order (first wins):
 | `layout` | string | | Default layout preset (`minimal`, `full`, `pair`, `cli`, `btop`) or a custom layout name. |
 | `auto-resize` | boolean | `true` | Auto-resize sidebar to match editor-size. |
 | `starship-preset` | string | | Starship prompt theme preset. When set, each workspace launches with `STARSHIP_CONFIG` pointing to a cached preset TOML file at `~/.config/summon/starship/<preset>.toml`. Requires [Starship](https://starship.rs) installed. |
-| `font-size` | number | | Font size for workspace panes (in points). |
+| `font-size` | number | | Font size for workspace panes (in points). Ignored under Rex. |
 | `on-start` | string | | Command to run in the target directory before workspace creation. |
 | `on-stop` | string | | Command to run after workspace closes. |
-| `clean` | boolean | `false` | Auto-close stale panes from a prior Ghostty session before building a new layout. Set to `true` to enable globally (or pass `--clean` per launch). |
-| `new-window` | boolean | `false` | Open workspace in a new Ghostty window instead of reusing the front window. |
-| `new-tab` | boolean | `false` | Open workspace in a new Ghostty tab instead of reusing the front tab. |
-| `fullscreen` | boolean | `false` | Start workspace in fullscreen mode. |
-| `maximize` | boolean | `false` | Start workspace maximized. |
-| `float` | boolean | `false` | Float workspace window on top of other windows. |
+| `clean` | boolean | `false` | Auto-close stale panes from a prior Ghostty session before building a new layout. Set to `true` to enable globally (or pass `--clean` per launch). Ignored under Rex. |
+| `new-window` | boolean | `false` | Open workspace in a new Ghostty window instead of reusing the front window. Under Rex, a new session is shown in the current window; only the `--new-window` flag skips the switch to a running session. |
+| `new-tab` | boolean | `false` | Open workspace in a new Ghostty tab instead of reusing the front tab. No separate meaning under Rex. |
+| `fullscreen` | boolean | `false` | Start workspace in fullscreen mode. Ignored under Rex. |
+| `maximize` | boolean | `false` | Start workspace maximized. Ignored under Rex. |
+| `float` | boolean | `false` | Float workspace window on top of other windows. Ignored under Rex. |
 | `env.<KEY>` | string | | Per-workspace environment variable passed to all panes. Set via `summon set env.KEY value`. |
 
 Machine config: `~/.config/summon/config`
@@ -914,7 +987,7 @@ All files use `key=value` format, one entry per line.
 | Feature | tmux-based (termplex) | Ghostty-native (summon) |
 |---|---|---|
 | Pane rendering | tmux draws pane borders | Ghostty native splits |
-| Session persistence | Yes (detach/reattach) | No (close = gone) |
+| Session persistence | Yes (detach/reattach) | No under Ghostty (close = gone); under Rex the server keeps the session, and `summon open` shows it again |
 | Mouse/scrollback | tmux mouse mode | Native Ghostty |
 | Colors/rendering | tmux passthrough | Direct GPU rendering |
 | Navigation | tmux keybindings | Ghostty split keybindings |
@@ -928,18 +1001,21 @@ All files use `key=value` format, one entry per line.
 | `NO_COLOR` | When set, disables ANSI colors in the setup wizard. Follows the [NO_COLOR](https://no-color.org) standard. |
 | `COLORTERM` | When set to `truecolor` or `24bit`, the setup wizard shows colored palette swatches for Starship presets. |
 | `STARSHIP_CONFIG` | Set automatically by summon when `starship-preset` is configured. Points each workspace to a cached preset TOML file. Do not set manually. |
-| `SUMMON_WORKSPACE` | Set to `1` in all panes inside a summon workspace. Used to detect nested launches — if you run `summon` inside an existing workspace, you'll see a warning prompt suggesting `--new-window` instead. |
+| `SUMMON_WORKSPACE` | Set to `1` in all panes inside a summon workspace. Used to detect nested launches — if you run `summon` inside an existing workspace, you'll see a warning prompt suggesting `--new-window` instead. There is no warning when the backend is Rex, because a Rex launch creates its own session. |
 | `SUMMON_DEBUG` | Set to `1` to enable debug output. Each message is timestamped and written to stderr, and also appended to a log file in `~/.config/summon/logs/`. Useful for diagnosing launch issues or AppleScript failures. |
 | `SUMMON_NO_CACHE` | Set to `1` to disable the persistent cross-invocation read cache (`~/.config/summon/cache.json`). Machine config and the project registry are then read from disk on every invocation. |
 | `EDITOR` | Editor used by `summon layout edit` to open a custom layout file. Falls back to `vi` if unset. |
+| `TERM_PROGRAM` | Set by your terminal. Summon reads it to pick the backend: `rex` selects Rex, `ghostty` selects Ghostty (see [Prerequisites](#prerequisites)). |
+| `REX_SERVER` | The Rex server that a Rex terminal exports. Inside a Rex terminal, Summon launches on this server (else on the default socket, `~/Library/Application Support/rex/server.sock`). With no `TERM_PROGRAM`, it counts only when `rex whoami` answers on it. Inside Ghostty or another terminal it is ignored. |
+| `REX_BIN_DIR` | A directory that contains the `rex` CLI. Summon looks for `rex` there after `PATH` and before the Rex app bundles. |
 
 ## Exit Codes
 
 | Code | Meaning |
 |---|---|
 | `0` | Success |
-| `1` | Usage error or configuration error (bad flag, invalid value, unknown project, etc.) |
-| `2` | Pre-launch guard failure (Ghostty not found, Accessibility permission denied, etc.) |
+| `1` | Usage error or configuration error (bad flag, invalid value, unknown project, etc.), or a launch failure (no supported terminal found, Accessibility permission denied, etc.) |
+| `2` | A guard failure or refusal, for example: commands with shell metacharacters that cannot be confirmed without a TTY, `summon doctor` found issues, a Rex workspace that cannot be verified (Rex server not answering, or a record whose Rex identity cannot be read), the `rex` CLI missing for a command that needs it, or `summon clean` refusing a session that still has panes |
 | `130` | User cancelled — Ctrl+C or `n` at a confirmation prompt (128 + SIGINT) |
 
 If you see an unexpected error, re-run with `SUMMON_DEBUG=1` for full diagnostics:
@@ -954,19 +1030,28 @@ Debug output is timestamped and written to both stderr and `~/.config/summon/log
 
 ### Ghostty not found
 
-Summon checks for Ghostty in `/Applications/Ghostty.app` and `~/Applications/Ghostty.app` (Homebrew). If you see an error, ensure Ghostty is installed at one of those paths.
+```
+summon: error: Neither Ghostty.app nor the Rex CLI was found. Install Ghostty (https://ghostty.org) or Rex and retry.
+```
+
+A launch needs Ghostty or Rex. Summon checks for Ghostty in `/Applications/Ghostty.app` and `~/Applications/Ghostty.app` (Homebrew), and for the `rex` CLI on `PATH`, in `REX_BIN_DIR`, and inside `Rex.app` and `Rex Beta.app` under `/Applications` and `~/Applications`. Install either one. With only Rex installed, Summon uses Rex and does not need Ghostty. `--dry-run` does not fail here: it prints the Ghostty script with a notice.
+
+Commands that need the Rex CLI and cannot find it (for example, `summon clean`) print `rex CLI not found; open the Rex app once or set REX_BIN_DIR.` and exit 2.
 
 ### macOS Automation permission
 
-On first use, macOS will ask you to grant permission for your terminal to control Ghostty via AppleScript. Go to System Settings > Privacy & Security > Automation and ensure your terminal is allowed to control Ghostty.
+With Ghostty, on first use macOS will ask you to grant permission for your terminal to control Ghostty via AppleScript. Go to System Settings > Privacy & Security > Automation and ensure your terminal is allowed to control Ghostty.
 
 ### Unknown project name
 
 ```
-summon: error: "myapp" is not a known command or registered project. Try: summon --help
+summon: error: "myap" is not a known command or registered project. Try: summon --help
+To register as a project: summon add myap /path/to/project
+Or see available:         summon list
+Did you mean: myapp?
 ```
 
-This appears when the first argument is neither a known subcommand nor a registered project. Register the project with `summon add myapp /path/to/project`, list registered projects with `summon list`, or pass a direct path (e.g. `summon ~/code/myapp`) instead.
+This appears when the first argument is neither a known subcommand nor a registered project. The `Did you mean` line appears when registered names are close to the argument: up to three names that match by prefix, subsequence or a small edit distance, the most recently launched first. The exit code is still 1, and Summon does not launch the suggested project. Fix the name, register the project with `summon add myapp /path/to/project`, list registered projects with `summon list`, or pass a direct path (e.g. `summon ~/code/myapp`) instead.
 
 ### Config file location
 
@@ -979,7 +1064,8 @@ All config files are at `~/.config/summon/`:
   trust       SHA-256 hashes of trusted .summon files
   layouts/    custom layout files (one file per layout)
   starship/   cached Starship preset TOML files (auto-generated)
-  status/     workspace status JSON + active marker files
+  status/     workspace status JSON per project, plus <project>.launches/ with
+              per-launch manifests, pane files and liveness (.pid, .active) files
   snapshots/  context snapshot JSON files per project
   logs/       debug log files (written when SUMMON_DEBUG=1)
 ```

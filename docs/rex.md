@@ -27,7 +27,7 @@ When neither Ghostty.app nor the `rex` CLI is found a real launch fails with one
 | Workspace variables (`SUMMON_*`, `env.*` keys) | Each block starts as `/usr/bin/env K=V ... <login shell> -l`, so the variables reach the shell without touching `~/.config/rex` |
 | Tab title | The window label, `[<project>]` (the session label is the project name and never changes) |
 
-`maximize`, `float`, `fullscreen`, `font-size` and `clean` have no Rex equivalent. Each one that is set prints one notice (`Rex cannot honor <key>; ignored`) and the launch continues. `--new-tab` has no separate meaning under Rex: a workspace is always one session in the current window. The `on-start` and `on-stop` hooks, `.summon` trust and snapshots behave as under Ghostty. Rex key bindings are not generated: `summon keybindings` keeps producing Ghostty configuration, and Rex's own pane navigation is configured in `~/.config/rex/init.lua`.
+`maximize`, `float`, `fullscreen`, `font-size` and `clean` have no Rex equivalent. Each one that is set prints one notice (`Rex cannot honor <key>; ignored`) and the launch continues; for `clean` only the `--clean` flag does, and a `clean=true` config value is ignored silently. `--new-tab` has no separate meaning under Rex: a workspace is always one session in the current window. The `on-start` and `on-stop` hooks, `.summon` trust and snapshots behave as under Ghostty. Rex key bindings are not generated: `summon keybindings` keeps producing Ghostty configuration, and Rex's own pane navigation is configured in `~/.config/rex/init.lua`.
 
 ## Seeing a workspace in the app
 

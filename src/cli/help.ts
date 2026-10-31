@@ -137,13 +137,13 @@ async function buildHelp(): Promise<string> {
     wrap(`  --shell <value>             Shell pane: true, false, or a command`),
     wrap(`  --auto-resize               Resize sidebar to match editor-size (default: on)`),
     wrap(`  --no-auto-resize            Disable auto-resize`),
-    wrap(`  --clean                     Auto-close stale panes from prior Ghostty session (default: on)`),
+    wrap(`  --clean                     Auto-close stale panes from prior Ghostty session (default: off)`),
     wrap(`  --no-clean                  Skip auto-close of restored panes`),
     wrap(`  --starship-preset <preset>  Starship prompt preset name (per-workspace)`),
     wrap(`  --env <KEY=VALUE>           Set environment variable (repeatable; e.g. --env PORT=3000)`),
     wrap(`  --font-size <n>             Override font size for workspace panes`),
     wrap(`  --on-start <cmd>            Run command before workspace creation`),
-    wrap(`  --new-window                Open workspace in a new terminal window`),
+    wrap(`  --new-window                Open workspace in a new terminal window (a fresh session under Rex)`),
     wrap(`  --new-tab                   Open workspace in a new terminal tab`),
     wrap(`  --no-project-config         Skip the .summon file (do not require trust)`),
     wrap(`  --fullscreen                Start workspace in fullscreen mode`),
@@ -160,7 +160,7 @@ async function buildHelp(): Promise<string> {
     wrap(`  shell           Shell pane: true, false, or command (default: true)`),
     wrap(`  layout          Default layout preset or custom layout name`),
     wrap(`  auto-resize     Resize sidebar to match editor-size (default: on)`),
-    wrap(`  clean           Auto-close restored panes on launch (default: on)`),
+    wrap(`  clean           Auto-close restored panes on launch (default: off)`),
     wrap(`  starship-preset Starship prompt theme preset (per-workspace)`),
     wrap(`  new-window      Open workspace in a new window (default: false)`),
     wrap(`  fullscreen      Start workspace in fullscreen (default: false)`),
@@ -242,13 +242,13 @@ Setup (add to your shell config):
   title: `Usage: summon title <project> [pane] [--set <text> | --reset]
 
 Read a title override, set it with --set, or clear it with --reset.
-Default target: the current tab containing the recorded root. An explicit pane targets that pane.
+Default target: the current tab containing the recorded root (the window label under Rex). An explicit pane targets that pane (its block label under Rex).
 Titles support ordinary Unicode up to 256 codepoints; controls and bidi overrides are rejected.
 Unavailable capability or target exits 2. After an unknown mutation outcome, read the title before retrying.`,
 
   inspect: `Usage: summon inspect <project> [--json]
 
-Read stored workspace state and exact native pane observations without activating Ghostty.
+Read stored workspace state and exact native pane observations without activating the terminal (Ghostty terminal ids, or Rex block ids).
 Legacy records require an explicit relaunch to capture native identity. Unavailable targets exit 2.`,
 
   clean: `Usage: summon clean <project> [--orphans]
@@ -315,8 +315,8 @@ recommendation for where to start.`,
 
   doctor: `Usage: summon doctor [--fix] [--verbose]
 
-Check your Ghostty configuration for recommended settings.
-Exits with code 2 if issues are found.
+Check your Ghostty configuration for recommended settings, and the Rex CLI, server and app
+when Rex is installed. Exits with code 2 if issues are found.
 
 Options:
   --fix      Auto-add missing recommended settings (backs up config first)

@@ -82,7 +82,7 @@ const FLAG_SPECS: FlagSpec[] = [
   { long: "env",                           desc: "Set environment variable (KEY=VALUE)", arg: "value", repeatable: true },
   { long: "font-size",                     desc: "Font size in points",        arg: "number" },
   { long: "on-start",                      desc: "Run command before workspace creation", arg: "command" },
-  { long: "new-window",                    desc: "Open in new terminal window" },
+  { long: "new-window",                    desc: "Open in new window (new Rex session)" },
   { long: "new-tab",                       desc: "Open in a new terminal tab" },
   { long: "no-project-config",             desc: "Skip loading project-level config file" },
   { long: "fullscreen",                    desc: "Start in fullscreen mode" },

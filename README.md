@@ -132,6 +132,7 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 | `summon inspect <project> [--json]` | Read workspace state and current native pane observations |
 | `summon focus <project> [pane]` | Focus the recorded root or named pane by exact native identity |
 | `summon title <project> [pane] [--set <text> \| --reset]` | Read, set or clear a tab/pane title override |
+| `summon clean <project> [--orphans]` | Close an empty Rex session and end its record; `--orphans` reviews earlier launches (see [docs/rex.md](docs/rex.md)) |
 | `summon briefing` | Morning briefing — overnight commits, dirty files, recommendations |
 | `summon ports` | Detect port assignments across projects, highlight conflicts |
 | `summon snapshot <action>` | Manage context snapshots (save, show, clear) |
@@ -170,7 +171,7 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 | `--maximize` | Start workspace maximized |
 | `--float` | Float workspace window on top |
 | `--no-project-config` | Skip the `.summon` file (do not require trust) |
-| `-n, --dry-run` | Print generated AppleScript without executing |
+| `-n, --dry-run` | Print the generated AppleScript (or, under Rex, the `session.create` request) without executing |
 | `-h, --help` | Show help message |
 | `-v, --version` | Show version number |
 
@@ -190,7 +191,7 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 | `font-size` | | Font size for workspace panes (points) |
 | `on-start` | | Command to run before workspace creation |
 | `on-stop` | | Command to run after workspace closes |
-| `new-window` | `false` | Open workspace in a new Ghostty window |
+| `new-window` | `false` | Open workspace in a new Ghostty window (under Rex, a new session in the current window; only the `--new-window` flag skips the switch to a running session) |
 | `fullscreen` | `false` | Start workspace in fullscreen mode |
 | `maximize` | `false` | Start workspace maximized |
 | `float` | `false` | Float workspace window on top |
@@ -266,6 +267,8 @@ This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.
 | `SUMMON_NO_CACHE` | Set to `1` to disable the persistent cross-invocation read cache (`~/.config/summon/cache.json`). Reads always hit disk. |
 | `SUMMON_NO_VISIBILITY` | Set to `1` to keep normal status-monitor polling instead of negotiating terminal visibility reports. |
 | `EDITOR` | Editor used by `summon layout edit`. Falls back to `vi` if unset. |
+| `REX_SERVER` | Set by Rex terminals; inside Rex, Summon uses it as the server (else `~/Library/Application Support/rex/server.sock`). With `TERM_PROGRAM` unset, an inherited value selects Rex only when `rex whoami` answers on it; other terminals ignore it. |
+| `REX_BIN_DIR` | Set by Rex terminals. Searched for the `rex` CLI after `PATH`, before the Rex app bundles. |
 
 ## Trust Model
 
