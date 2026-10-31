@@ -131,8 +131,8 @@ export interface SessionListings {
 }
 
 /**
- * A listing only goes stale one way (a session ends; ids are never reused) and every probe still views the session itself,
- * so the probes of one launch can share it. It never stands in for `createWorkspace`'s `before` snapshot, which is listed
+ * Every probe still views the session itself, so the probes of one launch can share a listing taken moments earlier: a
+ * session that ended since reads as gone on its view, and a session another launch created since is simply not seen. It never stands in for `createWorkspace`'s `before` snapshot, which is listed
  * just before `session.create` (P13): nothing reuses a listing across that mutation.
  */
 export function sessionListings(): SessionListings {

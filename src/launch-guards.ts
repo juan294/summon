@@ -8,15 +8,7 @@
  *   - Dangerous command metacharacter confirmation with skip-pane support (UX-S2 #340)
  */
 
-import {
-  isGhosttyInstalled,
-  isAccessibilityError,
-  checkAccessibility,
-  promptUser,
-  ACCESSIBILITY_SETTINGS_PATH,
-  ACCESSIBILITY_ENABLE_HINT,
-  ACCESSIBILITY_REQUIRED_MSG,
-} from "./utils.js";
+import { isGhosttyInstalled, isAccessibilityError, checkAccessibility, promptUser, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT, ACCESSIBILITY_REQUIRED_MSG, CANCELLED_EXIT_CODE } from "./utils.js";
 import { commandHasShellMeta } from "./command-spec.js";
 import { fail, err, warn } from "./ui/output.js";
 
@@ -113,7 +105,7 @@ export async function confirmDangerousCommands(
       // Empty Enter, "n", "no", or anything else → abort (N is the default). A decline is a
       // user cancel: exit 130 like Ctrl+C, as the user manual's exit-code table says.
       err("Aborted.");
-      process.exit(130);
+      process.exit(CANCELLED_EXIT_CODE);
     }
   }
 

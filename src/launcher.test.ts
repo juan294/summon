@@ -53,10 +53,12 @@ const mockCreateRexBackend = vi.fn((_context: unknown, _deps: unknown) => ({
 vi.mock("./backends/rex/backend.js", () => ({ createRexBackend: (context: unknown, deps: unknown) => mockCreateRexBackend(context, deps) }));
 vi.mock("./backends/rex/launch.js", () => ({
   adoptOrphansForLaunch: (project: string, _deps: unknown) => mockAdoptOrphansForLaunch(project),
-  adoptDeps: vi.fn(() => ({})),
+  adoptDeps: (...args: unknown[]) => mockAdoptDeps(...args),
   maybeSwitchToExisting: (...args: unknown[]) => mockMaybeSwitch(...args),
 }));
-vi.mock("./backends/rex/status.js", () => ({ sessionState: (...args: unknown[]) => mockSessionState(...args) }));
+const mockAdoptDeps = vi.fn((..._args: unknown[]) => ({}));
+const SHARED_LISTINGS = { of: () => ({ ok: true, sessions: [] }) };
+vi.mock("./backends/rex/status.js", () => ({ sessionState: (...args: unknown[]) => mockSessionState(...args), sessionListings: () => SHARED_LISTINGS }));
 const mockCloseLauncherTab = vi.fn();
 const mockStartLauncherTabWatch = vi.fn();
 const mockMarkAttention = vi.fn();
@@ -5024,6 +5026,15 @@ describe("Rex launch (plan P2, P8, P13, P15; Phase 3)", () => {
     }
     expect(stderrText).toContain("could not be verified");
     expect(rexLaunches).toEqual([]);
+  });
+
+  it("shares one rex listing between late adoption and the switch decision, and not with the backend (PE-L1)", async () => {
+    mockAdoptDeps.mockClear();
+    await launch("/tmp/workspace");
+    expect(mockAdoptDeps).toHaveBeenCalledWith("/usr/local/bin/rex", SHARED_LISTINGS);
+    expect(mockMaybeSwitch).toHaveBeenCalledWith("workspace", false, expect.objectContaining({ listings: SHARED_LISTINGS }));
+    // The kept-session check runs after the wizard and on-start, so it lists afresh.
+    expect(mockCreateRexBackend.mock.calls.at(-1)![1]).not.toHaveProperty("listings");
   });
 
   it("passes --new-window to the switch decision", async () => {
