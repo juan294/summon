@@ -13,7 +13,7 @@ interface SubcommandSpec {
 
 /** Argument style for a flag that takes a value. */
 type FlagArgKind =
-  | "preset"        // layout preset (dynamic from summon layout list)
+  | "preset"        // layout: built-in presets plus custom layouts
   | "starship"      // starship preset (dynamic from starship CLI)
   | "shell-toggle"  // "true" or "false"
   | "value"         // arbitrary value (no completion)
@@ -120,6 +120,12 @@ if (process.env["NODE_ENV"] !== "test") {
 // Shell-specific generators
 // ---------------------------------------------------------------------------
 
+/**
+ * Built-in presets are embedded in every script; `summon layout list --names` prints only
+ * custom layouts, so zsh and bash append its output at completion time (FE-M3).
+ */
+const PRESET_NAMES = getPresetNames().join(" ");
+
 export function generateZshCompletion(): string {
   const configKeys = VALID_KEYS.join(" ");
   const booleanKeyCheck = [...BOOLEAN_KEYS].map(k => `"\${words[2]}" == "${k}"`).join(" || ");
@@ -173,7 +179,8 @@ ${subcommandLines}
   )
 
   local -a config_keys=(${configKeys})
-  local -a layout_presets=(\${(f)"$(summon layout list --names 2>/dev/null)"})
+  local -a custom_layouts=(\${(f)"$(summon layout list --names 2>/dev/null)"})
+  local -a layout_presets=(${PRESET_NAMES} $custom_layouts)
   local projects_file="\${HOME}/.config/summon/projects"
   local sessions_dir="\${HOME}/.config/summon/sessions"
   local -a session_names=()
@@ -260,7 +267,7 @@ ${argLines}
           fi
           ;;
         freeze)
-          compadd -a layout_presets
+          compadd -a custom_layouts
           ;;
         export)
           _files
@@ -274,7 +281,7 @@ ${argLines}
           elif (( CURRENT == 3 )); then
             case "\${words[2]}" in
               show|delete|edit)
-                compadd -a layout_presets
+                compadd -a custom_layouts
                 ;;
             esac
           fi
@@ -316,12 +323,15 @@ export function generateBashCompletion(): string {
     COMPREPLY=()
     local cur="\${COMP_WORDS[COMP_CWORD]}"
     local prev="\${COMP_WORDS[COMP_CWORD-1]}"
+    local words=("\${COMP_WORDS[@]}")
+    local cword=$COMP_CWORD
   fi
 
   local subcommands="${subcommandList}"
   local config_keys="${configKeys}"
-  local layout_presets
-  layout_presets=$(summon layout list --names 2>/dev/null)
+  local custom_layouts
+  custom_layouts=$(summon layout list --names 2>/dev/null)
+  local layout_presets="${PRESET_NAMES} $custom_layouts"
   local projects_file="\${HOME}/.config/summon/projects"
   local sessions_dir="\${HOME}/.config/summon/sessions"
   local session_names=""
@@ -405,7 +415,7 @@ export function generateBashCompletion(): string {
       COMPREPLY=($(compgen -W "--vim --detach-tab" -- "$cur"))
       ;;
     freeze)
-      COMPREPLY=($(compgen -W "$layout_presets" -- "$cur"))
+      COMPREPLY=($(compgen -W "$custom_layouts" -- "$cur"))
       ;;
     export)
       COMPREPLY=($(compgen -f -- "$cur"))
@@ -416,7 +426,7 @@ export function generateBashCompletion(): string {
       elif (( cword == 3 )); then
         case "\${words[2]}" in
           show|delete|edit)
-            COMPREPLY=($(compgen -W "$layout_presets" -- "$cur"))
+            COMPREPLY=($(compgen -W "$custom_layouts" -- "$cur"))
             ;;
         esac
       fi
@@ -440,8 +450,7 @@ complete -F _summon summon
 }
 
 export function generateFishCompletion(): string {
-  const customLayouts = listCustomLayouts();
-  const allLayouts = [...getPresetNames(), ...customLayouts];
+  const layoutNames = [PRESET_NAMES, ...listCustomLayouts()].join(" ");
   const configKeys = VALID_KEYS.join(" ");
 
   // Build subcommand completion lines from SUBCOMMAND_SPECS
@@ -460,14 +469,12 @@ export function generateFishCompletion(): string {
     })
     .join("\n");
 
-  const layoutPresets = allLayouts.join(" ");
-
   return `# summon fish completion
-# Setup: eval (summon completions fish | psub)
+# Setup: summon completions fish | source
 complete -c summon -f
 ${subcommandLines}
 ${globalFlagLines}
-complete -c summon -l layout -s l -d 'Layout preset or tree DSL' -a '${layoutPresets}'
+complete -c summon -l layout -s l -d 'Layout preset or tree DSL' -a '${layoutNames}'
 complete -c summon -n '__fish_seen_subcommand_from inspect focus title open switch clean' -a '(cut -d= -f1 ~/.config/summon/projects 2>/dev/null)' -d 'Project'
 complete -c summon -n '__fish_seen_subcommand_from title' -l set -r -d 'Set title override'
 complete -c summon -n '__fish_seen_subcommand_from title' -l reset -d 'Clear title override'
@@ -475,6 +482,7 @@ complete -c summon -n '__fish_seen_subcommand_from keybindings' -l detach-tab -d
 complete -c summon -n '__fish_seen_subcommand_from status' -l once -d 'Print status table once and exit'
 complete -c summon -n '__fish_seen_subcommand_from clean' -l orphans -d 'Review earlier launches'
 complete -c summon -n '__fish_seen_subcommand_from set' -n '__fish_is_nth_token 2' -a '${configKeys}' -d 'Config key'
+complete -c summon -n '__fish_seen_subcommand_from set' -n '__fish_is_nth_token 3' -n '__fish_seen_subcommand_from layout' -a '${layoutNames}' -d 'Layout'
 complete -c summon -n '__fish_seen_subcommand_from session' -n 'not __fish_seen_subcommand_from add remove list show' -a 'add remove list show' -d 'Session action'
 complete -c summon -n '__fish_seen_subcommand_from session' -l all -d 'Launch every registered project'
 `;

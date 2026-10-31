@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- zsh and bash completion now offer the built-in layout presets (`minimal`, `full`, `pair`, `cli`, `btop`) as well as custom layouts for `--layout` and `summon set layout`; fish now also completes `summon set layout`. `summon layout show|delete|edit` and `summon freeze` complete custom layouts only, because those commands reject the presets. Bash completion of subcommand arguments (for example `summon set layout`) now also works without the bash-completion package.
+- `summon completions --help` gives the working fish setup line, `summon completions fish | source` (the earlier `eval (summon completions fish | psub)` passed a file path to `eval`).
+
 ## [2.0.1] - 2026-10-31
 
 ### Changed

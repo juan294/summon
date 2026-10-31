@@ -505,13 +505,13 @@ summon completions fish | source
 - `summon <TAB>` — subcommands, registered project names, directories
 - `summon remove <TAB>` — registered project names
 - `summon set <TAB>` — config keys
-- `summon set layout <TAB>` — layout presets
+- `summon set layout <TAB>` — built-in presets and custom layouts
 - `summon set starship-preset <TAB>` — Starship preset names (dynamic)
-- `summon --layout <TAB>` — layout presets
+- `summon --layout <TAB>` — built-in presets and custom layouts
 - `summon --starship-preset <TAB>` — Starship preset names (dynamic)
 - `summon --<TAB>` — all CLI flags
 
-`summon open <TAB>`, `summon switch <TAB>` and `summon clean <TAB>` complete registered project names, and `summon clean` also completes `--orphans`. In zsh and bash, `summon set <boolean key> <TAB>` completes `true` and `false`.
+`summon open <TAB>`, `summon switch <TAB>` and `summon clean <TAB>` complete registered project names, and `summon clean` also completes `--orphans`. In zsh and bash, `summon set <boolean key> <TAB>` completes `true` and `false`, and `summon layout show|delete|edit <TAB>` and `summon freeze <TAB>` complete custom layout names only, because those commands reject the built-in presets.
 
 Project names are read dynamically from `~/.config/summon/projects`,
 so newly added projects are immediately completable.

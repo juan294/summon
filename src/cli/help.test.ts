@@ -75,6 +75,20 @@ describe("help module exports", () => {
     logSpy.mockRestore();
   });
 
+  // FE-M3: `eval (... | psub)` hands eval a temp file path; fish must source the script from stdin.
+  it("completions help gives working setup lines for every shell", () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    showSubcommandHelp("completions");
+
+    const text = String(logSpy.mock.calls[0]?.[0]);
+    logSpy.mockRestore();
+    expect(text).toContain('zsh:   eval "$(summon completions zsh)"');
+    expect(text).toContain('bash:  eval "$(summon completions bash)"');
+    expect(text).toContain("fish:  summon completions fish | source");
+    expect(text).not.toContain("psub");
+  });
+
   it("showSubcommandHelp does not throw for unknown subcommand (graceful no-op)", () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     expect(() => showSubcommandHelp("not-a-real-subcommand")).not.toThrow();
