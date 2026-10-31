@@ -40,8 +40,7 @@ Technical reference for contributors.
 | `cli/suggest.ts` | `suggestProjects` — "did you mean" ranking (prefix, subsequence, edit distance, lazy recency lookup) | **pure** | edit-distance |
 | `edit-distance.ts` | `editDistance` — optimal string alignment distance shared by `setup.ts` and `cli/suggest.ts` | **pure** | none |
 | `launch-guards.ts` | Pre-launch safety checks — `ensureGhostty`, `ensureAccessibility`, `confirmDangerousCommands` (extracted from launcher.ts) | yes | utils, command-spec, ui/output |
-| `config.ts` | Config file read/write (`~/.config/summon/` and `.summon`), first-run detection, in-process mtime memoization layered over the persistent `cache.ts` | yes | paths, cache |
-| `cache.ts` | Persistent cross-invocation read-through KV cache at `~/.config/summon/cache.json`, keyed by path + `mtimeMs` + `size`; opt-out via `SUMMON_NO_CACHE` — `getCachedKV`, `putCachedKV`, `flushCacheToDisk`, `invalidateCachedKV`, `resetPersistentCache` | yes | paths, utils |
+| `config.ts` | Config file read/write (`~/.config/summon/` and `.summon`), first-run detection, in-process mtime memoization | yes | paths, utils, file-lock |
 | `paths.ts` | Canonical path constants — `CONFIG_DIR`, `STATUS_DIR`, `SNAPSHOTS_DIR`, `LAYOUTS_DIR`, `SESSIONS_DIR`, `TRUST_FILE`, `CACHE_FILE` | **pure** | Node stdlib only |
 | `sessions.ts` | Named session save/restore — persist and replay workspace configs — `listSessions`, `readSession`, `writeSession`, `deleteSession`, `sessionExists`, `isValidSessionName` | yes | config, paths |
 | `errors.ts` | Named error classes — `TabOpenError` (recoverable new-tab failure surfaced by `session --all`) | **pure** | none |
@@ -203,10 +202,7 @@ graph TD
     trust --> utils
 
     config --> paths
-    config --> cache[cache.ts]
     config --> filelock
-    cache --> paths
-    cache --> utils
 
     sessions --> paths
     sessions --> config
@@ -253,7 +249,7 @@ graph TD
     LAYOUT_NAME_RE"]
     paths -.- paths_fns["CONFIG_DIR, STATUS_DIR,
     SNAPSHOTS_DIR, LAYOUTS_DIR,
-    SESSIONS_DIR, TRUST_FILE, CACHE_FILE"]
+    SESSIONS_DIR, TRUST_FILE"]
     layout -.- lay_fns["planLayout, isPresetName,
     getPreset, getPresetNames,
     LayoutOptions, LayoutPlan"]
@@ -354,7 +350,7 @@ graph TD
     style sr_fns fill:none,stroke-dasharray:5
 ```
 
-`layout.ts`, `script.ts`, `tree.ts`, `shell-escape.ts`, `command-spec.ts`, `setup-gallery.ts`, `ui/ansi.ts`, `ui/width.ts`, `completions.ts`, and `validation.ts` are pure modules with no side effects. `utils.ts` and `paths.ts` only use Node stdlib. `config.ts` depends on `paths.ts` for directory constants and uses in-process mtime-based memoization layered over the persistent `cache.ts` read-through cache (`~/.config/summon/cache.json`, keyed by path + `mtimeMs` + `size`, disabled by `SUMMON_NO_CACHE=1`) to avoid redundant disk reads both within and across invocations. `starship.ts` handles Starship binary detection (cached), preset listing, and TOML config file generation — it depends on `paths.ts` and `utils.ts`.
+`layout.ts`, `script.ts`, `tree.ts`, `shell-escape.ts`, `command-spec.ts`, `setup-gallery.ts`, `ui/ansi.ts`, `ui/width.ts`, `completions.ts`, and `validation.ts` are pure modules with no side effects. `utils.ts` and `paths.ts` only use Node stdlib. `config.ts` depends on `paths.ts` for directory constants and uses in-process mtime-based memoization to avoid redundant disk reads within one invocation. There is no cross-invocation cache: the earlier `cache.json` gave no measured gain and was removed (PE-M1); `SUMMON_NO_CACHE` has no effect. `starship.ts` handles Starship binary detection (cached), preset listing, and TOML config file generation — it depends on `paths.ts` and `utils.ts`.
 
 `index.ts` is a thin dispatch registry (~250 lines) that delegates to `commands/*` handlers and `cli/parse.ts`. It has no static runtime imports: `cli/parse.ts`, `config.ts`, `trust.ts`, `utils.ts`, `launcher.ts`, the help text (`cli/help.ts`) and each command handler (through the lazy registry) are loaded via dynamic `import()` where needed, and the handlers load the full setup wizard, `completions.ts`, `keybindings.ts`, `monitor.ts`, `ports.ts` and `snapshot.ts` the same way. This keeps the `--version`/`--help` and simple-subcommand paths from pulling in the full launch graph. `launcher.ts` also dynamically imports `setup.ts` when no editor is configured. `launcher.ts` imports `assertTrusted` from `trust.ts`, `confirmDangerousCommands` from `launch-guards.ts` and both backends; `backends/ghostty.ts` imports `ensureGhostty` and `ensureAccessibility`. All user-facing output is funnelled through `ui/output.ts` (`out`/`err`/`fail`, the unified `summon: error:` prefix); `briefing.ts` and `monitor.ts` import color helpers from `ui/ansi.ts` (not `setup.ts`), and `monitor.ts` imports width-aware truncation from `ui/width.ts` for TUI rendering.
 
@@ -866,7 +862,6 @@ Config files live at `~/.config/summon/`:
 | `status/` | Workspace status records (`<project>.json`) and per-launch files under `<project>.launches/` (`.pid`, `.active`, Rex manifests and pane files), managed by `status-record.ts` and `launch-identity.ts` |
 | `snapshots/` | Context snapshot JSON files per project (managed by `snapshot.ts`) |
 | `sessions/` | Named session files — saved workspace configs for replay (managed by `sessions.ts`) |
-| `cache.json` | Persistent read-through cache for `config` and `projects` (managed by `cache.ts`; disable with `SUMMON_NO_CACHE=1`) |
 
 Both use `key=value` format, one entry per line.
 

@@ -28,8 +28,7 @@ pnpm test:coverage    # run tests with v8 coverage
 ```
 src/
   index.ts              CLI entry point — dispatch registry (thin, ~134 lines)
-  config.ts             Config file read/write (~/.config/summon/); re-exports path constants; layered over cache.ts
-  cache.ts              Persistent cross-invocation read-through cache (~/.config/summon/cache.json); opt-out via SUMMON_NO_CACHE
+  config.ts             Config file read/write (~/.config/summon/); re-exports path constants; in-process mtime cache
   layout.ts             Layout calculation (pure function)
   tree.ts               Tree DSL parser, layout node model, plan builder (pure function)
   script.ts             AppleScript generator (pure function — builds script string)
@@ -230,7 +229,7 @@ primary injection defense. See src/shell-escape.ts for the escape functions it p
 ## Known Architectural Debt
 
 - **PE-S1**: `setup.ts` compiles to ~20KB chunk. Further code splitting (lazy imports for gallery/builder) could reduce cold-start cost. Tracked in #329.
-- **PE-S2**: Implemented in #516/#330. A persistent cross-invocation cache at `~/.config/summon/cache.json` keyed on absolute path + mtimeMs + size accelerates machine config and project registry reads across CLI invocations. Opt-out: `SUMMON_NO_CACHE=1`.
+- **PE-S2**: The persistent cross-invocation cache (`~/.config/summon/cache.json`, #516/#330) was removed in PE-M1: measured, it gave no gain (median `summon list` 45.05 ms with it, 44.34 ms without) and wrote on every exit. Config uses only the in-process mtime cache; `SUMMON_NO_CACHE` is a documented no-op.
 
 ## Schema Migrations
 

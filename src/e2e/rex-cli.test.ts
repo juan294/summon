@@ -77,7 +77,7 @@ function summon(args: string[], opts: { env?: Record<string, string | undefined>
 }
 /** The environment of a run whose `rex` is the shim that withholds the `session.create` answer (C21). */
 const withheldAnswer = () => ({ PATH: `${rexShimDir()}:${process.env.PATH ?? ""}` });
-/** The environment of a run with the persistent cache on (C22). */
+/** The environment of a run without SUMMON_NO_CACHE (C22); the variable is a no-op since PE-M1. */
 const warmCache = () => ({ SUMMON_NO_CACHE: undefined });
 
 /** The record a launch just wrote; its session joins the teardown list. */
@@ -681,12 +681,12 @@ describe("rex cli e2e", () => {
     expect(new Set(lines)).toEqual(new Set([`${SPELL}|${dir}`, `${SPELL}|${join(dir, "api")}`]));
     expect(blockLabels(record.rex!.sessionId).has("editor · sleep 300")).toBe(true);
 
-    // Warm cache: the persistent cache is on (no SUMMON_NO_CACHE), warmed by a listing; a config change and a
-    // registry change made with the cache on are seen by the next cached read.
+    // Without SUMMON_NO_CACHE (a no-op since PE-M1, which removed the persistent cache): nothing writes cache.json,
+    // and a config change and a registry change are seen by the next read.
     const cacheFile = join(home, ".config", "summon", "cache.json");
     expect(summon(["list"], { env: warmCache() }).status).toBe(0);
     expect(summon([five, "--dry-run"], { env: warmCache() }).status).toBe(0);
-    expect(existsSync(cacheFile)).toBe(true);
+    expect(existsSync(cacheFile)).toBe(false);
     expect(summon(["set", "editor", "sleep 301"], { env: warmCache() }).status).toBe(0);
     const dry = summon([name("one"), "--dry-run"], { env: warmCache() });
     expect(dry.status, dry.out).toBe(0);
