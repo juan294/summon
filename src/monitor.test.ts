@@ -1761,3 +1761,186 @@ describe("monitor interaction (FE-M1, FE-M2, UX-L1)", () => {
     }
   });
 });
+
+describe("PE-H1: a slow status read never blocks the monitor", () => {
+  let writeSpy: ReturnType<typeof vi.spyOn>;
+  let resumeSpy: ReturnType<typeof vi.spyOn>;
+  const frames = () => writeSpy.mock.calls.map((c: unknown[]) => String(c[0])).filter((w: string) => w.startsWith("\x1b[H"));
+  const settle = async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); };
+  const row = (name: string, state: ProjectRow["state"]) => makeRow({ name, directory: `/tmp/${name}`, state, gitBranch: "—" });
+  function deferred() {
+    let resolve!: (rows: ProjectRow[]) => void;
+    let reject!: (error: Error) => void;
+    const promise = new Promise<ProjectRow[]>((res, rej) => { resolve = res; reject = rej; });
+    return { promise, resolve, reject };
+  }
+
+  beforeEach(() => {
+    listProjects.mockReturnValue([]);
+    readAllStatuses.mockReset().mockReturnValue([]);
+    getGitBranch.mockReturnValue(null);
+    vi.useFakeTimers();
+    writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    resumeSpy = vi.spyOn(process.stdin, "resume").mockImplementation(() => process.stdin);
+    Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
+    Object.defineProperty(process.stdin, "isRaw", { value: false, configurable: true });
+    Object.defineProperty(process.stdin, "setRawMode", { value: vi.fn(() => process.stdin), configurable: true });
+  });
+
+  afterEach(() => {
+    writeSpy.mockRestore();
+    resumeSpy.mockRestore();
+    process.stdin.removeAllListeners("data");
+    process.removeAllListeners("SIGWINCH");
+    vi.useRealTimers();
+  });
+
+  it("handles keys and resize while a read is in flight, and never starts a second read", async () => {
+    const reads: Array<ReturnType<typeof deferred>> = [];
+    const loadRows = vi.fn(() => { const read = deferred(); reads.push(read); return read.promise; });
+    const monitorPromise = runMonitor({ loadRows });
+    reads[0]!.resolve([row("alpha", "active"), row("beta", "stopped")]);
+    await settle();
+    expect(frames().at(-1)).toContain("alpha");
+
+    await vi.advanceTimersByTimeAsync(3100); // the tick starts a read that does not answer yet
+    expect(loadRows).toHaveBeenCalledTimes(2);
+    process.stdin.emit("data", Buffer.from("?"));
+    expect(frames().at(-1)).toContain("Key bindings"); // the key was handled and drawn during the read
+    process.stdin.emit("data", Buffer.from(" "));
+    expect(frames().at(-1)).toContain("alpha");
+    writeSpy.mockClear();
+    process.emit("SIGWINCH");
+    const repaint = String(writeSpy.mock.calls.at(-1)?.[0]);
+    expect(repaint.startsWith("\x1b[H\x1b[2J") && repaint.includes("alpha")).toBe(true); // resize repaints at once
+
+    await vi.advanceTimersByTimeAsync(9000); // three more ticks while the read is in flight
+    process.stdin.emit("data", Buffer.from("r"));
+    expect(loadRows).toHaveBeenCalledTimes(2);
+
+    reads[1]!.resolve([row("beta", "active"), row("alpha", "stopped"), row("gamma", "stopped")]);
+    await settle();
+    expect(frames().at(-1)).toContain("gamma");
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(loadRows).toHaveBeenCalledTimes(3);
+    reads[2]!.resolve([]);
+    process.stdin.emit("data", Buffer.from("q"));
+    await monitorPromise;
+  });
+
+  it("a failed read keeps the rows on screen and the next tick reads again", async () => {
+    const reads: Array<ReturnType<typeof deferred>> = [];
+    const loadRows = vi.fn(() => { const read = deferred(); reads.push(read); return read.promise; });
+    const monitorPromise = runMonitor({ loadRows });
+    reads[0]!.resolve([row("alpha", "active")]);
+    await settle();
+    await vi.advanceTimersByTimeAsync(3100);
+    reads[1]!.reject(new Error("status read timed out"));
+    await settle();
+    expect(frames().at(-1)).toContain("alpha");
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(loadRows).toHaveBeenCalledTimes(3);
+    reads[2]!.resolve([]);
+    process.stdin.emit("data", Buffer.from("q"));
+    await monitorPromise;
+  });
+
+  it("the child's JSON gives the same rows as the in-process read, for Ghostty and Rex rows", () => {
+    listProjects.mockReturnValue([["ghost", "/tmp/ghost"], ["rexa", "/tmp/rexa"], ["rexb", "/tmp/rexb"], ["idle", "/tmp/idle"]]);
+    const rex = { server: "unix:///tmp/rex.sock", sessionId: "session:1", rootBlockId: "block:1", blocks: [{ name: "editor", blockId: "block:1" }] };
+    readAllStatuses.mockReturnValue([
+      makeResolvedStatus({ project: "ghost", directory: "/tmp/ghost", state: "active", uptime: 60_000 }),
+      makeResolvedStatus({ project: "rexa", directory: "/tmp/rexa", backend: "rex", rex, state: "active", uptime: 5 * 3_600_000, liveBlocks: ["editor"], programStatus: { state: "blocked", kind: "permission" }, notices: ["adopted earlier launch"] }),
+      makeResolvedStatus({ project: "rexb", directory: "/tmp/rexb", backend: "rex", rex, state: "unknown", uptime: null, reason: "server unreachable" }),
+      makeResolvedStatus({ project: "orphan", directory: "/tmp/orphan", backend: "rex", state: "partial", uptime: 1000, reason: "root pane closed" }),
+    ]);
+    let wire = "";
+    writeSpy.mockImplementation((data: unknown) => { wire += String(data); return true; });
+    monitorModule.writeMonitorRead();
+    expect(readAllStatuses).toHaveBeenLastCalledWith({ programStatus: true });
+    expect(monitorModule.rowsFromStatuses(JSON.parse(wire))).toEqual(loadProjectRows());
+  });
+
+  it("the CLI entry answers the hidden flag the monitor starts its child with", async () => {
+    const { readFileSync } = await import("node:fs");
+    const entry = readFileSync(new URL("./index.ts", import.meta.url), "utf-8");
+    expect(entry).toContain(JSON.stringify(monitorModule.MONITOR_READ_ARG));
+    expect(entry).toContain("writeMonitorRead()");
+  });
+});
+
+describe("PE-H1: readStatusesInChild", () => {
+  let dir = "";
+  beforeEach(async () => {
+    const { mkdtempSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    dir = mkdtempSync(join(tmpdir(), "summon-monitor-read-"));
+  });
+  afterEach(async () => {
+    const { rmSync } = await import("node:fs");
+    rmSync(dir, { recursive: true, force: true });
+  });
+  async function script(body: string): Promise<string> {
+    const { writeFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const file = join(dir, `child-${Math.random().toString(36).slice(2)}.mjs`);
+    writeFileSync(file, body);
+    return file;
+  }
+
+  it("resolves the child's statuses while the event loop keeps running, with the cache off in the child", async () => {
+    const file = await script(`setTimeout(() => process.stdout.write(JSON.stringify([{ project: "a", args: process.argv.slice(2), noCache: process.env.SUMMON_NO_CACHE }])), 300);`);
+    const order: string[] = [];
+    setTimeout(() => order.push("timer"), 20);
+    const statuses = await monitorModule.readStatusesInChild(process.execPath, [file, "--flag"]);
+    order.push("read");
+    expect(order).toEqual(["timer", "read"]);
+    expect(statuses).toEqual([{ project: "a", args: ["--flag"], noCache: "1" }]);
+  });
+
+  it("rejects a child that fails or prints something other than JSON", async () => {
+    await expect(monitorModule.readStatusesInChild(process.execPath, [await script("process.exit(4);")])).rejects.toThrow(/4/);
+    await expect(monitorModule.readStatusesInChild(process.execPath, [await script("process.stdout.write('nope');")])).rejects.toThrow();
+  });
+
+  it("in the CLI the monitor reads through a child of this Summon started with the hidden flag", async () => {
+    const { registerSelfInvocation, clearSelfInvocation } = await import("./self.js");
+    const status = makeResolvedStatus({ project: "alpha", directory: "/tmp/alpha", state: "stopped", uptime: null, reason: "read in the child" });
+    const file = await script(`if (process.argv.slice(2).join(" ") !== ${JSON.stringify(monitorModule.MONITOR_READ_ARG)}) process.exit(3); process.stdout.write(${JSON.stringify(JSON.stringify([status]))});`);
+    listProjects.mockReturnValue([["alpha", "/tmp/alpha"]]);
+    readAllStatuses.mockClear();
+    const writes: string[] = [];
+    const writeSpy = vi.spyOn(process.stdout, "write").mockImplementation((data) => { writes.push(String(data)); return true; });
+    const resumeSpy = vi.spyOn(process.stdin, "resume").mockImplementation(() => process.stdin);
+    Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
+    Object.defineProperty(process.stdin, "setRawMode", { value: vi.fn(() => process.stdin), configurable: true });
+    registerSelfInvocation(process.execPath, file);
+    try {
+      const monitorPromise = runMonitor();
+      await vi.waitFor(() => expect(process.stdin.listenerCount("data")).toBeGreaterThan(0), { timeout: 5000 });
+      expect(writes.join("")).toContain("read in the child");
+      expect(readAllStatuses).not.toHaveBeenCalled();
+      process.stdin.emit("data", Buffer.from("q"));
+      await monitorPromise;
+    } finally {
+      clearSelfInvocation();
+      writeSpy.mockRestore();
+      resumeSpy.mockRestore();
+      process.stdin.removeAllListeners("data");
+      process.removeAllListeners("SIGWINCH");
+    }
+  });
+
+  it("stops a child past the deadline and settles only once it has exited", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const pidFile = join(dir, "pid");
+    const file = await script(`import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); setTimeout(() => {}, 60_000);`);
+    const started = Date.now();
+    await expect(monitorModule.readStatusesInChild(process.execPath, [file], 500)).rejects.toThrow(/SIGTERM/);
+    expect(Date.now() - started).toBeLessThan(5000);
+    const pid = Number(readFileSync(pidFile, "utf-8"));
+    expect(() => process.kill(pid, 0)).toThrow();
+  });
+});

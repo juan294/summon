@@ -53,7 +53,7 @@ vi.mock("./snapshot.js", async (original) => ({
   writeSnapshotFile: (snapshot: unknown) => snapshotMocks.writeSnapshotFile(snapshot),
 }));
 
-const { writeStatus, publishStatus, clearStatus, readStatus, readAllStatuses, readProjectStatus, getGitBranch, parseWorkspaceStatus, resetReadAllStatusesCache, readStatusRecord, withOwnedRecord, statusTestHooks, resetRexBinaryMemo, newRexReadContext, removeLaunchFileSet, NO_LIVE_PANES } = await import("./status.js");
+const { writeStatus, publishStatus, clearStatus, readStatus, readAllStatuses, readProjectStatus, getGitBranch, parseWorkspaceStatus, readStatusRecord, withOwnedRecord, statusTestHooks, resetRexBinaryMemo, newRexReadContext, removeLaunchFileSet, NO_LIVE_PANES } = await import("./status.js");
 const { launchArtifactFiles } = await import("./launch-identity.js");
 const { writeLaunchManifest } = await import("./launch-identity.js");
 import type { WorkspaceStatus } from "./status.js";
@@ -102,12 +102,10 @@ function makeStatus(overrides?: Partial<WorkspaceStatus>): WorkspaceStatus {
 
 beforeEach(() => {
   rmSync(TEST_STATUS_DIR, { recursive: true, force: true });
-  resetReadAllStatusesCache();
 });
 
 afterEach(() => {
   rmSync(TEST_STATUS_DIR, { recursive: true, force: true });
-  resetReadAllStatusesCache();
 });
 
 describe("writeStatus", () => {
@@ -671,67 +669,16 @@ describe("parseWorkspaceStatus explicit field reconstruction (#514 BE-L3)", () =
   });
 });
 
-// PE-M1 #607 / PE-L3 #570: bounded-TTL cache for readAllStatuses
-describe("readAllStatuses TTL cache (PE-M1 #607, PE-L3 #570)", () => {
-  it("hits cache on second call within TTL: new file written between calls is not visible", () => {
-    resetReadAllStatusesCache();
-    writeStatus(makeStatus({ project: "first-proj" }));
-
-    const first = readAllStatuses();
-    expect(first).toHaveLength(1);
-
-    // Write a second file — within TTL, the cache should still return the old snapshot
-    writeStatus(makeStatus({ project: "second-proj" }));
-    const second = readAllStatuses();
-
-    // Still 1 because the cache has not expired
-    expect(second).toHaveLength(1);
-    expect(second).toEqual(first);
-  });
-
-  it("re-scans after TTL elapses and detects a newly dead pid", () => {
-    vi.useFakeTimers();
-    resetReadAllStatusesCache();
-
+// PE-H1: readAllStatuses has no cache; every call reads the records and the liveness again.
+describe("readAllStatuses reads afresh on every call (PE-H1)", () => {
+  it("sees a record written and a marker removed since the previous call", () => {
     writeStatus(makeStatus({ project: "dying-app" }));
     writeFileSync(join(TEST_STATUS_DIR, "dying-app.pid"), String(process.pid));
     writeFileSync(join(TEST_STATUS_DIR, "dying-app.active"), "");
-
-    // First call: should see "active" (pid is alive)
-    const first = readAllStatuses();
-    expect(first[0]!.state).toBe("active");
-
-    // Simulate pid death: remove the .active marker (as if shell bootstrap cleanup ran)
+    expect(readAllStatuses().map((r) => [r.project, r.state])).toEqual([["dying-app", "active"]]);
     rmSync(join(TEST_STATUS_DIR, "dying-app.active"), { force: true });
-
-    // Still within TTL: second call should return cached "active"
-    const withinTTL = readAllStatuses();
-    expect(withinTTL[0]!.state).toBe("active");
-
-    // Advance past TTL (1001ms > 1000ms TTL)
-    vi.advanceTimersByTime(1001);
-
-    // Third call: cache expired, re-scan detects stopped
-    const afterTTL = readAllStatuses();
-    expect(afterTTL[0]!.state).toBe("stopped");
-
-    vi.useRealTimers();
-  });
-
-  it("resetReadAllStatusesCache clears the cache so next call re-scans immediately", () => {
-    resetReadAllStatusesCache();
-    writeStatus(makeStatus({ project: "reset-proj" }));
-
-    const first = readAllStatuses();
-    expect(first).toHaveLength(1);
-
-    // Write a second file, then reset the cache
-    writeStatus(makeStatus({ project: "reset-proj-2" }));
-    resetReadAllStatusesCache();
-
-    // After reset, the new file should be visible immediately
-    const second = readAllStatuses();
-    expect(second).toHaveLength(2);
+    writeStatus(makeStatus({ project: "second-proj" }));
+    expect(readAllStatuses().map((r) => [r.project, r.state]).sort()).toEqual([["dying-app", "stopped"], ["second-proj", "stopped"]]);
   });
 });
 
@@ -806,7 +753,6 @@ describe("per-launch liveness (plan P12)", () => {
       rexMocks.adoptOrphans.mockReset().mockImplementation(() => []);
       rexMocks.refreshPaneMapping.mockReset().mockImplementation(() => ({ notices: [], changed: false }));
       rexMocks.discoverRex.mockReset().mockReturnValue({ path: "/mock/rex", searched: ["PATH"] });
-      resetReadAllStatusesCache();
       resetRexBinaryMemo();
     });
 
@@ -858,8 +804,7 @@ describe("per-launch liveness (plan P12)", () => {
       expect(rexMocks.programStatusOf).not.toHaveBeenCalled();
       expect(readStatus("myapp", newRexReadContext({ programStatus: true }))!.programStatus).toEqual({ state: "blocked", kind: "permission" });
       expect(rexMocks.programStatusOf).toHaveBeenCalledWith(expect.anything(), rexIdentity().sessionId, rexIdentity().rootBlockId);
-      // readAllStatuses: the flag reaches the rows and a cache filled without it is not reused for a reader that wants it.
-      resetReadAllStatusesCache();
+      // readAllStatuses: the flag reaches the rows only when asked for.
       expect(readAllStatuses()[0]!.programStatus).toBeUndefined();
       expect(readAllStatuses({ programStatus: true })[0]!.programStatus).toEqual({ state: "blocked", kind: "permission" });
       rexMocks.programStatusOf.mockClear();
@@ -939,7 +884,6 @@ describe("per-launch liveness (plan P12)", () => {
       expect(snapshotMocks.collectSnapshot).not.toHaveBeenCalled();
       // Second read: the file is there.
       refreshFindsShell();
-      resetReadAllStatusesCache();
       const second = readStatus("myapp")!;
       expect(second).toMatchObject({ state: "partial", liveBlocks: ["shell"] });
       expect(second.rex!.blocks.map((b) => b.name)).toEqual(["editor", "shell"]);
@@ -1016,9 +960,9 @@ describe("per-launch liveness (plan P12)", () => {
       expect(rexMocks.listSessions).toHaveBeenCalledTimes(1);
       expect(rexMocks.adoptOrphans).toHaveBeenCalledTimes(2);
       expect(rexMocks.discoverRex).toHaveBeenCalledTimes(1);
-      // The 1 s cache bounds the probes: a second read within the TTL spawns nothing.
+      // One listing per server per read: a second read lists the server once more.
       readAllStatuses();
-      expect(rexMocks.listSessions).toHaveBeenCalledTimes(1);
+      expect(rexMocks.listSessions).toHaveBeenCalledTimes(2);
     });
 
     it("an unverified launch (manifest, no record) runs adoption and resolves through the record it published", () => {
@@ -1032,7 +976,6 @@ describe("per-launch liveness (plan P12)", () => {
       expect(rexMocks.adoptOrphans).toHaveBeenCalledTimes(1);
 
       // Without adoption the manifest stays an unverified row.
-      resetReadAllStatusesCache();
       clearStatus("orphan");
       const again = readAllStatuses();
       expect(again.map((r) => [r.project, r.state, r.reason])).toEqual([["orphan", "unknown", "unverified launch"]]);
@@ -1448,7 +1391,6 @@ describe("reconciliation of ended Rex launches (plan P12, Phase 5)", () => {
     snapshotMocks.writeSnapshotFile.mockReset().mockImplementation((snapshot: unknown) => { writeFileSync(snapshotFile((snapshot as { project: string }).project), JSON.stringify(snapshot)); });
     delete statusTestHooks.beforeLock;
     delete statusTestHooks.beforeWrite;
-    resetReadAllStatusesCache();
     resetRexBinaryMemo();
   });
   afterEach(() => {

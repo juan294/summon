@@ -28,7 +28,6 @@ vi.mock("node:child_process", () => child);
 home = fs.mkdtempSync(join(tmpdir(), "summon-monitor-lifecycle-"));
 const { runMonitor, resetGitBranchCache } = await import("./monitor.js");
 const { resetConfigCache } = await import("./config.js");
-const { resetReadAllStatusesCache } = await import("./status.js");
 const { resetGitOutputCache } = await import("./utils.js");
 // Match execFile's stdlib custom promisify result, not the generic first callback value.
 Object.defineProperty(child.execFile, promisify.custom, {
@@ -84,7 +83,6 @@ beforeEach(() => {
   fs.writeFileSync(join(home, ".config/summon/projects"), `fixture=${home}\n`);
   fs.writeFileSync(join(home, ".config/summon/config"), "");
   resetConfigCache();
-  resetReadAllStatusesCache();
   resetGitBranchCache();
   resetGitOutputCache();
   status();

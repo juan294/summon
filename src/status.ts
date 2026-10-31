@@ -259,42 +259,14 @@ export function readProjectStatus(projectName: string, ctx: RexReadContext = new
   return readStatus(projectName, ctx) ?? unverifiedLaunchRows([projectName], new Set(), ctx)[0] ?? null;
 }
 
-// PE-M1 #607 / PE-L3 #570: bounded-TTL in-process cache for readAllStatuses.
-// TTL is intentionally short (1000ms) so the monitor's 3-second refresh loop
-// still re-checks isPidAlive for any process that died between ticks WITHOUT a
-// file-system change. The previous dir-mtime cache was reverted because directory
-// mtime does not advance on process death — a process dying silently would remain
-// "active" indefinitely. A wall-clock TTL avoids that flaw while still coalescing
-// bursts of calls within the same render cycle. After TTL, a full re-scan runs.
-const READ_ALL_STATUSES_TTL_MS = 1000;
-
-interface StatusCache {
-  result: ResolvedStatus[];
-  cachedAt: number;
-  programStatus: boolean;
-}
-
-let _statusCache: StatusCache | null = null;
-
-/** Clear the readAllStatuses cache. Exposed for tests; also useful for CLI commands
- *  that need a fresh read immediately after a write. */
-export function resetReadAllStatusesCache(): void {
-  _statusCache = null;
-}
+/**
+ * @deprecated No-op since PE-H1. The 1 s read cache is gone: the monitor reads in a child process
+ * and every other caller reads once per process. Remove once no test calls it.
+ */
+export function resetReadAllStatusesCache(): void {}
 
 export function readAllStatuses(options: ReadOptions = {}): ResolvedStatus[] {
-  const now = Date.now();
-  const wantProgram = options.programStatus === true;
-
-  // Return cached result if within TTL (a cache filled without program status does not serve a reader that wants it)
-  if (_statusCache !== null && now - _statusCache.cachedAt < READ_ALL_STATUSES_TTL_MS && (_statusCache.programStatus || !wantProgram)) {
-    return _statusCache.result;
-  }
-
-  if (!existsSync(STATUS_DIR)) {
-    _statusCache = { result: [], cachedAt: now, programStatus: wantProgram };
-    return _statusCache.result;
-  }
+  if (!existsSync(STATUS_DIR)) return [];
 
   // BE-M4 #605: filter out .tmp and dotfiles so orphans never appear as phantom entries
   const entries = readdirSync(STATUS_DIR, { withFileTypes: true });
@@ -318,14 +290,11 @@ export function readAllStatuses(options: ReadOptions = {}): ResolvedStatus[] {
 
   // Sort: live first (active, then partial; newest first), then the rest (newest first)
   const rank = (state: WorkspaceState): number => (state === "active" ? 0 : state === "partial" ? 1 : 2);
-  const result = statuses.sort((a, b) => {
+  return statuses.sort((a, b) => {
     const byState = rank(a.state) - rank(b.state);
     if (byState !== 0) return byState;
     return Date.parse(b.startedAt) - Date.parse(a.startedAt);
   });
-
-  _statusCache = { result, cachedAt: now, programStatus: wantProgram };
-  return result;
 }
 
 // --- Git ---

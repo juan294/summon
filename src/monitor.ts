@@ -1,3 +1,5 @@
+import { spawn } from "node:child_process";
+import type { Socket } from "node:net";
 import { sym } from "./ui/symbols.js";
 import { readAllStatuses, readProjectStatus, getGitBranch, isLiveState as isLiveWorkspaceState, unverifiedMessage } from "./status.js";
 import type { ProgramState } from "./backends/rex/status.js";
@@ -8,6 +10,7 @@ import { getDisplayWidth, truncate } from "./ui/width.js";
 import { runPool, IO_CONCURRENCY } from "./utils.js";
 import { createMonitorInputDecoder, type MonitorInput } from "./monitor-input.js";
 import { createMonitorVisibility, type VisibilityEffects } from "./monitor-visibility.js";
+import { selfInvocation } from "./self.js";
 
 // --- Types ---
 
@@ -317,9 +320,18 @@ export function loadProjectRow(name: string): ProjectRow | undefined {
   return status ? statusToRow(name, directory, status) : neverLaunchedRow(name, directory);
 }
 
+/** The monitor's status read: every row, with the Rex program status. */
+function readMonitorStatuses(): ResolvedStatus[] {
+  return readAllStatuses({ programStatus: true });
+}
+
 export function loadProjectRows(): ProjectRow[] {
+  return rowsFromStatuses(readMonitorStatuses());
+}
+
+/** The rows for one status read: every registered project, then the statuses of unregistered ones, live rows first. */
+export function rowsFromStatuses(statuses: ResolvedStatus[]): ProjectRow[] {
   const projects = listProjects();
-  const statuses = readAllStatuses({ programStatus: true });
   const statusMap = new Map<string, ResolvedStatus>();
   for (const s of statuses) {
     statusMap.set(s.project, s);
@@ -341,6 +353,54 @@ export function loadProjectRows(): ProjectRow[] {
 
   const stateOrder: Record<ProjectState, number> = { active: 0, "active-long": 1, partial: 2, stopped: 3, unknown: 4 };
   return rows.sort((a, b) => stateOrder[a.state] - stateOrder[b.state]);
+}
+
+// --- Status read in a child process (PE-H1) ---
+
+/**
+ * Hidden argv: the monitor starts this same CLI with it to read the statuses in a child process.
+ * A Rex read spawns `rex` synchronously (up to 10 s per call), so it never runs on the TUI's thread.
+ */
+export const MONITOR_READ_ARG = "--internal-monitor-read";
+/** A read that takes longer is stopped; its rows stay on screen and the next tick reads again. */
+const MONITOR_READ_DEADLINE_MS = 30_000;
+
+/** The child side of MONITOR_READ_ARG: one status read, as JSON on stdout. */
+export function writeMonitorRead(): void {
+  process.stdout.write(JSON.stringify(readMonitorStatuses()));
+}
+
+/**
+ * Run `execPath args` and parse its stdout as the statuses. The child is unreferenced, so a read
+ * still running never holds Summon open after the monitor quits; past the deadline it is stopped,
+ * and the promise settles only once it has exited (two reads never overlap).
+ */
+export function readStatusesInChild(execPath: string, args: readonly string[], deadlineMs = MONITOR_READ_DEADLINE_MS): Promise<ResolvedStatus[]> {
+  return new Promise((resolve, reject) => {
+    // With the config cache off, the child never rewrites cache.json at exit (one child per tick).
+    const child = spawn(execPath, args, { stdio: ["ignore", "pipe", "ignore"], env: { ...process.env, SUMMON_NO_CACHE: "1" } });
+    const chunks: Buffer[] = [];
+    child.stdout.on("data", (chunk: Buffer) => chunks.push(chunk));
+    const timer = setTimeout(() => child.kill("SIGTERM"), deadlineMs);
+    timer.unref();
+    child.once("error", (error) => { clearTimeout(timer); reject(error); });
+    child.once("close", (code, signal) => {
+      clearTimeout(timer);
+      if (code !== 0) { reject(new Error(`status read ended with ${signal ?? `exit code ${code}`}`)); return; }
+      try { resolve(JSON.parse(Buffer.concat(chunks).toString("utf-8")) as ResolvedStatus[]); } catch (error) { reject(error as Error); }
+    });
+    child.unref();
+    (child.stdout as Socket).unref();
+  });
+}
+
+type RowLoader = () => ProjectRow[] | Promise<ProjectRow[]>;
+
+/** In the CLI, a child process of this same Summon; without a registered invocation (library use, tests), in-process. */
+function defaultRowLoader(): RowLoader {
+  const self = selfInvocation();
+  if (!self) return loadProjectRows;
+  return async () => rowsFromStatuses(await readStatusesInChild(self.execPath, [self.script, MONITOR_READ_ARG]));
 }
 
 // --- Single-shot mode ---
@@ -368,8 +428,18 @@ export async function printStatusOnce(): Promise<void> {
 
 // --- TUI Monitor ---
 
-export async function runMonitor(): Promise<void> {
-  let rows = loadProjectRows();
+export interface MonitorOptions {
+  /** Where the rows come from (tests); a promise is awaited while keys, resize and render keep running. */
+  loadRows?: RowLoader;
+}
+
+export async function runMonitor(options: MonitorOptions = {}): Promise<void> {
+  const loadRows = options.loadRows ?? defaultRowLoader();
+  const first = loadRows();
+  // The first frame waits for real rows; if the child read fails, read once in-process (the earlier behavior).
+  let rows = Array.isArray(first) ? first : await first.catch(() => loadProjectRows());
+  /** A read is in flight: ticks and `r` are skipped until it settles (never two reads at once, PE-H1). */
+  let loading = false;
   let selectedIndex = 0;
   let scrollStart = 0;
   let prevFrame: string | null = null;
@@ -447,12 +517,21 @@ export async function runMonitor(): Promise<void> {
   }
 
   function refresh(): void {
-    if (!current(session) || session.hidden) return;
+    if (!current(session) || session.hidden || loading) return;
+    const next = loadRows();
+    if (Array.isArray(next)) { applyRows(next); return; }
+    loading = true;
+    // A failed or stopped read keeps the rows on screen; the next tick reads again.
+    void next.then(applyRows, () => {}).finally(() => { loading = false; });
+  }
+
+  function applyRows(next: ProjectRow[]): void {
     // FE-M1: rows reorder by state, so keep the cursor on the same project; clamp only when it is gone.
     const selectedName = rows[selectedIndex]?.name;
-    rows = loadProjectRows();
+    rows = next;
     const kept = rows.findIndex((row) => row.name === selectedName);
     selectedIndex = kept >= 0 ? kept : Math.min(selectedIndex, Math.max(0, rows.length - 1));
+    if (!current(session) || session.hidden) return;
     if (ui === "dashboard") render();
     prefetch();
   }
