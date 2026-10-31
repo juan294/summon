@@ -11,12 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Under Rex, `summon <project>`, `summon open <project>` and `summon session` close the tab they were typed in once the workspace is shown in its own session, when that tab holds only that pane. No empty launcher tab or session stays behind (Ghostty reuses that tab, so nothing changes there). A tab with splits, a workspace tab, a failed launch, a dry run, a Summon run by an agent or a script, and any run that printed a note or a warning to read are left alone.
+- Under Rex, `summon <project>`, `summon open` (with a name, from the picker, or as `summon switch`) and `summon session` close the tab they were typed in once the workspace is shown in its own session, when that tab holds only that pane. When that tab is its session's only tab, the session is ended (`rex kill`), so no empty launcher tab or session stays behind (Ghostty reuses that tab, so nothing changes there). A tab with splits, a workspace tab, a failed launch, a dry run, a Summon run by an agent or a script, and any run that printed a note or a warning to read are left alone. A command chained on the same line (`summon <project> && make`) runs in a tab that closes about 0.3 s after Summon exits.
 
 ### Fixed
 
 - Launching a project whose status record came from an older Summon no longer prints `run summon <project> to replace it`: the launch replaces it. `summon status` and `summon clean --orphans` still say it.
-- `summon status --once` (and `summon status` piped) shows the git branch of active workspaces instead of `…`; an active workspace outside a git repository shows `—`.
+- `summon status --once` (and `summon status` piped) shows the git branch of live (active or partial) workspaces instead of `…`; one outside a git repository shows `—`.
 
 ## [2.0.0] - 2026-10-31
 
