@@ -594,6 +594,18 @@ describe("parseWorkspaceStatus panes element type validation (BE-M5 #379)", () =
     expect(result!.panes).toEqual([]);
   });
 
+  it("returns empty panes when a name is not a pane identifier (BE-L3: x/../<id> would name another launch's file)", () => {
+    const result = parseWorkspaceStatus({ ...base, panes: ["editor", "x/../11111111-1111-4111-8111-111111111111"] });
+    expect(result).not.toBeNull();
+    expect(result!.panes).toEqual([]);
+    expect(parseWorkspaceStatus({ ...base, panes: ["editor", ""] })!.panes).toEqual([]);
+  });
+
+  it("keeps every name the launcher writes: traditional and tree pane names", () => {
+    const names = ["editor", "sidebar", "editor-2", "right-1", "shell", "api_server", "_w"];
+    expect(parseWorkspaceStatus({ ...base, panes: names })!.panes).toEqual(names);
+  });
+
   it("accepts an empty panes array", () => {
     const result = parseWorkspaceStatus({ ...base, panes: [] });
     expect(result).not.toBeNull();

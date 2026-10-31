@@ -221,6 +221,10 @@ describe("launch manifests", () => {
     ["project", { project: 1 }],
     ["panes", { panes: ["a", 2] }],
     ["paneOrder", { paneOrder: "a" }],
+    // BE-L3: a pane name is an identifier, never a path: `x/../<id>` would name a sibling launch's file.
+    ["panes path", { panes: ["editor", `x/../${OTHER}`] }],
+    ["paneOrder path", { paneOrder: ["editor", `x/../${OTHER}`] }],
+    ["paneOrder empty name", { paneOrder: [""] }],
     ["blockLabels array", { blockLabels: ["a"] }],
     ["blockLabels value", { blockLabels: { a: 1 } }],
     ["backend", { backend: "zsh" }],
