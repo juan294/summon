@@ -37,11 +37,16 @@ function cliAnswering(answer: () => RexResult, process: () => RexResult = typedA
 describe("findLauncherTab (D1)", () => {
   it("names the caller's tab when it holds only the caller's pane and is not a workspace tab", () => {
     const cli = cliAnswering(() => view([{ id: WORKSPACE_WINDOW, label: "[summon]", blocks: [OTHER] }, { id: WINDOW, label: "zsh ~", blocks: [BLOCK] }]));
-    expect(findLauncherTab(cli, ENV, SUMMON_PID)).toEqual({ sessionId: SESSION, windowId: WINDOW });
+    expect(findLauncherTab(cli, ENV, SUMMON_PID)).toEqual({ sessionId: SESSION, windowId: WINDOW, lastTab: false });
     expect(cli.calls).toEqual([
       { op: "session-view", input: JSON.stringify({ session_id: SESSION }) },
       { op: "block-call", argv: ["block", "call", "-s", SESSION, "-b", BLOCK, "process"] },
     ]);
+  });
+
+  it("marks the session's only tab as its last, so the session ends with it", () => {
+    const cli = cliAnswering(() => view([{ id: WINDOW, label: "zsh ~", blocks: [BLOCK] }]));
+    expect(findLauncherTab(cli, ENV, SUMMON_PID)).toEqual({ sessionId: SESSION, windowId: WINDOW, lastTab: true });
   });
 
   it("leaves the tab when Summon is not the pane's foreground program (an agent or script ran it), or the process is unknown", () => {
@@ -71,7 +76,7 @@ describe("findLauncherTab (D1)", () => {
 
 describe("closeLauncherTabOnExit (D1)", () => {
   const context = { rexBinary: "/mock/rex", server: "unix:///mock/server.sock" };
-  const TAB = { sessionId: SESSION, windowId: WINDOW };
+  const TAB = { sessionId: SESSION, windowId: WINDOW, lastTab: false };
   function arm(over: Partial<{ find: () => typeof TAB | undefined; needsAttention: () => boolean; env: NodeJS.ProcessEnv }> = {}) {
     resetLauncherTabForTests();
     const handlers: Array<(code: number) => void> = [];
@@ -90,6 +95,12 @@ describe("closeLauncherTabOnExit (D1)", () => {
     handlers[0]!(0);
     expect(find).toHaveBeenCalledTimes(1);
     expect(spawn).toHaveBeenCalledWith("/mock/rex", ["--color", "never", "--autostart=false", "-S", "unix:///mock/server.sock", "window", "close", "-s", SESSION, WINDOW]);
+  });
+
+  it("ends the whole session when the launcher tab is its last (an empty session would stay in the sidebar)", () => {
+    const { handlers, spawn } = arm({ find: () => ({ ...TAB, lastTab: true }) });
+    handlers[0]!(0);
+    expect(spawn).toHaveBeenCalledWith("/mock/rex", ["--color", "never", "--autostart=false", "-S", "unix:///mock/server.sock", "kill", SESSION]);
   });
 
   it("keeps the tab after a failure, after anything the user must read, in a workspace pane, and when no launcher tab is found", () => {
@@ -140,6 +151,9 @@ describe("watchForAttention (D1)", () => {
     for (const [line, flagged] of [
       ["Workspace [api] is already running in Rex; switched to it (use --new-window for a fresh one)\n", false],
       ["\n", false],
+      ["summon: note: removed the files of earlier launch 547c18b7-b4d4-45ae-aebe-3b642197ec3a (its Rex session is gone)\n", false],
+      ["Workspace [api] is already running in Rex; switched to it (use --new-window for a fresh one)\nWarning: something else\n", true],
+      ["summon: note: could not remove the files of earlier launch 547c18b7-b4d4-45ae-aebe-3b642197ec3a (its Rex session is gone): EPERM\n", true],
       ["summon: note: Rex cannot honor maximize; ignored\n", true],
       ["Warning: ignoring invalid env var key \"1X\" from .summon file.\n", true],
       ["Workspace [api] is already running in Rex but could not be shown (no app); run summon open api\n", true],

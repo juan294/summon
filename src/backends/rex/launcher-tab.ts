@@ -12,11 +12,14 @@ import { asRecord, isKindId } from "./types.js";
  * successful launch or switch, that tab is closed once the process exits with status 0, when it
  * holds only the caller's pane, is not a workspace tab (`[<project>]`) and has this Summon as its
  * foreground program (typed at the prompt, not run by an agent or a script in that pane). A tab
- * with splits is never touched; a session left without tabs ends with it, as the owner chose.
+ * with splits is never touched. When the tab is its session's last, the whole session is ended (`rex kill`), as the
+ * owner chose: closing only the tab leaves an empty session in the app's sidebar once the app shows another one.
  */
 export interface LauncherTab {
   sessionId: string;
   windowId: string;
+  /** The session's only tab: ending the session is what closing it means. */
+  lastTab: boolean;
 }
 
 /** The caller's tab when it is a bare launcher: one pane (the caller's), not a workspace tab, Summon in the foreground. */
@@ -32,7 +35,7 @@ export function findLauncherTab(cli: RexCli, env: NodeJS.ProcessEnv = process.en
   const processInfo = cli.call("block-call", ["block", "call", "-s", sessionId, "-b", blockId, "process"]);
   const foreground = processInfo.ok ? asRecord(asRecord(processInfo.json)?.["foreground"]) : undefined;
   if (foreground?.["pid"] !== pid) return;
-  return { sessionId, windowId: window.windowId };
+  return { sessionId, windowId: window.windowId, lastTab: viewed.view.windows.length === 1 };
 }
 
 export interface LauncherTabDeps {
@@ -47,8 +50,17 @@ let armed = false;
 let watching = false;
 let attention = false;
 
-/** The one stderr line of a clean Rex launch or switch; anything else on stderr is for the user to read. */
-const ROUTINE_STDERR = [/is already running in Rex; switched to it/];
+/** Routine stderr lines of a clean Rex launch or switch (nothing to act on); anything else is for the user to read. */
+const ROUTINE_STDERR = [
+  /^Workspace \[[^\]]+\] is already running in Rex; switched to it /,
+  // Housekeeping after a session ended outside Summon; its failure ("could not remove the files ...") is not routine.
+  /^summon: note: removed the files of earlier launch \S+ \(its Rex session is gone\)$/,
+];
+
+/** Every non-blank line of a write must be routine; one line to read flags the whole write. */
+function routine(text: string): boolean {
+  return text.split("\n").every((line) => line.trim() === "" || ROUTINE_STDERR.some((re) => re.test(line)));
+}
 
 /** @internal test hook */
 export function resetLauncherTabForTests(): void {
@@ -72,7 +84,7 @@ export function watchForAttention(stream: NodeJS.WriteStream = process.stderr): 
   const write = stream.write.bind(stream) as (...args: unknown[]) => boolean;
   stream.write = ((chunk: unknown, ...rest: unknown[]) => {
     const text = typeof chunk === "string" ? chunk : Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk);
-    if (text.trim() !== "" && !ROUTINE_STDERR.some((re) => re.test(text))) attention = true;
+    if (!routine(text)) attention = true;
     return write(chunk, ...rest);
   }) as NodeJS.WriteStream["write"];
 }
@@ -100,7 +112,8 @@ export function closeLauncherTabOnExit(context: { rexBinary: string; server: str
     const tab = find();
     if (!tab) return;
     debugLog(`closing launcher tab ${tab.windowId}`);
-    spawnDetached(context.rexBinary, ["--color", "never", "--autostart=false", "-S", context.server, "window", "close", "-s", tab.sessionId, tab.windowId]);
+    const close = tab.lastTab ? ["kill", tab.sessionId] : ["window", "close", "-s", tab.sessionId, tab.windowId];
+    spawnDetached(context.rexBinary, ["--color", "never", "--autostart=false", "-S", context.server, ...close]);
   });
 }
 
