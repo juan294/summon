@@ -1,13 +1,11 @@
 import type { CommandContext } from "./types.js";
 import { readStatus } from "../status.js";
 import { readStatusRecord } from "../status-record.js";
-import { focusWorkspace, resolveWorkspaceTerminal } from "../workspace-focus.js";
-import { readNativeInventory, titleTerminal, validateTitleText } from "../ghostty-native.js";
+import { focusWorkspace } from "../workspace-focus.js";
+import { validateTitleText } from "../ghostty-native.js";
 import { projectArgOrExit } from "../validation.js";
 import { escapeControlChars } from "../pane-inventory.js";
-import { inspectRex, titleRex } from "../backends/rex/status.js";
-import { rexCommandGate } from "../status.js";
-import type { ResolvedStatus } from "../status.js";
+import { workspaceBackendFor } from "../backends/workspace.js";
 import { exitWithUsageHint } from "../utils.js";
 import { fail } from "../ui/output.js";
 import { printProjectSuggestions } from "../cli/resolve-target.js";
@@ -27,7 +25,7 @@ export async function handleFocusCommand({
   console.log(`Focused [${project}]${args[1] ? ` ${args[1]}` : ""}`);
 }
 
-/** Native failures are observations; they never overwrite root-shell workspace state. */
+/** `summon inspect`: the record's own backend prints it (Ghostty terminal ids, Rex block ids) and exits 2 when unavailable. */
 export async function handleInspectCommand({
   args,
   values,
@@ -38,93 +36,7 @@ export async function handleInspectCommand({
     "Usage: summon inspect <project> [--json]",
   );
   const status = readStatus(project, { reconcile: true });
-  if (status?.backend === "rex") return inspectRexWorkspace(project, status, values.json === true);
-  const missing =
-    "Exact native identity is unavailable. Select in Ghostty or explicitly relaunch when ready to capture identity.";
-  const inventory = status?.native
-    ? readNativeInventory(status.native.panes.map((p) => p.terminalId))
-    : undefined;
-  const reason = !status?.native
-    ? missing
-    : inventory?.kind !== "available"
-      ? inventory?.reason
-      : undefined;
-  const panes = (status?.native?.panes ?? []).map((pane) => {
-    const observation =
-      inventory?.kind === "available"
-        ? inventory.panes.find((p) => p.terminalId === pane.terminalId)
-        : undefined;
-    return {
-      name: pane.name,
-      terminalId: pane.terminalId,
-      pid: observation?.pid ?? null,
-      tty: observation?.tty ?? null,
-      title: observation?.title ?? null,
-      availability: observation ? "available" : "unavailable",
-    };
-  });
-  const available =
-    !reason &&
-    panes.length > 0 &&
-    panes.every((p) => p.availability === "available");
-  const explanation =
-    reason ??
-    (!available
-      ? "A recorded pane is closed or unavailable. Inspect in Ghostty; explicitly relaunch when ready to capture new identity."
-      : undefined);
-  const result = {
-    project,
-    state: status?.state ?? "stopped", // no record: never launched
-    availability: available ? "available" : "unavailable",
-    ...(explanation ? { reason: explanation } : {}),
-    panes,
-  };
-  if (values.json) console.log(JSON.stringify(result, null, 2));
-  else {
-    console.log(`${project}: ${result.state} (${result.availability})`);
-    for (const pane of panes)
-      console.log(
-        `  ${pane.name}  ${pane.terminalId}  PID ${pane.pid ?? "UNAVAILABLE"}  ${pane.tty ?? "UNAVAILABLE"}  ${escapeControlChars(pane.title ?? "UNAVAILABLE")}`,
-      );
-    if (explanation) console.log(explanation);
-  }
-  if (!status) printProjectSuggestions(project);
-  if (!available) process.exit(2);
-}
-
-
-
-/** `summon inspect` for a Rex record: block ids instead of terminal ids; the tty is never available. */
-function inspectRexWorkspace(project: string, status: ResolvedStatus, json: boolean): void {
-  const gate = rexCommandGate(project, status);
-  const inspected = gate.ok
-    ? inspectRex(gate.cli, gate.identity, status.panes, project, gate.liveBlocks)
-    : { availability: "unavailable" as const, reason: gate.failure.reason, panes: [] };
-  const available = inspected.availability === "available";
-  const reason = inspected.reason;
-  const result = {
-    project,
-    state: status.state,
-    backend: "rex",
-    availability: available ? "available" : "unavailable",
-    ...(reason ? { reason } : {}),
-    panes: inspected.panes,
-    ...(inspected.programStatus ? { programStatus: inspected.programStatus } : {}),
-  };
-  if (json) console.log(JSON.stringify(result, null, 2));
-  else {
-    console.log(`${project}: ${result.state} (${result.availability}, Rex)`);
-    for (const pane of inspected.panes)
-      console.log(`  ${pane.name}  ${pane.blockId ?? "UNVERIFIED"}  PID ${pane.pid ?? "UNAVAILABLE"}  UNAVAILABLE  ${escapeControlChars(pane.title ?? "UNAVAILABLE")}`);
-    const program = inspected.programStatus;
-    // Every program-status text comes from the pane's programs (OSC 7501): all of it is escaped.
-    if (program) {
-      const fields = [program.kind && `(${program.kind})`, program.app, program.title, program.msg].filter((f): f is string => Boolean(f));
-      console.log(`  program: ${[program.state, ...fields.map(escapeControlChars)].join(" ")}`);
-    }
-    if (reason) console.log(reason);
-  }
-  if (!available) process.exit(2);
+  workspaceBackendFor(status?.backend).inspect(project, status, values.json === true);
 }
 
 export async function handleTitleCommand({
@@ -150,25 +62,11 @@ export async function handleTitleCommand({
         : { kind: "read" as const };
   const scope = args[1] === undefined ? "tab" : "pane";
   const status = readStatus(project, { reconcile: true });
-  let result;
-  if (status?.backend === "rex") {
-    const gate = rexCommandGate(project, status);
-    if (!gate.ok) {
-      fail(gate.failure.reason);
-      process.exit(2);
-    }
-    result = titleRex(gate.cli, gate.identity, status.panes, project, scope, operation, args[1]);
-  } else {
-    const target = resolveWorkspaceTerminal(project, args[1], status);
-    if (target.kind !== "target") {
-      fail(target.reason);
-      if (!status) printProjectSuggestions(project);
-      process.exit(2);
-    }
-    result = titleTerminal(target.terminalId, scope, operation);
-  }
+  const result = workspaceBackendFor(status?.backend).title(project, status, scope, operation, args[1]);
   if (result.kind !== "title") {
     fail(result.reason);
+    // UX-M3: nothing recorded, so the name may be a typo of a registered project.
+    if (!status) printProjectSuggestions(project);
     process.exit(2);
   }
   console.log(

@@ -3,9 +3,13 @@ import type { LayoutPlan } from "../../layout.js";
 import { traditionalPaneNames } from "../../layout.js";
 import type { TreeLayoutPlan } from "../../tree.js";
 import { transientLine } from "../../ui/progress.js";
-import type { BackendLaunchContext, BackendLaunchResult, TerminalBackend } from "../ghostty.js";
+import type { BackendLaunchContext, BackendLaunchResult, LaunchDecision, TerminalBackend } from "../port.js";
+import { REX_UNHONORED_FLAGS } from "../../backend.js";
 import type { LaunchContext } from "../../backend.js";
+import type { CLIOverrides } from "../../config-resolve.js";
 import type { LaunchManifest } from "../../launch-identity.js";
+import { LAUNCH_LOCK_STALE_MS, launchLockFile, readStatusRecord } from "../../status-record.js";
+import { withFileLockAsync } from "../../file-lock.js";
 import { note, out } from "../../ui/output.js";
 import { sym } from "../../ui/symbols.js";
 import { createRexCli, probeWhoami } from "./cli.js";
@@ -13,9 +17,11 @@ import type { RexCli } from "./cli.js";
 import { discoverRexApp, openRexApp } from "./app.js";
 import { buildSessionCreateRequest } from "./layout.js";
 import type { SessionCreateInput } from "./layout.js";
-import { createWorkspace, keptSession } from "./launch.js";
+import { adoptDeps, adoptOrphansForLaunch, createWorkspace, keptSession, maybeSwitchToExisting, showRecordedWorkspace } from "./launch.js";
 import type { CreateContext, LaunchOutcome } from "./launch.js";
+import { sessionListings } from "./status.js";
 import type { SessionListings } from "./status.js";
+import { closeLauncherTabAfterRexLaunch, startLauncherTabWatch } from "./launcher-tab.js";
 import type { RexIdentity } from "./types.js";
 
 /** Detection row the Rex backend is built from (plan P5: server and binary come from detection). */
@@ -36,6 +42,46 @@ export interface RexBackendDeps {
   newWindow?: boolean;
   /** The launch's shared session listings (PE-L1), for the kept-session check; `createWorkspace` lists for itself (P13). */
   listings?: SessionListings | undefined;
+  /** BE-L1: runs `action` holding the project's launch lock (default: `rexLaunchLock`). */
+  launchLock?: <T>(project: string, action: () => Promise<T>) => Promise<T>;
+}
+
+/**
+ * BE-L1: a waiter gives up after this long. It exceeds the launch lock's stale bound (LAUNCH_LOCK_STALE_MS, above the
+ * longest launch), so the lock of a launcher that hangs or is suspended (Ctrl-Z) is taken over before a waiter gives up.
+ */
+export const LAUNCH_LOCK_TIMEOUT_MS = LAUNCH_LOCK_STALE_MS + 30_000;
+
+/**
+ * The per-project launch lock (BE-L1): held from the decision under the lock through `session.create` to the record's
+ * publication, never across a prompt or on-start. A second launcher of the same project waits here, with a transient
+ * progress line on stdout (never stderr, so the D1 watch does not count it).
+ */
+export async function rexLaunchLock<T>(project: string, action: () => Promise<T>): Promise<T> {
+  const line = transientLine();
+  try {
+    return await withFileLockAsync(launchLockFile(project), async () => {
+      line.clear();
+      return action();
+    }, {
+      timeoutMs: LAUNCH_LOCK_TIMEOUT_MS,
+      staleMs: LAUNCH_LOCK_STALE_MS,
+      timeoutMessage: `Timed out waiting for another summon launch of ${project} to finish. Retry when it is done; summon doctor names a lock that stays.`,
+      onWait: () => line.show(`Summoning ${project}… waiting for another launch of ${project}`),
+    });
+  } finally {
+    line.clear();
+  }
+}
+
+/**
+ * Plan P8: flags Rex cannot honor are deliberate limitations, one stderr line each. Only flags given on the
+ * command line are named (UX-H1): the same keys in config are Ghostty preferences, silent under Rex like `clean=true`.
+ */
+export function rexLimitationNotices(overrides: CLIOverrides): string[] {
+  return REX_UNHONORED_FLAGS
+    .filter((flag) => (flag === "font-size" ? overrides[flag] !== undefined : overrides[flag] === "true"))
+    .map((flag) => `Rex cannot honor ${flag}; ignored`);
 }
 
 export function unreachableMessage(server: string, reason: string): string {
@@ -53,16 +99,18 @@ export function unknownOutcomeMessage(project: string, candidates: string[] | "u
  * `unknown` outcomes (nothing recorded); returns the identity otherwise.
  */
 export function createRexBackend(context: RexLaunchContext, deps: RexBackendDeps = {}): TerminalBackend {
-  const cliFor = deps.cliFor ?? createRexCli;
-  const cli = cliFor(context.rexBinary, context.server);
-  const whoami = deps.probeWhoami ?? probeWhoami;
-  const create = deps.createWorkspace ?? createWorkspace;
-  const app = deps.app ?? { discover: discoverRexApp, open: openRexApp };
-
+  // Dependencies are read when a step runs, not here: building the backend for a dry run or a session loads nothing it does not use.
+  const cliFor = (binary: string, server: string): RexCli => (deps.cliFor ?? createRexCli)(binary, server);
+  const serverCli = (server: string): RexCli => cliFor(context.rexBinary, server);
   const newWindow = deps.newWindow === true;
+  /** The record generation `beforeLaunch` decided on (BE-L1); `undefined` until it ran. */
+  let decidedOn: string | null | undefined;
 
   async function launchRex(layout: SessionCreateInput["layout"], panes: string[], ctx: BackendLaunchContext): Promise<BackendLaunchResult> {
-    const who = whoami(context.rexBinary, context.server);
+    const cli = serverCli(context.server);
+    const create = deps.createWorkspace ?? createWorkspace;
+    const app = deps.app ?? { discover: discoverRexApp, open: openRexApp };
+    const who = (deps.probeWhoami ?? probeWhoami)(context.rexBinary, context.server);
     if (!who.answers) throw new Error(unreachableMessage(context.server, who.reason));
     const build = buildSessionCreateRequest({
       layout,
@@ -75,7 +123,7 @@ export function createRexBackend(context: RexLaunchContext, deps: RexBackendDeps
       layoutLabel: ctx.layoutLabel,
     });
     // Read before the new record replaces the earlier one (F12).
-    const kept = newWindow ? (deps.keptSession ?? keptSession)(ctx.projectName, (server) => cliFor(context.rexBinary, server), deps.listings) : undefined;
+    const kept = newWindow ? (deps.keptSession ?? keptSession)(ctx.projectName, serverCli, deps.listings) : undefined;
     const manifest: LaunchManifest = {
       version: 1,
       launchId: ctx.launchId,
@@ -126,11 +174,89 @@ export function createRexBackend(context: RexLaunchContext, deps: RexBackendDeps
 
   return {
     id: "rex",
+    // A Rex launch creates its own session and never splits the caller's pane (F14); every project of a session is its own session (P11).
+    splitsCallerWindow: false,
+    opensSessionTabs: false,
+
+    /**
+     * P13 late adoption, then the P2 reuse decision: both before the wizard, the pane probe and on-start, so a switch
+     * never reruns them. D1: anything printed from here that the user must read keeps the launcher tab open.
+     * A session the record's --new-window launch announced is not repeated on every launch (F12); status still names it.
+     * PE-L1: one `rex ls` per server serves both steps. The kept-session check in the launch runs after the wizard and
+     * on-start, so it lists afresh rather than reuse a listing that may be minutes old.
+     */
+    beforeLaunch(project: string): LaunchDecision {
+      startLauncherTabWatch(context);
+      const listings = sessionListings();
+      for (const notice of adoptOrphansForLaunch(project, adoptDeps(context.rexBinary, listings))) note(notice.text, { routine: notice.routine === true });
+      decidedOn = readStatusRecord(project)?.launchId ?? null;
+      return maybeSwitchToExisting(project, newWindow, { cliFor: serverCli, callerSession: deps.callerSession, listings });
+    },
+
+    /**
+     * BE-L1: the P2 decision above ran before the prompts and on-start, without a lock. Under the project's launch lock
+     * it is made again only when the record changed since (another launch published meanwhile, or nothing was decided),
+     * so a second concurrent launch switches to the first one's workspace instead of creating a second session.
+     */
+    async exclusiveLaunch(project: string, create: () => Promise<void>): Promise<LaunchDecision> {
+      return (deps.launchLock ?? rexLaunchLock)(project, async (): Promise<LaunchDecision> => {
+        if (decidedOn === undefined || (readStatusRecord(project)?.launchId ?? null) !== decidedOn) {
+          const decision = maybeSwitchToExisting(project, newWindow, { cliFor: serverCli, callerSession: deps.callerSession });
+          if (decision.kind !== "proceed") return decision;
+        }
+        await create();
+        return { kind: "proceed" };
+      });
+    },
+
+    applyLaunchOptions({ overrides, dryRun }) {
+      if (dryRun) return;
+      for (const line of rexLimitationNotices(overrides)) note(line);
+    },
+
     launchTraditional(plan: LayoutPlan, ctx) {
       return launchRex({ kind: "traditional", plan }, traditionalPaneNames(plan), ctx);
     },
     launchTree(plan: TreeLayoutPlan, ctx) {
       return launchRex({ kind: "tree", plan }, [...plan.leaves], ctx);
+    },
+
+    /**
+     * Plan P2, Phase 2: the `session.create` request a real run would send, with the pane order its `block_ids` arrive
+     * in on the header. A recorded Rex workspace is noted, never switched to or probed: a dry run runs no Rex command.
+     * Rex does not resolve commands before launch (plan D5), so there are no command notes.
+     */
+    dryRun(layout, ctx, starshipConfigPath, headerLines) {
+      const project = ctx.projectName;
+      const record = readStatusRecord(project);
+      if (record?.backend === "rex") {
+        const session = record.rex?.sessionId ?? "session id unknown";
+        headerLines.push(`-- Note: ${project} is recorded as a Rex workspace (${session}); while it is running, a real run switches to it instead of creating this one`);
+      }
+      const { request, paneOrder } = buildSessionCreateRequest({
+        layout,
+        targetDir: ctx.targetDir,
+        project,
+        launchId: ctx.launchId,
+        envVars: ctx.envVars,
+        starshipConfigPath,
+        onStop: ctx.onStop,
+        layoutLabel: ctx.layoutLabel,
+      });
+      headerLines.push(`-- Server: ${context.server}`);
+      headerLines.push(`-- Pane order (block_ids): ${paneOrder.join(", ")}`);
+      return { body: JSON.stringify(request, null, 2), notes: [] };
+    },
+
+    watchOutput() {
+      startLauncherTabWatch(context);
+    },
+    afterSuccess() {
+      closeLauncherTabAfterRexLaunch(context);
+    },
+    showAgain(project: string) {
+      const shown = showRecordedWorkspace(project, context.rexBinary, deps.callerSession);
+      if (!shown.shown) note(`could not show [${project}] in Rex: ${shown.reason}`);
     },
   };
 }

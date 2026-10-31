@@ -499,6 +499,21 @@ describe("doctor lock files (BE-L2, QA-L1)", () => {
     expect(existsSync(join(summonDir(), "trust.json.lock"))).toBe(true);
   });
 
+  it("BE-L1: a live Rex launch lock older than STALE_LOCK_MS is not a finding; one past its own bound is", async () => {
+    const slow = lock(join(summonDir(), "status/p.launch.lock"), [{ name: `${process.pid}-${uuid}.owner`, ageMs: 90_000 }]);
+    await handleDoctorCommand(context());
+    expect(output()).toContain("No stale lock files");
+    expect(output()).not.toContain("p.launch.lock");
+    await expect(handleDoctorCommand(context({ fix: true }))).resolves.toBeUndefined();
+    expect(existsSync(slow)).toBe(true);
+    rmSync(slow, { recursive: true });
+    const hung = lock(join(summonDir(), "status/q.launch.lock"), [{ name: `${process.pid}-${uuid}.owner`, ageMs: 400_000 }]);
+    errors.mockClear();
+    await expect(handleDoctorCommand(context())).rejects.toThrow("exit:2");
+    expect(output()).toContain(`Stale lock ${hung} (owner token is 400 s old)`);
+    rmSync(hung, { recursive: true });
+  });
+
   it("reports stale and unrecognized locks without changing them, and --fix removes only the stale ones", async () => {
     const dead = lock(join(summonDir(), "config.lock"), [{ name: `${DEAD}-${uuid}.owner` }]);
     const expired = lock(join(summonDir(), "status/p.json.lock"), [{ name: `${process.pid}-${uuid}.owner`, ageMs: 65_000 }]);

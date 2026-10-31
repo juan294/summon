@@ -1,23 +1,19 @@
 import { existsSync } from "node:fs";
 import { basename, resolve } from "node:path";
-import { execFileSync, execSync } from "node:child_process";
+import { execSync } from "node:child_process";
 import { planLayout, traditionalPaneNames } from "./layout.js";
 import type { LayoutOptions } from "./layout.js";
 import { listProjects } from "./config.js";
-import { pickConfigValue, readTrustedSummonFile, resolveConfig } from "./config-resolve.js";
+import { readTrustedSummonFile, resolveConfig } from "./config-resolve.js";
 import type { CLIOverrides, ResolvedConfig } from "./config-resolve.js";
-import { isLiveState, publishStatus, readStatusRecord } from "./status-record.js";
+import { publishStatus, readStatusRecord } from "./status-record.js";
 import type { WorkspaceStatus } from "./status-record.js";
 import { newLaunchId } from "./launch-identity.js";
-import { REX_UNHONORED_FLAGS, callerRexSession, resolveBackendForLaunch } from "./backend.js";
+import { resolveBackendForLaunch } from "./backend.js";
 import type { BackendId, LaunchContext } from "./backend.js";
-import { GhosttyBackend } from "./backends/ghostty.js";
-import type { BackendLaunchResult, TerminalBackend } from "./backends/ghostty.js";
-import { createRexBackend } from "./backends/rex/backend.js";
-import { adoptOrphansForLaunch, adoptDeps, maybeSwitchToExisting } from "./backends/rex/launch.js";
-import { createRexCli, discoverRex } from "./backends/rex/cli.js";
-import { sessionState, sessionListings } from "./backends/rex/status.js";
-import { closeLauncherTabAfterRexLaunch, markAttention, startLauncherTabWatch } from "./backends/rex/launcher-tab.js";
+import type { BackendLaunchResult, LaunchDecision, TerminalBackend } from "./backends/port.js";
+import { createTerminalBackend } from "./backends/select.js";
+import { markAttention } from "./ui/attention.js";
 import { resolveTreeCommands as resolveTreeCmds, buildTreePlan, collectLeaves, findPaneByName } from "./tree.js";
 import type { TreePlanOptions } from "./tree.js";
 import { getErrorMessage, SUMMON_WORKSPACE_ENV, promptUser, isDebug, PromptCancelled } from "./utils.js";
@@ -55,10 +51,10 @@ export function resolveProjectName(targetDir: string): string {
 async function warnIfNested(
   opts: Partial<LayoutOptions>,
   dryRun: boolean | undefined,
-  backend: BackendId,
+  backend: TerminalBackend,
 ): Promise<boolean> {
-  // A Rex launch creates its own session and never splits the caller's pane (F14).
-  if (backend === "rex" || !process.env[SUMMON_WORKSPACE_ENV] || opts.newWindow || dryRun || !process.stdin.isTTY) {
+  // Only a backend that splits the caller's window can nest (a Rex launch creates its own session, F14).
+  if (!backend.splitsCallerWindow || !process.env[SUMMON_WORKSPACE_ENV] || opts.newWindow || dryRun || !process.stdin.isTTY) {
     return false;
   }
   warn("You're inside an existing summon workspace.");
@@ -68,71 +64,8 @@ async function warnIfNested(
   return answer !== "y";
 }
 
-/**
- * Probe Ghostty for the number of terminals in the front window's selected tab.
- * Returns null when Ghostty is not running, the script errors, or output is non-numeric.
- *
- * PE-L2: This is a separate osascript call made BEFORE the main workspace script.
- * Two round-trips are intentional: this probe runs before the main AppleScript is
- * generated, and its result (pane count) influences the generated script's content
- * (the cleanRestoredPanes prelude). Inlining the count into the main script would
- * require AppleScript to conditionally close panes and then branch — adding significant
- * complexity to script.ts for minimal latency gain (probe takes ~2 s max, main script
- * executes regardless). The two-call design keeps script generation pure and testable.
- */
-export function probePaneCount(): number | null {
-  try {
-    const out = execFileSync(
-      "osascript",
-      ["-e", 'tell application "Ghostty" to count of terminals of selected tab of front window'],
-      { encoding: "utf-8", timeout: 2000, stdio: ["ignore", "pipe", "ignore"] },
-    ).trim();
-    const n = parseInt(out, 10);
-    return Number.isFinite(n) && n >= 0 ? n : null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Decide whether to auto-clean restored panes from the front window's selected tab.
- * Only cleans panes when the front tab title contains a summon project marker `[<projectName>]`.
- * This prevents destroying non-summon panes.
- * When all trigger conditions are met, sets opts.cleanRestoredPanes=true and prints a notice.
- */
-export function decideCleanRestoredPanes(
-  opts: Partial<LayoutOptions>,
-  cliOverrides: CLIOverrides,
-  project: Map<string, string>,
-  machineConfig: Map<string, string>,
-  dryRun: boolean | undefined,
-  _projectName?: string,
-): void {
-  if (process.env[SUMMON_WORKSPACE_ENV]) return;
-  if (opts.newWindow) return;
-
-  const cleanRaw = pickConfigValue(cliOverrides.clean, "clean", project, machineConfig);
-  // Default to false — clean must be explicitly enabled via --clean or clean=true (BE-H1 #362).
-  const cleanEnabled = cleanRaw === "true";
-  if (!cleanEnabled) return;
-
-  // In dry-run mode, skip the probe but honor an explicit --clean flag so the
-  // generated AppleScript (printed to stdout) includes the close prelude.
-  if (dryRun) {
-    if (cliOverrides.clean === "true") opts.cleanRestoredPanes = true;
-    return;
-  }
-
-  const count = probePaneCount();
-  if (count === null || count <= 1) return;
-
-  // Clean every pane in the front tab regardless of how it got there.
-  // Users who don't want this can pass --no-clean or --new-window.
-  const stale = count - 1;
-  const noun = stale === 1 ? "pane" : "panes";
-  console.log(`Clearing ${stale} stale ${noun} from previous session...`);
-  opts.cleanRestoredPanes = true;
-}
+// The Ghostty pane-count probe and restored-pane decision moved to backends/ghostty.ts (AR-M1); re-exported for callers.
+export { decideCleanRestoredPanes, probePaneCount } from "./backends/ghostty.js";
 
 /**
  * Execute the on-start hook command before workspace creation.
@@ -206,7 +139,6 @@ export function layoutOptsToTreePlanOpts(opts: Partial<LayoutOptions>): TreePlan
 }
 /** Per-launch inputs shared by both layout paths. */
 interface LaunchInputs extends DryRunInputs {
-  backend: TerminalBackend;
   dryRun: boolean;
 }
 
@@ -246,25 +178,15 @@ async function launchTraditionalLayout(
 type LaunchedLayout = { paneNames: string[] } & BackendLaunchResult;
 
 /**
- * Plan P8: flags Rex cannot honor are deliberate limitations, one stderr line each. Only flags given on the
- * command line are named (UX-H1): the same keys in config are Ghostty preferences, silent under Rex like `clean=true`.
+ * A launch over a live workspace of another backend replaces the record; that workspace stays (plan §6), and its
+ * backend says so. The record backend is loaded only when such a record exists.
  */
-export function rexLimitationNotices(overrides: CLIOverrides): string[] {
-  return REX_UNHONORED_FLAGS
-    .filter((flag) => (flag === "font-size" ? overrides[flag] !== undefined : overrides[flag] === "true"))
-    .map((flag) => `Rex cannot honor ${flag}; ignored`);
-}
-
-/** A Ghostty launch over a live Rex session of the same project replaces the record; the session stays (plan §6). */
-function warnRexStillRunning(project: string): void {
+async function noteOtherBackendStillRunning(project: string, backend: BackendId): Promise<void> {
   const record = readStatusRecord(project);
-  if (record?.backend !== "rex" || !record.rex) return;
-  const binary = discoverRex().path;
-  if (!binary) return;
-  const state = sessionState(createRexCli(binary, record.rex.server), record.rex, project);
-  if (isLiveState(state.state)) {
-    note(`Rex session [${project}] ${record.rex.sessionId} is still running; rex kill ${record.rex.sessionId} closes it`);
-  }
+  if (!record || (record.backend ?? "ghostty") === backend) return;
+  const { workspaceBackendFor } = await import("./backends/workspace.js");
+  const notice = workspaceBackendFor(record.backend).stillRunningNotice(project, record);
+  if (notice) note(notice);
 }
 
 /**
@@ -301,32 +223,21 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
   for (const notice of launchContext.notices) err(notice);
   const projectName = resolveProjectName(targetDir);
   const dryRun = cliOverrides?.dryRun === true;
-  const callerSession = callerRexSession(launchContext);
-  const newWindowFlag = cliOverrides?.["new-window"] === "true";
-  const backend: TerminalBackend = launchContext.backend === "rex"
-    ? createRexBackend(launchContext, { callerSession, newWindow: newWindowFlag })
-    : GhosttyBackend;
-  if (launchContext.backend === "rex" && !dryRun) {
-    // D1: anything printed from here that the user must read keeps the launcher tab open.
-    startLauncherTabWatch(launchContext);
-    // P13 late adoption, then the P2 reuse decision: both before the wizard, the pane probe
-    // and on-start, so a switch never reruns them. A dry run skips both (P2) and runs no Rex command.
-    // A session the record's --new-window launch announced is not repeated on every launch (F12); status still names it.
-    // PE-L1: one `rex ls` per server serves both steps. The backend's kept-session check runs after the wizard
-    // and on-start, so it lists afresh rather than reuse a listing that may be minutes old.
-    const listings = sessionListings();
-    for (const notice of adoptOrphansForLaunch(projectName, adoptDeps(launchContext.rexBinary, listings))) note(notice.text, { routine: notice.routine === true });
-    const decision = maybeSwitchToExisting(projectName, newWindowFlag, { cliFor: (server) => createRexCli(launchContext.rexBinary, server), callerSession, listings });
+  const backend: TerminalBackend = createTerminalBackend(launchContext, { newWindow: cliOverrides?.["new-window"] === "true" });
+  if (!dryRun) {
+    // A dry run skips this (P2) and runs no backend command. Rex: late adoption and the P2 switch, before the wizard,
+    // the pane probe and on-start, so a switch never reruns them.
+    const decision: LaunchDecision = backend.beforeLaunch?.(projectName) ?? { kind: "proceed" };
     if (decision.kind === "switched") {
-      closeLauncherTabAfterRexLaunch(launchContext);
+      backend.afterSuccess?.();
       return "switched";
     }
     if (decision.kind === "refused") {
       fail(decision.reason);
       process.exit(2);
     }
+    await noteOtherBackendStillRunning(projectName, backend.id);
   }
-  if (launchContext.backend === "ghostty" && !dryRun) warnRexStillRunning(projectName);
 
   // If no editor is configured from any source and this isn't a tree layout
   // (which defines its own pane commands), redirect to the setup wizard.
@@ -345,15 +256,12 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
 
   const { opts, machineConfig, starshipPreset, onStart, onStop, envVars, treeLayout } = config;
 
-  if (await warnIfNested(opts, cliOverrides?.dryRun, launchContext.backend)) {
+  if (await warnIfNested(opts, cliOverrides?.dryRun, backend)) {
     // UX-L3: declining is a user cancel: exit 130, without an error line or the debug hint.
     throw new PromptCancelled("Launch aborted by user (nested workspace).");
   }
-  if (launchContext.backend === "ghostty") {
-    decideCleanRestoredPanes(opts, cliOverrides ?? {}, config.projectOverrides, machineConfig, cliOverrides?.dryRun, projectName);
-  } else if (!dryRun) {
-    for (const line of rexLimitationNotices(cliOverrides ?? {})) note(line);
-  }
+  // Ghostty: the restored-pane probe (decideCleanRestoredPanes); Rex: one P8 notice per flag it cannot honor.
+  backend.applyLaunchOptions({ opts, overrides: cliOverrides ?? {}, projectConfig: config.projectOverrides, machineConfig, dryRun, projectName });
 
   let effectiveOnStart = onStart;
   let effectiveOnStop = onStop;
@@ -461,16 +369,17 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
       resolveStarship,
     },
     backend,
-    launchContext,
     dryRun: cliOverrides?.dryRun === true,
     starshipPreset,
   };
-  const launched = treeLayout
-    ? await launchTreeLayout(treeLayout, opts, inputs)
-    : await launchTraditionalLayout(opts, inputs);
+  // The backend launch and the status publication. A dry run prints instead and publishes nothing.
+  const createAndPublish = async (): Promise<void> => {
+    const launched = treeLayout
+      ? await launchTreeLayout(treeLayout, opts, inputs)
+      : await launchTraditionalLayout(opts, inputs);
+    if (dryRun) return;
 
-  // Write workspace status for monitoring features
-  if (!cliOverrides?.dryRun) {
+    // Write workspace status for monitoring features
     const status: WorkspaceStatus = {
       project: projectName,
       directory: resolve(targetDir),
@@ -494,7 +403,21 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
     } else if (published === "unsaved") {
       err("summon: warning: workspace launched, but status could not be saved or invalidated. Previous metadata may remain and target an older workspace; select manually in Ghostty, repair config directory permissions and run summon doctor before using exact commands.");
     }
+  };
+
+  if (dryRun) {
+    await createAndPublish();
+    return "dry-run";
   }
-  if (!dryRun) closeLauncherTabAfterRexLaunch(launchContext);
-  return dryRun ? "dry-run" : "launched";
+  // BE-L1: a backend may serialize creation and publication per project (Rex), after every prompt and on-start; under
+  // its lock it can find that a concurrent launch won and switch to that workspace instead.
+  const decision: LaunchDecision = backend.exclusiveLaunch
+    ? await backend.exclusiveLaunch(projectName, createAndPublish)
+    : (await createAndPublish(), { kind: "proceed" });
+  if (decision.kind === "refused") {
+    fail(decision.reason);
+    process.exit(2);
+  }
+  backend.afterSuccess?.();
+  return decision.kind === "switched" ? "switched" : "launched";
 }

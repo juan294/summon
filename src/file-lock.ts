@@ -6,12 +6,13 @@ const pause = new Int32Array(new SharedArrayBuffer(4));
 
 /**
  * BE-L2: an owner token older than this is stale whatever the PID probe says (a reused PID, or
- * EPERM). A token dated this far in the future (the clock jumped back) is stale too. Every critical
- * section is local I/O on one small file (a key=value config file, a status record, the trust DB),
- * idempotent side-file removal and at most a warning written to stderr: no subprocess, network or
- * git call runs under the lock, so a transaction takes milliseconds and a waiter gives up after 3 s.
- * One minute is 20 times that wait. Only an owner suspended mid-transaction (Ctrl-Z, system sleep)
- * for a minute could lose the lock.
+ * EPERM). A token dated this far in the future (the clock jumped back) is stale too. It is the
+ * bound of the synchronous locks (`withFileLock`): each critical section is local I/O on one small
+ * file (a key=value config file, a status record, the trust DB), idempotent side-file removal and at
+ * most a warning written to stderr, with no subprocess, network or git call, so a transaction takes
+ * milliseconds and a waiter gives up after 3 s. One minute is 20 times that wait. Only an owner
+ * suspended mid-transaction (Ctrl-Z, system sleep) for a minute could lose the lock. A lock whose
+ * transaction runs subprocesses (the Rex launch lock, BE-L1) passes its own, longer bound.
  */
 export const STALE_LOCK_MS = 60_000;
 
@@ -41,7 +42,7 @@ export type LockState =
   | { kind: "released" }
   /** Not exactly one well-formed owner token: never removed automatically. */
   | { kind: "unrecognized"; entries: string[] }
-  /** `live` within STALE_LOCK_MS, `dead` once the PID is proven absent, `expired` past the bound. */
+  /** `live` within the lock's stale bound, `dead` once the PID is proven absent, `expired` past the bound. */
   | { kind: "live" | "dead" | "expired"; pid: number; token: string; ageMs: number };
 
 /** Why a lock is in its state, for diagnostics (raw entry names: escape before printing). */
@@ -59,8 +60,8 @@ export function describeLock(state: LockState): string {
   }
 }
 
-/** Classify a lock directory without changing it (recovery and `summon doctor` share this rule). */
-export function inspectLock(directory: string): LockState {
+/** Classify a lock directory without changing it (recovery and `summon doctor` share this rule); `staleMs` is the lock's own bound. */
+export function inspectLock(directory: string, staleMs: number = STALE_LOCK_MS): LockState {
   let entries: string[];
   try { entries = readdirSync(directory); } catch (error) {
     if (code(error) === "ENOENT") return { kind: "absent" };
@@ -80,12 +81,12 @@ export function inspectLock(directory: string): LockState {
     // Only ESRCH proves absence; EPERM may be a reused PID, which the age bound settles.
     alive = code(error) !== "ESRCH";
   }
-  return { kind: !alive ? "dead" : Math.abs(ageMs) > STALE_LOCK_MS ? "expired" : "live", pid, token, ageMs };
+  return { kind: !alive ? "dead" : Math.abs(ageMs) > staleMs ? "expired" : "live", pid, token, ageMs };
 }
 
 /** Remove a released, dead or expired lock (only its observed token); live and unrecognized locks stay. `removed`: this call removed the directory. */
-export function recoverStaleLock(directory: string): { state: LockState; removed: boolean } {
-  const state = inspectLock(directory);
+export function recoverStaleLock(directory: string, staleMs: number = STALE_LOCK_MS): { state: LockState; removed: boolean } {
+  const state = inspectLock(directory, staleMs);
   if (state.kind === "released") return { state, removed: removeOwner(directory) };
   if (state.kind === "dead" || state.kind === "expired") return { state, removed: removeOwner(directory, state.token) };
   return { state, removed: false };
@@ -107,53 +108,125 @@ function sweepStaleStaging(file: string): void {
   }
 }
 
-/** Serialize synchronous read-modify-write transactions across processes, per file. */
-export function withFileLock<T>(file: string, action: () => T, timeoutMs = 3000): T {
+/** The lock directory, this attempt's owner token and its staging directory for `file`. */
+interface LockAttempt {
+  directory: string;
+  token: string;
+  staging: string;
+  acquired: boolean;
+  stagingCreated: boolean;
+  /** The bound past which a live owner's token is stale. */
+  staleMs: number;
+}
+
+function newAttempt(file: string, staleMs: number = STALE_LOCK_MS): LockAttempt {
   const directory = `${file}.lock`;
   const token = `${process.pid}-${randomUUID()}.owner`;
-  const staging = `${directory}-${token}.tmp`;
-  let acquired = false;
-  let stagingCreated = false;
+  return { directory, token, staging: `${directory}-${token}.tmp`, acquired: false, stagingCreated: false, staleMs };
+}
+
+/** One acquisition step: true when this attempt published the lock; otherwise any stale owner is recovered. */
+function tryAcquire(attempt: LockAttempt): boolean {
+  const { directory, token, staging } = attempt;
+  // A waiter holds no staging directory while the canonical lock exists.
+  if (!existsSync(directory)) {
+    mkdirSync(staging, { mode: 0o700 });
+    attempt.stagingCreated = true;
+    writeFileSync(join(staging, token), "", { mode: 0o600, flag: "wx" });
+    try {
+      // Publish a NONEMPTY directory atomically. rename cannot replace another
+      // nonempty owner, including one acquired during stale-owner recovery.
+      renameSync(staging, directory);
+      attempt.acquired = true;
+      attempt.stagingCreated = false;
+      return true;
+    } catch (error) {
+      if (!["EEXIST", "ENOTEMPTY"].includes(code(error) ?? "")) throw error;
+    }
+    // Another process won publication. Dispose only our own attempt BEFORE
+    // recovery or sleep, so interrupting a blocked waiter leaves no artifact.
+    removeOwner(staging, token);
+    attempt.stagingCreated = false;
+  }
+  recoverStaleLock(directory, attempt.staleMs);
+  return false;
+}
+
+/** After an acquisition or transaction error: remove what this attempt holds, never masking the error. */
+function abandon(attempt: LockAttempt): void {
+  try {
+    if (attempt.acquired) removeOwner(attempt.directory, attempt.token);
+    else if (attempt.stagingCreated) removeOwner(attempt.staging, attempt.token);
+  } catch { /* best effort */ }
+}
+
+function release(file: string, attempt: LockAttempt): void {
+  removeOwner(attempt.directory, attempt.token);
+  sweepStaleStaging(file);
+}
+
+/** Serialize synchronous read-modify-write transactions across processes, per file. */
+export function withFileLock<T>(file: string, action: () => T, timeoutMs = 3000): T {
+  const attempt = newAttempt(file);
   let result: T;
   try {
     const deadline = performance.now() + timeoutMs;
-    for (;;) {
-      // A waiter holds no staging directory while the canonical lock exists.
-      if (!existsSync(directory)) {
-        mkdirSync(staging, { mode: 0o700 });
-        stagingCreated = true;
-        writeFileSync(join(staging, token), "", { mode: 0o600, flag: "wx" });
-        try {
-          // Publish a NONEMPTY directory atomically. rename cannot replace another
-          // nonempty owner, including one acquired during stale-owner recovery.
-          renameSync(staging, directory);
-          acquired = true;
-          stagingCreated = false;
-          break;
-        } catch (error) {
-          if (!["EEXIST", "ENOTEMPTY"].includes(code(error) ?? "")) throw error;
-        }
-        // Another process won publication. Dispose only our own attempt BEFORE
-        // recovery or sleep, so interrupting a blocked waiter leaves no artifact.
-        removeOwner(staging, token);
-        stagingCreated = false;
-      }
-      recoverStaleLock(directory);
+    while (!tryAcquire(attempt)) {
       if (performance.now() >= deadline) {
-        throw new Error(`Timed out waiting for config lock: ${directory}. Retry after the other summon process finishes; summon doctor names a lock that stays.`);
+        throw new Error(`Timed out waiting for config lock: ${attempt.directory}. Retry after the other summon process finishes; summon doctor names a lock that stays.`);
       }
       Atomics.wait(pause, 0, 0, 10);
     }
     result = action();
   } catch (error) {
     // Preserve a transaction/acquisition error rather than masking it with cleanup.
-    try {
-      if (acquired) removeOwner(directory, token);
-      else if (stagingCreated) removeOwner(staging, token);
-    } catch { /* best effort */ }
+    abandon(attempt);
     throw error;
   }
-  removeOwner(directory, token);
-  sweepStaleStaging(file);
+  release(file, attempt);
+  return result;
+}
+
+export interface AsyncLockOptions {
+  /** Give up after this long; it should exceed `staleMs` so a hung owner is recovered before a waiter gives up. */
+  timeoutMs: number;
+  /**
+   * The lock's stale bound (default STALE_LOCK_MS). It must exceed the longest transaction: the owner's token is not
+   * refreshed while it works (its subprocess calls block the event loop), so a live owner older than this loses the lock.
+   */
+  staleMs?: number;
+  /** The error message when the wait times out. */
+  timeoutMessage: string;
+  /** Called once, when the first attempt finds the lock held. */
+  onWait?: () => void;
+  /** Pause between attempts (default 50 ms); the event loop keeps running meanwhile. */
+  pollMs?: number;
+}
+
+/**
+ * `withFileLock` for an asynchronous transaction that may run subprocesses (BE-L1: a Rex launch from its decision to
+ * its publication). Same lock directory protocol, owner tokens and stale/dead-owner recovery, with the lock's own
+ * stale bound; the wait does not block the event loop. A dead owner is recovered at once.
+ */
+export async function withFileLockAsync<T>(file: string, action: () => Promise<T>, options: AsyncLockOptions): Promise<T> {
+  const attempt = newAttempt(file, options.staleMs);
+  let result: T;
+  try {
+    const deadline = performance.now() + options.timeoutMs;
+    let waiting = false;
+    while (!tryAcquire(attempt)) {
+      if (performance.now() >= deadline) throw new Error(options.timeoutMessage);
+      if (!waiting) {
+        waiting = true;
+        options.onWait?.();
+      }
+      await new Promise((resolve) => setTimeout(resolve, options.pollMs ?? 50));
+    }
+    result = await action();
+  } catch (error) {
+    abandon(attempt);
+    throw error;
+  }
+  release(file, attempt);
   return result;
 }

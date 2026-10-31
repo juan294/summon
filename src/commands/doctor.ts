@@ -18,8 +18,8 @@ import { sym } from "../ui/symbols.js";
 import { CONFIG_DIR, STATUS_DIR, TRUST_FILE } from "../paths.js";
 import { describeLock, inspectLock, recoverStaleLock, type LockState } from "../file-lock.js";
 import { GHOSTTY_ONLY_CONFIG_KEYS, resolveBackendForLaunch } from "../backend.js";
-import { createRexCli, defaultRexServer, discoverRex, whoamiOf } from "../backends/rex/cli.js";
-import { listAppClients } from "../backends/rex/app.js";
+import { lockStaleBound } from "../status-record.js";
+import { discoverRexForDoctor, printRexChecks } from "../backends/rex/doctor.js";
 import { escapeControlChars } from "../pane-inventory.js";
 import type { CommandContext } from "./types.js";
 
@@ -75,7 +75,7 @@ export async function handleDoctorCommand({
   // and are not counted as failures.
   const ghosttyConfigPath = join(homedir(), ".config", "ghostty", "config");
   let diagnostics = probeGhostty();
-  const rexDiscovery = discoverRex();
+  const rexDiscovery = discoverRexForDoctor();
   const detection = resolveBackendForLaunch({ discoverRex: () => rexDiscovery });
   const ghosttyApplicable = !!diagnostics.app || rexDiscovery.path === null;
 
@@ -288,42 +288,7 @@ export async function handleDoctorCommand({
 
   console.error();
   console.error("Checking Rex...\n");
-  if (rexDiscovery.path === null) {
-    console.error(`  - Rex CLI not found (searched ${rexDiscovery.searched.join(", ")}); not applicable`);
-  } else {
-    const rexContext = detection.ok && detection.backend === "rex" ? detection : null;
-    const server = rexContext?.server ?? defaultRexServer();
-    const cli = createRexCli(rexDiscovery.path, server);
-    console.error(`  ${PASS}  Rex CLI found at ${rexDiscovery.path}`);
-    const version = cli.call("version", ["version"]);
-    const versionLines = version.ok ? version.stdout.split("\n").map(escapeControlChars) : [];
-    record(version.ok);
-    console.error(version.ok
-      ? `  ${PASS}  ${versionLines[0] ?? ""} (${versionLines.find((line) => line.startsWith("api:")) ?? "api revision unknown"})`
-      : `  ${FAIL}  rex version failed: ${version.reason}`);
-    const who = whoamiOf(cli);
-    // The server is required only when Rex is the backend of this shell; otherwise it is informational.
-    record(rexContext ? who.answers : true);
-    if (who.answers) console.error(`  ${PASS}  Rex server reachable at ${server} (host ${who.hostId})`);
-    else console.error(`  ${rexContext ? FAIL : "INFO"}  Rex server not reachable at ${server} (${who.reason}); open the Rex app to start it`);
-    if (who.answers) {
-      const clients = listAppClients(cli, { includeLost: true });
-      if (!clients.ok) {
-        console.error(`  INFO  app clients unavailable (${clients.reason})`);
-      } else if (clients.clients.length === 0) {
-        console.error("  INFO  no Rex app connected; open Rex to show workspaces");
-      } else {
-        for (const client of clients.clients) {
-          console.error(`    app client ${client.clientId} ${client.label ? `(${client.label}) ` : ""}${client.connectionState}`);
-        }
-      }
-    }
-    console.error(detection.ok
-      ? `  INFO  this shell launches in ${detection.backend} (placement ${detection.placement}${detection.backend === "rex" ? `, server ${detection.server}` : ""})`
-      : `  INFO  this shell cannot launch: ${detection.reason}`);
-    const ignored = rexIgnoredConfigKeys(userConfig());
-    if (ignored.length > 0) console.error(`  INFO  Rex ignores these Ghostty settings from your config: ${ignored.join(", ")}`);
-  }
+  printRexChecks({ discovery: rexDiscovery, detection, record, ignoredConfigKeys: () => rexIgnoredConfigKeys(userConfig()), pass: PASS, fail: FAIL });
 
   const commandChecks: Array<{ key: string; cmd: string }> = [];
   const editorCmd = userConfig().get("editor");
@@ -377,7 +342,9 @@ export async function handleDoctorCommand({
     let state: LockState;
     let removed: boolean;
     try {
-      ({ state, removed } = fixFlag ? recoverStaleLock(lock) : { state: inspectLock(lock), removed: false });
+      // BE-L1: a Rex launch lock has its own, longer bound; a slow live launch is not a finding.
+      const staleMs = lockStaleBound(lock);
+      ({ state, removed } = fixFlag ? recoverStaleLock(lock, staleMs) : { state: inspectLock(lock, staleMs), removed: false });
     } catch (error) {
       lockFindings++;
       record(false);

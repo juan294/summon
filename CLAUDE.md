@@ -32,17 +32,21 @@ src/
   layout.ts             Layout calculation (pure function)
   tree.ts               Tree DSL parser, layout node model, plan builder (pure function)
   script.ts             AppleScript generator (pure function — builds script string)
-  launcher.ts           Orchestrator launch(): trust and config, resolve backend (P15 seam), Rex switch, wizard, on-start, dispatch to a backend, publish status
+  launcher.ts           Orchestrator launch(): trust and config, resolve backend (P15 seam), backend beforeLaunch (Rex switch), wizard, on-start, dispatch to the backend port, publish status
   config-resolve.ts     Config layering and .summon read: resolveConfig, readTrustedSummonFile (single trusted read), optsToConfigMap, CLIOverrides, env-key denylist
   command-install.ts    Launch command checks: checkCommand, ensureCommand (stop, or offer the install method of a known tool), commandFixHint
-  dry-run.ts            Dry-run output for both backends (header, AppleScript or Rex session.create request, command notes)
-  workspace-focus.ts    focusWorkspace, resolveWorkspaceTerminal: focus a recorded workspace without loading the launch path
+  dry-run.ts            Dry-run output: header and extras, then the backend port renders the body (AppleScript or Rex session.create request) and notes
+  workspace-focus.ts    focusWorkspace: focus a recorded workspace through its record backend without loading the launch path
   backend.ts            BackendId, LaunchContext, resolveBackendForLaunch
   backend-detect.ts     Pure backend detection table over an env snapshot plus injected probe results
   launch-identity.ts    Per-launch ids and artifacts: newLaunchId, launchArtifactPaths, bootstrap/trap shell fragments, launch manifests
   self.ts               How this process was started (node binary, resolved script), registered by index.ts so the cleanup trap runs the same Summon
-  file-lock.ts          withFileLock: cross-process lock (directory rename, dead-owner recovery) for config and status records
-  backends/ghostty.ts   GhosttyBackend adapter: AppleScript launch, executeScript, spinner, rollback
+  file-lock.ts          withFileLock: cross-process lock (directory rename, dead-owner recovery) for config and status records; withFileLockAsync for the Rex launch lock (BE-L1)
+  backends/port.ts      The two backend ports (types only): TerminalBackend (launch side) and WorkspaceBackend (record side)
+  backends/select.ts    createTerminalBackend: LaunchContext -> TerminalBackend (launcher, session, open)
+  backends/workspace.ts workspaceBackendFor: stored record backend -> WorkspaceBackend (status reader, focus, inspect, title, clean)
+  backends/ghostty.ts   GhosttyBackend adapter: AppleScript launch, executeScript, spinner, rollback, pane probe and restored-pane decision, dry-run body and command notes
+  backends/ghostty-workspace.ts GhosttyWorkspace record port: sidecar liveness, focus/inspect/title by native identity, stale launch sweep
   backends/rex/cli.ts   discoverRex (PATH, REX_BIN_DIR, app bundles), defaultRexServer
   backends/rex/types.ts RexIdentity type and parser, REX_OPS trait table, result types
   backends/rex/errors.ts classifyRexFailure (CLI failure classifier, P14)
@@ -50,11 +54,15 @@ src/
   backends/rex/app.ts   App client listing and choice (P7), selectInApp, waitForAppClient, openRexApp
   backends/rex/launch.ts createWorkspace (manifest first, token wait, adoption), adoptOrphans (P13), showWorkspace, maybeSwitchToExisting (P2)
   backends/rex/status.ts sessionState (four-state table P10), focusRex, inspectRex, titleRex, program status (OSC 7501)
+  backends/rex/read.ts  Rex half of a status read: resolveRexStatus (generations, reconciling steps), rex binary memo, rexCommandGate
+  backends/rex/workspace.ts RexWorkspace record port: resolve, focus, inspect, title, other-backend note, clean (P17) and --orphans review
+  backends/rex/launcher-tab.ts D1 launcher-tab close after a launch or switch inside Rex
+  backends/rex/doctor.ts The Rex section of summon doctor (CLI, version, server, app clients)
   backends/rex/reconcile.ts Writing steps of a reconciling read: adoptOnce (P13), pane-file refresh, endRexLaunch (snapshot, endedAt, file removal; also used by clean)
-  backends/rex/backend.ts createRexBackend: Backend adapter wiring the pieces above
+  backends/rex/backend.ts createRexBackend: TerminalBackend adapter (beforeLaunch adoption and P2 switch, exclusiveLaunch per-project launch lock BE-L1, P8 notices, launch, dry run, D1 hooks)
   launch-guards.ts      Pre-launch safety checks (ensureGhostty, ensureAccessibility, confirmDangerousCommands)
   status-record.ts      Record layer: WorkspaceStatus, readStatusRecord, withOwnedRecord locked writes, launch artifact removal, Ghostty liveness
-  status.ts             Status reader: readStatus/readAllStatuses over both backends (active/partial/stopped/unknown); writes nothing unless a read passes { reconcile: true } (every status command does); no re-export of status-record
+  status.ts             Status reader: readStatus/readAllStatuses, each record resolved by its record backend (active/partial/stopped/unknown); writes nothing unless a read passes { reconcile: true } (every status command does); no re-export of status-record
   briefing.ts           Morning project briefing (overnight commits, dirty files, recommendations)
   monitor.ts            Interactive TUI dashboard for workspace status (refresh loop, keyboard nav)
   monitor-read.ts       The monitor's child status read (hidden MONITOR_READ_ARG, writeMonitorRead); leaf module, status code loaded lazily
@@ -81,7 +89,7 @@ src/
     resolve-target.ts   Resolves launch target directory from name/path/. (resolveTargetDirectory, expandHome); projectSuggestions "Did you mean" lookup
     suggest.ts          suggestProjects: prefix, subsequence and edit-distance suggestions ranked by launch recency (pure)
   commands/
-    clean.ts            handleCleanCommand — close an empty Rex session (P17) or review earlier launches (--orphans)
+    clean.ts            handleCleanCommand — the record backend closes an empty workspace (Rex P17) or each backend reviews earlier launches (--orphans)
     config.ts           handleConfigCommand, handleExportCommand, handleFreezeCommand, handleSetCommand
     doctor.ts           handleDoctorCommand
     layout.ts           handleLayoutCommand
@@ -91,7 +99,7 @@ src/
     session.ts          handleSessionCommand — named session save/restore subcommand handler
     setup.ts            handleCompletionsCommand, handleKeybindingsCommand, handleSetupCommand
     trust.ts            handleTrustCommand — .summon file trust subcommand handler
-    workspace.ts        handleFocusCommand, handleInspectCommand, handleTitleCommand — per-backend workspace commands
+    workspace.ts        handleFocusCommand, handleInspectCommand, handleTitleCommand — dispatched through the record backend
     types.ts            CommandHandler and CommandContext interfaces
   ui/
     ansi.ts             ANSI color/style helpers extracted from setup.ts (bold, dim, green, yellow, cyan, etc.)
@@ -99,6 +107,7 @@ src/
     width.ts            Display-width primitives for CJK/emoji-safe truncation (isWideCodePoint, getDisplayWidth, truncate)
     layout-preview.ts   Layout preview renderer for the setup wizard
     symbols.ts          Canonical glyph vocabulary (sym.ok, sym.warn, sym.fail, sym.info, sym.bullet)
+    attention.ts        D1 stderr watch: watchForAttention, markAttention, needsAttention (read by the Rex launcher-tab close)
   e2e/
     rex-harness.ts      Rex E2E gate (SUMMON_REX_E2E advisory, SUMMON_REX_E2E_REQUIRED), prerequisites, polling helpers (coverage-excluded)
     rex-native.test.ts  Rex launch/adopt/switch E2E against a real server (run the two Rex E2E files one at a time)
@@ -122,7 +131,7 @@ src/
 
 ### Two backends, detected automatically
 
-Summon drives two terminals through one `Backend` seam resolved in `launcher.ts` right after config resolution (`backend.ts`, pure table in `backend-detect.ts`). The terminal running Summon decides: `TERM_PROGRAM=rex` means Rex, `TERM_PROGRAM=ghostty` means Ghostty, another terminal or none means Ghostty when installed, else Rex when its CLI is found; an inherited `REX_SERVER` counts only when `rex whoami` answers on it. There is no config key and no flag for the backend (plan decision D2, owner preference for autodetection).
+Summon drives two terminals through two ports (`backends/port.ts`): the launch-side `TerminalBackend`, resolved in `launcher.ts` right after config resolution (`backend.ts`, pure table in `backend-detect.ts`, mapped by `backends/select.ts`), and the record-side `WorkspaceBackend`, chosen from a status record's stored `backend` field (`backends/workspace.ts`). Generic modules dispatch through the ports; backend-specific steps live under `src/backends/`. The terminal running Summon decides: `TERM_PROGRAM=rex` means Rex, `TERM_PROGRAM=ghostty` means Ghostty, another terminal or none means Ghostty when installed, else Rex when its CLI is found; an inherited `REX_SERVER` counts only when `rex whoami` answers on it. There is no config key and no flag for the backend (plan decision D2, owner preference for autodetection).
 
 - **Ghostty** (`backends/ghostty.ts`): generates AppleScript that drives Ghostty's native split system and executes it via `osascript`. No terminal multiplexer, just native Ghostty panes.
 - **Rex** (`backends/rex/`): sends one `session.create` request through the `rex` CLI (one session per workspace, one block per pane), shows it in a connected Rex app, and reads it back through `session.view`. Every launch has an id and a manifest so a lost answer can be adopted later. See `docs/rex.md` for the user-facing contract.

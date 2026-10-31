@@ -1,47 +1,24 @@
 import { execFileSync } from "node:child_process";
-import type { LayoutPlan } from "../layout.js";
-import type { PlannedLayout, TreeLayoutPlan } from "../tree.js";
+import type { PlannedLayout } from "../tree.js";
 import { findPaneByName } from "../tree.js";
 import { generateAppleScript, generateTreeAppleScript } from "../script.js";
 import { ensureGhostty, ensureAccessibility, printAccessibilityHint, isAccessibilityError } from "../launch-guards.js";
 import { traditionalInventory, treeInventory, parseNativeCapture } from "../pane-inventory.js";
 import type { NativeMetadata, PaneDescriptor } from "../pane-inventory.js";
-import type { BackendId } from "../backend.js";
-import type { RexIdentity } from "./rex/types.js";
-import { getErrorMessage, ACCESSIBILITY_SETTINGS_PATH, QUICK_PROCESS_LIMITS } from "../utils.js";
+import type { BackendLaunchContext, BackendLaunchResult, BackendLayout, LaunchOptionsInput, TerminalBackend } from "./port.js";
+import type { LayoutOptions } from "../layout.js";
+import { pickConfigValue } from "../config-resolve.js";
+import type { CLIOverrides } from "../config-resolve.js";
+import { commandExecutable } from "../command-spec.js";
+import { COMMAND_FAILURE_REASONS, checkCommand } from "../command-install.js";
+import { getErrorMessage, ACCESSIBILITY_SETTINGS_PATH, QUICK_PROCESS_LIMITS, SUMMON_WORKSPACE_ENV } from "../utils.js";
 import { escapeAppleScript } from "../shell-escape.js";
 import { isStaticLaunchSpinner, transientLine } from "../ui/progress.js";
 import { fail, err } from "../ui/output.js";
 import { TabOpenError } from "../errors.js";
 
-/** Everything a backend needs after the launcher has taken the dry-run branch. */
-export interface BackendLaunchContext {
-  targetDir: string;
-  /** User env vars (already filtered); undefined when there are none. */
-  envVars: Record<string, string> | undefined;
-  projectName: string;
-  onStop: string | undefined;
-  launchId: string;
-  /** Preset name or "custom"; recorded in the status record and the Rex manifest. */
-  layoutLabel: string;
-  /** Resolve a configured command to its binary, installing on request. */
-  ensureAndResolve: (cmd: string, key: string) => Promise<string>;
-  /** Starship preset config path, or null when none applies. */
-  resolveStarship: () => string | null;
-}
-
-/** Exact identity a backend captured: Ghostty's native metadata or the Rex identity. */
-export interface BackendLaunchResult {
-  native?: NativeMetadata;
-  rex?: RexIdentity;
-}
-
-/** A backend launches a planned layout and returns the exact identity it captured, if any. */
-export interface TerminalBackend {
-  readonly id: BackendId;
-  launchTraditional(plan: LayoutPlan, ctx: BackendLaunchContext): Promise<BackendLaunchResult | undefined>;
-  launchTree(plan: TreeLayoutPlan, ctx: BackendLaunchContext): Promise<BackendLaunchResult | undefined>;
-}
+// The port types moved to ./port.ts (AR-M1); re-exported for the modules that import them from here.
+export type { BackendLaunchContext, BackendLaunchResult, TerminalBackend } from "./port.js";
 
 function asResult(native: NativeMetadata | undefined): BackendLaunchResult | undefined {
   return native ? { native } : undefined;
@@ -236,12 +213,104 @@ async function resolveCommands(layout: PlannedLayout, ctx: BackendLaunchContext)
 }
 
 /**
+ * Probe Ghostty for the number of terminals in the front window's selected tab.
+ * Returns null when Ghostty is not running, the script errors, or output is non-numeric.
+ *
+ * PE-L2: This is a separate osascript call made BEFORE the main workspace script.
+ * Two round-trips are intentional: this probe runs before the main AppleScript is
+ * generated, and its result (pane count) influences the generated script's content
+ * (the cleanRestoredPanes prelude). Inlining the count into the main script would
+ * require AppleScript to conditionally close panes and then branch — adding significant
+ * complexity to script.ts for minimal latency gain (probe takes ~2 s max, main script
+ * executes regardless). The two-call design keeps script generation pure and testable.
+ */
+export function probePaneCount(): number | null {
+  try {
+    const out = execFileSync(
+      "osascript",
+      ["-e", 'tell application "Ghostty" to count of terminals of selected tab of front window'],
+      { encoding: "utf-8", timeout: 2000, stdio: ["ignore", "pipe", "ignore"] },
+    ).trim();
+    const n = parseInt(out, 10);
+    return Number.isFinite(n) && n >= 0 ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Decide whether to auto-clean restored panes from the front window's selected tab.
+ * Only cleans panes when the front tab title contains a summon project marker `[<projectName>]`.
+ * This prevents destroying non-summon panes.
+ * When all trigger conditions are met, sets opts.cleanRestoredPanes=true and prints a notice.
+ */
+export function decideCleanRestoredPanes(
+  opts: Partial<LayoutOptions>,
+  cliOverrides: CLIOverrides,
+  project: Map<string, string>,
+  machineConfig: Map<string, string>,
+  dryRun: boolean | undefined,
+  _projectName?: string,
+): void {
+  if (process.env[SUMMON_WORKSPACE_ENV]) return;
+  if (opts.newWindow) return;
+
+  const cleanRaw = pickConfigValue(cliOverrides.clean, "clean", project, machineConfig);
+  // Default to false — clean must be explicitly enabled via --clean or clean=true (BE-H1 #362).
+  const cleanEnabled = cleanRaw === "true";
+  if (!cleanEnabled) return;
+
+  // In dry-run mode, skip the probe but honor an explicit --clean flag so the
+  // generated AppleScript (printed to stdout) includes the close prelude.
+  if (dryRun) {
+    if (cliOverrides.clean === "true") opts.cleanRestoredPanes = true;
+    return;
+  }
+
+  const count = probePaneCount();
+  if (count === null || count <= 1) return;
+
+  // Clean every pane in the front tab regardless of how it got there.
+  // Users who don't want this can pass --no-clean or --new-window.
+  const stale = count - 1;
+  const noun = stale === 1 ? "pane" : "panes";
+  console.log(`Clearing ${stale} stale ${noun} from previous session...`);
+  opts.cleanRestoredPanes = true;
+}
+
+/**
+ * One line per executable a real Ghostty launch would not resolve, without prompting or
+ * installing. A missing command with a known install method gets an install offer, not a stop.
+ */
+function dryRunCommandNotes(layout: PlannedLayout): string[] {
+  const notes: string[] = [];
+  const checked = new Set<string>();
+  for (const { key, pane, command } of ghosttyCommandEntries(layout)) {
+    const executable = commandExecutable(command);
+    if (!executable || checked.has(executable)) continue;
+    checked.add(executable);
+    const check = checkCommand(executable);
+    if ("resolved" in check) continue;
+    const label = pane ? `pane \`${pane}\`` : `\`${key}\``;
+    const outcome = check.install ? "a real launch offers to install it" : "a real launch stops here";
+    notes.push(`${label}: \`${executable}\` ${COMMAND_FAILURE_REASONS[check.failure]}; ${outcome}.`);
+  }
+  return notes;
+}
+
+/**
  * Ghostty adapter over the existing AppleScript launch path. Behavior is unchanged from the
  * pre-backend launcher: guards, command resolution, script generation and execution run in
  * the same order with the same messages (plan §3 seam, D8).
  */
 export const GhosttyBackend: TerminalBackend = {
   id: "ghostty",
+  splitsCallerWindow: true,
+  opensSessionTabs: true,
+
+  applyLaunchOptions({ opts, overrides, projectConfig, machineConfig, dryRun, projectName }: LaunchOptionsInput) {
+    decideCleanRestoredPanes(opts, overrides, projectConfig, machineConfig, dryRun, projectName);
+  },
 
   async launchTraditional(plan, ctx) {
     ensureGhostty();
@@ -261,5 +330,13 @@ export const GhosttyBackend: TerminalBackend = {
     const starshipConfigPath = ctx.resolveStarship();
     const script = generateTreeAppleScript(plan, ctx.targetDir, starshipConfigPath, ctx.envVars, ctx.projectName, ctx.onStop, ctx.launchId);
     return asResult(executeScript(script, treeInventory(plan), ctx.projectName));
+  },
+
+  /** The AppleScript a real launch would run, and one note per command it would not resolve. */
+  dryRun(layout: BackendLayout, ctx: BackendLaunchContext, starshipConfigPath: string | null) {
+    const body = layout.kind === "tree"
+      ? generateTreeAppleScript(layout.plan, ctx.targetDir, starshipConfigPath, ctx.envVars, ctx.projectName, ctx.onStop, ctx.launchId)
+      : generateAppleScript(layout.plan, ctx.targetDir, starshipConfigPath, ctx.envVars, ctx.projectName, ctx.onStop, ctx.launchId);
+    return { body, notes: dryRunCommandNotes(layout) };
   },
 };
