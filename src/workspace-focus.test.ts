@@ -33,7 +33,7 @@ describe("focusWorkspace", () => {
     mockExecFileSync.mockReturnValue(JSON.stringify({focused:true,terminalId:id}));
     expect(focusWorkspace("api")).toEqual({kind:"focused",terminalId:id});
     // AR-M3: focus reads with reconciliation, as every status read did before the reader split.
-    expect(mockReadStatus).toHaveBeenCalledWith("api", { reconcile: true });
+    expect(mockReadStatus).toHaveBeenCalledWith("api");
   });
   it("returns unavailable when native identity or permission fails", () => {
     expect(focusWorkspace("api").kind).toBe("unavailable");

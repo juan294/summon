@@ -99,7 +99,7 @@ function emitRootPanePidBootstrap(
   projectName: string,
   launchId: string,
 ): void {
-  sendCommand(rootPaneVar, bootstrapLine(projectName, launchId, "ghostty"));
+  sendCommand(rootPaneVar, bootstrapLine(projectName, launchId));
 }
 
 /** Emit surface configuration block: working directory, font size, env vars. */

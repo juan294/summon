@@ -77,7 +77,7 @@ describe("shell fragments", () => {
   const dir = `$HOME/.config/summon/status/chapa.launches`;
 
   it("bootstrapLine creates the launch dir and writes pid then active, every path carrying the launch id", () => {
-    const line = bootstrapLine("chapa", ID, "ghostty");
+    const line = bootstrapLine("chapa", ID);
     expect(line).toBe(
       `mkdir -p "${dir}" && chmod 700 "${dir}"`
       + ` && printf '%s\\n' "$$" > "${dir}/${ID}.pid"`
@@ -86,12 +86,6 @@ describe("shell fragments", () => {
     const paths = line.match(/"\$HOME[^"]*"/g) ?? [];
     expect(paths.length).toBe(4);
     for (const p of paths.slice(2)) expect(p).toContain(ID);
-  });
-
-  it("bootstrapLine for rex appends the root pane-file write and requires the root pane name", () => {
-    const line = bootstrapLine("chapa", ID, "rex", "editor");
-    expect(line.endsWith(` && ${paneFileLine("chapa", ID, "editor")}`)).toBe(true);
-    expect(() => bootstrapLine("chapa", ID, "rex")).toThrow("root pane name");
   });
 
   it("paneFileLine names only that pane's file and its .tmp and publishes atomically", () => {
@@ -106,7 +100,7 @@ describe("shell fragments", () => {
   });
 
   it("routes names through shellDoubleQuote", () => {
-    expect(bootstrapLine('my"proj', ID, "ghostty")).toContain('my\\"proj.launches');
+    expect(bootstrapLine('my"proj', ID)).toContain('my\\"proj.launches');
     expect(paneFileLine('my"proj', ID, "editor")).toContain(`my\\"proj.launches/${ID}.pane.editor`);
   });
 
@@ -160,12 +154,11 @@ describe("shell fragments", () => {
   it("paneFileLine rejects a pane name that is not an identifier (no paths, no traversal)", () => {
     for (const bad of ["../x", "a/b", "a b", "", "1abc"]) {
       expect(() => paneFileLine("chapa", ID, bad)).toThrow(`Invalid pane name: ${JSON.stringify(bad)}`);
-      expect(() => bootstrapLine("chapa", ID, "rex", bad)).toThrow("Invalid pane name");
     }
   });
 
   it("every fragment rejects an invalid launch id (ids are never user text)", () => {
-    expect(() => bootstrapLine("chapa", "x", "ghostty")).toThrow("Invalid launch id");
+    expect(() => bootstrapLine("chapa", "x")).toThrow("Invalid launch id");
     expect(() => paneFileLine("chapa", "x", "editor")).toThrow("Invalid launch id");
     expect(() => cleanupTrapLine("chapa", "x")).toThrow("Invalid launch id");
   });

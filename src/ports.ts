@@ -133,7 +133,7 @@ export async function detectAllPorts(): Promise<{
 }> {
   const projects = listProjects();
   const statusMap = new Map(
-    readAllStatuses({ reconcile: true }).map((status) => [status.project, status.state]),
+    readAllStatuses().map((status) => [status.project, status.state]),
   );
 
   const entries = [...projects];

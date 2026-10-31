@@ -137,7 +137,7 @@ describe("workspace commands with real status fixtures", () => {
     readStatusSpy.calls.length = 0;
     await handleInspectCommand(context(["demo"], { json: true }));
     // AR-M3: inspect reads with reconciliation, as every status read did before the reader split.
-    expect(readStatusSpy.calls).toEqual([["demo", { reconcile: true }]]);
+    expect(readStatusSpy.calls).toEqual([["demo"]]);
     const result = JSON.parse(String(out.mock.calls[0]![0]));
     expect(result.state).toBe("active");
     expect(result.panes[0]).toMatchObject({
@@ -289,7 +289,7 @@ describe("P4 title handler real status fixtures", () => {
     readStatusSpy.calls.length = 0;
     await handleTitleCommand(context(["demo"]));
     // AR-M3: title reads with reconciliation, as every status read did before the reader split.
-    expect(readStatusSpy.calls).toEqual([["demo", { reconcile: true }]]);
+    expect(readStatusSpy.calls).toEqual([["demo"]]);
     expect(fixture.exec.mock.calls[0]![2].input).not.toMatch(
       /\bactivate\b|set name override/,
     );

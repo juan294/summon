@@ -353,7 +353,7 @@ describe("detectAllPorts", () => {
     const { assignments } = await detectAllPorts();
     expect(assignments[0]!.state).toBe("active");
     // AR-M3: ports reads with reconciliation, as every status read did before the reader split.
-    expect(readAllStatuses).toHaveBeenCalledWith({ reconcile: true });
+    expect(readAllStatuses).toHaveBeenCalledWith();
   });
 
   it("marks projects stopped when status data says stopped", async () => {

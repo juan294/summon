@@ -152,7 +152,8 @@ function envWrapper(input: SessionCreateInput, loginShell: string): string[] {
 function buildInitialInput(input: SessionCreateInput, pane: Leaf, isRoot: boolean): string {
   const lines = isRoot
     ? [
-      bootstrapLine(input.project, input.launchId, "rex", pane.name),
+      // The root pane's file is the ownership token (P13): written right after the pid and active marker.
+      `${bootstrapLine(input.project, input.launchId)} && ${paneFileLine(input.project, input.launchId, pane.name)}`,
       cleanupTrapLine(input.project, input.launchId, { onStop: input.onStop, targetDir: input.targetDir, layout: input.layoutLabel }),
     ]
     : [paneFileLine(input.project, input.launchId, pane.name)];

@@ -186,6 +186,9 @@ function configTree(dir = CONFIG_DIR, prefix = ""): Map<string, string> {
   return tree;
 }
 
+/** A read that asks not to reconcile (reconciliation is the default). */
+const READ_ONLY = { reconcile: false } as const;
+
 describe("a non-reconciling read writes nothing (AR-M3)", () => {
   it("leaves an ended workspace, a delayed pane file and an unverified launch untouched, takes no lock; the next reconciling read still recovers", { timeout: 15_000 }, () => {
     // Every writing step has work here: the shell's pane file arrived late (refresh), the session is
@@ -196,14 +199,14 @@ describe("a non-reconciling read writes nothing (AR-M3)", () => {
     const before = configTree();
     statusTestHooks.beforeLock = () => { throw new Error("a non-reconciling read must not take the status lock"); };
     try {
-      const row = readStatus(PROJECT)!;
+      const row = readStatus(PROJECT, READ_ONLY)!;
       expect(row).toMatchObject({ state: "stopped", reason: SESSION_GONE, launchId: GEN });
       expect(row.endedAt).toBeUndefined();
       expect(row.notices).toBeUndefined();
       expect(row.rex!.blocks.map((b) => b.name)).toEqual(["editor"]);
-      expect(readProjectStatus(PROJECT)).toMatchObject({ state: "stopped", reason: SESSION_GONE });
-      expect(readProjectStatus("orphan")).toMatchObject({ state: "unknown", reason: "unverified launch" });
-      const rows = readAllStatuses({ programStatus: true });
+      expect(readProjectStatus(PROJECT, READ_ONLY)).toMatchObject({ state: "stopped", reason: SESSION_GONE });
+      expect(readProjectStatus("orphan", READ_ONLY)).toMatchObject({ state: "unknown", reason: "unverified launch" });
+      const rows = readAllStatuses({ programStatus: true, ...READ_ONLY });
       expect(rows.map((r) => [r.project, r.state, r.notices])).toEqual([[PROJECT, "stopped", undefined], ["orphan", "unknown", undefined]]);
     } finally {
       delete statusTestHooks.beforeLock;
@@ -211,8 +214,8 @@ describe("a non-reconciling read writes nothing (AR-M3)", () => {
     expect(configTree()).toEqual(before);
     expect(existsSync(snapshotFile)).toBe(false);
 
-    // Next-read recovery: the first reconciling read refreshes the pane, saves the snapshot, marks the record and removes the files.
-    const reconciled = readStatus(PROJECT, { reconcile: true })!;
+    // Next-read recovery: the first reconciling read (the default) refreshes the pane, saves the snapshot, marks the record and removes the files.
+    const reconciled = readStatus(PROJECT)!;
     expect(reconciled.notices![0]).toMatch(/^workspace ended outside Summon; snapshot saved /);
     expect(reconciled.rex!.blocks.map((b) => b.name)).toEqual(["editor", "shell"]);
     expect(readStatusRecord(PROJECT)!.endedAt).toBeDefined();

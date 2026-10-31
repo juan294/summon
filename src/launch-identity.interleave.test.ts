@@ -143,7 +143,7 @@ describe("real-process ownership interleavings (plan Phase 1)", () => {
     const snapshotBefore = readFileSync(snapshotFile, "utf-8");
 
     // on-stop sleeps 2 s: wide enough that launch B's publication lands inside A's trap even under full-suite load.
-    const shellA = spawnShell(`${bootstrapLine(PROJECT, GEN_A, "ghostty")}; ${cleanupTrapLine(PROJECT, GEN_A, { onStop: "sleep 2", targetDir: REPO, layout: "default" })}`);
+    const shellA = spawnShell(`${bootstrapLine(PROJECT, GEN_A)}; ${cleanupTrapLine(PROJECT, GEN_A, { onStop: "sleep 2", targetDir: REPO, layout: "default" })}`);
     await waitFor(() => existsSync(pathsA.active), 5_000, "launch A bootstrap");
     expect(readFileSync(pathsA.active, "utf-8").trim()).toBe(GEN_A);
     expect(Number(readFileSync(pathsA.pid, "utf-8").trim())).toBe(shellA.pid);
@@ -155,7 +155,7 @@ describe("real-process ownership interleavings (plan Phase 1)", () => {
     // Launch B publishes its record and bootstrap while A's trap is still inside on-stop.
     writeStatus(record(GEN_B));
     const pathsB = launchArtifactPaths(PROJECT, GEN_B);
-    const shellB = spawnShell(bootstrapLine(PROJECT, GEN_B, "ghostty"));
+    const shellB = spawnShell(bootstrapLine(PROJECT, GEN_B));
     await waitFor(() => existsSync(pathsB.active), 5_000, "launch B bootstrap");
     // A's trap removes its liveness files first (F21), while it is still inside the slow on-stop.
     await waitFor(() => !existsSync(pathsA.active) && !existsSync(pathsA.pid), 5_000, "A's trap removes its liveness files first");
@@ -214,7 +214,7 @@ describe("real-process ownership interleavings (plan Phase 1)", () => {
   it("two traps for the same launch (EXIT and HUP): the per-launch removal is idempotent and exits 0", async () => {
     writeStatus(record(GEN_A));
     const pathsA = launchArtifactPaths(PROJECT, GEN_A);
-    const shell = spawnShell(`${bootstrapLine(PROJECT, GEN_A, "ghostty")}; ${cleanupTrapLine(PROJECT, GEN_A, { targetDir: REPO, layout: "default" })}; __summon_cleanup`);
+    const shell = spawnShell(`${bootstrapLine(PROJECT, GEN_A)}; ${cleanupTrapLine(PROJECT, GEN_A, { targetDir: REPO, layout: "default" })}; __summon_cleanup`);
     // The first run's last step is the rm of its own files; wait for that, not just the snapshot call.
     await waitFor(() => existsSync(pathsA.active) === false && shimLog().length >= 1, 10_000, "first cleanup run");
     expect(shimLog()).toHaveLength(1);
@@ -251,7 +251,7 @@ describe.skipIf(!ZSH_AVAILABLE)("typed text in an interactive zsh with history e
     // The first line proves history expansion is on in this shell: it must fail with "event not found".
     zsh.stdin!.write([
       'print -r -- "probe!probe"',
-      bootstrapLine(PROJECT, GEN_A, "ghostty"),
+      bootstrapLine(PROJECT, GEN_A),
       cleanupTrapLine(PROJECT, GEN_A, { targetDir, layout: "default" }),
       "exit",
       "",

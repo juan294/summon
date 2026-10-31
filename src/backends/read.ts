@@ -9,8 +9,8 @@ import type { RecordReader } from "./port.js";
 import { resolveGhosttyStatus } from "./ghostty/read.js";
 import { adoptUnrecordedRex, resolveRexStatus } from "./rex/read.js";
 
-const GHOSTTY_READER: RecordReader = { resolve: resolveGhosttyStatus };
-const REX_READER: RecordReader = { resolve: resolveRexStatus, adoptUnrecorded: adoptUnrecordedRex };
+const GHOSTTY_READER: RecordReader = { spawnsProcess: false, resolve: resolveGhosttyStatus };
+const REX_READER: RecordReader = { spawnsProcess: true, resolve: resolveRexStatus, adoptUnrecorded: adoptUnrecordedRex };
 
 export function recordReaderFor(backend: BackendId | undefined): RecordReader {
   return backend === "rex" ? REX_READER : GHOSTTY_READER;

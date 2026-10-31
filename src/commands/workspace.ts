@@ -35,7 +35,7 @@ export async function handleInspectCommand({
     1,
     "Usage: summon inspect <project> [--json]",
   );
-  const status = readStatus(project, { reconcile: true });
+  const status = readStatus(project);
   workspaceBackendFor(status?.backend).inspect(project, status, values.json === true);
 }
 
@@ -61,7 +61,7 @@ export async function handleTitleCommand({
         ? { kind: "reset" as const }
         : { kind: "read" as const };
   const scope = args[1] === undefined ? "tab" : "pane";
-  const status = readStatus(project, { reconcile: true });
+  const status = readStatus(project);
   const result = workspaceBackendFor(status?.backend).title(project, status, scope, operation, args[1]);
   if (result.kind !== "title") {
     fail(result.reason);

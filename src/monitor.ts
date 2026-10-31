@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import type { Socket } from "node:net";
 import { sym } from "./ui/symbols.js";
-import { hasRexState, readAllStatuses, rexBinaryPath, readProjectStatus, getGitBranch } from "./status.js";
+import { readMaySpawn, readAllStatuses, rexBinaryPath, readProjectStatus, getGitBranch, statusesMaySpawn } from "./status.js";
 import { isLiveState as isLiveWorkspaceState, unverifiedMessage } from "./status-record.js";
 import type { ProgramState } from "./backends/rex/status.js";
 import type { ResolvedStatus } from "./status.js";
@@ -336,7 +336,7 @@ function neverLaunchedRow(name: string, directory: string): ProjectRow {
 export function loadProjectRow(name: string): ProjectRow | undefined {
   const directory = listProjects().get(name);
   if (directory === undefined) return undefined;
-  const status = readProjectStatus(name, { reconcile: true });
+  const status = readProjectStatus(name);
   return status ? statusToRow(name, directory, status) : neverLaunchedRow(name, directory);
 }
 
@@ -417,16 +417,11 @@ export function readStatusesInChild(execPath: string, args: readonly string[], s
 
 type RowLoader = (signal: AbortSignal) => ProjectRow[] | Promise<ProjectRow[]>;
 
-/** A Rex status: reading it again may spawn `rex`, so the next read runs in the child. */
-function hasRexStatus(statuses: ResolvedStatus[]): boolean {
-  return statuses.some((status) => status.backend === "rex");
-}
-
 /**
  * In the CLI, with Rex state present, a child process of this same Summon. Otherwise in-process:
  * Ghostty liveness is files and `process.kill`, never a `rex` spawn, so it costs no child per tick
  * (also library use and tests, where no invocation is registered). Before an in-process read the
- * file-only `hasRexState` scan runs, so a new Rex launch moves the very next read to the child; in the
+ * file-only `readMaySpawn` scan runs, so a new Rex launch moves the very next read to the child; in the
  * child, a read that lists a Rex status skips that scan for the next one. The `rex` binary is resolved
  * once, here, for every child; without one, an inherited value of the variable never reaches the child.
  */
@@ -435,12 +430,13 @@ function defaultRowLoader(): RowLoader {
   if (!self) return loadProjectRows;
   let inChild = false;
   const decide = (statuses: ResolvedStatus[]): ProjectRow[] => {
-    inChild = hasRexStatus(statuses);
+    // A status whose read runs a process (Rex): the next read runs in the child.
+    inChild = statusesMaySpawn(statuses);
     return rowsFromStatuses(statuses);
   };
   let childEnv: NodeJS.ProcessEnv | undefined;
   return (signal) => {
-    if (!inChild && !hasRexState()) return decide(readMonitorStatuses());
+    if (!inChild && !readMaySpawn()) return decide(readMonitorStatuses());
     childEnv ??= { [MONITOR_REX_BINARY_ENV]: rexBinaryPath() ?? undefined };
     return readStatusesInChild(self.execPath, [self.script, MONITOR_READ_ARG], signal, childEnv).then(decide);
   };

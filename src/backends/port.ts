@@ -117,6 +117,8 @@ export interface StatusRead {
 
 /** Record side, read half: what a status read does with a record of this backend (`recordReaderFor`, backends/read.ts). */
 export interface RecordReader {
+  /** A read of this backend's records may run a process (Rex: its CLI); Ghostty's reads files and `process.kill` only (PE-H1). */
+  readonly spawnsProcess: boolean;
   /** The record's state (P10). `notices` are carried from an earlier step of the same read. */
   resolve(project: string, record: WorkspaceStatus, read: StatusRead, notices?: string[]): ResolvedStatus;
   /** Launches with a manifest but no record (P13): one adoption attempt when the read reconciles; `attempted` is false when it could not run. */
