@@ -1,7 +1,8 @@
 import { spawn } from "node:child_process";
 import type { Socket } from "node:net";
 import { sym } from "./ui/symbols.js";
-import { hasRexState, readAllStatuses, rexBinaryPath, readProjectStatus, getGitBranch, isLiveState as isLiveWorkspaceState, unverifiedMessage } from "./status.js";
+import { hasRexState, readAllStatuses, rexBinaryPath, readProjectStatus, getGitBranch, unverifiedMessage } from "./status.js";
+import { isLiveState as isLiveWorkspaceState } from "./status-record.js";
 import type { ProgramState } from "./backends/rex/status.js";
 import type { ResolvedStatus } from "./status.js";
 import { listProjects } from "./config.js";
@@ -335,7 +336,7 @@ function neverLaunchedRow(name: string, directory: string): ProjectRow {
 export function loadProjectRow(name: string): ProjectRow | undefined {
   const directory = listProjects().get(name);
   if (directory === undefined) return undefined;
-  const status = readProjectStatus(name);
+  const status = readProjectStatus(name, { reconcile: true });
   return status ? statusToRow(name, directory, status) : neverLaunchedRow(name, directory);
 }
 

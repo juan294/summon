@@ -56,6 +56,11 @@ export function rexIdentityMissing(project: string): string {
   return `the record has no Rex identity; run summon ${project} --new-window to relaunch`;
 }
 
+/** Rex: recorded panes whose block is not known yet (the pane file had not appeared when last looked). */
+export function unverifiedPanes(record: WorkspaceStatus): number {
+  return record.panes.length - (record.rex?.blocks.length ?? 0);
+}
+
 /** States with a live workspace to focus or count (plan P10 reader rules). */
 export function isLiveState(state: WorkspaceState): boolean {
   return state === "active" || state === "partial";

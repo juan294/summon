@@ -16,7 +16,7 @@ vi.mock("./../../paths.js", async (importOriginal) => {
 });
 
 const { launchArtifactPaths, writeLaunchManifest, listLaunchManifests } = await import("../../launch-identity.js");
-const { readStatusRecord, withOwnedRecord, statusTestHooks } = await import("../../status.js");
+const { readStatusRecord, withOwnedRecord, statusTestHooks } = await import("../../status-record.js");
 const { STATUS_DIR } = await import("../../paths.js");
 const { createWorkspace, readPaneFile, readPaneMapping, waitForToken, adoptOrphans, adoptOrphansForLaunch, refreshPaneMapping, maybeSwitchToExisting, keptSession, showWorkspace, showRecordedWorkspace, strandedTokenNotice } = await import("./launch.js");
 const { selectInApp } = await import("./app.js");
@@ -30,7 +30,7 @@ const { planLayout, getPreset } = await import("../../layout.js");
 type RexCli = import("./cli.js").RexCli;
 type RexResult = import("./types.js").RexResult;
 type LaunchManifest = import("../../launch-identity.js").LaunchManifest;
-type WorkspaceStatus = import("../../status.js").WorkspaceStatus;
+type WorkspaceStatus = import("../../status-record.js").WorkspaceStatus;
 
 const ID = "0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f";
 const ID2 = "1f1f1f1f-1f1f-4f1f-8f1f-1f1f1f1f1f1f";

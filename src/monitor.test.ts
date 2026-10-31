@@ -1667,7 +1667,7 @@ describe("loadProjectRow (summon open <project>)", () => {
     listProjects.mockReturnValue(new Map([["api", "/tmp/api"], ["web", "/tmp/web"]]));
     readProjectStatus.mockReturnValue(makeResolvedStatus({ project: "api", directory: "/tmp/api", state: "partial", reason: "root pane closed" }));
     expect(loadProjectRow("api")).toMatchObject({ name: "api", directory: "/tmp/api", state: "partial", reason: "root pane closed" });
-    expect(readProjectStatus).toHaveBeenCalledWith("api");
+    expect(readProjectStatus).toHaveBeenCalledWith("api", { reconcile: true });
     readProjectStatus.mockReturnValue(makeResolvedStatus({ project: "api", directory: "/tmp/api", state: "unknown", uptime: null, reason: "unverified launch" }));
     expect(loadProjectRow("api")).toMatchObject({ name: "api", state: "unknown", reason: "unverified launch" });
     readProjectStatus.mockReturnValue(null);
@@ -1938,7 +1938,7 @@ describe("PE-H1: a slow status read never blocks the monitor", () => {
     let wire = "";
     tty.writeSpy.mockImplementation((data: unknown) => { wire += String(data); return true; });
     await monitorRead.writeMonitorRead({});
-    expect(readAllStatuses).toHaveBeenLastCalledWith({ programStatus: true });
+    expect(readAllStatuses).toHaveBeenLastCalledWith({ programStatus: true, reconcile: true });
     expect(seedRexBinaryPath).not.toHaveBeenCalled();
     expect(monitorModule.rowsFromStatuses(JSON.parse(wire))).toEqual(loadProjectRows());
   });
@@ -2059,7 +2059,7 @@ describe("PE-H1: readStatusesInChild", () => {
     const monitor = await monitorThroughChild(`import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(ran)}, "");`, false);
     try {
       expect(process.stdin.listenerCount("data")).toBeGreaterThan(0); // entered at once, synchronously
-      expect(readAllStatuses).toHaveBeenCalledWith({ programStatus: true });
+      expect(readAllStatuses).toHaveBeenCalledWith({ programStatus: true, reconcile: true });
       expect(monitor.writes.join("")).toContain("ghost");
       process.stdin.emit("data", Buffer.from("q"));
       await monitor.result;

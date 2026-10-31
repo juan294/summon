@@ -13,7 +13,7 @@ import { join } from "node:path";
 const { destroySessions, removeStatusFiles, rexGate, rexWindowCount, until } = await import("./rex-harness.js");
 const { discoverRex, createRexCli, defaultRexServer } = await import("../backends/rex/cli.js");
 const { listSessions, viewSession } = await import("../backends/rex/status.js");
-const { readStatusRecord } = await import("../status.js");
+const { readStatusRecord } = await import("../status-record.js");
 const { launchArtifactPaths, launchesDir } = await import("../launch-identity.js");
 const { launch } = await import("../launcher.js");
 

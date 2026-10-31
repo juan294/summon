@@ -2,7 +2,7 @@ import { resolve } from "node:path";
 import { exitWithUsageHint } from "../utils.js";
 import { validateProjectNameOrExit } from "../validation.js";
 import type { CommandContext } from "./types.js";
-import { isLiveState } from "../status.js";
+import { isLiveState } from "../status-record.js";
 import type { ContextSnapshot } from "../snapshot.js";
 
 export async function handleStatusCommand({ values }: CommandContext): Promise<void> {
@@ -42,7 +42,7 @@ export async function handleSnapshotCommand({ args, values }: CommandContext): P
         if (!isLaunchId(values.launch)) {
           exitWithUsageHint("Usage: summon snapshot save --launch <launch-id> (a UUID written by summon)");
         }
-        const { withOwnedRecord } = await import("../status.js");
+        const { withOwnedRecord } = await import("../status-record.js");
         snapshot = collectSnapshot(project, dir, layout);
         const collected = snapshot;
         const { outcome } = withOwnedRecord(project, { launchId: values.launch }, () => {

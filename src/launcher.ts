@@ -8,8 +8,8 @@ export { withTrustPrompt } from "./trust.js";
 import { listProjects } from "./config.js";
 import { pickConfigValue, readTrustedSummonFile, resolveConfig } from "./config-resolve.js";
 import type { CLIOverrides, ResolvedConfig } from "./config-resolve.js";
-import { publishStatus, readStatusRecord } from "./status.js";
-import type { WorkspaceStatus } from "./status.js";
+import { isLiveState, publishStatus, readStatusRecord } from "./status-record.js";
+import type { WorkspaceStatus } from "./status-record.js";
 import { newLaunchId } from "./launch-identity.js";
 import { REX_UNHONORED_FLAGS, callerRexSession, resolveBackendForLaunch } from "./backend.js";
 import type { BackendId, LaunchContext } from "./backend.js";
@@ -20,7 +20,6 @@ import { adoptOrphansForLaunch, adoptDeps, maybeSwitchToExisting } from "./backe
 import { createRexCli, discoverRex } from "./backends/rex/cli.js";
 import { sessionState, sessionListings } from "./backends/rex/status.js";
 import { closeLauncherTabAfterRexLaunch, markAttention, startLauncherTabWatch } from "./backends/rex/launcher-tab.js";
-import { isLiveState } from "./status.js";
 import { resolveTreeCommands as resolveTreeCmds, buildTreePlan, collectLeaves, findPaneByName } from "./tree.js";
 import type { TreePlanOptions } from "./tree.js";
 import { getErrorMessage, SUMMON_WORKSPACE_ENV, promptUser, isDebug, PromptCancelled } from "./utils.js";

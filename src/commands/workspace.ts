@@ -37,7 +37,7 @@ export async function handleInspectCommand({
     1,
     "Usage: summon inspect <project> [--json]",
   );
-  const status = readStatus(project);
+  const status = readStatus(project, { reconcile: true });
   if (status?.backend === "rex") return inspectRexWorkspace(project, status, values.json === true);
   const missing =
     "Exact native identity is unavailable. Select in Ghostty or explicitly relaunch when ready to capture identity.";
@@ -149,7 +149,7 @@ export async function handleTitleCommand({
         ? { kind: "reset" as const }
         : { kind: "read" as const };
   const scope = args[1] === undefined ? "tab" : "pane";
-  const status = readStatus(project);
+  const status = readStatus(project, { reconcile: true });
   let result;
   if (status?.backend === "rex") {
     const gate = rexCommandGate(project, status);

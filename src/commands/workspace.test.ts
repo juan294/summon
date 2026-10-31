@@ -50,7 +50,8 @@ vi.mock("../backends/rex/cli.js", async (original) => ({
   discoverRex: () => ({ path: "/mock/rex", searched: ["PATH"] }),
 }));
 fixture.home = mkdtempSync(join(tmpdir(), "summon-workspace-test-"));
-const { writeStatus, readStatus } = await import("../status.js");
+const { writeStatus } = await import("../status-record.js");
+const { readStatus } = await import("../status.js");
 const { focusWorkspace } = await import("../workspace-focus.js");
 const { launch } = await import("../launcher.js");
 const { handleFocusCommand, handleInspectCommand, handleTitleCommand } =
