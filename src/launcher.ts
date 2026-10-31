@@ -397,9 +397,9 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
     // discards only the record observed under the publication's own lock.
     const published = publishStatus(status);
     if (published === "discarded") {
-      err("summon: warning: workspace launched, but status could not be saved; exact targeting is unavailable. Check config directory permissions and run summon doctor.");
+      warn("workspace launched, but status could not be saved; exact targeting is unavailable. Check config directory permissions and run summon doctor.");
     } else if (published === "unsaved") {
-      err("summon: warning: workspace launched, but status could not be saved or invalidated. Previous metadata may remain and target an older workspace; select manually in Ghostty, repair config directory permissions and run summon doctor before using exact commands.");
+      warn("workspace launched, but status could not be saved or invalidated. Previous metadata may remain and target an older workspace; select manually in Ghostty, repair config directory permissions and run summon doctor before using exact commands.");
     }
   };
 

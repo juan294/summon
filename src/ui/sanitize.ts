@@ -11,13 +11,22 @@ export function isPlainText(value: unknown, options: { allowEmpty?: boolean } = 
   return options.allowEmpty === true || value.length > 0;
 }
 
+/**
+ * The class body of the characters that drive or reorder a terminal: C0, DEL and C1 controls, bidi overrides and
+ * isolates. Written with `\u` escapes; raw bidi characters never appear in source.
+ */
+const CONTROL_OR_BIDI_CLASS = "\\x00-\\x1f\\x7f-\\x9f\\u202a-\\u202e\\u2066-\\u2069";
+const CONTROL_OR_BIDI_RE = new RegExp(`[${CONTROL_OR_BIDI_CLASS}]`);
+const CONTROL_OR_BIDI_GLOBAL_RE = new RegExp(`[${CONTROL_OR_BIDI_CLASS}]`, "g");
+
+/** One BMP character as the six printable characters `\uNNNN` (a `replace` callback). */
+export function unicodeEscape(char: string): string {
+  return `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`;
+}
+
 /** Process-controlled text for terminal output: controls and bidi overrides become `\uNNNN`. */
 export function escapeControlChars(text: string): string {
-  return text.replace(
-    // eslint-disable-next-line no-control-regex -- display process text without terminal control effects
-    /[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g,
-    (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`,
-  );
+  return text.replace(CONTROL_OR_BIDI_GLOBAL_RE, unicodeEscape);
 }
 
 /** Plain text that also prints unchanged (no controls, no bidi overrides): server ids Summon shows. */
@@ -31,8 +40,8 @@ export function validateTitleText(text: string): string | null {
     return "Empty title is invalid; use --reset to clear the override.";
   if ([...text].length > 256)
     return "Title must be at most 256 Unicode codepoints.";
-  // eslint-disable-next-line no-control-regex -- user-authored titles cannot contain terminal or bidi controls
-  if (/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/.test(text))
+  // User-authored titles cannot contain terminal or bidi controls.
+  if (CONTROL_OR_BIDI_RE.test(text))
     return "Title cannot contain control or bidi override/isolate characters.";
   return null;
 }

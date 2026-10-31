@@ -3,6 +3,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSyn
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { writeFakeRex } from "./fixtures/fake-rex.js";
 
 /**
  * The stopped reader composed with the real snapshot writer over a real temporary git repository,
@@ -58,17 +59,14 @@ const files = () => ({ pid: existsSync(paths.pid), active: existsSync(paths.acti
 beforeAll(() => {
   // A real executable at the Rex process boundary, found before any installed rex.
   mkdirSync(binDir, { recursive: true });
-  const script = [
-    `#!${process.execPath}`,
+  writeFakeRex(join(binDir, "rex"), [
     "const fs = require('node:fs');",
     `const d = JSON.parse(fs.readFileSync(${JSON.stringify(fixture)}, 'utf8'));`,
     "const a = process.argv.slice(2);",
     "if (a.includes('ls')) console.log(JSON.stringify({ sessions: d.sessions }));",
     "else if (a.includes('session.view')) console.log(JSON.stringify(d.view));",
     "else { console.error('unexpected fake rex operation', a); process.exit(2); }",
-  ].join("\n");
-  writeFileSync(join(binDir, "rex"), script + "\n");
-  chmodSync(join(binDir, "rex"), 0o755);
+  ].join("\n") + "\n");
   process.env["PATH"] = `${binDir}:${savedEnv.PATH ?? ""}`;
   process.env["REX_BIN_DIR"] = binDir;
 

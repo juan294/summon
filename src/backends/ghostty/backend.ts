@@ -14,7 +14,7 @@ import { COMMAND_FAILURE_REASONS, checkCommand } from "../../command-install.js"
 import { getErrorMessage, ACCESSIBILITY_SETTINGS_PATH, QUICK_PROCESS_LIMITS, SUMMON_WORKSPACE_ENV } from "../../utils.js";
 import { escapeAppleScript } from "../../shell-escape.js";
 import { isStaticLaunchSpinner, transientLine } from "../../ui/progress.js";
-import { fail, err } from "../../ui/output.js";
+import { fail, err, warn } from "../../ui/output.js";
 import { TabOpenError } from "../../errors.js";
 
 function asResult(native: NativeMetadata | undefined): BackendLaunchResult | undefined {
@@ -160,7 +160,7 @@ function executeScript(script: string, inventory: PaneDescriptor[], targetLabel?
   });
   // Parsing is deliberately outside launch rollback: an already-ready workspace stays open.
   const native = parseNativeCapture(typeof output === "string" ? output : "", inventory);
-  if (!native) err("summon: warning: workspace launched, but exact native targeting is unavailable. Use summon inspect or explicitly relaunch to capture identity.");
+  if (!native) warn("workspace launched, but exact native targeting is unavailable. Use summon inspect or explicitly relaunch to capture identity.");
   return native;
 }
 
