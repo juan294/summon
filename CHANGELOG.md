@@ -28,6 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A Rex launch that the server rejected or never received no longer leaves its manifest behind, so later launches and `summon status` stop reporting it as an earlier launch that never confirmed its session. A launch whose connection dropped or reset after it was sent is now treated as an unknown outcome (its manifest stays, so the session can still be adopted), not as one that created nothing.
 - Error text from a Rex server error object is shown with control characters escaped and capped in length, like the rest of the Rex error text.
 - The monitor stays responsive when a Rex server is slow: with Rex workspaces it reads their status in a background process, so keys, resize and drawing keep working, and a refresh still running is never started twice. The header shows `updating…` while a read takes longer than one refresh, and `last updated Ns ago` after a failed one. Quitting or opening a project stops the read in progress. Ghostty-only setups read as before.
+- Under Rex, closing the launcher tab no longer holds the exit for up to about 20 s on a slow server: the two checks made at exit wait at most 2 s each, and a check that does not answer keeps the tab. The close itself, 0.3 s after Summon exits, checks the tab again and passes `--timeout` to `rex`. A tab or a split added in that time is no longer closed with it: the session is ended only while the launcher tab is still its only tab, otherwise only the tab is closed, and a tab with a new split stays.
+- A Rex launch that finds earlier launches of the project now lists the server's sessions once, instead of once for the current record and again for the earlier launches.
 
 ## [2.0.1] - 2026-10-31
 
