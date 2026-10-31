@@ -54,6 +54,10 @@ export async function handleDoctorCommand({
   let totalChecks = 0;
   let passedChecks = 0;
 
+  // Read once: listConfig warns about unknown keys on every read. The first read stays where it was (Rex section or command checks).
+  let configRead: Map<string, string> | undefined;
+  const userConfig = (): Map<string, string> => (configRead ??= listConfig());
+
   let allGood = true;
   const record = (ok: boolean): void => {
     totalChecks++;
@@ -310,14 +314,13 @@ export async function handleDoctorCommand({
     console.error(detection.ok
       ? `  INFO  this shell launches in ${detection.backend} (placement ${detection.placement}${detection.backend === "rex" ? `, server ${detection.server}` : ""})`
       : `  INFO  this shell cannot launch: ${detection.reason}`);
-    const ignored = rexIgnoredConfigKeys(listConfig());
+    const ignored = rexIgnoredConfigKeys(userConfig());
     if (ignored.length > 0) console.error(`  INFO  Rex ignores these Ghostty settings from your config: ${ignored.join(", ")}`);
   }
 
-  const userConfig = listConfig();
   const commandChecks: Array<{ key: string; cmd: string }> = [];
-  const editorCmd = userConfig.get("editor");
-  const sidebarCmd = userConfig.get("sidebar");
+  const editorCmd = userConfig().get("editor");
+  const sidebarCmd = userConfig().get("sidebar");
   if (editorCmd) commandChecks.push({ key: "editor", cmd: editorCmd });
   if (sidebarCmd) commandChecks.push({ key: "sidebar", cmd: sidebarCmd });
 
