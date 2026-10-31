@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-10-31
+
 ### Changed
 
 - Under Rex, `maximize`, `float`, `fullscreen`, `font-size` and `new-window` set in config are Ghostty preferences and are ignored silently, as `clean=true` already was. The flags (`--maximize`, `--float`, `--fullscreen`, `--font-size`, `--clean`, `--new-window`) still print their notice. The on-stop note (`summon: note: on-stop will run on workspace exit.`) is still printed, and no longer keeps the launcher tab open. `summon doctor` names the ignored settings found in the machine config once. With these, the tab now closes after a daily launch for users who share one config between Ghostty and Rex. Ghostty output does not change.
@@ -897,7 +899,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CodeQL security scanning
 - Dependabot for npm and GitHub Actions
 
-[Unreleased]: https://github.com/juan294/summon/compare/v2.0.1...develop
+[Unreleased]: https://github.com/juan294/summon/compare/v2.1.0...develop
+[2.1.0]: https://github.com/juan294/summon/compare/v2.0.1...v2.1.0
 [2.0.1]: https://github.com/juan294/summon/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/juan294/summon/compare/v1.9.0...v2.0.0
 [1.9.0]: https://github.com/juan294/summon/compare/v1.8.0...v1.9.0
