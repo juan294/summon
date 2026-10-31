@@ -1,32 +1,27 @@
 import { spawnSync } from "node:child_process";
-import { resolve, dirname, join, relative } from "node:path";
+import { resolve, dirname, join, relative, isAbsolute } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync, readdirSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { buildCliInto } from "./fixtures/build-cli.js";
+import { cliBuild } from "./fixtures/cli-builds.js";
 
 const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 // #51: Isolate integration tests from user config by using a temp HOME
 let TEMP_HOME: string;
-// QA-M1: a private production build; the shared dist/ can be emptied by a concurrent `pnpm build`.
-let CLI_DIR: string;
-let CLI_PATH: string;
+// QA-M1: the run's private production build; the shared dist/ can be emptied by a concurrent `pnpm build`.
+const CLI_PATH = cliBuild("production");
 /** file: URL prefix of the private build's chunks, as NODE_DEBUG=esm prints them. */
-let CLI_CHUNK_URL: string;
+const CLI_CHUNK_URL = `${pathToFileURL(realpathSync(dirname(CLI_PATH))).href}/`;
 
-beforeAll(async () => {
-  CLI_DIR = mkdtempSync(join(tmpdir(), "summon-index-cli-"));
-  CLI_PATH = await buildCliInto(PROJECT_ROOT, CLI_DIR, { production: true });
-  CLI_CHUNK_URL = `${pathToFileURL(realpathSync(CLI_DIR)).href}/`;
+beforeAll(() => {
   TEMP_HOME = mkdtempSync(join(tmpdir(), "summon-test-"));
-}, 30000);
+});
 
 afterAll(() => {
   rmSync(TEMP_HOME, { recursive: true, force: true });
-  rmSync(CLI_DIR, { recursive: true, force: true });
 });
 
 function run(...args: string[]) {
@@ -39,11 +34,15 @@ function run(...args: string[]) {
 }
 
 describe("CLI integration", () => {
-  // QA-M1: a concurrent `pnpm build` (tsup clean) empties the shared dist/, so this suite must
-  // spawn a private build of its own and never read dist/.
+  // QA-M1: a concurrent `pnpm build` (tsup clean) empties the shared dist/, so the builds the
+  // globalSetup hands to the subprocess suites must resolve outside it, symlinks included.
   it("spawns a private CLI build, never the shared dist/", () => {
-    expect(relative(join(PROJECT_ROOT, "dist"), CLI_PATH).startsWith("..")).toBe(true);
-    expect(existsSync(CLI_PATH)).toBe(true);
+    const dist = join(realpathSync(PROJECT_ROOT), "dist");
+    for (const flavor of ["production", "unsplit"] as const) {
+      const entry = realpathSync(cliBuild(flavor));
+      const fromDist = relative(dist, entry);
+      expect(fromDist.startsWith("..") || isAbsolute(fromDist), `${flavor}: ${entry}`).toBe(true);
+    }
   });
 
   it("accepts the cleanup trap's snapshot save flags (--dir/--project/--layout/--launch)", () => {

@@ -1,10 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from "vitest";
 import { spawn, spawnSync, execFileSync } from "node:child_process";
-import { buildCliInto } from "./fixtures/build-cli.js";
+import { cliBuild } from "./fixtures/cli-builds.js";
 import type { ChildProcess } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 /**
@@ -13,10 +12,9 @@ import { tmpdir } from "node:os";
  * every call and forwards `snapshot save` to the built CLI (src/commands/runtime.ts path:
  * withOwnedRecord with { launchId }), so the generation check runs for real.
  */
-const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 const TEMP_HOME = mkdtempSync(join(tmpdir(), "summon-interleave-"));
-const CLI = join(TEMP_HOME, "cli", "index.js");
+const CLI = cliBuild("unsplit");
 const STATUS_DIR = join(TEMP_HOME, ".config", "summon", "status");
 const SNAPSHOTS_DIR = join(TEMP_HOME, ".config", "summon", "snapshots");
 const SHIM_DIR = join(TEMP_HOME, "bin");
@@ -96,8 +94,7 @@ function legacyTrapLine(project: string, targetDir: string): string {
   return `__summon_cleanup() { ${body}; }; trap '__summon_cleanup' EXIT HUP`;
 }
 
-beforeAll(async () => {
-  await buildCliInto(PROJECT_ROOT, join(TEMP_HOME, "cli"));
+beforeAll(() => {
   mkdirSync(SHIM_DIR, { recursive: true });
   const shim = join(SHIM_DIR, "summon");
   writeFileSync(shim, [

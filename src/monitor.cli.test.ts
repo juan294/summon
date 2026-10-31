@@ -2,20 +2,18 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { buildCliInto } from "./fixtures/build-cli.js";
+import { join } from "node:path";
+import { cliBuild } from "./fixtures/cli-builds.js";
 import { MONITOR_READ_ARG } from "./monitor.js";
 
 // PE-H1: the bundled CLI answers the hidden flag the monitor starts its child with, under a sandboxed HOME.
-const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 let tempRoot = "";
 let cli = "";
 
-beforeAll(async () => {
+beforeAll(() => {
   tempRoot = mkdtempSync(join(tmpdir(), "summon-monitor-cli-"));
-  cli = await buildCliInto(PROJECT_ROOT, join(tempRoot, "cli"));
-}, 60_000);
+  cli = cliBuild("unsplit");
+});
 afterAll(() => rmSync(tempRoot, { recursive: true, force: true }));
 
 describe("summon --internal-monitor-read (bundled CLI)", () => {
