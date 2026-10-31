@@ -505,13 +505,15 @@ summon completions fish | source
 - `summon <TAB>` — subcommands, registered project names, directories
 - `summon remove <TAB>` — registered project names
 - `summon set <TAB>` — config keys
-- `summon set layout <TAB>` — layout presets
+- `summon set layout <TAB>` — built-in presets and custom layouts
 - `summon set starship-preset <TAB>` — Starship preset names (dynamic)
-- `summon --layout <TAB>` — layout presets
+- `summon --layout <TAB>` — built-in presets and custom layouts
 - `summon --starship-preset <TAB>` — Starship preset names (dynamic)
 - `summon --<TAB>` — all CLI flags
 
-`summon open <TAB>`, `summon switch <TAB>` and `summon clean <TAB>` complete registered project names, and `summon clean` also completes `--orphans`. In zsh and bash, `summon set <boolean key> <TAB>` completes `true` and `false`.
+`summon open <TAB>`, `summon switch <TAB>` and `summon clean <TAB>` complete registered project names, and `summon clean` also completes `--orphans`. In zsh and bash, `summon set <boolean key> <TAB>` completes `true` and `false`, and `summon layout show|delete|edit <TAB>` and `summon freeze <TAB>` complete custom layout names only, because those commands reject the built-in presets.
+
+zsh and bash read custom layouts each time you press Tab. Fish lists only the custom layouts that existed when the script was generated, so after `summon layout save <name>`, regenerate it (open a new fish shell, or run `summon completions fish | source` again).
 
 Project names are read dynamically from `~/.config/summon/projects`,
 so newly added projects are immediately completable.
@@ -1004,7 +1006,7 @@ All files use `key=value` format, one entry per line.
 | `COLORTERM` | When set to `truecolor` or `24bit`, the setup wizard shows colored palette swatches for Starship presets. |
 | `STARSHIP_CONFIG` | Set automatically by summon when `starship-preset` is configured. Points each workspace to a cached preset TOML file. Do not set manually. |
 | `SUMMON_WORKSPACE` | Set to `1` in all panes inside a summon workspace. Used to detect nested launches — if you run `summon` inside an existing workspace, you'll see a warning prompt suggesting `--new-window` instead. There is no warning when the backend is Rex, because a Rex launch creates its own session. |
-| `SUMMON_DEBUG` | Set to `1` to enable debug output. Each message is timestamped and written to stderr, and also appended to a log file in `~/.config/summon/logs/`. Useful for diagnosing launch issues or AppleScript failures. |
+| `SUMMON_DEBUG` | Set to `1` to enable debug output. Each message is timestamped and written to stderr only; Summon does not write debug output to a file. Useful for diagnosing launch issues or AppleScript failures. |
 | `SUMMON_NO_CACHE` | Set to `1` to disable the persistent cross-invocation read cache (`~/.config/summon/cache.json`). Machine config and the project registry are then read from disk on every invocation. |
 | `EDITOR` | Editor used by `summon layout edit` to open a custom layout file. Falls back to `vi` if unset. |
 | `TERM_PROGRAM` | Set by your terminal. Summon reads it to pick the backend: `rex` selects Rex, `ghostty` selects Ghostty (see [Prerequisites](#prerequisites)). |
@@ -1026,7 +1028,7 @@ If you see an unexpected error, re-run with `SUMMON_DEBUG=1` for full diagnostic
 SUMMON_DEBUG=1 summon .
 ```
 
-Debug output is timestamped and written to both stderr and `~/.config/summon/logs/`.
+Debug output is timestamped and written to stderr only. To keep it, redirect stderr, for example `SUMMON_DEBUG=1 summon . 2> summon-debug.log`.
 
 ## Troubleshooting
 
@@ -1069,7 +1071,8 @@ All config files are at `~/.config/summon/`:
   status/     workspace status JSON per project, plus <project>.launches/ with
               per-launch manifests, pane files and liveness (.pid, .active) files
   snapshots/  context snapshot JSON files per project
-  logs/       debug log files (written when SUMMON_DEBUG=1)
+  logs/       cleanup-<project>.log: on-stop command output, written by the
+              cleanup trap when a workspace closes (debug output is not logged here)
 ```
 
 Per-project config lives in your project root as `.summon`.

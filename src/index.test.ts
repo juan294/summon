@@ -1,26 +1,33 @@
-import { spawnSync, execSync } from "node:child_process";
-import { resolve, dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync, readdirSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { resolve, dirname, join, relative } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync, readdirSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { buildCliInto } from "./fixtures/build-cli.js";
 
 const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 // #51: Isolate integration tests from user config by using a temp HOME
 let TEMP_HOME: string;
+// QA-M1: a private production build; the shared dist/ can be emptied by a concurrent `pnpm build`.
+let CLI_DIR: string;
+let CLI_PATH: string;
+/** file: URL prefix of the private build's chunks, as NODE_DEBUG=esm prints them. */
+let CLI_CHUNK_URL: string;
 
-beforeAll(() => {
-  execSync("pnpm build", { cwd: PROJECT_ROOT, stdio: "ignore" });
+beforeAll(async () => {
+  CLI_DIR = mkdtempSync(join(tmpdir(), "summon-index-cli-"));
+  CLI_PATH = await buildCliInto(PROJECT_ROOT, CLI_DIR, { production: true });
+  CLI_CHUNK_URL = `${pathToFileURL(realpathSync(CLI_DIR)).href}/`;
   TEMP_HOME = mkdtempSync(join(tmpdir(), "summon-test-"));
 }, 30000);
 
 afterAll(() => {
   rmSync(TEMP_HOME, { recursive: true, force: true });
+  rmSync(CLI_DIR, { recursive: true, force: true });
 });
-
-const CLI_PATH = resolve(PROJECT_ROOT, "dist/index.js");
 
 function run(...args: string[]) {
   return spawnSync("node", [CLI_PATH, ...args], {
@@ -32,6 +39,13 @@ function run(...args: string[]) {
 }
 
 describe("CLI integration", () => {
+  // QA-M1: a concurrent `pnpm build` (tsup clean) empties the shared dist/, so this suite must
+  // spawn a private build of its own and never read dist/.
+  it("spawns a private CLI build, never the shared dist/", () => {
+    expect(relative(join(PROJECT_ROOT, "dist"), CLI_PATH).startsWith("..")).toBe(true);
+    expect(existsSync(CLI_PATH)).toBe(true);
+  });
+
   it("accepts the cleanup trap's snapshot save flags (--dir/--project/--layout/--launch)", () => {
     const result = run("snapshot", "save", "--dir", TEMP_HOME, "--project", "trapdemo", "--layout", "unknown");
     expect(result.status, result.stderr).toBe(0);
@@ -366,7 +380,7 @@ describe("CLI integration", () => {
     it("shows empty-state message when config map is empty", () => {
       // Use a fresh temp home with no config at all
       const freshHome = mkdtempSync(join(tmpdir(), "summon-empty-"));
-      const freshResult = spawnSync("node", ["dist/index.js", "config"], {
+      const freshResult = spawnSync("node", [CLI_PATH, "config"], {
         encoding: "utf-8",
         cwd: PROJECT_ROOT,
         env: { ...process.env, HOME: freshHome },
@@ -426,7 +440,7 @@ describe("CLI integration", () => {
       // Use a fresh HOME to avoid leftover state from other tests
       const freshHome = mkdtempSync(join(tmpdir(), "summon-66-"));
       const runFresh = (...a: string[]) =>
-        spawnSync("node", ["dist/index.js", ...a], {
+        spawnSync("node", [CLI_PATH, ...a], {
           encoding: "utf-8",
           cwd: PROJECT_ROOT,
           env: { ...process.env, HOME: freshHome },
@@ -1173,7 +1187,7 @@ describe("CLI integration", () => {
       run("add", "proj2", "/tmp/proj2");
       // Use echo to pipe an invalid selection; with the re-prompt loop,
       // after printing the error the process tries to re-prompt, gets EOF, and exits 0
-      const result = spawnSync("sh", ["-c", `echo "99" | node dist/index.js open`], {
+      const result = spawnSync("sh", ["-c", `echo "99" | node '${CLI_PATH}' open`], {
         encoding: "utf-8",
         cwd: PROJECT_ROOT,
         env: { ...process.env, HOME: TEMP_HOME },
@@ -1192,7 +1206,7 @@ describe("CLI integration", () => {
       run("set", "editor", "vim");
       run("layout", "save", "edithint");
       // Use a nonexistent editor command
-      const result = spawnSync("node", ["dist/index.js", "layout", "edit", "edithint"], {
+      const result = spawnSync("node", [CLI_PATH, "layout", "edit", "edithint"], {
         encoding: "utf-8",
         cwd: PROJECT_ROOT,
         env: { ...process.env, HOME: TEMP_HOME, EDITOR: "nonexistent-editor-xyz" },
@@ -1210,7 +1224,7 @@ describe("CLI integration", () => {
       // Save a layout so edit has something to open
       run("set", "editor", "vim");
       run("layout", "save", "editvalidate");
-      const result = spawnSync("node", ["dist/index.js", "layout", "edit", "editvalidate"], {
+      const result = spawnSync("node", [CLI_PATH, "layout", "edit", "editvalidate"], {
         encoding: "utf-8",
         cwd: PROJECT_ROOT,
         env: { ...process.env, HOME: TEMP_HOME, EDITOR: "vim;rm -rf /" },
@@ -1223,7 +1237,7 @@ describe("CLI integration", () => {
     it("rejects EDITOR with spaces (multi-word command)", () => {
       run("set", "editor", "vim");
       run("layout", "save", "editvalidate2");
-      const result = spawnSync("node", ["dist/index.js", "layout", "edit", "editvalidate2"], {
+      const result = spawnSync("node", [CLI_PATH, "layout", "edit", "editvalidate2"], {
         encoding: "utf-8",
         cwd: PROJECT_ROOT,
         env: { ...process.env, HOME: TEMP_HOME, EDITOR: "code --wait" },
@@ -1238,7 +1252,7 @@ describe("CLI integration", () => {
       run("layout", "save", "editvalidate3");
       // This will fail because the editor can't actually open, but it should NOT
       // fail with the EDITOR validation error
-      const result = spawnSync("node", ["dist/index.js", "layout", "edit", "editvalidate3"], {
+      const result = spawnSync("node", [CLI_PATH, "layout", "edit", "editvalidate3"], {
         encoding: "utf-8",
         cwd: PROJECT_ROOT,
         env: { ...process.env, HOME: TEMP_HOME, EDITOR: "nonexistent-safe-editor" },
@@ -1256,14 +1270,14 @@ describe("CLI integration", () => {
       // Register a single project so we have a known count
       const freshHome = mkdtempSync(join(tmpdir(), "summon-reprompt-"));
       const runFresh = (...a: string[]) =>
-        spawnSync("node", ["dist/index.js", ...a], {
+        spawnSync("node", [CLI_PATH, ...a], {
           encoding: "utf-8",
           cwd: PROJECT_ROOT,
           env: { ...process.env, HOME: freshHome },
         });
       runFresh("add", "proj-a", "/tmp/proj-a");
       // Pipe two invalid inputs, then EOF
-      const result = spawnSync("sh", ["-c", `printf "abc\\n99\\n" | node dist/index.js open`], {
+      const result = spawnSync("sh", ["-c", `printf "abc\\n99\\n" | node '${CLI_PATH}' open`], {
         encoding: "utf-8",
         cwd: PROJECT_ROOT,
         env: { ...process.env, HOME: freshHome },
@@ -1341,7 +1355,7 @@ describe("CLI integration", () => {
     it("exits 2 when recommendations are missing and --fix is not used", () => {
       // With temp HOME, no Ghostty config exists → recommendations missing → exit 2
       const freshHome = mkdtempSync(join(tmpdir(), "summon-doctor-"));
-      const result = spawnSync("node", ["dist/index.js", "doctor"], {
+      const result = spawnSync("node", [CLI_PATH, "doctor"], {
         encoding: "utf-8",
         cwd: PROJECT_ROOT,
         env: { ...process.env, HOME: freshHome },
@@ -1353,7 +1367,7 @@ describe("CLI integration", () => {
 
     it("exits 0 when --fix fixes all config issues (accessibility may remain)", () => {
       const freshHome = mkdtempSync(join(tmpdir(), "summon-doctor-fix-"));
-      const result = spawnSync("node", ["dist/index.js", "doctor", "--fix"], {
+      const result = spawnSync("node", [CLI_PATH, "doctor", "--fix"], {
         encoding: "utf-8",
         cwd: PROJECT_ROOT,
         env: { ...process.env, HOME: freshHome },
@@ -1373,7 +1387,7 @@ describe("CLI integration", () => {
     it("exports env.KEY values alongside regular keys", () => {
       const freshHome = mkdtempSync(join(tmpdir(), "summon-export-env-"));
       const runFresh = (...a: string[]) =>
-        spawnSync("node", ["dist/index.js", ...a], {
+        spawnSync("node", [CLI_PATH, ...a], {
           encoding: "utf-8",
           cwd: PROJECT_ROOT,
           env: { ...process.env, HOME: freshHome },
@@ -1427,7 +1441,7 @@ describe("CLI integration", () => {
     it("shows project selection prompt with status indicators", () => {
       run("add", "hint-proj", "/tmp/hint-proj");
       // Pipe EOF immediately so the process exits
-      const result = spawnSync("sh", ["-c", `echo "" | node dist/index.js open`], {
+      const result = spawnSync("sh", ["-c", `echo "" | node '${CLI_PATH}' open`], {
         encoding: "utf-8",
         cwd: PROJECT_ROOT,
         env: { ...process.env, HOME: TEMP_HOME },
@@ -1476,7 +1490,7 @@ describe("CLI integration", () => {
     it("doctor output mentions exit code 2 for issues", () => {
       // Use a fresh HOME so no Ghostty config exists → recommendations missing → exit 2
       const freshHome = mkdtempSync(join(tmpdir(), "summon-exitcode-"));
-      const result = spawnSync("node", ["dist/index.js", "doctor"], {
+      const result = spawnSync("node", [CLI_PATH, "doctor"], {
         encoding: "utf-8",
         cwd: PROJECT_ROOT,
         env: { ...process.env, HOME: freshHome },
@@ -1493,7 +1507,7 @@ describe("CLI integration", () => {
     it("warns when saving a layout with empty config", () => {
       // Use a fresh home with no config
       const freshHome = mkdtempSync(join(tmpdir(), "summon-empty-save-"));
-      const result = spawnSync("node", ["dist/index.js", "layout", "save", "emptytest"], {
+      const result = spawnSync("node", [CLI_PATH, "layout", "save", "emptytest"], {
         encoding: "utf-8",
         cwd: PROJECT_ROOT,
         env: { ...process.env, HOME: freshHome },
@@ -1559,7 +1573,7 @@ describe("CLI integration", () => {
 
     it("no projects (open) exits 1 with actionable message on stderr", () => {
       const freshHome = mkdtempSync(join(tmpdir(), "summon-200-open-"));
-      const result = spawnSync("node", ["dist/index.js", "open"], {
+      const result = spawnSync("node", [CLI_PATH, "open"], {
         encoding: "utf-8",
         cwd: PROJECT_ROOT,
         env: { ...process.env, HOME: freshHome },
@@ -1660,7 +1674,7 @@ describe("CLI integration", () => {
   describe("doctor exit code 2 formatting (#200)", () => {
     it("exit code 2 message has no leading whitespace", () => {
       const freshHome = mkdtempSync(join(tmpdir(), "summon-200-doctor-"));
-      const result = spawnSync("node", ["dist/index.js", "doctor"], {
+      const result = spawnSync("node", [CLI_PATH, "doctor"], {
         encoding: "utf-8",
         cwd: PROJECT_ROOT,
         env: { ...process.env, HOME: freshHome },
@@ -1679,7 +1693,7 @@ describe("CLI integration", () => {
     it("uses - prefix instead of ! for missing Ghostty config", () => {
       // With temp HOME, no Ghostty config exists
       const freshHome = mkdtempSync(join(tmpdir(), "summon-prefix-"));
-      const result = spawnSync("node", ["dist/index.js", "doctor"], {
+      const result = spawnSync("node", [CLI_PATH, "doctor"], {
         encoding: "utf-8",
         cwd: PROJECT_ROOT,
         env: { ...process.env, HOME: freshHome },
@@ -2016,13 +2030,13 @@ describe("CLI integration", () => {
       expect(result.status).toBe(0);
       // NODE_DEBUG=esm prints each loaded module URL to stderr.
       // "Translating StandardModule <url>" appears once per unique module load.
-      // Verify config and trust dist chunks are absent from the --version fast path.
+      // Verify config and trust chunks are absent from the --version fast path.
       const translating = result.stderr
         .split("\n")
         .filter((l: string) => l.includes("Translating StandardModule"));
       // Must not mention config or trust chunks
-      const hasConfig = translating.some((l: string) => /\/dist\/config-/.test(l));
-      const hasTrust = translating.some((l: string) => /\/dist\/trust-/.test(l));
+      const hasConfig = translating.some((l: string) => l.includes(`${CLI_CHUNK_URL}config-`));
+      const hasTrust = translating.some((l: string) => l.includes(`${CLI_CHUNK_URL}trust-`));
       expect(hasConfig).toBe(false);
       expect(hasTrust).toBe(false);
       // Only index.js itself should be "Translating"
@@ -2035,8 +2049,8 @@ describe("CLI integration", () => {
       const translating = result.stderr
         .split("\n")
         .filter((l: string) => l.includes("Translating StandardModule"));
-      const hasConfig = translating.some((l: string) => /\/dist\/config-/.test(l));
-      const hasTrust = translating.some((l: string) => /\/dist\/trust-/.test(l));
+      const hasConfig = translating.some((l: string) => l.includes(`${CLI_CHUNK_URL}config-`));
+      const hasTrust = translating.some((l: string) => l.includes(`${CLI_CHUNK_URL}trust-`));
       expect(hasConfig).toBe(false);
       expect(hasTrust).toBe(false);
       expect(translating.length).toBe(1);
@@ -2050,6 +2064,8 @@ describe("CLI integration", () => {
       expect(countTranslating(listResult.stderr)).toBeGreaterThan(
         countTranslating(versionResult.stderr),
       );
+      // Positive control: the chunk-URL match above sees the private build's config chunk.
+      expect(listResult.stderr).toContain(`${CLI_CHUNK_URL}config-`);
     });
   });
 });

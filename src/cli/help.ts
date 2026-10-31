@@ -237,7 +237,7 @@ Generate shell completion script. Supported shells: zsh, bash, fish.
 Setup (add to your shell config):
   zsh:   eval "$(summon completions zsh)"
   bash:  eval "$(summon completions bash)"
-  fish:  eval (summon completions fish | psub)`,
+  fish:  summon completions fish | source`,
 
   title: `Usage: summon title <project> [pane] [--set <text> | --reset]
 
