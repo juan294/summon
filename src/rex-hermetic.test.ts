@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -42,7 +42,8 @@ for (let i = 0; i < argv.length; i++) {
 const input = rest[0] === "api" && rest[rest.length - 1] === "-" ? fs.readFileSync(0, "utf8") : undefined;
 fs.appendFileSync(logFile, JSON.stringify({ argv, input, caller: process.ppid }) + "\n");
 const state = JSON.parse(fs.readFileSync(stateFile, "utf8"));
-const save = () => fs.writeFileSync(stateFile, JSON.stringify(state, null, 2));
+// Atomic (write, then rename): the test and other fakes read this file while it is replaced, and a plain write truncates it first.
+const save = () => { const tmp = stateFile + "." + process.pid + ".tmp"; fs.writeFileSync(tmp, JSON.stringify(state, null, 2)); fs.renameSync(tmp, stateFile); };
 const print = (value) => process.stdout.write(JSON.stringify(value) + "\n");
 const id = (kind) => kind + ":" + randomUUID();
 const find = (sessionId) => state.sessions.find((s) => s.session_id === sessionId);
@@ -88,7 +89,8 @@ const OTHER_TAB = { window_id: "window:0000aaaa-0000-0000-0000-000000000004", la
 const CLIENT = { client_id: "client:app-1", connected_at: "2026-10-31T08:00:00Z", connection_state: "connected", info: { kind: "app", label: "Fake Rex" }, session_ids: [LAUNCHER.session_id] };
 
 const readState = (): FakeState => JSON.parse(readFileSync(stateFile, "utf8")) as FakeState;
-const writeState = (state: FakeState) => writeFileSync(stateFile, JSON.stringify(state, null, 2));
+/** Atomic, like the fake's save(): a reader never sees a truncated state file. */
+const writeState = (state: FakeState) => { const tmp = `${stateFile}.${process.pid}.tmp`; writeFileSync(tmp, JSON.stringify(state, null, 2)); renameSync(tmp, stateFile); };
 const rexCalls = (): string[][] => readFileSync(logFile, "utf8").trim().split("\n").filter(Boolean).map((line) => (JSON.parse(line) as { argv: string[] }).argv);
 /** Each call's operation without its global flags: `api call <method>`, `block call`, `window close`, `do <action>`, else the command. */
 const opsOf = (calls: string[][]) => calls.map((argv) => {
