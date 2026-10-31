@@ -99,7 +99,7 @@ export function createRexBackend(context: RexLaunchContext, deps: RexBackendDeps
         ...(deps.callerSession ? { callerSession: deps.callerSession } : {}),
         newWindow,
         app,
-        progress: (label) => progress.show(label),
+        progress: progress.show,
       });
     } finally {
       progress.clear();

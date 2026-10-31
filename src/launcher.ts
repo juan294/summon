@@ -898,12 +898,11 @@ export function readTrustedSummonFile(targetDir: string, cliOverrides: CLIOverri
   if (cliOverrides["no-project-config"] === "true") return undefined;
   const summonFilePath = join(targetDir, ".summon");
   let content: string | undefined;
-  if (existsSync(summonFilePath)) {
-    try {
-      content = readFileSync(summonFilePath, "utf-8");
-    } catch {
-      content = undefined;
-    }
+  try {
+    content = readFileSync(summonFilePath, "utf-8");
+  } catch {
+    // No file (ENOENT), or one that cannot be read: the check below is the one for a directory without content.
+    content = undefined;
   }
   if (content !== undefined) assertTrustedContent(targetDir, content);
   else assertTrusted(targetDir);

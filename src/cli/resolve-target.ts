@@ -62,8 +62,7 @@ export function printProjectSuggestions(target: string, named = false): void {
   if (names.includes(target)) return;
   const suggestions = projectSuggestions(target, names);
   if (suggestions.length === 0) return;
-  const list = suggestions.join(", ");
-  err(named ? `For ${target}, did you mean: ${list}?` : `Did you mean: ${list}?`);
+  err(named ? `For ${target}, did you mean: ${suggestions.join(", ")}?` : didYouMean(suggestions.map((name) => ({ name, command: false }))));
 }
 
 function lastLaunchAt(name: string): number | undefined {

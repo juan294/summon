@@ -48,12 +48,17 @@ function parseServerError(text: string): string | undefined {
   const { code, message } = error as Record<string, unknown>;
   if (typeof code !== "string") return;
   // SE-L2: server text is displayed; escape it and cap it like the stderr line.
-  return truncate(escapeControlChars(typeof message === "string" ? `${code}: ${message}` : code), MAX_REASON_LENGTH);
+  return displayReason(typeof message === "string" ? `${code}: ${message}` : code);
 }
 
 /** First stderr line, control characters escaped, capped; empty when there is none. */
 function firstStderrLine(stderr: string): string {
-  return truncate(escapeControlChars(stderr.split(/\r?\n/, 1)[0] ?? ""), MAX_REASON_LENGTH);
+  return displayReason(stderr.split(/\r?\n/, 1)[0] ?? "");
+}
+
+/** Text from rex shown to the user: control characters escaped, capped at MAX_REASON_LENGTH. */
+function displayReason(text: string): string {
+  return truncate(escapeControlChars(text), MAX_REASON_LENGTH);
 }
 
 function genericReason(raw: RexRawResult): string {

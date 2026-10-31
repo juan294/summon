@@ -6,6 +6,7 @@ import type { LaunchRemoval } from "../../status-record.js";
 import type { WorkspaceState, WorkspaceStatus } from "../../status-record.js";
 import { err, note } from "../../ui/output.js";
 import { shellQuote } from "../../shell-escape.js";
+import { getErrorMessage } from "../../utils.js";
 import { escapeControlChars } from "../../pane-inventory.js";
 import { createRexCli, whoamiOf } from "./cli.js";
 import type { RexCli } from "./cli.js";
@@ -169,16 +170,21 @@ function unverifiedNotice(unverified: string[]): string {
     : `${unverified.length} panes are unverified (${unverified.join(", ")}); their files had not appeared yet`;
 }
 
+/** Remove every file of a launch (manifest last; see `removeLaunchFileSet`); the caller holds the status lock. */
+function removeManifestFiles(manifest: LaunchManifest): LaunchRemoval {
+  return removeLaunchFileSet(launchArtifactFiles(manifest.project, manifest.launchId, manifest.paneOrder));
+}
+
 /** Remove the files of a launch whose `session.create` definitely created nothing, under the status lock; a failure is returned as a notice. */
 function removeFailedLaunch(manifest: LaunchManifest): string | undefined {
   let failures: string[] = [];
   try {
     const { afterErrors } = withOwnedRecord(manifest.project, "replace", () => null, () => {
-      failures = removeLaunchFileSet(launchArtifactFiles(manifest.project, manifest.launchId, manifest.paneOrder)).failures;
+      failures = removeManifestFiles(manifest).failures;
     });
     failures = [...failures, ...afterErrors.map((error) => error.message)];
   } catch (error) {
-    failures = [error instanceof Error ? error.message : String(error)];
+    failures = [getErrorMessage(error)];
   }
   return failures.length > 0 ? `could not remove the files of failed launch ${manifest.launchId}: ${failures[0]}; summon clean --orphans names it` : undefined;
 }
@@ -358,7 +364,7 @@ export type OrphanRemoval = { outcome: "superseded" } | ({ outcome: "removed" } 
 export function removeOrphanLaunch(project: string, gen: string | null, manifest: LaunchManifest): OrphanRemoval {
   let removal: LaunchRemoval = { failures: [] };
   const { outcome } = withOwnedRecord(project, { launchId: gen }, () => null, () => {
-    removal = removeLaunchFileSet(launchArtifactFiles(manifest.project, manifest.launchId, manifest.paneOrder));
+    removal = removeManifestFiles(manifest);
   });
   return outcome === "superseded" ? { outcome } : { outcome: "removed", ...removal };
 }

@@ -46,9 +46,7 @@ function asResult(native: NativeMetadata | undefined): BackendLaunchResult | und
   return native ? { native } : undefined;
 }
 
-// --- Spinner helpers (UX-L2 #519; the line itself is in ui/progress.ts) ---
-
-export { isStaticLaunchSpinner };
+// --- Spinner helpers (UX-L2 #519; the line itself and isStaticLaunchSpinner are in ui/progress.ts) ---
 
 /**
  * Run `fn` (a synchronous block) with a brief spinner on stdout.

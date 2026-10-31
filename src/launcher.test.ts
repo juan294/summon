@@ -153,7 +153,8 @@ vi.mock("./script.js", () => ({
 
 // Import after mocks are set up
 const { launch, readTrustedSummonFile, resolveConfig, optsToConfigMap, focusWorkspace, resolveProjectName, probePaneCount, decideCleanRestoredPanes, layoutOptsToTreePlanOpts, commandFixHint } = await import("./launcher.js");
-const { closeWorkspaceWindow, isStaticLaunchSpinner, withLaunchSpinner, GhosttyBackend, ghosttyCommandEntries } = await import("./backends/ghostty.js");
+const { closeWorkspaceWindow, withLaunchSpinner, GhosttyBackend, ghosttyCommandEntries } = await import("./backends/ghostty.js");
+const { isStaticLaunchSpinner } = await import("./ui/progress.js");
 const { planLayout } = await import("./layout.js");
 const { buildTreePlan, findPaneByName, parseTreeDSL, resolveTreeCommands } = await import("./tree.js");
 const { listConfig, listProjects } = await import("./config.js");
@@ -4403,6 +4404,8 @@ describe("SE-M1: every .summon read is content-pinned", () => {
     summonContent = undefined;
     vi.mocked(fs.readFileSync).mockImplementation(((path: string, ...rest: unknown[]) => {
       if (String(path) === SUMMON && summonContent !== undefined) return summonContent;
+      // A file the fixture says is absent cannot be read either.
+      if (String(path) === SUMMON && !fs.existsSync(path)) throw Object.assign(new Error(`ENOENT: ${path}`), { code: "ENOENT" });
       return fallback!(path, ...rest);
     }) as never);
   });
@@ -4476,6 +4479,7 @@ describe("SE-M1: every .summon read is content-pinned", () => {
       mockReadKVFile.mockImplementation((path: string) => path === SUMMON ? new Map([["on-start", "touch /tmp/pwned"]]) : new Map());
     });
     const resolved = resolveConfig("/tmp/workspace", {}, readTrustedSummonFile("/tmp/workspace", {}));
+    expect(mockAssertTrusted).toHaveBeenCalledWith("/tmp/workspace");
     expect(resolved.onStart).toBeUndefined();
     expect(resolved.projectOverrides.size).toBe(0);
     summonContent = undefined;
@@ -4489,6 +4493,20 @@ describe("SE-M1: every .summon read is content-pinned", () => {
     }
     expect(mockExecSync).not.toHaveBeenCalledWith("touch /tmp/pwned", expect.anything());
     expect(mockExecSync.mock.calls.flat()).not.toContain("touch /tmp/pwned");
+  });
+
+  it("readTrustedSummonFile reads once, with no existence check: a missing or unreadable file is checked as no file", async () => {
+    const fs = await import("node:fs");
+    vi.mocked(fs.existsSync).mockClear();
+    for (const code of ["ENOENT", "EISDIR"]) {
+      mockAssertTrusted.mockClear();
+      mockAssertTrustedContent.mockClear();
+      vi.mocked(fs.readFileSync).mockImplementationOnce(() => { throw Object.assign(new Error(code), { code }); });
+      expect(readTrustedSummonFile("/tmp/workspace", {})).toBe("");
+      expect(mockAssertTrusted).toHaveBeenCalledWith("/tmp/workspace");
+      expect(mockAssertTrustedContent).not.toHaveBeenCalled();
+    }
+    expect(vi.mocked(fs.existsSync)).not.toHaveBeenCalledWith(SUMMON);
   });
 
   it("readTrustedSummonFile returns the checked bytes, skips with --no-project-config and propagates a refusal", async () => {
