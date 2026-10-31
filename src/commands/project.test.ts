@@ -134,15 +134,15 @@ describe("handleAddCommand", () => {
   });
 
   it("warns when the path does not exist and registers the expanded path", async () => {
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     mockExistsSync.mockReturnValue(false);
 
     await handleAddCommand(makeContext({ args: ["demo", "~/code/demo"] }));
 
     expect(mockAddProject).toHaveBeenCalledWith("demo", "/Users/tester/code/demo");
-    // UX-M2: the one warning prefix (stderr, via console.warn as before)
-    expect(warnSpy).toHaveBeenCalledWith("summon: warning: path does not exist: /Users/tester/code/demo");
+    // UX-M2: the one warning prefix, on stderr as before
+    expect(warnSpy).toHaveBeenCalledWith("summon: warning: path does not exist: /Users/tester/code/demo\n");
     // UX-M1 (#395): message should indicate warning, not plain success
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("Registered with warning"));
     logSpy.mockRestore();
@@ -165,7 +165,7 @@ describe("handleAddCommand", () => {
 describe("FE-H1/UX-H3 (#526,#530): canonical glyph vocabulary", () => {
   // UX-M2: the stderr warning uses the one "summon: warning:" prefix; the ⚠ glyph stays on the stdout summary line.
   it("prefixes the stderr warning with summon: warning: instead of a glyph", async () => {
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     mockExistsSync.mockReturnValue(false);
 
@@ -201,7 +201,7 @@ describe("FE-H1/UX-H3 (#526,#530): canonical glyph vocabulary", () => {
   });
 
   it("uses ⚠ (not !) as warn glyph in path-missing log message", async () => {
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     mockExistsSync.mockReturnValue(false);
 

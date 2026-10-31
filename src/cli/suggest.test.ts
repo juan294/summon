@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { suggestProjects } from "./suggest.js";
+import { suggestProjects, suggestTargets } from "./suggest.js";
 
 const NAMES = ["chapa", "chapa-cli", "clarity", "coach", "kalpha", "marky", "summon", "sutura", "termplex"];
 const NO_RECENCY = (): undefined => undefined;
@@ -72,5 +72,25 @@ describe("suggestProjects (Phase 6 Unit A, D7)", () => {
     const names = ["zeta", "alpha", "beta"];
     suggestProjects("al", names, NO_RECENCY);
     expect(names).toEqual(["zeta", "alpha", "beta"]);
+  });
+});
+
+// Review should-fix (UX-M3): commands need a close match; projects keep the looser tiers.
+describe("suggestTargets", () => {
+  const COMMANDS = ["status", "session", "focus", "completions", "clean", "list", "layout"];
+  it.each([
+    ["stauts", [{ name: "status", command: true }]],
+    ["sesion", [{ name: "session", command: true }]],
+    ["sta", [{ name: "status", command: true }]],
+    ["STAT", [{ name: "status", command: true }]],
+    ["docs", []],
+    ["cli", []],
+    ["lsit", [{ name: "list", command: true }]],
+  ])("%j -> %j", (target, expected) => {
+    expect(suggestTargets(target, [], COMMANDS, NO_RECENCY)).toEqual(expected);
+  });
+
+  it("projects still match by subsequence and edit distance", () => {
+    expect(suggestTargets("cpl", ["chapa-cli"], COMMANDS, NO_RECENCY)).toEqual([{ name: "chapa-cli", command: false }]);
   });
 });

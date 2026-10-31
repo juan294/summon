@@ -86,11 +86,11 @@ describe("note() and warn()", () => {
     writeSpy.mockRestore();
   });
 
-  it("warn() writes summon: warning: through console.warn (stderr), never stdout", () => {
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+  it("warn() writes summon: warning: to stderr, never stdout", () => {
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     warn("--once has no effect with the 'list' command");
-    expect(warnSpy).toHaveBeenCalledWith("summon: warning: --once has no effect with the 'list' command");
+    expect(warnSpy).toHaveBeenCalledWith("summon: warning: --once has no effect with the 'list' command\n");
     expect(stdoutSpy).not.toHaveBeenCalled();
     warnSpy.mockRestore();
     stdoutSpy.mockRestore();

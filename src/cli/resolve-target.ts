@@ -34,8 +34,11 @@ export function resolveTargetDirectory(target: string, commands: readonly string
     fail(`"${target}" is not a known command or registered project. Try: summon --help`);
     if (suggestions.length > 0) err(didYouMean(suggestions));
     // A mistyped command is not a project to register.
-    if (!suggestions.some((s) => s.command)) err(`To register as a project: summon add ${target} /path/to/project`);
-    err("Or see available:         summon list");
+    const commandFirst = suggestions[0]?.command === true;
+    if (!commandFirst) err(`To register as a project: summon add ${target} /path/to/project`);
+    if (!suggestions.some((s) => s.command && s.name === "list")) {
+      err(commandFirst ? "Or see available: summon list" : "Or see available:         summon list");
+    }
     process.exit(1);
   }
 

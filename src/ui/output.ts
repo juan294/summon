@@ -31,13 +31,9 @@ export function note(msg: string): void {
   process.stderr.write(`summon: note: ${msg}\n`);
 }
 
-/**
- * Warning on stderr: "summon: warning: <msg>" (UX-M2; the command continues). Written through
- * console.warn, the stream these warnings always used, so its callers' output is unchanged apart
- * from the prefix.
- */
+/** Warning on stderr: "summon: warning: <msg>" (UX-M2; not an error, the command continues). */
 export function warn(msg: string): void {
-  console.warn(`summon: warning: ${msg}`);
+  process.stderr.write(`summon: warning: ${msg}\n`);
 }
 
 /**

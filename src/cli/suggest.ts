@@ -48,11 +48,15 @@ export function suggestProjects(target: string, names: readonly string[], recenc
 
 /**
  * Suggest subcommands and registered projects close to `target` in one ranking (UX-M3). A name that is
- * both is the command (the dispatch registry wins), and a command has no launch recency.
+ * both is the command (the dispatch registry wins), and a command has no launch recency. A command is
+ * a candidate only for a close match (a prefix, or one edit away): the looser tiers would turn
+ * `summon docs` into `summon focus`.
  */
 export function suggestTargets(target: string, projects: readonly string[], commands: readonly string[], recency: LaunchRecency): Suggestion[] {
   const commandSet = new Set(commands);
-  const names = [...commandSet, ...projects.filter((name) => !commandSet.has(name))];
+  const lower = target.toLowerCase();
+  const closeCommands = [...commandSet].filter((name) => name.startsWith(lower) || editDistance(lower, name) <= 1);
+  const names = [...closeCommands, ...projects.filter((name) => !commandSet.has(name))];
   return suggestProjects(target, names, (name) => (commandSet.has(name) ? undefined : recency(name)))
     .map((name) => ({ name, command: commandSet.has(name) }));
 }

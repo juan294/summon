@@ -99,7 +99,7 @@ export function resolveProjectName(targetDir: string): string {
   const derived = basename(resolved);
   if (PROJECT_NAME_RE.test(derived)) return derived;
   const sanitized = sanitizeProjectName(derived);
-  console.warn(
+  warn(
     `Project name "${derived}" contains unsupported characters; using "${sanitized}" for tab title and status tracking.`,
   );
   return sanitized;
@@ -394,7 +394,7 @@ function resolveLayoutBase(
       if (es.ok) {
         base.editorSize = es.value;
       } else {
-        console.warn(
+        warn(
           `Invalid editor-size value in custom layout "${layoutKey}": "${customData.get("editor-size")}". Must be ${EDITOR_SIZE_MIN}-${EDITOR_SIZE_MAX}. Using default (${EDITOR_SIZE_DEFAULT}).`,
         );
       }
@@ -405,7 +405,7 @@ function resolveLayoutBase(
       if (fs.ok) {
         base.fontSize = fs.value;
       } else {
-        console.warn(
+        warn(
           `Invalid font-size value in custom layout "${layoutKey}": "${customData.get("font-size")}". Must be a positive number. Ignoring.`,
         );
       }
@@ -433,7 +433,7 @@ function resolveLayoutBase(
       if (p.ok) {
         base.editorPanes = p.value;
       } else {
-        console.warn(
+        warn(
           `Invalid panes value in custom layout "${layoutKey}": "${customData.get("panes")}". Must be a positive integer. Ignoring.`,
         );
       }
@@ -442,7 +442,7 @@ function resolveLayoutBase(
     return { base };
   }
 
-  console.warn(
+  warn(
     `Unknown layout preset: "${layoutKey}". Valid presets: ${getPresetNames().join(", ")}. Using defaults.`,
   );
   return { base: {} };
@@ -478,7 +478,7 @@ function layerConfigValues(
     if (parsed.ok) {
       result.editorPanes = parsed.value;
     } else {
-      console.warn(
+      warn(
         `Invalid panes value: "${panes}". Must be a positive integer. Using default (${PANES_DEFAULT}).`,
       );
       result.editorPanes = PANES_DEFAULT;
@@ -489,7 +489,7 @@ function layerConfigValues(
     if (parsed.ok) {
       result.editorSize = parsed.value;
     } else {
-      console.warn(
+      warn(
         `Invalid editor-size value: "${editorSize}". Must be ${EDITOR_SIZE_MIN}-${EDITOR_SIZE_MAX}. Using default (${EDITOR_SIZE_DEFAULT}).`,
       );
       result.editorSize = EDITOR_SIZE_DEFAULT;
@@ -577,8 +577,8 @@ async function warnIfNested(
     return false;
   }
   warn("You're inside an existing summon workspace.");
-  console.warn("Launching here will nest splits inside this pane, which can get messy.");
-  console.warn("Tip: Use --new-window to open in a separate window instead.\n");
+  err("Launching here will nest splits inside this pane, which can get messy.");
+  err("Tip: Use --new-window to open in a separate window instead.\n");
   const answer = await prompt("Continue anyway? [y/N] ");
   return answer !== "y";
 }
@@ -676,12 +676,12 @@ function executeOnStart(onStart: string, targetDir: string): void {
   }
   try {
     execSync(onStart, { cwd: targetDir, encoding: "utf-8", stdio: "inherit" });
-  } catch (err) {
+  } catch (error) {
     // BE-M3 (#594): non-zero exit is non-fatal — warn and continue the launch.
     // A hard abort (e.g. for SIGINT/SIGKILL) is unlikely from a hook and would be
     // surfaced via the stderr inherited above; treating all failures as warnings
     // allows pre-flight checks to fail gracefully without killing the workspace.
-    if (isDebug()) console.warn(`[debug] on-start command failed: ${onStart} — ${getErrorMessage(err)}`);
+    if (isDebug()) err(`[debug] on-start command failed: ${onStart} — ${getErrorMessage(error)}`);
     else warn("on-start command failed; continuing workspace launch");
   }
 }
@@ -1074,12 +1074,12 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
     if (isStarshipInstalled()) {
       try {
         return ensurePresetConfig(starshipPreset);
-      } catch (err) {
-        warn(`Failed to set up Starship preset "${starshipPreset}": ${getErrorMessage(err)}`);
+      } catch (error) {
+        warn(`Failed to set up Starship preset "${starshipPreset}": ${getErrorMessage(error)}`);
       }
     } else {
       warn(`starship-preset is set to "${starshipPreset}" but Starship is not installed. Skipping.`);
-      console.warn("Install Starship: https://starship.rs");
+      err("Install Starship: https://starship.rs");
     }
     return null;
   };

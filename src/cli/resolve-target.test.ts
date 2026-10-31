@@ -25,6 +25,9 @@ beforeEach(() => {
   mockReadStatusRecord.mockImplementation(() => null);
 });
 
+/** The dispatch registry's names (src/index.ts). */
+const REGISTRY = ["add", "remove", "list", "set", "config", "setup", "completions", "title", "inspect", "focus", "doctor", "keybindings", "freeze", "status", "snapshot", "briefing", "ports", "switch", "open", "export", "layout", "session", "trust", "clean"];
+
 function captureFailure(target: string, commands: readonly string[] = []): string {
   const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
   const exitSpy = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
@@ -118,12 +121,38 @@ describe("resolve-target (PE-H1 #473)", () => {
 
       it("suggests a subcommand as `summon <command>` and drops the register hint (UX-M3)", () => {
         mockListProjects.mockImplementation(() => new Map([["chapa", "/w/chapa"]]));
-        const lines = captureFailure("stauts", ["status", "list", "add"]).split("\n").filter(Boolean);
-        expect(lines[1]).toBe("Did you mean: summon status?");
-        expect(lines.join("\n")).not.toContain("summon add stauts");
-        expect(lines.at(-1)).toContain("summon list");
+        const lines = captureFailure("stauts", REGISTRY).split("\n").filter(Boolean);
+        expect(lines).toEqual([
+          `summon: error: "stauts" is not a known command or registered project. Try: summon --help`,
+          "Did you mean: summon status?",
+          "Or see available: summon list",
+        ]);
         // A command's recency is never read from a status record.
         expect(mockReadStatusRecord).not.toHaveBeenCalledWith("status");
+        expect(captureFailure("sesion", REGISTRY)).toContain("Did you mean: summon session?");
+      });
+
+      // Review should-fix: a command is suggested only for a close match (prefix or one edit).
+      it.each(["docs", "cli"])("%s suggests no command and keeps the register hint", (target) => {
+        const lines = captureFailure(target, REGISTRY).split("\n").filter(Boolean);
+        expect(lines.join("\n")).not.toContain("Did you mean");
+        expect(lines[1]).toBe(`To register as a project: summon add ${target} /path/to/project`);
+        expect(lines[2]).toBe("Or see available:         summon list");
+      });
+
+      it("keeps the register hint when a project, not a command, is the best match", () => {
+        mockListProjects.mockImplementation(() => new Map([["docs-site", "/w/docs-site"]]));
+        const lines = captureFailure("docs", REGISTRY).split("\n").filter(Boolean);
+        expect(lines[1]).toBe("Did you mean: docs-site?");
+        expect(lines[2]).toContain("To register as a project: summon add docs /path/to/project");
+      });
+
+      it("does not repeat summon list when it is the suggestion", () => {
+        const lines = captureFailure("lsit", REGISTRY).split("\n").filter(Boolean);
+        expect(lines).toEqual([
+          `summon: error: "lsit" is not a known command or registered project. Try: summon --help`,
+          "Did you mean: summon list?",
+        ]);
       });
 
       it("ranks commands and projects together, a project keeps its bare name", () => {
