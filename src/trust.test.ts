@@ -27,6 +27,15 @@ vi.mock("node:os", () => ({
   homedir: () => "/home/testuser",
 }));
 
+// SE-L5: a pass-through lock that records when the trust DB transaction starts and ends.
+const lockEvents = vi.hoisted(() => [] as string[]);
+vi.mock("./file-lock.js", () => ({
+  withFileLock: <T>(file: string, action: () => T): T => {
+    lockEvents.push(`lock ${file}`);
+    try { return action(); } finally { lockEvents.push(`unlock ${file}`); }
+  },
+}));
+
 // Import after mocks
 const { hashSummonFile, isTrusted, trustProject, assertTrusted, assertTrustedContent, handleTrustCommand, SummonError, UntrustedSummonError, withTrustPrompt, clearTrustCache } = await import("./trust.js");
 const { PromptCancelled, exitCodeFor, CANCELLED_EXIT_CODE } = await import("./utils.js");
@@ -41,6 +50,7 @@ function sha256(content: string): string {
 beforeEach(() => {
   vi.clearAllMocks();
   clearTrustCache();
+  lockEvents.length = 0;
   // Default: realpathSync resolves to the same path (simulates absolute paths that exist)
   mockRealpathSync.mockImplementation((p: string) => p);
   // Default: statSync returns a fake mtime
@@ -1018,4 +1028,34 @@ describe("UX-M4: withTrustPrompt offers to trust and launch on a TTY", () => {
     // Line by line: each line is escaped and indented, a tab stays a tab, and CRLF reads as one line break.
     expect(shown).toContain("  editor = vim\\u001b]0;pwned\\u0007\\u202e\\u200b\tx\n  sidebar = htop");
   });
+});
+
+describe("SE-L5: a trust grant is one locked read-modify-write of trust.json", () => {
+  it.each(["trustProject", "withTrustPrompt"] as const)("%s reads, merges and publishes trust.json inside withFileLock(TRUST_FILE)", async (entry) => {
+    const other = { "/other": sha256("other\n") };
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockImplementation((p: string) => {
+      if (p !== TRUST_FILE) return "editor = vim\n";
+      lockEvents.push("read db");
+      return JSON.stringify(other);
+    });
+    mockRenameSync.mockImplementation((_from: string, to: string) => { lockEvents.push(`publish ${to}`); });
+    if (entry === "trustProject") {
+      trustProject("/proj");
+    } else {
+      let attempts = 0;
+      await withTrustPrompt(async () => {
+        if (attempts++ === 0) assertTrustedContent("/proj", "editor = vim\n");
+      }, { interactive: true, confirm: async () => true, write: () => {} });
+    }
+    const start = lockEvents.indexOf(`lock ${TRUST_FILE}`);
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(lockEvents.slice(start)).toEqual([`lock ${TRUST_FILE}`, "read db", `publish ${TRUST_FILE}`, `unlock ${TRUST_FILE}`]);
+    expect(writtenTrustDbAfterLock()).toEqual({ ...other, "/proj": sha256("editor = vim\n") });
+  });
+
+  function writtenTrustDbAfterLock(): Record<string, string> {
+    const call = mockWriteFileSync.mock.calls.find((args: unknown[]) => String(args[0]).startsWith(`${TRUST_FILE}.`));
+    return JSON.parse(String(call![1])) as Record<string, string>;
+  }
 });

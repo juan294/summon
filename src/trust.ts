@@ -13,6 +13,7 @@ import { existsSync, readFileSync, mkdirSync, realpathSync, statSync } from "nod
 import { join, resolve } from "node:path";
 import { atomicWrite, confirm, PromptCancelled } from "./utils.js";
 import { TRUST_FILE, CONFIG_DIR } from "./paths.js";
+import { withFileLock } from "./file-lock.js";
 import { escapeControlChars } from "./pane-inventory.js";
 import { fail } from "./ui/output.js";
 
@@ -72,12 +73,6 @@ function loadTrustDb(): Record<string, string> {
     );
     return {};
   }
-}
-
-/** Save the trust database atomically (BE-M3). */
-function saveTrustDb(db: Record<string, string>): void {
-  mkdirSync(CONFIG_DIR, { recursive: true, mode: 0o700 });
-  atomicWrite(TRUST_FILE, JSON.stringify(db, null, 2) + "\n", { encoding: "utf-8", mode: 0o600 });
 }
 
 /**
@@ -148,10 +143,14 @@ function normalizeDir(dir: string): string {
   try { return realpathSync(dir); } catch { return resolve(dir); }
 }
 
+/** The only trust DB writer: one locked read-modify-write (SE-L5), published atomically (BE-M3), so concurrent grants all persist. */
 function storeTrust(normalizedDir: string, hash: string): void {
-  const db = loadTrustDb();
-  db[normalizedDir] = hash;
-  saveTrustDb(db);
+  mkdirSync(CONFIG_DIR, { recursive: true, mode: 0o700 });
+  withFileLock(TRUST_FILE, () => {
+    const db = loadTrustDb();
+    db[normalizedDir] = hash;
+    atomicWrite(TRUST_FILE, JSON.stringify(db, null, 2) + "\n", { encoding: "utf-8", mode: 0o600 });
+  });
   trustCache.delete(normalizedDir);
 }
 
