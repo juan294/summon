@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { isWideCodePoint, getDisplayWidth, truncate } from "./width.js";
 
 describe("isWideCodePoint", () => {
@@ -178,6 +178,33 @@ describe("FE-L1: emoji, zero-width code points and graphemes", () => {
       for (let max = 1; max <= 12; max++) {
         expect(getDisplayWidth(truncate(s, max))).toBeLessThanOrEqual(max);
       }
+    }
+  });
+});
+
+describe("Intl.Segmenter is created lazily (cold start)", () => {
+  it("is never constructed on import or for pure-ASCII text, and once for other text", async () => {
+    vi.resetModules();
+    const Real = Intl.Segmenter;
+    const constructed = vi.fn();
+    const setSegmenter = (value: typeof Real) => Object.defineProperty(Intl, "Segmenter", { value, configurable: true, writable: true });
+    setSegmenter(class extends Real {
+      constructor(...args: ConstructorParameters<typeof Real>) {
+        super(...args);
+        constructed();
+      }
+    });
+    try {
+      const fresh = await import("./width.js");
+      expect(fresh.getDisplayWidth("hello world")).toBe(11);
+      expect(fresh.truncate("abcdefghij", 5)).toBe("abcd…");
+      expect(fresh.truncate("short", 20)).toBe("short");
+      expect(constructed).not.toHaveBeenCalled();
+      expect(fresh.getDisplayWidth("日本語")).toBe(6);
+      expect(fresh.truncate("café-bar", 5)).toBe("café…");
+      expect(constructed).toHaveBeenCalledTimes(1);
+    } finally {
+      setSegmenter(Real);
     }
   });
 });

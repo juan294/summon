@@ -16,7 +16,12 @@ const EMOJI_VS16 = /\p{Emoji}\uFE0F/u;
 const ZERO_WIDTH = /^[\p{Mn}\p{Me}\p{Cf}\u1160-\u11FF]$/u;
 /** Printable ASCII only: every character is 1 column, so no segmentation is needed. */
 const PRINTABLE_ASCII = /^[\x20-\x7e]*$/;
-const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+/** Created on first non-ASCII text: constructing it costs several ms, which every command would pay at import. */
+let segmenter: Intl.Segmenter | undefined;
+function graphemes(s: string): Intl.Segments {
+  segmenter ??= new Intl.Segmenter(undefined, { granularity: "grapheme" });
+  return segmenter.segment(s);
+}
 
 /**
  * Returns true for a code point that occupies 2 columns in a fixed-width terminal font.
@@ -71,7 +76,7 @@ function graphemeWidth(cluster: string): number {
 export function getDisplayWidth(s: string): number {
   if (PRINTABLE_ASCII.test(s)) return s.length;
   let width = 0;
-  for (const { segment } of graphemes.segment(s)) width += graphemeWidth(segment);
+  for (const { segment } of graphemes(s)) width += graphemeWidth(segment);
   return width;
 }
 
@@ -85,11 +90,12 @@ export function getDisplayWidth(s: string): number {
 export function truncate(str: string, maxLen: number): string {
   if (maxLen <= 0) return "";
   if (getDisplayWidth(str) <= maxLen) return str;
+  if (PRINTABLE_ASCII.test(str)) return str.slice(0, maxLen - 1) + "…";
   // Reserve 1 column for the ellipsis "…"
   const budget = maxLen - 1;
   let accWidth = 0;
   let cutAt = 0;
-  for (const { segment, index } of graphemes.segment(str)) {
+  for (const { segment, index } of graphemes(str)) {
     accWidth += graphemeWidth(segment);
     if (accWidth > budget) break;
     cutAt = index + segment.length;
