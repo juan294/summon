@@ -1,14 +1,14 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readKVFromString } from "../config.js";
 import { collectLeaves, extractPaneDefinitions, findPaneByName, parseTreeDSL, resolveTreeCommands } from "../tree.js";
 import { shellQuote } from "../shell-escape.js";
-import { buildCliInto } from "../fixtures/build-cli.js";
+import { cliBuild } from "../fixtures/cli-builds.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const docs = () => readFileSync(join(ROOT, "docs/ghostty.md"), "utf8");
@@ -28,12 +28,8 @@ let cliCopy = "";
 const fixtures = new Set<string>();
 
 /** A private production build: the shared dist/ may be absent or emptied by a concurrent `pnpm build`. */
-beforeAll(async () => {
-  cliCopy = mkdtempSync(join(tmpdir(), "summon-recipe-cli-"));
-  chmodSync(await buildCliInto(ROOT, cliCopy, { production: true }), 0o700);
-}, 60_000);
+beforeAll(() => { cliCopy = dirname(cliBuild("production")); });
 afterEach(() => { for (const fixture of fixtures) rmSync(fixture, { recursive: true, force: true }); fixtures.clear(); });
-afterAll(() => { if (cliCopy) rmSync(cliCopy, { recursive: true, force: true }); });
 
 function sandbox(recipe: Recipe) {
   const root = mkdtempSync(join(tmpdir(), "summon-ssh-recipe-"));

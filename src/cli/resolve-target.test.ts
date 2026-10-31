@@ -1,6 +1,7 @@
 // Tests for #473 PE-H1: resolveTargetDirectory and expandHome in a leaf module
 // These tests verify that the new cli/resolve-target.ts module works correctly.
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { registryNames } from "../fixtures/registry-names.js";
 
 const mockListProjects = vi.fn(() => new Map<string, string>());
 const mockReadStatusRecord = vi.fn((_name: string): { startedAt: string } | null => null);
@@ -26,7 +27,7 @@ beforeEach(() => {
 });
 
 /** The dispatch registry's names (src/index.ts). */
-const REGISTRY = ["add", "remove", "list", "set", "config", "setup", "completions", "title", "inspect", "focus", "doctor", "keybindings", "freeze", "status", "snapshot", "briefing", "ports", "switch", "open", "export", "layout", "session", "trust", "clean"];
+const REGISTRY = registryNames();
 
 function captureFailure(target: string, commands: readonly string[] = []): string {
   const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);

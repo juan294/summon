@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { spawnSync } from "node:child_process";
-import { buildCliInto } from "./fixtures/build-cli.js";
+import { cliBuild } from "./fixtures/cli-builds.js";
 import { LAUNCH_ID_RE } from "./launch-identity.js";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -19,12 +19,12 @@ const FIXTURE_TARGET = "/tmp/summon-dryrun-fixture";
 let tempRoot: string;
 let cli: string;
 
-beforeAll(async () => {
+beforeAll(() => {
   tempRoot = mkdtempSync(join(tmpdir(), "summon-dryrun-parity-"));
-  cli = await buildCliInto(PROJECT_ROOT, join(tempRoot, "cli"));
+  cli = cliBuild("unsplit");
   mkdirSync(join(tempRoot, "summon-dryrun-fixture"));
   mkdirSync(join(tempRoot, "home"));
-}, 60_000);
+});
 
 afterAll(() => {
   rmSync(tempRoot, { recursive: true, force: true });
