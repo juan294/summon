@@ -16,7 +16,7 @@ const STATUS_DIR = join(CONFIG_DIR, "status");
 const SNAPSHOTS_DIR = join(CONFIG_DIR, "snapshots");
 vi.mock("./paths.js", async (original) => ({ ...(await original<typeof import("./paths.js")>()), CONFIG_DIR, STATUS_DIR, SNAPSHOTS_DIR }));
 
-const { readStatus, readStatusRecord, writeStatus, resetRexBinaryMemo, resetReadAllStatusesCache, NO_LIVE_PANES, SESSION_GONE } = await import("./status.js");
+const { readStatus, readStatusRecord, writeStatus, resetRexBinaryMemo, NO_LIVE_PANES, SESSION_GONE } = await import("./status.js");
 const { writeLaunchManifest, launchArtifactPaths } = await import("./launch-identity.js");
 const { gitSafeEnv } = await import("./utils.js");
 
@@ -92,7 +92,6 @@ beforeEach(() => {
   rmSync(SNAPSHOTS_DIR, { recursive: true, force: true });
   mkdirSync(paths.dir, { recursive: true });
   resetRexBinaryMemo();
-  resetReadAllStatusesCache();
 });
 
 describe("stopped reader with the real snapshot writer and a real repository", () => {
@@ -149,7 +148,6 @@ describe("stopped reader with the real snapshot writer and a real repository", (
     expect(existsSync(paths.pane("shell").file)).toBe(true);
 
     server([SESSION], [EDITOR, SHELL]);
-    resetReadAllStatusesCache();
     const active = readStatus(PROJECT)!;
     expect(active).toMatchObject({ state: "active", liveBlocks: ["editor", "shell"] });
     expect(active.reason).toBeUndefined();
@@ -165,7 +163,6 @@ describe("stopped reader with the real snapshot writer and a real repository", (
     expect(files()).toEqual({ pid: true, active: true, manifest: true, pane: true });
 
     writeFileSync(paths.pane("shell").file, `${SESSION}\n${SHELL}\n`);
-    resetReadAllStatusesCache();
     const after = readStatus(PROJECT)!;
     expect(after).toMatchObject({ state: "partial", reason: "root pane closed", liveBlocks: ["shell"] });
     expect(after.rex!.blocks.map((b) => b.name)).toEqual(["editor", "shell"]);

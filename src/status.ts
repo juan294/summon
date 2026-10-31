@@ -66,7 +66,7 @@ export function newRexReadContext(options: ReadOptions = {}): RexReadContext {
 
 let rexBinaryMemo: string | null | undefined;
 
-/** The `rex` binary, discovered once per process (the TUI reads every 3 s; the location does not move mid-run). */
+/** The `rex` binary, discovered once per process and shared by every row of a read (the location does not move mid-run). */
 export function rexBinaryPath(): string | null {
   if (rexBinaryMemo === undefined) rexBinaryMemo = discoverRex().path;
   return rexBinaryMemo;
@@ -259,57 +259,50 @@ export function readProjectStatus(projectName: string, ctx: RexReadContext = new
   return readStatus(projectName, ctx) ?? unverifiedLaunchRows([projectName], new Set(), ctx)[0] ?? null;
 }
 
-// PE-M1 #607 / PE-L3 #570: bounded-TTL in-process cache for readAllStatuses.
-// TTL is intentionally short (1000ms) so the monitor's 3-second refresh loop
-// still re-checks isPidAlive for any process that died between ticks WITHOUT a
-// file-system change. The previous dir-mtime cache was reverted because directory
-// mtime does not advance on process death — a process dying silently would remain
-// "active" indefinitely. A wall-clock TTL avoids that flaw while still coalescing
-// bursts of calls within the same render cycle. After TTL, a full re-scan runs.
-const READ_ALL_STATUSES_TTL_MS = 1000;
+/**
+ * @deprecated No-op since PE-H1; remove in Wave 2. The 1 s read cache is gone: the monitor reads
+ * in a child process and every other caller reads once per process.
+ */
+export function resetReadAllStatusesCache(): void {}
 
-interface StatusCache {
-  result: ResolvedStatus[];
-  cachedAt: number;
-  programStatus: boolean;
+/** The projects with a record and the projects with a launches directory, from one listing of STATUS_DIR. */
+function scanStatusDir(): { recorded: string[]; launchDirProjects: string[] } {
+  if (!existsSync(STATUS_DIR)) return { recorded: [], launchDirProjects: [] };
+  // BE-M4 #605: filter out .tmp and dotfiles so orphans never appear as phantom entries
+  const entries = readdirSync(STATUS_DIR, { withFileTypes: true });
+  return {
+    recorded: entries
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".json") && !entry.name.startsWith(".") && !entry.name.endsWith(".tmp"))
+      .map((entry) => entry.name.slice(0, -".json".length)),
+    launchDirProjects: entries
+      .filter((entry) => entry.isDirectory() && entry.name.endsWith(".launches"))
+      .map((entry) => entry.name.slice(0, -".launches".length)),
+  };
 }
 
-let _statusCache: StatusCache | null = null;
-
-/** Clear the readAllStatuses cache. Exposed for tests; also useful for CLI commands
- *  that need a fresh read immediately after a write. */
-export function resetReadAllStatusesCache(): void {
-  _statusCache = null;
+/**
+ * A Rex record or a Rex launch manifest exists: only then can a status read spawn `rex`. Reads the
+ * records and manifests as JSON (no liveness, no probes); the monitor reads off its thread only then (PE-H1).
+ */
+export function hasRexState(): boolean {
+  const { recorded, launchDirProjects } = scanStatusDir();
+  if (recorded.some((project) => readStatusRecord(project)?.backend === "rex")) return true;
+  return launchDirProjects.some((project) => {
+    try {
+      return listLaunchManifests(project).some((manifest) => manifest.backend === "rex");
+    } catch {
+      return false;
+    }
+  });
 }
 
 export function readAllStatuses(options: ReadOptions = {}): ResolvedStatus[] {
-  const now = Date.now();
-  const wantProgram = options.programStatus === true;
-
-  // Return cached result if within TTL (a cache filled without program status does not serve a reader that wants it)
-  if (_statusCache !== null && now - _statusCache.cachedAt < READ_ALL_STATUSES_TTL_MS && (_statusCache.programStatus || !wantProgram)) {
-    return _statusCache.result;
-  }
-
-  if (!existsSync(STATUS_DIR)) {
-    _statusCache = { result: [], cachedAt: now, programStatus: wantProgram };
-    return _statusCache.result;
-  }
-
-  // BE-M4 #605: filter out .tmp and dotfiles so orphans never appear as phantom entries
-  const entries = readdirSync(STATUS_DIR, { withFileTypes: true });
-  const files = entries
-    .filter((entry) => entry.isFile() && entry.name.endsWith(".json") && !entry.name.startsWith(".") && !entry.name.endsWith(".tmp"))
-    .map((entry) => entry.name);
-  const launchDirProjects = entries
-    .filter((entry) => entry.isDirectory() && entry.name.endsWith(".launches"))
-    .map((entry) => entry.name.slice(0, -".launches".length));
+  const { recorded, launchDirProjects } = scanStatusDir();
   const statuses: ResolvedStatus[] = [];
   const ctx = newRexReadContext(options);
 
   const recordedProjects = new Set<string>();
-  for (const file of files) {
-    const projectName = file.replace(/\.json$/, "");
+  for (const projectName of recorded) {
     recordedProjects.add(projectName);
     const status = readStatus(projectName, ctx);
     if (status) statuses.push(status);
@@ -318,14 +311,11 @@ export function readAllStatuses(options: ReadOptions = {}): ResolvedStatus[] {
 
   // Sort: live first (active, then partial; newest first), then the rest (newest first)
   const rank = (state: WorkspaceState): number => (state === "active" ? 0 : state === "partial" ? 1 : 2);
-  const result = statuses.sort((a, b) => {
+  return statuses.sort((a, b) => {
     const byState = rank(a.state) - rank(b.state);
     if (byState !== 0) return byState;
     return Date.parse(b.startedAt) - Date.parse(a.startedAt);
   });
-
-  _statusCache = { result, cachedAt: now, programStatus: wantProgram };
-  return result;
 }
 
 // --- Git ---

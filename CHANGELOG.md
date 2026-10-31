@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - After the setup wizard, a launch reads `.summon` again and checks that content against the trust store before it uses it. A `.summon` changed while the wizard waited is refused. `summon freeze` and `summon keybindings` refuse an untrusted `.summon` with the same message as a launch (`freeze` accepts `--no-project-config`), so `freeze` can no longer copy untrusted commands into a layout.
 - A Rex launch that the server rejected or never received no longer leaves its manifest behind, so later launches and `summon status` stop reporting it as an earlier launch that never confirmed its session. A launch whose connection dropped or reset after it was sent is now treated as an unknown outcome (its manifest stays, so the session can still be adopted), not as one that created nothing.
 - Error text from a Rex server error object is shown with control characters escaped and capped in length, like the rest of the Rex error text.
+- The monitor stays responsive when a Rex server is slow: with Rex workspaces it reads their status in a background process, so keys, resize and drawing keep working, and a refresh still running is never started twice. The header shows `updating…` while a read takes longer than one refresh, and `last updated Ns ago` after a failed one. Quitting or opening a project stops the read in progress. Ghostty-only setups read as before.
 
 ## [2.0.1] - 2026-10-31
 

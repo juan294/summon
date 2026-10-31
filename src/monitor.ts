@@ -1,5 +1,7 @@
+import { spawn } from "node:child_process";
+import type { Socket } from "node:net";
 import { sym } from "./ui/symbols.js";
-import { readAllStatuses, readProjectStatus, getGitBranch, isLiveState as isLiveWorkspaceState, unverifiedMessage } from "./status.js";
+import { hasRexState, readAllStatuses, readProjectStatus, getGitBranch, isLiveState as isLiveWorkspaceState, unverifiedMessage } from "./status.js";
 import type { ProgramState } from "./backends/rex/status.js";
 import type { ResolvedStatus } from "./status.js";
 import { listProjects } from "./config.js";
@@ -8,6 +10,7 @@ import { getDisplayWidth, truncate } from "./ui/width.js";
 import { runPool, IO_CONCURRENCY } from "./utils.js";
 import { createMonitorInputDecoder, type MonitorInput } from "./monitor-input.js";
 import { createMonitorVisibility, type VisibilityEffects } from "./monitor-visibility.js";
+import { selfInvocation } from "./self.js";
 
 // --- Types ---
 
@@ -147,9 +150,10 @@ export function renderRow(row: ProjectRow, width: number, selected: boolean): st
   return line;
 }
 
-export function renderHeader(activeCount: number, totalCount: number, width: number): string {
+/** `note`: how stale the rows are (a read still running, or the age after a failed one), shown dim before the count. */
+export function renderHeader(activeCount: number, totalCount: number, width: number, note?: string): string {
   const left = `  ${bold("summon status")}`;
-  const right = `\u25B8 ${activeCount} / ${totalCount}  `;
+  const right = `${note ? `${note}  ` : ""}\u25B8 ${activeCount} / ${totalCount}  `;
   // Left side has ANSI codes, so pad by visible width
   const leftVisible = "  summon status".length;
   const padding = Math.max(0, width - leftVisible - right.length);
@@ -164,14 +168,14 @@ export function renderFooter(width: number, visibilityUnavailable = false): stri
   return dim(padded);
 }
 
-export function renderScreen(rows: ProjectRow[], selectedIndex: number, width: number, height: number, scrollStart = 0, visibilityUnavailable = false): string {
+export function renderScreen(rows: ProjectRow[], selectedIndex: number, width: number, height: number, scrollStart = 0, visibilityUnavailable = false, staleNote?: string): string {
   // UX-L1 (#616): when terminal is too narrow, render a guard message instead of a clamped grid
   if (width < MIN_COLS) {
     return `Terminal too narrow \u2014 widen to \u2265${MIN_COLS} cols`;
   }
 
   const activeCount = rows.filter(r => isLiveState(r.state)).length;
-  const header = renderHeader(activeCount, rows.length, width);
+  const header = renderHeader(activeCount, rows.length, width, staleNote);
   const separator = dim("\u2500".repeat(width));
   const footer = renderFooter(width, visibilityUnavailable);
 
@@ -317,9 +321,18 @@ export function loadProjectRow(name: string): ProjectRow | undefined {
   return status ? statusToRow(name, directory, status) : neverLaunchedRow(name, directory);
 }
 
+/** The monitor's status read: every row, with the Rex program status. */
+function readMonitorStatuses(): ResolvedStatus[] {
+  return readAllStatuses({ programStatus: true });
+}
+
 export function loadProjectRows(): ProjectRow[] {
+  return rowsFromStatuses(readMonitorStatuses());
+}
+
+/** The rows for one status read: every registered project, then the statuses of unregistered ones, live rows first. */
+export function rowsFromStatuses(statuses: ResolvedStatus[]): ProjectRow[] {
   const projects = listProjects();
-  const statuses = readAllStatuses({ programStatus: true });
   const statusMap = new Map<string, ResolvedStatus>();
   for (const s of statuses) {
     statusMap.set(s.project, s);
@@ -341,6 +354,74 @@ export function loadProjectRows(): ProjectRow[] {
 
   const stateOrder: Record<ProjectState, number> = { active: 0, "active-long": 1, partial: 2, stopped: 3, unknown: 4 };
   return rows.sort((a, b) => stateOrder[a.state] - stateOrder[b.state]);
+}
+
+// --- Status read in a child process (PE-H1) ---
+
+/**
+ * Hidden argv: the monitor starts this same CLI with it to read the statuses in a child process.
+ * A Rex read spawns `rex` synchronously (up to 10 s per call), so it never runs on the TUI's thread.
+ */
+export const MONITOR_READ_ARG = "--internal-monitor-read";
+
+/** The child side of MONITOR_READ_ARG: one status read, as JSON on stdout. */
+export function writeMonitorRead(): void {
+  process.stdout.write(JSON.stringify(readMonitorStatuses()));
+}
+
+/** The child read failed; `signal` is set when the child was ended by a signal (stopped, never retried in-process). */
+export class ChildReadError extends Error {
+  constructor(message: string, readonly signal: NodeJS.Signals | null) {
+    super(message);
+  }
+}
+
+/**
+ * Run `execPath args` and parse its stdout as the statuses. The child leads its own process group:
+ * an abort ends the group, so a `rex` call it is waiting on ends too (records are written atomically
+ * under their lock, so an interrupted read is safe). It is unreferenced and never holds Summon open.
+ */
+export function readStatusesInChild(execPath: string, args: readonly string[], signal?: AbortSignal): Promise<ResolvedStatus[]> {
+  return new Promise((resolve, reject) => {
+    // With the config cache off, the child never rewrites cache.json at exit (one child per tick).
+    const child = spawn(execPath, args, { detached: true, stdio: ["ignore", "pipe", "ignore"], env: { ...process.env, SUMMON_NO_CACHE: "1" } });
+    const stop = () => {
+      try { if (child.pid) process.kill(-child.pid, "SIGTERM"); } catch { /* the group has already exited */ }
+    };
+    const settle = () => signal?.removeEventListener("abort", stop);
+    const chunks: Buffer[] = [];
+    child.stdout.on("data", (chunk: Buffer) => chunks.push(chunk));
+    child.once("error", (error) => { settle(); reject(error); });
+    child.once("close", (code, ended) => {
+      settle();
+      if (code !== 0) { reject(new ChildReadError(`status read ended with ${ended ?? `exit code ${code}`}`, ended)); return; }
+      try { resolve(JSON.parse(Buffer.concat(chunks).toString("utf-8")) as ResolvedStatus[]); } catch (error) { reject(error as Error); }
+    });
+    if (signal?.aborted) stop();
+    else signal?.addEventListener("abort", stop, { once: true });
+    child.unref();
+    (child.stdout as Socket).unref();
+  });
+}
+
+type RowLoader = (signal: AbortSignal) => ProjectRow[] | Promise<ProjectRow[]>;
+
+/**
+ * In the CLI, with Rex state present, a child process of this same Summon. Otherwise in-process,
+ * exactly as before: Ghostty liveness is files and `process.kill`, never a `rex` spawn, so it costs
+ * no child per tick (also library use and tests, where no invocation is registered).
+ */
+function defaultRowLoader(): RowLoader {
+  const self = selfInvocation();
+  if (!self) return loadProjectRows;
+  return (signal) => (hasRexState()
+    ? readStatusesInChild(self.execPath, [self.script, MONITOR_READ_ARG], signal).then(rowsFromStatuses)
+    : loadProjectRows());
+}
+
+/** "6s", or the uptime format from a minute on. */
+function formatAge(ms: number): string {
+  return ms < 60_000 ? `${Math.floor(ms / 1000)}s` : formatUptime(ms);
 }
 
 // --- Single-shot mode ---
@@ -368,8 +449,43 @@ export async function printStatusOnce(): Promise<void> {
 
 // --- TUI Monitor ---
 
-export async function runMonitor(): Promise<void> {
-  let rows = loadProjectRows();
+/**
+ * The first rows, before the first frame. A read that failed on its own (spawn error, failure exit,
+ * bad output) is done once in-process; one ended by a signal is not run again. Ctrl+C or SIGTERM
+ * while it runs stop it before Summon exits.
+ */
+async function firstRows(first: Promise<ProjectRow[]>, abort: AbortController): Promise<ProjectRow[]> {
+  const onSignal = (code: number) => () => { abort.abort(); process.exit(code); };
+  const onSigint = onSignal(130);
+  const onSigterm = onSignal(143);
+  process.once("SIGINT", onSigint);
+  process.once("SIGTERM", onSigterm);
+  try {
+    return await first;
+  } catch (error) {
+    if (error instanceof ChildReadError && error.signal) throw error;
+    return loadProjectRows();
+  } finally {
+    process.off("SIGINT", onSigint);
+    process.off("SIGTERM", onSigterm);
+  }
+}
+
+export interface MonitorOptions {
+  /** Where the rows come from (tests); a promise is awaited while keys, resize and render keep running. */
+  loadRows?: RowLoader;
+}
+
+export async function runMonitor(options: MonitorOptions = {}): Promise<void> {
+  const loadRows = options.loadRows ?? defaultRowLoader();
+  const firstAbort = new AbortController();
+  const first = loadRows(firstAbort.signal);
+  // An in-process read stays synchronous: the dashboard is entered before runMonitor returns.
+  let rows = Array.isArray(first) ? first : await firstRows(first, firstAbort);
+  /** The read in flight: ticks and `r` start none until it settles (never two reads at once, PE-H1). */
+  let reading: { abort: AbortController; startedAt: number } | null = null;
+  let lastUpdated = Date.now();
+  let readFailed = false;
   let selectedIndex = 0;
   let scrollStart = 0;
   let prevFrame: string | null = null;
@@ -427,7 +543,7 @@ export async function runMonitor(): Promise<void> {
     else if (selectedIndex < scrollStart) scrollStart = selectedIndex;
     const screen = ui === "help" ? helpLines.join("\n")
       : ui === "error" ? errorLines.join("\n")
-      : renderScreen(rows, selectedIndex, getWidth(), getHeight(), scrollStart, session.fallback);
+      : renderScreen(rows, selectedIndex, getWidth(), getHeight(), scrollStart, session.fallback, staleNote());
     if (!fullClear && !session.dirty && screen === prevFrame) return;
     process.stdout.write((fullClear || session.dirty ? CLEAR_SCREEN : CURSOR_HOME) + screen);
     session.dirty = false;
@@ -446,13 +562,40 @@ export async function runMonitor(): Promise<void> {
     });
   }
 
+  /** The rows are stale: say so instead of showing old rows silently. */
+  function staleNote(): string | undefined {
+    if (readFailed) return `last updated ${formatAge(Date.now() - lastUpdated)} ago`;
+    if (reading && Date.now() - reading.startedAt >= REFRESH_INTERVAL_MS) return "updating\u2026";
+    return undefined;
+  }
+
   function refresh(): void {
     if (!current(session) || session.hidden) return;
+    // A read is in flight: no second one; only the staleness note moves.
+    if (reading) { if (ui === "dashboard") render(); return; }
+    const abort = new AbortController();
+    const next = loadRows(abort.signal);
+    if (Array.isArray(next)) { applyRows(next); return; }
+    const read = { abort, startedAt: Date.now() };
+    reading = read;
+    if (ui === "dashboard") render(); // after a failed read, its age keeps counting
+    void next.then(applyRows, () => {
+      // A failed read keeps the rows on screen with their age; the next tick reads again. A stopped one says nothing.
+      if (abort.signal.aborted) return;
+      readFailed = true;
+      if (current(session) && !session.hidden && ui === "dashboard") render();
+    }).finally(() => { if (reading === read) reading = null; });
+  }
+
+  function applyRows(next: ProjectRow[]): void {
+    lastUpdated = Date.now();
+    readFailed = false;
     // FE-M1: rows reorder by state, so keep the cursor on the same project; clamp only when it is gone.
     const selectedName = rows[selectedIndex]?.name;
-    rows = loadProjectRows();
+    rows = next;
     const kept = rows.findIndex((row) => row.name === selectedName);
     selectedIndex = kept >= 0 ? kept : Math.min(selectedIndex, Math.max(0, rows.length - 1));
+    if (!current(session) || session.hidden) return;
     if (ui === "dashboard") render();
     prefetch();
   }
@@ -480,6 +623,8 @@ export async function runMonitor(): Promise<void> {
     const s = session;
     if (!s || s.disposed) return;
     s.disposed = true;
+    // Quit, signals and the Enter handoff all pass here: the read in flight is stopped, never orphaned.
+    reading?.abort.abort();
     if (s.refreshTimer) clearInterval(s.refreshTimer);
     if (s.visibilityTimer) clearTimeout(s.visibilityTimer);
     if (s.inputTimer) clearTimeout(s.inputTimer);
