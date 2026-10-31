@@ -41,7 +41,7 @@ src/
   backend-detect.ts     Pure backend detection table over an env snapshot plus injected probe results
   launch-identity.ts    Per-launch ids and artifacts: newLaunchId, launchArtifactPaths, bootstrap/trap shell fragments, launch manifests
   self.ts               How this process was started (node binary, resolved script), registered by index.ts so the cleanup trap runs the same Summon
-  file-lock.ts          withFileLock: cross-process lock (directory rename, dead-owner recovery) for config and status records
+  file-lock.ts          withFileLock: cross-process lock (directory rename, dead-owner recovery) for config and status records; withFileLockAsync for the Rex launch lock (BE-L1)
   backends/port.ts      The two backend ports (types only): TerminalBackend (launch side) and WorkspaceBackend (record side)
   backends/select.ts    createTerminalBackend: LaunchContext -> TerminalBackend (launcher, session, open)
   backends/workspace.ts workspaceBackendFor: stored record backend -> WorkspaceBackend (status reader, focus, inspect, title, clean)
@@ -59,7 +59,7 @@ src/
   backends/rex/launcher-tab.ts D1 launcher-tab close after a launch or switch inside Rex
   backends/rex/doctor.ts The Rex section of summon doctor (CLI, version, server, app clients)
   backends/rex/reconcile.ts Writing steps of a reconciling read: adoptOnce (P13), pane-file refresh, endRexLaunch (snapshot, endedAt, file removal; also used by clean)
-  backends/rex/backend.ts createRexBackend: TerminalBackend adapter (beforeLaunch adoption and P2 switch, P8 notices, launch, dry run, D1 hooks)
+  backends/rex/backend.ts createRexBackend: TerminalBackend adapter (beforeLaunch adoption and P2 switch, exclusiveLaunch per-project launch lock BE-L1, P8 notices, launch, dry run, D1 hooks)
   launch-guards.ts      Pre-launch safety checks (ensureGhostty, ensureAccessibility, confirmDangerousCommands)
   status-record.ts      Record layer: WorkspaceStatus, readStatusRecord, withOwnedRecord locked writes, launch artifact removal, Ghostty liveness
   status.ts             Status reader: readStatus/readAllStatuses, each record resolved by its record backend (active/partial/stopped/unknown); writes nothing unless a read passes { reconcile: true } (every status command does); no re-export of status-record

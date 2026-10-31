@@ -372,12 +372,14 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
     dryRun: cliOverrides?.dryRun === true,
     starshipPreset,
   };
-  const launched = treeLayout
-    ? await launchTreeLayout(treeLayout, opts, inputs)
-    : await launchTraditionalLayout(opts, inputs);
+  // The backend launch and the status publication. A dry run prints instead and publishes nothing.
+  const createAndPublish = async (): Promise<void> => {
+    const launched = treeLayout
+      ? await launchTreeLayout(treeLayout, opts, inputs)
+      : await launchTraditionalLayout(opts, inputs);
+    if (dryRun) return;
 
-  // Write workspace status for monitoring features
-  if (!cliOverrides?.dryRun) {
+    // Write workspace status for monitoring features
     const status: WorkspaceStatus = {
       project: projectName,
       directory: resolve(targetDir),
@@ -401,7 +403,21 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
     } else if (published === "unsaved") {
       err("summon: warning: workspace launched, but status could not be saved or invalidated. Previous metadata may remain and target an older workspace; select manually in Ghostty, repair config directory permissions and run summon doctor before using exact commands.");
     }
+  };
+
+  if (dryRun) {
+    await createAndPublish();
+    return "dry-run";
   }
-  if (!dryRun) backend.afterSuccess?.();
-  return dryRun ? "dry-run" : "launched";
+  // BE-L1: a backend may serialize creation and publication per project (Rex), after every prompt and on-start; under
+  // its lock it can find that a concurrent launch won and switch to that workspace instead.
+  const decision: LaunchDecision = backend.exclusiveLaunch
+    ? await backend.exclusiveLaunch(projectName, createAndPublish)
+    : (await createAndPublish(), { kind: "proceed" });
+  if (decision.kind === "refused") {
+    fail(decision.reason);
+    process.exit(2);
+  }
+  backend.afterSuccess?.();
+  return decision.kind === "switched" ? "switched" : "launched";
 }

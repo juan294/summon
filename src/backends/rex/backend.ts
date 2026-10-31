@@ -8,7 +8,8 @@ import { REX_UNHONORED_FLAGS } from "../../backend.js";
 import type { LaunchContext } from "../../backend.js";
 import type { CLIOverrides } from "../../config-resolve.js";
 import type { LaunchManifest } from "../../launch-identity.js";
-import { readStatusRecord } from "../../status-record.js";
+import { launchLockFile, readStatusRecord } from "../../status-record.js";
+import { STALE_LOCK_MS, withFileLockAsync } from "../../file-lock.js";
 import { note, out } from "../../ui/output.js";
 import { sym } from "../../ui/symbols.js";
 import { createRexCli, probeWhoami } from "./cli.js";
@@ -41,6 +42,35 @@ export interface RexBackendDeps {
   newWindow?: boolean;
   /** The launch's shared session listings (PE-L1), for the kept-session check; `createWorkspace` lists for itself (P13). */
   listings?: SessionListings | undefined;
+  /** BE-L1: runs `action` holding the project's launch lock (default: `rexLaunchLock`). */
+  launchLock?: <T>(project: string, action: () => Promise<T>) => Promise<T>;
+}
+
+/**
+ * BE-L1: a waiter gives up after this long. It exceeds STALE_LOCK_MS, so the lock of a launcher that hangs (or one
+ * suspended, Ctrl-Z) is taken over first; a launch that holds it longer than that bound can thus run beside the next one.
+ */
+export const LAUNCH_LOCK_TIMEOUT_MS = STALE_LOCK_MS + 30_000;
+
+/**
+ * The per-project launch lock (BE-L1): held from the decision under the lock through `session.create` to the record's
+ * publication, never across a prompt or on-start. A second launcher of the same project waits here, with a transient
+ * progress line on stdout (never stderr, so the D1 watch does not count it).
+ */
+export async function rexLaunchLock<T>(project: string, action: () => Promise<T>): Promise<T> {
+  const line = transientLine();
+  try {
+    return await withFileLockAsync(launchLockFile(project), async () => {
+      line.clear();
+      return action();
+    }, {
+      timeoutMs: LAUNCH_LOCK_TIMEOUT_MS,
+      timeoutMessage: `Timed out waiting for another summon launch of ${project} to finish. Retry when it is done; summon doctor names a lock that stays.`,
+      onWait: () => line.show(`Summoning ${project}… waiting for another launch of ${project}`),
+    });
+  } finally {
+    line.clear();
+  }
 }
 
 /**
@@ -72,6 +102,8 @@ export function createRexBackend(context: RexLaunchContext, deps: RexBackendDeps
   const cliFor = (binary: string, server: string): RexCli => (deps.cliFor ?? createRexCli)(binary, server);
   const serverCli = (server: string): RexCli => cliFor(context.rexBinary, server);
   const newWindow = deps.newWindow === true;
+  /** The record generation `beforeLaunch` decided on (BE-L1); `undefined` until it ran. */
+  let decidedOn: string | null | undefined;
 
   async function launchRex(layout: SessionCreateInput["layout"], panes: string[], ctx: BackendLaunchContext): Promise<BackendLaunchResult> {
     const cli = serverCli(context.server);
@@ -156,7 +188,24 @@ export function createRexBackend(context: RexLaunchContext, deps: RexBackendDeps
       startLauncherTabWatch(context);
       const listings = sessionListings();
       for (const notice of adoptOrphansForLaunch(project, adoptDeps(context.rexBinary, listings))) note(notice.text, { routine: notice.routine === true });
+      decidedOn = readStatusRecord(project)?.launchId ?? null;
       return maybeSwitchToExisting(project, newWindow, { cliFor: serverCli, callerSession: deps.callerSession, listings });
+    },
+
+    /**
+     * BE-L1: the P2 decision above ran before the prompts and on-start, without a lock. Under the project's launch lock
+     * it is made again only when the record changed since (another launch published meanwhile, or nothing was decided),
+     * so a second concurrent launch switches to the first one's workspace instead of creating a second session.
+     */
+    async exclusiveLaunch(project: string, create: () => Promise<void>): Promise<LaunchDecision> {
+      return (deps.launchLock ?? rexLaunchLock)(project, async (): Promise<LaunchDecision> => {
+        if (decidedOn === undefined || (readStatusRecord(project)?.launchId ?? null) !== decidedOn) {
+          const decision = maybeSwitchToExisting(project, newWindow, { cliFor: serverCli, callerSession: deps.callerSession });
+          if (decision.kind !== "proceed") return decision;
+        }
+        await create();
+        return { kind: "proceed" };
+      });
     },
 
     applyLaunchOptions({ overrides, dryRun }) {

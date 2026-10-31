@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { cliBuild } from "./fixtures/cli-builds.js";
@@ -57,6 +57,8 @@ else if (cmd === "ls") print({ sessions: state.sessions.map((s) => ({ session_id
 else if (cmd === "api" && method === "session.view") { const s = find(JSON.parse(input).session_id); if (!s) notFound(); print(view(s)); }
 else if (cmd === "api" && method === "client.list") print({ clients: state.clients });
 else if (cmd === "api" && method === "session.create") {
+  // A slow server (BE-L1): the session appears only after the delay, so a concurrent launch overlaps this one.
+  if (state.createDelayMs) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, state.createDelayMs); Object.assign(state, JSON.parse(fs.readFileSync(stateFile, "utf8"))); }
   const request = JSON.parse(input);
   const first = request.initial_windows[0];
   const s = { session_id: id("session"), label: request.label, windows: [{ window_id: id("window"), label: first.window_label, blocks: leaves(first.layout).map(() => id("block")) }] };
@@ -74,7 +76,7 @@ else { process.stderr.write("unexpected fake rex operation: " + argv.join(" ") +
 `;
 
 interface FakeSession { session_id: string; label: string; windows: Array<{ window_id: string; label: string; blocks: string[] }> }
-interface FakeState { sessions: FakeSession[]; clients: unknown[]; createMode?: "lost"; foreground?: "agent" }
+interface FakeState { sessions: FakeSession[]; clients: unknown[]; createMode?: "lost"; foreground?: "agent"; createDelayMs?: number }
 
 const LAUNCHER: FakeSession = {
   session_id: "session:0000aaaa-0000-0000-0000-000000000001",
@@ -112,6 +114,20 @@ function summon(project: string, ...flags: string[]) {
   return run;
 }
 
+/** `summon` without waiting for it, so several can run at once. */
+function summonAsync(project: string, ...flags: string[]): Promise<{ status: number | null; stdout: string; stderr: string }> {
+  return new Promise((resolvePromise, reject) => {
+    const child = spawn(process.execPath, [cliBuild("production"), ".", "--editor", "sleep 300", "--sidebar", "sleep 300", "--layout", "minimal", ...flags], { cwd: projectDir(project), env: env(), stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString("utf8"); });
+    child.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString("utf8"); });
+    const timer = setTimeout(() => child.kill("SIGKILL"), 30_000);
+    child.on("error", reject);
+    child.on("close", (status) => { clearTimeout(timer); resolvePromise({ status, stdout, stderr }); });
+  });
+}
+
 /** The detached close runs 0.3 s after Summon exits; wait for its decision (or for the time it would take). */
 async function settle(until: () => boolean, ms = 5000): Promise<boolean> {
   const deadline = Date.now() + ms;
@@ -125,7 +141,7 @@ async function settle(until: () => boolean, ms = 5000): Promise<boolean> {
 beforeAll(() => {
   mkdirSync(binDir, { recursive: true });
   mkdirSync(home, { recursive: true });
-  for (const name of ["alpha", "beta", "gamma"]) mkdirSync(projectDir(name), { recursive: true });
+  for (const name of ["alpha", "beta", "gamma", "delta"]) mkdirSync(projectDir(name), { recursive: true });
   writeFileSync(rex, `#!${process.execPath}\n${FAKE_REX}`);
   chmodSync(rex, 0o755);
 });
@@ -217,6 +233,20 @@ describe("Rex launch composition through the built CLI and a fake rex (QA-M2)", 
     // The adoption note is something to read: the launcher tab stays.
     await settle(() => false, 1000);
     expect(launcherAlive()).toBe(true);
+  });
+
+  it("BE-L1: two concurrent launches of one project create one session; the second waits, then switches to it", { timeout: 60_000 }, async () => {
+    // Each launch spends 1.5 s in session.create, so both pass the early P2 decision before either publishes. The
+    // launcher tab is an agent's here, so no exit-time close touches the fake state meanwhile.
+    writeState({ ...readState(), createDelayMs: 1500, foreground: "agent" });
+    const runs = await Promise.all([summonAsync("delta"), summonAsync("delta")]);
+    for (const run of runs) expect(run.status, run.stderr).toBe(0);
+    expect(opsOf(rexCalls()).filter((op) => op === "api call session.create")).toHaveLength(1);
+    const sessions = readState().sessions.filter((s) => s.label === "delta");
+    expect(sessions).toHaveLength(1);
+    expect(runs.filter((run) => run.stdout.includes("Workspace [delta] ready in Rex."))).toHaveLength(1);
+    expect(runs.filter((run) => run.stderr.includes("Workspace [delta] is already running in Rex; switched to it (use --new-window for a fresh one)"))).toHaveLength(1);
+    expect(record("delta")).toMatchObject({ backend: "rex", rex: { sessionId: sessions[0]!.session_id } });
   });
 
   it("keeps the launcher tab when the launch printed a note", async () => {

@@ -92,12 +92,21 @@ export const statusTestHooks: { beforeLock?: () => void; beforeWrite?: () => voi
 
 // --- Paths ---
 
-function statusArtifactPath(projectName: string, extension: "json" | "active" | "pid"): string {
+function statusArtifactPath(projectName: string, extension: "json" | "active" | "pid" | "launch"): string {
   return confinedPath(STATUS_DIR, `${projectName}.${extension}`, "status");
 }
 
 function statusFilePath(projectName: string): string {
   return statusArtifactPath(projectName, "json");
+}
+
+/**
+ * BE-L1: the file a backend's per-project launch lock is named after (`<project>.launch.lock/` once held), distinct
+ * from the record lock (`<project>.json.lock/`). The status directory exists afterwards.
+ */
+export function launchLockFile(projectName: string): string {
+  mkdirSync(STATUS_DIR, { recursive: true, mode: 0o700 });
+  return statusArtifactPath(projectName, "launch");
 }
 
 function markerFilePath(projectName: string): string {

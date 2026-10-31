@@ -74,6 +74,12 @@ export interface TerminalBackend {
   beforeLaunch?(project: string): LaunchDecision;
   /** After the nested-workspace check: adjust or comment on the launch options. */
   applyLaunchOptions(input: LaunchOptionsInput): void;
+  /**
+   * Real launches only, after every prompt and on-start: run `create` (the backend launch and the status publication)
+   * exclusively per project (BE-L1). Without it `create` runs as is. Under its lock a backend may find that another
+   * launch published meanwhile and switch to that workspace (or refuse) instead of calling `create`.
+   */
+  exclusiveLaunch?(project: string, create: () => Promise<void>): Promise<LaunchDecision>;
   launchTraditional(plan: LayoutPlan, ctx: BackendLaunchContext): Promise<BackendLaunchResult | undefined>;
   launchTree(plan: TreeLayoutPlan, ctx: BackendLaunchContext): Promise<BackendLaunchResult | undefined>;
   /** What a dry run prints for this backend (no terminal command runs). */

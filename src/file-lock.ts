@@ -107,53 +107,118 @@ function sweepStaleStaging(file: string): void {
   }
 }
 
-/** Serialize synchronous read-modify-write transactions across processes, per file. */
-export function withFileLock<T>(file: string, action: () => T, timeoutMs = 3000): T {
+/** The lock directory, this attempt's owner token and its staging directory for `file`. */
+interface LockAttempt {
+  directory: string;
+  token: string;
+  staging: string;
+  acquired: boolean;
+  stagingCreated: boolean;
+}
+
+function newAttempt(file: string): LockAttempt {
   const directory = `${file}.lock`;
   const token = `${process.pid}-${randomUUID()}.owner`;
-  const staging = `${directory}-${token}.tmp`;
-  let acquired = false;
-  let stagingCreated = false;
+  return { directory, token, staging: `${directory}-${token}.tmp`, acquired: false, stagingCreated: false };
+}
+
+/** One acquisition step: true when this attempt published the lock; otherwise any stale owner is recovered. */
+function tryAcquire(attempt: LockAttempt): boolean {
+  const { directory, token, staging } = attempt;
+  // A waiter holds no staging directory while the canonical lock exists.
+  if (!existsSync(directory)) {
+    mkdirSync(staging, { mode: 0o700 });
+    attempt.stagingCreated = true;
+    writeFileSync(join(staging, token), "", { mode: 0o600, flag: "wx" });
+    try {
+      // Publish a NONEMPTY directory atomically. rename cannot replace another
+      // nonempty owner, including one acquired during stale-owner recovery.
+      renameSync(staging, directory);
+      attempt.acquired = true;
+      attempt.stagingCreated = false;
+      return true;
+    } catch (error) {
+      if (!["EEXIST", "ENOTEMPTY"].includes(code(error) ?? "")) throw error;
+    }
+    // Another process won publication. Dispose only our own attempt BEFORE
+    // recovery or sleep, so interrupting a blocked waiter leaves no artifact.
+    removeOwner(staging, token);
+    attempt.stagingCreated = false;
+  }
+  recoverStaleLock(directory);
+  return false;
+}
+
+/** After an acquisition or transaction error: remove what this attempt holds, never masking the error. */
+function abandon(attempt: LockAttempt): void {
+  try {
+    if (attempt.acquired) removeOwner(attempt.directory, attempt.token);
+    else if (attempt.stagingCreated) removeOwner(attempt.staging, attempt.token);
+  } catch { /* best effort */ }
+}
+
+function release(file: string, attempt: LockAttempt): void {
+  removeOwner(attempt.directory, attempt.token);
+  sweepStaleStaging(file);
+}
+
+/** Serialize synchronous read-modify-write transactions across processes, per file. */
+export function withFileLock<T>(file: string, action: () => T, timeoutMs = 3000): T {
+  const attempt = newAttempt(file);
   let result: T;
   try {
     const deadline = performance.now() + timeoutMs;
-    for (;;) {
-      // A waiter holds no staging directory while the canonical lock exists.
-      if (!existsSync(directory)) {
-        mkdirSync(staging, { mode: 0o700 });
-        stagingCreated = true;
-        writeFileSync(join(staging, token), "", { mode: 0o600, flag: "wx" });
-        try {
-          // Publish a NONEMPTY directory atomically. rename cannot replace another
-          // nonempty owner, including one acquired during stale-owner recovery.
-          renameSync(staging, directory);
-          acquired = true;
-          stagingCreated = false;
-          break;
-        } catch (error) {
-          if (!["EEXIST", "ENOTEMPTY"].includes(code(error) ?? "")) throw error;
-        }
-        // Another process won publication. Dispose only our own attempt BEFORE
-        // recovery or sleep, so interrupting a blocked waiter leaves no artifact.
-        removeOwner(staging, token);
-        stagingCreated = false;
-      }
-      recoverStaleLock(directory);
+    while (!tryAcquire(attempt)) {
       if (performance.now() >= deadline) {
-        throw new Error(`Timed out waiting for config lock: ${directory}. Retry after the other summon process finishes; summon doctor names a lock that stays.`);
+        throw new Error(`Timed out waiting for config lock: ${attempt.directory}. Retry after the other summon process finishes; summon doctor names a lock that stays.`);
       }
       Atomics.wait(pause, 0, 0, 10);
     }
     result = action();
   } catch (error) {
     // Preserve a transaction/acquisition error rather than masking it with cleanup.
-    try {
-      if (acquired) removeOwner(directory, token);
-      else if (stagingCreated) removeOwner(staging, token);
-    } catch { /* best effort */ }
+    abandon(attempt);
     throw error;
   }
-  removeOwner(directory, token);
-  sweepStaleStaging(file);
+  release(file, attempt);
+  return result;
+}
+
+export interface AsyncLockOptions {
+  /** Give up after this long; it should exceed STALE_LOCK_MS so a hung owner is recovered before a waiter gives up. */
+  timeoutMs: number;
+  /** The error message when the wait times out. */
+  timeoutMessage: string;
+  /** Called once, when the first attempt finds the lock held. */
+  onWait?: () => void;
+  /** Pause between attempts (default 50 ms); the event loop keeps running meanwhile. */
+  pollMs?: number;
+}
+
+/**
+ * `withFileLock` for an asynchronous transaction that may run subprocesses (BE-L1: a Rex launch from its decision to
+ * its publication). Same lock directory protocol, owner tokens and stale/dead-owner recovery; the wait does not block
+ * the event loop. A transaction longer than STALE_LOCK_MS can be taken over by a waiter, which then runs unserialized.
+ */
+export async function withFileLockAsync<T>(file: string, action: () => Promise<T>, options: AsyncLockOptions): Promise<T> {
+  const attempt = newAttempt(file);
+  let result: T;
+  try {
+    const deadline = performance.now() + options.timeoutMs;
+    let waiting = false;
+    while (!tryAcquire(attempt)) {
+      if (performance.now() >= deadline) throw new Error(options.timeoutMessage);
+      if (!waiting) {
+        waiting = true;
+        options.onWait?.();
+      }
+      await new Promise((resolve) => setTimeout(resolve, options.pollMs ?? 50));
+    }
+    result = await action();
+  } catch (error) {
+    abandon(attempt);
+    throw error;
+  }
+  release(file, attempt);
   return result;
 }

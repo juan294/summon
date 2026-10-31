@@ -21,7 +21,7 @@ vi.mock("node:fs", async (original) => {
   return { ...fs, readdirSync: wrap("readdirSync"), renameSync: wrap("renameSync"), unlinkSync: wrap("unlinkSync"), rmdirSync: wrap("rmdirSync"), lstatSync: wrap("lstatSync") };
 });
 
-import { describeLock, inspectLock, recoverStaleLock, STALE_LOCK_MS, withFileLock } from "./file-lock.js";
+import { describeLock, inspectLock, recoverStaleLock, STALE_LOCK_MS, withFileLock, withFileLockAsync } from "./file-lock.js";
 
 const dirs: string[] = [];
 function fixture(): string {
@@ -199,6 +199,50 @@ function deadPid(): number {
   expect(dead.status).toBe(0);
   return dead.pid!;
 }
+
+describe("asynchronous transaction lock (BE-L1)", () => {
+  const options = { timeoutMs: 2000, timeoutMessage: "timed out waiting for the launch lock", pollMs: 5 };
+
+  it("serializes two transactions of one file: the second starts after the first finished, and is told once that it waits", async () => {
+    const dir = fixture(), file = join(dir, "project.launch");
+    const events: string[] = [];
+    let releaseFirst!: () => void;
+    const firstHeld = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    const onWait = vi.fn();
+    const first = withFileLockAsync(file, async () => { events.push("first:start"); await firstHeld; events.push("first:end"); return 1; }, options);
+    const second = withFileLockAsync(file, async () => { events.push("second:start"); return 2; }, { ...options, onWait });
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(events).toEqual(["first:start"]);
+    expect(onWait).toHaveBeenCalledTimes(1);
+    releaseFirst();
+    await expect(Promise.all([first, second])).resolves.toEqual([1, 2]);
+    expect(events).toEqual(["first:start", "first:end", "second:start"]);
+    expect(onWait).toHaveBeenCalledTimes(1);
+    expect(readdirSync(dir)).toEqual([]);
+  });
+
+  it("releases the lock when the transaction rejects, and rethrows its error", async () => {
+    const dir = fixture(), file = join(dir, "project.launch");
+    const original = new Error("create failed");
+    await expect(withFileLockAsync(file, async () => { throw original; }, options)).rejects.toBe(original);
+    expect(readdirSync(dir)).toEqual([]);
+    await expect(withFileLockAsync(file, async () => "again", options)).resolves.toBe("again");
+  });
+
+  it("times out on a live owner with the caller's message, leaving the owner's token", async () => {
+    const dir = fixture(), file = join(dir, "project.launch");
+    const token = owner(file, process.pid);
+    await expect(withFileLockAsync(file, async () => { throw new Error("must not enter"); }, { ...options, timeoutMs: 30 })).rejects.toThrow("timed out waiting for the launch lock");
+    expect(readdirSync(`${file}.lock`)).toEqual([token]);
+  });
+
+  it("recovers a lock whose owner is proven gone", async () => {
+    const dir = fixture(), file = join(dir, "project.launch");
+    owner(file, deadPid());
+    await expect(withFileLockAsync(file, async () => 3, options)).resolves.toBe(3);
+    expect(readdirSync(dir)).toEqual([]);
+  });
+});
 
 describe("stale-lock recovery (BE-L2)", () => {
   it("recovers a lock whose owner PID answers but whose token is past the bound (a reused PID)", () => {

@@ -48,10 +48,16 @@ const REX_IDENTITY = {
 // AR-M1: the real Rex backend (its pre-launch steps, P8 notices, dry run and D1 hooks run against the mocked Rex
 // modules below); only its two launch methods are replaced by recorders.
 const realRexBackend = vi.hoisted(() => ({ create: undefined as unknown as (context: unknown, deps: unknown) => Record<string, unknown> }));
+// BE-L1: the launch lock is recorded, not taken (node:fs is mocked here); file-lock.test.ts and rex-hermetic.test.ts take real ones.
+const launchEvents: string[] = [];
+const mockLaunchLock = vi.fn(async (_project: string, action: () => Promise<unknown>) => {
+  launchEvents.push("lock");
+  try { return await action(); } finally { launchEvents.push("unlock"); }
+});
 const mockCreateRexBackend = vi.fn((context: unknown, deps: unknown) => ({
-  ...realRexBackend.create(context, deps),
-  async launchTraditional(plan: unknown, ctx: Record<string, unknown>) { rexLaunches.push({ kind: "traditional", plan, ctx }); return { rex: REX_IDENTITY }; },
-  async launchTree(plan: unknown, ctx: Record<string, unknown>) { rexLaunches.push({ kind: "tree", plan, ctx }); return { rex: REX_IDENTITY }; },
+  ...realRexBackend.create(context, { ...(deps as object), launchLock: mockLaunchLock }),
+  async launchTraditional(plan: unknown, ctx: Record<string, unknown>) { launchEvents.push("create"); rexLaunches.push({ kind: "traditional", plan, ctx }); return { rex: REX_IDENTITY }; },
+  async launchTree(plan: unknown, ctx: Record<string, unknown>) { launchEvents.push("create"); rexLaunches.push({ kind: "tree", plan, ctx }); return { rex: REX_IDENTITY }; },
 }));
 vi.mock("./backends/rex/backend.js", async (original) => {
   const actual = await original<typeof import("./backends/rex/backend.js")>();
@@ -189,6 +195,7 @@ beforeEach(() => {
   mockMaybeSwitch.mockReturnValue({ kind: "proceed" });
   mockSessionState.mockReturnValue({ state: "stopped", liveBlocks: [] });
   rexLaunches.length = 0;
+  launchEvents.length = 0;
   // Prevent warnIfNested from activating when tests run inside a summon workspace
   savedSummonWorkspace = process.env.SUMMON_WORKSPACE;
   delete process.env.SUMMON_WORKSPACE;
@@ -4273,6 +4280,78 @@ describe("AR-M1: launches dispatch through the backend port", () => {
     }
     expect(mockSessionState).not.toHaveBeenCalled();
     expect(rexLaunches).toHaveLength(1);
+  });
+});
+
+describe("BE-L1: one Rex launch at a time per project", () => {
+  const REX_CONTEXT = { ok: true, backend: "rex", placement: "inside-rex", server: "unix:///tmp/rex.sock", rexBinary: "/usr/local/bin/rex", notices: [] };
+  const OTHER_LAUNCH = "11111111-1111-4111-8111-111111111111";
+  let errSpy: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    mockResolveBackendForLaunch.mockReturnValue(REX_CONTEXT);
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+    errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+  });
+  afterEach(() => {
+    errSpy.mockRestore();
+    vi.mocked(statusModule.publishStatus).mockImplementation(() => "published");
+    mockReadStatusRecord.mockImplementation(() => null);
+  });
+
+  it("takes the lock after the prompts and on-start, and creates and publishes inside it; an unchanged record is not decided again", async () => {
+    mockExecSync.mockImplementation(() => { launchEvents.push("on-start"); return ""; });
+    vi.mocked(statusModule.publishStatus).mockImplementation(() => { launchEvents.push("publish"); return "published"; });
+    await expect(launch("/tmp/workspace", { "on-start": "echo hi" })).resolves.toBe("launched");
+    expect(launchEvents).toEqual(["on-start", "lock", "create", "publish", "unlock"]);
+    expect(mockLaunchLock).toHaveBeenCalledWith("workspace", expect.any(Function));
+    expect(mockMaybeSwitch).toHaveBeenCalledTimes(1);
+    expect(mockCloseLauncherTab).toHaveBeenCalledTimes(1);
+  });
+
+  it("decides again under the lock when another launch published meanwhile, and switches to it without creating or publishing", async () => {
+    let current: unknown = null;
+    mockReadStatusRecord.mockImplementation(() => current);
+    // The other launch publishes while this one runs its on-start hook.
+    mockExecSync.mockImplementation(() => { current = { project: "workspace", backend: "rex", launchId: OTHER_LAUNCH, rex: REX_IDENTITY }; return ""; });
+    mockMaybeSwitch.mockReturnValueOnce({ kind: "proceed" }).mockReturnValueOnce({ kind: "switched" });
+    await expect(launch("/tmp/workspace", { "on-start": "echo hi" })).resolves.toBe("switched");
+    expect(mockMaybeSwitch).toHaveBeenCalledTimes(2);
+    expect(mockMaybeSwitch.mock.calls[1]).toEqual(["workspace", false, expect.objectContaining({ cliFor: expect.any(Function) })]);
+    // The listing of the early decision may be minutes old: the decision under the lock lists afresh.
+    expect(mockMaybeSwitch.mock.calls[1]![2]).not.toHaveProperty("listings");
+    expect(launchEvents).toEqual(["lock", "unlock"]);
+    expect(rexLaunches).toEqual([]);
+    expect(statusModule.publishStatus).not.toHaveBeenCalled();
+    expect(mockCloseLauncherTab).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses with exit 2 when the record that appeared meanwhile cannot be verified", async () => {
+    let current: unknown = null;
+    mockReadStatusRecord.mockImplementation(() => current);
+    mockExecSync.mockImplementation(() => { current = { project: "workspace", backend: "rex", launchId: OTHER_LAUNCH, rex: REX_IDENTITY }; return ""; });
+    mockMaybeSwitch.mockReturnValueOnce({ kind: "proceed" }).mockReturnValueOnce({ kind: "refused", reason: "workspace is recorded in Rex but could not be verified" });
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(((code: number) => { throw new Error(`exit:${code}`); }) as never);
+    try {
+      await expect(launch("/tmp/workspace", { "on-start": "echo hi" })).rejects.toThrow("exit:2");
+      expect(errSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("")).toContain("summon: error: workspace is recorded in Rex but could not be verified");
+    } finally {
+      exitSpy.mockRestore();
+    }
+    expect(rexLaunches).toEqual([]);
+    expect(statusModule.publishStatus).not.toHaveBeenCalled();
+  });
+
+  it("a Ghostty launch takes no launch lock, and a dry run neither", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      await launch("/tmp/workspace", { dryRun: true });
+      mockResolveBackendForLaunch.mockReturnValue({ ok: true, backend: "ghostty", placement: "outside", notices: [] });
+      await launch("/tmp/workspace");
+    } finally {
+      logSpy.mockRestore();
+    }
+    expect(mockLaunchLock).not.toHaveBeenCalled();
+    expect(launchEvents).toEqual([]);
   });
 });
 
