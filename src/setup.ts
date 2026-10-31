@@ -261,19 +261,6 @@ function buildFocusGrid(
 }
 
 /**
- * Render layout preview for the grid builder with focus highlighting.
- * Focused cell shows cyan "*", other cells show dim "·".
- * @internal — exported for testing only
- */
-export function renderGridBuilderPreview(
-  columns: number[],
-  focusCol: number,
-  focusRow: number,
-): string {
-  return renderLayoutPreview(buildFocusGrid(columns, focusCol, focusRow));
-}
-
-/**
  * Render key binding hints for the grid builder.
  * Dims unavailable actions based on current state.
  */

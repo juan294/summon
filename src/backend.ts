@@ -2,7 +2,6 @@ import { isGhosttyInstalled } from "./utils.js";
 import { detectBackend, snapshotEnv } from "./backend-detect.js";
 import type { Detection, RexDiscovery } from "./backend-detect.js";
 import { discoverRex, defaultRexServer, probeWhoami } from "./backends/rex/cli.js";
-import type { WorkspaceStatus } from "./status.js";
 
 /** Terminal backend that owns a workspace. Records without the field are Ghostty. */
 export type BackendId = "ghostty" | "rex";
@@ -61,11 +60,4 @@ export function resolveBackendForLaunch(probes: BackendProbes = {}): Detection {
 /** The caller's own Rex session (P7 app preference): `REX_SESSION` only when Summon runs inside Rex. */
 export function callerRexSession(context: Pick<LaunchContext, "placement">): string | undefined {
   return context.placement === "inside-rex" ? process.env["REX_SESSION"] : undefined;
-}
-
-/** Resolve the backend of an existing workspace from its record (plan P6). */
-export function resolveBackendForRecord(record: Pick<WorkspaceStatus, "backend" | "rex">): { backend: BackendId; server?: string } {
-  const backend = record.backend ?? "ghostty";
-  if (backend === "rex" && record.rex?.server) return { backend, server: record.rex.server };
-  return { backend };
 }

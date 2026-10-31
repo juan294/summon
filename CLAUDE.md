@@ -34,7 +34,7 @@ src/
   tree.ts               Tree DSL parser, layout node model, plan builder (pure function)
   script.ts             AppleScript generator (pure function — builds script string)
   launcher.ts           Orchestrator: resolve config, resolve backend (P15 seam), generate script, dispatch to a backend
-  backend.ts            BackendId, LaunchContext, resolveBackendForLaunch, resolveBackendForRecord
+  backend.ts            BackendId, LaunchContext, resolveBackendForLaunch
   backend-detect.ts     Pure backend detection table over an env snapshot plus injected probe results
   launch-identity.ts    Per-launch ids and artifacts: newLaunchId, launchArtifactPaths, bootstrap/trap shell fragments, launch manifests
   self.ts               How this process was started (node binary, resolved script), registered by index.ts so the cleanup trap runs the same Summon

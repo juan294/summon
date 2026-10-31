@@ -88,7 +88,3 @@ export function deleteSession(name: string): boolean {
     return false;
   }
 }
-
-export function sessionExists(name: string): boolean {
-  return existsSync(sessionPath(name));
-}

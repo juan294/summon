@@ -7,7 +7,6 @@ const mockListSessions = vi.fn();
 const mockReadSession = vi.fn();
 const mockWriteSession = vi.fn();
 const mockDeleteSession = vi.fn();
-const mockSessionExists = vi.fn();
 const mockIsValidSessionName = vi.fn();
 
 vi.mock("../launcher.js", () => ({
@@ -34,7 +33,6 @@ vi.mock("../sessions.js", () => ({
   readSession: (...args: unknown[]) => mockReadSession(...args),
   writeSession: (...args: unknown[]) => mockWriteSession(...args),
   deleteSession: (...args: unknown[]) => mockDeleteSession(...args),
-  sessionExists: (...args: unknown[]) => mockSessionExists(...args),
   isValidSessionName: (...args: unknown[]) => mockIsValidSessionName(...args),
 }));
 
