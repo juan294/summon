@@ -16,8 +16,8 @@ import {
   EDITOR_SIZE_MIN,
   EDITOR_SIZE_MAX,
 } from "../layout.js";
-import { readTrustedSummonFile, resolveConfig, optsToConfigMap } from "../launcher.js";
-import type { CLIOverrides } from "../launcher.js";
+import { readTrustedSummonFile, resolveConfig, optsToConfigMap } from "../config-resolve.js";
+import type { CLIOverrides } from "../config-resolve.js";
 import { ENV_KEY_RE, validateFloatFlag, validateIntFlag } from "../validation.js";
 import { exitWithUsageHint } from "../utils.js";
 import { fail, err } from "../ui/output.js";

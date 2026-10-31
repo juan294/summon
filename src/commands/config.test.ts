@@ -61,7 +61,7 @@ vi.mock("../layout.js", () => ({
   EDITOR_SIZE_MAX: 90,
 }));
 
-vi.mock("../launcher.js", () => ({
+vi.mock("../config-resolve.js", () => ({
   resolveConfig: (...args: unknown[]) => mockResolveConfig(...args),
   optsToConfigMap: (...args: unknown[]) => mockOptsToConfigMap(...args),
   readTrustedSummonFile: (...args: unknown[]) => mockReadTrustedSummonFile(...args),
