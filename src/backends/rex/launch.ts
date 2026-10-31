@@ -173,9 +173,10 @@ function unverifiedNotice(unverified: string[]): string {
 function removeFailedLaunch(manifest: LaunchManifest): string | undefined {
   let failures: string[] = [];
   try {
-    withOwnedRecord(manifest.project, "replace", () => null, () => {
+    const { afterErrors } = withOwnedRecord(manifest.project, "replace", () => null, () => {
       failures = removeLaunchFileSet(launchArtifactFiles(manifest.project, manifest.launchId, manifest.paneOrder)).failures;
     });
+    failures = [...failures, ...afterErrors.map((error) => error.message)];
   } catch (error) {
     failures = [error instanceof Error ? error.message : String(error)];
   }

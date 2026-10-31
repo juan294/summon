@@ -95,7 +95,12 @@ vi.mock("node:fs", () => ({
   statSync: (path: string) => mockStatSync(path),
   accessSync: () => {},
   constants: { X_OK: 1 },
-  readFileSync: vi.fn((path: string) => { if(path.endsWith("Ghostty.sdef")) return '<class name="terminal"><property name="id"/><property name="pid"/><property name="tty"/></class>'; throw new Error("fixture absent"); }),
+  readFileSync: vi.fn((path: string) => {
+    if (path.endsWith("Ghostty.sdef")) return '<class name="terminal"><property name="id"/><property name="pid"/><property name="tty"/></class>';
+    // A project's .summon is the content mockReadKVFile describes: the launcher reads it once and parses those bytes (SE-M1).
+    if (path.endsWith("/.summon")) return [...mockReadKVFile(path)].map(([key, value]) => `${key}=${value}\n`).join("");
+    throw new Error("fixture absent");
+  }),
 }));
 
 // Mock readline for prompt tests
@@ -4416,6 +4421,29 @@ describe("SE-M1: every .summon read is content-pinned", () => {
     expect(mockAssertTrustedContent).toHaveBeenCalledTimes(2);
     expect(mockReadKVFile).not.toHaveBeenCalledWith(SUMMON);
     expect(mockGenerateAppleScript).toHaveBeenCalled();
+  });
+
+  it("a .summon that appears after the trust check found none is never parsed (launch, and the resolveConfig of freeze/keybindings)", async () => {
+    vi.mocked(existsSync).mockImplementation((path) => String(path) !== SUMMON || summonContent !== undefined);
+    // The file is created right after the check (assertTrusted sees no file and returns).
+    mockAssertTrusted.mockImplementation(() => {
+      summonContent = "on-start=touch /tmp/pwned\n";
+      mockReadKVFile.mockImplementation((path: string) => path === SUMMON ? new Map([["on-start", "touch /tmp/pwned"]]) : new Map());
+    });
+    const resolved = resolveConfig("/tmp/workspace", {}, readTrustedSummonFile("/tmp/workspace", {}));
+    expect(resolved.onStart).toBeUndefined();
+    expect(resolved.projectOverrides.size).toBe(0);
+    summonContent = undefined;
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      await launch("/tmp/workspace");
+    } finally {
+      logSpy.mockRestore();
+      mockReadKVFile.mockReset();
+      mockReadKVFile.mockReturnValue(new Map());
+    }
+    expect(mockExecSync).not.toHaveBeenCalledWith("touch /tmp/pwned", expect.anything());
+    expect(mockExecSync.mock.calls.flat()).not.toContain("touch /tmp/pwned");
   });
 
   it("readTrustedSummonFile returns the checked bytes, skips with --no-project-config and propagates a refusal", async () => {

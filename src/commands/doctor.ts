@@ -24,6 +24,16 @@ import type { CommandContext } from "./types.js";
 const PASS = green(`${sym.ok} PASS`);
 const FAIL = red(`${sym.fail} FAIL`);
 
+/** UX-H1: Ghostty-only preferences a Rex launch ignores silently when they come from config; doctor names them once. */
+const REX_IGNORED_CONFIG_KEYS = ["maximize", "float", "fullscreen", "font-size", "clean", "new-window"] as const;
+
+function rexIgnoredConfigKeys(config: Map<string, string>): string[] {
+  return REX_IGNORED_CONFIG_KEYS.filter((key) => {
+    const value = config.get(key);
+    return key === "font-size" ? value !== undefined && value !== "" : value === "true";
+  });
+}
+
 export async function handleDoctorCommand({
   values,
 }: CommandContext): Promise<void> {
@@ -302,6 +312,8 @@ export async function handleDoctorCommand({
     console.error(detection.ok
       ? `  INFO  this shell launches in ${detection.backend} (placement ${detection.placement}${detection.backend === "rex" ? `, server ${detection.server}` : ""})`
       : `  INFO  this shell cannot launch: ${detection.reason}`);
+    const ignored = rexIgnoredConfigKeys(listConfig());
+    if (ignored.length > 0) console.error(`  INFO  Rex ignores these Ghostty settings from your config: ${ignored.join(", ")}`);
   }
 
   const userConfig = listConfig();

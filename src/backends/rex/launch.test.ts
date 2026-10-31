@@ -277,6 +277,31 @@ describe("createWorkspace", () => {
     }
   });
 
+  it("BE-M1: a failed removal is reported as a notice, never hidden, and the launch still fails with the server's reason", async () => {
+    const rejected = () => fakeCli({ "ls": () => ok("ls", { sessions: [] }), "session-create": () => fail("session-create", "rejected", "rolled-back", "boom") });
+    // The status lock cannot be taken.
+    statusTestHooks.beforeLock = () => { throw new Error("lock busy"); };
+    const locked = await createWorkspace(manifestFor(), fullBuild().request, ctxFor(rejected()));
+    delete statusTestHooks.beforeLock;
+    expect(locked).toMatchObject({ kind: "failed", reason: "boom", notices: [`could not remove the files of failed launch ${ID}: lock busy; summon clean --orphans names it`] });
+    expect(existsSync(launchArtifactPaths("chapa", ID).manifest)).toBe(true);
+    rmSync(launchArtifactPaths("chapa", ID).dir, { recursive: true, force: true });
+
+    // The manifest cannot be removed (read-only launches directory).
+    const paths = launchArtifactPaths("chapa", ID);
+    statusTestHooks.beforeLock = () => { chmodSync(paths.dir, 0o500); };
+    try {
+      const stuck = await createWorkspace(manifestFor(), fullBuild().request, ctxFor(rejected()));
+      expect(stuck).toMatchObject({ kind: "failed", reason: "boom" });
+      expect(stuck.notices).toHaveLength(1);
+      expect(stuck.notices[0]).toMatch(new RegExp(`^could not remove the files of failed launch ${ID}: .*${ID}\\.json: .*EACCES.*; summon clean --orphans names it$`));
+      expect(existsSync(paths.manifest)).toBe(true);
+    } finally {
+      delete statusTestHooks.beforeLock;
+      chmodSync(paths.dir, 0o700);
+    }
+  });
+
   it("an unreachable server (outcome none) is failed with the hint", async () => {
     const cli = fakeCli({
       "ls": () => fail("ls", "unreachable", "none"),

@@ -8,7 +8,8 @@ import { traditionalInventory, treeInventory, parseNativeCapture } from "../pane
 import type { NativeMetadata, PaneDescriptor } from "../pane-inventory.js";
 import type { BackendId } from "../backend.js";
 import type { RexIdentity } from "./rex/types.js";
-import { getErrorMessage, ACCESSIBILITY_SETTINGS_PATH, supportsColor } from "../utils.js";
+import { getErrorMessage, ACCESSIBILITY_SETTINGS_PATH } from "../utils.js";
+import { isStaticLaunchSpinner, transientLine } from "../ui/progress.js";
 import { fail, err } from "../ui/output.js";
 import { TabOpenError } from "../errors.js";
 
@@ -45,43 +46,9 @@ function asResult(native: NativeMetadata | undefined): BackendLaunchResult | und
   return native ? { native } : undefined;
 }
 
-// --- Spinner helpers (UX-L2 #519) ---
+// --- Spinner helpers (UX-L2 #519; the line itself is in ui/progress.ts) ---
 
-const LAUNCH_SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
-
-/** Returns true when the spinner should run in static (non-animating) mode.
- *  Static: NO_COLOR set, SUMMON_NO_SPINNER set, or stdout is not a TTY. */
-export function isStaticLaunchSpinner(): boolean {
-  if (!process.stdout.isTTY) return true;
-  if (process.env["SUMMON_NO_SPINNER"] !== undefined) return true;
-  return !supportsColor();
-}
-
-/** One transient stdout line: `show` replaces it, `clear` erases it. */
-export interface TransientLine {
-  show(label: string): void;
-  clear(): void;
-}
-
-/**
- * A transient status line on stdout, shown only where the launch spinner animates (see
- * `isStaticLaunchSpinner`); elsewhere both calls write nothing. Never written to stderr.
- */
-export function transientLine(): TransientLine {
-  let shown = false;
-  return {
-    show(label) {
-      if (isStaticLaunchSpinner()) return;
-      process.stdout.write(`${shown ? "\r\x1b[K" : ""}${LAUNCH_SPINNER_FRAMES[0]} ${label}`);
-      shown = true;
-    },
-    clear() {
-      if (!shown) return;
-      process.stdout.write("\r\x1b[K");
-      shown = false;
-    },
-  };
-}
+export { isStaticLaunchSpinner };
 
 /**
  * Run `fn` (a synchronous block) with a brief spinner on stdout.

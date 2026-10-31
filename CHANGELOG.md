@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Under Rex, `maximize`, `float`, `fullscreen`, `font-size` and `new-window` set in config are Ghostty preferences and are ignored silently, as `clean=true` already was. The flags (`--maximize`, `--float`, `--fullscreen`, `--font-size`, `--clean`, `--new-window`) still print their notice. The `on-stop will run on workspace exit` note is still printed, and no longer keeps the launcher tab open. With these, the tab now closes after a daily launch for users who share one config between Ghostty and Rex. Ghostty output does not change.
+- Under Rex, `maximize`, `float`, `fullscreen`, `font-size` and `new-window` set in config are Ghostty preferences and are ignored silently, as `clean=true` already was. The flags (`--maximize`, `--float`, `--fullscreen`, `--font-size`, `--clean`, `--new-window`) still print their notice. The `on-stop will run on workspace exit` note is still printed, and no longer keeps the launcher tab open. `summon doctor` names the ignored settings found in the machine config once. With these, the tab now closes after a daily launch for users who share one config between Ghostty and Rex. Ghostty output does not change.
 - A Rex launch on an interactive terminal shows a transient `Summoning <project>…` line on stdout while the session is created, and says when it opens the Rex app; the line is cleared before the result. Piped output does not change.
 
 ### Fixed

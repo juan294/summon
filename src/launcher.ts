@@ -523,8 +523,8 @@ function layerConfigValues(
 export function resolveConfig(targetDir: string, cliOverrides: CLIOverrides, summonFileContent?: string): ResolvedConfig {
   const projectConfigPath = join(targetDir, ".summon");
   const skipProjectConfig = cliOverrides["no-project-config"] === "true";
-  // Use pre-read content if provided (TOCTOU prevention, BE-B2 #357);
-  // fall back to reading from disk (e.g. when called without pre-read content).
+  // Use pre-read content if provided (TOCTOU prevention, BE-B2 #357). Every launch-path caller passes
+  // readTrustedSummonFile's result (SE-M1); the disk read below serves only callers that pass nothing.
   const project = skipProjectConfig
     ? new Map<string, string>()
     : summonFileContent !== undefined
@@ -899,7 +899,7 @@ function resolveLaunchBackend(dryRun: boolean | undefined): LaunchContext {
 /**
  * Read `.summon` once and verify that exact content is trusted (BE-B1, BE-B2 #357, SE-H1, SE-M1), so the bytes
  * hashed are the bytes parsed: pass the result to `resolveConfig`. Returns undefined with `--no-project-config`
- * (nothing is read) or when there is no file. Throws SummonError for an untrusted file.
+ * (nothing is read) and "" when there is no file. Throws SummonError for an untrusted file.
  */
 export function readTrustedSummonFile(targetDir: string, cliOverrides: CLIOverrides): string | undefined {
   if (cliOverrides["no-project-config"] === "true") return undefined;
@@ -914,7 +914,8 @@ export function readTrustedSummonFile(targetDir: string, cliOverrides: CLIOverri
   }
   if (content !== undefined) assertTrustedContent(targetDir, content);
   else assertTrusted(targetDir);
-  return content;
+  // No file at check time is an empty project config, never a later read of whatever appears meanwhile.
+  return content ?? "";
 }
 
 /** What a launch did: created a workspace, switched to a live Rex one (P2), or printed a dry run. */

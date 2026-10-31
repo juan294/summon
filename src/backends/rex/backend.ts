@@ -2,7 +2,7 @@ import { resolve } from "node:path";
 import type { LayoutPlan } from "../../layout.js";
 import { traditionalPaneNames } from "../../layout.js";
 import type { TreeLayoutPlan } from "../../tree.js";
-import { transientLine } from "../ghostty.js";
+import { transientLine } from "../../ui/progress.js";
 import type { BackendLaunchContext, BackendLaunchResult, TerminalBackend } from "../ghostty.js";
 import type { LaunchContext } from "../../backend.js";
 import type { LaunchManifest } from "../../launch-identity.js";
