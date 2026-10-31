@@ -1090,10 +1090,10 @@ Files are plain text (`key=value` format) and safe to edit manually.
 Before a project's `.summon` file is acted upon, its SHA-256 hash must be recorded as trusted. This is a direnv-style model. A launch with an untrusted file says why: `This project has a .summon file.` when it was never trusted, or `This project's .summon file changed since you trusted it.` (for example after `git pull`). On a terminal, summon then shows the file (control characters escaped) and asks:
 
 ```
-Trust and launch? [y/N]
+Trust this file and continue? [y/N]
 ```
 
-`y` trusts exactly the content shown and launches; `n`, Enter, Escape or Ctrl+C trusts nothing and exits with 130. Without a terminal (scripts, CI) nothing is asked: the launch fails with exit 1, as before. `summon session --all` never asks; it skips the untrusted project and continues. You can also grant trust explicitly:
+`y` trusts exactly the content shown and continues (launches, or prints the `--dry-run` script); `n`, Enter, Escape or Ctrl+C trusts nothing and exits with 130. The same prompt appears for a launch from `summon open`, the `summon open` picker and Enter in `summon status`; the status monitor asks on the normal screen after it closes the dashboard, and a decline returns to the dashboard with `Trust declined.`. Without a terminal (scripts, CI) nothing is asked: the launch fails with exit 1, as before. `summon session --all` never asks; it skips the untrusted project and continues. You can also grant trust explicitly:
 
 ```bash
 summon trust .                    # trust the .summon file in current directory

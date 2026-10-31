@@ -6,6 +6,8 @@ import {
   treeInventory,
   parseNativeCapture,
   parseNativeMetadata,
+  escapeControlChars,
+  isDisplaySafe,
 } from "./pane-inventory.js";
 
 const ids = Array.from(
@@ -81,5 +83,13 @@ describe("native pane inventory", () => {
       { ...native, panes: [{ name: "", terminalId: ids[0] }] },
     ])
       expect(parseNativeMetadata(invalid)).toBeUndefined();
+  });
+});
+
+describe("escapeControlChars", () => {
+  it("escapes controls, bidi overrides and invisible zero-width marks; keeps plain and wide text", () => {
+    expect(escapeControlChars("a\x1b[31m\tb\u202e\u2066\u200b\u200f")).toBe("a\\u001b[31m\\u0009b\\u202e\\u2066\\u200b\\u200f");
+    expect(escapeControlChars("editor · 日本 ✳")).toBe("editor · 日本 ✳");
+    expect(isDisplaySafe("id\u200b")).toBe(false);
   });
 });

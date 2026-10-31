@@ -938,7 +938,7 @@ describe("UX-M4: withTrustPrompt offers to trust and launch on a TTY", () => {
     const attempt = gatedLaunch();
     const t = io(true);
     await expect(withTrustPrompt(attempt, t.io)).resolves.toBe("launched");
-    expect(t.confirm).toHaveBeenCalledWith("Trust and launch?");
+    expect(t.confirm).toHaveBeenCalledWith("Trust this file and continue?");
     const shown = t.output.join("");
     expect(shown).toContain("/proj/.summon is not trusted yet");
     expect(shown).toContain("editor = vim");
@@ -998,13 +998,14 @@ describe("UX-M4: withTrustPrompt offers to trust and launch on a TTY", () => {
   });
 
   it("control and bidi characters in the shown file are escaped, never sent to the terminal", async () => {
-    const hostile = "editor = vim\x1b]0;pwned\x07\u202e\n";
+    const hostile = "editor = vim\x1b]0;pwned\x07\u202e\u200b\tx\r\nsidebar = htop\n";
     onDisk(null);
     const t = io(false);
     await expect(withTrustPrompt(async () => { assertTrustedContent("/proj", hostile); }, t.io)).rejects.toBeInstanceOf(PromptCancelled);
     const shown = t.output.join("");
     // eslint-disable-next-line no-control-regex -- the point is to find raw control characters
-    expect(shown).not.toMatch(/[\x1b\x07\u202e]/);
-    expect(shown).toContain("\\x1b]0;pwned\\x07\\u202e");
+    expect(shown).not.toMatch(/[\x1b\x07\u202e\u200b\t\r]/);
+    // Line by line: each line is escaped and indented, and CRLF reads as one line break.
+    expect(shown).toContain("  editor = vim\\u001b]0;pwned\\u0007\\u202e\\u200b\\u0009x\n  sidebar = htop");
   });
 });

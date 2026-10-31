@@ -743,7 +743,12 @@ export async function runMonitor(options: MonitorOptions = {}): Promise<void> {
       if (isActive) {
         const result = focusWorkspace(selected.name);
         if (result.kind !== "focused") throw new Error(result.reason);
-      } else await launch(selected.directory);
+      } else {
+        // UX-M4: a new or changed `.summon` is shown and offered for trust here, on the normal screen; a decline
+        // comes back to the dashboard as "Trust declined.".
+        const { withTrustPrompt } = await import("./trust.js");
+        await withTrustPrompt(() => launch(selected.directory));
+      }
       finish();
     } catch (error) {
       ui = "error";

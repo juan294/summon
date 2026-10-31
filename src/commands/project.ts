@@ -5,6 +5,7 @@ import {
   listProjects,
 } from "../config.js";
 import { focusWorkspace, launch } from "../launcher.js";
+import { withTrustPrompt } from "../trust.js";
 import { promptUser, exitWithUsageHint, PromptCancelled, CANCELLED_EXIT_CODE } from "../utils.js";
 import { fail, warn } from "../ui/output.js";
 import { unverifiedMessage } from "../status.js";
@@ -88,7 +89,10 @@ async function watchRexSwitch(project: string): Promise<() => void> {
   return () => closeLauncherTabAfterRexLaunch(detection);
 }
 
-/** Focus a live workspace, launch a stopped one, refuse an unknown one: the picker and `open <project>` agree. */
+/**
+ * Focus a live workspace, launch a stopped one, refuse an unknown one: the picker and `open <project>` agree.
+ * A launch offers to trust a new or changed `.summon` on a terminal, as a direct launch does (UX-M4).
+ */
 async function openRow(row: ProjectRow, overrides: CommandContext["overrides"]): Promise<void> {
   const { isLiveState } = await import("../monitor.js");
   // Plan P10: an unknown workspace is never launched over or focused.
@@ -104,7 +108,7 @@ async function openRow(row: ProjectRow, overrides: CommandContext["overrides"]):
     armClose();
     return;
   }
-  await launch(row.directory, overrides);
+  await withTrustPrompt(() => launch(row.directory, overrides));
 }
 
 export async function handleOpenCommand({ args, overrides }: CommandContext): Promise<void> {

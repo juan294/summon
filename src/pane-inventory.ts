@@ -17,11 +17,11 @@ export function isPlainText(value: unknown, options: { allowEmpty?: boolean } = 
   return options.allowEmpty === true || value.length > 0;
 }
 
-/** Process-controlled text for terminal output: controls and bidi overrides become `\uNNNN`. */
+/** Process-controlled text for terminal output: controls, bidi overrides and zero-width marks become `\uNNNN`. */
 export function escapeControlChars(text: string): string {
   return text.replace(
     // eslint-disable-next-line no-control-regex -- display process text without terminal control effects
-    /[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g,
+    /[\x00-\x1f\x7f-\x9f\u200b-\u200f\u202a-\u202e\u2066-\u2069]/g,
     (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`,
   );
 }

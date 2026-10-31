@@ -23,6 +23,12 @@ vi.mock("./launcher.js", () => ({
   launch: (...args: unknown[]) => mockLaunch(...args),
   focusWorkspace: (...args: unknown[]) => mockFocusWorkspace(...args),
 }));
+// UX-M4: the Enter handoff launches through the trust prompt; by default it runs the launch once.
+const mockWithTrustPrompt = vi.fn(async (attempt: () => Promise<unknown>) => attempt());
+vi.mock("./trust.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./trust.js")>()),
+  withTrustPrompt: (attempt: () => Promise<unknown>) => mockWithTrustPrompt(attempt),
+}));
 
 const monitorModule = await import("./monitor.js");
 const monitorRead = await import("./monitor-read.js");
@@ -1553,6 +1559,48 @@ describe("handoff on the four states (plan P10, Phase 4)", () => {
     await vi.dynamicImportSettled();
     expect(mockFocusWorkspace).toHaveBeenCalledWith("myapp");
     expect(mockLaunch).not.toHaveBeenCalled();
+  });
+
+  it("UX-M4: Enter on a stopped row launches inside the trust prompt, on the normal screen; a focus skips it", async () => {
+    mockWithTrustPrompt.mockClear();
+    listProjects.mockReturnValue([["myapp", "/tmp/myapp"]]);
+    readAllStatuses.mockReturnValue([makeResolvedStatus({ project: "myapp", state: "stopped", uptime: null })]);
+    let screenLeftBeforePrompt = false;
+    mockWithTrustPrompt.mockImplementationOnce(async (attempt) => {
+      screenLeftBeforePrompt = writeSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("").includes("\x1b[?1049l");
+      return attempt();
+    });
+    const monitorPromise = runMonitor();
+    process.stdin.emit("data", Buffer.from("\r"));
+    await monitorPromise;
+    await vi.dynamicImportSettled();
+    expect(mockWithTrustPrompt).toHaveBeenCalledTimes(1);
+    expect(screenLeftBeforePrompt).toBe(true);
+    expect(mockLaunch).toHaveBeenCalledWith("/tmp/myapp");
+
+    mockWithTrustPrompt.mockClear();
+    readAllStatuses.mockReturnValue([makeResolvedStatus({ project: "myapp", state: "active", uptime: 60_000 })]);
+    const second = runMonitor();
+    process.stdin.emit("data", Buffer.from("\r"));
+    await second;
+    await vi.dynamicImportSettled();
+    expect(mockFocusWorkspace).toHaveBeenCalledWith("myapp");
+    expect(mockWithTrustPrompt).not.toHaveBeenCalled();
+  });
+
+  it("UX-M4: a declined trust prompt returns to the dashboard with the reason and launches nothing", async () => {
+    const { PromptCancelled } = await import("./utils.js");
+    listProjects.mockReturnValue([["myapp", "/tmp/myapp"]]);
+    readAllStatuses.mockReturnValue([makeResolvedStatus({ project: "myapp", state: "stopped", uptime: null })]);
+    mockWithTrustPrompt.mockRejectedValueOnce(new PromptCancelled("Trust declined."));
+    const monitorPromise = runMonitor();
+    process.stdin.emit("data", Buffer.from("\r"));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(writeSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("")).toContain("Trust declined.");
+    expect(mockLaunch).not.toHaveBeenCalled();
+    process.stdin.emit("data", Buffer.from(" "));
+    process.stdin.emit("data", Buffer.from("q"));
+    await monitorPromise;
   });
 
   it("Enter on an unknown row shows the reason and neither launches nor focuses", async () => {

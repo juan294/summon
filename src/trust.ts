@@ -13,6 +13,7 @@ import { existsSync, readFileSync, mkdirSync, realpathSync, statSync } from "nod
 import { join, resolve } from "node:path";
 import { atomicWrite, confirm, PromptCancelled } from "./utils.js";
 import { TRUST_FILE, CONFIG_DIR } from "./paths.js";
+import { escapeControlChars } from "./pane-inventory.js";
 import { fail } from "./ui/output.js";
 
 /** Error thrown when a .summon file exists but is not trusted. */
@@ -231,19 +232,12 @@ const terminalIO = (): TrustPromptIO => ({
   write: (text) => { process.stdout.write(text); },
 });
 
-/** Control and bidi characters are shown as escapes, so the shown file cannot drive the terminal or hide text. */
-function printable(content: string): string {
-  // eslint-disable-next-line no-control-regex -- the point is to escape control characters
-  return content.replace(/\r\n/g, "\n").replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f\u200b-\u200f\u202a-\u202e\u2066-\u2069]/g, (c) => {
-    const code = c.charCodeAt(0);
-    return code <= 0xff ? `\\x${code.toString(16).padStart(2, "0")}` : `\\u${code.toString(16).padStart(4, "0")}`;
-  });
-}
-
 /**
- * UX-M4: run `attempt` (a direct launch); when the trust gate refuses `.summon` on a terminal, show the checked
- * bytes, ask `Trust and launch? [y/N]`, trust exactly those bytes and run `attempt` once more. Its own trust check
- * then passes only for the same bytes (TOCTOU, SE-L3). Declining is a user cancel (PromptCancelled, exit 130).
+ * UX-M4: run `attempt` (a direct launch, a dry run, `open` or the monitor's Enter); when the trust gate refuses
+ * `.summon` on a terminal, show the checked bytes line by line with controls, bidi and zero-width marks escaped (so
+ * the file cannot drive the terminal or hide text), ask `Trust this file and continue? [y/N]`, trust exactly those
+ * bytes and run `attempt` once more. Its own trust check then passes only for the same bytes (TOCTOU, SE-L3).
+ * Declining is a user cancel (PromptCancelled, exit 130).
  * Off a terminal, or for an error without checked bytes, the error is rethrown unchanged. It asks at most once.
  * Never used by `session --all`, which skips an untrusted project.
  */
@@ -254,8 +248,9 @@ export async function withTrustPrompt<T>(attempt: () => Promise<T>, io: TrustPro
     if (!(error instanceof UntrustedSummonError) || !io.interactive) throw error;
     const file = join(error.dir, ".summon");
     io.write(`${file} ${error.changed ? "changed since you trusted it" : "is not trusted yet"}:\n\n`);
-    io.write(printable(error.content).replace(/^/gm, "  ").trimEnd() + "\n\n");
-    if (!(await io.confirm("Trust and launch?"))) throw new PromptCancelled("Trust declined.");
+    const lines = error.content.split(/\r?\n/).map((line) => `  ${escapeControlChars(line)}`);
+    io.write(lines.join("\n").trimEnd() + "\n\n");
+    if (!(await io.confirm("Trust this file and continue?"))) throw new PromptCancelled("Trust declined.");
     storeTrust(error.dir, hashContent(error.content));
     io.write(`Trusted ${file}\n`);
     return attempt();
