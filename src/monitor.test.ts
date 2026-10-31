@@ -73,6 +73,46 @@ function makeResolvedStatus(overrides?: Record<string, unknown>) {
   };
 }
 
+/** Visible text: drops SGR colors and the cursor/clear sequences that start a frame. */
+// eslint-disable-next-line no-control-regex
+const visibleText = (s: string) => s.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "");
+
+/** stdin as a raw-capable TTY, as the monitor needs it. */
+function stubTtyStdin(): void {
+  Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
+  Object.defineProperty(process.stdin, "isRaw", { value: false, configurable: true });
+  Object.defineProperty(process.stdin, "setRawMode", { value: vi.fn(() => process.stdin), configurable: true });
+}
+
+/**
+ * The TTY a describe's monitor runs in: stdout captured, stdin a raw TTY, fake timers, no projects.
+ * `setup` adds the describe's own defaults. `frames()` are the full repaints written so far.
+ */
+function useMonitorTty(setup: () => void = () => {}) {
+  const tty = {
+    writeSpy: undefined as unknown as ReturnType<typeof vi.spyOn>,
+    resumeSpy: undefined as unknown as ReturnType<typeof vi.spyOn>,
+    frames: (): string[] => tty.writeSpy.mock.calls.map((c: unknown[]) => String(c[0])).filter((w: string) => w.startsWith("\x1b[H")),
+  };
+  beforeEach(() => {
+    listProjects.mockReturnValue([]);
+    getGitBranch.mockReturnValue(null);
+    setup();
+    vi.useFakeTimers();
+    tty.writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    tty.resumeSpy = vi.spyOn(process.stdin, "resume").mockImplementation(() => process.stdin);
+    stubTtyStdin();
+  });
+  afterEach(() => {
+    tty.writeSpy.mockRestore();
+    tty.resumeSpy.mockRestore();
+    process.stdin.removeAllListeners("data");
+    process.removeAllListeners("SIGWINCH");
+    vi.useRealTimers();
+  });
+  return tty;
+}
+
 describe("formatUptime", () => {
   it("30000 → '<1m'", () => {
     expect(formatUptime(30_000)).toBe("<1m");
@@ -832,31 +872,9 @@ describe("printStatusOnce", () => {
 // TUI tests require Node >= 22.12 (project minimum). Since the project enforces
 // Node >= 22.12 in package.json engines, this suite always runs on supported toolchains.
 describe("runMonitor", () => {
-  let writeSpy: ReturnType<typeof vi.spyOn>;
-  let resumeSpy: ReturnType<typeof vi.spyOn>;
-
-  beforeEach(() => {
-    listProjects.mockReturnValue([]);
+  const tty = useMonitorTty(() => {
     readAllStatuses.mockReturnValue([]);
-    getGitBranch.mockReturnValue(null);
     mockLaunch.mockResolvedValue(undefined);
-    vi.useFakeTimers();
-    writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
-    resumeSpy = vi.spyOn(process.stdin, "resume").mockImplementation(() => process.stdin);
-    Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
-    Object.defineProperty(process.stdin, "isRaw", { value: false, configurable: true });
-    Object.defineProperty(process.stdin, "setRawMode", {
-      value: vi.fn(() => process.stdin),
-      configurable: true,
-    });
-  });
-
-  afterEach(() => {
-    writeSpy.mockRestore();
-    resumeSpy.mockRestore();
-    process.stdin.removeAllListeners("data");
-    process.removeAllListeners("SIGWINCH");
-    vi.useRealTimers();
   });
 
   it("starts, renders, and quits on 'q' key", async () => {
@@ -870,7 +888,7 @@ describe("runMonitor", () => {
     process.stdin.emit("data", Buffer.from("q"));
     await monitorPromise;
 
-    const output = writeSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("");
+    const output = tty.writeSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("");
     expect(output).toContain("summon status");
   });
 
@@ -895,14 +913,14 @@ describe("runMonitor", () => {
     process.stdin.emit("data", Buffer.from("q"));       // quit
 
     await monitorPromise;
-    expect(writeSpy).toHaveBeenCalled();
+    expect(tty.writeSpy).toHaveBeenCalled();
   });
 
   it("quits on Ctrl+C", async () => {
     const monitorPromise = runMonitor();
     process.stdin.emit("data", Buffer.from("\x03"));
     await monitorPromise;
-    expect(writeSpy).toHaveBeenCalled();
+    expect(tty.writeSpy).toHaveBeenCalled();
   });
 
   it("auto-refreshes on timer", async () => {
@@ -920,7 +938,7 @@ describe("runMonitor", () => {
     await monitorPromise;
 
     // Multiple renders: initial + timer refresh
-    const callCount = writeSpy.mock.calls.length;
+    const callCount = tty.writeSpy.mock.calls.length;
     expect(callCount).toBeGreaterThan(2);
   });
 
@@ -942,17 +960,17 @@ describe("runMonitor", () => {
     process.stdin.emit("data", Buffer.from("q"));
     await monitorPromise;
 
-    expect(writeSpy).toHaveBeenCalled();
+    expect(tty.writeSpy).toHaveBeenCalled();
   });
 
   it("re-renders on terminal resize", async () => {
     const monitorPromise = runMonitor();
-    const before = writeSpy.mock.calls.length;
+    const before = tty.writeSpy.mock.calls.length;
     process.emit("SIGWINCH");
     process.stdin.emit("data", Buffer.from("q"));
     await monitorPromise;
 
-    expect(writeSpy.mock.calls.length).toBeGreaterThan(before);
+    expect(tty.writeSpy.mock.calls.length).toBeGreaterThan(before);
   });
 
   it("uses cursor-home (not full clear) on second and subsequent renders", async () => {
@@ -976,7 +994,7 @@ describe("runMonitor", () => {
     process.stdin.emit("data", Buffer.from("q"));
     await monitorPromise;
 
-    const allWrites: string[] = writeSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    const allWrites: string[] = tty.writeSpy.mock.calls.map((c: unknown[]) => String(c[0]));
     // Find writes that start with cursor-home or clear-screen (screen renders)
     const screenWrites: string[] = allWrites.filter(
       (w: string) => w.startsWith(CLEAR_SCREEN) || w.startsWith(CURSOR_HOME),
@@ -1002,13 +1020,13 @@ describe("runMonitor", () => {
 
     const monitorPromise = runMonitor();
     // Reset the spy so we only see writes after the initial render
-    writeSpy.mockClear();
+    tty.writeSpy.mockClear();
     // Trigger a resize
     process.emit("SIGWINCH");
     process.stdin.emit("data", Buffer.from("q"));
     await monitorPromise;
 
-    const allWrites: string[] = writeSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    const allWrites: string[] = tty.writeSpy.mock.calls.map((c: unknown[]) => String(c[0]));
     const hasFullClearOnResize = allWrites.some((w: string) => w.startsWith(CLEAR_SCREEN));
     expect(hasFullClearOnResize).toBe(true);
   });
@@ -1037,7 +1055,7 @@ describe("runMonitor", () => {
     await monitorPromise;
 
     // The last screen write should contain "e" (project at index 4) as selected (inverted)
-    const allWrites = writeSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    const allWrites = tty.writeSpy.mock.calls.map((c: unknown[]) => String(c[0]));
     const lastScreenWrite = [...allWrites].reverse().find(
       (w) => w.startsWith("\x1b[H"),
     );
@@ -1082,7 +1100,7 @@ describe("runMonitor", () => {
     mockFocusWorkspace.mockReturnValueOnce({kind:"unavailable",code:"missing",reason:"Exact identity unavailable; relaunch explicitly"});
     const monitorPromise=runMonitor();process.stdin.emit("data",Buffer.from("\r"));await vi.dynamicImportSettled();
     expect(mockLaunch).not.toHaveBeenCalled();
-    expect(writeSpy.mock.calls.map((c: unknown[])=>String(c[0])).join("")).toContain("relaunch explicitly");
+    expect(tty.writeSpy.mock.calls.map((c: unknown[])=>String(c[0])).join("")).toContain("relaunch explicitly");
     process.stdin.emit("data",Buffer.from(" "));process.stdin.emit("data",Buffer.from("q"));await monitorPromise;
   });
 
@@ -1098,7 +1116,7 @@ describe("runMonitor", () => {
     await monitorPromise;
     await vi.dynamicImportSettled();
 
-    const allWrites = writeSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("");
+    const allWrites = tty.writeSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("");
     expect(allWrites).toContain("Opening myapp...");
     expect(mockLaunch).toHaveBeenCalledWith("/tmp/myapp");
   });
@@ -1112,7 +1130,7 @@ describe("runMonitor", () => {
 
     // Track all writes in order to verify feedback appears before EXIT_ALT_SCREEN
     const allWrites: string[] = [];
-    writeSpy.mockImplementation((s: unknown) => {
+    tty.writeSpy.mockImplementation((s: unknown) => {
       allWrites.push(String(s));
       return true;
     });
@@ -1176,7 +1194,7 @@ describe("runMonitor", () => {
     process.stdin.emit("data", Buffer.from("q"));   // quit TUI
     await monitorPromise;
 
-    const output = writeSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("");
+    const output = tty.writeSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("");
     expect(output).toContain("Launch failed");
     expect(output).toContain("osascript error");
   });
@@ -1189,7 +1207,7 @@ describe("runMonitor", () => {
     process.stdin.emit("data", Buffer.from("q"));
     await monitorPromise;
 
-    const output = writeSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("");
+    const output = tty.writeSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("");
     expect(output).toContain("Key bindings");
   });
 
@@ -1200,7 +1218,7 @@ describe("runMonitor", () => {
     process.stdin.emit("data", Buffer.from("q"));
     await monitorPromise;
 
-    const output = writeSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("");
+    const output = tty.writeSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("");
     expect(output).toContain("yellow");
     expect(output).toContain("active");
   });
@@ -1214,7 +1232,7 @@ describe("runMonitor", () => {
     process.stdin.emit("data", Buffer.from("q"));
     await monitorPromise;
 
-    const output = writeSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("");
+    const output = tty.writeSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("");
     // Must mention green for active state
     expect(output).toContain("green");
     // Must associate yellow with the >4h qualifier (active-long), not plain active
@@ -1233,7 +1251,7 @@ describe("runMonitor", () => {
     process.stdin.emit("data", Buffer.from("q"));
     await monitorPromise;
 
-    const output = writeSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("");
+    const output = tty.writeSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("");
     // All key binding labels must be present in the overlay output
     expect(output).toContain("move up");
     expect(output).toContain("move down");
@@ -1261,7 +1279,7 @@ describe("runMonitor", () => {
     process.stdin.emit("data", Buffer.from("q"));
     await monitorPromise;
 
-    const output = writeSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("");
+    const output = tty.writeSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("");
     // Error message must appear in TUI stdout (not just stderr)
     expect(output).toContain("Launch failed");
     expect(output).toContain("osascript: execution failed");
@@ -1311,11 +1329,9 @@ describe("UX-H2 (#599): active-long has a non-color distinguishing marker", () =
   it("renderRow: active-long label differs from plain active label without relying on color", () => {
     const activeLongRow = makeRow({ state: "active-long" });
     const activeRow = makeRow({ state: "active" });
-    // Strip ANSI codes and compare plain text
-    // eslint-disable-next-line no-control-regex
-    const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");
-    const longText = stripAnsi(renderRow(activeLongRow, 80, false));
-    const activeText = stripAnsi(renderRow(activeRow, 80, false));
+    // Compare the plain text, without ANSI codes
+    const longText = visibleText(renderRow(activeLongRow, 80, false));
+    const activeText = visibleText(renderRow(activeRow, 80, false));
     expect(longText).not.toBe(activeText);
   });
 });
@@ -1323,43 +1339,19 @@ describe("UX-H2 (#599): active-long has a non-color distinguishing marker", () =
 describe.skipIf(parseInt(process.versions.node.split(".")[0]!, 10) < 20)(
   "FE-B1 (#580): help overlay dismiss repaints dashboard",
   () => {
-    let writeSpy: ReturnType<typeof vi.spyOn>;
-    let resumeSpy: ReturnType<typeof vi.spyOn>;
-
-    beforeEach(() => {
-      listProjects.mockReturnValue([]);
-      readAllStatuses.mockReturnValue([]);
-      getGitBranch.mockReturnValue(null);
-      vi.useFakeTimers();
-      writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
-      resumeSpy = vi.spyOn(process.stdin, "resume").mockImplementation(() => process.stdin);
-      Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
-      Object.defineProperty(process.stdin, "isRaw", { value: false, configurable: true });
-      Object.defineProperty(process.stdin, "setRawMode", {
-        value: vi.fn(() => process.stdin),
-        configurable: true,
-      });
-    });
-
-    afterEach(() => {
-      writeSpy.mockRestore();
-      resumeSpy.mockRestore();
-      process.stdin.removeAllListeners("data");
-      process.removeAllListeners("SIGWINCH");
-      vi.useRealTimers();
-    });
+    const tty = useMonitorTty(() => { readAllStatuses.mockReturnValue([]); });
 
     it("FE-B1: after ? overlay dismiss, a new dashboard write occurs (prevFrame invalidated)", async () => {
       const monitorPromise = runMonitor();
-      const writesBefore = writeSpy.mock.calls.length;
+      const writesBefore = tty.writeSpy.mock.calls.length;
       process.stdin.emit("data", Buffer.from("?"));
       // count writes after ? opened overlay
-      const writesAfterOpen = writeSpy.mock.calls.length;
+      const writesAfterOpen = tty.writeSpy.mock.calls.length;
       expect(writesAfterOpen).toBeGreaterThan(writesBefore); // overlay was written
 
       // dismiss help — should trigger a repaint
       process.stdin.emit("data", Buffer.from(" "));
-      const writesAfterDismiss = writeSpy.mock.calls.length;
+      const writesAfterDismiss = tty.writeSpy.mock.calls.length;
       expect(writesAfterDismiss).toBeGreaterThan(writesAfterOpen); // repaint occurred
 
       process.stdin.emit("data", Buffer.from("q"));
@@ -1428,31 +1420,9 @@ describe("FE-M3 (#611): renderScreen clears to end-of-line on each row", () => {
 
 describe("UX-L1 (#616): help overlay legend shows glyph/label mapping", () => {
   // Node >= 22.12 is the project minimum — no skipIf guard needed (QA-L2 policy)
-  let writeSpy2: ReturnType<typeof vi.spyOn>;
-  let resumeSpy2: ReturnType<typeof vi.spyOn>;
-
-  beforeEach(() => {
-    listProjects.mockReturnValue([]);
+  const tty = useMonitorTty(() => {
     readAllStatuses.mockReturnValue([]);
-    getGitBranch.mockReturnValue(null);
     mockLaunch.mockResolvedValue(undefined);
-    vi.useFakeTimers();
-    writeSpy2 = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
-    resumeSpy2 = vi.spyOn(process.stdin, "resume").mockImplementation(() => process.stdin);
-    Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
-    Object.defineProperty(process.stdin, "isRaw", { value: false, configurable: true });
-    Object.defineProperty(process.stdin, "setRawMode", {
-      value: vi.fn(() => process.stdin),
-      configurable: true,
-    });
-  });
-
-  afterEach(() => {
-    writeSpy2.mockRestore();
-    resumeSpy2.mockRestore();
-    process.stdin.removeAllListeners("data");
-    process.removeAllListeners("SIGWINCH");
-    vi.useRealTimers();
   });
 
   it("help overlay shows ● glyph mapped to 'active' label", async () => {
@@ -1462,7 +1432,7 @@ describe("UX-L1 (#616): help overlay legend shows glyph/label mapping", () => {
     process.stdin.emit("data", Buffer.from("q"));
     await monitorPromise;
 
-    const output = writeSpy2.mock.calls.map((c: unknown[]) => String(c[0])).join("");
+    const output = tty.writeSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("");
     expect(output).toContain("●");
     expect(output).toMatch(/●.*active/s);
   });
@@ -1474,7 +1444,7 @@ describe("UX-L1 (#616): help overlay legend shows glyph/label mapping", () => {
     process.stdin.emit("data", Buffer.from("q"));
     await monitorPromise;
 
-    const output = writeSpy2.mock.calls.map((c: unknown[]) => String(c[0])).join("");
+    const output = tty.writeSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("");
     expect(output).toContain("○");
     expect(output).toMatch(/○.*stopped/s);
   });
@@ -1486,7 +1456,7 @@ describe("UX-L1 (#616): help overlay legend shows glyph/label mapping", () => {
     process.stdin.emit("data", Buffer.from("q"));
     await monitorPromise;
 
-    const output = writeSpy2.mock.calls.map((c: unknown[]) => String(c[0])).join("");
+    const output = tty.writeSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("");
     // Must mention active* or active-long for the >4h case
     expect(output).toMatch(/active\*|active-long|active >4h/);
   });
@@ -1642,10 +1612,6 @@ describe("loadProjectRow (summon open <project>)", () => {
   });
 });
 
-/** Visible text: drops SGR colors and the cursor/clear sequences that start a frame. */
-// eslint-disable-next-line no-control-regex
-const visibleText = (s: string) => s.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "");
-
 describe("FE-H1: a row is never wider than the terminal", () => {
   const long = "empty Rex session remains; run summon clean myapp ".repeat(4);
   const rows: ProjectRow[] = [
@@ -1692,33 +1658,13 @@ describe("FE-H1: a row is never wider than the terminal", () => {
 });
 
 describe("monitor interaction (FE-M1, FE-M2, UX-L1)", () => {
-  let writeSpy: ReturnType<typeof vi.spyOn>;
-  let resumeSpy: ReturnType<typeof vi.spyOn>;
-  const lastFrame = () => [...writeSpy.mock.calls.map((c: unknown[]) => String(c[0]))]
-    .reverse().find((w) => w.startsWith("\x1b[H")) ?? "";
-
-  beforeEach(() => {
-    listProjects.mockReturnValue([]);
+  const tty = useMonitorTty(() => {
     readAllStatuses.mockReturnValue([]);
-    getGitBranch.mockReturnValue(null);
     mockLaunch.mockReset();
     mockLaunch.mockResolvedValue(undefined);
     mockFocusWorkspace.mockClear();
-    vi.useFakeTimers();
-    writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
-    resumeSpy = vi.spyOn(process.stdin, "resume").mockImplementation(() => process.stdin);
-    Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
-    Object.defineProperty(process.stdin, "isRaw", { value: false, configurable: true });
-    Object.defineProperty(process.stdin, "setRawMode", { value: vi.fn(() => process.stdin), configurable: true });
   });
-
-  afterEach(() => {
-    writeSpy.mockRestore();
-    resumeSpy.mockRestore();
-    process.stdin.removeAllListeners("data");
-    process.removeAllListeners("SIGWINCH");
-    vi.useRealTimers();
-  });
+  const { frames } = tty;
 
   it("FE-M1: Enter acts on the highlighted project after a refresh reorders the rows", async () => {
     listProjects.mockReturnValue([["alpha", "/tmp/alpha"], ["beta", "/tmp/beta"]]);
@@ -1744,13 +1690,13 @@ describe("monitor interaction (FE-M1, FE-M2, UX-L1)", () => {
     listProjects.mockReturnValue([["alpha", "/tmp/alpha"]]);
     const monitorPromise = runMonitor();
     process.stdin.emit("data", Buffer.from("?"));
-    expect(lastFrame()).toContain("Key bindings");
+    expect(frames().at(-1)).toContain("Key bindings");
     process.stdin.emit("data", Buffer.from("\x1b"));
     vi.advanceTimersByTime(150);
-    expect(lastFrame()).toContain("summon status");
+    expect(frames().at(-1)).toContain("summon status");
     process.stdin.emit("data", Buffer.from("\x1b"));
     vi.advanceTimersByTime(150);
-    expect(lastFrame()).toContain("summon status");
+    expect(frames().at(-1)).toContain("summon status");
     expect(mockLaunch).not.toHaveBeenCalled();
     process.stdin.emit("data", Buffer.from("q"));
     const quit = process.stdin.listenerCount("data") === 0; // q reached the dashboard and quit
@@ -1762,7 +1708,7 @@ describe("monitor interaction (FE-M1, FE-M2, UX-L1)", () => {
   it("UX-L1: help explains partial, unknown and the program-status glyphs", async () => {
     const monitorPromise = runMonitor();
     process.stdin.emit("data", Buffer.from("?"));
-    const help = lastFrame();
+    const help = frames().at(-1) ?? "";
     process.stdin.emit("data", Buffer.from("\x03"));
     await monitorPromise;
     expect(help).toMatch(/●.*partial/);
@@ -1779,9 +1725,6 @@ describe("monitor interaction (FE-M1, FE-M2, UX-L1)", () => {
 });
 
 describe("PE-H1: a slow status read never blocks the monitor", () => {
-  let writeSpy: ReturnType<typeof vi.spyOn>;
-  let resumeSpy: ReturnType<typeof vi.spyOn>;
-  const frames = () => writeSpy.mock.calls.map((c: unknown[]) => String(c[0])).filter((w: string) => w.startsWith("\x1b[H"));
   const settle = async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); };
   const row = (name: string, state: ProjectRow["state"]) => makeRow({ name, directory: `/tmp/${name}`, state, gitBranch: "—" });
   function deferred() {
@@ -1791,25 +1734,8 @@ describe("PE-H1: a slow status read never blocks the monitor", () => {
     return { promise, resolve, reject };
   }
 
-  beforeEach(() => {
-    listProjects.mockReturnValue([]);
-    readAllStatuses.mockReset().mockReturnValue([]);
-    getGitBranch.mockReturnValue(null);
-    vi.useFakeTimers();
-    writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
-    resumeSpy = vi.spyOn(process.stdin, "resume").mockImplementation(() => process.stdin);
-    Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
-    Object.defineProperty(process.stdin, "isRaw", { value: false, configurable: true });
-    Object.defineProperty(process.stdin, "setRawMode", { value: vi.fn(() => process.stdin), configurable: true });
-  });
-
-  afterEach(() => {
-    writeSpy.mockRestore();
-    resumeSpy.mockRestore();
-    process.stdin.removeAllListeners("data");
-    process.removeAllListeners("SIGWINCH");
-    vi.useRealTimers();
-  });
+  const tty = useMonitorTty(() => { readAllStatuses.mockReset().mockReturnValue([]); });
+  const { frames } = tty;
 
   it("handles keys and resize while a read is in flight, and never starts a second read", async () => {
     const reads: Array<ReturnType<typeof deferred>> = [];
@@ -1825,9 +1751,9 @@ describe("PE-H1: a slow status read never blocks the monitor", () => {
     expect(frames().at(-1)).toContain("Key bindings"); // the key was handled and drawn during the read
     process.stdin.emit("data", Buffer.from(" "));
     expect(frames().at(-1)).toContain("alpha");
-    writeSpy.mockClear();
+    tty.writeSpy.mockClear();
     process.emit("SIGWINCH");
-    const repaint = String(writeSpy.mock.calls.at(-1)?.[0]);
+    const repaint = String(tty.writeSpy.mock.calls.at(-1)?.[0]);
     expect(repaint.startsWith("\x1b[H\x1b[2J") && repaint.includes("alpha")).toBe(true); // resize repaints at once
 
     await vi.advanceTimersByTimeAsync(9000); // three more ticks while the read is in flight
@@ -1924,7 +1850,7 @@ describe("PE-H1: a slow status read never blocks the monitor", () => {
       makeResolvedStatus({ project: "orphan", directory: "/tmp/orphan", backend: "rex", state: "partial", uptime: 1000, reason: "root pane closed" }),
     ]);
     let wire = "";
-    writeSpy.mockImplementation((data: unknown) => { wire += String(data); return true; });
+    tty.writeSpy.mockImplementation((data: unknown) => { wire += String(data); return true; });
     await monitorRead.writeMonitorRead({});
     expect(readAllStatuses).toHaveBeenLastCalledWith({ programStatus: true });
     expect(seedRexBinaryPath).not.toHaveBeenCalled();
@@ -1933,7 +1859,7 @@ describe("PE-H1: a slow status read never blocks the monitor", () => {
 
   it("the child uses the rex binary its parent resolved, when the parent passed one", async () => {
     seedRexBinaryPath.mockClear();
-    writeSpy.mockImplementation(() => true);
+    tty.writeSpy.mockImplementation(() => true);
     await monitorRead.writeMonitorRead({ [monitorRead.MONITOR_REX_BINARY_ENV]: "/opt/rex/bin/rex" });
     expect(seedRexBinaryPath).toHaveBeenCalledWith("/opt/rex/bin/rex");
     seedRexBinaryPath.mockClear();
@@ -1997,8 +1923,7 @@ describe("PE-H1: readStatusesInChild", () => {
     const writes: string[] = [];
     const writeSpy = vi.spyOn(process.stdout, "write").mockImplementation((data) => { writes.push(String(data)); return true; });
     const resumeSpy = vi.spyOn(process.stdin, "resume").mockImplementation(() => process.stdin);
-    Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
-    Object.defineProperty(process.stdin, "setRawMode", { value: vi.fn(() => process.stdin), configurable: true });
+    stubTtyStdin();
     registerSelfInvocation(process.execPath, file);
     try {
       const monitorPromise = runMonitor();
@@ -2022,8 +1947,7 @@ describe("PE-H1: readStatusesInChild", () => {
     const writes: string[] = [];
     const writeSpy = vi.spyOn(process.stdout, "write").mockImplementation((data) => { writes.push(String(data)); return true; });
     const resumeSpy = vi.spyOn(process.stdin, "resume").mockImplementation(() => process.stdin);
-    Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
-    Object.defineProperty(process.stdin, "setRawMode", { value: vi.fn(() => process.stdin), configurable: true });
+    stubTtyStdin();
     hasRexState.mockReturnValue(rex);
     registerSelfInvocation(process.execPath, await script(body));
     const result = runMonitor();
