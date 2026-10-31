@@ -19,12 +19,17 @@ const rexMocks = vi.hoisted(() => ({
   discoverRex: vi.fn((): { path: string | null; searched: string[] } => ({ path: "/mock/rex", searched: ["PATH"] })),
   programStatusOf: vi.fn((..._args: unknown[]): unknown => undefined),
 }));
-vi.mock("./backends/rex/status.js", async (original) => ({
-  ...(await original<typeof import("./backends/rex/status.js")>()),
+vi.mock("./backends/rex/status.js", async (original) => {
+  const actual = await original<typeof import("./backends/rex/status.js")>();
+  return {
+  ...actual,
   listSessions: (...args: unknown[]) => rexMocks.listSessions(...args),
+  // The read's per-server cache lists through the mocked `listSessions`, so its calls are counted.
+  sessionListings: () => actual.sessionListings((cli) => rexMocks.listSessions(cli) as ReturnType<typeof actual.listSessions>),
   sessionState: (...args: unknown[]) => rexMocks.sessionState(...args),
   programStatusOf: (...args: unknown[]) => rexMocks.programStatusOf(...args),
-}));
+  };
+});
 vi.mock("./backends/rex/launch.js", async (original) => ({
   ...(await original<typeof import("./backends/rex/launch.js")>()),
   adoptOrphans: (...args: unknown[]) => rexMocks.adoptOrphans(...args),

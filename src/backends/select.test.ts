@@ -44,12 +44,21 @@ describe("backend ports (AR-M1)", () => {
 
   it("a launch loads no record-side module statically, and no Rex module beyond those it loaded before the port", () => {
     const closure = staticImportClosure("launcher.ts");
-    for (const recordSide of ["status.ts", "backends/workspace.ts", "backends/ghostty/workspace.ts", "backends/rex/workspace.ts", "backends/rex/read.ts", "backends/rex/reconcile.ts", "backends/rex/doctor.ts"]) {
+    for (const recordSide of ["status.ts", "backends/read.ts", "backends/ghostty/read.ts", "backends/workspace.ts", "backends/ghostty/workspace.ts", "backends/rex/workspace.ts", "backends/rex/read.ts", "backends/rex/reconcile.ts", "backends/rex/doctor.ts"]) {
       expect(closure.has(recordSide), recordSide).toBe(false);
     }
     // PE-L2: the Rex backend is loaded only when Rex is detected. Statically a launch keeps detection itself
     // (backend.ts: the `rex` lookup and its failure classifier) and the record parser (status-record.ts).
     expect([...closure].filter((file) => file.startsWith("backends/rex/")).sort()).toEqual(["backends/rex/cli.ts", "backends/rex/errors.ts", "backends/rex/types.ts"]);
+  });
+
+  it("a status read loads the read halves of the record port, never the workspace commands", () => {
+    // The monitor's child reads every 3 s; `status --once`, `focus`, `open`, `inspect` and `title` read first.
+    const closure = staticImportClosure("status.ts");
+    for (const command of ["backends/workspace.ts", "backends/ghostty/workspace.ts", "backends/ghostty/native.ts", "backends/ghostty/probe.ts", "backends/rex/workspace.ts", "cli/resolve-target.ts", "cli/suggest.ts", "config.ts"]) {
+      expect(closure.has(command), command).toBe(false);
+    }
+    expect(closure.has("backends/read.ts")).toBe(true);
   });
 
   it("record-only paths load no Rex module beyond the record parser (PE-L2)", () => {

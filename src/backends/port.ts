@@ -5,7 +5,8 @@
  * - `TerminalBackend` (launch side): chosen once per launch from the detected `LaunchContext`
  *   (`createTerminalBackend`, backends/select.ts).
  * - `WorkspaceBackend` (record side): chosen from a status record's stored `backend` field
- *   (`workspaceBackendFor`, backends/workspace.ts); absent means Ghostty.
+ *   (`workspaceBackendFor`, backends/workspace.ts); absent means Ghostty. A status read uses only its read half,
+ *   `RecordReader` (`recordReaderFor`, backends/read.ts), which loads none of the commands.
  *
  * Types only: importing this module loads no backend.
  */
@@ -121,13 +122,17 @@ export interface StatusRead {
 
 export type WorkspaceTitleResult = TitleResult | { kind: "unavailable"; reason: string };
 
-/** Record side: what Summon does with a recorded workspace of this backend. */
-export interface WorkspaceBackend {
-  readonly id: BackendId;
+/** Record side, read half: what a status read does with a record of this backend (`recordReaderFor`, backends/read.ts). */
+export interface RecordReader {
   /** The record's state (P10). `notices` are carried from an earlier step of the same read. */
   resolve(project: string, record: WorkspaceStatus, read: StatusRead, notices?: string[]): ResolvedStatus;
   /** Launches with a manifest but no record (P13): one adoption attempt when the read reconciles; `attempted` is false when it could not run. */
   adoptUnrecorded?(project: string, read: StatusRead): { attempted: boolean; notices: string[] };
+}
+
+/** Record side, commands: what Summon does with a recorded workspace of this backend. */
+export interface WorkspaceBackend {
+  readonly id: BackendId;
   /** Focus a recorded workspace or one of its panes; `status` is null when nothing is recorded. */
   focus(project: string, status: ResolvedStatus | null, pane?: string): FocusResult;
   /** `summon inspect`: print the workspace (JSON or text) and exit 2 when it is unavailable. */

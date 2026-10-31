@@ -113,7 +113,7 @@ describe("createRexBackend", () => {
     expect(create.mock.calls[0]![0]).not.toHaveProperty("keeps");
     plan.newWindow = true;
     // PE-L1: the launch's shared listing reaches the kept-session check (createWorkspace still lists for itself, P13).
-    const listings = { of: vi.fn() };
+    const listings = { of: vi.fn(), forget: vi.fn() };
     await createRexBackend(CONTEXT, { ...d, newWindow: true, listings }).launchTraditional(plan, ctx());
     expect(keptSession).toHaveBeenCalledWith("x", expect.any(Function), listings);
     expect(create.mock.calls[1]![2]).not.toHaveProperty("listings");

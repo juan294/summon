@@ -1,13 +1,12 @@
 /**
  * Ghostty record port (AR-M1): what Summon does with a recorded Ghostty workspace. Liveness comes from the per-launch
- * sidecars (P12); focus, inspect and title use the exact native identity the launch captured.
+ * sidecars (P12, read.ts); focus, inspect and title use the exact native identity the launch captured.
  */
 import { existsSync, readdirSync } from "node:fs";
 import { focusTerminal, readNativeInventory, titleTerminal } from "./native.js";
 import type { NativeFailure } from "../port.js";
 import { escapeControlChars } from "../../ui/sanitize.js";
-import { ghosttyLiveness, launchLiveness, unlinkIgnoringMissing } from "../../status-record.js";
-import type { WorkspaceStatus } from "../../status-record.js";
+import { launchLiveness, unlinkIgnoringMissing } from "../../status-record.js";
 import { isLaunchId, launchArtifactPaths, launchesDir } from "../../launch-identity.js";
 import type { ResolvedStatus } from "../../status.js";
 import { PROJECT_NAME_RE } from "../../validation.js";
@@ -23,18 +22,6 @@ export function resolveWorkspaceTerminal(projectName: string, paneName: string |
   const terminalId = paneName === undefined ? status.native.rootTerminalId : status.native.panes.find(p => p.name === paneName)?.terminalId;
   if (!terminalId) return { kind: "unavailable", code: "missing", reason: `Unknown pane. Valid panes: ${status.native.panes.map(p => p.name).join(", ")}. Run summon inspect ${projectName}.` };
   return { kind: "target", terminalId };
-}
-
-/** Ghostty: the sidecars decide (a record with a launch id reads only its own per-launch files, P12). */
-function resolveGhosttyStatus(record: WorkspaceStatus, projectName: string, notices: string[]): ResolvedStatus {
-  const active = ghosttyLiveness(projectName, record) === "active";
-  const started = Date.parse(record.startedAt);
-  return {
-    ...record,
-    state: active ? "active" : "stopped",
-    uptime: active && !Number.isNaN(started) ? Date.now() - started : null,
-    ...(notices.length > 0 ? { notices } : {}),
-  };
 }
 
 /** Ghostty per-launch files of launches other than the current one whose shell is proven dead (its pid, not its marker). */
@@ -115,7 +102,6 @@ function inspectGhostty(project: string, status: ResolvedStatus | null, json: bo
 
 export const GhosttyWorkspace: WorkspaceBackend = {
   id: "ghostty",
-  resolve: (project, record, _read, notices = []) => resolveGhosttyStatus(record, project, notices),
   focus(project, status, pane) {
     const target = resolveWorkspaceTerminal(project, pane, status);
     return target.kind === "target" ? focusTerminal(target.terminalId) : target;

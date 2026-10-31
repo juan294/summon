@@ -125,9 +125,11 @@ export function viewBlockIds(view: SessionView): Set<string> {
 
 export type SessionListing = ReturnType<typeof listSessions>;
 
-/** One `rex ls` answer per server, shared by the liveness probes of one launch (PE-L1). */
+/** One `rex ls` answer per server, shared by the liveness probes of one launch (PE-L1) or of one status read. */
 export interface SessionListings {
   of(cli: RexCli): SessionListing;
+  /** Drop a server's answer, so its next `of` lists it again (a session created since must be seen). */
+  forget(server: string): void;
 }
 
 /**
@@ -135,13 +137,16 @@ export interface SessionListings {
  * session that ended since reads as gone on its view, and a session another launch created since is simply not seen. It never stands in for `createWorkspace`'s `before` snapshot, which is listed
  * just before `session.create` (P13): nothing reuses a listing across that mutation.
  */
-export function sessionListings(): SessionListings {
+export function sessionListings(list: (cli: RexCli) => SessionListing = listSessions): SessionListings {
   const byServer = new Map<string, SessionListing>();
   return {
     of(cli) {
       let listed = byServer.get(cli.server);
-      if (!listed) { listed = listSessions(cli); byServer.set(cli.server, listed); }
+      if (!listed) { listed = list(cli); byServer.set(cli.server, listed); }
       return listed;
+    },
+    forget(server) {
+      byServer.delete(server);
     },
   };
 }

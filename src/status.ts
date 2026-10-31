@@ -1,7 +1,7 @@
 /**
  * Status reader over both backends (plan P10): the four states of every recorded workspace and the
  * unverified-launch rows of manifests without a record. Each record is resolved by its own backend through the
- * record port (backends/workspace.ts, AR-M1). A read writes nothing unless it asks to reconcile
+ * read half of the record port (backends/read.ts, AR-M1), which loads none of the workspace commands. A read writes nothing unless it asks to reconcile
  * (`{ reconcile: true }`); the writing Rex steps (adoption, pane refresh, end of a launch) live in
  * backends/rex/reconcile.ts. The record layer is status-record.ts, imported directly.
  */
@@ -12,16 +12,22 @@ import { listLaunchManifests } from "./launch-identity.js";
 import type { BackendId } from "./backend.js";
 import type { ProgramStatus } from "./backends/rex/status.js";
 import type { StatusRead } from "./backends/port.js";
-import { workspaceBackendFor } from "./backends/workspace.js";
-import { readStatusRecord } from "./status-record.js";
+import { recordReaderFor } from "./backends/read.js";
+import { readStatusRecord, unknownRow } from "./status-record.js";
 import type { WorkspaceState, WorkspaceStatus } from "./status-record.js";
 
 // The monitor passes the `rex` binary its parent resolved to its child read (PE-H1); the memo is the Rex reader's.
 export { rexBinaryPath, seedRexBinaryPath, resetRexBinaryMemo } from "./backends/rex/read.js";
 
-export interface ResolvedStatus extends Omit<WorkspaceStatus, "pid"> {
-  /** Recorded launcher pid; null for an unverified launch that has no record yet. */
-  pid: number | null;
+/** Each member of the record union with `pid` widened to `number | null`, so a row still narrows on `backend` (AR-L2). */
+type WithNullablePid<T> = T extends unknown ? { [K in keyof T]: K extends "pid" ? number | null : T[K] } : never;
+
+/** A record as a status row lists it: `pid` is null for an unverified launch that has no record yet. */
+export type StatusRow = WithNullablePid<WorkspaceStatus>;
+
+export type ResolvedStatus = StatusRow & ResolvedFields;
+
+interface ResolvedFields {
   /** Derived from marker file check at read time */
   state: WorkspaceState;
   /** Milliseconds since workspace started (if active), null if stopped */
@@ -59,13 +65,9 @@ function newStatusRead(options: ReadOptions): StatusRead {
       if (!scratch.has(id)) scratch.set(id, create());
       return scratch.get(id) as T;
     },
-    resolveRecord: (projectName, record, notices) => workspaceBackendFor(record.backend).resolve(projectName, record, read, notices),
+    resolveRecord: (projectName, record, notices) => recordReaderFor(record.backend).resolve(projectName, record, read, notices),
   };
   return read;
-}
-
-function unknownRow(record: Omit<WorkspaceStatus, "pid"> & { pid: number | null }, reason: string, notices: string[] = []): ResolvedStatus {
-  return { ...record, state: "unknown", uptime: null, reason, ...(notices.length > 0 ? { notices } : {}) };
 }
 
 function resolveStatus(projectName: string, read: StatusRead): ResolvedStatus | null {
@@ -102,7 +104,7 @@ function unverifiedLaunchRows(launchDirProjects: string[], recordedProjects: Set
     let attempted = false;
     const notices: string[] = [];
     for (const backend of new Set(manifests.map((m) => m.backend))) {
-      const adoption = workspaceBackendFor(backend).adoptUnrecorded?.(projectName, read);
+      const adoption = recordReaderFor(backend).adoptUnrecorded?.(projectName, read);
       if (!adoption) continue;
       attempted ||= adoption.attempted;
       notices.push(...adoption.notices);
@@ -115,18 +117,19 @@ function unverifiedLaunchRows(launchDirProjects: string[], recordedProjects: Set
       }
     }
     for (const manifest of manifests) {
-      rows.push(unknownRow({
+      const row = {
         project: manifest.project,
         directory: manifest.directory,
         pid: null,
         startedAt: manifest.startedAt,
         layout: manifest.layout,
         panes: [...manifest.panes],
-        source: "summon",
-        version: 1,
+        source: "summon" as const,
+        version: 1 as const,
         launchId: manifest.launchId,
-        backend: manifest.backend,
-      }, UNVERIFIED_LAUNCH, notices));
+      };
+      // The backend is the last key, as before; each branch is one member of the row union.
+      rows.push(unknownRow(manifest.backend === "rex" ? { ...row, backend: "rex" } : { ...row, backend: "ghostty" }, UNVERIFIED_LAUNCH, notices));
     }
   }
   return rows;

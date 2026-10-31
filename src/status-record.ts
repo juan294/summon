@@ -10,6 +10,7 @@ import { parseRexIdentity } from "./backends/rex/types.js";
 import type { RexIdentity } from "./backends/rex/types.js";
 import { parseNativeMetadata } from "./backends/ghostty/pane-inventory.js";
 import type { NativeMetadata } from "./backends/ghostty/pane-inventory.js";
+import type { ResolvedStatus, StatusRow } from "./status.js";
 
 /**
  * The status record layer: the shared record `status/<project>.json`, its parser, the locked
@@ -96,6 +97,17 @@ export function unverifiedPanes(record: WorkspaceStatus): number {
 /** States with a live workspace to focus or count (plan P10 reader rules). */
 export function isLiveState(state: WorkspaceState): boolean {
   return state === "active" || state === "partial";
+}
+
+/** Milliseconds since `startedAt` for a live state; null for any other state or an unreadable timestamp. */
+export function liveUptime(state: WorkspaceState, startedAt: string): number | null {
+  const started = Date.parse(startedAt);
+  return isLiveState(state) && !Number.isNaN(started) ? Date.now() - started : null;
+}
+
+/** A row whose liveness could not be read: `unknown`, with the reason and any notices carried so far. */
+export function unknownRow(record: StatusRow, reason: string, notices: string[] = []): ResolvedStatus {
+  return { ...record, state: "unknown", uptime: null, reason, ...(notices.length > 0 ? { notices } : {}) };
 }
 
 /** Who may write the shared record (plan §3 "Status write protocol"). */
