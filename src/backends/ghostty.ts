@@ -99,7 +99,6 @@ function parseRollbackMark(raw: string): { message: string; created?: CreatedCon
   return { message, created: { kind: target[1] as CreatedContainer["kind"], id: target[2]! } };
 }
 
-
 /**
  * Best-effort rollback: close exactly the window or tab a failed launch created (BE-S26 #322,
  * BE-M2), found by its recorded id, never the front window. Silently ignored if Ghostty is not
