@@ -513,6 +513,8 @@ summon completions fish | source
 
 `summon open <TAB>`, `summon switch <TAB>` and `summon clean <TAB>` complete registered project names, and `summon clean` also completes `--orphans`. In zsh and bash, `summon set <boolean key> <TAB>` completes `true` and `false`, and `summon layout show|delete|edit <TAB>` and `summon freeze <TAB>` complete custom layout names only, because those commands reject the built-in presets.
 
+zsh and bash read custom layouts each time you press Tab. Fish lists only the custom layouts that existed when the script was generated, so after `summon layout save <name>`, regenerate it (open a new fish shell, or run `summon completions fish | source` again).
+
 Project names are read dynamically from `~/.config/summon/projects`,
 so newly added projects are immediately completable.
 
