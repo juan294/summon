@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import type { Socket } from "node:net";
 import { sym } from "./ui/symbols.js";
-import { hasRexState, readAllStatuses, readProjectStatus, getGitBranch, isLiveState as isLiveWorkspaceState, unverifiedMessage } from "./status.js";
+import { hasRexState, readAllStatuses, rexBinaryPath, readProjectStatus, getGitBranch, isLiveState as isLiveWorkspaceState, unverifiedMessage } from "./status.js";
 import type { ProgramState } from "./backends/rex/status.js";
 import type { ResolvedStatus } from "./status.js";
 import { listProjects } from "./config.js";
@@ -11,6 +11,9 @@ import { runPool, IO_CONCURRENCY } from "./utils.js";
 import { createMonitorInputDecoder, type MonitorInput } from "./monitor-input.js";
 import { createMonitorVisibility, type VisibilityEffects } from "./monitor-visibility.js";
 import { selfInvocation } from "./self.js";
+import { MONITOR_READ_ARG, MONITOR_READ_OPTIONS, MONITOR_REX_BINARY_ENV } from "./monitor-read.js";
+
+export { MONITOR_READ_ARG } from "./monitor-read.js";
 
 // --- Types ---
 
@@ -168,7 +171,17 @@ export function renderFooter(width: number, visibilityUnavailable = false): stri
   return dim(padded);
 }
 
-export function renderScreen(rows: ProjectRow[], selectedIndex: number, width: number, height: number, scrollStart = 0, visibilityUnavailable = false, staleNote?: string): string {
+export interface RenderScreenOptions {
+  /** The first row shown (the list scrolls). */
+  scrollStart?: number;
+  /** The footer says visibility tracking is off and the monitor polls. */
+  visibilityUnavailable?: boolean;
+  /** Said in the header when the rows are stale ("updating…", "last updated 6s ago"). */
+  staleNote?: string | undefined;
+}
+
+export function renderScreen(rows: ProjectRow[], selectedIndex: number, width: number, height: number, options: RenderScreenOptions = {}): string {
+  const { scrollStart = 0, visibilityUnavailable = false, staleNote } = options;
   // UX-L1 (#616): when terminal is too narrow, render a guard message instead of a clamped grid
   if (width < MIN_COLS) {
     return `Terminal too narrow \u2014 widen to \u2265${MIN_COLS} cols`;
@@ -323,7 +336,7 @@ export function loadProjectRow(name: string): ProjectRow | undefined {
 
 /** The monitor's status read: every row, with the Rex program status. */
 function readMonitorStatuses(): ResolvedStatus[] {
-  return readAllStatuses({ programStatus: true });
+  return readAllStatuses(MONITOR_READ_OPTIONS);
 }
 
 export function loadProjectRows(): ProjectRow[] {
@@ -358,17 +371,6 @@ export function rowsFromStatuses(statuses: ResolvedStatus[]): ProjectRow[] {
 
 // --- Status read in a child process (PE-H1) ---
 
-/**
- * Hidden argv: the monitor starts this same CLI with it to read the statuses in a child process.
- * A Rex read spawns `rex` synchronously (up to 10 s per call), so it never runs on the TUI's thread.
- */
-export const MONITOR_READ_ARG = "--internal-monitor-read";
-
-/** The child side of MONITOR_READ_ARG: one status read, as JSON on stdout. */
-export function writeMonitorRead(): void {
-  process.stdout.write(JSON.stringify(readMonitorStatuses()));
-}
-
 /** The child read failed; `signal` is set when the child was ended by a signal (stopped, never retried in-process). */
 export class ChildReadError extends Error {
   constructor(message: string, readonly signal: NodeJS.Signals | null) {
@@ -381,10 +383,10 @@ export class ChildReadError extends Error {
  * an abort ends the group, so a `rex` call it is waiting on ends too (records are written atomically
  * under their lock, so an interrupted read is safe). It is unreferenced and never holds Summon open.
  */
-export function readStatusesInChild(execPath: string, args: readonly string[], signal?: AbortSignal): Promise<ResolvedStatus[]> {
+export function readStatusesInChild(execPath: string, args: readonly string[], signal?: AbortSignal, env: NodeJS.ProcessEnv = {}): Promise<ResolvedStatus[]> {
   return new Promise((resolve, reject) => {
     // With the config cache off, the child never rewrites cache.json at exit (one child per tick).
-    const child = spawn(execPath, args, { detached: true, stdio: ["ignore", "pipe", "ignore"], env: { ...process.env, SUMMON_NO_CACHE: "1" } });
+    const child = spawn(execPath, args, { detached: true, stdio: ["ignore", "pipe", "ignore"], env: { ...process.env, ...env, SUMMON_NO_CACHE: "1" } });
     const stop = () => {
       try { if (child.pid) process.kill(-child.pid, "SIGTERM"); } catch { /* the group has already exited */ }
     };
@@ -406,17 +408,35 @@ export function readStatusesInChild(execPath: string, args: readonly string[], s
 
 type RowLoader = (signal: AbortSignal) => ProjectRow[] | Promise<ProjectRow[]>;
 
+/** A Rex status: reading it again may spawn `rex`, so the next read runs in the child. */
+function hasRexStatus(statuses: ResolvedStatus[]): boolean {
+  return statuses.some((status) => status.backend === "rex");
+}
+
 /**
- * In the CLI, with Rex state present, a child process of this same Summon. Otherwise in-process,
- * exactly as before: Ghostty liveness is files and `process.kill`, never a `rex` spawn, so it costs
- * no child per tick (also library use and tests, where no invocation is registered).
+ * In the CLI, with Rex state present, a child process of this same Summon. Otherwise in-process:
+ * Ghostty liveness is files and `process.kill`, never a `rex` spawn, so it costs no child per tick
+ * (also library use and tests, where no invocation is registered). Rex state on disk is checked once,
+ * at start; after that each read decides the next from its own statuses, so a new Rex launch moves the
+ * read after the one that first lists it to the child. The `rex` binary is resolved once, here, for every child.
  */
 function defaultRowLoader(): RowLoader {
   const self = selfInvocation();
   if (!self) return loadProjectRows;
-  return (signal) => (hasRexState()
-    ? readStatusesInChild(self.execPath, [self.script, MONITOR_READ_ARG], signal).then(rowsFromStatuses)
-    : loadProjectRows());
+  let inChild = hasRexState();
+  const decide = (statuses: ResolvedStatus[]): ProjectRow[] => {
+    inChild = hasRexStatus(statuses);
+    return rowsFromStatuses(statuses);
+  };
+  let childEnv: NodeJS.ProcessEnv | undefined;
+  return (signal) => {
+    if (!inChild) return decide(readMonitorStatuses());
+    if (!childEnv) {
+      const rexBinary = rexBinaryPath();
+      childEnv = rexBinary ? { [MONITOR_REX_BINARY_ENV]: rexBinary } : {};
+    }
+    return readStatusesInChild(self.execPath, [self.script, MONITOR_READ_ARG], signal, childEnv).then(decide);
+  };
 }
 
 /** "6s", or the uptime format from a minute on. */
@@ -543,7 +563,7 @@ export async function runMonitor(options: MonitorOptions = {}): Promise<void> {
     else if (selectedIndex < scrollStart) scrollStart = selectedIndex;
     const screen = ui === "help" ? helpLines.join("\n")
       : ui === "error" ? errorLines.join("\n")
-      : renderScreen(rows, selectedIndex, getWidth(), getHeight(), scrollStart, session.fallback, staleNote());
+      : renderScreen(rows, selectedIndex, getWidth(), getHeight(), { scrollStart, visibilityUnavailable: session.fallback, staleNote: staleNote() });
     if (!fullClear && !session.dirty && screen === prevFrame) return;
     process.stdout.write((fullClear || session.dirty ? CLEAR_SCREEN : CURSOR_HOME) + screen);
     session.dirty = false;

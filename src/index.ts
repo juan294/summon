@@ -52,10 +52,13 @@ const registry: Record<string, () => Promise<CommandHandler>> = {
 
 async function main(): Promise<void> {
   // PE-H1: the interactive monitor reads statuses in a child of this CLI (MONITOR_READ_ARG, internal and undocumented).
-  if (__argv.length === 1 && __argv[0] === "--internal-monitor-read") {
-    const { writeMonitorRead } = await import("./monitor.js");
-    writeMonitorRead();
-    return;
+  // The flag lives in monitor-read.ts, loaded only for an `--internal-` argument (the entry keeps no static imports).
+  if (__argv.length === 1 && __argv[0]?.startsWith("--internal-")) {
+    const { MONITOR_READ_ARG, writeMonitorRead } = await import("./monitor-read.js");
+    if (__argv[0] === MONITOR_READ_ARG) {
+      await writeMonitorRead();
+      return;
+    }
   }
   // Remember how this process was started: the cleanup trap typed into a workspace runs this
   // same binary for its snapshot, not whatever `summon` is on the pane's PATH when the shell exits.

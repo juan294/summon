@@ -72,6 +72,11 @@ export function rexBinaryPath(): string | null {
   return rexBinaryMemo;
 }
 
+/** Use a `rex` binary already resolved by the parent process (the monitor's child read, PE-H1) instead of looking it up. */
+export function seedRexBinaryPath(path: string): void {
+  rexBinaryMemo = path;
+}
+
 /** The `rex` binary or a failed exit 2 with the install hint (commands only). */
 export function requireRexBinary(): string {
   const binary = rexBinaryPath();

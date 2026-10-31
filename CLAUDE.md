@@ -53,6 +53,7 @@ src/
   status.ts             Status reader: readStatus/readAllStatuses over both backends (active/partial/stopped/unknown), Rex adoption and reconciliation, endRexLaunch; re-exports status-record
   briefing.ts           Morning project briefing (overnight commits, dirty files, recommendations)
   monitor.ts            Interactive TUI dashboard for workspace status (refresh loop, keyboard nav)
+  monitor-read.ts       The monitor's child status read (hidden MONITOR_READ_ARG, writeMonitorRead); leaf module, status code loaded lazily
   ports.ts              Port detection across projects (env vars, package.json, framework configs)
   snapshot.ts           Context snapshot collect/write/restore (git state, layout, branch)
   setup.ts              Interactive setup wizard, visual layout builder (back-nav, numbered select, accessibility prompt)

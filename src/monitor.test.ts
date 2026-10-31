@@ -11,6 +11,8 @@ vi.mock("./status.js", async (importOriginal) => {
     ...original,
     readAllStatuses: vi.fn().mockReturnValue([]),
     hasRexState: vi.fn().mockReturnValue(false),
+    rexBinaryPath: vi.fn().mockReturnValue(null),
+    seedRexBinaryPath: vi.fn(),
     readProjectStatus: vi.fn().mockReturnValue(null),
     getGitBranch: vi.fn().mockReturnValue(null),
   };
@@ -23,6 +25,7 @@ vi.mock("./launcher.js", () => ({
 }));
 
 const monitorModule = await import("./monitor.js");
+const monitorRead = await import("./monitor-read.js");
 const {
   formatUptime, stateColor, stateDot, renderRow, renderHeader, renderFooter,
   renderScreen, loadProjectRows, printStatusOnce, runMonitor, resetGitBranchCache,
@@ -34,8 +37,10 @@ import { getDisplayWidth } from "./ui/width.js";
 const { listProjects } = await import("./config.js") as unknown as {
   listProjects: ReturnType<typeof vi.fn>;
 };
-const { readAllStatuses, readProjectStatus, getGitBranch, hasRexState } = await import("./status.js") as unknown as {
+const { readAllStatuses, readProjectStatus, getGitBranch, hasRexState, rexBinaryPath, seedRexBinaryPath } = await import("./status.js") as unknown as {
   hasRexState: ReturnType<typeof vi.fn>;
+  rexBinaryPath: ReturnType<typeof vi.fn>;
+  seedRexBinaryPath: ReturnType<typeof vi.fn>;
   readAllStatuses: ReturnType<typeof vi.fn>;
   readProjectStatus: ReturnType<typeof vi.fn>;
   getGitBranch: ReturnType<typeof vi.fn>;
@@ -391,7 +396,7 @@ describe("renderScreen", () => {
     );
     // Height 10 = 4 chrome + 6 visible rows, selected at index 25
     // scrollStart=20 means rows 20-25 are visible
-    const screen = renderScreen(rows, 25, 80, 10, 20);
+    const screen = renderScreen(rows, 25, 80, 10, { scrollStart: 20 });
     expect(screen).toContain("project-25");
     expect(screen).not.toContain("project-0");
     expect(screen).toContain("project-25");
@@ -402,7 +407,7 @@ describe("renderScreen", () => {
       makeRow({ name: `project-${i}` }),
     );
     // Height 10 = 4 chrome + 6 visible rows; scrollStart=12 puts project-15 in view
-    const screen = renderScreen(rows, 15, 80, 10, 12);
+    const screen = renderScreen(rows, 15, 80, 10, { scrollStart: 12 });
     expect(screen).toContain("project-1");
   });
 
@@ -414,6 +419,15 @@ describe("renderScreen", () => {
     const screen = renderScreen(rows, -1, 80, 10);
 
     expect(screen).toContain("summon status");
+  });
+
+  it("names the polling fallback in the footer and the staleness in the header, only when asked", () => {
+    const plain = renderScreen([makeRow()], 0, 120, 10);
+    expect(plain).not.toContain("Visibility unavailable");
+    expect(plain).not.toContain("updating");
+    const screen = renderScreen([makeRow()], 0, 120, 10, { visibilityUnavailable: true, staleNote: "updating\u2026" });
+    expect(screen).toContain("Visibility unavailable; polling");
+    expect(screen).toContain("updating\u2026");
   });
 });
 
@@ -1900,7 +1914,7 @@ describe("PE-H1: a slow status read never blocks the monitor", () => {
     expect(abortedAtLaunch).toBe(true);
   });
 
-  it("the child's JSON gives the same rows as the in-process read, for Ghostty and Rex rows", () => {
+  it("the child's JSON gives the same rows as the in-process read, for Ghostty and Rex rows", async () => {
     listProjects.mockReturnValue([["ghost", "/tmp/ghost"], ["rexa", "/tmp/rexa"], ["rexb", "/tmp/rexb"], ["idle", "/tmp/idle"]]);
     const rex = { server: "unix:///tmp/rex.sock", sessionId: "session:1", rootBlockId: "block:1", blocks: [{ name: "editor", blockId: "block:1" }] };
     readAllStatuses.mockReturnValue([
@@ -1911,15 +1925,29 @@ describe("PE-H1: a slow status read never blocks the monitor", () => {
     ]);
     let wire = "";
     writeSpy.mockImplementation((data: unknown) => { wire += String(data); return true; });
-    monitorModule.writeMonitorRead();
+    await monitorRead.writeMonitorRead({});
     expect(readAllStatuses).toHaveBeenLastCalledWith({ programStatus: true });
+    expect(seedRexBinaryPath).not.toHaveBeenCalled();
     expect(monitorModule.rowsFromStatuses(JSON.parse(wire))).toEqual(loadProjectRows());
   });
 
-  it("the CLI entry answers the hidden flag the monitor starts its child with", async () => {
+  it("the child uses the rex binary its parent resolved, when the parent passed one", async () => {
+    seedRexBinaryPath.mockClear();
+    writeSpy.mockImplementation(() => true);
+    await monitorRead.writeMonitorRead({ [monitorRead.MONITOR_REX_BINARY_ENV]: "/opt/rex/bin/rex" });
+    expect(seedRexBinaryPath).toHaveBeenCalledWith("/opt/rex/bin/rex");
+    seedRexBinaryPath.mockClear();
+    await monitorRead.writeMonitorRead({ [monitorRead.MONITOR_REX_BINARY_ENV]: "" });
+    expect(seedRexBinaryPath).not.toHaveBeenCalled();
+  });
+
+  it("the CLI entry answers the hidden flag the monitor starts its child with, from the one constant", async () => {
     const { readFileSync } = await import("node:fs");
     const entry = readFileSync(new URL("./index.ts", import.meta.url), "utf-8");
-    expect(entry).toContain(JSON.stringify(monitorModule.MONITOR_READ_ARG));
+    expect(monitorModule.MONITOR_READ_ARG).toBe(monitorRead.MONITOR_READ_ARG);
+    expect(entry).toMatch(/\{ MONITOR_READ_ARG, writeMonitorRead \} = await import\("\.\/monitor-read\.js"\)/);
+    expect(entry).toContain("=== MONITOR_READ_ARG");
+    expect(entry).not.toContain(JSON.stringify(monitorRead.MONITOR_READ_ARG));
     expect(entry).toContain("writeMonitorRead()");
   });
 });
@@ -2027,6 +2055,69 @@ describe("PE-H1: readStatusesInChild", () => {
       await monitor.result;
       expect(existsSync(ran)).toBe(false);
     } finally { monitor.restore(); readAllStatuses.mockReset().mockReturnValue([]); }
+  });
+
+  it("decides each read from the last one: a Rex status in an in-process read moves the next read to the child, with no per-tick scan", async () => {
+    listProjects.mockReturnValue([["ghost", "/tmp/ghost"], ["rexa", "/tmp/rexa"]]);
+    const ghost = makeResolvedStatus({ project: "ghost", directory: "/tmp/ghost", state: "active", uptime: 60_000 });
+    readAllStatuses.mockReset().mockReturnValue([ghost]);
+    hasRexState.mockClear();
+    const child = makeResolvedStatus({ project: "rexa", directory: "/tmp/rexa", backend: "rex", state: "stopped", uptime: null, reason: "read in the child" });
+    const monitor = await monitorThroughChild(`process.stdout.write(${JSON.stringify(JSON.stringify([child]))});`, false);
+    try {
+      process.stdin.emit("data", Buffer.from("r"));
+      expect(readAllStatuses).toHaveBeenCalledTimes(2);
+      // A Rex launch: the next in-process read returns its record, and the read after it runs in the child.
+      readAllStatuses.mockReturnValue([ghost, makeResolvedStatus({ project: "rexa", directory: "/tmp/rexa", backend: "rex", state: "active", uptime: 1000 })]);
+      process.stdin.emit("data", Buffer.from("r"));
+      expect(readAllStatuses).toHaveBeenCalledTimes(3);
+      process.stdin.emit("data", Buffer.from("r"));
+      await vi.waitFor(() => expect(monitor.writes.join("")).toContain("read in the child"), { timeout: 5000 });
+      expect(readAllStatuses).toHaveBeenCalledTimes(3);
+      expect(hasRexState).toHaveBeenCalledTimes(1); // once, at start
+      process.stdin.emit("data", Buffer.from("q"));
+      await monitor.result;
+    } finally { monitor.restore(); readAllStatuses.mockReset().mockReturnValue([]); }
+  });
+
+  it("a child read without Rex statuses moves the next read back in-process", async () => {
+    listProjects.mockReturnValue([["ghost", "/tmp/ghost"]]);
+    readAllStatuses.mockReset().mockReturnValue([makeResolvedStatus({ project: "ghost", directory: "/tmp/ghost", state: "stopped", uptime: null, reason: "read in-process" })]);
+    const child = makeResolvedStatus({ project: "ghost", directory: "/tmp/ghost", state: "stopped", uptime: null, reason: "read in the child" });
+    const monitor = await monitorThroughChild(`process.stdout.write(${JSON.stringify(JSON.stringify([child]))});`, true);
+    try {
+      await vi.waitFor(() => expect(monitor.writes.join("")).toContain("read in the child"), { timeout: 5000 });
+      expect(readAllStatuses).not.toHaveBeenCalled();
+      process.stdin.emit("data", Buffer.from("r"));
+      expect(readAllStatuses).toHaveBeenCalledTimes(1);
+      expect(monitor.writes.join("")).toContain("read in-process");
+      process.stdin.emit("data", Buffer.from("q"));
+      await monitor.result;
+    } finally { monitor.restore(); readAllStatuses.mockReset().mockReturnValue([]); }
+  });
+
+  it("the parent resolves the rex binary once and hands it to every child read", async () => {
+    const { readFileSync, existsSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    listProjects.mockReturnValue([["rexa", "/tmp/rexa"]]);
+    rexBinaryPath.mockClear().mockReturnValue("/opt/rex/bin/rex");
+    const seen = join(dir, "seen");
+    const status = makeResolvedStatus({ project: "rexa", directory: "/tmp/rexa", backend: "rex", state: "stopped", uptime: null });
+    const body = `import { appendFileSync } from "node:fs";
+appendFileSync(${JSON.stringify(seen)}, process.env[${JSON.stringify(monitorRead.MONITOR_REX_BINARY_ENV)}] + "\\n");
+process.stdout.write(${JSON.stringify(JSON.stringify([status]))});`;
+    const lines = () => (existsSync(seen) ? readFileSync(seen, "utf-8").split("\n").filter(Boolean) : []);
+    const monitor = await monitorThroughChild(body, true);
+    try {
+      await vi.waitFor(() => expect(lines()).toHaveLength(1), { timeout: 5000 });
+      await vi.waitFor(() => expect(process.stdin.listenerCount("data")).toBeGreaterThan(0), { timeout: 5000 });
+      process.stdin.emit("data", Buffer.from("r"));
+      await vi.waitFor(() => expect(lines()).toHaveLength(2), { timeout: 5000 });
+      expect(lines()).toEqual(["/opt/rex/bin/rex", "/opt/rex/bin/rex"]);
+      expect(rexBinaryPath).toHaveBeenCalledTimes(1);
+      process.stdin.emit("data", Buffer.from("q"));
+      await monitor.result;
+    } finally { monitor.restore(); rexBinaryPath.mockReturnValue(null); }
   });
 
   it("on start, a child that exits with a failure falls back to one in-process read", async () => {
