@@ -1981,43 +1981,84 @@ describe("PE-H1: readStatusesInChild", () => {
     } finally { monitor.restore(); readAllStatuses.mockReset().mockReturnValue([]); }
   });
 
-  it("decides each read from the last one: a Rex status in an in-process read moves the next read to the child, with no per-tick scan", async () => {
+  /** A child body that records each run in `file` and prints `statuses`. */
+  function countingChild(file: string, statuses: unknown[]): string {
+    return `import { appendFileSync } from "node:fs";
+appendFileSync(${JSON.stringify(file)}, "read\\n");
+process.stdout.write(${JSON.stringify(JSON.stringify(statuses))});`;
+  }
+  async function runsOf(file: string): Promise<number> {
+    const { readFileSync, existsSync } = await import("node:fs");
+    return existsSync(file) ? readFileSync(file, "utf-8").split("\n").filter(Boolean).length : 0;
+  }
+
+  it("a Ghostty-only start reads in-process until Rex state appears on disk; the very next read runs in the child, never in-process", async () => {
+    const { join } = await import("node:path");
     listProjects.mockReturnValue([["ghost", "/tmp/ghost"], ["rexa", "/tmp/rexa"]]);
-    const ghost = makeResolvedStatus({ project: "ghost", directory: "/tmp/ghost", state: "active", uptime: 60_000 });
-    readAllStatuses.mockReset().mockReturnValue([ghost]);
+    readAllStatuses.mockReset().mockReturnValue([makeResolvedStatus({ project: "ghost", directory: "/tmp/ghost", state: "active", uptime: 60_000 })]);
     hasRexState.mockClear();
+    const runs = join(dir, "runs");
     const child = makeResolvedStatus({ project: "rexa", directory: "/tmp/rexa", backend: "rex", state: "stopped", uptime: null, reason: "read in the child" });
-    const monitor = await monitorThroughChild(`process.stdout.write(${JSON.stringify(JSON.stringify([child]))});`, false);
+    const monitor = await monitorThroughChild(countingChild(runs, [child]), false);
     try {
       process.stdin.emit("data", Buffer.from("r"));
       expect(readAllStatuses).toHaveBeenCalledTimes(2);
-      // A Rex launch: the next in-process read returns its record, and the read after it runs in the child.
-      readAllStatuses.mockReturnValue([ghost, makeResolvedStatus({ project: "rexa", directory: "/tmp/rexa", backend: "rex", state: "active", uptime: 1000 })]);
+      expect(hasRexState).toHaveBeenCalledTimes(2); // the file-only check before each in-process read
+      // A Rex launch writes its manifest and record: the next read goes to the child, the in-process read never sees it.
+      hasRexState.mockReturnValue(true);
       process.stdin.emit("data", Buffer.from("r"));
-      expect(readAllStatuses).toHaveBeenCalledTimes(3);
-      process.stdin.emit("data", Buffer.from("r"));
+      await vi.waitFor(async () => expect(await runsOf(runs)).toBe(1), { timeout: 5000 });
       await vi.waitFor(() => expect(monitor.writes.join("")).toContain("read in the child"), { timeout: 5000 });
-      expect(readAllStatuses).toHaveBeenCalledTimes(3);
-      expect(hasRexState).toHaveBeenCalledTimes(1); // once, at start
+      expect(readAllStatuses).toHaveBeenCalledTimes(2);
+      // In child mode the scan is skipped: a read that lists a Rex status keeps the next read in the child.
+      process.stdin.emit("data", Buffer.from("r"));
+      await vi.waitFor(async () => expect(await runsOf(runs)).toBe(2), { timeout: 5000 });
+      expect(hasRexState).toHaveBeenCalledTimes(3);
+      expect(readAllStatuses).toHaveBeenCalledTimes(2);
       process.stdin.emit("data", Buffer.from("q"));
       await monitor.result;
     } finally { monitor.restore(); readAllStatuses.mockReset().mockReturnValue([]); }
   });
 
-  it("a child read without Rex statuses moves the next read back in-process", async () => {
+  it("a child read without Rex statuses moves the next read back to the file check, then in-process", async () => {
+    const { join } = await import("node:path");
     listProjects.mockReturnValue([["ghost", "/tmp/ghost"]]);
     readAllStatuses.mockReset().mockReturnValue([makeResolvedStatus({ project: "ghost", directory: "/tmp/ghost", state: "stopped", uptime: null, reason: "read in-process" })]);
+    const runs = join(dir, "runs");
     const child = makeResolvedStatus({ project: "ghost", directory: "/tmp/ghost", state: "stopped", uptime: null, reason: "read in the child" });
-    const monitor = await monitorThroughChild(`process.stdout.write(${JSON.stringify(JSON.stringify([child]))});`, true);
+    const monitor = await monitorThroughChild(countingChild(runs, [child]), true);
     try {
       await vi.waitFor(() => expect(monitor.writes.join("")).toContain("read in the child"), { timeout: 5000 });
       expect(readAllStatuses).not.toHaveBeenCalled();
+      hasRexState.mockReturnValue(false); // the Rex state is gone from disk
       process.stdin.emit("data", Buffer.from("r"));
       expect(readAllStatuses).toHaveBeenCalledTimes(1);
       expect(monitor.writes.join("")).toContain("read in-process");
+      expect(await runsOf(runs)).toBe(1);
       process.stdin.emit("data", Buffer.from("q"));
       await monitor.result;
     } finally { monitor.restore(); readAllStatuses.mockReset().mockReturnValue([]); }
+  });
+
+  it("without a rex binary in the parent, an inherited SUMMON_MONITOR_REX_BINARY never reaches the child", async () => {
+    const { readFileSync, existsSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    listProjects.mockReturnValue([["rexa", "/tmp/rexa"]]);
+    rexBinaryPath.mockClear().mockReturnValue(null);
+    vi.stubEnv(monitorRead.MONITOR_REX_BINARY_ENV, "/tmp/not-rex");
+    const seen = join(dir, "seen");
+    const status = makeResolvedStatus({ project: "rexa", directory: "/tmp/rexa", backend: "rex", state: "stopped", uptime: null });
+    const body = `import { appendFileSync } from "node:fs";
+appendFileSync(${JSON.stringify(seen)}, String(process.env[${JSON.stringify(monitorRead.MONITOR_REX_BINARY_ENV)}]) + "\\n");
+process.stdout.write(${JSON.stringify(JSON.stringify([status]))});`;
+    const monitor = await monitorThroughChild(body, true);
+    try {
+      await vi.waitFor(() => expect(existsSync(seen)).toBe(true), { timeout: 5000 });
+      expect(readFileSync(seen, "utf-8")).toBe("undefined\n");
+      await vi.waitFor(() => expect(process.stdin.listenerCount("data")).toBeGreaterThan(0), { timeout: 5000 });
+      process.stdin.emit("data", Buffer.from("q"));
+      await monitor.result;
+    } finally { monitor.restore(); vi.unstubAllEnvs(); }
   });
 
   it("the parent resolves the rex binary once and hands it to every child read", async () => {

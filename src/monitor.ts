@@ -382,11 +382,15 @@ export class ChildReadError extends Error {
  * Run `execPath args` and parse its stdout as the statuses. The child leads its own process group:
  * an abort ends the group, so a `rex` call it is waiting on ends too (records are written atomically
  * under their lock, so an interrupted read is safe). It is unreferenced and never holds Summon open.
+ * `env` is laid over this process's environment; a key set to undefined there is removed.
  */
 export function readStatusesInChild(execPath: string, args: readonly string[], signal?: AbortSignal, env: NodeJS.ProcessEnv = {}): Promise<ResolvedStatus[]> {
   return new Promise((resolve, reject) => {
     // With the config cache off, the child never rewrites cache.json at exit (one child per tick).
-    const child = spawn(execPath, args, { detached: true, stdio: ["ignore", "pipe", "ignore"], env: { ...process.env, ...env, SUMMON_NO_CACHE: "1" } });
+    const childEnv: NodeJS.ProcessEnv = { ...process.env, ...env, SUMMON_NO_CACHE: "1" };
+    // A key set to undefined in `env` is removed, never inherited from this process.
+    for (const [key, value] of Object.entries(env)) if (value === undefined) delete childEnv[key];
+    const child = spawn(execPath, args, { detached: true, stdio: ["ignore", "pipe", "ignore"], env: childEnv });
     const stop = () => {
       try { if (child.pid) process.kill(-child.pid, "SIGTERM"); } catch { /* the group has already exited */ }
     };
@@ -416,25 +420,23 @@ function hasRexStatus(statuses: ResolvedStatus[]): boolean {
 /**
  * In the CLI, with Rex state present, a child process of this same Summon. Otherwise in-process:
  * Ghostty liveness is files and `process.kill`, never a `rex` spawn, so it costs no child per tick
- * (also library use and tests, where no invocation is registered). Rex state on disk is checked once,
- * at start; after that each read decides the next from its own statuses, so a new Rex launch moves the
- * read after the one that first lists it to the child. The `rex` binary is resolved once, here, for every child.
+ * (also library use and tests, where no invocation is registered). Before an in-process read the
+ * file-only `hasRexState` scan runs, so a new Rex launch moves the very next read to the child; in the
+ * child, a read that lists a Rex status skips that scan for the next one. The `rex` binary is resolved
+ * once, here, for every child; without one, an inherited value of the variable never reaches the child.
  */
 function defaultRowLoader(): RowLoader {
   const self = selfInvocation();
   if (!self) return loadProjectRows;
-  let inChild = hasRexState();
+  let inChild = false;
   const decide = (statuses: ResolvedStatus[]): ProjectRow[] => {
     inChild = hasRexStatus(statuses);
     return rowsFromStatuses(statuses);
   };
   let childEnv: NodeJS.ProcessEnv | undefined;
   return (signal) => {
-    if (!inChild) return decide(readMonitorStatuses());
-    if (!childEnv) {
-      const rexBinary = rexBinaryPath();
-      childEnv = rexBinary ? { [MONITOR_REX_BINARY_ENV]: rexBinary } : {};
-    }
+    if (!inChild && !hasRexState()) return decide(readMonitorStatuses());
+    childEnv ??= { [MONITOR_REX_BINARY_ENV]: rexBinaryPath() ?? undefined };
     return readStatusesInChild(self.execPath, [self.script, MONITOR_READ_ARG], signal, childEnv).then(decide);
   };
 }

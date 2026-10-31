@@ -152,22 +152,22 @@ describe("watchForAttention (D1)", () => {
     const SWITCH = "Workspace [api] is already running in Rex; switched to it (use --new-window for a fresh one)";
     const CLEANUP = "removed the files of earlier launch 547c18b7-b4d4-45ae-aebe-3b642197ec3a (its Rex session is gone)";
     const ON_STOP = "on-stop will run on workspace exit.";
-    for (const [label, write, flagged] of [
-      ["switch line", () => err(SWITCH, { routine: true }), false],
-      ["blank line", () => err(""), false],
-      ["cleanup note", () => note(CLEANUP, { routine: true }), false],
+    for (const [label, write, flagged, expected] of [
+      ["switch line", () => err(SWITCH, { routine: true }), false, [`${SWITCH}\n`]],
+      ["blank line", () => err(""), false, ["\n"]],
+      ["cleanup note", () => note(CLEANUP, { routine: true }), false, [`summon: note: ${CLEANUP}\n`]],
       // UX-H1: the on-stop disclosure prints on every launch with a hook; it is not something to act on.
-      ["on-stop note", () => note(ON_STOP, { routine: true }), false],
+      ["on-stop note", () => note(ON_STOP, { routine: true }), false, [`summon: note: ${ON_STOP}\n`]],
       // The source decides: the same text written without the marker is for the user to read.
-      ["unmarked switch line", () => err(SWITCH), true],
-      ["unmarked on-stop note", () => note(ON_STOP), true],
-      ["failed cleanup note", () => note("could not remove the files of earlier launch 547c18b7-b4d4-45ae-aebe-3b642197ec3a (its Rex session is gone): EPERM"), true],
-      ["P8 notice", () => note("Rex cannot honor maximize; ignored"), true],
-      ["warning", () => warn("ignoring invalid env var key \"1X\" from .summon file."), true],
-      ["routine note then a warning", () => { note(ON_STOP, { routine: true }); warn("something else"); }, true],
-      ["multi-line write", () => process.stderr.write(`${SWITCH}\nWarning: something else\n`), true],
-      ["could not be shown", () => err("Workspace [api] is already running in Rex but could not be shown (no app); run summon open api"), true],
-      ["skipped project", () => process.stderr.write(Buffer.from("[2/3] Skipped web \u2014 untrusted .summon file.\n")), true],
+      ["unmarked switch line", () => err(SWITCH), true, [`${SWITCH}\n`]],
+      ["unmarked on-stop note", () => note(ON_STOP), true, [`summon: note: ${ON_STOP}\n`]],
+      ["failed cleanup note", () => note("could not remove the files of earlier launch 547c18b7-b4d4-45ae-aebe-3b642197ec3a (its Rex session is gone): EPERM"), true, ["summon: note: could not remove the files of earlier launch 547c18b7-b4d4-45ae-aebe-3b642197ec3a (its Rex session is gone): EPERM\n"]],
+      ["P8 notice", () => note("Rex cannot honor maximize; ignored"), true, ["summon: note: Rex cannot honor maximize; ignored\n"]],
+      ["warning", () => warn("ignoring invalid env var key \"1X\" from .summon file."), true, ["summon: warning: ignoring invalid env var key \"1X\" from .summon file.\n"]],
+      ["routine note then a warning", () => { note(ON_STOP, { routine: true }); warn("something else"); }, true, [`summon: note: ${ON_STOP}\n`, "summon: warning: something else\n"]],
+      ["multi-line write", () => process.stderr.write(`${SWITCH}\nWarning: something else\n`), true, [`${SWITCH}\nWarning: something else\n`]],
+      ["could not be shown", () => err("Workspace [api] is already running in Rex but could not be shown (no app); run summon open api"), true, ["Workspace [api] is already running in Rex but could not be shown (no app); run summon open api\n"]],
+      ["skipped project", () => process.stderr.write(Buffer.from("[2/3] Skipped web \u2014 untrusted .summon file.\n")), true, ["[2/3] Skipped web \u2014 untrusted .summon file.\n"]],
     ] as const) {
       resetLauncherTabForTests();
       const written: string[] = [];
@@ -176,7 +176,7 @@ describe("watchForAttention (D1)", () => {
         watchForAttention(process.stderr);
         write();
         expect(needsAttention(), label).toBe(flagged);
-        expect(written.length, label).toBeGreaterThan(0);
+        expect(written, label).toEqual(expected);
       } finally {
         spy.mockRestore();
       }
