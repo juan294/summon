@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-10-31
+
 ### Added
 
 - Launching inside a Rex terminal (or with Rex installed and Ghostty absent) creates a Rex session named after the project, one block per pane, and shows it in the Rex app attached to the caller's own Rex session, else the newest connected app. Running `summon <project>` again while that session is alive switches to it instead of creating another; `--new-window` creates a fresh session (shown in the current Rex window: Rex opens new windows with their own session, so this flag cannot open one) and says once that the earlier session stays open; later switches do not repeat it. `maximize`, `float`, `fullscreen` and `font-size` (flag or config) and the `--clean` flag are ignored under Rex with one notice each; a `clean=true` config value is ignored silently. `summon session` under Rex creates one session per project and returns to the first, reporting `Switched to <project>` for a project already running. A launch from a pane of a Summon workspace does not warn about nested splits under Rex. `summon setup` skips the Ghostty install and Accessibility steps under Rex; `summon doctor` gains a Rex section and marks the Ghostty checks "not applicable" when Ghostty is absent and Rex is present. `summon keybindings` notes that Rex key bindings live in `~/.config/rex/init.lua`.
@@ -840,7 +842,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CodeQL security scanning
 - Dependabot for npm and GitHub Actions
 
-[Unreleased]: https://github.com/juan294/summon/compare/v1.9.0...develop
+[Unreleased]: https://github.com/juan294/summon/compare/v2.0.0...develop
+[2.0.0]: https://github.com/juan294/summon/compare/v1.9.0...v2.0.0
 [1.9.0]: https://github.com/juan294/summon/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/juan294/summon/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/juan294/summon/compare/v1.6.0...v1.7.0
