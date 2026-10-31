@@ -395,7 +395,7 @@ Defaults to the current directory if no path is given.
 
 A launch never runs an untrusted .summon file. On a terminal it shows the file and asks
 "Trust this file and continue? [y/N]"; without a terminal it fails with exit 1, and
-'summon session --all' skips the project. Running this command approves the file's
+'summon session' skips the project. Running this command approves the file's
 current contents.
 
 Example:

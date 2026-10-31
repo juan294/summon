@@ -1110,7 +1110,7 @@ Trust this file and continue? [y/N]
 | `n` or Enter | Nothing more is printed; exit 130 | `Launch cancelled.` and `Trust declined. Nothing was trusted.`, then any key returns to the dashboard |
 | Escape or Ctrl+C | Nothing more is printed; exit 130 | `Launch cancelled.` and `Nothing was trusted.`, then any key returns to the dashboard |
 
-Other keys are ignored until you answer. The status monitor asks on the normal screen after it closes the dashboard. Without a terminal (scripts, CI) nothing is asked: the launch fails with exit 1, as before. `summon session --all` never asks; it skips the untrusted project and continues. You can also grant trust explicitly:
+Other keys are ignored until you answer. The status monitor asks on the normal screen after it closes the dashboard. Without a terminal (scripts, CI) nothing is asked: the launch fails with exit 1, as before. `summon session` (a named session or `--all`) never asks; it skips the untrusted project and continues. You can also grant trust explicitly:
 
 ```bash
 summon trust .                    # trust the .summon file in current directory

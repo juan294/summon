@@ -6,13 +6,13 @@ Technical reference for contributors.
 
 | Module | Role | Side Effects | Dependencies |
 |--------|------|:------------:|--------------|
-| `index.ts` | CLI entry point — thin dispatch registry (~250 lines); every module is loaded through dynamic `import()` | yes | commands/* (lazy registry), cli/parse, cli/help, cli/resolve-target, config, trust, utils, launcher, setup, self, ui/output |
+| `index.ts` | CLI entry point — thin dispatch registry (~250 lines); every module is loaded through dynamic `import()` | yes | commands/* (lazy registry), cli/parse, cli/help, cli/resolve-target, config, trust, utils, launcher, setup, self, monitor-read, ui/output |
 | `cli/parse.ts` | CLI argument parsing — `parseCli`, `buildOverrides` | yes | layout, validation, utils, ui/output, commands/layout-support |
 | `cli/help.ts` | Help text (lazily imported on the `--help` path) — `showHelp`, `hasSubcommandHelp`, `showSubcommandHelp` | yes | config, ui/ansi, setup-gallery (dynamic) |
 | `commands/config.ts` | `handleConfigCommand`, `handleExportCommand`, `handleFreezeCommand`, `handleSetCommand` | yes | config, config-resolve, utils, validation |
 | `commands/doctor.ts` | `handleDoctorCommand`: Ghostty checks (when applicable), the Rex section (`backends/rex/doctor.ts`), command and lock checks | yes | config, utils, backends/ghostty/probe, backend, backends/rex/doctor, command-spec, paths, ui/ansi, ui/sanitize, ui/symbols |
 | `commands/layout.ts` | `handleLayoutCommand` — create/save/list/show/delete/edit | yes | config, layout, utils, ui/layout-preview |
-| `commands/layout-support.ts` | Shared layout validation helpers — `validateLayoutOrExit`, `validateLayoutNameOrExit`, `layoutNotFoundOrExit` | yes | config, layout, utils |
+| `commands/layout-support.ts` | Shared layout validation helpers — `validateLayoutOrExit`, `validateLayoutNameOrExit`, `layoutNotFoundOrExit` | yes | layout, utils, ui/output |
 | `commands/project.ts` | `handleAddCommand`, `handleListCommand`, `handleOpenCommand`, `handleRemoveCommand` | yes | config, workspace-focus (dynamic, only to focus), launcher (dynamic, only to launch), backend and backends/select (dynamic, D1 switch watch), trust, utils, validation, status-record |
 | `commands/runtime.ts` | `handleStatusCommand`, `handleSnapshotCommand`, `handleBriefingCommand`, `handlePortsCommand` | yes | monitor, snapshot, briefing, ports, status-record, utils |
 | `commands/setup.ts` | `handleCompletionsCommand`, `handleKeybindingsCommand`, `handleSetupCommand` | yes | config-resolve, layout, completions, keybindings, setup, backends/ghostty/probe |
@@ -81,15 +81,15 @@ Technical reference for contributors.
 | `layout.ts` | Layout calculation and presets; `formatTitle`, the pane label both backends use | **pure** | none |
 | `completions.ts` | Shell completion script generator (zsh, bash, fish) | **pure** | config, layout |
 | `starship.ts` | Starship detection, preset listing, TOML config caching | yes | paths, utils |
-| `tree.ts` | Tree data model, DSL parser, plan builder (pure — no side effects) | **pure** | layout |
+| `tree.ts` | Tree data model, DSL parser, plan builder (pure — no side effects) | **pure** | layout, ui/output |
 | `status.ts` | Status reader over both backends: `readStatus`/`readProjectStatus`/`readAllStatuses` (`active`/`partial`/`stopped`/`unknown`), each record resolved by `recordReaderFor(record.backend).resolve`, `readMaySpawn` and `statusesMaySpawn`, git branch lookup; re-exports the Rex binary memo for the monitor's child read (PE-H1). A read runs the steps of `backends/rex/reconcile.ts` by default, as every status command needs; one that passes `{ reconcile: false }` writes nothing. No re-export of `status-record.ts` | yes | status-record, launch-identity, backends/read, backends/rex/read, paths, utils |
 | `briefing.ts` | Morning project briefing — overnight commits, dirty files, recommendations | yes | config, status, status-record, ui/ansi, ui/symbols, utils |
 | `monitor.ts` | Interactive TUI dashboard — real-time workspace status with keyboard navigation | yes | status, status-record, monitor-read, monitor-input, monitor-visibility, config, self, ui/ansi, ui/symbols, ui/width, utils; workspace-focus, launcher and trust (dynamic, on Enter) |
 | `monitor-input.ts` | `createMonitorInputDecoder` — terminal replies and user keys share one byte stream; CSI payloads are never dispatched as keys | **pure** | none |
 | `monitor-visibility.ts` | `createMonitorVisibility` — the monitor's visibility protocol policy; the TUI owns IO and schedules the single deadline it returns | **pure** | monitor-input (types) |
 | `monitor-read.ts` | The monitor's child status read (PE-H1): the hidden `MONITOR_READ_ARG`, `writeMonitorRead`; a leaf module that loads the status code only when it reads | yes | status (dynamic) |
-| `ports.ts` | Port detection — scans `.summon` env vars, `package.json`, framework configs for port assignments | yes | config, status, status-record, trust, utils |
-| `snapshot.ts` | Context snapshot save/restore — git branch, dirty files, recent commits, layout | yes | paths |
+| `ports.ts` | Port detection — scans `.summon` env vars, `package.json`, framework configs for port assignments | yes | config, status, trust, utils |
+| `snapshot.ts` | Context snapshot save/restore — git branch, dirty files, recent commits, layout | yes | paths, ui/ansi, utils |
 | `keybindings.ts` | Ghostty key table config generator (pure function) | **pure** | none |
 | `validation.ts` | Input validation helpers (`ENV_KEY_RE`, `parseIntInRange`, `parsePositiveFloat`, `validateProjectNameOrExit`) | **pure** | utils |
 | `globals.d.ts` | Build-time constant declarations (`__VERSION__`) | — | — |
@@ -865,7 +865,7 @@ The module imports `VALID_KEYS`, `CLI_FLAGS`, and `listCustomLayouts()` from `co
 
 ### `.summon` File Trust Gate
 
-`trust.ts` implements a direnv-style trust model. Before `launcher.ts` acts on any `.summon` file, `readTrustedSummonFile()` in `config-resolve.ts` reads it once and `assertTrustedContent()` checks the SHA-256 hash of those exact bytes against `~/.config/summon/trust`. If the hash is absent or stale, `withTrustPrompt()` asks on a TTY to trust it; otherwise the user trusts it with `summon trust <dir>`. Trust is revoked on content change.
+`trust.ts` implements a direnv-style trust model. Before `launcher.ts` acts on any `.summon` file, `readTrustedSummonFile()` in `config-resolve.ts` reads it once and `assertTrustedContent()` checks the SHA-256 hash of those exact bytes against `~/.config/summon/trust.json`. If the hash is absent or stale, `withTrustPrompt()` asks on a TTY to trust it; otherwise the user trusts it with `summon trust <dir>`. Trust is revoked on content change.
 
 ### Command Name Validation
 
