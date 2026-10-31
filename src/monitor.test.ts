@@ -28,6 +28,7 @@ const {
   prefetchGitBranches, truncate,
 } = monitorModule;
 import type { ProjectRow } from "./monitor.js";
+import { getDisplayWidth } from "./ui/width.js";
 
 const { listProjects } = await import("./config.js") as unknown as {
   listProjects: ReturnType<typeof vi.fn>;
@@ -1622,5 +1623,141 @@ describe("loadProjectRow (summon open <project>)", () => {
     expect(loadProjectRow("web")).toMatchObject({ name: "web", directory: "/tmp/web", state: "stopped" });
     expect(loadProjectRow("nope")).toBeUndefined();
     expect(readAllStatuses).not.toHaveBeenCalled();
+  });
+});
+
+/** Visible text: drops SGR colors and the cursor/clear sequences that start a frame. */
+// eslint-disable-next-line no-control-regex
+const visibleText = (s: string) => s.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "");
+
+describe("FE-H1: a row is never wider than the terminal", () => {
+  const long = "empty Rex session remains; run summon clean myapp ".repeat(4);
+  const rows: ProjectRow[] = [
+    makeRow({ state: "stopped", reason: long }),
+    makeRow({ state: "partial", reason: long, programStatus: "blocked" }),
+    makeRow({ state: "unknown", directory: `/tmp/${"d".repeat(200)}` }),
+    makeRow({ state: "active-long", gitBranch: `feature/${"b".repeat(200)}`, programStatus: "working" }),
+  ];
+  for (const width of [60, 80, 120]) {
+    it(`truncated rows fill exactly ${width} columns`, () => {
+      for (const row of rows) {
+        for (const selected of [false, true]) {
+          const text = visibleText(renderRow(row, width, selected));
+          expect(getDisplayWidth(text)).toBe(width);
+        }
+      }
+    });
+  }
+  it("keeps the detail column at column 42", () => {
+    const text = visibleText(renderRow(makeRow({ gitBranch: `feature/${"b".repeat(200)}` }), 80, false));
+    expect(text.indexOf("feature/")).toBe(42);
+  });
+  it("--once prints the full reason exactly when the detail column cuts it off", async () => {
+    const columns = process.stdout.columns;
+    Object.defineProperty(process.stdout, "columns", { value: 80, configurable: true });
+    const fits = "f".repeat(38);
+    const cut = "c".repeat(39);
+    listProjects.mockReturnValue([["fits", "/tmp/fits"], ["cut", "/tmp/cut"]]);
+    readAllStatuses.mockReturnValue([
+      makeResolvedStatus({ project: "fits", directory: "/tmp/fits", state: "stopped", uptime: null, reason: fits }),
+      makeResolvedStatus({ project: "cut", directory: "/tmp/cut", state: "stopped", uptime: null, reason: cut }),
+    ]);
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      await printStatusOnce();
+    } finally {
+      Object.defineProperty(process.stdout, "columns", { value: columns, configurable: true });
+    }
+    const lines = logSpy.mock.calls.map((c) => String(c[0]));
+    logSpy.mockRestore();
+    expect(lines.some((l) => l.includes(`reason: ${cut}`))).toBe(true);
+    expect(lines.some((l) => l.includes(`reason: ${fits}`))).toBe(false);
+  });
+});
+
+describe("monitor interaction (FE-M1, FE-M2, UX-L1)", () => {
+  let writeSpy: ReturnType<typeof vi.spyOn>;
+  let resumeSpy: ReturnType<typeof vi.spyOn>;
+  const lastFrame = () => [...writeSpy.mock.calls.map((c: unknown[]) => String(c[0]))]
+    .reverse().find((w) => w.startsWith("\x1b[H")) ?? "";
+
+  beforeEach(() => {
+    listProjects.mockReturnValue([]);
+    readAllStatuses.mockReturnValue([]);
+    getGitBranch.mockReturnValue(null);
+    mockLaunch.mockReset();
+    mockLaunch.mockResolvedValue(undefined);
+    mockFocusWorkspace.mockClear();
+    vi.useFakeTimers();
+    writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    resumeSpy = vi.spyOn(process.stdin, "resume").mockImplementation(() => process.stdin);
+    Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
+    Object.defineProperty(process.stdin, "isRaw", { value: false, configurable: true });
+    Object.defineProperty(process.stdin, "setRawMode", { value: vi.fn(() => process.stdin), configurable: true });
+  });
+
+  afterEach(() => {
+    writeSpy.mockRestore();
+    resumeSpy.mockRestore();
+    process.stdin.removeAllListeners("data");
+    process.removeAllListeners("SIGWINCH");
+    vi.useRealTimers();
+  });
+
+  it("FE-M1: Enter acts on the highlighted project after a refresh reorders the rows", async () => {
+    listProjects.mockReturnValue([["alpha", "/tmp/alpha"], ["beta", "/tmp/beta"]]);
+    readAllStatuses.mockReturnValue([
+      makeResolvedStatus({ project: "alpha", directory: "/tmp/alpha", state: "active", uptime: 1000 }),
+      makeResolvedStatus({ project: "beta", directory: "/tmp/beta", state: "stopped", uptime: null }),
+    ]);
+    const monitorPromise = runMonitor();
+    process.stdin.emit("data", Buffer.from("j")); // beta
+    readAllStatuses.mockReturnValue([
+      makeResolvedStatus({ project: "alpha", directory: "/tmp/alpha", state: "stopped", uptime: null }),
+      makeResolvedStatus({ project: "beta", directory: "/tmp/beta", state: "active", uptime: 1000 }),
+    ]);
+    vi.advanceTimersByTime(3100); // rows are now [beta, alpha]
+    process.stdin.emit("data", Buffer.from("\r"));
+    await monitorPromise;
+    await vi.dynamicImportSettled();
+    expect(mockFocusWorkspace).toHaveBeenCalledWith("beta");
+    expect(mockLaunch).not.toHaveBeenCalled();
+  });
+
+  it("FE-M2: Esc dismisses the help overlay, does nothing on the dashboard, and keeps the next key", async () => {
+    listProjects.mockReturnValue([["alpha", "/tmp/alpha"]]);
+    const monitorPromise = runMonitor();
+    process.stdin.emit("data", Buffer.from("?"));
+    expect(lastFrame()).toContain("Key bindings");
+    process.stdin.emit("data", Buffer.from("\x1b"));
+    vi.advanceTimersByTime(150);
+    expect(lastFrame()).toContain("summon status");
+    process.stdin.emit("data", Buffer.from("\x1b"));
+    vi.advanceTimersByTime(150);
+    expect(lastFrame()).toContain("summon status");
+    expect(mockLaunch).not.toHaveBeenCalled();
+    process.stdin.emit("data", Buffer.from("q"));
+    const quit = process.stdin.listenerCount("data") === 0; // q reached the dashboard and quit
+    if (!quit) process.stdin.emit("data", Buffer.from("\x03"));
+    await monitorPromise;
+    expect(quit).toBe(true);
+  });
+
+  it("UX-L1: help explains partial, unknown and the program-status glyphs", async () => {
+    const monitorPromise = runMonitor();
+    process.stdin.emit("data", Buffer.from("?"));
+    const help = lastFrame();
+    process.stdin.emit("data", Buffer.from("\x03"));
+    await monitorPromise;
+    expect(help).toMatch(/●.*partial/);
+    expect(help).toMatch(/○.*unknown/);
+    for (const [glyph, word] of [["⚠", "blocked"], ["✗", "error"], ["⋯", "working"], ["✓", "done"]]) {
+      expect(help).toMatch(new RegExp(`${glyph}.*${word}`));
+    }
+    expect(help).toContain("idle");
+    // The help screen fits the narrowest supported terminal.
+    for (const line of visibleText(help).split("\n")) {
+      expect(getDisplayWidth(line)).toBeLessThanOrEqual(60);
+    }
   });
 });

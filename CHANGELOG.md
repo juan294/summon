@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `summon status` rows no longer run one column past the terminal when the branch, path or reason is cut off, so the monitor no longer scrolls at narrow widths.
+- The monitor keeps the selection on the same project when a refresh reorders the rows, so Enter opens the highlighted project.
+- In the monitor, Esc dismisses the help and error screens, and the next key is no longer swallowed.
+- The monitor help legend explains `partial`, `unknown` and the Rex program-status glyphs.
+
 ## [2.0.1] - 2026-10-31
 
 ### Changed
