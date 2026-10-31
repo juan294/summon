@@ -11,7 +11,7 @@ import {
 } from "../sessions.js";
 import { SummonError } from "../trust.js";
 import { TabOpenError } from "../errors.js";
-import { exitWithUsageHint, getErrorMessage, supportsColor, PromptCancelled, CANCELLED_EXIT_CODE } from "../utils.js";
+import { exitCodeFor, exitWithUsageHint, getErrorMessage, supportsColor, PromptCancelled } from "../utils.js";
 import { sym } from "../ui/symbols.js";
 import { fail, err } from "../ui/output.js";
 import { printProjectSuggestions } from "../cli/resolve-target.js";
@@ -176,12 +176,11 @@ async function cmdLaunch(ctx: CommandContext, name: string | undefined): Promise
         continue;
       }
       // UX-L3: a user cancel (a declined prompt, Ctrl+C) stops the run quietly with 130; any other failure is an error (1).
-      const cancelled = caught instanceof PromptCancelled;
-      if (!cancelled) fail(`launching ${proj}: ${getErrorMessage(caught)}`);
+      if (!(caught instanceof PromptCancelled)) fail(`launching ${proj}: ${getErrorMessage(caught)}`);
       if (launched.length > 0) {
         err(`Already launched: ${launched.join(", ")}`);
       }
-      process.exit(cancelled ? CANCELLED_EXIT_CODE : 1);
+      process.exit(exitCodeFor(caught));
     }
     if (i < total - 1) {
       await new Promise((r) => setTimeout(r, INTER_LAUNCH_DELAY_MS));

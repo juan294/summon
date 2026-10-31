@@ -5,13 +5,14 @@
  * - `TerminalBackend` (launch side): chosen once per launch from the detected `LaunchContext`
  *   (`createTerminalBackend`, backends/select.ts).
  * - `WorkspaceBackend` (record side): chosen from a status record's stored `backend` field
- *   (`workspaceBackendFor`, backends/workspace.ts); absent means Ghostty.
+ *   (`workspaceBackendFor`, backends/workspace.ts); absent means Ghostty. A status read uses only its read half,
+ *   `RecordReader` (`recordReaderFor`, backends/read.ts), which loads none of the commands.
  *
  * Types only: importing this module loads no backend.
  */
-import type { LayoutOptions, LayoutPlan } from "../layout.js";
-import type { PlannedLayout, TreeLayoutPlan } from "../tree.js";
-import type { BackendId } from "../backend.js";
+import type { LayoutOptions } from "../layout.js";
+import type { PlannedLayout } from "../tree.js";
+import type { BackendId } from "../backend-detect.js";
 import type { CLIOverrides } from "../config-resolve.js";
 import type { NativeMetadata } from "./ghostty/pane-inventory.js";
 import type { RexIdentity } from "./rex/types.js";
@@ -53,14 +54,10 @@ export interface BackendLaunchContext {
   resolveStarship: () => string | null;
 }
 
-/** Exact identity a backend captured: Ghostty's native metadata or the Rex identity. */
-export interface BackendLaunchResult {
-  native?: NativeMetadata;
-  rex?: RexIdentity;
-}
-
-/** A planned layout of either kind, as the backends receive it. */
-export type BackendLayout = PlannedLayout;
+/** Exact identity a backend captured, tagged with its backend: Ghostty's native metadata or the Rex identity, if any. */
+export type BackendLaunchResult =
+  | { backend: "ghostty"; native?: NativeMetadata }
+  | { backend: "rex"; rex?: RexIdentity };
 
 /** What a backend decides before a launch creates anything: go on, show the running workspace instead (P2), or refuse (exit 2). */
 export type LaunchDecision = { kind: "proceed" } | { kind: "switched" } | { kind: "refused"; reason: string };
@@ -72,7 +69,6 @@ export interface LaunchOptionsInput {
   projectConfig: Map<string, string>;
   machineConfig: Map<string, string>;
   dryRun: boolean;
-  projectName: string;
 }
 
 /** What a backend's dry run prints: the body after the headers, and notes for stderr. */
@@ -98,10 +94,10 @@ export interface TerminalBackend {
    * launch published meanwhile and switch to that workspace (or refuse) instead of calling `create`.
    */
   exclusiveLaunch?(project: string, create: () => Promise<void>): Promise<LaunchDecision>;
-  launchTraditional(plan: LayoutPlan, ctx: BackendLaunchContext): Promise<BackendLaunchResult | undefined>;
-  launchTree(plan: TreeLayoutPlan, ctx: BackendLaunchContext): Promise<BackendLaunchResult | undefined>;
+  /** Launch a planned layout of either kind. */
+  launch(layout: PlannedLayout, ctx: BackendLaunchContext): Promise<BackendLaunchResult>;
   /** What a dry run prints for this backend (no terminal command runs). */
-  dryRun(layout: BackendLayout, ctx: BackendLaunchContext, starshipConfigPath: string | null, headerLines: string[]): DryRunRender;
+  dryRun(layout: PlannedLayout, ctx: BackendLaunchContext, starshipConfigPath: string | null, headerLines: string[]): DryRunRender;
   /** D1: start watching for output the user must read (Rex inside Rex); a later `afterSuccess` reads it. */
   watchOutput?(): void;
   /** D1: after a successful launch or switch (Rex inside Rex: close the launcher tab on a clean exit). */
@@ -119,23 +115,27 @@ export interface StatusRead {
   resolveRecord(project: string, record: WorkspaceStatus, notices: string[]): ResolvedStatus;
 }
 
-export type WorkspaceTitleResult = TitleResult | { kind: "unavailable"; reason: string };
-
-/** Record side: what Summon does with a recorded workspace of this backend. */
-export interface WorkspaceBackend {
-  readonly id: BackendId;
+/** Record side, read half: what a status read does with a record of this backend (`recordReaderFor`, backends/read.ts). */
+export interface RecordReader {
+  /** A read of this backend's records may run a process (Rex: its CLI); Ghostty's reads files and `process.kill` only (PE-H1). */
+  readonly spawnsProcess: boolean;
   /** The record's state (P10). `notices` are carried from an earlier step of the same read. */
   resolve(project: string, record: WorkspaceStatus, read: StatusRead, notices?: string[]): ResolvedStatus;
   /** Launches with a manifest but no record (P13): one adoption attempt when the read reconciles; `attempted` is false when it could not run. */
   adoptUnrecorded?(project: string, read: StatusRead): { attempted: boolean; notices: string[] };
+}
+
+/** Record side, commands: what Summon does with a recorded workspace of this backend. */
+export interface WorkspaceBackend {
+  readonly id: BackendId;
   /** Focus a recorded workspace or one of its panes; `status` is null when nothing is recorded. */
   focus(project: string, status: ResolvedStatus | null, pane?: string): FocusResult;
   /** `summon inspect`: print the workspace (JSON or text) and exit 2 when it is unavailable. */
   inspect(project: string, status: ResolvedStatus | null, json: boolean): void;
   /** `summon title`: read, set or reset a tab or pane title. */
-  title(project: string, status: ResolvedStatus | null, scope: TitleScope, operation: TitleOperation, pane?: string): WorkspaceTitleResult;
+  title(project: string, status: ResolvedStatus | null, scope: TitleScope, operation: TitleOperation, pane?: string): TitleResult;
   /** A launch on another backend replaces this record: the line to print when this workspace keeps running (plan §6). */
-  stillRunningNotice(project: string, record: WorkspaceStatus): string | undefined;
+  stillRunningNotice?(project: string, record: WorkspaceStatus): string | undefined;
   /** `summon clean <project>` (P17): close the recorded workspace when it is empty; `sweptNote` reports the stale launch files already removed. */
   close(project: string, record: WorkspaceStatus, sweptNote: string): void;
   /** `summon clean`: remove this backend's stale files of launches other than `current`; returns how many launches it cleared. */

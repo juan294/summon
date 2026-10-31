@@ -1,13 +1,12 @@
 /**
  * Ghostty record port (AR-M1): what Summon does with a recorded Ghostty workspace. Liveness comes from the per-launch
- * sidecars (P12); focus, inspect and title use the exact native identity the launch captured.
+ * sidecars (P12, read.ts); focus, inspect and title use the exact native identity the launch captured.
  */
 import { existsSync, readdirSync } from "node:fs";
 import { focusTerminal, readNativeInventory, titleTerminal } from "./native.js";
 import type { NativeFailure } from "../port.js";
 import { escapeControlChars } from "../../ui/sanitize.js";
-import { ghosttyLiveness, launchLiveness, unlinkIgnoringMissing } from "../../status-record.js";
-import type { WorkspaceStatus } from "../../status-record.js";
+import { launchLiveness, unlinkIgnoringMissing } from "../../status-record.js";
 import { isLaunchId, launchArtifactPaths, launchesDir } from "../../launch-identity.js";
 import type { ResolvedStatus } from "../../status.js";
 import { PROJECT_NAME_RE } from "../../validation.js";
@@ -16,7 +15,7 @@ import { out } from "../../ui/output.js";
 import type { WorkspaceBackend } from "../port.js";
 
 /** Resolve a recorded exact UUID without activating or querying the application. */
-export function resolveWorkspaceTerminal(projectName: string, paneName: string | undefined, status: ResolvedStatus | null): { kind: "target"; terminalId: string } | NativeFailure {
+function resolveWorkspaceTerminal(projectName: string, paneName: string | undefined, status: ResolvedStatus | null): { kind: "target"; terminalId: string } | NativeFailure {
   if (!PROJECT_NAME_RE.test(projectName)) return { kind: "unavailable", code: "missing", reason: "Invalid project name. Run summon inspect <project>." };
   if (status?.backend === "rex") return { kind: "unavailable", code: "missing", reason: `[${projectName}] runs in Rex; its panes are Rex blocks, not Ghostty terminals. Run summon inspect ${projectName}.` };
   if (!status?.native) return { kind: "unavailable", code: "missing", reason: "Exact native identity is unavailable. Select in Ghostty or explicitly relaunch when ready to capture identity; run summon inspect <project>." };
@@ -25,20 +24,8 @@ export function resolveWorkspaceTerminal(projectName: string, paneName: string |
   return { kind: "target", terminalId };
 }
 
-/** Ghostty: the sidecars decide (a record with a launch id reads only its own per-launch files, P12). */
-function resolveGhosttyStatus(record: WorkspaceStatus, projectName: string, notices: string[]): ResolvedStatus {
-  const active = ghosttyLiveness(projectName, record) === "active";
-  const started = Date.parse(record.startedAt);
-  return {
-    ...record,
-    state: active ? "active" : "stopped",
-    uptime: active && !Number.isNaN(started) ? Date.now() - started : null,
-    ...(notices.length > 0 ? { notices } : {}),
-  };
-}
-
 /** Ghostty per-launch files of launches other than the current one whose shell is proven dead (its pid, not its marker). */
-export function sweepDeadGhosttyLaunches(project: string, currentLaunchId: string | undefined): number {
+function sweepDeadGhosttyLaunches(project: string, currentLaunchId: string | undefined): number {
   let names: string[];
   try {
     names = readdirSync(launchesDir(project));
@@ -115,7 +102,6 @@ function inspectGhostty(project: string, status: ResolvedStatus | null, json: bo
 
 export const GhosttyWorkspace: WorkspaceBackend = {
   id: "ghostty",
-  resolve: (project, record, _read, notices = []) => resolveGhosttyStatus(record, project, notices),
   focus(project, status, pane) {
     const target = resolveWorkspaceTerminal(project, pane, status);
     return target.kind === "target" ? focusTerminal(target.terminalId) : target;
@@ -125,8 +111,7 @@ export const GhosttyWorkspace: WorkspaceBackend = {
     const target = resolveWorkspaceTerminal(project, pane, status);
     return target.kind === "target" ? titleTerminal(target.terminalId, scope, operation) : target;
   },
-  // A Ghostty window is not tracked once another launch replaces its record; there is nothing more to say.
-  stillRunningNotice: () => undefined,
+  // No stillRunningNotice: a Ghostty window is not tracked once another launch replaces its record.
   close(project, _record, sweptNote) {
     out(`[${project}] is a Ghostty workspace; nothing to close.${sweptNote}`);
   },

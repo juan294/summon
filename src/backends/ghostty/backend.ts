@@ -5,7 +5,7 @@ import { generateAppleScript, generateTreeAppleScript } from "./script.js";
 import { ensureGhostty, ensureAccessibility, printAccessibilityHint, isAccessibilityError } from "../../launch-guards.js";
 import { traditionalInventory, treeInventory, parseNativeCapture } from "./pane-inventory.js";
 import type { NativeMetadata, PaneDescriptor } from "./pane-inventory.js";
-import type { BackendLaunchContext, BackendLaunchResult, BackendLayout, LaunchOptionsInput, TerminalBackend } from "../port.js";
+import type { BackendLaunchContext, BackendLaunchResult, LaunchOptionsInput, TerminalBackend } from "../port.js";
 import type { LayoutOptions } from "../../layout.js";
 import { pickConfigValue } from "../../config-resolve.js";
 import type { CLIOverrides } from "../../config-resolve.js";
@@ -14,11 +14,18 @@ import { COMMAND_FAILURE_REASONS, checkCommand } from "../../command-install.js"
 import { getErrorMessage, ACCESSIBILITY_SETTINGS_PATH, QUICK_PROCESS_LIMITS, SUMMON_WORKSPACE_ENV } from "../../utils.js";
 import { escapeAppleScript } from "../../shell-escape.js";
 import { isStaticLaunchSpinner, transientLine } from "../../ui/progress.js";
-import { fail, err } from "../../ui/output.js";
+import { fail, err, warn } from "../../ui/output.js";
 import { TabOpenError } from "../../errors.js";
 
-function asResult(native: NativeMetadata | undefined): BackendLaunchResult | undefined {
-  return native ? { native } : undefined;
+function asResult(native: NativeMetadata | undefined): BackendLaunchResult {
+  return native ? { backend: "ghostty", native } : { backend: "ghostty" };
+}
+
+/** The AppleScript for a planned layout (a real launch and the dry run generate it the same way). */
+function scriptFor(layout: PlannedLayout, ctx: BackendLaunchContext, starshipConfigPath: string | null): string {
+  return layout.kind === "tree"
+    ? generateTreeAppleScript(layout.plan, ctx.targetDir, starshipConfigPath, ctx.envVars, ctx.projectName, ctx.onStop, ctx.launchId)
+    : generateAppleScript(layout.plan, ctx.targetDir, starshipConfigPath, ctx.envVars, ctx.projectName, ctx.onStop, ctx.launchId);
 }
 
 // --- Spinner helpers (UX-L2 #519; the line itself and isStaticLaunchSpinner are in ui/progress.ts) ---
@@ -160,7 +167,7 @@ function executeScript(script: string, inventory: PaneDescriptor[], targetLabel?
   });
   // Parsing is deliberately outside launch rollback: an already-ready workspace stays open.
   const native = parseNativeCapture(typeof output === "string" ? output : "", inventory);
-  if (!native) err("summon: warning: workspace launched, but exact native targeting is unavailable. Use summon inspect or explicitly relaunch to capture identity.");
+  if (!native) warn("workspace launched, but exact native targeting is unavailable. Use summon inspect or explicitly relaunch to capture identity.");
   return native;
 }
 
@@ -247,7 +254,6 @@ export function decideCleanRestoredPanes(
   project: Map<string, string>,
   machineConfig: Map<string, string>,
   dryRun: boolean | undefined,
-  _projectName?: string,
 ): void {
   if (process.env[SUMMON_WORKSPACE_ENV]) return;
   if (opts.newWindow) return;
@@ -305,35 +311,22 @@ export const GhosttyBackend: TerminalBackend = {
   splitsCallerWindow: true,
   opensSessionTabs: true,
 
-  applyLaunchOptions({ opts, overrides, projectConfig, machineConfig, dryRun, projectName }: LaunchOptionsInput) {
-    decideCleanRestoredPanes(opts, overrides, projectConfig, machineConfig, dryRun, projectName);
+  applyLaunchOptions({ opts, overrides, projectConfig, machineConfig, dryRun }: LaunchOptionsInput) {
+    decideCleanRestoredPanes(opts, overrides, projectConfig, machineConfig, dryRun);
   },
 
-  async launchTraditional(plan, ctx) {
+  async launch(layout, ctx) {
     ensureGhostty();
     ensureAccessibility();
-    await resolveCommands({ kind: "traditional", plan }, ctx);
+    await resolveCommands(layout, ctx);
 
-    const starshipConfigPath = ctx.resolveStarship();
-    const script = generateAppleScript(plan, ctx.targetDir, starshipConfigPath, ctx.envVars, ctx.projectName, ctx.onStop, ctx.launchId);
-    return asResult(executeScript(script, traditionalInventory(plan), ctx.projectName));
-  },
-
-  async launchTree(plan, ctx) {
-    ensureGhostty();
-    ensureAccessibility();
-    await resolveCommands({ kind: "tree", plan }, ctx);
-
-    const starshipConfigPath = ctx.resolveStarship();
-    const script = generateTreeAppleScript(plan, ctx.targetDir, starshipConfigPath, ctx.envVars, ctx.projectName, ctx.onStop, ctx.launchId);
-    return asResult(executeScript(script, treeInventory(plan), ctx.projectName));
+    const script = scriptFor(layout, ctx, ctx.resolveStarship());
+    const inventory = layout.kind === "tree" ? treeInventory(layout.plan) : traditionalInventory(layout.plan);
+    return asResult(executeScript(script, inventory, ctx.projectName));
   },
 
   /** The AppleScript a real launch would run, and one note per command it would not resolve. */
-  dryRun(layout: BackendLayout, ctx: BackendLaunchContext, starshipConfigPath: string | null) {
-    const body = layout.kind === "tree"
-      ? generateTreeAppleScript(layout.plan, ctx.targetDir, starshipConfigPath, ctx.envVars, ctx.projectName, ctx.onStop, ctx.launchId)
-      : generateAppleScript(layout.plan, ctx.targetDir, starshipConfigPath, ctx.envVars, ctx.projectName, ctx.onStop, ctx.launchId);
-    return { body, notes: dryRunCommandNotes(layout) };
+  dryRun(layout: PlannedLayout, ctx: BackendLaunchContext, starshipConfigPath: string | null) {
+    return { body: scriptFor(layout, ctx, starshipConfigPath), notes: dryRunCommandNotes(layout) };
   },
 };

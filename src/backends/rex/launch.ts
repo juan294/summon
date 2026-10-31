@@ -416,7 +416,7 @@ function extraSessionNotice(project: string, sessionId: string, launchId: string
  * still reported, and status always says both.
  */
 export function adoptOrphans(project: string, deps: AdoptDeps, options: { reportLeftovers?: boolean; forLaunch?: boolean } = {}): string[] {
-  return adoptNotices(project, deps, options, new Set());
+  return adoptNotices(project, deps, options).map((notice) => notice.text);
 }
 
 /** A notice of the launch path; `routine` is housekeeping that does not keep the D1 launcher tab open. */
@@ -427,14 +427,18 @@ export interface LaunchNotice {
 
 /** `adoptOrphans` with `forLaunch: true`, each notice marked routine at its source (D1): a gone session's files removed. */
 export function adoptOrphansForLaunch(project: string, deps: AdoptDeps): LaunchNotice[] {
-  const routine = new Set<string>();
-  return adoptNotices(project, deps, { forLaunch: true }, routine).map((text) => (routine.has(text) ? { text, routine: true } : { text }));
+  return adoptNotices(project, deps, { forLaunch: true });
 }
 
-function adoptNotices(project: string, deps: AdoptDeps, options: { reportLeftovers?: boolean; forLaunch?: boolean }, routine: Set<string>): string[] {
+/** Notices that are not routine. */
+function plain(texts: string[]): LaunchNotice[] {
+  return texts.map((text) => ({ text }));
+}
+
+function adoptNotices(project: string, deps: AdoptDeps, options: { reportLeftovers?: boolean; forLaunch?: boolean }): LaunchNotice[] {
   const reportLeftovers = options.reportLeftovers ?? true;
   const current = readStatusRecord(project);
-  if (current && !current.launchId) return options.forLaunch ? [] : [`${project} has a record from an older Summon; run summon ${project} to replace it`];
+  if (current && !current.launchId) return options.forLaunch ? [] : plain([`${project} has a record from an older Summon; run summon ${project} to replace it`]);
   const gen = current?.launchId ?? null;
   // One `ls` per server for the whole call, the current record included (PE-L1).
   const listings = deps.listings ?? sessionListings();
@@ -447,14 +451,14 @@ function adoptNotices(project: string, deps: AdoptDeps, options: { reportLeftove
   if (current) {
     if (current.backend === "rex") {
       // A Rex record whose identity was discarded cannot be verified (and must never reach the Ghostty resolver, which reads Rex records through this function).
-      if (!current.rex) return [`${project} record has no Rex identity; nothing adopted or removed`];
+      if (!current.rex) return plain([`${project} record has no Rex identity; nothing adopted or removed`]);
       const cli = deps.cliFor(current.rex.server);
       const state = sessionState(cli, current.rex, project, listings.of(cli));
-      if (state.state === "unknown") return [`${project} could not be verified on ${current.rex.server}: ${state.reason ?? "unknown"}; nothing adopted or removed`];
+      if (state.state === "unknown") return plain([`${project} could not be verified on ${current.rex.server}: ${state.reason ?? "unknown"}; nothing adopted or removed`]);
       live = isLiveState(state.state);
     } else {
       const state = deps.ghosttyState(project);
-      if (state === "unknown") return [`${project} could not be verified; nothing adopted or removed`];
+      if (state === "unknown") return plain([`${project} could not be verified; nothing adopted or removed`]);
       live = isLiveState(state);
     }
   }
@@ -507,35 +511,33 @@ function adoptNotices(project: string, deps: AdoptDeps, options: { reportLeftove
   }
 
   const reports = decisions.filter((d): d is Extract<Decision, { kind: "report" }> => d.kind === "report").map((d) => d.notice);
-  if (unknowns.length > 0) return [...unknowns, ...reports];
+  if (unknowns.length > 0) return plain([...unknowns, ...reports]);
 
   // PASS 2: mutations in startedAt order, each under the lock with the generation read above.
-  const notices: string[] = [];
+  const notices: LaunchNotice[] = [];
   const superseded = `another launch of ${project} published meanwhile; nothing adopted or removed`;
   let adopted = false;
   for (const decision of decisions) {
-    if (decision.kind === "report") { notices.push(decision.notice); continue; }
+    if (decision.kind === "report") { notices.push({ text: decision.notice }); continue; }
     if (decision.kind === "remove") {
       const removal = removeOrphanLaunch(project, gen, decision.manifest);
-      if (removal.outcome === "superseded") { notices.push(superseded); return notices; }
+      if (removal.outcome === "superseded") { notices.push({ text: superseded }); return notices; }
       if (removal.failures.length === 0) {
         // Housekeeping after a session ended outside Summon (D1 routine); its failure below is for the user to read.
-        const removed = `removed the files of earlier launch ${decision.manifest.launchId} (its Rex session is gone)`;
-        routine.add(removed);
-        notices.push(removed);
+        notices.push({ text: `removed the files of earlier launch ${decision.manifest.launchId} (its Rex session is gone)`, routine: true });
       } else {
-        notices.push(`could not remove the files of earlier launch ${decision.manifest.launchId} (its Rex session is gone): ${strandedLine(removal) ?? `${removal.failures[0]}; ${cleanHint}`}`);
+        notices.push({ text: `could not remove the files of earlier launch ${decision.manifest.launchId} (its Rex session is gone): ${strandedLine(removal) ?? `${removal.failures[0]}; ${cleanHint}`}` });
       }
       continue;
     }
     if (adopted) {
-      if (reportLeftovers) notices.push(extraSessionNotice(project, decision.sessionId, decision.manifest.launchId));
+      if (reportLeftovers) notices.push({ text: extraSessionNotice(project, decision.sessionId, decision.manifest.launchId) });
       continue;
     }
     const { outcome } = withOwnedRecord(project, { launchId: gen }, () => decision.record);
-    if (outcome === "superseded") { notices.push(superseded); return notices; }
+    if (outcome === "superseded") { notices.push({ text: superseded }); return notices; }
     adopted = true;
-    notices.push(`adopted earlier launch ${decision.manifest.launchId} of ${project} (Rex session ${decision.sessionId})`);
+    notices.push({ text: `adopted earlier launch ${decision.manifest.launchId} of ${project} (Rex session ${decision.sessionId})` });
   }
   return notices;
 }

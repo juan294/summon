@@ -419,7 +419,7 @@ describe("collectBriefingData", () => {
     expect(summary.totalProjects).toBe(1);
     expect(summary.activeCount).toBe(1);
     // AR-M3: the briefing reads with reconciliation, as every status read did before the reader split.
-    expect(readAllStatuses).toHaveBeenCalledWith({ reconcile: true });
+    expect(readAllStatuses).toHaveBeenCalledWith();
   });
 
   it("reports a project with no record as stopped, not as unverified", async () => {

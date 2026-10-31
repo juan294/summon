@@ -83,7 +83,10 @@ async function watchSwitch(project: string): Promise<() => void> {
   const record = readStatusRecord(project);
   if (!record) return () => {};
   const { resolveBackendForLaunch } = await import("../backend.js");
-  const detection = resolveBackendForLaunch();
+  // The focus that follows reads the status, which looks the `rex` binary up once per process: detection shares that
+  // lookup. Its `searched` list is only printed by a failed detection's notice, which this watch never shows.
+  const { rexBinaryPath } = await import("../status.js");
+  const detection = resolveBackendForLaunch({ discoverRex: () => ({ path: rexBinaryPath(), searched: [] }) });
   if (!detection.ok || detection.backend !== (record.backend ?? "ghostty")) return () => {};
   const { createTerminalBackend } = await import("../backends/select.js");
   const backend = await createTerminalBackend(detection);

@@ -127,7 +127,7 @@ export function generateRecommendation(projects: ProjectBriefing[]): string | nu
 
 export async function collectBriefingData(): Promise<{ projects: ProjectBriefing[]; summary: BriefingSummary }> {
   const registeredProjects = listProjects();
-  const statuses = readAllStatuses({ reconcile: true });
+  const statuses = readAllStatuses();
   const statusMap = new Map<string, ResolvedStatus>();
   for (const s of statuses) statusMap.set(s.project, s);
 

@@ -10,7 +10,7 @@ vi.mock("./status.js", async (importOriginal) => {
   return {
     ...original,
     readAllStatuses: vi.fn().mockReturnValue([]),
-    hasRexState: vi.fn().mockReturnValue(false),
+    readMaySpawn: vi.fn().mockReturnValue(false),
     rexBinaryPath: vi.fn().mockReturnValue(null),
     seedRexBinaryPath: vi.fn(),
     readProjectStatus: vi.fn().mockReturnValue(null),
@@ -45,8 +45,8 @@ import { getDisplayWidth } from "./ui/width.js";
 const { listProjects } = await import("./config.js") as unknown as {
   listProjects: ReturnType<typeof vi.fn>;
 };
-const { readAllStatuses, readProjectStatus, getGitBranch, hasRexState, rexBinaryPath, seedRexBinaryPath } = await import("./status.js") as unknown as {
-  hasRexState: ReturnType<typeof vi.fn>;
+const { readAllStatuses, readProjectStatus, getGitBranch, readMaySpawn, rexBinaryPath, seedRexBinaryPath } = await import("./status.js") as unknown as {
+  readMaySpawn: ReturnType<typeof vi.fn>;
   rexBinaryPath: ReturnType<typeof vi.fn>;
   seedRexBinaryPath: ReturnType<typeof vi.fn>;
   readAllStatuses: ReturnType<typeof vi.fn>;
@@ -1670,7 +1670,7 @@ describe("loadProjectRow (summon open <project>)", () => {
     listProjects.mockReturnValue(new Map([["api", "/tmp/api"], ["web", "/tmp/web"]]));
     readProjectStatus.mockReturnValue(makeResolvedStatus({ project: "api", directory: "/tmp/api", state: "partial", reason: "root pane closed" }));
     expect(loadProjectRow("api")).toMatchObject({ name: "api", directory: "/tmp/api", state: "partial", reason: "root pane closed" });
-    expect(readProjectStatus).toHaveBeenCalledWith("api", { reconcile: true });
+    expect(readProjectStatus).toHaveBeenCalledWith("api");
     readProjectStatus.mockReturnValue(makeResolvedStatus({ project: "api", directory: "/tmp/api", state: "unknown", uptime: null, reason: "unverified launch" }));
     expect(loadProjectRow("api")).toMatchObject({ name: "api", state: "unknown", reason: "unverified launch" });
     readProjectStatus.mockReturnValue(null);
@@ -1941,7 +1941,7 @@ describe("PE-H1: a slow status read never blocks the monitor", () => {
     let wire = "";
     tty.writeSpy.mockImplementation((data: unknown) => { wire += String(data); return true; });
     await monitorRead.writeMonitorRead({});
-    expect(readAllStatuses).toHaveBeenLastCalledWith({ programStatus: true, reconcile: true });
+    expect(readAllStatuses).toHaveBeenLastCalledWith({ programStatus: true });
     expect(seedRexBinaryPath).not.toHaveBeenCalled();
     expect(monitorModule.rowsFromStatuses(JSON.parse(wire))).toEqual(loadProjectRows());
   });
@@ -2008,7 +2008,7 @@ describe("PE-H1: readStatusesInChild", () => {
     const file = await script(`if (process.argv.slice(2).join(" ") !== ${JSON.stringify(monitorModule.MONITOR_READ_ARG)}) process.exit(3); process.stdout.write(${JSON.stringify(JSON.stringify([status]))});`);
     listProjects.mockReturnValue([["alpha", "/tmp/alpha"]]);
     readAllStatuses.mockClear();
-    hasRexState.mockReturnValue(true);
+    readMaySpawn.mockReturnValue(true);
     const writes: string[] = [];
     const writeSpy = vi.spyOn(process.stdout, "write").mockImplementation((data) => { writes.push(String(data)); return true; });
     const resumeSpy = vi.spyOn(process.stdin, "resume").mockImplementation(() => process.stdin);
@@ -2023,7 +2023,7 @@ describe("PE-H1: readStatusesInChild", () => {
       await monitorPromise;
     } finally {
       clearSelfInvocation();
-      hasRexState.mockReturnValue(false);
+      readMaySpawn.mockReturnValue(false);
       writeSpy.mockRestore();
       resumeSpy.mockRestore();
       process.stdin.removeAllListeners("data");
@@ -2037,14 +2037,14 @@ describe("PE-H1: readStatusesInChild", () => {
     const writeSpy = vi.spyOn(process.stdout, "write").mockImplementation((data) => { writes.push(String(data)); return true; });
     const resumeSpy = vi.spyOn(process.stdin, "resume").mockImplementation(() => process.stdin);
     stubTtyStdin();
-    hasRexState.mockReturnValue(rex);
+    readMaySpawn.mockReturnValue(rex);
     registerSelfInvocation(process.execPath, await script(body));
     const result = runMonitor();
     return {
       result, writes,
       restore: () => {
         clearSelfInvocation();
-        hasRexState.mockReturnValue(false);
+        readMaySpawn.mockReturnValue(false);
         writeSpy.mockRestore();
         resumeSpy.mockRestore();
         process.stdin.removeAllListeners("data");
@@ -2062,7 +2062,7 @@ describe("PE-H1: readStatusesInChild", () => {
     const monitor = await monitorThroughChild(`import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(ran)}, "");`, false);
     try {
       expect(process.stdin.listenerCount("data")).toBeGreaterThan(0); // entered at once, synchronously
-      expect(readAllStatuses).toHaveBeenCalledWith({ programStatus: true, reconcile: true });
+      expect(readAllStatuses).toHaveBeenCalledWith({ programStatus: true });
       expect(monitor.writes.join("")).toContain("ghost");
       process.stdin.emit("data", Buffer.from("q"));
       await monitor.result;
@@ -2085,16 +2085,16 @@ process.stdout.write(${JSON.stringify(JSON.stringify(statuses))});`;
     const { join } = await import("node:path");
     listProjects.mockReturnValue([["ghost", "/tmp/ghost"], ["rexa", "/tmp/rexa"]]);
     readAllStatuses.mockReset().mockReturnValue([makeResolvedStatus({ project: "ghost", directory: "/tmp/ghost", state: "active", uptime: 60_000 })]);
-    hasRexState.mockClear();
+    readMaySpawn.mockClear();
     const runs = join(dir, "runs");
     const child = makeResolvedStatus({ project: "rexa", directory: "/tmp/rexa", backend: "rex", state: "stopped", uptime: null, reason: "read in the child" });
     const monitor = await monitorThroughChild(countingChild(runs, [child]), false);
     try {
       process.stdin.emit("data", Buffer.from("r"));
       expect(readAllStatuses).toHaveBeenCalledTimes(2);
-      expect(hasRexState).toHaveBeenCalledTimes(2); // the file-only check before each in-process read
+      expect(readMaySpawn).toHaveBeenCalledTimes(2); // the file-only check before each in-process read
       // A Rex launch writes its manifest and record: the next read goes to the child, the in-process read never sees it.
-      hasRexState.mockReturnValue(true);
+      readMaySpawn.mockReturnValue(true);
       process.stdin.emit("data", Buffer.from("r"));
       await vi.waitFor(async () => expect(await runsOf(runs)).toBe(1), { timeout: 5000 });
       await vi.waitFor(() => expect(monitor.writes.join("")).toContain("read in the child"), { timeout: 5000 });
@@ -2102,7 +2102,7 @@ process.stdout.write(${JSON.stringify(JSON.stringify(statuses))});`;
       // In child mode the scan is skipped: a read that lists a Rex status keeps the next read in the child.
       process.stdin.emit("data", Buffer.from("r"));
       await vi.waitFor(async () => expect(await runsOf(runs)).toBe(2), { timeout: 5000 });
-      expect(hasRexState).toHaveBeenCalledTimes(3);
+      expect(readMaySpawn).toHaveBeenCalledTimes(3);
       expect(readAllStatuses).toHaveBeenCalledTimes(2);
       process.stdin.emit("data", Buffer.from("q"));
       await monitor.result;
@@ -2119,7 +2119,7 @@ process.stdout.write(${JSON.stringify(JSON.stringify(statuses))});`;
     try {
       await vi.waitFor(() => expect(monitor.writes.join("")).toContain("read in the child"), { timeout: 5000 });
       expect(readAllStatuses).not.toHaveBeenCalled();
-      hasRexState.mockReturnValue(false); // the Rex state is gone from disk
+      readMaySpawn.mockReturnValue(false); // the Rex state is gone from disk
       process.stdin.emit("data", Buffer.from("r"));
       expect(readAllStatuses).toHaveBeenCalledTimes(1);
       expect(monitor.writes.join("")).toContain("read in-process");

@@ -189,13 +189,10 @@ function shellLogFile(project: string): string {
 
 /**
  * Root-pane bootstrap: publish this launch's pid and active marker under its own directory.
- * Under Rex it also publishes the root pane's file, which is the ownership token (P13).
+ * A Rex root pane also publishes its pane file, the ownership token (P13), appended by backends/rex/layout.ts.
  */
-export function bootstrapLine(project: string, launchId: string, backend: BackendId, rootPaneName?: string): string {
-  const line = `mkdir -p ${shellLaunchDir(project)} && chmod 700 ${shellLaunchDir(project)} && printf '%s\\n' "$$" > ${shellArtifact(project, launchId, "pid")} && printf '%s\\n' '${shellLaunchId(launchId)}' > ${shellArtifact(project, launchId, "active")}`;
-  if (backend !== "rex") return line;
-  if (rootPaneName === undefined) throw new Error("Rex bootstrap requires the root pane name");
-  return `${line} && ${paneFileLine(project, launchId, rootPaneName)}`;
+export function bootstrapLine(project: string, launchId: string): string {
+  return `mkdir -p ${shellLaunchDir(project)} && chmod 700 ${shellLaunchDir(project)} && printf '%s\\n' "$$" > ${shellArtifact(project, launchId, "pid")} && printf '%s\\n' '${shellLaunchId(launchId)}' > ${shellArtifact(project, launchId, "active")}`;
 }
 
 /**

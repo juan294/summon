@@ -1,9 +1,6 @@
 import { isGhosttyInstalled } from "./utils.js";
 import { detectBackend, snapshotEnv } from "./backend-detect.js";
 import type { Detection, RexDiscovery } from "./backend-detect.js";
-// The backend id moved to backend-detect.ts (PE-L2); re-exported for the modules that import it from here.
-export { isBackendId } from "./backend-detect.js";
-export type { BackendId } from "./backend-detect.js";
 import { discoverRex, defaultRexServer, probeWhoami } from "./backends/rex/cli.js";
 
 /**

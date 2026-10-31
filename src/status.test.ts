@@ -19,12 +19,17 @@ const rexMocks = vi.hoisted(() => ({
   discoverRex: vi.fn((): { path: string | null; searched: string[] } => ({ path: "/mock/rex", searched: ["PATH"] })),
   programStatusOf: vi.fn((..._args: unknown[]): unknown => undefined),
 }));
-vi.mock("./backends/rex/status.js", async (original) => ({
-  ...(await original<typeof import("./backends/rex/status.js")>()),
+vi.mock("./backends/rex/status.js", async (original) => {
+  const actual = await original<typeof import("./backends/rex/status.js")>();
+  return {
+  ...actual,
   listSessions: (...args: unknown[]) => rexMocks.listSessions(...args),
+  // The read's per-server cache lists through the mocked `listSessions`, so its calls are counted.
+  sessionListings: () => actual.sessionListings((cli) => rexMocks.listSessions(cli) as ReturnType<typeof actual.listSessions>),
   sessionState: (...args: unknown[]) => rexMocks.sessionState(...args),
   programStatusOf: (...args: unknown[]) => rexMocks.programStatusOf(...args),
-}));
+  };
+});
 vi.mock("./backends/rex/launch.js", async (original) => ({
   ...(await original<typeof import("./backends/rex/launch.js")>()),
   adoptOrphans: (...args: unknown[]) => rexMocks.adoptOrphans(...args),
@@ -53,7 +58,7 @@ vi.mock("./snapshot.js", async (original) => ({
   writeSnapshotFile: (snapshot: unknown) => snapshotMocks.writeSnapshotFile(snapshot),
 }));
 
-const { hasRexState, readStatus, readAllStatuses, readProjectStatus, getGitBranch, resetRexBinaryMemo } = await import("./status.js");
+const { readMaySpawn, statusesMaySpawn, readStatus, readAllStatuses, readProjectStatus, getGitBranch, resetRexBinaryMemo } = await import("./status.js");
 const { writeStatus, publishStatus, parseWorkspaceStatus, readStatusRecord, withOwnedRecord, statusTestHooks, removeLaunchFileSet } = await import("./status-record.js");
 const { NO_LIVE_PANES } = await import("./backends/rex/status.js");
 const { launchArtifactFiles } = await import("./launch-identity.js");
@@ -1402,7 +1407,7 @@ describe("readAllStatuses discovery of unverified launches (plan P13 §6)", () =
   });
 });
 
-describe("hasRexState (PE-H1: only Rex state reads off the monitor's thread)", () => {
+describe("readMaySpawn (PE-H1: only Rex state reads off the monitor's thread)", () => {
   const manifest = (project: string, backend: "rex" | "ghostty"): LaunchManifest => ({
     version: 1, launchId: GEN_A, project, directory: `/tmp/${project}`, layout: "default",
     panes: ["editor"], paneOrder: ["editor"], blockLabels: { editor: "editor" },
@@ -1410,18 +1415,25 @@ describe("hasRexState (PE-H1: only Rex state reads off the monitor's thread)", (
   }) as LaunchManifest;
 
   it("is false with no status directory, Ghostty records or Ghostty manifests", () => {
-    expect(hasRexState()).toBe(false);
+    expect(readMaySpawn()).toBe(false);
     writeStatus(makeStatus({ project: "ghost" }));
     writeLaunchManifest(manifest("ghost-launch", "ghostty"));
-    expect(hasRexState()).toBe(false);
+    expect(readMaySpawn()).toBe(false);
   });
 
   it("is true with a Rex record or a Rex launch manifest without a record", () => {
     writeStatus(makeStatus({ project: "rexy", launchId: GEN_A, backend: "rex", rex: rexIdentity(), panes: ["editor"] }));
-    expect(hasRexState()).toBe(true);
+    expect(readMaySpawn()).toBe(true);
     rmSync(join(TEST_STATUS_DIR, "rexy.json"));
-    expect(hasRexState()).toBe(false);
+    expect(readMaySpawn()).toBe(false);
     writeLaunchManifest(manifest("orphan", "rex"));
-    expect(hasRexState()).toBe(true);
+    expect(readMaySpawn()).toBe(true);
+  });
+
+  it("statusesMaySpawn is true only when a listed status is a Rex one", () => {
+    const row = (backend: "rex" | "ghostty" | undefined) => ({ backend } as unknown as Parameters<typeof statusesMaySpawn>[0][number]);
+    expect(statusesMaySpawn([])).toBe(false);
+    expect(statusesMaySpawn([row(undefined), row("ghostty")])).toBe(false);
+    expect(statusesMaySpawn([row("ghostty"), row("rex")])).toBe(true);
   });
 });

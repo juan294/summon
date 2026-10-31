@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { writeFakeRex } from "./fixtures/fake-rex.js";
 import { cliBuild } from "./fixtures/cli-builds.js";
 import { createRexCli, whoamiOf } from "./backends/rex/cli.js";
 import { listAppClients } from "./backends/rex/app.js";
@@ -142,8 +143,7 @@ beforeAll(() => {
   mkdirSync(binDir, { recursive: true });
   mkdirSync(home, { recursive: true });
   for (const name of ["alpha", "beta", "gamma", "delta"]) mkdirSync(projectDir(name), { recursive: true });
-  writeFileSync(rex, `#!${process.execPath}\n${FAKE_REX}`);
-  chmodSync(rex, 0o755);
+  writeFakeRex(rex, FAKE_REX);
 });
 
 afterAll(() => {

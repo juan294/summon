@@ -5,17 +5,17 @@
  */
 import { createRexCli, discoverRex } from "./cli.js";
 import type { RexCli } from "./cli.js";
-import { NO_LIVE_PANES, listSessions, programStatusOf, sessionState } from "./status.js";
-import type { SessionListing } from "./status.js";
+import { NO_LIVE_PANES, programStatusOf, sessionListings, sessionState } from "./status.js";
+import type { SessionListings } from "./status.js";
 import type { RexIdentity } from "./types.js";
 import { adoptOnce, reconcileStoppedLaunch, refreshUnverifiedPanes } from "./reconcile.js";
-import { isLiveState, readStatusRecord, rexIdentityMissing, unverifiedMessage, unverifiedPanes } from "../../status-record.js";
+import { liveUptime, readStatusRecord, rexIdentityMissing, unknownRow, unverifiedMessage, unverifiedPanes } from "../../status-record.js";
 import type { WorkspaceStatus } from "../../status-record.js";
 import type { ResolvedStatus } from "../../status.js";
 import type { NativeFailure } from "../port.js";
 import type { StatusRead } from "../port.js";
 
-export const REX_CLI_MISSING = "rex CLI not found; open the Rex app once or set REX_BIN_DIR.";
+const REX_CLI_MISSING = "rex CLI not found; open the Rex app once or set REX_BIN_DIR.";
 
 function noLongerExistsMessage(project: string, reason: string | undefined): string {
   return `[${project}] no longer exists in Rex (${reason ?? "session gone"}); launch it again with summon ${project}.`;
@@ -52,16 +52,12 @@ export function resetRexBinaryMemo(): void {
  * at most once; `readAllStatuses` shares one read across its rows.
  */
 interface RexReadState {
-  listings: Map<string, SessionListing>;
+  listings: SessionListings;
   adopted: Set<string>;
 }
 
 function rexState(read: StatusRead): RexReadState {
-  return read.scratch<RexReadState>("rex", () => ({ listings: new Map(), adopted: new Set() }));
-}
-
-function unknownRow(record: WorkspaceStatus, reason: string, notices: string[] = []): ResolvedStatus {
-  return { ...record, state: "unknown", uptime: null, reason, ...(notices.length > 0 ? { notices } : {}) };
+  return read.scratch<RexReadState>("rex", () => ({ listings: sessionListings(), adopted: new Set() }));
 }
 
 /**
@@ -85,7 +81,7 @@ export function resolveRexStatus(projectName: string, record: WorkspaceStatus, r
     if (resolved.kind === "resolved") return resolved.status;
     current = resolved.record;
     // The newer generation's session was created before its record: its server is listed again.
-    if (current.rex) state.listings.delete(current.rex.server);
+    if (current.rex) state.listings.forget(current.rex.server);
   }
   return unknownRow(current, "the record changed while it was read; retry", notices);
 }
@@ -109,12 +105,7 @@ function resolveRexGeneration(projectName: string, record: WorkspaceStatus, bina
   const identity = current.rex;
   if (!identity) return { kind: "resolved", status: unknownRow(current, rexIdentityMissing(projectName), notices) };
   const cli = createRexCli(binary, identity.server);
-  let listing = state.listings.get(identity.server);
-  if (!listing) {
-    listing = listSessions(cli);
-    state.listings.set(identity.server, listing);
-  }
-  const probed = sessionState(cli, identity, projectName, listing);
+  const probed = sessionState(cli, identity, projectName, state.listings.of(cli));
   // Blocks remain and a recorded pane is unverified: one of them may be ours, so the launch is not ended here (P13 next-read recovery).
   const unverified = probed.reason === NO_LIVE_PANES ? unverifiedPanes(current) : 0;
   const reason = unverified > 0 ? `${probed.reason}; ${unverified} pane${unverified === 1 ? "" : "s"} unverified` : probed.reason;
@@ -123,7 +114,6 @@ function resolveRexGeneration(projectName: string, record: WorkspaceStatus, bina
     if (ended.kind === "superseded") return ended;
     current = ended.record;
   }
-  const started = Date.parse(current.startedAt);
   // `active` is exactly "the root block is present" (state table); the program status is read on request only.
   const programStatus = read.options.programStatus && probed.state === "active" ? programStatusOf(cli, identity.sessionId, identity.rootBlockId) : undefined;
   return {
@@ -131,7 +121,7 @@ function resolveRexGeneration(projectName: string, record: WorkspaceStatus, bina
     status: {
       ...current,
       state: probed.state,
-      uptime: isLiveState(probed.state) && !Number.isNaN(started) ? Date.now() - started : null,
+      uptime: liveUptime(probed.state, current.startedAt),
       ...(reason ? { reason } : {}),
       ...(notices.length > 0 ? { notices } : {}),
       liveBlocks: probed.liveBlocks,

@@ -1,27 +1,33 @@
 /**
  * Status reader over both backends (plan P10): the four states of every recorded workspace and the
  * unverified-launch rows of manifests without a record. Each record is resolved by its own backend through the
- * record port (backends/workspace.ts, AR-M1). A read writes nothing unless it asks to reconcile
- * (`{ reconcile: true }`); the writing Rex steps (adoption, pane refresh, end of a launch) live in
- * backends/rex/reconcile.ts. The record layer is status-record.ts, imported directly.
+ * read half of the record port (backends/read.ts, AR-M1), which loads none of the workspace commands. A read
+ * reconciles by default; one that passes `{ reconcile: false }` writes nothing. The writing Rex steps (adoption, pane
+ * refresh, end of a launch) live in backends/rex/reconcile.ts. The record layer is status-record.ts, imported directly.
  */
 import { existsSync, readdirSync } from "node:fs";
 import { STATUS_DIR } from "./paths.js";
 import { gitOutput } from "./utils.js";
 import { listLaunchManifests } from "./launch-identity.js";
-import type { BackendId } from "./backend.js";
+import type { BackendId } from "./backend-detect.js";
 import type { ProgramStatus } from "./backends/rex/status.js";
 import type { StatusRead } from "./backends/port.js";
-import { workspaceBackendFor } from "./backends/workspace.js";
-import { readStatusRecord } from "./status-record.js";
+import { recordReaderFor } from "./backends/read.js";
+import { readStatusRecord, unknownRow } from "./status-record.js";
 import type { WorkspaceState, WorkspaceStatus } from "./status-record.js";
 
 // The monitor passes the `rex` binary its parent resolved to its child read (PE-H1); the memo is the Rex reader's.
 export { rexBinaryPath, seedRexBinaryPath, resetRexBinaryMemo } from "./backends/rex/read.js";
 
-export interface ResolvedStatus extends Omit<WorkspaceStatus, "pid"> {
-  /** Recorded launcher pid; null for an unverified launch that has no record yet. */
-  pid: number | null;
+/** Each member of the record union with `pid` widened to `number | null`, so a row still narrows on `backend` (AR-L2). */
+type WithNullablePid<T> = T extends unknown ? { [K in keyof T]: K extends "pid" ? number | null : T[K] } : never;
+
+/** A record as a status row lists it: `pid` is null for an unverified launch that has no record yet. */
+export type StatusRow = WithNullablePid<WorkspaceStatus>;
+
+export type ResolvedStatus = StatusRow & ResolvedFields;
+
+interface ResolvedFields {
   /** Derived from marker file check at read time */
   state: WorkspaceState;
   /** Milliseconds since workspace started (if active), null if stopped */
@@ -42,7 +48,7 @@ export interface ReadOptions {
   /**
    * Run the Rex reconciliation steps (backends/rex/reconcile.ts): late adoption, the pane-file refresh
    * and the end of a launch that ended outside Summon, each of which may write the record, save a
-   * snapshot and remove launch files. Without it a read writes nothing.
+   * snapshot and remove launch files. On by default (every status command reconciles); `false` writes nothing.
    */
   reconcile?: boolean;
 }
@@ -53,19 +59,15 @@ function newStatusRead(options: ReadOptions): StatusRead {
   const read: StatusRead = {
     options: {
       ...(options.programStatus ? { programStatus: true } : {}),
-      ...(options.reconcile ? { reconcile: true } : {}),
+      ...(options.reconcile !== false ? { reconcile: true } : {}),
     },
     scratch<T>(id: BackendId, create: () => T): T {
       if (!scratch.has(id)) scratch.set(id, create());
       return scratch.get(id) as T;
     },
-    resolveRecord: (projectName, record, notices) => workspaceBackendFor(record.backend).resolve(projectName, record, read, notices),
+    resolveRecord: (projectName, record, notices) => recordReaderFor(record.backend).resolve(projectName, record, read, notices),
   };
   return read;
-}
-
-function unknownRow(record: Omit<WorkspaceStatus, "pid"> & { pid: number | null }, reason: string, notices: string[] = []): ResolvedStatus {
-  return { ...record, state: "unknown", uptime: null, reason, ...(notices.length > 0 ? { notices } : {}) };
 }
 
 function resolveStatus(projectName: string, read: StatusRead): ResolvedStatus | null {
@@ -74,7 +76,7 @@ function resolveStatus(projectName: string, read: StatusRead): ResolvedStatus | 
   return read.resolveRecord(projectName, status, []);
 }
 
-/** One project's recorded status; `{ reconcile: true }` lets the read adopt, refresh and end Rex launches. */
+/** One project's recorded status; the read may adopt, refresh and end Rex launches unless `{ reconcile: false }`. */
 export function readStatus(projectName: string, options: ReadOptions = {}): ResolvedStatus | null {
   return resolveStatus(projectName, newStatusRead(options));
 }
@@ -102,7 +104,7 @@ function unverifiedLaunchRows(launchDirProjects: string[], recordedProjects: Set
     let attempted = false;
     const notices: string[] = [];
     for (const backend of new Set(manifests.map((m) => m.backend))) {
-      const adoption = workspaceBackendFor(backend).adoptUnrecorded?.(projectName, read);
+      const adoption = recordReaderFor(backend).adoptUnrecorded?.(projectName, read);
       if (!adoption) continue;
       attempted ||= adoption.attempted;
       notices.push(...adoption.notices);
@@ -115,18 +117,19 @@ function unverifiedLaunchRows(launchDirProjects: string[], recordedProjects: Set
       }
     }
     for (const manifest of manifests) {
-      rows.push(unknownRow({
+      const row = {
         project: manifest.project,
         directory: manifest.directory,
         pid: null,
         startedAt: manifest.startedAt,
         layout: manifest.layout,
         panes: [...manifest.panes],
-        source: "summon",
-        version: 1,
+        source: "summon" as const,
+        version: 1 as const,
         launchId: manifest.launchId,
-        backend: manifest.backend,
-      }, UNVERIFIED_LAUNCH, notices));
+      };
+      // The backend is the last key, as before; each branch is one member of the row union.
+      rows.push(unknownRow(manifest.backend === "rex" ? { ...row, backend: "rex" } : { ...row, backend: "ghostty" }, UNVERIFIED_LAUNCH, notices));
     }
   }
   return rows;
@@ -156,23 +159,34 @@ function scanStatusDir(): { recorded: string[]; launchDirProjects: string[] } {
   };
 }
 
+/** A read of a record or manifest of this backend may run a process (the record port's `spawnsProcess`). */
+function readSpawns(backend: BackendId | undefined): boolean {
+  return recordReaderFor(backend).spawnsProcess;
+}
+
 /**
- * A Rex record or a Rex launch manifest exists: only then can a status read spawn `rex`. Reads the
- * records and manifests as JSON (no liveness, no probes); the monitor reads off its thread only then (PE-H1).
+ * A record or a launch manifest of a backend whose read runs a process (Rex) exists: only then can a status read
+ * spawn one. Reads the records and manifests as JSON (no liveness, no probes); the monitor reads off its thread only
+ * then (PE-H1).
  */
-export function hasRexState(): boolean {
+export function readMaySpawn(): boolean {
   const { recorded, launchDirProjects } = scanStatusDir();
-  if (recorded.some((project) => readStatusRecord(project)?.backend === "rex")) return true;
+  if (recorded.some((project) => readSpawns(readStatusRecord(project)?.backend))) return true;
   return launchDirProjects.some((project) => {
     try {
-      return listLaunchManifests(project).some((manifest) => manifest.backend === "rex");
+      return listLaunchManifests(project).some((manifest) => readSpawns(manifest.backend));
     } catch {
       return false;
     }
   });
 }
 
-/** Every recorded workspace and unverified launch, live rows first; `{ reconcile: true }` as for `readStatus`. */
+/** One of these statuses belongs to a backend whose read runs a process: reading them again may spawn one. */
+export function statusesMaySpawn(statuses: readonly ResolvedStatus[]): boolean {
+  return statuses.some((status) => readSpawns(status.backend));
+}
+
+/** Every recorded workspace and unverified launch, live rows first; reconciles as `readStatus` does. */
 export function readAllStatuses(options: ReadOptions = {}): ResolvedStatus[] {
   const { recorded, launchDirProjects } = scanStatusDir();
   const statuses: ResolvedStatus[] = [];

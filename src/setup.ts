@@ -2,7 +2,7 @@ import { setConfig, isValidLayoutName, isCustomLayout, saveCustomLayout } from "
 // PE-L2 (#445): setup-gallery is lazy-imported inside wizard functions that need it.
 // Type-only re-export is cost-free (erased at compile time).
 export type { GridTemplate } from "./setup-gallery.js";
-import type { BackendId } from "./backend.js";
+import type { BackendId } from "./backend-detect.js";
 import { SAFE_COMMAND_RE, resolveCommand as resolveCommandPath, promptUser, probeAccessibility, openAccessibilitySettings, isGhosttyInstalled, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT, debugLog, CANCELLED_EXIT_CODE } from "./utils.js";
 import { isStarshipInstalled, listStarshipPresets } from "./starship.js";
 import { bold, dim, green, yellow, cyan, magenta, brightCyan, colorSwatch } from "./ui/ansi.js";

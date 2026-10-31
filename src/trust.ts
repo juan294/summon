@@ -14,7 +14,7 @@ import { join, resolve } from "node:path";
 import { atomicWrite, confirm, PromptCancelled } from "./utils.js";
 import { TRUST_FILE, CONFIG_DIR } from "./paths.js";
 import { withFileLock } from "./file-lock.js";
-import { escapeControlChars } from "./ui/sanitize.js";
+import { escapeControlChars, unicodeEscape } from "./ui/sanitize.js";
 import { fail } from "./ui/output.js";
 
 /** Error thrown when a .summon file exists but is not trusted. */
@@ -238,7 +238,7 @@ const terminalIO = (): TrustPromptIO => ({
  */
 function showable(line: string): string {
   return line.split("\t").map(escapeControlChars).join("\t")
-    .replace(/[\u00ad\u200b-\u200f\u2028\u2029\u2060-\u2064\ufeff]/g, (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`);
+    .replace(/[\u00ad\u200b-\u200f\u2028\u2029\u2060-\u2064\ufeff]/g, unicodeEscape);
 }
 
 /**

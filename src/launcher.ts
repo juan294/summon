@@ -10,15 +10,16 @@ import { publishStatus, readStatusRecord } from "./status-record.js";
 import type { WorkspaceStatus } from "./status-record.js";
 import { newLaunchId } from "./launch-identity.js";
 import { resolveBackendForLaunch } from "./backend.js";
-import type { BackendId, LaunchContext } from "./backend.js";
+import type { LaunchContext } from "./backend.js";
+import type { BackendId } from "./backend-detect.js";
 import type { BackendLaunchResult, LaunchDecision, TerminalBackend } from "./backends/port.js";
 import { createTerminalBackend } from "./backends/select.js";
 import { markAttention } from "./ui/attention.js";
 import { resolveTreeCommands as resolveTreeCmds, buildTreePlan, collectLeaves, findPaneByName } from "./tree.js";
-import type { TreePlanOptions } from "./tree.js";
+import type { PlannedLayout, TreePlanOptions } from "./tree.js";
 import { getErrorMessage, SUMMON_WORKSPACE_ENV, promptUser, isDebug, PromptCancelled } from "./utils.js";
 import { commandFixHint, ensureCommand } from "./command-install.js";
-import { printTraditionalDryRun, printTreeDryRun } from "./dry-run.js";
+import { printDryRun } from "./dry-run.js";
 import type { DryRunInputs } from "./dry-run.js";
 import { fail, err, note, warn } from "./ui/output.js";
 import { confirmDangerousCommands } from "./launch-guards.js";
@@ -64,9 +65,6 @@ async function warnIfNested(
   return answer !== "y";
 }
 
-// The Ghostty pane-count probe and restored-pane decision moved to backends/ghostty/backend.ts (AR-M1, AR-L1); re-exported for callers.
-export { decideCleanRestoredPanes, probePaneCount } from "./backends/ghostty/backend.js";
-
 /**
  * Execute the on-start hook command before workspace creation.
  *
@@ -108,21 +106,9 @@ function executeOnStart(onStart: string, targetDir: string): void {
 }
 
 /**
- * Adapter: extract the LayoutOptions fields relevant to buildTreePlan into a
- * single authoritative place. Previously this was an inline object literal in
- * launchTreeLayout — any new plan-level option had to be manually added to that
- * literal. Extracting it here ensures a single edit point and makes the satisfies
- * guard visible to the compiler.
- *
- * #604 / #437 / #450 (closes AR-L1 #318): TreePlanOptions is now exported from
- * tree.ts — this adapter uses it directly instead of a hand-mirrored local type.
- * The `satisfies` guard provides compile-time exhaustiveness: if a new field is
- * added to TreePlanOptions without updating this adapter, tsc will fail here.
- *
- * The 4 "outer" script generator args (starshipConfigPath, envVars, projectName,
- * onStop) are assembled identically in both launchTreeLayout and launchTraditionalLayout
- * but kept per-pipeline — merging them would require changing generateAppleScript /
- * generateTreeAppleScript signatures and risks output changes.
+ * Adapter: the LayoutOptions fields relevant to buildTreePlan, in one place (#604 / #437 / #450, closes AR-L1 #318).
+ * The `satisfies` guard provides compile-time exhaustiveness: if a new field is added to TreePlanOptions without
+ * updating this adapter, tsc fails here.
  */
 export function layoutOptsToTreePlanOpts(opts: Partial<LayoutOptions>): TreePlanOptions {
   return {
@@ -137,45 +123,27 @@ export function layoutOptsToTreePlanOpts(opts: Partial<LayoutOptions>): TreePlan
     cleanRestoredPanes: opts.cleanRestoredPanes,
   } satisfies TreePlanOptions;
 }
-/** Per-launch inputs shared by both layout paths. */
-interface LaunchInputs extends DryRunInputs {
-  dryRun: boolean;
-}
-
-async function launchTreeLayout(
-  treeLayout: NonNullable<ResolvedConfig["treeLayout"]>,
+/** The planned layout of either kind and its pane names, as recorded. */
+function planWorkspace(
+  treeLayout: ResolvedConfig["treeLayout"],
   opts: Partial<LayoutOptions>,
-  inputs: LaunchInputs,
-): Promise<LaunchedLayout> {
-  const { ctx, backend, dryRun } = inputs;
-  const resolvedTree = resolveTreeCmds(treeLayout.tree, treeLayout.panes, treeLayout.paneCwds, resolve(ctx.targetDir));
-  const treePlan = buildTreePlan(resolvedTree, layoutOptsToTreePlanOpts(opts));
-
-  if (dryRun) {
-    printTreeDryRun(treePlan, inputs);
-    return { paneNames: treePlan.leaves };
+  targetDir: string,
+): { layout: PlannedLayout; paneNames: string[] } {
+  if (treeLayout) {
+    const resolvedTree = resolveTreeCmds(treeLayout.tree, treeLayout.panes, treeLayout.paneCwds, resolve(targetDir));
+    const plan = buildTreePlan(resolvedTree, layoutOptsToTreePlanOpts(opts));
+    return { layout: { kind: "tree", plan }, paneNames: plan.leaves };
   }
-
-  return { paneNames: treePlan.leaves, ...(await backend.launchTree(treePlan, ctx)) };
-}
-
-async function launchTraditionalLayout(
-  opts: Partial<LayoutOptions>,
-  inputs: LaunchInputs,
-): Promise<LaunchedLayout> {
-  const { ctx, backend, dryRun } = inputs;
   const plan = planLayout(opts);
-  const paneNames = traditionalPaneNames(plan);
-
-  if (dryRun) {
-    printTraditionalDryRun(plan, inputs);
-    return { paneNames };
-  }
-
-  return { paneNames, ...(await backend.launchTraditional(plan, ctx)) };
+  return { layout: { kind: "traditional", plan }, paneNames: traditionalPaneNames(plan) };
 }
 
-type LaunchedLayout = { paneNames: string[] } & BackendLaunchResult;
+/** The status record of a launch, in the key order on disk; each backend's record keeps only its own identity (AR-L2). */
+function launchRecord(fields: Pick<WorkspaceStatus, "project" | "directory" | "pid" | "startedAt" | "layout" | "panes">, launchId: string, launched: BackendLaunchResult): WorkspaceStatus {
+  return launched.backend === "rex"
+    ? { ...fields, source: "summon", version: 1, launchId, backend: "rex", ...(launched.rex ? { rex: launched.rex } : {}) }
+    : { ...fields, ...(launched.native ? { native: launched.native } : {}), source: "summon", version: 1, launchId, backend: "ghostty" };
+}
 
 /**
  * A launch over a live workspace of another backend replaces the record; that workspace stays (plan §6), and its
@@ -185,7 +153,7 @@ async function noteOtherBackendStillRunning(project: string, backend: BackendId)
   const record = readStatusRecord(project);
   if (!record || (record.backend ?? "ghostty") === backend) return;
   const { workspaceBackendFor } = await import("./backends/workspace.js");
-  const notice = workspaceBackendFor(record.backend).stillRunningNotice(project, record);
+  const notice = workspaceBackendFor(record.backend).stillRunningNotice?.(project, record);
   if (notice) note(notice);
 }
 
@@ -219,10 +187,10 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
   // redirect, the pane-count probe and on-start. The launch id is the generation every
   // per-launch artifact and the status record carry (P12).
   const launchId = newLaunchId();
-  const launchContext = resolveLaunchBackend(cliOverrides?.dryRun);
+  const dryRun = cliOverrides?.dryRun === true;
+  const launchContext = resolveLaunchBackend(dryRun);
   for (const notice of launchContext.notices) err(notice);
   const projectName = resolveProjectName(targetDir);
-  const dryRun = cliOverrides?.dryRun === true;
   const backend: TerminalBackend = await createTerminalBackend(launchContext, { newWindow: cliOverrides?.["new-window"] === "true" });
   if (!dryRun) {
     // A dry run skips this (P2) and runs no backend command. Rex: late adoption and the P2 switch, before the wizard,
@@ -241,7 +209,7 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
 
   // If no editor is configured from any source and this isn't a tree layout
   // (which defines its own pane commands), redirect to the setup wizard.
-  if (!config.opts.editor && !config.treeLayout && !cliOverrides?.dryRun) {
+  if (!config.opts.editor && !config.treeLayout && !dryRun) {
     if (process.stdin.isTTY) {
       console.log("No editor configured. Let's set up your workspace.\n");
       const { runSetup } = await import("./setup.js");
@@ -256,17 +224,17 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
 
   const { opts, machineConfig, starshipPreset, onStart, onStop, envVars, treeLayout } = config;
 
-  if (await warnIfNested(opts, cliOverrides?.dryRun, backend)) {
+  if (await warnIfNested(opts, dryRun, backend)) {
     // UX-L3: declining is a user cancel: exit 130, without an error line or the debug hint.
     throw new PromptCancelled("Launch aborted by user (nested workspace).");
   }
   // Ghostty: the restored-pane probe (decideCleanRestoredPanes); Rex: one P8 notice per flag it cannot honor.
-  backend.applyLaunchOptions({ opts, overrides: cliOverrides ?? {}, projectConfig: config.projectOverrides, machineConfig, dryRun, projectName });
+  backend.applyLaunchOptions({ opts, overrides: cliOverrides ?? {}, projectConfig: config.projectOverrides, machineConfig, dryRun });
 
   let effectiveOnStart = onStart;
   let effectiveOnStop = onStop;
 
-  if (!cliOverrides?.dryRun) {
+  if (!dryRun) {
     const resolvedCommands: Array<[string, string]> = [];
     const maybePush = (key: string, value: string | null | undefined) => {
       if (!value || value === "true" || value === "false") return;
@@ -310,14 +278,14 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
     }
   }
 
-  if (effectiveOnStart && !cliOverrides?.dryRun) {
+  if (effectiveOnStart && !dryRun) {
     executeOnStart(effectiveOnStart, targetDir);
   }
 
   // SE-M1 (#595): surface on-stop command at launch time so users know it will run on exit.
   // on-stop is embedded in the AppleScript's EXIT trap and runs silently; a launch-time notice
   // makes the hook visible without requiring users to inspect the generated script.
-  if (effectiveOnStop && !cliOverrides?.dryRun) {
+  if (effectiveOnStop && !dryRun) {
     // UX-H1: repeated on every launch with a hook (from the user's own config or a `.summon` trusted by content hash; one
     // with shell metacharacters still gets the interactive warning), so it is routine for the D1 launcher-tab watch.
     note("on-stop will run on workspace exit.", { routine: true });
@@ -357,7 +325,7 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
   };
 
   const layoutLabel = treeLayout ? "custom" : (cliOverrides?.layout ?? "default");
-  const inputs: LaunchInputs = {
+  const inputs: DryRunInputs = {
     ctx: {
       targetDir,
       envVars: Object.keys(envVars).length > 0 ? envVars : undefined,
@@ -369,15 +337,16 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
       resolveStarship,
     },
     backend,
-    dryRun: cliOverrides?.dryRun === true,
     starshipPreset,
   };
   // The backend launch and the status publication. A dry run prints instead and publishes nothing.
   const createAndPublish = async (): Promise<void> => {
-    const launched = treeLayout
-      ? await launchTreeLayout(treeLayout, opts, inputs)
-      : await launchTraditionalLayout(opts, inputs);
-    if (dryRun) return;
+    const { layout, paneNames } = planWorkspace(treeLayout, opts, targetDir);
+    if (dryRun) {
+      printDryRun(layout, inputs);
+      return;
+    }
+    const launched = await backend.launch(layout, inputs.ctx);
 
     // Write workspace status for monitoring features
     const fields = {
@@ -386,20 +355,17 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
       pid: process.pid,
       startedAt: new Date().toISOString(),
       layout: layoutLabel,
-      panes: launched.paneNames,
+      panes: paneNames,
     };
-    // The key order of the record on disk; each backend keeps only its own identity (AR-L2).
-    const status: WorkspaceStatus = backend.id === "rex"
-      ? { ...fields, source: "summon", version: 1, launchId, backend: "rex", ...(launched.rex ? { rex: launched.rex } : {}) }
-      : { ...fields, ...(launched.native ? { native: launched.native } : {}), source: "summon", version: 1, launchId, backend: "ghostty" };
+    const status = launchRecord(fields, launchId, launched);
 
     // A user-initiated launch always publishes (expectation "replace", plan P12); a failed write
     // discards only the record observed under the publication's own lock.
     const published = publishStatus(status);
     if (published === "discarded") {
-      err("summon: warning: workspace launched, but status could not be saved; exact targeting is unavailable. Check config directory permissions and run summon doctor.");
+      warn("workspace launched, but status could not be saved; exact targeting is unavailable. Check config directory permissions and run summon doctor.");
     } else if (published === "unsaved") {
-      err("summon: warning: workspace launched, but status could not be saved or invalidated. Previous metadata may remain and target an older workspace; select manually in Ghostty, repair config directory permissions and run summon doctor before using exact commands.");
+      warn("workspace launched, but status could not be saved or invalidated. Previous metadata may remain and target an older workspace; select manually in Ghostty, repair config directory permissions and run summon doctor before using exact commands.");
     }
   };
 

@@ -19,7 +19,7 @@ import { CONFIG_DIR, STATUS_DIR, TRUST_FILE } from "../paths.js";
 import { describeLock, inspectLock, recoverStaleLock, type LockState } from "../file-lock.js";
 import { GHOSTTY_ONLY_CONFIG_KEYS, resolveBackendForLaunch } from "../backend.js";
 import { lockStaleBound } from "../status-record.js";
-import { discoverRexForDoctor, printRexChecks } from "../backends/rex/doctor.js";
+import { discoverRex, printRexChecks } from "../backends/rex/doctor.js";
 import { escapeControlChars } from "../ui/sanitize.js";
 import type { CommandContext } from "./types.js";
 
@@ -75,7 +75,7 @@ export async function handleDoctorCommand({
   // and are not counted as failures.
   const ghosttyConfigPath = join(homedir(), ".config", "ghostty", "config");
   let diagnostics = probeGhostty();
-  const rexDiscovery = discoverRexForDoctor();
+  const rexDiscovery = discoverRex();
   const detection = resolveBackendForLaunch({ discoverRex: () => rexDiscovery });
   const ghosttyApplicable = !!diagnostics.app || rexDiscovery.path === null;
 

@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, afterEach, beforeAll, afterAll } from "vitest";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { writeFakeRex } from "../../fixtures/fake-rex.js";
 
 // QA-M3: the default wiring (the real find, process.once("exit") and the detached close) runs against these two seams.
 const mockSpawn = vi.hoisted(() => vi.fn((..._args: unknown[]) => ({ unref: () => {} })));
@@ -10,7 +11,8 @@ const mockCreateRexCli = vi.hoisted(() => vi.fn());
 vi.mock("node:child_process", async (importOriginal) => ({ ...(await importOriginal<typeof import("node:child_process")>()), spawn: mockSpawn }));
 vi.mock("./cli.js", async (importOriginal) => ({ ...(await importOriginal<typeof import("./cli.js")>()), createRexCli: (...args: unknown[]) => mockCreateRexCli(...args) }));
 
-import { findLauncherTab, closeLauncherTabOnExit, closeLauncherTabAfterRexLaunch, resetLauncherTabForTests, detachedCloseArgs, EXIT_PROBE_TIMEOUT_MS, watchForAttention, needsAttention, startLauncherTabWatch, markAttention } from "./launcher-tab.js";
+import { findLauncherTab, closeLauncherTabOnExit, closeLauncherTabAfterRexLaunch, resetLauncherTabForTests, detachedCloseArgs, EXIT_PROBE_TIMEOUT_MS, startLauncherTabWatch } from "./launcher-tab.js";
+import { markAttention, needsAttention, watchForAttention } from "../../ui/attention.js";
 import type { RexCli } from "./cli.js";
 import type { LaunchContext } from "../../backend.js";
 import { err, note, warn, writingRoutine } from "../../ui/output.js";
@@ -143,8 +145,7 @@ describe("detached close (BE-L5): re-checks the tab after Summon exits, then clo
 
   beforeAll(() => {
     // A fake rex: logs its argv, answers session.view from the state file (or fails with `view: "fail"`).
-    writeFileSync(rex, [
-      `#!${process.execPath}`,
+    writeFakeRex(rex, [
       "const fs = require('node:fs');",
       "const [state, log] = [process.env.FAKE_STATE, process.env.FAKE_LOG];",
       "const a = process.argv.slice(2);",
@@ -152,7 +153,6 @@ describe("detached close (BE-L5): re-checks the tab after Summon exits, then clo
       "const d = JSON.parse(fs.readFileSync(state, 'utf8'));",
       "if (a.includes('session.view')) { if (d.view === 'fail') { console.error('Error: session_not_found'); process.exit(3); } console.log(JSON.stringify(d.view)); }",
     ].join("\n") + "\n");
-    chmodSync(rex, 0o755);
   });
   afterAll(() => { rmSync(dir, { recursive: true, force: true }); });
 

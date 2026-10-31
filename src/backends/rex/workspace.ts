@@ -1,16 +1,16 @@
 /**
  * Rex record port (AR-M1): what Summon does with a recorded Rex workspace. State comes from the server
- * (`backends/rex/read.ts`); focus, inspect and title pass the shared pre-flight first (plan P10); `summon clean`
+ * (`backends/rex/read.ts`, reached through backends/read.ts); focus, inspect and title pass the shared pre-flight first (plan P10); `summon clean`
  * closes an empty session (P17) and reviews earlier launches (P13 in command form).
  */
 import { existsSync } from "node:fs";
-import { createRexCli, discoverRex } from "./cli.js";
-import { SESSION_GONE, focusRex, inspectRex, listSessions, sessionState, titleRex, viewBlockIds, viewSession } from "./status.js";
-import type { SessionListing, SessionView } from "./status.js";
+import { createRexCli } from "./cli.js";
+import { SESSION_GONE, focusRex, inspectRex, sessionListings, sessionState, titleRex, viewBlockIds, viewSession } from "./status.js";
+import type { SessionListings, SessionView } from "./status.js";
 import type { RexIdentity } from "./types.js";
 import { adoptDeps, adoptOrphans, readPaneFile, readPaneMapping, removeOrphanLaunch, strandedTokenNotice, withRecoveryCommand } from "./launch.js";
 import { endRexLaunch } from "./reconcile.js";
-import { adoptUnrecordedRex, requireRexBinary, resolveRexStatus, rexCommandGate } from "./read.js";
+import { requireRexBinary, rexBinaryPath, rexCommandGate } from "./read.js";
 import type { RexCommandGate } from "./read.js";
 import { isLiveState, unverifiedMessage } from "../../status-record.js";
 import { launchArtifactFiles, launchArtifactPaths, launchFileList, listLaunchManifests } from "../../launch-identity.js";
@@ -124,7 +124,7 @@ function closeRex(project: string, record: Parameters<WorkspaceBackend["close"]>
 }
 
 /** `--orphans`: what to say and do about one launch that is not the current record's (one `ls` per server). */
-function reviewOrphan(project: string, manifest: LaunchManifest, gen: string | null, binary: string, listings: Map<string, SessionListing>): string {
+function reviewOrphan(project: string, manifest: LaunchManifest, gen: string | null, binary: string, listings: SessionListings): string {
   const id = manifest.launchId;
   const paths = launchArtifactPaths(project, id);
   const rootName = manifest.paneOrder[0];
@@ -137,11 +137,7 @@ function reviewOrphan(project: string, manifest: LaunchManifest, gen: string | n
   }
   if (!manifest.server) return `${where}: manifest names no server; left in place.`;
   const cli = createRexCli(binary, manifest.server);
-  let listed = listings.get(manifest.server);
-  if (!listed) {
-    listed = listSessions(cli);
-    listings.set(manifest.server, listed);
-  }
+  const listed = listings.of(cli);
   if (!listed.ok) return `${where}: server unreachable (${listed.reason}); left in place.`;
   /** The line for a removal; `tail` (the P17 limitation) comes before a recovery command, which is always last. */
   const removed = (done: string, tail = ""): string => {
@@ -164,9 +160,6 @@ function reviewOrphan(project: string, manifest: LaunchManifest, gen: string | n
 
 export const RexWorkspace: WorkspaceBackend = {
   id: "rex",
-  resolve: resolveRexStatus,
-  adoptUnrecorded: adoptUnrecordedRex,
-
   /** Under Rex the shared gate refuses `unknown` and `stopped` (plan P10) and the app attached to the caller's session is preferred (P7). */
   focus(project, status, pane) {
     const gate = gateOf(project, status);
@@ -179,14 +172,14 @@ export const RexWorkspace: WorkspaceBackend = {
 
   title(project, status, scope, operation, pane) {
     const gate = gateOf(project, status);
-    if (!gate.ok) return { kind: "unavailable", reason: gate.failure.reason };
+    if (!gate.ok) return gate.failure;
     return titleRex(gate.cli, gate.identity, status?.panes ?? [], project, scope, operation, pane);
   },
 
   /** A Ghostty launch over a live Rex session of the same project replaces the record; the session stays (plan §6). */
   stillRunningNotice(project, record) {
     if (!record.rex) return undefined;
-    const binary = discoverRex().path;
+    const binary = rexBinaryPath();
     if (!binary) return undefined;
     const state = sessionState(createRexCli(binary, record.rex.server), record.rex, project);
     if (!isLiveState(state.state)) return undefined;
@@ -205,7 +198,7 @@ export const RexWorkspace: WorkspaceBackend = {
 
   reviewLaunches(project, current) {
     const binary = requireRexBinary();
-    const listings = new Map<string, SessionListing>();
+    const listings = sessionListings();
     let reviewed = 0;
     for (const manifest of listLaunchManifests(project)) {
       if (manifest.launchId === current) continue;

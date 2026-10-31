@@ -56,8 +56,7 @@ const mockLaunchLock = vi.fn(async (_project: string, action: () => Promise<unkn
 });
 const mockCreateRexBackend = vi.fn((context: unknown, deps: unknown) => ({
   ...realRexBackend.create(context, { ...(deps as object), launchLock: mockLaunchLock }),
-  async launchTraditional(plan: unknown, ctx: Record<string, unknown>) { launchEvents.push("create"); rexLaunches.push({ kind: "traditional", plan, ctx }); return { rex: REX_IDENTITY }; },
-  async launchTree(plan: unknown, ctx: Record<string, unknown>) { launchEvents.push("create"); rexLaunches.push({ kind: "tree", plan, ctx }); return { rex: REX_IDENTITY }; },
+  async launch(layout: { kind: string; plan: unknown }, ctx: Record<string, unknown>) { launchEvents.push("create"); rexLaunches.push({ kind: layout.kind, plan: layout.plan, ctx }); return { backend: "rex" as const, rex: REX_IDENTITY }; },
 }));
 vi.mock("./backends/rex/backend.js", async (original) => {
   const actual = await original<typeof import("./backends/rex/backend.js")>();
@@ -168,7 +167,8 @@ vi.mock("./backends/ghostty/script.js", () => ({
 }));
 
 // Import after mocks are set up
-const { launch, resolveProjectName, probePaneCount, decideCleanRestoredPanes, layoutOptsToTreePlanOpts } = await import("./launcher.js");
+const { launch, resolveProjectName, layoutOptsToTreePlanOpts } = await import("./launcher.js");
+const { probePaneCount, decideCleanRestoredPanes } = await import("./backends/ghostty/backend.js");
 const { readTrustedSummonFile, resolveConfig } = await import("./config-resolve.js");
 const { closeCreatedContainer, withLaunchSpinner, GhosttyBackend, ghosttyCommandEntries } = await import("./backends/ghostty/backend.js");
 const { isStaticLaunchSpinner } = await import("./ui/progress.js");
@@ -4552,13 +4552,13 @@ describe("absolute command paths and fix hints", () => {
       const plan = planLayout({ editor: "vim", sidebarCommand: "lazygit", secondaryEditor: "nvim", shell: "htop" });
       const traditionalKeys = ghosttyCommandEntries({ kind: "traditional", plan }).map((e) => e.key);
       expect(traditionalKeys).toEqual(["editor", "sidebar", "editor", "shell"]);
-      expect(await resolvedKeys((ctx) => GhosttyBackend.launchTraditional(plan, ctx))).toEqual(traditionalKeys);
+      expect(await resolvedKeys((ctx) => GhosttyBackend.launch({ kind: "traditional", plan }, ctx))).toEqual(traditionalKeys);
       expect([plan.editor, plan.sidebarCommand, plan.secondaryEditor, plan.shellCommand]).toEqual(["/r/vim", "/r/lazygit", "/r/nvim", "/r/htop"]);
 
       const treePlan = buildTreePlan(resolveTreeCommands(parseTreeDSL("a | b | c"), new Map([["a", "vim"], ["b", ""], ["c", "htop"]])));
       const treeKeys = ghosttyCommandEntries({ kind: "tree", plan: treePlan }).map((e) => e.key);
       expect(treeKeys).toEqual(["pane.a", "pane.c"]);
-      expect(await resolvedKeys((ctx) => GhosttyBackend.launchTree(treePlan, ctx))).toEqual(treeKeys);
+      expect(await resolvedKeys((ctx) => GhosttyBackend.launch({ kind: "tree", plan: treePlan }, ctx))).toEqual(treeKeys);
       expect(["a", "b", "c"].map((name) => findPaneByName(treePlan.tree, name)?.command)).toEqual(["/r/vim", "", "/r/htop"]);
     });
   });

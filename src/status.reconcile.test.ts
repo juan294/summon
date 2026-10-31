@@ -3,6 +3,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSyn
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { writeFakeRex } from "./fixtures/fake-rex.js";
 
 /**
  * The stopped reader composed with the real snapshot writer over a real temporary git repository,
@@ -58,17 +59,14 @@ const files = () => ({ pid: existsSync(paths.pid), active: existsSync(paths.acti
 beforeAll(() => {
   // A real executable at the Rex process boundary, found before any installed rex.
   mkdirSync(binDir, { recursive: true });
-  const script = [
-    `#!${process.execPath}`,
+  writeFakeRex(join(binDir, "rex"), [
     "const fs = require('node:fs');",
     `const d = JSON.parse(fs.readFileSync(${JSON.stringify(fixture)}, 'utf8'));`,
     "const a = process.argv.slice(2);",
     "if (a.includes('ls')) console.log(JSON.stringify({ sessions: d.sessions }));",
     "else if (a.includes('session.view')) console.log(JSON.stringify(d.view));",
     "else { console.error('unexpected fake rex operation', a); process.exit(2); }",
-  ].join("\n");
-  writeFileSync(join(binDir, "rex"), script + "\n");
-  chmodSync(join(binDir, "rex"), 0o755);
+  ].join("\n") + "\n");
   process.env["PATH"] = `${binDir}:${savedEnv.PATH ?? ""}`;
   process.env["REX_BIN_DIR"] = binDir;
 
@@ -188,6 +186,9 @@ function configTree(dir = CONFIG_DIR, prefix = ""): Map<string, string> {
   return tree;
 }
 
+/** A read that asks not to reconcile (reconciliation is the default). */
+const READ_ONLY = { reconcile: false } as const;
+
 describe("a non-reconciling read writes nothing (AR-M3)", () => {
   it("leaves an ended workspace, a delayed pane file and an unverified launch untouched, takes no lock; the next reconciling read still recovers", { timeout: 15_000 }, () => {
     // Every writing step has work here: the shell's pane file arrived late (refresh), the session is
@@ -198,14 +199,14 @@ describe("a non-reconciling read writes nothing (AR-M3)", () => {
     const before = configTree();
     statusTestHooks.beforeLock = () => { throw new Error("a non-reconciling read must not take the status lock"); };
     try {
-      const row = readStatus(PROJECT)!;
+      const row = readStatus(PROJECT, READ_ONLY)!;
       expect(row).toMatchObject({ state: "stopped", reason: SESSION_GONE, launchId: GEN });
       expect(row.endedAt).toBeUndefined();
       expect(row.notices).toBeUndefined();
       expect(row.rex!.blocks.map((b) => b.name)).toEqual(["editor"]);
-      expect(readProjectStatus(PROJECT)).toMatchObject({ state: "stopped", reason: SESSION_GONE });
-      expect(readProjectStatus("orphan")).toMatchObject({ state: "unknown", reason: "unverified launch" });
-      const rows = readAllStatuses({ programStatus: true });
+      expect(readProjectStatus(PROJECT, READ_ONLY)).toMatchObject({ state: "stopped", reason: SESSION_GONE });
+      expect(readProjectStatus("orphan", READ_ONLY)).toMatchObject({ state: "unknown", reason: "unverified launch" });
+      const rows = readAllStatuses({ programStatus: true, ...READ_ONLY });
       expect(rows.map((r) => [r.project, r.state, r.notices])).toEqual([[PROJECT, "stopped", undefined], ["orphan", "unknown", undefined]]);
     } finally {
       delete statusTestHooks.beforeLock;
@@ -213,8 +214,8 @@ describe("a non-reconciling read writes nothing (AR-M3)", () => {
     expect(configTree()).toEqual(before);
     expect(existsSync(snapshotFile)).toBe(false);
 
-    // Next-read recovery: the first reconciling read refreshes the pane, saves the snapshot, marks the record and removes the files.
-    const reconciled = readStatus(PROJECT, { reconcile: true })!;
+    // Next-read recovery: the first reconciling read (the default) refreshes the pane, saves the snapshot, marks the record and removes the files.
+    const reconciled = readStatus(PROJECT)!;
     expect(reconciled.notices![0]).toMatch(/^workspace ended outside Summon; snapshot saved /);
     expect(reconciled.rex!.blocks.map((b) => b.name)).toEqual(["editor", "shell"]);
     expect(readStatusRecord(PROJECT)!.endedAt).toBeDefined();

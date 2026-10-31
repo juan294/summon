@@ -10,6 +10,6 @@ import { PROJECT_NAME_RE } from "./validation.js";
 
 /** Focus only a recorded exact identity. Legacy/stale records never launch implicitly. */
 export function focusWorkspace(projectName: string, paneName?: string): FocusResult {
-  const status = PROJECT_NAME_RE.test(projectName) ? readStatus(projectName, { reconcile: true }) : null;
+  const status = PROJECT_NAME_RE.test(projectName) ? readStatus(projectName) : null;
   return workspaceBackendFor(status?.backend).focus(projectName, status, paneName);
 }
