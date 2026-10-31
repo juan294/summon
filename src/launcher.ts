@@ -1,95 +1,39 @@
-import { existsSync, readFileSync } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { existsSync } from "node:fs";
+import { basename, resolve } from "node:path";
 import { execFileSync, execSync } from "node:child_process";
-import {
-  planLayout,
-  isPresetName,
-  getPresetNames,
-  getPreset,
-  PANES_MIN,
-  PANES_DEFAULT,
-  EDITOR_SIZE_MIN,
-  EDITOR_SIZE_MAX,
-  EDITOR_SIZE_DEFAULT,
-  traditionalPaneNames,
-} from "./layout.js";
+import { planLayout, traditionalPaneNames } from "./layout.js";
 import type { LayoutOptions } from "./layout.js";
-export { traditionalPaneNames } from "./layout.js";
 // UX-M4: the monitor's Enter handoff takes the trust prompt from the launcher it already loads lazily.
 export { withTrustPrompt } from "./trust.js";
-import { listConfig, listProjects, readKVFromString, readCustomLayout, isCustomLayout, LAYOUT_NAME_RE } from "./config.js";
-import { publishStatus, readStatus, readStatusRecord } from "./status.js";
+import { listProjects } from "./config.js";
+import { pickConfigValue, readTrustedSummonFile, resolveConfig } from "./config-resolve.js";
+import type { CLIOverrides, ResolvedConfig } from "./config-resolve.js";
+import { publishStatus, readStatusRecord } from "./status.js";
 import type { WorkspaceStatus } from "./status.js";
-import { generateAppleScript, generateTreeAppleScript } from "./script.js";
 import { newLaunchId } from "./launch-identity.js";
 import { REX_UNHONORED_FLAGS, callerRexSession, resolveBackendForLaunch } from "./backend.js";
 import type { BackendId, LaunchContext } from "./backend.js";
-import { GhosttyBackend, ghosttyCommandEntries } from "./backends/ghostty.js";
-import type { BackendLaunchContext, BackendLaunchResult, TerminalBackend } from "./backends/ghostty.js";
+import { GhosttyBackend } from "./backends/ghostty.js";
+import type { BackendLaunchResult, TerminalBackend } from "./backends/ghostty.js";
 import { createRexBackend } from "./backends/rex/backend.js";
 import { adoptOrphansForLaunch, adoptDeps, maybeSwitchToExisting } from "./backends/rex/launch.js";
 import { createRexCli, discoverRex } from "./backends/rex/cli.js";
-import { focusRex, sessionState, sessionListings } from "./backends/rex/status.js";
+import { sessionState, sessionListings } from "./backends/rex/status.js";
 import { closeLauncherTabAfterRexLaunch, markAttention, startLauncherTabWatch } from "./backends/rex/launcher-tab.js";
-import type { ResolvedStatus } from "./status.js";
-import { isLiveState, rexCommandGate } from "./status.js";
-import { buildSessionCreateRequest } from "./backends/rex/layout.js";
-import type { SessionCreateInput } from "./backends/rex/layout.js";
-import { parseTreeDSL, extractPaneDefinitions, extractPaneCwds, resolveTreeCommands as resolveTreeCmds, buildTreePlan, collectLeaves, findPaneByName, assertPaneCwdContained } from "./tree.js";
-import type { LayoutNode, PlannedLayout, TreePlanOptions } from "./tree.js";
-import { resolveCommand as resolveCommandPath, describeCommandFailure, getErrorMessage, SUMMON_WORKSPACE_ENV, promptUser, isDebug, PromptCancelled, QUICK_PROCESS_LIMITS } from "./utils.js";
-import type { CommandFailureKind } from "./utils.js";
+import { isLiveState } from "./status.js";
+import { resolveTreeCommands as resolveTreeCmds, buildTreePlan, collectLeaves, findPaneByName } from "./tree.js";
+import type { TreePlanOptions } from "./tree.js";
+import { getErrorMessage, SUMMON_WORKSPACE_ENV, promptUser, isDebug, PromptCancelled } from "./utils.js";
+import { commandFixHint, ensureCommand } from "./command-install.js";
+import { printTraditionalDryRun, printTreeDryRun } from "./dry-run.js";
+import type { DryRunInputs } from "./dry-run.js";
 import { fail, err, note, warn } from "./ui/output.js";
 import { confirmDangerousCommands } from "./launch-guards.js";
-import { assertTrusted, assertTrustedContent } from "./trust.js";
-import { parseIntInRange, parsePositiveFloat, ENV_KEY_RE, PROJECT_NAME_RE, sanitizeProjectName } from "./validation.js";
-import { isStarshipInstalled, ensurePresetConfig, getPresetConfigPath } from "./starship.js";
+import { PROJECT_NAME_RE, sanitizeProjectName } from "./validation.js";
+import { isStarshipInstalled, ensurePresetConfig } from "./starship.js";
 // command-spec is a pure utility module with no imports from this file.
 // Dependency direction: launcher -> command-spec (one-way, no circular risk).
 import { commandExecutable, replaceCommandExecutable } from "./command-spec.js";
-import { focusTerminal } from "./ghostty-native.js";
-import type { FocusResult, NativeFailure } from "./ghostty-native.js";
-
-/** Convert resolved layout options to a key-value config map suitable for saving as a custom layout. */
-export function optsToConfigMap(opts: Partial<LayoutOptions>): Map<string, string> {
-  const entries = new Map<string, string>();
-  if (opts.editor) entries.set("editor", opts.editor);
-  if (opts.sidebarCommand) entries.set("sidebar", opts.sidebarCommand);
-  if (opts.secondaryEditor) entries.set("secondary-editor", opts.secondaryEditor);
-  if (opts.editorPanes !== undefined) entries.set("panes", String(opts.editorPanes));
-  if (opts.editorSize !== undefined) entries.set("editor-size", String(opts.editorSize));
-  if (opts.shell !== undefined) entries.set("shell", opts.shell);
-  if (opts.autoResize !== undefined) entries.set("auto-resize", String(opts.autoResize));
-  if (opts.fontSize !== undefined && opts.fontSize !== null) entries.set("font-size", String(opts.fontSize));
-  if (opts.newWindow) entries.set("new-window", "true");
-  if (opts.newTab) entries.set("new-tab", "true");
-  if (opts.fullscreen) entries.set("fullscreen", "true");
-  if (opts.maximize) entries.set("maximize", "true");
-  if (opts.float) entries.set("float", "true");
-  return entries;
-}
-
-export interface CLIOverrides {
-  layout?: string;
-  editor?: string;
-  panes?: string;
-  "editor-size"?: string;
-  sidebar?: string;
-  shell?: string;
-  "auto-resize"?: string;
-  "starship-preset"?: string;
-  env?: string[];
-  "font-size"?: string;
-  "on-start"?: string;
-  "new-window"?: string;
-  "new-tab"?: string;
-  "no-project-config"?: string;
-  fullscreen?: string;
-  maximize?: string;
-  float?: string;
-  dryRun?: boolean;
-  clean?: string;
-}
 
 /** Resolve a human-readable project name from a target directory. */
 export function resolveProjectName(targetDir: string): string {
@@ -105,467 +49,6 @@ export function resolveProjectName(targetDir: string): string {
     `Project name "${derived}" contains unsupported characters; using "${sanitized}" for tab title and status tracking.`,
   );
   return sanitized;
-}
-
-/** Resolve a recorded exact UUID without activating or querying the application. */
-export function resolveWorkspaceTerminal(projectName: string, paneName?: string, status?: ResolvedStatus | null): { kind: "target"; terminalId: string } | NativeFailure {
-  if (!PROJECT_NAME_RE.test(projectName)) return { kind: "unavailable", code: "missing", reason: "Invalid project name. Run summon inspect <project>." };
-  if (status === undefined) status = readStatus(projectName);
-  if (status?.backend === "rex") return { kind: "unavailable", code: "missing", reason: `[${projectName}] runs in Rex; its panes are Rex blocks, not Ghostty terminals. Run summon inspect ${projectName}.` };
-  if (!status?.native) return { kind: "unavailable", code: "missing", reason: "Exact native identity is unavailable. Select in Ghostty or explicitly relaunch when ready to capture identity; run summon inspect <project>." };
-  const terminalId = paneName === undefined ? status.native.rootTerminalId : status.native.panes.find(p => p.name === paneName)?.terminalId;
-  if (!terminalId) return { kind: "unavailable", code: "missing", reason: `Unknown pane. Valid panes: ${status.native.panes.map(p => p.name).join(", ")}. Run summon inspect ${projectName}.` };
-  return { kind: "target", terminalId };
-}
-
-/**
- * Focus only a recorded exact identity. Legacy/stale records never launch implicitly. Under Rex
- * the shared gate refuses `unknown` and `stopped` (plan P10) and the app attached to the
- * caller's session is preferred (P7).
- */
-export function focusWorkspace(projectName: string, paneName?: string): FocusResult {
-  const status = PROJECT_NAME_RE.test(projectName) ? readStatus(projectName) : null;
-  if (status?.backend === "rex") {
-    const gate = rexCommandGate(projectName, status);
-    if (!gate.ok) return gate.failure;
-    // No detection row here (focus does not launch): REX_SESSION is set by Rex terminals only, so it is the caller's session when present.
-    return focusRex(gate.cli, gate.identity, status.panes, projectName, gate.liveBlocks, paneName, process.env["REX_SESSION"]);
-  }
-  const target = resolveWorkspaceTerminal(projectName, paneName, status);
-  return target.kind === "target" ? focusTerminal(target.terminalId) : target;
-}
-
-async function prompt(question: string): Promise<string> {
-  const answer = await promptUser(question);
-  return answer.toLowerCase();
-}
-
-const KNOWN_INSTALL_COMMANDS: Record<string, () => [string, string[]] | null> = {
-  claude: () => ["npm", ["install", "-g", "@anthropic-ai/claude-code"]],
-  lazygit: () => {
-    try {
-      execFileSync("/bin/sh", ["-c", "command -v brew"], { stdio: "ignore", ...QUICK_PROCESS_LIMITS });
-      return ["brew", ["install", "lazygit"]];
-    } catch {
-      return null;
-    }
-  },
-};
-
-/** The install command for a known tool, or null (own keys only, so `toString` is not a tool). */
-function knownInstallCommand(cmd: string): [string, string[]] | null {
-  return Object.hasOwn(KNOWN_INSTALL_COMMANDS, cmd) ? KNOWN_INSTALL_COMMANDS[cmd]!() : null;
-}
-
-/** Why a command did not resolve, worded once for the launch error and the dry-run note. */
-const COMMAND_FAILURE_REASONS: Record<CommandFailureKind, string> = {
-  "missing-path": "was not found or is not executable",
-  "bad-form": "is not a command name or an absolute path",
-  "missing-name": "is not on your PATH",
-};
-
-type CommandCheck =
-  | { resolved: string }
-  | { failure: CommandFailureKind; install: [string, string[]] | null };
-
-/** Resolve a command, or say why not and how a launch could install it. Never prompts or installs. */
-function checkCommand(cmd: string): CommandCheck {
-  const resolved = resolveCommandPath(cmd);
-  if (resolved) return { resolved };
-  const failure = describeCommandFailure(cmd);
-  return { failure, install: failure === "missing-name" ? knownInstallCommand(cmd) : null };
-}
-
-/**
- * Where to change a failing command: `summon set <key>` for a config key, the layout file for a
- * tree pane (`pane.<leaf>`), which `summon set` does not accept.
- */
-export function commandFixHint(configKey: string, layoutName?: string): string {
-  if (configKey.startsWith("pane.")) {
-    return layoutName
-      ? `change \`${configKey}=\` in layout ${layoutName}: summon layout edit ${layoutName}`
-      : `change \`${configKey}=\` in your layout file`;
-  }
-  return `change your config with: summon set ${configKey} <command>`;
-}
-
-/** Print the failure and its fix, then stop the launch. */
-function stopLaunch(headline: string, detail: string, errorMessage = headline): never {
-  fail(headline);
-  err(detail);
-  throw new Error(errorMessage);
-}
-
-async function ensureCommand(cmd: string, hint: string): Promise<string> {
-  const check = checkCommand(cmd);
-  if ("resolved" in check) return check.resolved;
-
-  const reason = `\`${cmd}\` ${COMMAND_FAILURE_REASONS[check.failure]}`;
-  if (check.failure === "missing-path") {
-    stopLaunch(`${reason}.`, `Please fix the path or ${hint}`);
-  }
-  if (check.failure === "bad-form") {
-    stopLaunch(
-      `${reason}. Use a command on your PATH (for example \`gh-glance\`) or a full path that starts with \`/\`.`,
-      `Please ${hint}`,
-      `${reason}.`,
-    );
-  }
-
-  const installCmd = check.install;
-
-  if (!installCmd) {
-    stopLaunch(
-      `\`${cmd}\` is required but not installed, and no known install method was found.`,
-      `Please install \`${cmd}\` manually or ${hint}`,
-      `\`${cmd}\` is required but not installed.`,
-    );
-  }
-
-  const [installBin, installArgs] = installCmd;
-  const installDisplay = [installBin, ...installArgs].join(" ");
-
-  console.log(`\`${cmd}\` is not installed on this machine.`);
-  const answer = await prompt(`Install it now with \`${installDisplay}\`? [y/N] `);
-
-  if (answer !== "y" && answer !== "yes") {
-    console.log(`Exiting — \`${cmd}\` is needed for this workspace layout. To use another command, ${hint}`);
-    // UX-L3: declining is a user cancel (exit 130); the line above already says why, so no error follows it.
-    throw new PromptCancelled(`\`${cmd}\` is needed for this workspace layout.`);
-  }
-
-  console.log(`Running: ${installDisplay}`);
-  // QA-M3: the installer writes to the terminal directly, so the D1 launcher tab stays for its output.
-  markAttention();
-  try {
-    execFileSync(installBin, installArgs, { stdio: "inherit" });
-  } catch {
-    fail(`Failed to install \`${cmd}\`. Please install it manually and try again.`);
-    throw new Error(`Failed to install \`${cmd}\`.`);
-  }
-
-  const postInstallPath = resolveCommandPath(cmd);
-  if (!postInstallPath) {
-    fail(`\`${cmd}\` still not found after install. Please check your PATH.`);
-    throw new Error(`\`${cmd}\` still not found after install.`);
-  }
-
-  console.log(`\`${cmd}\` installed successfully!\n`);
-  return postInstallPath;
-}
-
-interface ResolvedConfig {
-  opts: Partial<LayoutOptions>;
-  projectOverrides: Map<string, string>;
-  machineConfig: Map<string, string>;
-  starshipPreset?: string;
-  onStart?: string;
-  onStop?: string;
-  envVars: Record<string, string>;
-  treeLayout?: {
-    tree: LayoutNode;
-    panes: Map<string, string>;
-    paneCwds?: Map<string, string>;
-    /** Custom layout that defined the tree, named in command fix hints. */
-    layoutName: string;
-  };
-}
-
-/**
- * Denylisted env var key prefixes and exact names that could be used for
- * code injection via dynamic linkers, shell hooks, or interpreter startup files.
- */
-const ENV_DENYLIST_PREFIXES = ["DYLD_", "LD_"];
-const ENV_DENYLIST_EXACT = new Set([
-  "NODE_OPTIONS",
-  "BASH_ENV",
-  "PYTHONSTARTUP",
-  "PROMPT_COMMAND",
-  "CDPATH",
-  "IFS",
-  // SE-M2 (#609): command-carrying vars — these execute a subprocess when a tool reads
-  // them (e.g. git spawning $GIT_SSH_COMMAND, pagers honouring $PAGER, editors via $EDITOR).
-  // Values are correctly escaped for injection, but allowing them lets a trusted .summon
-  // author swap out the subprocess invoked inside the workspace pane.
-  "GIT_SSH_COMMAND",
-  "GIT_EXTERNAL_DIFF",
-  "GIT_PAGER",
-  "PAGER",
-  "EDITOR",
-  "VISUAL",
-  "GIT_EDITOR",
-]);
-
-function isDenylisted(envKey: string): boolean {
-  if (ENV_DENYLIST_EXACT.has(envKey)) return true;
-  return ENV_DENYLIST_PREFIXES.some((prefix) => envKey.startsWith(prefix));
-}
-
-function collectEnvVars(
-  machineConfig: Map<string, string>,
-  projectConfig: Map<string, string>,
-  cliEnvFlags: string[] | undefined,
-): Record<string, string> {
-  const envVars: Record<string, string> = {};
-
-  // Machine config (lowest priority)
-  for (const [key, value] of machineConfig) {
-    if (key.startsWith("env.")) {
-      const envKey = key.slice(4);
-      if (isDenylisted(envKey)) {
-        warn(`ignoring denylisted env var key "${envKey}" from machine config.`);
-      } else if (ENV_KEY_RE.test(envKey)) {
-        envVars[envKey] = value;
-      } else {
-        // BE-L2 (#618): warn on invalid keys for parity with .summon and --env sources.
-        warn(`ignoring invalid env var key "${envKey}" from machine config.`);
-      }
-    }
-  }
-
-  // Project config (overrides machine)
-  for (const [key, value] of projectConfig) {
-    if (key.startsWith("env.")) {
-      const envKey = key.slice(4);
-      if (isDenylisted(envKey)) {
-        warn(`ignoring denylisted env var key "${envKey}" from .summon file.`);
-      } else if (ENV_KEY_RE.test(envKey)) {
-        envVars[envKey] = value;
-      } else {
-        warn(`ignoring invalid env var key "${envKey}" from .summon file.`);
-      }
-    }
-  }
-
-  // CLI flags (highest priority)
-  if (cliEnvFlags) {
-    for (const entry of cliEnvFlags) {
-      const eqIdx = entry.indexOf("=");
-      if (eqIdx > 0) {
-        const envKey = entry.slice(0, eqIdx);
-        if (isDenylisted(envKey)) {
-          warn(`ignoring denylisted env var key "${envKey}" from --env flag.`);
-        } else if (ENV_KEY_RE.test(envKey)) {
-          envVars[envKey] = entry.slice(eqIdx + 1);
-        } else {
-          warn(`ignoring invalid env var key "${envKey}" from --env flag.`);
-        }
-      }
-    }
-  }
-
-  return envVars;
-}
-
-/**
- * Pick a config value with priority: CLI > project > global.
- * Empty strings in project or machine config are treated as "not set" — they
- * do not override preset or default values. This preserves the intent that an
- * empty config key means "use the default".
- *
- * Note: To distinguish "explicitly set to empty" from "not present" in project
- * config, callers that need that distinction should use `project.has(key)` directly.
- */
-function pickConfigValue(
-  cli: string | undefined,
-  projKey: string,
-  project: Map<string, string>,
-  machineConfig: Map<string, string>,
-): string | undefined {
-  if (cli !== undefined) return cli;
-  return project.get(projKey) || machineConfig.get(projKey) || undefined;
-}
-
-/**
- * Resolve the layout key to a base LayoutOptions partial and optional tree layout.
- * Handles: preset lookup, custom layout loading, tree expression parsing.
- */
-function resolveLayoutBase(
-  layoutKey: string | undefined,
-): { base: Partial<LayoutOptions>; treeLayout?: ResolvedConfig["treeLayout"] } {
-  if (!layoutKey) return { base: {} };
-
-  if (isPresetName(layoutKey)) {
-    return { base: getPreset(layoutKey) };
-  }
-
-  if (LAYOUT_NAME_RE.test(layoutKey) && isCustomLayout(layoutKey)) {
-    const customData = readCustomLayout(layoutKey);
-    if (!customData) return { base: {} };
-
-    const base: Partial<LayoutOptions> = {};
-    if (customData.has("editor-size")) {
-      const es = parseIntInRange(customData.get("editor-size")!, EDITOR_SIZE_MIN, EDITOR_SIZE_MAX);
-      if (es.ok) {
-        base.editorSize = es.value;
-      } else {
-        warn(
-          `Invalid editor-size value in custom layout "${layoutKey}": "${customData.get("editor-size")}". Must be ${EDITOR_SIZE_MIN}-${EDITOR_SIZE_MAX}. Using default (${EDITOR_SIZE_DEFAULT}).`,
-        );
-      }
-    }
-    if (customData.has("auto-resize")) base.autoResize = customData.get("auto-resize") === "true";
-    if (customData.has("font-size")) {
-      const fs = parsePositiveFloat(customData.get("font-size")!);
-      if (fs.ok) {
-        base.fontSize = fs.value;
-      } else {
-        warn(
-          `Invalid font-size value in custom layout "${layoutKey}": "${customData.get("font-size")}". Must be a positive number. Ignoring.`,
-        );
-      }
-    }
-    if (customData.has("new-window")) base.newWindow = customData.get("new-window") === "true";
-    if (customData.has("new-tab")) base.newTab = customData.get("new-tab") === "true";
-    if (customData.has("fullscreen")) base.fullscreen = customData.get("fullscreen") === "true";
-    if (customData.has("maximize")) base.maximize = customData.get("maximize") === "true";
-    if (customData.has("float")) base.float = customData.get("float") === "true";
-
-    const treeExpr = customData.get("tree");
-    if (treeExpr) {
-      const tree = parseTreeDSL(treeExpr);
-      const panes = extractPaneDefinitions(customData);
-      const paneCwds = extractPaneCwds(customData);
-      return { base, treeLayout: { tree, panes, paneCwds: paneCwds.size > 0 ? paneCwds : undefined, layoutName: layoutKey } };
-    }
-
-    // Traditional custom layout (no tree= key)
-    if (customData.has("editor")) base.editor = customData.get("editor");
-    if (customData.has("sidebar")) base.sidebarCommand = customData.get("sidebar");
-    if (customData.has("secondary-editor")) base.secondaryEditor = customData.get("secondary-editor");
-    if (customData.has("panes")) {
-      const p = parseIntInRange(customData.get("panes")!, PANES_MIN);
-      if (p.ok) {
-        base.editorPanes = p.value;
-      } else {
-        warn(
-          `Invalid panes value in custom layout "${layoutKey}": "${customData.get("panes")}". Must be a positive integer. Ignoring.`,
-        );
-      }
-    }
-    if (customData.has("shell")) base.shell = customData.get("shell");
-    return { base };
-  }
-
-  warn(
-    `Unknown layout preset: "${layoutKey}". Valid presets: ${getPresetNames().join(", ")}. Using defaults.`,
-  );
-  return { base: {} };
-}
-
-/**
- * Layer config values: CLI overrides > project > global config > base preset.
- * Returns merged Partial<LayoutOptions>.
- */
-function layerConfigValues(
-  base: Partial<LayoutOptions>,
-  cliOverrides: CLIOverrides,
-  project: Map<string, string>,
-  machineConfig: Map<string, string>,
-): Partial<LayoutOptions> {
-  const pick = (cli: string | undefined, projKey: string) =>
-    pickConfigValue(cli, projKey, project, machineConfig);
-
-  const editor = pick(cliOverrides.editor, "editor");
-  const sidebar = pick(cliOverrides.sidebar, "sidebar");
-  const secondaryEditor = pick(undefined, "secondary-editor");
-  const panes = pick(cliOverrides.panes, "panes");
-  const editorSize = pick(cliOverrides["editor-size"], "editor-size");
-  const shell = pick(cliOverrides.shell, "shell");
-  const autoResize = pick(cliOverrides["auto-resize"], "auto-resize");
-
-  const result: Partial<LayoutOptions> = { ...base };
-  if (editor !== undefined) result.editor = editor;
-  if (sidebar !== undefined) result.sidebarCommand = sidebar;
-  if (secondaryEditor !== undefined) result.secondaryEditor = secondaryEditor;
-  if (panes !== undefined) {
-    const parsed = parseIntInRange(panes, PANES_MIN);
-    if (parsed.ok) {
-      result.editorPanes = parsed.value;
-    } else {
-      warn(
-        `Invalid panes value: "${panes}". Must be a positive integer. Using default (${PANES_DEFAULT}).`,
-      );
-      result.editorPanes = PANES_DEFAULT;
-    }
-  }
-  if (editorSize !== undefined) {
-    const parsed = parseIntInRange(editorSize, EDITOR_SIZE_MIN, EDITOR_SIZE_MAX);
-    if (parsed.ok) {
-      result.editorSize = parsed.value;
-    } else {
-      warn(
-        `Invalid editor-size value: "${editorSize}". Must be ${EDITOR_SIZE_MIN}-${EDITOR_SIZE_MAX}. Using default (${EDITOR_SIZE_DEFAULT}).`,
-      );
-      result.editorSize = EDITOR_SIZE_DEFAULT;
-    }
-  }
-  if (shell !== undefined) result.shell = shell;
-  if (autoResize !== undefined) result.autoResize = autoResize === "true";
-
-  const fontSize = pick(cliOverrides["font-size"], "font-size");
-  if (fontSize !== undefined) {
-    const parsed = parsePositiveFloat(fontSize);
-    if (parsed.ok) {
-      result.fontSize = parsed.value;
-    }
-  }
-
-  const newWindow = pick(cliOverrides["new-window"], "new-window");
-  const newTab = pick(cliOverrides["new-tab"], "new-tab");
-  const fullscreen = pick(cliOverrides.fullscreen, "fullscreen");
-  const maximize = pick(cliOverrides.maximize, "maximize");
-  const float = pick(cliOverrides.float, "float");
-  if (newWindow !== undefined) result.newWindow = newWindow === "true";
-  if (newTab !== undefined) result.newTab = newTab === "true";
-  if (fullscreen !== undefined) result.fullscreen = fullscreen === "true";
-  if (maximize !== undefined) result.maximize = maximize === "true";
-  if (float !== undefined) result.float = float === "true";
-
-  return result;
-}
-
-/**
- * `summonFileContent` is `readTrustedSummonFile`'s result: the `.summon` content that passed the trust check, read once
- * (TOCTOU prevention, BE-B2 #357; SE-M1). The file is never read here, so an untrusted `.summon` is never parsed.
- */
-export function resolveConfig(targetDir: string, cliOverrides: CLIOverrides, summonFileContent: string | undefined): ResolvedConfig {
-  const projectConfigPath = join(targetDir, ".summon");
-  const skipProjectConfig = cliOverrides["no-project-config"] === "true";
-  const project = skipProjectConfig || summonFileContent === undefined
-    ? new Map<string, string>()
-    : readKVFromString(summonFileContent);
-  if (project.size > 0) {
-    console.log(`Using project config: ${projectConfigPath}`);
-  }
-  const machineConfig = listConfig();
-
-  const layoutKey = cliOverrides.layout ?? project.get("layout") ?? machineConfig.get("layout");
-  const { base, treeLayout } = resolveLayoutBase(layoutKey);
-  const opts = layerConfigValues(base, cliOverrides, project, machineConfig);
-
-  const starshipPreset = pickConfigValue(cliOverrides["starship-preset"], "starship-preset", project, machineConfig);
-  const onStart = pickConfigValue(cliOverrides["on-start"], "on-start", project, machineConfig);
-  const onStop = pickConfigValue(undefined, "on-stop", project, machineConfig);
-  const envVars = collectEnvVars(machineConfig, project, cliOverrides.env);
-
-  // Merge per-pane cwds from project config into treeLayout (project overrides layout defaults)
-  let mergedTreeLayout = treeLayout;
-  if (mergedTreeLayout) {
-    const projectCwds = extractPaneCwds(project);
-    if (projectCwds.size > 0) {
-      // BE-M2 (#593): validate cwd containment at ingestion so that a malicious .summon
-      // file cannot inject an out-of-project path before resolveTreeCommands runs.
-      for (const [_paneName, cwd] of projectCwds) {
-        assertPaneCwdContained(targetDir, cwd);
-      }
-      const merged = new Map(mergedTreeLayout.paneCwds ?? []);
-      for (const [k, v] of projectCwds) merged.set(k, v);
-      mergedTreeLayout = { ...mergedTreeLayout, paneCwds: merged };
-    }
-  }
-
-  return { opts, projectOverrides: project, machineConfig, starshipPreset, onStart, onStop, envVars, treeLayout: mergedTreeLayout };
 }
 
 /**
@@ -584,7 +67,7 @@ async function warnIfNested(
   warn("You're inside an existing summon workspace.");
   err("Launching here will nest splits inside this pane, which can get messy.");
   err("Tip: Use --new-window to open in a separate window instead.\n");
-  const answer = await prompt("Continue anyway? [y/N] ");
+  const answer = (await promptUser("Continue anyway? [y/N] ")).toLowerCase();
   return answer !== "y";
 }
 
@@ -675,7 +158,7 @@ function executeOnStart(onStart: string, targetDir: string): void {
   // leaking to stdout in non-debug mode. Gate behind SUMMON_DEBUG for diagnostics.
   // Note: on-start/on-stop hooks inherit the full launcher environment by design
   // (intentional, matching shell exec behavior). This is a known difference from
-  // pane env (which is scrubbed by ENV_DENYLIST_PREFIXES/ENV_DENYLIST_EXACT above).
+  // pane env (which is scrubbed by ENV_DENYLIST_PREFIXES/ENV_DENYLIST_EXACT in config-resolve.ts).
   if (isDebug()) {
     process.stderr.write(`[debug] Running on-start: ${onStart}\n`);
   }
@@ -692,21 +175,6 @@ function executeOnStart(onStart: string, targetDir: string): void {
     if (isDebug()) err(`[debug] on-start command failed: ${onStart} — ${getErrorMessage(error)}`);
     else warn("on-start command failed; continuing workspace launch");
   }
-}
-
-/** Append shared optional dry-run header lines (starship preset) plus the backend and launch identity. */
-function appendDryRunExtras(
-  headerLines: string[],
-  starshipPreset: string | undefined,
-  dryRunStarshipPath: string | null,
-  backend: BackendId,
-  launchId: string,
-): void {
-  if (starshipPreset) {
-    headerLines.push(`-- Starship preset: ${starshipPreset} (${dryRunStarshipPath})`);
-  }
-  headerLines.push(`-- Backend: ${backend}`);
-  headerLines.push(`-- Launch: ${launchId}`);
 }
 
 /**
@@ -740,78 +208,9 @@ export function layoutOptsToTreePlanOpts(opts: Partial<LayoutOptions>): TreePlan
   } satisfies TreePlanOptions;
 }
 /** Per-launch inputs shared by both layout paths. */
-interface LaunchInputs {
-  ctx: BackendLaunchContext;
+interface LaunchInputs extends DryRunInputs {
   backend: TerminalBackend;
-  launchContext: LaunchContext;
   dryRun: boolean;
-  starshipPreset: string | undefined;
-}
-
-/**
- * Rex dry run (plan P2, Phase 2): the `session.create` request a real run would send, with
- * the pane order its `block_ids` arrive in on the header. A recorded Rex workspace is noted,
- * never switched to or probed: a dry run runs no Rex command.
- */
-function rexDryRunBody(headerLines: string[], layout: SessionCreateInput["layout"], ctx: BackendLaunchContext, starshipConfigPath: string | null, server: string): string {
-  const project = ctx.projectName;
-  const record = readStatusRecord(project);
-  if (record?.backend === "rex") {
-    const session = record.rex?.sessionId ?? "session id unknown";
-    headerLines.push(`-- Note: ${project} is recorded as a Rex workspace (${session}); while it is running, a real run switches to it instead of creating this one`);
-  }
-  const { request, paneOrder } = buildSessionCreateRequest({
-    layout,
-    targetDir: ctx.targetDir,
-    project,
-    launchId: ctx.launchId,
-    envVars: ctx.envVars,
-    starshipConfigPath,
-    onStop: ctx.onStop,
-    layoutLabel: ctx.layoutLabel,
-  });
-  headerLines.push(`-- Server: ${server}`);
-  headerLines.push(`-- Pane order (block_ids): ${paneOrder.join(", ")}`);
-  return JSON.stringify(request, null, 2);
-}
-
-/** Print the dry run: the layout headers, the shared extras, then what the detected backend would run. */
-function printDryRun(
-  headerLines: string[],
-  layout: SessionCreateInput["layout"],
-  { ctx, launchContext, starshipPreset }: LaunchInputs,
-  ghosttyScript: (starshipConfigPath: string | null) => string,
-): void {
-  const starshipConfigPath = starshipPreset ? getPresetConfigPath(starshipPreset) : null;
-  appendDryRunExtras(headerLines, starshipPreset, starshipConfigPath, launchContext.backend, ctx.launchId);
-  const body = launchContext.backend === "rex"
-    ? rexDryRunBody(headerLines, layout, ctx, starshipConfigPath, launchContext.server)
-    : ghosttyScript(starshipConfigPath);
-  console.log(`${headerLines.join("\n")}\n${body}`);
-  // Rex does not resolve commands before launch (plan D5), so only a Ghostty dry run checks them.
-  if (launchContext.backend !== "rex") {
-    for (const line of dryRunCommandNotes(layout)) note(line);
-  }
-}
-
-/**
- * One line per executable a real Ghostty launch would not resolve, without prompting or
- * installing. A missing command with a known install method gets an install offer, not a stop.
- */
-function dryRunCommandNotes(layout: PlannedLayout): string[] {
-  const notes: string[] = [];
-  const checked = new Set<string>();
-  for (const { key, pane, command } of ghosttyCommandEntries(layout)) {
-    const executable = commandExecutable(command);
-    if (!executable || checked.has(executable)) continue;
-    checked.add(executable);
-    const check = checkCommand(executable);
-    if ("resolved" in check) continue;
-    const label = pane ? `pane \`${pane}\`` : `\`${key}\``;
-    const outcome = check.install ? "a real launch offers to install it" : "a real launch stops here";
-    notes.push(`${label}: \`${executable}\` ${COMMAND_FAILURE_REASONS[check.failure]}; ${outcome}.`);
-  }
-  return notes;
 }
 
 async function launchTreeLayout(
@@ -824,14 +223,7 @@ async function launchTreeLayout(
   const treePlan = buildTreePlan(resolvedTree, layoutOptsToTreePlanOpts(opts));
 
   if (dryRun) {
-    const paneCount = treePlan.leaves.length;
-    const headerLines = [
-      "-- summon dry-run",
-      `-- Layout: tree layout, ${paneCount} ${paneCount === 1 ? "pane" : "panes"}`,
-      `-- Target: ${ctx.targetDir}`,
-    ];
-    printDryRun(headerLines, { kind: "tree", plan: treePlan }, inputs, (starshipConfigPath) =>
-      generateTreeAppleScript(treePlan, ctx.targetDir, starshipConfigPath, ctx.envVars, ctx.projectName, ctx.onStop, ctx.launchId));
+    printTreeDryRun(treePlan, inputs);
     return { paneNames: treePlan.leaves };
   }
 
@@ -847,14 +239,7 @@ async function launchTraditionalLayout(
   const paneNames = traditionalPaneNames(plan);
 
   if (dryRun) {
-    const totalPanes = plan.leftColumnCount + plan.rightColumnEditorCount;
-    const headerLines = [
-      "-- summon dry-run",
-      `-- Layout: ${totalPanes} editor ${totalPanes === 1 ? "pane" : "panes"}, editor=${plan.editor}, sidebar=${plan.sidebarCommand}, shell=${plan.hasShell}`,
-      `-- Target: ${ctx.targetDir}`,
-    ];
-    printDryRun(headerLines, { kind: "traditional", plan }, inputs, (starshipConfigPath) =>
-      generateAppleScript(plan, ctx.targetDir, starshipConfigPath, ctx.envVars, ctx.projectName, ctx.onStop, ctx.launchId));
+    printTraditionalDryRun(plan, inputs);
     return { paneNames };
   }
 
@@ -895,27 +280,6 @@ function resolveLaunchBackend(dryRun: boolean | undefined): LaunchContext {
   if (detection.ok) return detection;
   if (!dryRun) throw new Error(detection.reason);
   return { ok: true, backend: "ghostty", placement: "outside", notices: [...detection.notices, `${detection.reason} Dry run continues with the Ghostty script.`] };
-}
-
-/**
- * Read `.summon` once and verify that exact content is trusted (BE-B1, BE-B2 #357, SE-H1, SE-M1), so the bytes
- * hashed are the bytes parsed: pass the result to `resolveConfig`. Returns undefined with `--no-project-config`
- * (nothing is read) and "" when there is no file. Throws SummonError for an untrusted file.
- */
-export function readTrustedSummonFile(targetDir: string, cliOverrides: CLIOverrides): string | undefined {
-  if (cliOverrides["no-project-config"] === "true") return undefined;
-  const summonFilePath = join(targetDir, ".summon");
-  let content: string | undefined;
-  try {
-    content = readFileSync(summonFilePath, "utf-8");
-  } catch {
-    // No file (ENOENT), or one that cannot be read: the check below is the one for a directory without content.
-    content = undefined;
-  }
-  if (content !== undefined) assertTrustedContent(targetDir, content);
-  else assertTrusted(targetDir);
-  // No file at check time is an empty project config, never a later read of whatever appears meanwhile.
-  return content ?? "";
 }
 
 /** What a launch did: created a workspace, switched to a live Rex one (P2), or printed a dry run. */

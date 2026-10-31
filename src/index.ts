@@ -5,7 +5,7 @@
 // single-token --version/-v invocations. The --help path skips config/trust/utils
 // entirely. Only subcommand/launch paths load the full graph.
 import type { CommandHandler } from "./commands/types.js";
-import type { CLIOverrides } from "./launcher.js";
+import type { CLIOverrides } from "./config-resolve.js";
 
 const __argv = process.argv.slice(2);
 if (__argv.length === 1 && (__argv[0] === "--version" || __argv[0] === "-v")) {

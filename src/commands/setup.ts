@@ -1,4 +1,5 @@
-import { readTrustedSummonFile, resolveConfig, traditionalPaneNames } from "../launcher.js";
+import { readTrustedSummonFile, resolveConfig } from "../config-resolve.js";
+import { traditionalPaneNames } from "../layout.js";
 import { probeGhosttyDetach } from "../ghostty.js";
 import { err, fail } from "../ui/output.js";
 import { exitWithUsageHint } from "../utils.js";

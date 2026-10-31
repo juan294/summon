@@ -1,4 +1,4 @@
-import type { CLIOverrides } from "../launcher.js";
+import type { CLIOverrides } from "../config-resolve.js";
 import type { ParsedCli, ParsedValues } from "../cli/parse.js";
 
 export type CommandContext = {

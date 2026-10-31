@@ -9,17 +9,21 @@ Technical reference for contributors.
 | `index.ts` | CLI entry point — thin dispatch registry (~250 lines); every module is loaded through dynamic `import()` | yes | commands/* (lazy registry), cli/parse, cli/help, cli/resolve-target, config, trust, utils, launcher, setup, self, ui/output |
 | `cli/parse.ts` | CLI argument parsing — `parseCli`, `buildOverrides` | yes | layout, validation, utils, ui/output, commands/layout-support |
 | `cli/help.ts` | Help text (lazily imported on the `--help` path) — `showHelp`, `hasSubcommandHelp`, `showSubcommandHelp` | yes | config, ui/ansi, setup-gallery (dynamic) |
-| `commands/config.ts` | `handleConfigCommand`, `handleExportCommand`, `handleFreezeCommand`, `handleSetCommand` | yes | config, utils, validation |
+| `commands/config.ts` | `handleConfigCommand`, `handleExportCommand`, `handleFreezeCommand`, `handleSetCommand` | yes | config, config-resolve, utils, validation |
 | `commands/doctor.ts` | `handleDoctorCommand`: Ghostty checks (when applicable) and Rex checks (CLI, server, connected apps) | yes | config, utils, ghostty, backend, backends/rex/cli, backends/rex/app, command-spec, paths, ui/ansi, ui/symbols |
 | `commands/layout.ts` | `handleLayoutCommand` — create/save/list/show/delete/edit | yes | config, layout, utils, ui/layout-preview |
 | `commands/layout-support.ts` | Shared layout validation helpers — `validateLayoutOrExit`, `validateLayoutNameOrExit`, `layoutNotFoundOrExit` | yes | config, layout, utils |
-| `commands/project.ts` | `handleAddCommand`, `handleListCommand`, `handleOpenCommand`, `handleRemoveCommand` | yes | config, launcher, trust, utils, validation, status |
+| `commands/project.ts` | `handleAddCommand`, `handleListCommand`, `handleOpenCommand`, `handleRemoveCommand` | yes | config, workspace-focus, launcher (dynamic, only to launch), trust, utils, validation, status |
 | `commands/runtime.ts` | `handleStatusCommand`, `handleSnapshotCommand`, `handleBriefingCommand`, `handlePortsCommand` | yes | monitor, snapshot, briefing, ports, utils |
-| `commands/setup.ts` | `handleCompletionsCommand`, `handleKeybindingsCommand`, `handleSetupCommand` | yes | completions, keybindings, setup |
+| `commands/setup.ts` | `handleCompletionsCommand`, `handleKeybindingsCommand`, `handleSetupCommand` | yes | config-resolve, layout, completions, keybindings, setup |
 | `commands/types.ts` | `CommandHandler` and `CommandContext` interfaces | **pure** | none |
 | `cli/resolve-target.ts` | Resolves the launch target directory from a project name, path, or `.` — `resolveTargetDirectory`, `expandHome`; "Did you mean" hint on a mistyped name | yes | config, status-record, cli/suggest, node:path, node:os |
 | `ui/symbols.ts` | Canonical glyph vocabulary — `sym.ok`, `sym.warn`, `sym.fail`, `sym.info`, `sym.bullet` | **pure** | none |
-| `launcher.ts` | Orchestrator — config resolution, backend resolution (seam), dispatch to a backend, status publication | yes | config, layout, script, tree, utils, validation, starship, status, launch-guards, trust, command-spec, launch-identity, ghostty-native, ui/output, backend, backends/* |
+| `launcher.ts` | Orchestrator `launch()`: trust and config (through config-resolve), backend resolution (seam), Rex adoption and switch, wizard, nested-workspace and pane-count checks, on-start, dispatch to a backend or the dry run, status publication | yes | config, config-resolve, command-install, dry-run, layout, tree, utils, validation, starship, status, launch-guards, trust, command-spec, launch-identity, ui/output, backend, backends/* |
+| `config-resolve.ts` | Config layering (CLI > project > global > preset > defaults) — `resolveConfig`, `readTrustedSummonFile` (one trusted `.summon` read), `optsToConfigMap`, `pickConfigValue`, `CLIOverrides`, env-var collection and the env-key denylist | yes | config, layout, tree, trust, validation, ui/output |
+| `command-install.ts` | Command checks for a launch — `checkCommand` (no side effects), `ensureCommand` (stop or install prompt), `commandFixHint`, `KNOWN_INSTALL_COMMANDS` | yes | utils, backends/rex/launcher-tab, ui/output |
+| `dry-run.ts` | Dry-run output for both backends — `printTraditionalDryRun`, `printTreeDryRun`: header, AppleScript or Rex `session.create` request, Ghostty command notes | yes | script, status, backend, backends/ghostty, backends/rex/layout, starship, command-spec, command-install, ui/output |
+| `workspace-focus.ts` | `focusWorkspace`, `resolveWorkspaceTerminal` — focus a recorded workspace on either backend without the launch path | yes | status, backends/rex/status, ghostty-native, validation |
 | `backend.ts` | `BackendId`, `isBackendId`, `LaunchContext`, `resolveBackendForLaunch` (one `rex` lookup per detection), `callerRexSession`, `REX_UNHONORED_FLAGS`, `GHOSTTY_ONLY_CONFIG_KEYS` | yes | backend-detect, backends/rex/cli, utils |
 | `backend-detect.ts` | Pure backend detection table over an env snapshot plus injected probes (`detectBackend`, `snapshotEnv`) | **pure** | none |
 | `backends/ghostty.ts` | Ghostty adapter — `ensureGhostty`/`ensureAccessibility` guards, command resolution, AppleScript launch, `executeScript`, spinner, rollback | yes | script, tree, launch-guards, pane-inventory, errors, ui/output, utils |
@@ -35,7 +39,7 @@ Technical reference for contributors.
 | `launch-identity.ts` | Per-launch ids and artifact paths, bootstrap/trap shell fragments, launch manifests | yes | paths, shell-escape, self, backend, tree, utils |
 | `file-lock.ts` | `withFileLock`: cross-process lock (directory rename, dead-owner recovery) for config and status records | yes | Node stdlib only |
 | `self.ts` | How this process was started (node binary, resolved script), registered by `index.ts` so the cleanup trap runs the same Summon (`registerSelfInvocation`, `selfInvocation`) | yes | none |
-| `commands/workspace.ts` | `handleFocusCommand`, `handleInspectCommand`, `handleTitleCommand` — per-backend | yes | launcher, status, backends/rex/status |
+| `commands/workspace.ts` | `handleFocusCommand`, `handleInspectCommand`, `handleTitleCommand` — per-backend | yes | workspace-focus, status, backends/rex/status, ghostty-native |
 | `commands/clean.ts` | `handleCleanCommand` — close an empty Rex session, review earlier launches | yes | status, status-record, launch-identity, backends/rex/*, validation, shell-escape, ui/output |
 | `cli/suggest.ts` | `suggestProjects` — "did you mean" ranking (prefix, subsequence, edit distance, lazy recency lookup) | **pure** | edit-distance |
 | `edit-distance.ts` | `editDistance` — optimal string alignment distance shared by `setup.ts` and `cli/suggest.ts` | **pure** | none |
@@ -61,7 +65,7 @@ Technical reference for contributors.
 | `tree.ts` | Tree data model, DSL parser, plan builder (pure — no side effects) | **pure** | layout |
 | `status.ts` | Status reader over both backends: `readStatus`/`readAllStatuses` (`active`/`partial`/`stopped`/`unknown`), Rex adoption and reconciliation, `endRexLaunch`, git branch lookup; re-exports `status-record.ts` | yes | status-record, launch-identity, snapshot, backends/rex/cli, backends/rex/status, backends/rex/launch, paths, utils |
 | `briefing.ts` | Morning project briefing — overnight commits, dirty files, recommendations | yes | config, status, ui/ansi |
-| `monitor.ts` | Interactive TUI dashboard — real-time workspace status with keyboard navigation | yes | status, config, ui/ansi |
+| `monitor.ts` | Interactive TUI dashboard — real-time workspace status with keyboard navigation | yes | status, config, ui/ansi, workspace-focus and launcher (dynamic, on Enter) |
 | `ports.ts` | Port detection — scans `.summon` env vars, `package.json`, framework configs for port assignments | yes | config, status, trust, utils |
 | `snapshot.ts` | Context snapshot save/restore — git branch, dirty files, recent commits, layout | yes | paths |
 | `keybindings.ts` | Ghostty key table config generator (pure function) | **pure** | none |
@@ -98,7 +102,9 @@ graph TD
     help -.->|dynamic| setupgallery[setup-gallery.ts]
 
     cmds --> config
-    cmds --> launcher
+    cmds --> configresolve[config-resolve.ts]
+    cmds --> workspacefocus[workspace-focus.ts]
+    cmds -.->|dynamic| launcher
     cmds --> utils
     cmds --> validation
     cmds --> status[status.ts]
@@ -133,8 +139,10 @@ graph TD
     suggest --> editdistance[edit-distance.ts]
 
     launcher --> config
+    launcher --> configresolve
+    launcher --> commandinstall[command-install.ts]
+    launcher --> dryrun[dry-run.ts]
     launcher --> layout
-    launcher --> script[script.ts]
     launcher --> tree[tree.ts]
     launcher --> utils
     launcher --> validation
@@ -149,6 +157,31 @@ graph TD
     launcher --> ghosttybk[backends/ghostty.ts]
     launcher --> rex
     launcher -.->|dynamic| setup
+
+    configresolve --> config
+    configresolve --> layout
+    configresolve --> tree
+    configresolve --> trust
+    configresolve --> validation
+    configresolve --> uioutput
+
+    commandinstall --> utils
+    commandinstall --> rex
+    commandinstall --> uioutput
+
+    dryrun --> script[script.ts]
+    dryrun --> status
+    dryrun --> backend
+    dryrun --> ghosttybk
+    dryrun --> rex
+    dryrun --> starship
+    dryrun --> commandspec
+    dryrun --> commandinstall
+    dryrun --> uioutput
+
+    workspacefocus --> status
+    workspacefocus --> rex
+    workspacefocus --> validation
 
     backend --> backenddetect[backend-detect.ts]
     backend --> rex
@@ -352,7 +385,7 @@ graph TD
 
 `layout.ts`, `script.ts`, `tree.ts`, `shell-escape.ts`, `command-spec.ts`, `setup-gallery.ts`, `ui/ansi.ts`, `ui/width.ts`, `completions.ts`, and `validation.ts` are pure modules with no side effects. `utils.ts` and `paths.ts` only use Node stdlib. `config.ts` depends on `paths.ts` for directory constants and uses in-process mtime-based memoization to avoid redundant disk reads within one invocation. There is no cross-invocation cache: the earlier `cache.json` gave no measured gain and was removed (PE-M1); `SUMMON_NO_CACHE` has no effect. `starship.ts` handles Starship binary detection (cached), preset listing, and TOML config file generation — it depends on `paths.ts` and `utils.ts`.
 
-`index.ts` is a thin dispatch registry (~250 lines) that delegates to `commands/*` handlers and `cli/parse.ts`. It has no static runtime imports: `cli/parse.ts`, `config.ts`, `trust.ts`, `utils.ts`, `launcher.ts`, the help text (`cli/help.ts`) and each command handler (through the lazy registry) are loaded via dynamic `import()` where needed, and the handlers load the full setup wizard, `completions.ts`, `keybindings.ts`, `monitor.ts`, `ports.ts` and `snapshot.ts` the same way. This keeps the `--version`/`--help` and simple-subcommand paths from pulling in the full launch graph. `launcher.ts` also dynamically imports `setup.ts` when no editor is configured. `launcher.ts` imports `assertTrusted` from `trust.ts`, `confirmDangerousCommands` from `launch-guards.ts` and both backends; `backends/ghostty.ts` imports `ensureGhostty` and `ensureAccessibility`. All user-facing output is funnelled through `ui/output.ts` (`out`/`err`/`fail`, the unified `summon: error:` prefix); `briefing.ts` and `monitor.ts` import color helpers from `ui/ansi.ts` (not `setup.ts`), and `monitor.ts` imports width-aware truncation from `ui/width.ts` for TUI rendering.
+`index.ts` is a thin dispatch registry (~250 lines) that delegates to `commands/*` handlers and `cli/parse.ts`. It has no static runtime imports: `cli/parse.ts`, `config.ts`, `trust.ts`, `utils.ts`, `launcher.ts`, the help text (`cli/help.ts`) and each command handler (through the lazy registry) are loaded via dynamic `import()` where needed, and the handlers load the full setup wizard, `completions.ts`, `keybindings.ts`, `monitor.ts`, `ports.ts` and `snapshot.ts` the same way. This keeps the `--version`/`--help` and simple-subcommand paths from pulling in the full launch graph. `launcher.ts` also dynamically imports `setup.ts` when no editor is configured. `focus`, `title`, `inspect`, `list` and `freeze` do not load `launcher.ts`: they import `workspace-focus.ts` or `config-resolve.ts`, and `open` and the monitor load the launcher only to launch a stopped workspace. `config-resolve.ts` imports `assertTrusted` from `trust.ts`; `launcher.ts` imports `confirmDangerousCommands` from `launch-guards.ts` and both backends; `backends/ghostty.ts` imports `ensureGhostty` and `ensureAccessibility`. All user-facing output is funnelled through `ui/output.ts` (`out`/`err`/`fail`, the unified `summon: error:` prefix); `briefing.ts` and `monitor.ts` import color helpers from `ui/ansi.ts` (not `setup.ts`), and `monitor.ts` imports width-aware truncation from `ui/width.ts` for TUI rendering.
 
 All interactive prompts use `promptUser()` from `utils.ts`. On Ctrl+C or EOF, `promptUser` throws `PromptCancelled` instead of calling `process.exit`, allowing callers to clean up before exiting.
 
@@ -470,7 +503,7 @@ flowchart TD
     trustcheck -->|trusted| resolvecfg
     trustprompt -->|accepted| resolvecfg
     trustprompt -->|denied| abort1["exit 1"]
-    resolvecfg["resolveConfig(targetDir, cliOverrides)"]
+    resolvecfg["config-resolve.ts: resolveConfig(targetDir, cliOverrides, content)"]
 
     resolvecfg --> readkv["readKVFile(targetDir/.summon)"]
     resolvecfg --> resolvekey["resolve layout key
@@ -715,7 +748,7 @@ The module imports `VALID_KEYS`, `CLI_FLAGS`, and `listCustomLayouts()` from `co
 
 ## Config Resolution
 
-`resolveConfig()` in `launcher.ts` merges configuration from multiple sources:
+`resolveConfig()` in `config-resolve.ts` merges configuration from multiple sources:
 
 ```mermaid
 flowchart LR

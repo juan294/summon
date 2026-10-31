@@ -15,9 +15,8 @@ const mockResolveTreeCommands = vi.fn();
 const mockPlanLayout = vi.fn();
 const mockRunSetup = vi.fn();
 
-vi.mock("../launcher.js", () => ({
+vi.mock("../config-resolve.js", () => ({
   resolveConfig: (...args: unknown[]) => mockResolveConfig(...args),
-  traditionalPaneNames: (...args: unknown[]) => mockTraditionalPaneNames(...args),
   readTrustedSummonFile: (...args: unknown[]) => mockReadTrustedSummonFile(...args),
 }));
 
@@ -42,6 +41,7 @@ vi.mock("../tree.js", () => ({
 
 vi.mock("../layout.js", () => ({
   planLayout: (...args: unknown[]) => mockPlanLayout(...args),
+  traditionalPaneNames: (...args: unknown[]) => mockTraditionalPaneNames(...args),
 }));
 
 const mockResolveBackendForLaunch = vi.fn((): unknown => ({ ok: true, backend: "ghostty", placement: "outside", notices: [] }));

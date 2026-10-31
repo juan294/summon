@@ -39,8 +39,10 @@ vi.mock("../backends/rex/launcher-tab.js", () => ({ closeLauncherTabAfterRexLaun
 // UX-M4: the trust prompt wraps launches; by default it runs the launch once, as the real one does on success.
 const mockWithTrustPrompt = vi.fn(async (attempt: () => Promise<unknown>) => attempt());
 vi.mock("../trust.js", () => ({ withTrustPrompt: (attempt: () => Promise<unknown>) => mockWithTrustPrompt(attempt) }));
-vi.mock("../launcher.js", () => ({
+vi.mock("../workspace-focus.js", () => ({
   focusWorkspace: (...args: unknown[]) => mockFocusWorkspace(...args),
+}));
+vi.mock("../launcher.js", () => ({
   launch: (...args: unknown[]) => mockLaunch(...args),
 }));
 

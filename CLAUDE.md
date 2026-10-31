@@ -32,7 +32,11 @@ src/
   layout.ts             Layout calculation (pure function)
   tree.ts               Tree DSL parser, layout node model, plan builder (pure function)
   script.ts             AppleScript generator (pure function — builds script string)
-  launcher.ts           Orchestrator: resolve config, resolve backend (P15 seam), generate script, dispatch to a backend
+  launcher.ts           Orchestrator launch(): trust and config, resolve backend (P15 seam), Rex switch, wizard, on-start, dispatch to a backend, publish status
+  config-resolve.ts     Config layering and .summon read: resolveConfig, readTrustedSummonFile (single trusted read), optsToConfigMap, CLIOverrides, env-key denylist
+  command-install.ts    Launch command checks: checkCommand, ensureCommand (install prompt), commandFixHint, KNOWN_INSTALL_COMMANDS
+  dry-run.ts            Dry-run output for both backends (header, AppleScript or Rex session.create request, command notes)
+  workspace-focus.ts    focusWorkspace, resolveWorkspaceTerminal: focus a recorded workspace without loading the launch path
   backend.ts            BackendId, LaunchContext, resolveBackendForLaunch
   backend-detect.ts     Pure backend detection table over an env snapshot plus injected probe results
   launch-identity.ts    Per-launch ids and artifacts: newLaunchId, launchArtifactPaths, bootstrap/trap shell fragments, launch manifests

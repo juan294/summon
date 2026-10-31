@@ -23,8 +23,10 @@ const mockFocusWorkspace = vi.fn<(...args: unknown[]) => import("./ghostty-nativ
 const mockWithTrustPrompt = vi.fn(async (attempt: () => Promise<unknown>) => attempt());
 vi.mock("./launcher.js", () => ({
   launch: (...args: unknown[]) => mockLaunch(...args),
-  focusWorkspace: (...args: unknown[]) => mockFocusWorkspace(...args),
   withTrustPrompt: (attempt: () => Promise<unknown>) => mockWithTrustPrompt(attempt),
+}));
+vi.mock("./workspace-focus.js", () => ({
+  focusWorkspace: (...args: unknown[]) => mockFocusWorkspace(...args),
 }));
 
 const monitorModule = await import("./monitor.js");
