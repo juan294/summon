@@ -6,7 +6,7 @@ import { listProjects } from "./config.js";
 import { bold, dim, green, red, yellow, cyan, invert } from "./ui/ansi.js";
 import { getDisplayWidth, truncate } from "./ui/width.js";
 import { runPool, IO_CONCURRENCY } from "./utils.js";
-import { createMonitorInputDecoder } from "./monitor-input.js";
+import { createMonitorInputDecoder, type MonitorInput } from "./monitor-input.js";
 import { createMonitorVisibility, type VisibilityEffects } from "./monitor-visibility.js";
 
 // --- Types ---
@@ -51,7 +51,11 @@ const REFRESH_INTERVAL_MS = 3000;
 const NAME_WIDTH = 16;
 const STATE_WIDTH = 8;
 const UPTIME_WIDTH = 8;
-const FIXED_COLS = 2 + 1 + NAME_WIDTH + 2 + STATE_WIDTH + 2 + UPTIME_WIDTH + 2; // dot + program glyph + spaces + padding
+/** The columns before the detail. FIXED_COLS is measured from this same template, so they cannot drift apart. */
+function rowPrefix(glyph: string, dot: string, name: string, state: string, uptime: string): string {
+  return ` ${glyph}${dot} ${name}  ${state}  ${uptime}  `;
+}
+const FIXED_COLS = rowPrefix(" ", " ", " ".repeat(NAME_WIDTH), " ".repeat(STATE_WIDTH), " ".repeat(UPTIME_WIDTH)).length;
 const MIN_COLS = 60; // below this width, show the narrow-terminal guard
 
 // Terminal control sequences
@@ -135,7 +139,7 @@ export function renderRow(row: ProjectRow, width: number, selected: boolean): st
   const branchText = truncate(rawBranchText, branchWidth);
   const branch = isStopped || detail ? dim(branchText) : branchText;
 
-  const line = ` ${programGlyph(row.programStatus)}${dot} ${name}  ${stateLabel}${statePad}  ${uptime}  ${branch}`;
+  const line = rowPrefix(programGlyph(row.programStatus), dot, name, stateLabel + statePad, uptime) + branch;
 
   if (selected) {
     return invert(line);
@@ -405,8 +409,14 @@ export async function runMonitor(): Promise<void> {
           // UX-H2 (#599) + UX-L1 (#616): glyph markers so the legend is readable
           // under NO_COLOR; "active*" matches the row label for long-running workspaces.
           `  ${bold("State legend:")}`,
-          `  ${green("●")} ${dim("active")}   ${yellow("●")} ${dim("active* (running >4h)")}   ${dim("○ stopped/unknown")}`,
-          `  ${dim("color: green = active, yellow = running >4h, dim = stopped")}`,
+          `  ${green("●")} ${dim("active")}    ${yellow("●")} ${dim("active* (running >4h)")}`,
+          `  ${yellow("●")} ${dim("partial   Rex root pane closed, other panes live")}`,
+          `  ${dim("○ stopped   ○ unknown (could not be read; not opened)")}`,
+          `  ${dim("color: green = active, yellow = >4h or partial,")}`,
+          `  ${dim("dim = stopped or unknown")}`,
+          "",
+          `  ${bold("Program status (Rex, left of the dot):")}`,
+          `  ${programGlyph("blocked")} ${dim("blocked")}   ${programGlyph("error")} ${dim("error")}   ${programGlyph("working")} ${dim("working")}   ${programGlyph("done")} ${dim("done")}   ${dim("blank = idle")}`,
           "",
           `  ${dim("Press any key to dismiss...")}`,
         ];
@@ -438,8 +448,11 @@ export async function runMonitor(): Promise<void> {
 
   function refresh(): void {
     if (!current(session) || session.hidden) return;
+    // FE-M1: rows reorder by state, so keep the cursor on the same project; clamp only when it is gone.
+    const selectedName = rows[selectedIndex]?.name;
     rows = loadProjectRows();
-    selectedIndex = Math.min(selectedIndex, Math.max(0, rows.length - 1));
+    const kept = rows.findIndex((row) => row.name === selectedName);
+    selectedIndex = kept >= 0 ? kept : Math.min(selectedIndex, Math.max(0, rows.length - 1));
     if (ui === "dashboard") render();
     prefetch();
   }
@@ -506,9 +519,13 @@ export async function runMonitor(): Promise<void> {
     if (owner.inputTimer) clearTimeout(owner.inputTimer);
     const deadline = owner.decoder.pendingDeadline();
     owner.inputTimer = deadline === null ? null : setTimeout(() => {
-      if (current(owner)) owner.decoder.expire(Date.now());
       owner.inputTimer = null;
+      // A lone Esc expires into an escape key (FE-M2).
+      if (current(owner)) dispatch(owner, owner.decoder.expire(Date.now()));
     }, Math.max(0, deadline - Date.now()));
+    dispatch(owner, events);
+  }
+  function dispatch(owner: Session, events: MonitorInput[]): void {
     for (const event of events) {
       if (!current(owner)) break;
       if (event.type !== "key") applyEffects(owner, owner.visibility.handle(event, Date.now()));

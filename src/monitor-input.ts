@@ -13,20 +13,21 @@ export function createMonitorInputDecoder() {
     pending = "";
     deadline = null;
   };
-  const expire = (now: number) => {
-    if (deadline !== null && now >= deadline) {
-      state = state === "escape" ? "discard-escape" : "discard";
-      pending = "";
-      deadline = null;
-    }
+  /** A lone ESC that expires is the Esc key; a late `[` after it is still quarantined as a reply. */
+  const expire = (now: number): MonitorInput[] => {
+    if (deadline === null || now < deadline) return [];
+    const lone = state === "escape";
+    state = lone ? "discard-escape" : "discard";
+    pending = "";
+    deadline = null;
+    return lone ? [{ type: "key", bytes: "\x1b" }] : [];
   };
   return {
     reset,
     expire,
     pendingDeadline: () => deadline,
     push(chunk: Buffer | string, now: number): MonitorInput[] {
-      expire(now);
-      const events: MonitorInput[] = [];
+      const events = expire(now);
       for (const byte of chunk.toString()) {
         if (byte === "\x03") {
           events.push({ type: "key", bytes: byte });
@@ -39,14 +40,16 @@ export function createMonitorInputDecoder() {
           deadline = now + 100;
           continue;
         }
+        if (state === "discard-escape") {
+          if (byte === "[") {
+            state = "discard";
+            continue;
+          }
+          reset(); // Any other byte is an ordinary key.
+        }
         if (state === "key") {
           if (byte === "\r" || byte === "\n" || byte >= " ")
             events.push({ type: "key", bytes: byte });
-          continue;
-        }
-        if (state === "discard-escape") {
-          if (byte === "[") state = "discard";
-          else reset();
           continue;
         }
         if (state === "escape") {
