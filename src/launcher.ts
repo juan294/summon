@@ -380,20 +380,18 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
     if (dryRun) return;
 
     // Write workspace status for monitoring features
-    const status: WorkspaceStatus = {
+    const fields = {
       project: projectName,
       directory: resolve(targetDir),
       pid: process.pid,
       startedAt: new Date().toISOString(),
       layout: layoutLabel,
       panes: launched.paneNames,
-      ...(launched.native ? { native: launched.native } : {}),
-      source: "summon",
-      version: 1,
-      launchId,
-      backend: backend.id,
-      ...(launched.rex ? { rex: launched.rex } : {}),
     };
+    // The key order of the record on disk; each backend keeps only its own identity (AR-L2).
+    const status: WorkspaceStatus = backend.id === "rex"
+      ? { ...fields, source: "summon", version: 1, launchId, backend: "rex", ...(launched.rex ? { rex: launched.rex } : {}) }
+      : { ...fields, ...(launched.native ? { native: launched.native } : {}), source: "summon", version: 1, launchId, backend: "ghostty" };
 
     // A user-initiated launch always publishes (expectation "replace", plan P12); a failed write
     // discards only the record observed under the publication's own lock.

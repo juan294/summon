@@ -3855,6 +3855,7 @@ describe("P2 capture failure isolation",()=>{
     vi.mocked(status.publishStatus).mockReturnValueOnce("discarded");
     await expect(launch("/tmp/workspace",{layout:"minimal"})).resolves.toBe("launched");
     expect(status.publishStatus).toHaveBeenCalledWith(expect.objectContaining({native:expect.objectContaining({rootTerminalId:id})}));
+    expect(Object.keys(vi.mocked(status.publishStatus).mock.calls[0]![0])).toEqual(["project","directory","pid","startedAt","layout","panes","native","source","version","launchId","backend"]);
     expect(err).toHaveBeenCalledWith(expect.stringContaining("status could not be saved; exact targeting is unavailable"));
     // The publication layer owns the discard (bound to the record observed under its lock); the launcher only words the outcome.
     vi.mocked(status.publishStatus).mockReturnValueOnce("unsaved");
@@ -3905,6 +3906,8 @@ describe("backend seam (plan P15, Phase 1)", () => {
     const written = vi.mocked(status.publishStatus).mock.calls[0]?.[0];
     const dryRunId = mockGenerateAppleScript.mock.calls[0]?.[6];
     expect(written?.launchId).toBe(dryRunId);
+    // AR-L2: the record keeps the key order it always had on disk (`native` follows `panes` when captured).
+    expect(Object.keys(written!)).toEqual(["project", "directory", "pid", "startedAt", "layout", "panes", "source", "version", "launchId", "backend"]);
   });
 
   it("dry-run falls back to the Ghostty script with the detection notices when neither terminal is found; a real launch fails", async () => {
@@ -4147,6 +4150,8 @@ describe("Rex launch (plan P2, P8, P13, P15; Phase 3)", () => {
     }));
     const written = vi.mocked(statusModule.publishStatus).mock.calls[0]![0];
     expect(written.native).toBeUndefined();
+    // AR-L2: the record keeps the key order it always had on disk.
+    expect(Object.keys(written)).toEqual(["project", "directory", "pid", "startedAt", "layout", "panes", "source", "version", "launchId", "backend", "rex"]);
     // Named focus targets resolve through the identity, never through display position.
     expect(written.rex!.blocks.find((b) => b.name === "editor-2")!.blockId).toBe("block:0000aaaa-0000-0000-0000-000000000011");
     expect(written.panes.indexOf("editor-2")).not.toBe(written.rex!.blocks.findIndex((b) => b.name === "editor-2"));

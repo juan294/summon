@@ -30,7 +30,9 @@ const { planLayout, getPreset } = await import("../../layout.js");
 type RexCli = import("./cli.js").RexCli;
 type RexResult = import("./types.js").RexResult;
 type LaunchManifest = import("../../launch-identity.js").LaunchManifest;
-type WorkspaceStatus = import("../../status-record.js").WorkspaceStatus;
+type RexWorkspaceStatus = import("../../status-record.js").RexWorkspaceStatus;
+type UnidentifiedRexWorkspaceStatus = import("../../status-record.js").UnidentifiedRexWorkspaceStatus;
+type GhosttyWorkspaceStatus = import("../../status-record.js").GhosttyWorkspaceStatus;
 
 const ID = "0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f";
 const ID2 = "1f1f1f1f-1f1f-4f1f-8f1f-1f1f1f1f1f1f";
@@ -499,13 +501,25 @@ describe("selectInApp", () => {
 
 // --- adoptOrphans / refreshPaneMapping ---
 
-function recordFor(launchId: string, overrides: Partial<WorkspaceStatus> = {}): WorkspaceStatus {
+function recordFor(launchId: string, overrides: Partial<RexWorkspaceStatus> = {}): RexWorkspaceStatus {
   return {
     project: "chapa", directory: "/Users/me/code/chapa", pid: 1, startedAt: "2026-10-29T09:00:00.000Z", layout: "full",
     panes: ["editor", "sidebar", "editor-2", "right-1", "shell"], source: "summon", version: 1, launchId, backend: "rex",
     rex: { server: SERVER, hostId: "host-1", sessionId: "session:0000cccc-0000-0000-0000-000000000001", windowId: "window:0000cccc-0000-0000-0000-000000000002", rootBlockId: blockId(9), blocks: [{ name: "editor", blockId: blockId(9), label: "editor · vim" }] },
     ...overrides,
   };
+}
+
+/** The same record with its Rex identity discarded (as the parser leaves an invalid one). */
+function unidentified(record: RexWorkspaceStatus): UnidentifiedRexWorkspaceStatus {
+  const { rex: _rex, ...rest } = record;
+  return rest;
+}
+
+/** The same fields as a Ghostty record without the `backend` field (a legacy record). */
+function ghosttyOf(record: RexWorkspaceStatus): GhosttyWorkspaceStatus {
+  const { rex: _rex, backend: _backend, ...rest } = record;
+  return rest;
 }
 
 function depsFor(clis: Record<string, RexCli>, extra: Partial<AdoptDeps> = {}): AdoptDeps {
@@ -706,7 +720,7 @@ describe("adoptOrphans (plan P13 late adoption)", () => {
   });
 
   it("refuses a Rex record without identity before any lookup (defense in depth against reader recursion)", async () => {
-    withOwnedRecord("chapa", "replace", () => { const r = recordFor(ID2); delete r.rex; return r; });
+    withOwnedRecord("chapa", "replace", () => unidentified(recordFor(ID2)));
     writeLaunchManifest(manifestFor());
     writePane(ID, "editor", SESSION, blockId(1));
     const cli = fakeCli({});
@@ -717,7 +731,7 @@ describe("adoptOrphans (plan P13 late adoption)", () => {
   });
 
   it("abstains with a notice when a legacy record (no launchId) is present", async () => {
-    withOwnedRecord("chapa", "replace", () => { const r = recordFor(ID); delete r.launchId; delete r.backend; delete r.rex; return r; });
+    withOwnedRecord("chapa", "replace", () => { const r = ghosttyOf(recordFor(ID)); delete r.launchId; return r; });
     writeLaunchManifest(manifestFor());
     const cli = fakeCli({});
     expect(adoptOrphans("chapa", depsFor({ [SERVER]: cli }))).toEqual(["chapa has a record from an older Summon; run summon chapa to replace it"]);
@@ -778,7 +792,7 @@ describe("adoptOrphans (plan P13 late adoption)", () => {
   });
 
   it("treats a live Ghostty record like any live record (the orphan is reported, not adopted)", async () => {
-    withOwnedRecord("chapa", "replace", () => { const r = recordFor(ID2); delete r.backend; delete r.rex; return r; });
+    withOwnedRecord("chapa", "replace", () => ghosttyOf(recordFor(ID2)));
     writeLaunchManifest(manifestFor());
     writePane(ID, "editor", SESSION, blockId(1));
     const cli = fakeCli({ "ls": () => ok("ls", { sessions: [{ session_id: SESSION, label: "chapa" }] }), "session-view": () => liveView([blockId(1)]) });
@@ -813,11 +827,14 @@ describe("refreshPaneMapping", () => {
     expect(readStatusRecord("chapa")!.rex!.blocks.map((b) => b.name)).toEqual(["editor"]);
   });
 
-  it("does nothing for a record without unverified panes or without a Rex identity", () => {
+  it("does nothing for a record without unverified panes; a record without a Rex identity does not type-check (AR-L2)", () => {
     const complete = recordFor(ID, { panes: ["editor"] });
     expect(refreshPaneMapping(complete)).toEqual({ notices: [], changed: false });
-    const ghostty = recordFor(ID); delete ghostty.rex;
-    expect(refreshPaneMapping(ghostty)).toEqual({ notices: [], changed: false });
+    // @ts-expect-error a Rex record whose identity was discarded is not a RexWorkspaceStatus
+    const check = (): unknown => refreshPaneMapping(unidentified(recordFor(ID)));
+    // @ts-expect-error neither is a Ghostty record
+    const checkGhostty = (): unknown => refreshPaneMapping(ghosttyOf(recordFor(ID)));
+    expect([check, checkGhostty].every((f) => typeof f === "function")).toBe(true);
   });
 });
 
@@ -846,7 +863,7 @@ describe("maybeSwitchToExisting (plan P2) and showWorkspace", () => {
   it("proceeds without any Rex call when there is no record, a Ghostty record, or --new-window", () => {
     const cli = fakeCli({});
     expect(maybeSwitchToExisting("chapa", false, { cliFor: () => cli })).toEqual({ kind: "proceed" });
-    withOwnedRecord("chapa", "replace", () => { const r = recordFor(ID); delete r.backend; delete r.rex; return r; });
+    withOwnedRecord("chapa", "replace", () => ghosttyOf(recordFor(ID)));
     expect(maybeSwitchToExisting("chapa", false, { cliFor: () => cli })).toEqual({ kind: "proceed" });
     withOwnedRecord("chapa", "replace", liveRecord);
     expect(maybeSwitchToExisting("chapa", true, { cliFor: () => cli })).toEqual({ kind: "proceed" });
@@ -856,9 +873,9 @@ describe("maybeSwitchToExisting (plan P2) and showWorkspace", () => {
   it("keptSession names a live recorded session that --new-window leaves open, with the launches it keeps, and nothing else (F12)", () => {
     const cli = fakeCli({});
     expect(keptSession("chapa", () => cli)).toBeUndefined();
-    withOwnedRecord("chapa", "replace", () => { const r = recordFor(ID); delete r.backend; delete r.rex; return r; });
+    withOwnedRecord("chapa", "replace", () => ghosttyOf(recordFor(ID)));
     expect(keptSession("chapa", () => cli)).toBeUndefined();
-    withOwnedRecord("chapa", "replace", () => { const r = recordFor(ID); delete r.rex; return r; });
+    withOwnedRecord("chapa", "replace", () => unidentified(recordFor(ID)));
     expect(keptSession("chapa", () => cli)).toBeUndefined();
     expect(cli.calls).toEqual([]);
     withOwnedRecord("chapa", "replace", liveRecord);
@@ -877,7 +894,7 @@ describe("maybeSwitchToExisting (plan P2) and showWorkspace", () => {
   });
 
   it("a Rex record whose identity was discarded refuses an ordinary launch without a Rex call; --new-window proceeds", () => {
-    withOwnedRecord("chapa", "replace", () => { const r = recordFor(ID); delete r.rex; return r; });
+    withOwnedRecord("chapa", "replace", () => unidentified(recordFor(ID)));
     const cli = fakeCli({});
     expect(maybeSwitchToExisting("chapa", false, { cliFor: () => cli })).toEqual({ kind: "refused", reason: "chapa is recorded in Rex but the record has no Rex identity; run summon chapa --new-window to relaunch" });
     expect(maybeSwitchToExisting("chapa", true, { cliFor: () => cli })).toEqual({ kind: "proceed" });
@@ -945,8 +962,8 @@ describe("maybeSwitchToExisting (plan P2) and showWorkspace", () => {
     const record = liveRecord();
     const failing = fakeCli({ "client-ls": () => ok("client-ls", { clients: [CLIENT] }), "do-select": () => fail("do-select", "failed", "unknown", "select exploded") });
     expect(showWorkspace(failing, record)).toEqual({ shown: false, reason: "select exploded" });
-    const ghostty = recordFor(ID); delete ghostty.rex;
-    expect(showWorkspace(failing, ghostty)).toEqual({ shown: false, reason: "the record has no Rex identity" });
+    // @ts-expect-error showWorkspace takes only a Rex record with its identity (AR-L2)
+    expect(typeof ((): unknown => showWorkspace(failing, unidentified(recordFor(ID))))).toBe("function");
     expect(showRecordedWorkspace("chapa", "/nonexistent/rex")).toEqual({ shown: false, reason: "chapa has no Rex record" });
     withOwnedRecord("chapa", "replace", liveRecord);
     // A missing binary surfaces as "no app connected": nothing is spawned beyond the ENOENT attempt.

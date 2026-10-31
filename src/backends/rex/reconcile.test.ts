@@ -53,6 +53,9 @@ const { readStatus, resetRexBinaryMemo } = await import("../../status.js");
 const { writeStatus, readStatusRecord, statusTestHooks } = await import("../../status-record.js");
 const { writeLaunchManifest } = await import("../../launch-identity.js");
 import type { WorkspaceStatus } from "../../status-record.js";
+import type { BackendId } from "../../backend-detect.js";
+import type { NativeMetadata } from "../../pane-inventory.js";
+import type { RexIdentity } from "../../backends/rex/types.js";
 import type { LaunchManifest } from "../../launch-identity.js";
 
 const RECONCILE = { reconcile: true } as const;
@@ -83,7 +86,10 @@ function rexIdentity() {
   };
 }
 
-function makeStatus(overrides?: Partial<WorkspaceStatus>): WorkspaceStatus {
+/** Any field combination a status file may hold; the parser decides what a read keeps (AR-L2). */
+type StatusFixture = Partial<Omit<WorkspaceStatus, "backend" | "native" | "rex">> & { backend?: BackendId; native?: NativeMetadata; rex?: RexIdentity };
+
+function makeStatus(overrides?: StatusFixture): WorkspaceStatus {
   return {
     project: "testapp",
     directory: "/tmp/testapp",
@@ -94,7 +100,7 @@ function makeStatus(overrides?: Partial<WorkspaceStatus>): WorkspaceStatus {
     source: "summon",
     version: 1,
     ...overrides,
-  };
+  } as WorkspaceStatus;
 }
 
 beforeEach(() => {
@@ -109,13 +115,13 @@ afterEach(() => {
 describe("reconciliation of ended Rex launches (plan P12, Phase 5)", () => {
   const { writeLaunchManifest: writeManifest } = { writeLaunchManifest };
   const snapshotFile = (project: string) => join(TEST_SNAPSHOTS_DIR, `${project}.json`);
-  const rexRecord = (extra: Partial<WorkspaceStatus> = {}) => makeStatus({ project: "myapp", launchId: GEN_A, backend: "rex", rex: rexIdentity(), panes: ["editor"], directory: "/tmp/myapp", layout: "minimal", ...extra });
+  const rexRecord = (extra: StatusFixture = {}) => makeStatus({ project: "myapp", launchId: GEN_A, backend: "rex", rex: rexIdentity(), panes: ["editor"], directory: "/tmp/myapp", layout: "minimal", ...extra });
   const manifestFor = (launchId = GEN_A): LaunchManifest => ({ version: 1, launchId, project: "myapp", directory: "/tmp/myapp", layout: "minimal", panes: ["editor"], paneOrder: ["editor"], blockLabels: { editor: "editor" }, backend: "rex", server: "unix:///tmp/rex.sock", startedAt: "2026-10-29T10:00:00.000Z" });
   const files = () => {
     const dir = launchDir("myapp");
     return { pid: existsSync(join(dir, `${GEN_A}.pid`)), active: existsSync(join(dir, `${GEN_A}.active`)), manifest: existsSync(join(dir, `${GEN_A}.json`)), pane: existsSync(join(dir, `${GEN_A}.pane.editor`)) };
   };
-  function seedStopped(reason = "Rex session no longer exists", extra: Partial<WorkspaceStatus> = {}) {
+  function seedStopped(reason = "Rex session no longer exists", extra: StatusFixture = {}) {
     writeStatus(rexRecord(extra));
     writeLaunchFiles("myapp", GEN_A);
     writeManifest(manifestFor());
