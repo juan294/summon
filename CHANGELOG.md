@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The cleanup trap now works for a project directory, or a Node or Summon install path, that contains `!`. These paths are typed into an interactive zsh, where `!` inside double quotes is history expansion, so the trap failed with `event not found` and the snapshot never ran. They are now single-quoted. A path with a control character (for example an escape or newline) is refused with a clear error instead of being typed into the terminal.
 - `summon status` rows no longer run one column past the terminal when the branch, path or reason is cut off, so the monitor no longer scrolls at narrow widths.
 - The monitor keeps the selection on the same project when a refresh reorders the rows, so Enter opens the highlighted project.
 - In the monitor, Esc dismisses the help and error screens, and the next key is no longer swallowed.

@@ -6,7 +6,7 @@ import { GHOSTTY_APP_NAME } from "./utils.js";
 import { escapeAppleScript, shellQuote } from "./shell-escape.js";
 import { traditionalInventory, treeInventory, formatTitle } from "./pane-inventory.js";
 import type { PaneDescriptor } from "./pane-inventory.js";
-import { bootstrapLine, cleanupTrapLine, buildEnvVarsList } from "./launch-identity.js";
+import { bootstrapLine, cleanupTrapLine, buildEnvVarsList, typedPath } from "./launch-identity.js";
 import type { CleanupTrapOptions } from "./launch-identity.js";
 
 // --- AppleScript timing constants (empirically tuned for Ghostty responsiveness) ---
@@ -144,7 +144,7 @@ function emitRootPaneCommand(
   targetDir: string,
   command: string | null | undefined,
 ): void {
-  sendCommand(rootPaneVar, `cd ${shellQuote(targetDir)}`);
+  sendCommand(rootPaneVar, `cd ${shellQuote(typedPath(targetDir))}`);
   // Clear setup noise (exports, cd) so the pane starts clean
   sendCommand(rootPaneVar, "clear");
   if (command) {
