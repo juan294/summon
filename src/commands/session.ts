@@ -1,6 +1,7 @@
 import { launch } from "../launcher.js";
 import { callerRexSession, resolveBackendForLaunch } from "../backend.js";
 import { showRecordedWorkspace } from "../backends/rex/launch.js";
+import { startLauncherTabWatch } from "../backends/rex/launcher-tab.js";
 import { listProjects, getProject } from "../config.js";
 import {
   listSessions,
@@ -138,6 +139,8 @@ async function cmdLaunch(ctx: CommandContext, name: string | undefined): Promise
   const detection = resolveBackendForLaunch();
   const rex = detection.ok && detection.backend === "rex" ? detection : null;
   const underRex = rex !== null;
+  // D1: a skipped project is printed before its launch starts; watch from here so it keeps the launcher tab.
+  if (rex && !ctx.overrides.dryRun) startLauncherTabWatch(rex);
 
   for (let i = 0; i < total; i++) {
     const proj = projects[i]!;

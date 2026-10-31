@@ -8,7 +8,7 @@ import type { ContextSnapshot } from "../snapshot.js";
 export async function handleStatusCommand({ values }: CommandContext): Promise<void> {
   const { runMonitor, printStatusOnce } = await import("../monitor.js");
   if (values.once || !process.stdout.isTTY) {
-    printStatusOnce();
+    await printStatusOnce();
     return;
   }
   await runMonitor();

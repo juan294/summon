@@ -648,6 +648,8 @@ describe("adoptOrphans (plan P13 late adoption)", () => {
     writeLaunchManifest(manifestFor());
     const cli = fakeCli({});
     expect(adoptOrphans("chapa", depsFor({ [SERVER]: cli }))).toEqual(["chapa has a record from an older Summon; run summon chapa to replace it"]);
+    // The launch path replaces that record, so it says nothing (D2); status and clean --orphans still say it.
+    expect(adoptOrphans("chapa", depsFor({ [SERVER]: cli }), { forLaunch: true })).toEqual([]);
     expect(cli.calls).toEqual([]);
   });
 
@@ -677,10 +679,10 @@ describe("adoptOrphans (plan P13 late adoption)", () => {
     });
     expect(adoptOrphans("chapa", depsFor({ [SERVER]: cli }))).toEqual([`extra Rex session [chapa] ${SESSION} from earlier launch ${ID}; rex kill ${SESSION} closes it`]);
     // The launch path (F12): an extra the record's launch never announced (a lost answer, a launch in between) is still said.
-    expect(adoptOrphans("chapa", depsFor({ [SERVER]: cli }), { repeatAnnounced: false })).toEqual([`extra Rex session [chapa] ${SESSION} from earlier launch ${ID}; rex kill ${SESSION} closes it`]);
+    expect(adoptOrphans("chapa", depsFor({ [SERVER]: cli }), { forLaunch: true })).toEqual([`extra Rex session [chapa] ${SESSION} from earlier launch ${ID}; rex kill ${SESSION} closes it`]);
     // The record's --new-window launch announced it (`keeps`): the launch path is quiet, status (the default) still says it.
     writeLaunchManifest(manifestFor(ID2, { keeps: [ID] }));
-    expect(adoptOrphans("chapa", depsFor({ [SERVER]: cli }), { repeatAnnounced: false })).toEqual([]);
+    expect(adoptOrphans("chapa", depsFor({ [SERVER]: cli }), { forLaunch: true })).toEqual([]);
     expect(adoptOrphans("chapa", depsFor({ [SERVER]: cli }))).toEqual([`extra Rex session [chapa] ${SESSION} from earlier launch ${ID}; rex kill ${SESSION} closes it`]);
     expect(readStatusRecord("chapa")!.launchId).toBe(ID2);
 
@@ -694,7 +696,7 @@ describe("adoptOrphans (plan P13 late adoption)", () => {
       "session-view": (_argv, input) => (JSON.parse(input!).session_id === SESSION ? liveView([blockId(1)]) : ok("session-view", { ...viewJson([blockId(6)]), session_id: session2 })),
     });
     // The launch path still says it: this extra was never chosen, and the adoption happens once.
-    const notices = adoptOrphans("chapa", depsFor({ [SERVER]: cli2 }), { repeatAnnounced: false });
+    const notices = adoptOrphans("chapa", depsFor({ [SERVER]: cli2 }), { forLaunch: true });
     expect(notices).toEqual([
       `adopted earlier launch ${ID} of chapa (Rex session ${SESSION})`,
       `extra Rex session [chapa] ${session2} from earlier launch ${ID2}; rex kill ${session2} closes it`,
@@ -710,7 +712,7 @@ describe("adoptOrphans (plan P13 late adoption)", () => {
     const notices = adoptOrphans("chapa", depsFor({ [SERVER]: cli }, { ghosttyState: () => "active" }));
     expect(notices[0]).toContain("extra Rex session");
     // A Ghostty launch announced nothing: the launch path still says it (F12).
-    expect(adoptOrphans("chapa", depsFor({ [SERVER]: cli }, { ghosttyState: () => "active" }), { repeatAnnounced: false })[0]).toContain("extra Rex session");
+    expect(adoptOrphans("chapa", depsFor({ [SERVER]: cli }, { ghosttyState: () => "active" }), { forLaunch: true })[0]).toContain("extra Rex session");
   });
 });
 

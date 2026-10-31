@@ -29,6 +29,13 @@ vi.mock("../config.js", () => ({
   listProjects: (...args: unknown[]) => mockListProjects(...args),
 }));
 
+const mockReadStatusRecord = vi.fn((_project: string): unknown => null);
+const mockDetection = vi.fn((): unknown => ({ ok: true, backend: "rex", placement: "inside-rex", server: "unix:///s", rexBinary: "/r", notices: [] }));
+const mockCloseLauncherTab = vi.fn();
+vi.mock("../status-record.js", () => ({ readStatusRecord: (project: string) => mockReadStatusRecord(project) }));
+vi.mock("../backend.js", () => ({ resolveBackendForLaunch: () => mockDetection() }));
+const mockStartWatch = vi.fn();
+vi.mock("../backends/rex/launcher-tab.js", () => ({ closeLauncherTabAfterRexLaunch: (...args: unknown[]) => mockCloseLauncherTab(...args), startLauncherTabWatch: (...args: unknown[]) => mockStartWatch(...args) }));
 vi.mock("../launcher.js", () => ({
   focusWorkspace: (...args: unknown[]) => mockFocusWorkspace(...args),
   launch: (...args: unknown[]) => mockLaunch(...args),
@@ -306,6 +313,25 @@ describe("handleOpenCommand", () => {
     expect(mockFocusWorkspace).toHaveBeenCalledWith("api");
     expect(logSpy).toHaveBeenCalledWith("Switched to [api]");
     writeSpy.mockRestore();
+  });
+
+  it("open of a running Rex workspace closes the launcher tab like a launch; a Ghostty workspace never does (D1)", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockLoadProjectRow.mockReturnValue({ name: "api", directory: "/tmp/api", state: "active", uptime: "1h", gitBranch: "main" });
+    mockFocusWorkspace.mockReturnValue({ kind: "focused", terminalId: "block:1" });
+    mockCloseLauncherTab.mockClear();
+    mockReadStatusRecord.mockReturnValue({ project: "api", backend: "rex" });
+    mockStartWatch.mockClear();
+    mockFocusWorkspace.mockImplementation(() => { expect(mockStartWatch).toHaveBeenCalledTimes(1); return { kind: "focused", terminalId: "block:1" }; });
+    await handleOpenCommand(makeContext({ args: ["api"] }));
+    expect(mockCloseLauncherTab).toHaveBeenCalledWith(expect.objectContaining({ backend: "rex", placement: "inside-rex" }));
+    mockFocusWorkspace.mockReturnValue({ kind: "focused", terminalId: "block:1" });
+    mockCloseLauncherTab.mockClear();
+    mockReadStatusRecord.mockReturnValue({ project: "api", backend: "ghostty" });
+    await handleOpenCommand(makeContext({ args: ["api"] }));
+    expect(mockCloseLauncherTab).not.toHaveBeenCalled();
+    mockReadStatusRecord.mockReturnValue(null);
+    logSpy.mockRestore();
   });
 
   it("launches stopped workspaces with overrides", async () => {

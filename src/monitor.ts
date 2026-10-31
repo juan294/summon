@@ -218,6 +218,16 @@ function getCachedGitBranch(directory: string): string | null {
   return null;
 }
 
+/** Live rows with their git branch filled in; other rows unchanged. */
+async function withGitBranches(rows: ProjectRow[]): Promise<ProjectRow[]> {
+  const branches = new Map<string, string | null>();
+  await runPool(rows.filter((row) => isLiveState(row.state)), IO_CONCURRENCY, async (row) => {
+    branches.set(row.directory, await getGitBranch(row.directory));
+  });
+  // The lookups are done: a live row without a branch (not a git repository) shows the dash, never the placeholder.
+  return rows.map((row) => (isLiveState(row.state) ? { ...row, gitBranch: branches.get(row.directory) ?? "\u2014" } : row));
+}
+
 /**
  * Async: for each active row whose branch is not yet cached, spawn a background
  * git call. Calls onUpdate() once (after all fetches) if any new data was stored.
@@ -331,8 +341,9 @@ export function loadProjectRows(): ProjectRow[] {
 
 // --- Single-shot mode ---
 
-export function printStatusOnce(): void {
-  const rows = loadProjectRows();
+export async function printStatusOnce(): Promise<void> {
+  // One-shot output cannot repaint: wait for the live rows' branches instead of printing the placeholder (D3).
+  const rows = await withGitBranches(loadProjectRows());
   if (rows.length === 0) {
     console.log("No projects registered. Run `summon add <name> <path>` or `summon setup` to get started.");
     return;

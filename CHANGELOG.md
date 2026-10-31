@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Under Rex, `summon <project>`, `summon open <project>` and `summon session` close the tab they were typed in once the workspace is shown in its own session, when that tab holds only that pane. No empty launcher tab or session stays behind (Ghostty reuses that tab, so nothing changes there). A tab with splits, a workspace tab, a failed launch, a dry run, a Summon run by an agent or a script, and any run that printed a note or a warning to read are left alone.
+
+### Fixed
+
+- Launching a project whose status record came from an older Summon no longer prints `run summon <project> to replace it`: the launch replaces it. `summon status` and `summon clean --orphans` still say it.
+- `summon status --once` (and `summon status` piped) shows the git branch of active workspaces instead of `…`; an active workspace outside a git repository shows `—`.
+
 ## [2.0.0] - 2026-10-31
 
 ### Added

@@ -18,6 +18,8 @@ const mockResolveBackendForLaunch = vi.fn((): unknown => ({ ok: true, backend: "
 const mockShowRecordedWorkspace = vi.fn((..._args: unknown[]): unknown => ({ shown: true, clientId: "client:app" }));
 vi.mock("../backend.js", async (original) => ({ ...(await original<typeof import("../backend.js")>()), resolveBackendForLaunch: () => mockResolveBackendForLaunch() }));
 vi.mock("../backends/rex/launch.js", () => ({ showRecordedWorkspace: (...args: unknown[]) => mockShowRecordedWorkspace(...args) }));
+const mockStartLauncherTabWatch = vi.fn();
+vi.mock("../backends/rex/launcher-tab.js", () => ({ startLauncherTabWatch: (...args: unknown[]) => mockStartLauncherTabWatch(...args) }));
 
 vi.mock("../config.js", () => ({
   listProjects: (...args: unknown[]) => mockListProjects(...args),
@@ -758,6 +760,20 @@ describe("session launch under Rex (plan P11)", () => {
     expect(mockLaunch.mock.calls[1]![1]["new-window"]).toBeUndefined();
     expect(mockShowRecordedWorkspace).toHaveBeenCalledTimes(1);
     expect(mockShowRecordedWorkspace).toHaveBeenCalledWith("api", "/usr/local/bin/rex", undefined);
+    logSpy.mockRestore();
+  });
+
+  it("watches stderr from the start of a Rex session run, before any project is skipped, and never for a dry run (D1)", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockReadSession.mockReturnValue(["api"]);
+    mockLaunch.mockImplementation(async () => { expect(mockStartLauncherTabWatch).toHaveBeenCalledWith(REX); return "launched"; });
+    mockStartLauncherTabWatch.mockClear();
+    await handleSessionCommand(makeContext({ args: ["solo"] }));
+    expect(mockStartLauncherTabWatch).toHaveBeenCalledTimes(1);
+    mockStartLauncherTabWatch.mockClear();
+    mockLaunch.mockResolvedValue("dry-run");
+    await handleSessionCommand(makeContext({ args: ["solo"], overrides: { dryRun: true } }));
+    expect(mockStartLauncherTabWatch).not.toHaveBeenCalled();
     logSpy.mockRestore();
   });
 

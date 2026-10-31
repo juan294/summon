@@ -122,6 +122,8 @@ summon ~/code/myapp
 summon myapp
 ```
 
+Under Rex the workspace opens in its own session. When you typed `summon` in a tab with a single pane, Summon closes that tab once the workspace is shown, so no empty launcher tab stays behind (the session it was in ends too when that was its only tab). Tabs with splits, workspace tabs and failed launches are left alone, and so is any launch that printed a note or a warning for you to read. See [Summon under Rex](rex.md#seeing-a-workspace-in-the-app).
+
 ### `summon add <name> <path>`
 
 Register a project name mapped to a directory path. Paths support `~` expansion.
