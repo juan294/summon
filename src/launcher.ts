@@ -37,7 +37,7 @@ import { parseTreeDSL, extractPaneDefinitions, extractPaneCwds, resolveTreeComma
 import type { LayoutNode, PlannedLayout, TreePlanOptions } from "./tree.js";
 import { resolveCommand as resolveCommandPath, describeCommandFailure, getErrorMessage, SUMMON_WORKSPACE_ENV, promptUser, isDebug } from "./utils.js";
 import type { CommandFailureKind } from "./utils.js";
-import { fail, err, note } from "./ui/output.js";
+import { fail, err, note, warn } from "./ui/output.js";
 import { confirmDangerousCommands } from "./launch-guards.js";
 import { assertTrusted, assertTrustedContent } from "./trust.js";
 import { parseIntInRange, parsePositiveFloat, ENV_KEY_RE, PROJECT_NAME_RE, sanitizeProjectName } from "./validation.js";
@@ -99,7 +99,7 @@ export function resolveProjectName(targetDir: string): string {
   const derived = basename(resolved);
   if (PROJECT_NAME_RE.test(derived)) return derived;
   const sanitized = sanitizeProjectName(derived);
-  console.warn(
+  warn(
     `Project name "${derived}" contains unsupported characters; using "${sanitized}" for tab title and status tracking.`,
   );
   return sanitized;
@@ -308,12 +308,12 @@ function collectEnvVars(
     if (key.startsWith("env.")) {
       const envKey = key.slice(4);
       if (isDenylisted(envKey)) {
-        console.warn(`Warning: ignoring denylisted env var key "${envKey}" from machine config.`);
+        warn(`ignoring denylisted env var key "${envKey}" from machine config.`);
       } else if (ENV_KEY_RE.test(envKey)) {
         envVars[envKey] = value;
       } else {
         // BE-L2 (#618): warn on invalid keys for parity with .summon and --env sources.
-        console.warn(`Warning: ignoring invalid env var key "${envKey}" from machine config.`);
+        warn(`ignoring invalid env var key "${envKey}" from machine config.`);
       }
     }
   }
@@ -323,11 +323,11 @@ function collectEnvVars(
     if (key.startsWith("env.")) {
       const envKey = key.slice(4);
       if (isDenylisted(envKey)) {
-        console.warn(`Warning: ignoring denylisted env var key "${envKey}" from .summon file.`);
+        warn(`ignoring denylisted env var key "${envKey}" from .summon file.`);
       } else if (ENV_KEY_RE.test(envKey)) {
         envVars[envKey] = value;
       } else {
-        console.warn(`Warning: ignoring invalid env var key "${envKey}" from .summon file.`);
+        warn(`ignoring invalid env var key "${envKey}" from .summon file.`);
       }
     }
   }
@@ -339,11 +339,11 @@ function collectEnvVars(
       if (eqIdx > 0) {
         const envKey = entry.slice(0, eqIdx);
         if (isDenylisted(envKey)) {
-          console.warn(`Warning: ignoring denylisted env var key "${envKey}" from --env flag.`);
+          warn(`ignoring denylisted env var key "${envKey}" from --env flag.`);
         } else if (ENV_KEY_RE.test(envKey)) {
           envVars[envKey] = entry.slice(eqIdx + 1);
         } else {
-          console.warn(`Warning: ignoring invalid env var key "${envKey}" from --env flag.`);
+          warn(`ignoring invalid env var key "${envKey}" from --env flag.`);
         }
       }
     }
@@ -394,7 +394,7 @@ function resolveLayoutBase(
       if (es.ok) {
         base.editorSize = es.value;
       } else {
-        console.warn(
+        warn(
           `Invalid editor-size value in custom layout "${layoutKey}": "${customData.get("editor-size")}". Must be ${EDITOR_SIZE_MIN}-${EDITOR_SIZE_MAX}. Using default (${EDITOR_SIZE_DEFAULT}).`,
         );
       }
@@ -405,7 +405,7 @@ function resolveLayoutBase(
       if (fs.ok) {
         base.fontSize = fs.value;
       } else {
-        console.warn(
+        warn(
           `Invalid font-size value in custom layout "${layoutKey}": "${customData.get("font-size")}". Must be a positive number. Ignoring.`,
         );
       }
@@ -433,7 +433,7 @@ function resolveLayoutBase(
       if (p.ok) {
         base.editorPanes = p.value;
       } else {
-        console.warn(
+        warn(
           `Invalid panes value in custom layout "${layoutKey}": "${customData.get("panes")}". Must be a positive integer. Ignoring.`,
         );
       }
@@ -442,7 +442,7 @@ function resolveLayoutBase(
     return { base };
   }
 
-  console.warn(
+  warn(
     `Unknown layout preset: "${layoutKey}". Valid presets: ${getPresetNames().join(", ")}. Using defaults.`,
   );
   return { base: {} };
@@ -478,7 +478,7 @@ function layerConfigValues(
     if (parsed.ok) {
       result.editorPanes = parsed.value;
     } else {
-      console.warn(
+      warn(
         `Invalid panes value: "${panes}". Must be a positive integer. Using default (${PANES_DEFAULT}).`,
       );
       result.editorPanes = PANES_DEFAULT;
@@ -489,7 +489,7 @@ function layerConfigValues(
     if (parsed.ok) {
       result.editorSize = parsed.value;
     } else {
-      console.warn(
+      warn(
         `Invalid editor-size value: "${editorSize}". Must be ${EDITOR_SIZE_MIN}-${EDITOR_SIZE_MAX}. Using default (${EDITOR_SIZE_DEFAULT}).`,
       );
       result.editorSize = EDITOR_SIZE_DEFAULT;
@@ -576,9 +576,9 @@ async function warnIfNested(
   if (backend === "rex" || !process.env[SUMMON_WORKSPACE_ENV] || opts.newWindow || dryRun || !process.stdin.isTTY) {
     return false;
   }
-  console.warn("Warning: You're inside an existing summon workspace.");
-  console.warn("Launching here will nest splits inside this pane, which can get messy.");
-  console.warn("Tip: Use --new-window to open in a separate window instead.\n");
+  warn("You're inside an existing summon workspace.");
+  err("Launching here will nest splits inside this pane, which can get messy.");
+  err("Tip: Use --new-window to open in a separate window instead.\n");
   const answer = await prompt("Continue anyway? [y/N] ");
   return answer !== "y";
 }
@@ -676,15 +676,13 @@ function executeOnStart(onStart: string, targetDir: string): void {
   }
   try {
     execSync(onStart, { cwd: targetDir, encoding: "utf-8", stdio: "inherit" });
-  } catch (err) {
+  } catch (error) {
     // BE-M3 (#594): non-zero exit is non-fatal — warn and continue the launch.
     // A hard abort (e.g. for SIGINT/SIGKILL) is unlikely from a hook and would be
     // surfaced via the stderr inherited above; treating all failures as warnings
     // allows pre-flight checks to fail gracefully without killing the workspace.
-    const message = isDebug()
-      ? `[debug] on-start command failed: ${onStart} — ${getErrorMessage(err)}`
-      : "on-start command failed; continuing workspace launch";
-    console.warn(message);
+    if (isDebug()) err(`[debug] on-start command failed: ${onStart} — ${getErrorMessage(error)}`);
+    else warn("on-start command failed; continuing workspace launch");
   }
 }
 
@@ -1050,7 +1048,7 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
   // on-stop is embedded in the AppleScript's EXIT trap and runs silently; a launch-time notice
   // makes the hook visible without requiring users to inspect the generated script.
   if (effectiveOnStop && !cliOverrides?.dryRun) {
-    process.stderr.write("Note: on-stop will run on workspace exit.\n");
+    note("on-stop will run on workspace exit.");
   }
 
   // Cache resolved command paths so the same binary is only looked up once
@@ -1076,16 +1074,12 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
     if (isStarshipInstalled()) {
       try {
         return ensurePresetConfig(starshipPreset);
-      } catch (err) {
-        console.warn(
-          `Warning: Failed to set up Starship preset "${starshipPreset}": ${getErrorMessage(err)}`,
-        );
+      } catch (error) {
+        warn(`Failed to set up Starship preset "${starshipPreset}": ${getErrorMessage(error)}`);
       }
     } else {
-      console.warn(
-        `Warning: starship-preset is set to "${starshipPreset}" but Starship is not installed. Skipping.`,
-      );
-      console.warn("Install Starship: https://starship.rs");
+      warn(`starship-preset is set to "${starshipPreset}" but Starship is not installed. Skipping.`);
+      err("Install Starship: https://starship.rs");
     }
     return null;
   };

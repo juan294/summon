@@ -26,6 +26,9 @@ vi.mock("../config.js", () => ({
   getProject: (...args: unknown[]) => mockGetProject(...args),
 }));
 
+// UX-M3: suggestion ranking reads launch recency; never from the real ~/.config/summon.
+vi.mock("../status-record.js", async (original) => ({ ...(await original<typeof import("../status-record.js")>()), readStatusRecord: () => null }));
+
 vi.mock("../sessions.js", () => ({
   listSessions: (...args: unknown[]) => mockListSessions(...args),
   readSession: (...args: unknown[]) => mockReadSession(...args),
@@ -89,6 +92,34 @@ describe("session add", () => {
     expect(mockWriteSession).not.toHaveBeenCalled();
     const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");
     expect(allWrites).toContain("bogus");
+    mockExit.mockRestore();
+    writeSpy.mockRestore();
+  });
+
+  // UX-M3: an unknown project gets the closest registered names, right after the error.
+  it("suggests close registered names for each unknown project, before the register hint", async () => {
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const mockExit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error("process.exit:" + code);
+    }) as never);
+    mockListProjects.mockReturnValue(new Map([["chapa", "/w/chapa"], ["summon", "/w/summon"]]));
+
+    await expect(handleSessionCommand(makeContext({ args: ["add", "foo", "chpaa"] }))).rejects.toThrow("process.exit:1");
+    expect(writeSpy.mock.calls.map((c) => String(c[0]))).toEqual([
+      "summon: error: Unknown project(s): chpaa\n",
+      "Did you mean: chapa?\n",
+      "Register them with: summon add <name> <path>\n",
+    ]);
+
+    writeSpy.mockClear();
+    await expect(handleSessionCommand(makeContext({ args: ["add", "foo", "chpaa", "sumon", "zzzzzz"] }))).rejects.toThrow("process.exit:1");
+    expect(writeSpy.mock.calls.map((c) => String(c[0]))).toEqual([
+      "summon: error: Unknown project(s): chpaa, sumon, zzzzzz\n",
+      "For chpaa, did you mean: chapa?\n",
+      "For sumon, did you mean: summon?\n",
+      "Register them with: summon add <name> <path>\n",
+    ]);
+    expect(mockWriteSession).not.toHaveBeenCalled();
     mockExit.mockRestore();
     writeSpy.mockRestore();
   });

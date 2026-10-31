@@ -754,7 +754,7 @@ summon set shell "python -m http.server"
 
 ## Pre-Launch Hooks
 
-The `on-start` option runs a command in the target directory before the workspace opens. If it fails, Summon prints `on-start command failed; continuing workspace launch` and opens the workspace anyway.
+The `on-start` option runs a command in the target directory before the workspace opens. If it fails, Summon prints `summon: warning: on-start command failed; continuing workspace launch` and opens the workspace anyway.
 
 ```bash
 # Install deps before launching
@@ -1050,12 +1050,12 @@ With Ghostty, on first use macOS will ask you to grant permission for your termi
 
 ```
 summon: error: "myap" is not a known command or registered project. Try: summon --help
+Did you mean: myapp?
 To register as a project: summon add myap /path/to/project
 Or see available:         summon list
-Did you mean: myapp?
 ```
 
-This appears when the first argument is neither a known subcommand nor a registered project. The `Did you mean` line appears when registered names are close to the argument: up to three names that match by prefix, subsequence or a small edit distance, the most recently launched first. The exit code is still 1, and Summon does not launch the suggested project. Fix the name, register the project with `summon add myapp /path/to/project`, list registered projects with `summon list`, or pass a direct path (e.g. `summon ~/code/myapp`) instead.
+This appears when the first argument is neither a known subcommand nor a registered project. The `Did you mean` line comes right after the error when registered names or subcommands are close to the argument: up to three names, the most recently launched project first. A project matches by prefix, subsequence or a small edit distance. A subcommand matches only by prefix or one edit (a typo such as `summon stauts` or `summon sesion`), and is shown as `summon <command>`. When a subcommand is the best match, the `summon add` hint is left out, and the `summon list` hint is left out when `summon list` is itself the suggestion. The exit code is still 1, and Summon does not run or launch the suggestion. `summon open`, `remove`, `session add` and `session <name>` print the same `Did you mean` line for a project name that is not registered. `summon focus`, `inspect`, `title` and `clean` print it only when the name is not registered and has no status record (Summon has never launched it); they keep exit code 2. Fix the name, register the project with `summon add myapp /path/to/project`, list registered projects with `summon list`, or pass a direct path (e.g. `summon ~/code/myapp`) instead.
 
 ### Config file location
 

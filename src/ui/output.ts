@@ -4,9 +4,11 @@
  * Central indirection over process.stdout/stderr.write so all user-facing I/O
  * flows through one place. Honors NO_COLOR / FORCE_COLOR via supportsColor().
  *
- * Three helpers:
+ * Helpers:
  *   out(msg)  — informational stdout line (equivalent to console.log)
  *   err(msg)  — raw stderr line, no prefix (for hint/continuation lines)
+ *   note(msg) — advisory stderr line: "summon: note: <msg>"
+ *   warn(msg) — warning on stderr: "summon: warning: <msg>"
  *   fail(msg) — branded error to stderr: "summon: error: <msg>" with red ✗ when colors are on
  *
  * debugLog (SUMMON_DEBUG) and progress/spinner lines are intentionally NOT
@@ -24,16 +26,21 @@ export function out(msg: string): void {
   process.stdout.write(`${msg}\n`);
 }
 
-/**
- * Write a raw (unprefixed) message to stderr, followed by a newline.
- * Use for hint/continuation lines that follow a fail() call, blank
- * separator lines (pass ""), or warnings that are not errors.
- */
 /** Advisory stderr line: "summon: note: <msg>" (not an error; the command continues). */
 export function note(msg: string): void {
   process.stderr.write(`summon: note: ${msg}\n`);
 }
 
+/** Warning on stderr: "summon: warning: <msg>" (UX-M2; not an error, the command continues). */
+export function warn(msg: string): void {
+  process.stderr.write(`summon: warning: ${msg}\n`);
+}
+
+/**
+ * Write a raw (unprefixed) message to stderr, followed by a newline.
+ * Use for hint/continuation lines that follow a fail(), note() or warn() call,
+ * or blank separator lines (pass "").
+ */
 export function err(msg: string): void {
   process.stderr.write(`${msg}\n`);
 }

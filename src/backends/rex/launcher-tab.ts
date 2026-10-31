@@ -57,7 +57,7 @@ const ROUTINE_STDERR = [
   /^summon: note: removed the files of earlier launch \S+ \(its Rex session is gone\)$/,
   // UX-H1: the on-stop disclosure repeats on every launch with a hook. The hook comes from the user's own config or a
   // `.summon` trusted by content hash, and one with shell metacharacters still gets the interactive warning.
-  /^Note: on-stop will run on workspace exit\.$/,
+  /^summon: note: on-stop will run on workspace exit\.$/,
 ];
 
 /** Every non-blank line of a write must be routine; one line to read flags the whole write. */

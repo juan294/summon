@@ -431,29 +431,45 @@ export const SUMMON_LOGO: readonly string[] = [
 // Tips
 // ---------------------------------------------------------------------------
 
-export const TIPS: readonly string[] = [
-  "Use summon add <name> <path> to register projects for quick launching",
-  "Create a .summon file in any project root for per-project config",
-  "Try --layout minimal for a focused single-editor workspace",
-  "Use summon set editor <cmd> to change your default editor",
-  "Run summon --dry-run to preview the AppleScript without launching",
-  "Project config (.summon) overrides machine config; CLI flags override both",
-  "Use summon completions zsh to enable tab completion",
-  "Try --layout btop for an editor + system monitor workspace",
-  "Use summon config to see all your current settings",
-  "The --editor-size flag controls what % of width goes to editors",
-  "Run summon doctor to check your setup and troubleshoot issues",
-  "Use summon layout list to browse your saved custom layouts",
-  "The --on-start flag runs a command in the first pane on launch",
-  "Run summon session save <name> to snapshot your workspace for later",
-  "Use summon snapshot to capture current git state and layout",
-  "Try summon briefing for a morning digest of overnight project changes",
-  "Use summon ports to discover which ports your projects are listening on",
-  "The --font-size flag overrides the default Ghostty font size",
+/** A welcome-screen tip (UX-L2). */
+export interface Tip {
+  text: string;
+  /** The command the tip names, exactly as `text` writes it; a test checks that it parses. */
+  command?: string;
+  /** Shown only when this backend was detected; a tip without one applies to both. */
+  backend?: BackendId;
+}
+
+export const TIPS: readonly Tip[] = [
+  { text: "Use summon add <name> <path> to register projects for quick launching", command: "summon add <name> <path>" },
+  { text: "Create a .summon file in any project root for per-project config" },
+  { text: "Try summon . --layout minimal for a focused single-editor workspace", command: "summon . --layout minimal" },
+  { text: "Use summon set editor <cmd> to change your default editor", command: "summon set editor <cmd>" },
+  { text: "Run summon . --dry-run to print the launch plan without launching", command: "summon . --dry-run" },
+  { text: "Project config (.summon) overrides machine config; CLI flags override both" },
+  { text: "Use summon completions zsh to enable tab completion", command: "summon completions zsh" },
+  { text: "Try summon . --layout btop for an editor + system monitor workspace", command: "summon . --layout btop" },
+  { text: "Use summon config to see all your current settings", command: "summon config" },
+  { text: "The --editor-size flag controls what % of width goes to editors" },
+  { text: "Run summon doctor to check your setup and troubleshoot issues", command: "summon doctor" },
+  { text: "Use summon layout list to browse your saved custom layouts", command: "summon layout list" },
+  { text: "The --on-start flag runs a command before the workspace is created" },
+  { text: "Use summon session add <name> <project>... to launch projects together", command: "summon session add <name> <project>..." },
+  { text: "Use summon snapshot save to capture current git state and layout", command: "summon snapshot save" },
+  { text: "Try summon briefing for a morning digest of overnight project changes", command: "summon briefing" },
+  { text: "Use summon ports to see each project's ports and spot conflicts", command: "summon ports" },
+  { text: "The --font-size flag overrides the default Ghostty font size", backend: "ghostty" },
+  { text: "Use summon clean <project> to close an empty Rex session", command: "summon clean <project>", backend: "rex" },
 ];
 
-export function getRandomTip(): string {
-  return TIPS[Math.floor(Math.random() * TIPS.length)]!;
+/** The tips that apply under `backend`; with no detected backend, only the shared ones. */
+export function tipsFor(backend: BackendId | undefined): readonly Tip[] {
+  return TIPS.filter((tip) => tip.backend === undefined || tip.backend === backend);
+}
+
+export function getRandomTip(backend?: BackendId): string {
+  const tips = tipsFor(backend);
+  return tips[Math.floor(Math.random() * tips.length)]!.text;
 }
 
 // ---------------------------------------------------------------------------
@@ -720,7 +736,8 @@ const INSTALL_HINTS: Record<string, string> = {
 // Phase 2 — Wizard functions
 // ---------------------------------------------------------------------------
 
-function printWelcome(underRex = false): void {
+function printWelcome(backend: BackendId | undefined): void {
+  const underRex = backend === "rex";
   console.log();
 
   // Color functions for the logo gradient: cyan → brightCyan → green
@@ -749,7 +766,7 @@ function printWelcome(underRex = false): void {
   }
 
   console.log();
-  console.log(`  ${bold(cyan("Tip:"))} ${dim(getRandomTip())}`);
+  console.log(`  ${bold(cyan("Tip:"))} ${dim(getRandomTip(backend))}`);
   console.log();
 }
 
@@ -1126,6 +1143,8 @@ const enum WizardStep {
 export interface SetupOptions {
   /** Detected launch backend (plan P15): under Rex the Ghostty install and Accessibility steps are skipped. */
   backend?: BackendId;
+  /** A launch follows the wizard (first run with a target): the end message says so (UX-L2). */
+  launchNext?: boolean;
 }
 
 export async function runSetup(options: SetupOptions = {}): Promise<void> {
@@ -1137,7 +1156,7 @@ export async function runSetup(options: SetupOptions = {}): Promise<void> {
   }
 
   debugLog("wizard start");
-  printWelcome(underRex);
+  printWelcome(options.backend);
 
   // UX-H3 (#282): accessibility check runs AFTER the first selectLayout prompt
   // so users can read the welcome before being presented with a system-permission dialog.
@@ -1284,9 +1303,9 @@ export async function runSetup(options: SetupOptions = {}): Promise<void> {
       console.log(green("  Settings saved to ~/.config/summon/config"));
       console.log();
       console.log(
-        "  You're all set! Run " +
-          bold("summon .") +
-          " to launch your first workspace.",
+        options.launchNext
+          ? "  You're all set! Summoning your workspace now\u2026"
+          : "  You're all set! Run " + bold("summon .") + " to launch your first workspace.",
       );
       console.log();
       return;

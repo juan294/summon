@@ -5,6 +5,7 @@
 // single-token --version/-v invocations. The --help path skips config/trust/utils
 // entirely. Only subcommand/launch paths load the full graph.
 import type { CommandHandler } from "./commands/types.js";
+import type { CLIOverrides } from "./launcher.js";
 
 const __argv = process.argv.slice(2);
 if (__argv.length === 1 && (__argv[0] === "--version" || __argv[0] === "-v")) {
@@ -84,26 +85,26 @@ async function main(): Promise<void> {
     }
     // FE-H2 (#255): unknown subcommand with --help
     if (parsed.subcommand && !hasSubcommandHelp(parsed.subcommand) && !(parsed.subcommand in registry)) {
-      console.error(`Error: Unknown command: ${parsed.subcommand}. Run 'summon --help' to see available commands.`);
+      const { fail } = await import("./ui/output.js");
+      fail(`Unknown command: ${parsed.subcommand}. Run 'summon --help' to see available commands.`);
       process.exit(1);
     }
     await showHelp();
     process.exit(0);
   }
 
+  // UX-M2: every flag warning below carries the "summon: warning:" prefix (stderr).
+  const { warn } = await import("./ui/output.js");
+
   // UX-M8 (#314): Warn if --once is used with a non-launch subcommand that doesn't support it.
   // UX-H3 (#372): Skip warning for subcommands that legitimately consume --once.
   if (parsed.values.once && parsed.subcommand && parsed.subcommand in registry && !ONCE_ALLOWED_SUBCOMMANDS.has(parsed.subcommand)) {
-    console.error(
-      `Warning: --once has no effect with the '${parsed.subcommand}' command`,
-    );
+    warn(`--once has no effect with the '${parsed.subcommand}' command`);
   }
 
   // FE-M2 (#386): Warn if --all is passed to a non-session command.
   if (parsed.values.all && parsed.subcommand && parsed.subcommand !== "session") {
-    console.error(
-      `Warning: --all has no effect with the '${parsed.subcommand}' command. --all is only valid with 'summon session'.`,
-    );
+    warn(`--all has no effect with the '${parsed.subcommand}' command. --all is only valid with 'summon session'.`);
   }
 
   // FE-L1 (#621): Warn if --vim is used with a command that doesn't consume it.
@@ -111,16 +112,14 @@ async function main(): Promise<void> {
     const sub = parsed.subcommand;
     const isLaunchTarget = sub !== undefined && !(sub in registry);
     if ((sub && sub in registry && !VIM_ALLOWED_SUBCOMMANDS.has(sub)) || isLaunchTarget) {
-      console.error(
-        `Warning: --vim has no effect with the '${sub ?? ""}' command. --vim is only valid with 'summon keybindings'.`,
-      );
+      warn(`--vim has no effect with the '${sub ?? ""}' command. --vim is only valid with 'summon keybindings'.`);
     }
   }
 
   for (const [flag, owner] of SINGLE_OWNER_FLAGS) {
     if (!parsed.values[flag]) continue;
     const sub = parsed.subcommand;
-    if (sub !== owner) console.error(`Warning: --${flag} has no effect with the '${sub ?? ""}' command. --${flag} is only valid with 'summon ${owner}'.`);
+    if (sub !== owner) warn(`--${flag} has no effect with the '${sub ?? ""}' command. --${flag} is only valid with 'summon ${owner}'.`);
   }
 
   // FE-L1 (#621): Warn if --fix is used with a command that doesn't consume it.
@@ -128,15 +127,9 @@ async function main(): Promise<void> {
     const sub = parsed.subcommand;
     const isLaunchTarget = sub !== undefined && !(sub in registry);
     if ((sub && sub in registry && !FIX_ALLOWED_SUBCOMMANDS.has(sub)) || isLaunchTarget) {
-      console.error(
-        `Warning: --fix has no effect with the '${sub ?? ""}' command. --fix is only valid with 'summon doctor'.`,
-      );
+      warn(`--fix has no effect with the '${sub ?? ""}' command. --fix is only valid with 'summon doctor'.`);
     }
   }
-
-  // Trust errors retain their concise launch-specific handling below.
-  // This import is still skipped on the --version and --help fast paths above.
-  const { SummonError } = await import("./trust.js");
 
   try {
     // DO-L1 (#547): Test hook — throw a synthetic unhandled error to verify the debug hint is printed.
@@ -155,24 +148,16 @@ async function main(): Promise<void> {
         const { runSetup } = await import("./setup.js");
         const { detectedSetupBackend } = await import("./commands/setup.js");
         // A directory target launches right after the wizard, and the launch prints the detection notices itself.
-        await runSetup(detectedSetupBackend({ showNotices: !isDirectoryTarget }));
+        // UX-L2: when the launch follows, the wizard's last line says so instead of "Run summon .".
+        await runSetup({ ...detectedSetupBackend({ showNotices: !isDirectoryTarget }), launchNext: isDirectoryTarget });
         // UX-M3 (#476): After wizard completes (returns normally), continue with the original
         // launch intent when the user was targeting a directory. Cancellation (Ctrl+C) exits
         // inside runSetup itself, so this code only runs on successful completion.
         if (isDirectoryTarget && parsed.subcommand !== undefined) {
           const overrides = buildOverrides(parsed.values);
           const { resolveTargetDirectory } = await import("./cli/resolve-target.js");
-          const targetDir = resolveTargetDirectory(parsed.subcommand);
-          const { launch } = await import("./launcher.js");
-          try {
-            await launch(targetDir, overrides);
-          } catch (err) {
-            if (err instanceof SummonError) {
-              console.error(err.message);
-              process.exit(1);
-            }
-            throw err;
-          }
+          const targetDir = resolveTargetDirectory(parsed.subcommand, Object.keys(registry));
+          await launchOrExit(targetDir, overrides);
         }
         process.exit(0);
       }
@@ -212,21 +197,27 @@ async function main(): Promise<void> {
       // Not a known subcommand — treat as a workspace target (path or registered project name).
       // resolveTargetDirectory handles path resolution, project registry lookup, and error reporting.
       const { resolveTargetDirectory } = await import("./cli/resolve-target.js");
-      const targetDir = resolveTargetDirectory(parsed.subcommand);
-      // PE-M1 (#474): Dynamically import launch only when needed, not at startup.
-      const { launch } = await import("./launcher.js");
-      try {
-        await launch(targetDir, overrides);
-      } catch (err) {
-        if (err instanceof SummonError) {
-          console.error(err.message);
-          process.exit(1);
-        }
-        throw err;
-      }
+      // UX-M3: the registry's names are suggestion candidates for a mistyped subcommand.
+      const targetDir = resolveTargetDirectory(parsed.subcommand, Object.keys(registry));
+      await launchOrExit(targetDir, overrides);
     }
   } catch (err) {
     await reportError(err);
+  }
+}
+
+/** A direct launch: an untrusted `.summon` (SummonError) is a branded error and exit 1, without the debug hint (UX-M2). */
+async function launchOrExit(targetDir: string, overrides: CLIOverrides): Promise<void> {
+  // PE-M1 (#474): launch and trust load only when a launch happens, not at startup.
+  const { launch } = await import("./launcher.js");
+  const { SummonError } = await import("./trust.js");
+  try {
+    await launch(targetDir, overrides);
+  } catch (error) {
+    if (!(error instanceof SummonError)) throw error;
+    const { fail } = await import("./ui/output.js");
+    fail(error.message);
+    process.exit(1);
   }
 }
 
@@ -237,12 +228,10 @@ async function reportError(error: unknown): Promise<void> {
   const { PromptCancelled, getErrorMessage, isDebug } = await import("./utils.js");
   if (error instanceof PromptCancelled) return;
   const { SummonError } = await import("./trust.js");
-  if (error instanceof SummonError) {
-    console.error(error.message);
-    return;
-  }
   const { fail, err } = await import("./ui/output.js");
   fail(getErrorMessage(error));
+  // UX-M2: a trust error is branded like any other but needs no debug hint; its own lines say what to run.
+  if (error instanceof SummonError) return;
   if (isDebug()) {
     err(error instanceof Error ? error.stack ?? error.message : getErrorMessage(error));
   } else {

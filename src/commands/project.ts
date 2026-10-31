@@ -6,14 +6,14 @@ import {
 } from "../config.js";
 import { focusWorkspace, launch } from "../launcher.js";
 import { promptUser, exitWithUsageHint, PromptCancelled } from "../utils.js";
-import { err, fail } from "../ui/output.js";
+import { fail, warn } from "../ui/output.js";
 import { unverifiedMessage } from "../status.js";
 import { projectArgOrExit } from "../validation.js";
 import type { ProjectRow } from "../monitor.js";
 import { validateProjectNameOrExit } from "../validation.js";
 // PE-H1 (#473): Re-export from new leaf module for backward compatibility with callers.
 export { resolveTargetDirectory, expandHome } from "../cli/resolve-target.js";
-import { expandHome } from "../cli/resolve-target.js";
+import { expandHome, printProjectSuggestions } from "../cli/resolve-target.js";
 import type { CommandContext } from "./types.js";
 import { sym } from "../ui/symbols.js";
 
@@ -32,7 +32,7 @@ export async function handleAddCommand({ args }: CommandContext): Promise<void> 
   const resolved = expandHome(path);
   const pathExists = existsSync(resolved);
   if (!pathExists) {
-    console.warn(`${sym.warn} Warning: path does not exist: ${resolved}`);
+    warn(`path does not exist: ${resolved}`);
   }
   addProject(name, resolved);
   // UX-M1 (#395): distinguish between clean registration and registration with a warning
@@ -55,6 +55,7 @@ export async function handleRemoveCommand({ args }: CommandContext): Promise<voi
   }
 
   fail(`Project not found: ${name}`);
+  printProjectSuggestions(name);
   console.error("Run 'summon list' to see registered projects.");
   process.exit(1);
 }
@@ -113,9 +114,7 @@ export async function handleOpenCommand({ args, overrides }: CommandContext): Pr
     const row = loadProjectRow(target);
     if (!row) {
       fail(`"${target}" is not a registered project. See available: summon list`);
-      const { projectSuggestions } = await import("../cli/resolve-target.js");
-      const suggestions = projectSuggestions(target);
-      if (suggestions.length > 0) err(`Did you mean: ${suggestions.join(", ")}?`);
+      printProjectSuggestions(target);
       process.exit(1);
     }
     await openRow(row, overrides);

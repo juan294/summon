@@ -207,12 +207,25 @@ describe("CLI integration", () => {
       run("remove", "chapa-cli");
     });
 
-    it("suggests the closest registered name and exits 1", () => {
+    it("suggests the closest registered name first and exits 1", () => {
       const result = run("chpaa");
       expect(result.status).toBe(1);
-      expect(result.stderr).toContain(`"chpaa" is not a known command or registered project`);
+      const lines = result.stderr.trimEnd().split("\n");
+      expect(lines[0]).toContain(`"chpaa" is not a known command or registered project`);
+      // UX-M3: the suggestion comes straight after the error, before the generic hints.
+      expect(lines[1]).toBe("Did you mean: chapa?");
       expect(result.stderr).toContain("Or see available:         summon list");
-      expect(result.stderr.trimEnd().endsWith("Did you mean: chapa?")).toBe(true);
+    });
+
+    // UX-M3: a mistyped subcommand is suggested as a command, and the user is not told to register it.
+    it("suggests a subcommand for a subcommand typo and exits 1", () => {
+      const result = run("stauts");
+      expect(result.status).toBe(1);
+      const lines = result.stderr.trimEnd().split("\n");
+      expect(lines[0]).toContain(`"stauts" is not a known command or registered project`);
+      expect(lines[1]).toBe("Did you mean: summon status?");
+      expect(result.stderr).not.toContain("summon add stauts");
+      expect(result.stdout).toBe("");
     });
   });
 
@@ -1515,8 +1528,7 @@ describe("CLI integration", () => {
       });
       rmSync(freshHome, { recursive: true, force: true });
       expect(result.status).toBe(0);
-      expect(result.stderr).toContain("Warning");
-      expect(result.stderr).toContain("empty");
+      expect(result.stderr).toContain("summon: warning: saving layout with empty config");
     });
   });
 
@@ -1525,8 +1537,7 @@ describe("CLI integration", () => {
     it("warns when adding a project with nonexistent path", () => {
       const result = run("add", "ghost-proj", "/tmp/nonexistent-path-xyz-191");
       expect(result.status).toBe(0);
-      expect(result.stderr).toContain("Warning");
-      expect(result.stderr).toContain("does not exist");
+      expect(result.stderr).toBe("summon: warning: path does not exist: /tmp/nonexistent-path-xyz-191\n");
     });
 
     it("does not warn when adding a project with existing path", () => {
@@ -1746,7 +1757,9 @@ describe("CLI integration", () => {
     it("warns on stderr when --once is passed to 'list' subcommand", () => {
       const result = run("list", "--once");
       expect(result.status).toBe(0);
-      expect(result.stderr).toContain("Warning:");
+      // UX-M2: one prefix style, still on stderr only.
+      expect(result.stderr).toContain("summon: warning: --once has no effect with the 'list' command\n");
+      expect(result.stdout).not.toContain("--once");
       expect(result.stderr).toContain("--once");
       expect(result.stderr).toContain("list");
     });
@@ -1754,7 +1767,7 @@ describe("CLI integration", () => {
     it("warns on stderr when --once is passed to 'config' subcommand", () => {
       const result = run("config", "--once");
       expect(result.status).toBe(0);
-      expect(result.stderr).toContain("Warning:");
+      expect(result.stderr).toContain("summon: warning:");
       expect(result.stderr).toContain("--once");
       expect(result.stderr).toContain("config");
     });
@@ -1837,6 +1850,31 @@ describe("CLI integration", () => {
       rmSync(freshHome, { recursive: true, force: true });
       expect(result.status).toBe(1);
       expect(result.stderr).toContain("summon");
+    });
+  });
+
+  // UX-M2 (pre-launch): the unknown-command and trust errors carry the same prefix as every other error.
+  describe("error prefixes (UX-M2)", () => {
+    it("an unknown command with --help is a branded error on stderr and exits 1", () => {
+      const result = run("nosuchcmd", "--help");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toBe("summon: error: Unknown command: nosuchcmd. Run 'summon --help' to see available commands.\n");
+      expect(result.stdout).toBe("");
+    });
+
+    it("an untrusted .summon is a branded error on stderr, exits 1, and offers no debug hint", () => {
+      const dir = mkdtempSync(join(tmpdir(), "summon-untrusted-"));
+      try {
+        writeFileSync(join(dir, ".summon"), "editor=vim\n");
+        const result = run(dir);
+        expect(result.status).toBe(1);
+        expect(result.stderr.split("\n")[0]).toBe("summon: error: This project has a .summon file.");
+        expect(result.stderr).toContain(`Run 'summon trust ${realpathSync(dir)}' to allow it`);
+        expect(result.stderr).not.toContain("SUMMON_DEBUG");
+        expect(result.stdout).toBe("");
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
     });
   });
 

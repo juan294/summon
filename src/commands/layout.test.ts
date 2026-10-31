@@ -105,13 +105,13 @@ describe("handleLayoutCommand", () => {
   });
 
   it("warns when saving an empty layout config", async () => {
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
     await handleLayoutCommand(makeContext({ args: ["save", "team"] }));
 
     expect(warnSpy).toHaveBeenCalledWith(
-      "Warning: saving layout with empty config. Set values first with: summon set <key> <value>",
+      "summon: warning: saving layout with empty config. Set values first with: summon set <key> <value>\n",
     );
     expect(mockSaveCustomLayout).toHaveBeenCalledWith("team", new Map());
     expect(logSpy).toHaveBeenCalledWith("Saved custom layout: team");

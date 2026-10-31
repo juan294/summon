@@ -18,7 +18,7 @@ import {
   ACCESSIBILITY_REQUIRED_MSG,
 } from "./utils.js";
 import { commandHasShellMeta } from "./command-spec.js";
-import { fail, err } from "./ui/output.js";
+import { fail, err, warn } from "./ui/output.js";
 
 // Re-export for callers that previously imported these from utils via launcher
 export { isAccessibilityError };
@@ -99,8 +99,7 @@ export async function confirmDangerousCommands(
   }
 
   const lines = dangerous.map(([key, value]) => `  ${key} = ${value}`).join("\n");
-  const message = `Warning: config contains commands with shell metacharacters:\n${lines}`;
-  console.warn(message);
+  warn(`config contains commands with shell metacharacters:\n${lines}`);
 
   for (const [key, value] of dangerous) {
     const answer = await promptLower(
