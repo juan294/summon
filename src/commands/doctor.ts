@@ -18,6 +18,7 @@ import { sym } from "../ui/symbols.js";
 import { CONFIG_DIR, STATUS_DIR, TRUST_FILE } from "../paths.js";
 import { describeLock, inspectLock, recoverStaleLock, type LockState } from "../file-lock.js";
 import { GHOSTTY_ONLY_CONFIG_KEYS, resolveBackendForLaunch } from "../backend.js";
+import { lockStaleBound } from "../status-record.js";
 import { discoverRexForDoctor, printRexChecks } from "../backends/rex/doctor.js";
 import { escapeControlChars } from "../pane-inventory.js";
 import type { CommandContext } from "./types.js";
@@ -341,7 +342,9 @@ export async function handleDoctorCommand({
     let state: LockState;
     let removed: boolean;
     try {
-      ({ state, removed } = fixFlag ? recoverStaleLock(lock) : { state: inspectLock(lock), removed: false });
+      // BE-L1: a Rex launch lock has its own, longer bound; a slow live launch is not a finding.
+      const staleMs = lockStaleBound(lock);
+      ({ state, removed } = fixFlag ? recoverStaleLock(lock, staleMs) : { state: inspectLock(lock, staleMs), removed: false });
     } catch (error) {
       lockFindings++;
       record(false);

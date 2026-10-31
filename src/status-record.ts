@@ -101,6 +101,20 @@ function statusFilePath(projectName: string): string {
 }
 
 /**
+ * BE-L1: the stale bound of a launch lock. Its owner runs `rex` subprocesses synchronously (execFileSync), so its
+ * token is not refreshed while it works. The worst case under the lock, summed from the call timeouts (each read 8 s
+ * plus a 2 s grace, `session.create` 10 s, the token and app waits 8 s each), is about 2 minutes; 5 minutes keeps a
+ * slow live launch its lock, and a hung or suspended (Ctrl-Z) owner is still taken over after that. A dead owner is
+ * recovered at once.
+ */
+export const LAUNCH_LOCK_STALE_MS = 5 * 60_000;
+
+/** The stale bound of a lock directory under the config directory: a launch lock's own, else the shared STALE_LOCK_MS. */
+export function lockStaleBound(directory: string): number | undefined {
+  return directory.endsWith(".launch.lock") ? LAUNCH_LOCK_STALE_MS : undefined;
+}
+
+/**
  * BE-L1: the file a backend's per-project launch lock is named after (`<project>.launch.lock/` once held), distinct
  * from the record lock (`<project>.json.lock/`). The status directory exists afterwards.
  */

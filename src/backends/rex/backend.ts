@@ -8,8 +8,8 @@ import { REX_UNHONORED_FLAGS } from "../../backend.js";
 import type { LaunchContext } from "../../backend.js";
 import type { CLIOverrides } from "../../config-resolve.js";
 import type { LaunchManifest } from "../../launch-identity.js";
-import { launchLockFile, readStatusRecord } from "../../status-record.js";
-import { STALE_LOCK_MS, withFileLockAsync } from "../../file-lock.js";
+import { LAUNCH_LOCK_STALE_MS, launchLockFile, readStatusRecord } from "../../status-record.js";
+import { withFileLockAsync } from "../../file-lock.js";
 import { note, out } from "../../ui/output.js";
 import { sym } from "../../ui/symbols.js";
 import { createRexCli, probeWhoami } from "./cli.js";
@@ -47,10 +47,10 @@ export interface RexBackendDeps {
 }
 
 /**
- * BE-L1: a waiter gives up after this long. It exceeds STALE_LOCK_MS, so the lock of a launcher that hangs (or one
- * suspended, Ctrl-Z) is taken over first; a launch that holds it longer than that bound can thus run beside the next one.
+ * BE-L1: a waiter gives up after this long. It exceeds the launch lock's stale bound (LAUNCH_LOCK_STALE_MS, above the
+ * longest launch), so the lock of a launcher that hangs or is suspended (Ctrl-Z) is taken over before a waiter gives up.
  */
-export const LAUNCH_LOCK_TIMEOUT_MS = STALE_LOCK_MS + 30_000;
+export const LAUNCH_LOCK_TIMEOUT_MS = LAUNCH_LOCK_STALE_MS + 30_000;
 
 /**
  * The per-project launch lock (BE-L1): held from the decision under the lock through `session.create` to the record's
@@ -65,6 +65,7 @@ export async function rexLaunchLock<T>(project: string, action: () => Promise<T>
       return action();
     }, {
       timeoutMs: LAUNCH_LOCK_TIMEOUT_MS,
+      staleMs: LAUNCH_LOCK_STALE_MS,
       timeoutMessage: `Timed out waiting for another summon launch of ${project} to finish. Retry when it is done; summon doctor names a lock that stays.`,
       onWait: () => line.show(`Summoning ${project}… waiting for another launch of ${project}`),
     });

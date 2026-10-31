@@ -39,7 +39,7 @@ for (let i = 0; i < argv.length; i++) {
   rest.push(a);
 }
 const input = rest[0] === "api" && rest[rest.length - 1] === "-" ? fs.readFileSync(0, "utf8") : undefined;
-fs.appendFileSync(logFile, JSON.stringify({ argv, input }) + "\n");
+fs.appendFileSync(logFile, JSON.stringify({ argv, input, caller: process.ppid }) + "\n");
 const state = JSON.parse(fs.readFileSync(stateFile, "utf8"));
 const save = () => fs.writeFileSync(stateFile, JSON.stringify(state, null, 2));
 const print = (value) => process.stdout.write(JSON.stringify(value) + "\n");
@@ -57,8 +57,8 @@ else if (cmd === "ls") print({ sessions: state.sessions.map((s) => ({ session_id
 else if (cmd === "api" && method === "session.view") { const s = find(JSON.parse(input).session_id); if (!s) notFound(); print(view(s)); }
 else if (cmd === "api" && method === "client.list") print({ clients: state.clients });
 else if (cmd === "api" && method === "session.create") {
-  // A slow server (BE-L1): the session appears only after the delay, so a concurrent launch overlaps this one.
-  if (state.createDelayMs) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, state.createDelayMs); Object.assign(state, JSON.parse(fs.readFileSync(stateFile, "utf8"))); }
+  // BE-L1: the test holds session.create (at most 8 s) until it removes the gate file, then the fake reads the state again.
+  if (state.createGate) { const deadline = Date.now() + 8000; while (fs.existsSync(state.createGate) && Date.now() < deadline) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20); Object.assign(state, JSON.parse(fs.readFileSync(stateFile, "utf8"))); }
   const request = JSON.parse(input);
   const first = request.initial_windows[0];
   const s = { session_id: id("session"), label: request.label, windows: [{ window_id: id("window"), label: first.window_label, blocks: leaves(first.layout).map(() => id("block")) }] };
@@ -76,7 +76,7 @@ else { process.stderr.write("unexpected fake rex operation: " + argv.join(" ") +
 `;
 
 interface FakeSession { session_id: string; label: string; windows: Array<{ window_id: string; label: string; blocks: string[] }> }
-interface FakeState { sessions: FakeSession[]; clients: unknown[]; createMode?: "lost"; foreground?: "agent"; createDelayMs?: number }
+interface FakeState { sessions: FakeSession[]; clients: unknown[]; createMode?: "lost"; foreground?: "agent"; createGate?: string }
 
 const LAUNCHER: FakeSession = {
   session_id: "session:0000aaaa-0000-0000-0000-000000000001",
@@ -236,10 +236,29 @@ describe("Rex launch composition through the built CLI and a fake rex (QA-M2)", 
   });
 
   it("BE-L1: two concurrent launches of one project create one session; the second waits, then switches to it", { timeout: 60_000 }, async () => {
-    // Each launch spends 1.5 s in session.create, so both pass the early P2 decision before either publishes. The
-    // launcher tab is an agent's here, so no exit-time close touches the fake state meanwhile.
-    writeState({ ...readState(), createDelayMs: 1500, foreground: "agent" });
-    const runs = await Promise.all([summonAsync("delta"), summonAsync("delta")]);
+    // An earlier launch whose session is gone: each launcher's early P2 decision then lists the server (`ls`) and proceeds.
+    const first = summon("delta");
+    expect(first.status, first.stderr).toBe(0);
+    writeState({ ...readState(), sessions: readState().sessions.filter((s) => s.label !== "delta") });
+    // session.create is held until both launchers are past their early decision; the launcher tab is an agent's,
+    // so no exit-time close touches the fake state meanwhile.
+    const gate = join(root, "create.gate");
+    writeFileSync(gate, "");
+    writeState({ ...readState(), createGate: gate, foreground: "agent" });
+    writeFileSync(logFile, "");
+    const calls = () => readFileSync(logFile, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line) as { argv: string[]; caller: number });
+    const isOp = (argv: string[], op: string) => opsOf([argv])[0] === op;
+    const pending = Promise.all([summonAsync("delta"), summonAsync("delta")]);
+    // Contention, not two launches far apart: one launcher is inside session.create while the other has already
+    // made its early decision (its `ls`), so the second must wait on the lock.
+    const contended = await settle(() => {
+      const log = calls();
+      const creator = log.find((c) => isOp(c.argv, "api call session.create"))?.caller;
+      return creator !== undefined && log.some((c) => c.caller !== creator && isOp(c.argv, "ls"));
+    }, 20_000);
+    rmSync(gate, { force: true });
+    const runs = await pending;
+    expect(contended).toBe(true);
     for (const run of runs) expect(run.status, run.stderr).toBe(0);
     expect(opsOf(rexCalls()).filter((op) => op === "api call session.create")).toHaveLength(1);
     const sessions = readState().sessions.filter((s) => s.label === "delta");

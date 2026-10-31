@@ -236,6 +236,29 @@ describe("asynchronous transaction lock (BE-L1)", () => {
     expect(readdirSync(`${file}.lock`)).toEqual([token]);
   });
 
+  it("a live owner past STALE_LOCK_MS keeps a lock that has its own longer stale bound; past that bound it is recovered", async () => {
+    const dir = fixture(), file = join(dir, "project.launch");
+    const staleMs = 5 * STALE_LOCK_MS;
+    const token = owner(file, process.pid);
+    // A slow launch: its token is older than the record locks' bound, and its process is alive.
+    age(join(`${file}.lock`, token), STALE_LOCK_MS + 5000);
+    expect(inspectLock(`${file}.lock`, staleMs)).toMatchObject({ kind: "live", pid: process.pid });
+    await expect(withFileLockAsync(file, async () => { throw new Error("must not enter"); }, { ...options, timeoutMs: 60, staleMs })).rejects.toThrow("timed out waiting for the launch lock");
+    expect(readdirSync(`${file}.lock`)).toEqual([token]);
+    // A hung or suspended owner (Ctrl-Z) is still recovered once past the lock's own bound.
+    age(join(`${file}.lock`, token), staleMs + 5000);
+    expect(inspectLock(`${file}.lock`, staleMs)).toMatchObject({ kind: "expired" });
+    await expect(withFileLockAsync(file, async () => "taken over", { ...options, staleMs })).resolves.toBe("taken over");
+    expect(readdirSync(dir)).toEqual([]);
+  });
+
+  it("recovers a dead owner at once whatever the lock's stale bound", async () => {
+    const dir = fixture(), file = join(dir, "project.launch");
+    owner(file, deadPid());
+    await expect(withFileLockAsync(file, async () => 4, { ...options, staleMs: 5 * STALE_LOCK_MS })).resolves.toBe(4);
+    expect(readdirSync(dir)).toEqual([]);
+  });
+
   it("recovers a lock whose owner is proven gone", async () => {
     const dir = fixture(), file = join(dir, "project.launch");
     owner(file, deadPid());

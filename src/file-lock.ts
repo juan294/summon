@@ -6,12 +6,13 @@ const pause = new Int32Array(new SharedArrayBuffer(4));
 
 /**
  * BE-L2: an owner token older than this is stale whatever the PID probe says (a reused PID, or
- * EPERM). A token dated this far in the future (the clock jumped back) is stale too. Every critical
- * section is local I/O on one small file (a key=value config file, a status record, the trust DB),
- * idempotent side-file removal and at most a warning written to stderr: no subprocess, network or
- * git call runs under the lock, so a transaction takes milliseconds and a waiter gives up after 3 s.
- * One minute is 20 times that wait. Only an owner suspended mid-transaction (Ctrl-Z, system sleep)
- * for a minute could lose the lock.
+ * EPERM). A token dated this far in the future (the clock jumped back) is stale too. It is the
+ * bound of the synchronous locks (`withFileLock`): each critical section is local I/O on one small
+ * file (a key=value config file, a status record, the trust DB), idempotent side-file removal and at
+ * most a warning written to stderr, with no subprocess, network or git call, so a transaction takes
+ * milliseconds and a waiter gives up after 3 s. One minute is 20 times that wait. Only an owner
+ * suspended mid-transaction (Ctrl-Z, system sleep) for a minute could lose the lock. A lock whose
+ * transaction runs subprocesses (the Rex launch lock, BE-L1) passes its own, longer bound.
  */
 export const STALE_LOCK_MS = 60_000;
 
@@ -41,7 +42,7 @@ export type LockState =
   | { kind: "released" }
   /** Not exactly one well-formed owner token: never removed automatically. */
   | { kind: "unrecognized"; entries: string[] }
-  /** `live` within STALE_LOCK_MS, `dead` once the PID is proven absent, `expired` past the bound. */
+  /** `live` within the lock's stale bound, `dead` once the PID is proven absent, `expired` past the bound. */
   | { kind: "live" | "dead" | "expired"; pid: number; token: string; ageMs: number };
 
 /** Why a lock is in its state, for diagnostics (raw entry names: escape before printing). */
@@ -59,8 +60,8 @@ export function describeLock(state: LockState): string {
   }
 }
 
-/** Classify a lock directory without changing it (recovery and `summon doctor` share this rule). */
-export function inspectLock(directory: string): LockState {
+/** Classify a lock directory without changing it (recovery and `summon doctor` share this rule); `staleMs` is the lock's own bound. */
+export function inspectLock(directory: string, staleMs: number = STALE_LOCK_MS): LockState {
   let entries: string[];
   try { entries = readdirSync(directory); } catch (error) {
     if (code(error) === "ENOENT") return { kind: "absent" };
@@ -80,12 +81,12 @@ export function inspectLock(directory: string): LockState {
     // Only ESRCH proves absence; EPERM may be a reused PID, which the age bound settles.
     alive = code(error) !== "ESRCH";
   }
-  return { kind: !alive ? "dead" : Math.abs(ageMs) > STALE_LOCK_MS ? "expired" : "live", pid, token, ageMs };
+  return { kind: !alive ? "dead" : Math.abs(ageMs) > staleMs ? "expired" : "live", pid, token, ageMs };
 }
 
 /** Remove a released, dead or expired lock (only its observed token); live and unrecognized locks stay. `removed`: this call removed the directory. */
-export function recoverStaleLock(directory: string): { state: LockState; removed: boolean } {
-  const state = inspectLock(directory);
+export function recoverStaleLock(directory: string, staleMs: number = STALE_LOCK_MS): { state: LockState; removed: boolean } {
+  const state = inspectLock(directory, staleMs);
   if (state.kind === "released") return { state, removed: removeOwner(directory) };
   if (state.kind === "dead" || state.kind === "expired") return { state, removed: removeOwner(directory, state.token) };
   return { state, removed: false };
@@ -114,12 +115,14 @@ interface LockAttempt {
   staging: string;
   acquired: boolean;
   stagingCreated: boolean;
+  /** The bound past which a live owner's token is stale. */
+  staleMs: number;
 }
 
-function newAttempt(file: string): LockAttempt {
+function newAttempt(file: string, staleMs: number = STALE_LOCK_MS): LockAttempt {
   const directory = `${file}.lock`;
   const token = `${process.pid}-${randomUUID()}.owner`;
-  return { directory, token, staging: `${directory}-${token}.tmp`, acquired: false, stagingCreated: false };
+  return { directory, token, staging: `${directory}-${token}.tmp`, acquired: false, stagingCreated: false, staleMs };
 }
 
 /** One acquisition step: true when this attempt published the lock; otherwise any stale owner is recovered. */
@@ -145,7 +148,7 @@ function tryAcquire(attempt: LockAttempt): boolean {
     removeOwner(staging, token);
     attempt.stagingCreated = false;
   }
-  recoverStaleLock(directory);
+  recoverStaleLock(directory, attempt.staleMs);
   return false;
 }
 
@@ -185,8 +188,13 @@ export function withFileLock<T>(file: string, action: () => T, timeoutMs = 3000)
 }
 
 export interface AsyncLockOptions {
-  /** Give up after this long; it should exceed STALE_LOCK_MS so a hung owner is recovered before a waiter gives up. */
+  /** Give up after this long; it should exceed `staleMs` so a hung owner is recovered before a waiter gives up. */
   timeoutMs: number;
+  /**
+   * The lock's stale bound (default STALE_LOCK_MS). It must exceed the longest transaction: the owner's token is not
+   * refreshed while it works (its subprocess calls block the event loop), so a live owner older than this loses the lock.
+   */
+  staleMs?: number;
   /** The error message when the wait times out. */
   timeoutMessage: string;
   /** Called once, when the first attempt finds the lock held. */
@@ -197,11 +205,11 @@ export interface AsyncLockOptions {
 
 /**
  * `withFileLock` for an asynchronous transaction that may run subprocesses (BE-L1: a Rex launch from its decision to
- * its publication). Same lock directory protocol, owner tokens and stale/dead-owner recovery; the wait does not block
- * the event loop. A transaction longer than STALE_LOCK_MS can be taken over by a waiter, which then runs unserialized.
+ * its publication). Same lock directory protocol, owner tokens and stale/dead-owner recovery, with the lock's own
+ * stale bound; the wait does not block the event loop. A dead owner is recovered at once.
  */
 export async function withFileLockAsync<T>(file: string, action: () => Promise<T>, options: AsyncLockOptions): Promise<T> {
-  const attempt = newAttempt(file);
+  const attempt = newAttempt(file, options.staleMs);
   let result: T;
   try {
     const deadline = performance.now() + options.timeoutMs;

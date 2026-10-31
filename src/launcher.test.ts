@@ -89,6 +89,8 @@ vi.mock("./status-record.js", () => ({
   publishStatus: vi.fn(() => "published"),
   readStatusRecord: (project: string) => mockReadStatusRecord(project),
   isLiveState: (state: string) => state === "active" || state === "partial",
+  // Read when the Rex backend module loads (its waiter timeout); the lock itself is replaced by mockLaunchLock.
+  LAUNCH_LOCK_STALE_MS: 5 * 60_000,
 }));
 
 // Mock starship
