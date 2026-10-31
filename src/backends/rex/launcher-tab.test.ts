@@ -156,9 +156,11 @@ describe("watchForAttention (D1)", () => {
       ["summon: note: could not remove the files of earlier launch 547c18b7-b4d4-45ae-aebe-3b642197ec3a (its Rex session is gone): EPERM\n", true],
       ["summon: note: Rex cannot honor maximize; ignored\n", true],
       // UX-H1: the on-stop disclosure prints on every launch with a hook; it is not something to act on.
-      ["Note: on-stop will run on workspace exit.\n", false],
-      ["Note: on-stop will run on workspace exit.\nWarning: something else\n", true],
-      ["Warning: ignoring invalid env var key \"1X\" from .summon file.\n", true],
+      ["summon: note: on-stop will run on workspace exit.\n", false],
+      ["summon: note: on-stop will run on workspace exit.\nsummon: warning: something else\n", true],
+      // UX-M2: the old unprefixed line is no longer what Summon prints, so it is not routine.
+      ["Note: on-stop will run on workspace exit.\n", true],
+      ["summon: warning: ignoring invalid env var key \"1X\" from .summon file.\n", true],
       ["Workspace [api] is already running in Rex but could not be shown (no app); run summon open api\n", true],
       [Buffer.from("[2/3] Skipped web \u2014 untrusted .summon file.\n"), true],
     ] as const) {

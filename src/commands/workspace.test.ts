@@ -160,6 +160,40 @@ describe("workspace commands with real status fixtures", () => {
     out.mockRestore();
     fail.mockRestore();
   });
+  // UX-M3: a name with no record that is not registered gets the closest registered names; the exit code stays 2.
+  it("focus, inspect and title on an unknown name suggest registered projects on stderr and still exit 2", async () => {
+    const configDir = join(fixture.home, ".config", "summon");
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(join(configDir, "projects"), "chapa=/tmp/chapa\n");
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const out = vi.spyOn(console, "log").mockImplementation(() => {});
+    const exit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+    try {
+      for (const run of [
+        () => handleFocusCommand(context(["chpaa"])),
+        () => handleInspectCommand(context(["chpaa"], { json: true })),
+        () => handleTitleCommand(context(["chpaa"])),
+      ]) {
+        stderr.mockClear();
+        await expect(run()).rejects.toThrow("exit:2");
+        const lines = stderr.mock.calls.map((c) => String(c[0]));
+        expect(lines.at(-1)).toBe("Did you mean: chapa?\n");
+      }
+      // A name with a record is never second-guessed.
+      seed(false);
+      stderr.mockClear();
+      await expect(handleFocusCommand(context(["demo"]))).rejects.toThrow("exit:2");
+      expect(stderr.mock.calls.map((c) => String(c[0])).join("")).not.toContain("Did you mean");
+      expect(fixture.exec).not.toHaveBeenCalled();
+    } finally {
+      rmSync(join(configDir, "projects"), { force: true });
+      stderr.mockRestore();
+      out.mockRestore();
+      exit.mockRestore();
+    }
+  });
   it("focus handler reports confirmed success only", async () => {
     seed();
     fixture.exec.mockReturnValue(

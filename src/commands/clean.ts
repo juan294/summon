@@ -5,6 +5,7 @@ import { projectArgOrExit } from "../validation.js";
 import { launchLiveness, readStatusRecord, unlinkIgnoringMissing } from "../status-record.js";
 import { SESSION_GONE, endRexLaunch, requireRexBinary, unverifiedMessage } from "../status.js";
 import { createRexCli } from "../backends/rex/cli.js";
+import { printProjectSuggestions } from "../cli/resolve-target.js";
 import { listSessions, sessionState, viewBlockIds, viewSession } from "../backends/rex/status.js";
 import type { SessionListing, SessionView } from "../backends/rex/status.js";
 import { adoptDeps, adoptOrphans, readPaneFile, readPaneMapping, removeOrphanLaunch, strandedTokenNotice, withRecoveryCommand } from "../backends/rex/launch.js";
@@ -60,6 +61,7 @@ async function cleanCurrent(project: string): Promise<void> {
   const record = readStatusRecord(project);
   if (!record) {
     fail(`[${project}] has no workspace record; nothing to clean.`);
+    printProjectSuggestions(project);
     process.exit(2);
   }
   const swept = sweepDeadGhosttyLaunches(project, record.launchId);

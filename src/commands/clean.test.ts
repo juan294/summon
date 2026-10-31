@@ -118,6 +118,20 @@ describe("summon clean <project> (plan P17)", () => {
     expect(rex.calls.some((c) => c.op === "kill")).toBe(false);
   });
 
+  // UX-M3: an unknown name gets the closest registered names after the error; the exit code stays 2.
+  it("suggests a registered project for a name without a record", async () => {
+    const configDir = join(tmpdir(), `summon-clean-config-${process.pid}`);
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(join(configDir, "projects"), "chapa=/tmp/chapa\n");
+    try {
+      await expect(handleCleanCommand(context(["chpaa"]))).rejects.toThrow("exit:2");
+      expect(errs).toEqual(["summon: error: [chpaa] has no workspace record; nothing to clean.\n", "Did you mean: chapa?\n"]);
+      expect(rex.calls).toEqual([]);
+    } finally {
+      rmSync(configDir, { recursive: true, force: true });
+    }
+  });
+
   it.each([["layers: string", "malformed"], ["layers: [[]]", [[]]]])("a malformed session view (%s) is unverifiable: no kill, exit 2, record untouched", async (_label, layers) => {
     writeStatus(record());
     const malformed = { session_id: SESSION, revision: 1, windows: [{ window_id: WINDOW, layers }] };

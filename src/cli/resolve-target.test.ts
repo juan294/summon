@@ -17,7 +17,7 @@ vi.mock("node:os", () => ({
   homedir: () => "/Users/tester",
 }));
 
-const { resolveTargetDirectory, expandHome, projectSuggestions } = await import("./resolve-target.js");
+const { resolveTargetDirectory, expandHome, projectSuggestions, printProjectSuggestions } = await import("./resolve-target.js");
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -25,13 +25,13 @@ beforeEach(() => {
   mockReadStatusRecord.mockImplementation(() => null);
 });
 
-function captureFailure(target: string): string {
+function captureFailure(target: string, commands: readonly string[] = []): string {
   const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
   const exitSpy = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
     throw new Error(`exit:${code}`);
   }) as never);
   try {
-    expect(() => resolveTargetDirectory(target)).toThrow("exit:1");
+    expect(() => resolveTargetDirectory(target, commands)).toThrow("exit:1");
     return writeSpy.mock.calls.map((c) => String(c[0])).join("");
   } finally {
     writeSpy.mockRestore();
@@ -104,13 +104,37 @@ describe("resolve-target (PE-H1 #473)", () => {
         expect(out).toContain("Or see available:         summon list");
       });
 
-      it("prints up to three suggestions after the two hint lines and still exits 1", () => {
+      // UX-M3: the suggestion line comes straight after the error, before the two generic hints.
+      it("prints up to three suggestions before the two hint lines and still exits 1", () => {
         mockListProjects.mockImplementation(() => new Map([["chapa", "/w/chapa"], ["chapa-cli", "/w/chapa-cli"], ["summon", "/w/summon"]]));
         const out = captureFailure("cha");
         const lines = out.split("\n").filter(Boolean);
-        expect(lines[lines.length - 3]).toContain("To register as a project: summon add cha /path/to/project");
-        expect(lines[lines.length - 2]).toContain("Or see available:         summon list");
-        expect(lines[lines.length - 1]).toBe("Did you mean: chapa, chapa-cli?");
+        expect(lines).toHaveLength(4);
+        expect(lines[0]).toContain(`"cha" is not a known command or registered project`);
+        expect(lines[1]).toBe("Did you mean: chapa, chapa-cli?");
+        expect(lines[2]).toContain("To register as a project: summon add cha /path/to/project");
+        expect(lines[3]).toContain("Or see available:         summon list");
+      });
+
+      it("suggests a subcommand as `summon <command>` and drops the register hint (UX-M3)", () => {
+        mockListProjects.mockImplementation(() => new Map([["chapa", "/w/chapa"]]));
+        const lines = captureFailure("stauts", ["status", "list", "add"]).split("\n").filter(Boolean);
+        expect(lines[1]).toBe("Did you mean: summon status?");
+        expect(lines.join("\n")).not.toContain("summon add stauts");
+        expect(lines.at(-1)).toContain("summon list");
+        // A command's recency is never read from a status record.
+        expect(mockReadStatusRecord).not.toHaveBeenCalledWith("status");
+      });
+
+      it("ranks commands and projects together, a project keeps its bare name", () => {
+        mockListProjects.mockImplementation(() => new Map([["statsd", "/w/statsd"]]));
+        const out = captureFailure("stat", ["status"]);
+        expect(out).toContain("Did you mean: statsd, summon status?");
+      });
+
+      it("a name that is both a command and a project is offered as the command (the registry wins)", () => {
+        mockListProjects.mockImplementation(() => new Map([["status", "/w/status"]]));
+        expect(captureFailure("stauts", ["status"])).toContain("Did you mean: summon status?");
       });
 
       it("ranks the most recently launched project first inside a tier (records of matching names only, no probes)", () => {
@@ -136,6 +160,38 @@ describe("resolve-target (PE-H1 #473)", () => {
       it("never reads records when the registry is empty", () => {
         captureFailure("missing");
         expect(mockReadStatusRecord).not.toHaveBeenCalled();
+      });
+    });
+
+    // UX-M3: the commands that take a project name share one suggestion line.
+    describe("printProjectSuggestions", () => {
+      function capture(target: string): string {
+        const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+        try {
+          printProjectSuggestions(target);
+          return writeSpy.mock.calls.map((c) => String(c[0])).join("");
+        } finally {
+          writeSpy.mockRestore();
+        }
+      }
+
+      it("writes the closest registered names to stderr", () => {
+        mockListProjects.mockImplementation(() => new Map([["chapa", "/w/chapa"], ["summon", "/w/summon"]]));
+        expect(capture("chpaa")).toBe("Did you mean: chapa?\n");
+      });
+
+      it("names the target when several unknown names are reported together", () => {
+        mockListProjects.mockImplementation(() => new Map([["chapa", "/w/chapa"]]));
+        const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+        printProjectSuggestions("chpaa", true);
+        expect(writeSpy.mock.calls.map((c) => String(c[0]))).toEqual(["For chpaa, did you mean: chapa?\n"]);
+        writeSpy.mockRestore();
+      });
+
+      it("writes nothing when nothing is close or the name is registered", () => {
+        mockListProjects.mockImplementation(() => new Map([["chapa", "/w/chapa"]]));
+        expect(capture("zzzzzz")).toBe("");
+        expect(capture("chapa")).toBe("");
       });
     });
   });

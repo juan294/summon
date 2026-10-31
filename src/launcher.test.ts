@@ -1762,7 +1762,10 @@ describe("shell metacharacter confirmation (#90)", () => {
       await launch("/tmp/workspace");
 
       const msgs = warnSpy.mock.calls.map((c) => c[0] as string);
-      expect(msgs.some((m) => m.includes("Starship is not installed"))).toBe(true);
+      expect(msgs).toEqual([
+        'summon: warning: starship-preset is set to "tokyo-night" but Starship is not installed. Skipping.',
+        "Install Starship: https://starship.rs",
+      ]);
       expect(mockGenerateAppleScript).toHaveBeenCalledWith(
         expect.anything(),
         "/tmp/workspace",
@@ -1786,7 +1789,7 @@ describe("shell metacharacter confirmation (#90)", () => {
       await launch("/tmp/workspace");
 
       const msgs = warnSpy.mock.calls.map((c) => c[0] as string);
-      expect(msgs.some((m) => m.includes("Failed to set up Starship preset"))).toBe(true);
+      expect(msgs).toContain('summon: warning: Failed to set up Starship preset "bad-preset": preset generation failed');
       expect(mockGenerateAppleScript).toHaveBeenCalledWith(
         expect.anything(),
         "/tmp/workspace",
@@ -1907,8 +1910,8 @@ describe("on-start hook (#107)", () => {
 
       // Must NOT throw — launch should continue even when on-start fails
       await expect(launch("/tmp/workspace", { "on-start": "false" })).resolves.toBe("launched");
-      // Must warn about the failure
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("on-start command failed"));
+      // Must warn about the failure (UX-M2: with the warning prefix, through console.warn as before)
+      expect(warnSpy).toHaveBeenCalledWith("summon: warning: on-start command failed; continuing workspace launch");
 
       logSpy.mockRestore();
       warnSpy.mockRestore();
@@ -2192,7 +2195,8 @@ describe("on-start hook (#107)", () => {
 
       const result = resolveConfig("/tmp/workspace", {});
       expect(result.envVars).not.toHaveProperty(envKey);
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining(`ignoring denylisted env var key "${envKey}"`));
+      // UX-M2: the one warning prefix; the text after it is unchanged.
+      expect(warnSpy).toHaveBeenCalledWith(`summon: warning: ignoring denylisted env var key "${envKey}" from .summon file.`);
       warnSpy.mockRestore();
     });
   });
@@ -2490,7 +2494,12 @@ describe("custom tree layout integration (Phase 4)", () => {
 
       await launch("/tmp/workspace");
 
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("existing summon workspace"));
+      // UX-M2: only the first line gains the prefix; the continuation lines and the prompt are unchanged.
+      expect(warnSpy.mock.calls.map((c) => c[0])).toEqual([
+        "summon: warning: You're inside an existing summon workspace.",
+        "Launching here will nest splits inside this pane, which can get messy.",
+        "Tip: Use --new-window to open in a separate window instead.\n",
+      ]);
       expect(mockExecFileSync).toHaveBeenCalled();
       warnSpy.mockRestore();
     });
@@ -4920,7 +4929,7 @@ describe("Rex launch (plan P2, P8, P13, P15; Phase 3)", () => {
   it("still discloses an on-stop hook under Rex (the D1 watch treats that line as routine)", async () => {
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"], ["on-stop", "echo bye"]]));
     await launch("/tmp/workspace");
-    expect(stderrText).toContain("Note: on-stop will run on workspace exit.\n");
+    expect(stderrText).toContain("summon: note: on-stop will run on workspace exit.\n");
   });
 
   it("a dry run with an active Rex record calls neither adoptOrphans nor the switch decision nor any rex process, and prints the request plus the note", async () => {

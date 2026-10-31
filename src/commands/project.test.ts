@@ -57,12 +57,6 @@ vi.mock("../utils.js", async (importOriginal) => {
 });
 
 const mockLoadProjectRow = vi.fn();
-const mockProjectSuggestions = vi.fn((..._args: unknown[]) => [] as string[]);
-vi.mock("../cli/resolve-target.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../cli/resolve-target.js")>()),
-  projectSuggestions: (...args: unknown[]) => mockProjectSuggestions(...args),
-}));
-
 vi.mock("../monitor.js", () => ({
   loadProjectRows: (...args: unknown[]) => mockLoadProjectRows(...args),
   loadProjectRow: (...args: unknown[]) => mockLoadProjectRow(...args),
@@ -147,7 +141,8 @@ describe("handleAddCommand", () => {
     await handleAddCommand(makeContext({ args: ["demo", "~/code/demo"] }));
 
     expect(mockAddProject).toHaveBeenCalledWith("demo", "/Users/tester/code/demo");
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("Warning: path does not exist: /Users/tester/code/demo"));
+    // UX-M2: the one warning prefix (stderr, via console.warn as before)
+    expect(warnSpy).toHaveBeenCalledWith("summon: warning: path does not exist: /Users/tester/code/demo");
     // UX-M1 (#395): message should indicate warning, not plain success
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("Registered with warning"));
     logSpy.mockRestore();
@@ -168,7 +163,8 @@ describe("handleAddCommand", () => {
 });
 
 describe("FE-H1/UX-H3 (#526,#530): canonical glyph vocabulary", () => {
-  it("uses ⚠ (not !) as warn glyph in warn message to console.warn", async () => {
+  // UX-M2: the stderr warning uses the one "summon: warning:" prefix; the ⚠ glyph stays on the stdout summary line.
+  it("prefixes the stderr warning with summon: warning: instead of a glyph", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     mockExistsSync.mockReturnValue(false);
@@ -176,8 +172,8 @@ describe("FE-H1/UX-H3 (#526,#530): canonical glyph vocabulary", () => {
     await handleAddCommand(makeContext({ args: ["demo", "~/code/demo"] }));
 
     const warnMsg = warnSpy.mock.calls.map(c => c[0] as string).join("\n");
-    expect(warnMsg).toContain("⚠");
-    expect(warnMsg).not.toMatch(/^!/m);
+    expect(warnMsg).toMatch(/^summon: warning: /);
+    expect(warnMsg).not.toContain("⚠");
     warnSpy.mockRestore();
     logSpy.mockRestore();
   });
@@ -241,11 +237,12 @@ describe("handleRemoveCommand", () => {
       throw new Error(`exit:${code}`);
     }) as never);
     mockRemoveProject.mockReturnValue(false);
+    mockListProjects.mockReturnValue(new Map([["missing-app", "/w/missing-app"]]));
 
     await expect(handleRemoveCommand(makeContext({ args: ["missing"] }))).rejects.toThrow("exit:1");
-    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");
-    expect(allWrites).toContain("summon: error:");
-    expect(allWrites).toContain("Project not found: missing");
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0]));
+    // UX-M3: the suggestion follows the error line directly.
+    expect(allWrites).toEqual(["summon: error: Project not found: missing\n", "Did you mean: missing-app?\n"]);
     // The hint line still goes through console.error
     expect(errorSpy).toHaveBeenCalledWith("Run 'summon list' to see registered projects.");
     expect(exitSpy).toHaveBeenCalledWith(1);
@@ -621,8 +618,6 @@ describe("summon open <project> (guide F1: the documented direct form)", () => {
       throw new Error(`exit:${code}`);
     }) as never);
     mockLoadProjectRow.mockReset();
-    mockProjectSuggestions.mockReset();
-    mockProjectSuggestions.mockReturnValue([]);
     mockFocusWorkspace.mockReset();
     mockLaunch.mockReset();
   });
@@ -667,7 +662,7 @@ describe("summon open <project> (guide F1: the documented direct form)", () => {
   it("names an unregistered project with suggestions (exit 1)", async () => {
     const err = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     mockLoadProjectRow.mockReturnValue(undefined);
-    mockProjectSuggestions.mockReturnValue(["chapa", "chapa-cli"]);
+    mockListProjects.mockReturnValue(new Map([["chapa", "/w/chapa"], ["chapa-cli", "/w/chapa-cli"]]));
     await expect(handleOpenCommand(makeContext({ args: ["chap"] }))).rejects.toThrow("exit:1");
     const text = err.mock.calls.flat().join("");
     expect(text).toContain('"chap" is not a registered project');

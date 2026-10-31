@@ -15,6 +15,7 @@ import { TabOpenError } from "../errors.js";
 import { exitWithUsageHint, getErrorMessage, supportsColor } from "../utils.js";
 import { sym } from "../ui/symbols.js";
 import { fail, err, note } from "../ui/output.js";
+import { printProjectSuggestions } from "../cli/resolve-target.js";
 import type { CommandContext } from "./types.js";
 
 const RESERVED = new Set(["add", "remove", "list", "show", "all"]);
@@ -63,6 +64,14 @@ export async function handleSessionCommand(ctx: CommandContext): Promise<void> {
     default:
       return cmdLaunch(ctx, sub);
   }
+}
+
+/** Unknown project names: the error, the closest registered names (UX-M3), the register hint, exit 1. */
+function exitUnknownProjects(missing: readonly string[]): never {
+  fail(`Unknown project(s): ${missing.join(", ")}`);
+  for (const name of missing) printProjectSuggestions(name, missing.length > 1);
+  err("Register them with: summon add <name> <path>");
+  process.exit(1);
 }
 
 async function cmdLaunch(ctx: CommandContext, name: string | undefined): Promise<void> {
@@ -117,11 +126,7 @@ async function cmdLaunch(ctx: CommandContext, name: string | undefined): Promise
       missing.push(proj);
     }
   }
-  if (missing.length > 0) {
-    fail(`Unknown project(s): ${missing.join(", ")}`);
-    err("Register them with: summon add <name> <path>");
-    process.exit(1);
-  }
+  if (missing.length > 0) exitUnknownProjects(missing);
 
   const total = projects.length;
   // Every project that succeeded (launched, switched to, or printed as a dry run), in order: under Rex the first is shown again at the end.
@@ -227,11 +232,7 @@ async function cmdAdd(rest: string[], _ctx: CommandContext): Promise<void> {
       missing.push(proj);
     }
   }
-  if (missing.length > 0) {
-    fail(`Unknown project(s): ${missing.join(", ")}`);
-    err("Register them with: summon add <name> <path>");
-    process.exit(1);
-  }
+  if (missing.length > 0) exitUnknownProjects(missing);
 
   writeSession(name, projectArgs);
   console.log(`${sym.ok} Session saved: ${name} (${projectArgs.length} project(s): ${projectArgs.join(", ")})`);

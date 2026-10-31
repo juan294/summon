@@ -12,7 +12,7 @@ vi.mock("../utils.js", () => ({
   formatUserError: (msg: string) => mockFormatUserError(msg),
 }));
 
-const { out, err, fail } = await import("./output.js");
+const { out, err, fail, note, warn } = await import("./output.js");
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -74,5 +74,25 @@ describe("fail()", () => {
     vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     expect(() => fail("msg")).not.toThrow("exit called");
     exitSpy.mockRestore();
+  });
+});
+
+// UX-M2: notes and warnings share one prefix style; both stay on stderr.
+describe("note() and warn()", () => {
+  it("note() writes summon: note: to stderr", () => {
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    note("on-stop will run on workspace exit.");
+    expect(writeSpy).toHaveBeenCalledWith("summon: note: on-stop will run on workspace exit.\n");
+    writeSpy.mockRestore();
+  });
+
+  it("warn() writes summon: warning: through console.warn (stderr), never stdout", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    warn("--once has no effect with the 'list' command");
+    expect(warnSpy).toHaveBeenCalledWith("summon: warning: --once has no effect with the 'list' command");
+    expect(stdoutSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+    stdoutSpy.mockRestore();
   });
 });

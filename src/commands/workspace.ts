@@ -1,5 +1,6 @@
 import type { CommandContext } from "./types.js";
 import { readStatus } from "../status.js";
+import { readStatusRecord } from "../status-record.js";
 import { focusWorkspace, resolveWorkspaceTerminal } from "../launcher.js";
 import { readNativeInventory, titleTerminal, validateTitleText } from "../ghostty-native.js";
 import { projectArgOrExit } from "../validation.js";
@@ -9,6 +10,7 @@ import { rexCommandGate } from "../status.js";
 import type { ResolvedStatus } from "../status.js";
 import { exitWithUsageHint } from "../utils.js";
 import { fail } from "../ui/output.js";
+import { printProjectSuggestions } from "../cli/resolve-target.js";
 
 const projectArg = projectArgOrExit;
 export async function handleFocusCommand({
@@ -18,6 +20,8 @@ export async function handleFocusCommand({
   const result = focusWorkspace(project, args[1]);
   if (result.kind !== "focused") {
     fail(result.reason);
+    // UX-M3: a name Summon has never launched may be a typo of a registered project.
+    if (!readStatusRecord(project)) printProjectSuggestions(project);
     process.exit(2);
   }
   console.log(`Focused [${project}]${args[1] ? ` ${args[1]}` : ""}`);
@@ -84,6 +88,7 @@ export async function handleInspectCommand({
       );
     if (explanation) console.log(explanation);
   }
+  if (!status) printProjectSuggestions(project);
   if (!available) process.exit(2);
 }
 
@@ -157,6 +162,7 @@ export async function handleTitleCommand({
     const target = resolveWorkspaceTerminal(project, args[1], status);
     if (target.kind !== "target") {
       fail(target.reason);
+      if (!status) printProjectSuggestions(project);
       process.exit(2);
     }
     result = titleTerminal(target.terminalId, scope, operation);

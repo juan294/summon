@@ -111,7 +111,7 @@ describe("handleLayoutCommand", () => {
     await handleLayoutCommand(makeContext({ args: ["save", "team"] }));
 
     expect(warnSpy).toHaveBeenCalledWith(
-      "Warning: saving layout with empty config. Set values first with: summon set <key> <value>",
+      "summon: warning: saving layout with empty config. Set values first with: summon set <key> <value>",
     );
     expect(mockSaveCustomLayout).toHaveBeenCalledWith("team", new Map());
     expect(logSpy).toHaveBeenCalledWith("Saved custom layout: team");

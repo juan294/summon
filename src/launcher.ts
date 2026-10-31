@@ -37,7 +37,7 @@ import { parseTreeDSL, extractPaneDefinitions, extractPaneCwds, resolveTreeComma
 import type { LayoutNode, PlannedLayout, TreePlanOptions } from "./tree.js";
 import { resolveCommand as resolveCommandPath, describeCommandFailure, getErrorMessage, SUMMON_WORKSPACE_ENV, promptUser, isDebug } from "./utils.js";
 import type { CommandFailureKind } from "./utils.js";
-import { fail, err, note } from "./ui/output.js";
+import { fail, err, note, warn } from "./ui/output.js";
 import { confirmDangerousCommands } from "./launch-guards.js";
 import { assertTrusted, assertTrustedContent } from "./trust.js";
 import { parseIntInRange, parsePositiveFloat, ENV_KEY_RE, PROJECT_NAME_RE, sanitizeProjectName } from "./validation.js";
@@ -308,12 +308,12 @@ function collectEnvVars(
     if (key.startsWith("env.")) {
       const envKey = key.slice(4);
       if (isDenylisted(envKey)) {
-        console.warn(`Warning: ignoring denylisted env var key "${envKey}" from machine config.`);
+        warn(`ignoring denylisted env var key "${envKey}" from machine config.`);
       } else if (ENV_KEY_RE.test(envKey)) {
         envVars[envKey] = value;
       } else {
         // BE-L2 (#618): warn on invalid keys for parity with .summon and --env sources.
-        console.warn(`Warning: ignoring invalid env var key "${envKey}" from machine config.`);
+        warn(`ignoring invalid env var key "${envKey}" from machine config.`);
       }
     }
   }
@@ -323,11 +323,11 @@ function collectEnvVars(
     if (key.startsWith("env.")) {
       const envKey = key.slice(4);
       if (isDenylisted(envKey)) {
-        console.warn(`Warning: ignoring denylisted env var key "${envKey}" from .summon file.`);
+        warn(`ignoring denylisted env var key "${envKey}" from .summon file.`);
       } else if (ENV_KEY_RE.test(envKey)) {
         envVars[envKey] = value;
       } else {
-        console.warn(`Warning: ignoring invalid env var key "${envKey}" from .summon file.`);
+        warn(`ignoring invalid env var key "${envKey}" from .summon file.`);
       }
     }
   }
@@ -339,11 +339,11 @@ function collectEnvVars(
       if (eqIdx > 0) {
         const envKey = entry.slice(0, eqIdx);
         if (isDenylisted(envKey)) {
-          console.warn(`Warning: ignoring denylisted env var key "${envKey}" from --env flag.`);
+          warn(`ignoring denylisted env var key "${envKey}" from --env flag.`);
         } else if (ENV_KEY_RE.test(envKey)) {
           envVars[envKey] = entry.slice(eqIdx + 1);
         } else {
-          console.warn(`Warning: ignoring invalid env var key "${envKey}" from --env flag.`);
+          warn(`ignoring invalid env var key "${envKey}" from --env flag.`);
         }
       }
     }
@@ -576,7 +576,7 @@ async function warnIfNested(
   if (backend === "rex" || !process.env[SUMMON_WORKSPACE_ENV] || opts.newWindow || dryRun || !process.stdin.isTTY) {
     return false;
   }
-  console.warn("Warning: You're inside an existing summon workspace.");
+  warn("You're inside an existing summon workspace.");
   console.warn("Launching here will nest splits inside this pane, which can get messy.");
   console.warn("Tip: Use --new-window to open in a separate window instead.\n");
   const answer = await prompt("Continue anyway? [y/N] ");
@@ -681,10 +681,8 @@ function executeOnStart(onStart: string, targetDir: string): void {
     // A hard abort (e.g. for SIGINT/SIGKILL) is unlikely from a hook and would be
     // surfaced via the stderr inherited above; treating all failures as warnings
     // allows pre-flight checks to fail gracefully without killing the workspace.
-    const message = isDebug()
-      ? `[debug] on-start command failed: ${onStart} — ${getErrorMessage(err)}`
-      : "on-start command failed; continuing workspace launch";
-    console.warn(message);
+    if (isDebug()) console.warn(`[debug] on-start command failed: ${onStart} — ${getErrorMessage(err)}`);
+    else warn("on-start command failed; continuing workspace launch");
   }
 }
 
@@ -1050,7 +1048,7 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
   // on-stop is embedded in the AppleScript's EXIT trap and runs silently; a launch-time notice
   // makes the hook visible without requiring users to inspect the generated script.
   if (effectiveOnStop && !cliOverrides?.dryRun) {
-    process.stderr.write("Note: on-stop will run on workspace exit.\n");
+    note("on-stop will run on workspace exit.");
   }
 
   // Cache resolved command paths so the same binary is only looked up once
@@ -1077,14 +1075,10 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
       try {
         return ensurePresetConfig(starshipPreset);
       } catch (err) {
-        console.warn(
-          `Warning: Failed to set up Starship preset "${starshipPreset}": ${getErrorMessage(err)}`,
-        );
+        warn(`Failed to set up Starship preset "${starshipPreset}": ${getErrorMessage(err)}`);
       }
     } else {
-      console.warn(
-        `Warning: starship-preset is set to "${starshipPreset}" but Starship is not installed. Skipping.`,
-      );
+      warn(`starship-preset is set to "${starshipPreset}" but Starship is not installed. Skipping.`);
       console.warn("Install Starship: https://starship.rs");
     }
     return null;

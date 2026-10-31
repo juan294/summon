@@ -3,6 +3,12 @@
 // (name -> epoch ms of the last recorded launch), consulted only for names that match.
 import { editDistance } from "../edit-distance.js";
 
+/** A suggested launch target: a registered project, or a subcommand (UX-M3) printed as `summon <name>`. */
+export interface Suggestion {
+  name: string;
+  command: boolean;
+}
+
 /** Most suggestions printed on one line. */
 export const MAX_SUGGESTIONS = 3;
 /** Largest edit distance that still counts as a near miss. */
@@ -38,6 +44,22 @@ export function suggestProjects(target: string, names: readonly string[], recenc
     .sort((a, b) => a.tier - b.tier || recencyOf(b.name) - recencyOf(a.name) || a.name.localeCompare(b.name, "en"))
     .slice(0, MAX_SUGGESTIONS)
     .map((m) => m.name);
+}
+
+/**
+ * Suggest subcommands and registered projects close to `target` in one ranking (UX-M3). A name that is
+ * both is the command (the dispatch registry wins), and a command has no launch recency.
+ */
+export function suggestTargets(target: string, projects: readonly string[], commands: readonly string[], recency: LaunchRecency): Suggestion[] {
+  const commandSet = new Set(commands);
+  const names = [...commandSet, ...projects.filter((name) => !commandSet.has(name))];
+  return suggestProjects(target, names, (name) => (commandSet.has(name) ? undefined : recency(name)))
+    .map((name) => ({ name, command: commandSet.has(name) }));
+}
+
+/** The single "Did you mean" line: commands as `summon <name>`, projects by their bare name. */
+export function didYouMean(suggestions: readonly Suggestion[]): string {
+  return `Did you mean: ${suggestions.map((s) => (s.command ? `summon ${s.name}` : s.name)).join(", ")}?`;
 }
 
 function matchTier(target: string, lowerTarget: string, name: string): number | null {
