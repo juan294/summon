@@ -89,7 +89,7 @@ src/
       status.ts         sessionState (four-state table P10), focusRex, inspectRex, titleRex, program status (OSC 7501)
       read.ts           The Rex half of a status read: resolveRexStatus, adoptUnrecordedRex, rex binary memo, rexCommandGate
       reconcile.ts      The writing steps of a reconciling read: adoptOnce, refreshUnverifiedPanes, reconcileStoppedLaunch, endRexLaunch
-      workspace.ts      RexWorkspace record port: resolve, focus, inspect, title, clean (P17) and the --orphans review
+      workspace.ts      RexWorkspace record port: focus, inspect, title, stillRunningNotice, close (clean, P17) and the --orphans review
       launcher-tab.ts   D1: close the launcher tab after a launch or switch made inside Rex
       doctor.ts         The Rex section of summon doctor (CLI, version, server, app clients)
       backend.ts        createRexBackend: the Rex TerminalBackend (beforeLaunch, exclusiveLaunch launch lock BE-L1, P8 notices, launch, dry run, D1 hooks)
@@ -260,7 +260,7 @@ primary injection defense. See src/shell-escape.ts for the escape functions it p
 
 ## Known Architectural Debt
 
-- **PE-S1**: `setup.ts` compiles to ~20KB chunk. Further code splitting (lazy imports for gallery/builder) could reduce cold-start cost. Tracked in #329.
+- **PE-S1**: `setup.ts` compiles to a ~21.5 KB chunk (measured 2026-10-31). The gallery data (`setup-gallery.ts`) is already a lazy `import()`; #329 is closed. Further splitting of the builder is still possible.
 - **PE-S2**: The persistent cross-invocation cache (`~/.config/summon/cache.json`, #516/#330) was removed in PE-M1: measured, it gave no gain (median `summon list` 45.05 ms with it, 44.34 ms without) and wrote on every exit. Config uses only the in-process mtime cache; `SUMMON_NO_CACHE` is a documented no-op.
 
 ## Schema Migrations
@@ -278,7 +278,7 @@ See `docs/decisions/schema-migration-strategy.md` for the full policy.
 
 ## Known TODOs
 
-- **UX-L4**: Add "All projects clean" positive confirmation to briefing output when no issues are found (briefing.ts).
+None open. UX-L4 (the briefing's "All projects clean" line) is done in `briefing.ts`.
 <!-- rpi:claude-import:start -->
 @AGENTS.md
 <!-- rpi:claude-import:end -->

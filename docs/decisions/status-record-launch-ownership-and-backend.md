@@ -2,6 +2,7 @@
 
 **Status:** Accepted
 **Date:** 2026-10-29
+**Status notes:** 2026-10-31, see the end of this record
 **Plan:** `docs/plans/2026-10-29-rex-backend.md` (P6, P12, P13, P16; §3 "Status write protocol")
 
 ## Context
@@ -66,3 +67,10 @@ A shell started by a previous Summon version still runs the old trap. It can onl
 - Liveness sidecars are per launch, which removes the same-project trap race entirely instead of narrowing it. The Phase 1 real-process tests (`src/launch-identity.interleave.test.ts`) execute the generated bootstrap and trap text, and the pinned pre-revision trap text, with the system `/bin/sh` to prove it.
 - `summon snapshot save` reads `--dir`, `--project`, `--layout` and `--launch` as ordinary parsed flags. The global parser used to reject `--dir` and validated `--layout` as a launch preset, so the trap's snapshot save had been failing silently; registering the flags and moving the preset validation to the launch paths is part of this decision because the generation-checked write depends on it.
 - The backend seam (`src/backend.ts`, `src/backend-detect.ts`, `src/backends/`) resolves the backend right after config and before any Ghostty-specific step; this version still refuses the Rex result with "Rex backend is not available in this version".
+
+## Status Notes (2026-10-31)
+
+These notes record later changes. The decision text above stays as written.
+
+- **Concurrent Rex launches (BE-L1).** The Write protocol section says a launcher `replace` that overrides another live launch of the same project is a user decision. For Rex this no longer happens through two plain launches: `exclusiveLaunch` in `src/backends/rex/backend.ts` holds a per-project launch lock (`<project>.launch.lock/`) from a second P2 decision through `session.create` to the record's publication, and makes that decision again when the record changed since `beforeLaunch`. A second concurrent Rex launch of the same project then finds the first one's live session and switches to it. Only `--new-window` (which skips the switch in `maybeSwitchToExisting`) or a Ghostty launch (no `exclusiveLaunch`) still creates a second workspace, and the `replace` rule above applies to it unchanged.
+- **The Rex backend shipped (2.0.0).** The last Consequences bullet says this version still refuses the Rex result. That is superseded: since 2.0.0 the seam dispatches a Rex result to the Rex `TerminalBackend` (`src/backends/select.ts`, `src/backends/rex/`), and the "Rex backend is not available in this version" refusal no longer exists in the source.
