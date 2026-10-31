@@ -110,6 +110,22 @@ describe("doctor effective diagnostics", () => {
     expect(readFileSync(target, "utf-8")).toBe("# existing preferences\n");
     expect(output()).toContain("scrollback-compression=true");
   });
+  it("reports a timed-out accessibility probe as INFO, counted neither as a pass nor as a failure (PE-L3)", async () => {
+    await handleDoctorCommand(context());
+    const [, passed, total] = /(\d+)\/(\d+) checks passed\./.exec(output()) ?? [];
+    errors.mockClear();
+    const answer = exec.getMockImplementation()!;
+    exec.mockImplementation((binary: string, args: string[]) => {
+      if (binary === "osascript" && String(args[1]).includes("System Events"))
+        throw Object.assign(new Error("spawnSync osascript ETIMEDOUT"), { code: "ETIMEDOUT", signal: "SIGKILL" });
+      return answer(binary, args);
+    });
+    await handleDoctorCommand(context());
+    expect(output()).toContain("INFO  Accessibility permission could not be checked (System Events did not answer); a launch will report it if it is missing");
+    expect(output()).not.toContain("Accessibility permission is granted");
+    expect(output()).not.toContain("Accessibility permission is required");
+    expect(output()).toContain(`${Number(passed) - 1}/${Number(total) - 1} checks passed.`);
+  });
   it("warns on 1.3.1 while retaining success", async () => {
     exec.mockImplementationOnce(() => "Ghostty 1.3.1");
     await handleDoctorCommand(context());

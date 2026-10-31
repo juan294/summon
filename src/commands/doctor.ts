@@ -4,7 +4,7 @@ import { probeGhostty, type GhosttyConfigKey } from "../ghostty.js";
 import { homedir } from "node:os";
 import { listConfig, listProjects } from "../config.js";
 import {
-  checkAccessibility,
+  probeAccessibility,
   resolveCommand,
   GHOSTTY_PATHS,
   ACCESSIBILITY_REQUIRED_MSG,
@@ -263,12 +263,16 @@ export async function handleDoctorCommand({
   console.error();
   console.error("Checking permissions...\n");
 
-  const accessOk = checkAccessibility();
-  totalChecks++;
-  if (accessOk) {
+  const access = probeAccessibility();
+  if (access === "unknown") {
+    // PE-L3: System Events did not answer in time; that is neither a pass nor a failure.
+    console.error("  INFO  Accessibility permission could not be checked (System Events did not answer); a launch will report it if it is missing");
+  } else if (access === "granted") {
+    totalChecks++;
     passedChecks++;
     console.error(`  ${PASS}  Accessibility permission is granted`);
   } else {
+    totalChecks++;
     allGood = false;
     totalIssues++;
     console.error(`  ${FAIL}  Accessibility permission is required`);
