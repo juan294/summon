@@ -53,7 +53,7 @@ vi.mock("./snapshot.js", async (original) => ({
   writeSnapshotFile: (snapshot: unknown) => snapshotMocks.writeSnapshotFile(snapshot),
 }));
 
-const { writeStatus, publishStatus, clearStatus, readStatus, readAllStatuses, readProjectStatus, getGitBranch, parseWorkspaceStatus, readStatusRecord, withOwnedRecord, statusTestHooks, resetRexBinaryMemo, newRexReadContext, removeLaunchFileSet, NO_LIVE_PANES } = await import("./status.js");
+const { hasRexState, writeStatus, publishStatus, clearStatus, readStatus, readAllStatuses, readProjectStatus, getGitBranch, parseWorkspaceStatus, readStatusRecord, withOwnedRecord, statusTestHooks, resetRexBinaryMemo, newRexReadContext, removeLaunchFileSet, NO_LIVE_PANES } = await import("./status.js");
 const { launchArtifactFiles } = await import("./launch-identity.js");
 const { writeLaunchManifest } = await import("./launch-identity.js");
 import type { WorkspaceStatus } from "./status.js";
@@ -1526,3 +1526,27 @@ describe("reconciliation of ended Rex launches (plan P12, Phase 5)", () => {
   });
 });
 
+
+describe("hasRexState (PE-H1: only Rex state reads off the monitor's thread)", () => {
+  const manifest = (project: string, backend: "rex" | "ghostty"): LaunchManifest => ({
+    version: 1, launchId: GEN_A, project, directory: `/tmp/${project}`, layout: "default",
+    panes: ["editor"], paneOrder: ["editor"], blockLabels: { editor: "editor" },
+    backend, ...(backend === "rex" ? { server: "unix:///tmp/rex.sock" } : {}), startedAt: "2026-10-29T10:00:00.000Z",
+  }) as LaunchManifest;
+
+  it("is false with no status directory, Ghostty records or Ghostty manifests", () => {
+    expect(hasRexState()).toBe(false);
+    writeStatus(makeStatus({ project: "ghost" }));
+    writeLaunchManifest(manifest("ghost-launch", "ghostty"));
+    expect(hasRexState()).toBe(false);
+  });
+
+  it("is true with a Rex record or a Rex launch manifest without a record", () => {
+    writeStatus(makeStatus({ project: "rexy", launchId: GEN_A, backend: "rex", rex: rexIdentity(), panes: ["editor"] }));
+    expect(hasRexState()).toBe(true);
+    clearStatus("rexy");
+    expect(hasRexState()).toBe(false);
+    writeLaunchManifest(manifest("orphan", "rex"));
+    expect(hasRexState()).toBe(true);
+  });
+});

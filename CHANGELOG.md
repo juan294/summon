@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The monitor keeps the selection on the same project when a refresh reorders the rows, so Enter opens the highlighted project.
 - In the monitor, Esc dismisses the help and error screens, and the next key is no longer swallowed.
 - The monitor help legend explains `partial`, `unknown` and the Rex program-status glyphs.
-- The monitor stays responsive when a Rex server is slow: it reads the workspace statuses in a background process, so keys, resize and drawing keep working, and a refresh still running is never started twice. A read that takes longer than 30 s is stopped, and the rows on screen stay until the next refresh.
+- The monitor stays responsive when a Rex server is slow: with Rex workspaces it reads their status in a background process, so keys, resize and drawing keep working, and a refresh still running is never started twice. The header shows `updating…` while a read takes longer than one refresh, and `last updated Ns ago` after a failed one. Quitting or opening a project stops the read in progress. Ghostty-only setups read as before.
 
 ## [2.0.1] - 2026-10-31
 

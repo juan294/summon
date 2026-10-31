@@ -66,7 +66,7 @@ export function newRexReadContext(options: ReadOptions = {}): RexReadContext {
 
 let rexBinaryMemo: string | null | undefined;
 
-/** The `rex` binary, discovered once per process (the TUI reads every 3 s; the location does not move mid-run). */
+/** The `rex` binary, discovered once per process and shared by every row of a read (the location does not move mid-run). */
 export function rexBinaryPath(): string | null {
   if (rexBinaryMemo === undefined) rexBinaryMemo = discoverRex().path;
   return rexBinaryMemo;
@@ -260,28 +260,49 @@ export function readProjectStatus(projectName: string, ctx: RexReadContext = new
 }
 
 /**
- * @deprecated No-op since PE-H1. The 1 s read cache is gone: the monitor reads in a child process
- * and every other caller reads once per process. Remove once no test calls it.
+ * @deprecated No-op since PE-H1; remove in Wave 2. The 1 s read cache is gone: the monitor reads
+ * in a child process and every other caller reads once per process.
  */
 export function resetReadAllStatusesCache(): void {}
 
-export function readAllStatuses(options: ReadOptions = {}): ResolvedStatus[] {
-  if (!existsSync(STATUS_DIR)) return [];
-
+/** The projects with a record and the projects with a launches directory, from one listing of STATUS_DIR. */
+function scanStatusDir(): { recorded: string[]; launchDirProjects: string[] } {
+  if (!existsSync(STATUS_DIR)) return { recorded: [], launchDirProjects: [] };
   // BE-M4 #605: filter out .tmp and dotfiles so orphans never appear as phantom entries
   const entries = readdirSync(STATUS_DIR, { withFileTypes: true });
-  const files = entries
-    .filter((entry) => entry.isFile() && entry.name.endsWith(".json") && !entry.name.startsWith(".") && !entry.name.endsWith(".tmp"))
-    .map((entry) => entry.name);
-  const launchDirProjects = entries
-    .filter((entry) => entry.isDirectory() && entry.name.endsWith(".launches"))
-    .map((entry) => entry.name.slice(0, -".launches".length));
+  return {
+    recorded: entries
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".json") && !entry.name.startsWith(".") && !entry.name.endsWith(".tmp"))
+      .map((entry) => entry.name.slice(0, -".json".length)),
+    launchDirProjects: entries
+      .filter((entry) => entry.isDirectory() && entry.name.endsWith(".launches"))
+      .map((entry) => entry.name.slice(0, -".launches".length)),
+  };
+}
+
+/**
+ * A Rex record or a Rex launch manifest exists: only then can a status read spawn `rex`. Reads the
+ * records and manifests as JSON (no liveness, no probes); the monitor reads off its thread only then (PE-H1).
+ */
+export function hasRexState(): boolean {
+  const { recorded, launchDirProjects } = scanStatusDir();
+  if (recorded.some((project) => readStatusRecord(project)?.backend === "rex")) return true;
+  return launchDirProjects.some((project) => {
+    try {
+      return listLaunchManifests(project).some((manifest) => manifest.backend === "rex");
+    } catch {
+      return false;
+    }
+  });
+}
+
+export function readAllStatuses(options: ReadOptions = {}): ResolvedStatus[] {
+  const { recorded, launchDirProjects } = scanStatusDir();
   const statuses: ResolvedStatus[] = [];
   const ctx = newRexReadContext(options);
 
   const recordedProjects = new Set<string>();
-  for (const file of files) {
-    const projectName = file.replace(/\.json$/, "");
+  for (const projectName of recorded) {
     recordedProjects.add(projectName);
     const status = readStatus(projectName, ctx);
     if (status) statuses.push(status);
