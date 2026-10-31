@@ -80,7 +80,13 @@ export interface ResolvedConfig {
  * Denylisted env var key prefixes and exact names that could be used for
  * code injection via dynamic linkers, shell hooks, or interpreter startup files.
  */
-const ENV_DENYLIST_PREFIXES = ["DYLD_", "LD_"];
+const ENV_DENYLIST_PREFIXES = [
+  "DYLD_",
+  "LD_",
+  // SE-L3: GIT_CONFIG, GIT_CONFIG_COUNT/KEY_n/VALUE_n, _PARAMETERS, _GLOBAL and _SYSTEM inject git
+  // config such as core.pager, core.fsmonitor or alias.* (each runs a command in git).
+  "GIT_CONFIG",
+];
 const ENV_DENYLIST_EXACT = new Set([
   "NODE_OPTIONS",
   "BASH_ENV",
@@ -88,6 +94,20 @@ const ENV_DENYLIST_EXACT = new Set([
   "PROMPT_COMMAND",
   "CDPATH",
   "IFS",
+  // SE-L3: both backends apply these before the pane shell starts, so they change what runs at
+  // shell startup or inside common tools. PATH, PYTHONPATH, ZDOTDIR and HOME stay allowed: search
+  // paths, a startup location and the home directory users set on purpose (the Rex E2E suites pass
+  // --env ZDOTDIR=<dir> and env.HOME).
+  "ENV", // sh, ksh and bash in POSIX mode source $ENV at startup
+  "SHELL", // tools such as vim, tmux and script(1) run $SHELL
+  "PS1", // bash runs command substitutions in the prompt at each prompt
+  "PROMPT", // zsh alias of PS1 (command substitution with PROMPT_SUBST)
+  "PERL5OPT", // perl applies -M/-I options from it at every start
+  "RUBYOPT", // ruby applies -r options from it at every start
+  "GIT_ASKPASS", // git runs it to read credentials
+  "SSH_ASKPASS", // ssh runs it to read passphrases
+  "LESSOPEN", // less runs it as an input preprocessor
+  "LESSCLOSE", // less runs it after LESSOPEN
   // SE-M2 (#609): command-carrying vars — these execute a subprocess when a tool reads
   // them (e.g. git spawning $GIT_SSH_COMMAND, pagers honouring $PAGER, editors via $EDITOR).
   // Values are correctly escaped for injection, but allowing them lets a trusted .summon

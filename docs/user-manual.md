@@ -812,9 +812,11 @@ Use cases:
 
 - **Runtime config per project** — each project's `.summon` file carries its own environment, so `summon api` and `summon frontend` launch with different `PORT`, `NODE_ENV`, etc.
 - **API keys for dev tools** — pass keys to panes without adding them to your shell profile
-- **Tool configuration** — set `EDITOR`, `PAGER`, or tool-specific vars per workspace
+- **Tool configuration** — set tool-specific vars per workspace
 
 Environment variables are layered: CLI flags override `.summon`, which overrides machine config.
+
+**Environment values run before the shell starts.** Both backends apply `env.<KEY>` values (from machine config, a trusted `.summon` file and `--env`) to each pane before its login shell starts, so a variable can change what the shell and the tools in it run. Summon ignores the keys that load startup files, run a command or inject options, and prints `summon: warning: ignoring denylisted env var key "<KEY>" from <source>.` for each one: `ENV`, `BASH_ENV`, `SHELL`, `PS1`, `PROMPT`, `PROMPT_COMMAND`, `CDPATH`, `IFS`, `NODE_OPTIONS`, `PERL5OPT`, `RUBYOPT`, `PYTHONSTARTUP`, `PAGER`, `EDITOR`, `VISUAL`, `GIT_EDITOR`, `GIT_PAGER`, `GIT_SSH_COMMAND`, `GIT_EXTERNAL_DIFF`, `GIT_ASKPASS`, `SSH_ASKPASS`, `LESSOPEN`, `LESSCLOSE`, and every key that starts with `DYLD_`, `LD_` or `GIT_CONFIG`. `HOME` stays allowed. `PATH`, `PYTHONPATH` and `ZDOTDIR` also stay allowed because users set them on purpose, but they change what runs: `PATH` and `PYTHONPATH` decide which programs and Python modules the panes find, and `ZDOTDIR` decides which zsh startup files run. Review them in a trusted `.summon` file just as you review its commands.
 
 ## Window Management
 
