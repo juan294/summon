@@ -39,7 +39,7 @@ vi.mock("../snapshot.js", async (original) => ({
 }));
 
 const { handleCleanCommand } = await import("./clean.js");
-const { writeStatus, readStatusRecord, resetRexBinaryMemo, resetReadAllStatusesCache } = await import("../status.js");
+const { writeStatus, readStatusRecord, resetRexBinaryMemo } = await import("../status.js");
 const { writeLaunchManifest, launchArtifactPaths } = await import("../launch-identity.js");
 type WorkspaceStatus = import("../status.js").WorkspaceStatus;
 type LaunchManifest = import("../launch-identity.js").LaunchManifest;
@@ -94,7 +94,6 @@ beforeEach(() => {
   rex.calls.length = 0;
   for (const key of Object.keys(rex.answers)) delete rex.answers[key];
   resetRexBinaryMemo();
-  resetReadAllStatusesCache();
   logs = [];
   errs = [];
   vi.spyOn(process.stdout, "write").mockImplementation((chunk: unknown) => { logs.push(String(chunk)); return true; });

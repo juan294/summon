@@ -15,7 +15,7 @@ import { commandExecutable } from "../command-spec.js";
 import { green, red, yellow, bold, dim } from "../ui/ansi.js";
 import { sym } from "../ui/symbols.js";
 import { CONFIG_DIR, TRUST_FILE } from "../paths.js";
-import { resolveBackendForLaunch } from "../backend.js";
+import { GHOSTTY_ONLY_CONFIG_KEYS, resolveBackendForLaunch } from "../backend.js";
 import { createRexCli, defaultRexServer, discoverRex, whoamiOf } from "../backends/rex/cli.js";
 import { listAppClients } from "../backends/rex/app.js";
 import { escapeControlChars } from "../pane-inventory.js";
@@ -25,10 +25,8 @@ const PASS = green(`${sym.ok} PASS`);
 const FAIL = red(`${sym.fail} FAIL`);
 
 /** UX-H1: Ghostty-only preferences a Rex launch ignores silently when they come from config; doctor names them once. */
-const REX_IGNORED_CONFIG_KEYS = ["maximize", "float", "fullscreen", "font-size", "clean", "new-window"] as const;
-
 function rexIgnoredConfigKeys(config: Map<string, string>): string[] {
-  return REX_IGNORED_CONFIG_KEYS.filter((key) => {
+  return GHOSTTY_ONLY_CONFIG_KEYS.filter((key) => {
     const value = config.get(key);
     return key === "font-size" ? value !== undefined && value !== "" : value === "true";
   });
@@ -55,6 +53,10 @@ export async function handleDoctorCommand({
   let autoFixable = 0;
   let totalChecks = 0;
   let passedChecks = 0;
+
+  // Read once: listConfig warns about unknown keys on every read. The first read stays where it was (Rex section or command checks).
+  let configRead: Map<string, string> | undefined;
+  const userConfig = (): Map<string, string> => (configRead ??= listConfig());
 
   let allGood = true;
   const record = (ok: boolean): void => {
@@ -312,14 +314,13 @@ export async function handleDoctorCommand({
     console.error(detection.ok
       ? `  INFO  this shell launches in ${detection.backend} (placement ${detection.placement}${detection.backend === "rex" ? `, server ${detection.server}` : ""})`
       : `  INFO  this shell cannot launch: ${detection.reason}`);
-    const ignored = rexIgnoredConfigKeys(listConfig());
+    const ignored = rexIgnoredConfigKeys(userConfig());
     if (ignored.length > 0) console.error(`  INFO  Rex ignores these Ghostty settings from your config: ${ignored.join(", ")}`);
   }
 
-  const userConfig = listConfig();
   const commandChecks: Array<{ key: string; cmd: string }> = [];
-  const editorCmd = userConfig.get("editor");
-  const sidebarCmd = userConfig.get("sidebar");
+  const editorCmd = userConfig().get("editor");
+  const sidebarCmd = userConfig().get("sidebar");
   if (editorCmd) commandChecks.push({ key: "editor", cmd: editorCmd });
   if (sidebarCmd) commandChecks.push({ key: "sidebar", cmd: sidebarCmd });
 

@@ -72,6 +72,11 @@ export function rexBinaryPath(): string | null {
   return rexBinaryMemo;
 }
 
+/** Use a `rex` binary already resolved by the parent process (the monitor's child read, PE-H1) instead of looking it up. */
+export function seedRexBinaryPath(path: string): void {
+  rexBinaryMemo = path;
+}
+
 /** The `rex` binary or a failed exit 2 with the install hint (commands only). */
 export function requireRexBinary(): string {
   const binary = rexBinaryPath();
@@ -259,12 +264,6 @@ export function readProjectStatus(projectName: string, ctx: RexReadContext = new
   return readStatus(projectName, ctx) ?? unverifiedLaunchRows([projectName], new Set(), ctx)[0] ?? null;
 }
 
-/**
- * @deprecated No-op since PE-H1; remove in Wave 2. The 1 s read cache is gone: the monitor reads
- * in a child process and every other caller reads once per process.
- */
-export function resetReadAllStatusesCache(): void {}
-
 /** The projects with a record and the projects with a launches directory, from one listing of STATUS_DIR. */
 function scanStatusDir(): { recorded: string[]; launchDirProjects: string[] } {
   if (!existsSync(STATUS_DIR)) return { recorded: [], launchDirProjects: [] };
@@ -301,9 +300,8 @@ export function readAllStatuses(options: ReadOptions = {}): ResolvedStatus[] {
   const statuses: ResolvedStatus[] = [];
   const ctx = newRexReadContext(options);
 
-  const recordedProjects = new Set<string>();
+  const recordedProjects = new Set(recorded);
   for (const projectName of recorded) {
-    recordedProjects.add(projectName);
     const status = readStatus(projectName, ctx);
     if (status) statuses.push(status);
   }

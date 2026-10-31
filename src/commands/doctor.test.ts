@@ -356,6 +356,22 @@ describe("doctor Rex section (plan P15, Phase 3)", () => {
     expect(output()).toContain("this shell launches in rex (placement inside-rex");
   });
 
+  it("reads the config once, so an unknown key is warned about once (Rex checks and command checks share it)", async () => {
+    mockDiscoverRex.mockReturnValue({ path: REX, searched: ["PATH"] });
+    exec.mockImplementation(rexAnswers(true));
+    writeFileSync(join(home, ".config/summon/config"), "editor=nvim\nmaximize=true\nbogus=1\n");
+    resetConfigCache();
+    const warns = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await handleDoctorCommand(context());
+      expect(warns.mock.calls.flat().filter((line) => String(line).includes("unknown config key: bogus"))).toHaveLength(1);
+    } finally {
+      warns.mockRestore();
+    }
+    expect(output()).toContain("Rex ignores these Ghostty settings from your config: maximize");
+    expect(output()).toContain("Checking configured commands");
+  });
+
   it("UX-H1: names once the Ghostty-only settings in config that Rex ignores silently, and only when some are set", async () => {
     mockDiscoverRex.mockReturnValue({ path: REX, searched: ["PATH"] });
     exec.mockImplementation(rexAnswers(true));

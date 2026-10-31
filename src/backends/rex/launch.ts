@@ -6,6 +6,7 @@ import type { LaunchRemoval } from "../../status-record.js";
 import type { WorkspaceState, WorkspaceStatus } from "../../status-record.js";
 import { err, note } from "../../ui/output.js";
 import { shellQuote } from "../../shell-escape.js";
+import { getErrorMessage } from "../../utils.js";
 import { escapeControlChars } from "../../pane-inventory.js";
 import { createRexCli, whoamiOf } from "./cli.js";
 import type { RexCli } from "./cli.js";
@@ -169,16 +170,21 @@ function unverifiedNotice(unverified: string[]): string {
     : `${unverified.length} panes are unverified (${unverified.join(", ")}); their files had not appeared yet`;
 }
 
+/** Remove every file of a launch (manifest last; see `removeLaunchFileSet`); the caller holds the status lock. */
+function removeManifestFiles(manifest: LaunchManifest): LaunchRemoval {
+  return removeLaunchFileSet(launchArtifactFiles(manifest.project, manifest.launchId, manifest.paneOrder));
+}
+
 /** Remove the files of a launch whose `session.create` definitely created nothing, under the status lock; a failure is returned as a notice. */
 function removeFailedLaunch(manifest: LaunchManifest): string | undefined {
   let failures: string[] = [];
   try {
     const { afterErrors } = withOwnedRecord(manifest.project, "replace", () => null, () => {
-      failures = removeLaunchFileSet(launchArtifactFiles(manifest.project, manifest.launchId, manifest.paneOrder)).failures;
+      failures = removeManifestFiles(manifest).failures;
     });
     failures = [...failures, ...afterErrors.map((error) => error.message)];
   } catch (error) {
-    failures = [error instanceof Error ? error.message : String(error)];
+    failures = [getErrorMessage(error)];
   }
   return failures.length > 0 ? `could not remove the files of failed launch ${manifest.launchId}: ${failures[0]}; summon clean --orphans names it` : undefined;
 }
@@ -358,7 +364,7 @@ export type OrphanRemoval = { outcome: "superseded" } | ({ outcome: "removed" } 
 export function removeOrphanLaunch(project: string, gen: string | null, manifest: LaunchManifest): OrphanRemoval {
   let removal: LaunchRemoval = { failures: [] };
   const { outcome } = withOwnedRecord(project, { launchId: gen }, () => null, () => {
-    removal = removeLaunchFileSet(launchArtifactFiles(manifest.project, manifest.launchId, manifest.paneOrder));
+    removal = removeManifestFiles(manifest);
   });
   return outcome === "superseded" ? { outcome } : { outcome: "removed", ...removal };
 }
@@ -407,6 +413,22 @@ function extraSessionNotice(project: string, sessionId: string, launchId: string
  * still reported, and status always says both.
  */
 export function adoptOrphans(project: string, deps: AdoptDeps, options: { reportLeftovers?: boolean; forLaunch?: boolean } = {}): string[] {
+  return adoptNotices(project, deps, options, new Set());
+}
+
+/** A notice of the launch path; `routine` is housekeeping that does not keep the D1 launcher tab open. */
+export interface LaunchNotice {
+  text: string;
+  routine?: true;
+}
+
+/** `adoptOrphans` with `forLaunch: true`, each notice marked routine at its source (D1): a gone session's files removed. */
+export function adoptOrphansForLaunch(project: string, deps: AdoptDeps): LaunchNotice[] {
+  const routine = new Set<string>();
+  return adoptNotices(project, deps, { forLaunch: true }, routine).map((text) => (routine.has(text) ? { text, routine: true } : { text }));
+}
+
+function adoptNotices(project: string, deps: AdoptDeps, options: { reportLeftovers?: boolean; forLaunch?: boolean }, routine: Set<string>): string[] {
   const reportLeftovers = options.reportLeftovers ?? true;
   const current = readStatusRecord(project);
   if (current && !current.launchId) return options.forLaunch ? [] : [`${project} has a record from an older Summon; run summon ${project} to replace it`];
@@ -496,9 +518,14 @@ export function adoptOrphans(project: string, deps: AdoptDeps, options: { report
     if (decision.kind === "remove") {
       const removal = removeOrphanLaunch(project, gen, decision.manifest);
       if (removal.outcome === "superseded") { notices.push(superseded); return notices; }
-      notices.push(removal.failures.length === 0
-        ? `removed the files of earlier launch ${decision.manifest.launchId} (its Rex session is gone)`
-        : `could not remove the files of earlier launch ${decision.manifest.launchId} (its Rex session is gone): ${strandedLine(removal) ?? `${removal.failures[0]}; ${cleanHint}`}`);
+      if (removal.failures.length === 0) {
+        // Housekeeping after a session ended outside Summon (D1 routine); its failure below is for the user to read.
+        const removed = `removed the files of earlier launch ${decision.manifest.launchId} (its Rex session is gone)`;
+        routine.add(removed);
+        notices.push(removed);
+      } else {
+        notices.push(`could not remove the files of earlier launch ${decision.manifest.launchId} (its Rex session is gone): ${strandedLine(removal) ?? `${removal.failures[0]}; ${cleanHint}`}`);
+      }
       continue;
     }
     if (adopted) {
@@ -566,7 +593,8 @@ export function maybeSwitchToExisting(project: string, newWindow: boolean, deps:
   if (state.state === "unknown") return { kind: "refused", reason: `${project} is recorded in Rex but could not be verified on ${identity.server}: ${state.reason ?? "unknown"}. Open the Rex app and retry, or run summon doctor.` };
   if (state.state === "stopped") return { kind: "proceed" };
   const shown = showWorkspace(cli, { ...current, rex: identity }, state.liveBlocks, deps.callerSession);
-  if (shown.shown) err(`Workspace [${project}] is already running in Rex; switched to it (use --new-window for a fresh one)`);
+  // D1: the switch line is routine (the launcher tab may close); the failure below is for the user to read.
+  if (shown.shown) err(`Workspace [${project}] is already running in Rex; switched to it (use --new-window for a fresh one)`, { routine: true });
   else err(`Workspace [${project}] is already running in Rex but could not be shown (${shown.reason}); run summon open ${project}`);
   return { kind: "switched" };
 }

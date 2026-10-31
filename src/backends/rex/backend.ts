@@ -30,7 +30,7 @@ export interface RexBackendDeps {
   callerSession?: string | undefined;
   /**
    * `--new-window` given on the command line. A config `new-window=true` (the plan's `newWindow`) is a Ghostty
-   * preference with no meaning under Rex, where the P2 switch already follows the flag only (UX-H1).
+   * preference with no meaning under Rex (`GHOSTTY_ONLY_CONFIG_KEYS`), where the P2 switch already follows the flag only (UX-H1).
    */
   newWindow?: boolean;
 }
@@ -99,7 +99,7 @@ export function createRexBackend(context: RexLaunchContext, deps: RexBackendDeps
         ...(deps.callerSession ? { callerSession: deps.callerSession } : {}),
         newWindow,
         app,
-        progress: (label) => progress.show(label),
+        progress: progress.show,
       });
     } finally {
       progress.clear();

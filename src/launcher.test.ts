@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { BackendLaunchContext } from "./backends/ghostty.js";
+import type { CLIOverrides } from "./launcher.js";
 
 // Mock child_process before importing launcher
 const mockExecSync = vi.fn();
@@ -35,7 +36,7 @@ vi.mock("./backend.js", async (original) => ({
 
 // Rex launch path (Phase 3): the adapter, adoption and switch decision are mocked; their own
 // suites cover them. The fake backend records what the launcher hands it.
-const mockAdoptOrphans = vi.fn((_project: string, _options?: { forLaunch?: boolean }): string[] => []);
+const mockAdoptOrphansForLaunch = vi.fn((_project: string): Array<{ text: string; routine?: true }> => []);
 const mockMaybeSwitch = vi.fn((..._args: unknown[]): unknown => ({ kind: "proceed" }));
 const mockSessionState = vi.fn((..._args: unknown[]): unknown => ({ state: "stopped", liveBlocks: [] }));
 const rexLaunches: Array<{ kind: string; plan: unknown; ctx: Record<string, unknown> }> = [];
@@ -51,7 +52,7 @@ const mockCreateRexBackend = vi.fn((_context: unknown, _deps: unknown) => ({
 }));
 vi.mock("./backends/rex/backend.js", () => ({ createRexBackend: (context: unknown, deps: unknown) => mockCreateRexBackend(context, deps) }));
 vi.mock("./backends/rex/launch.js", () => ({
-  adoptOrphans: (project: string, _deps: unknown, options?: { forLaunch?: boolean }) => mockAdoptOrphans(project, options),
+  adoptOrphansForLaunch: (project: string, _deps: unknown) => mockAdoptOrphansForLaunch(project),
   adoptDeps: vi.fn(() => ({})),
   maybeSwitchToExisting: (...args: unknown[]) => mockMaybeSwitch(...args),
 }));
@@ -152,13 +153,21 @@ vi.mock("./script.js", () => ({
 
 // Import after mocks are set up
 const { launch, readTrustedSummonFile, resolveConfig, optsToConfigMap, focusWorkspace, resolveProjectName, probePaneCount, decideCleanRestoredPanes, layoutOptsToTreePlanOpts, commandFixHint } = await import("./launcher.js");
-const { closeWorkspaceWindow, isStaticLaunchSpinner, withLaunchSpinner, GhosttyBackend, ghosttyCommandEntries } = await import("./backends/ghostty.js");
+const { closeWorkspaceWindow, withLaunchSpinner, GhosttyBackend, ghosttyCommandEntries } = await import("./backends/ghostty.js");
+const { isStaticLaunchSpinner } = await import("./ui/progress.js");
 const { planLayout } = await import("./layout.js");
 const { buildTreePlan, findPaneByName, parseTreeDSL, resolveTreeCommands } = await import("./tree.js");
 const { listConfig, listProjects } = await import("./config.js");
 const { existsSync } = await import("node:fs");
 const { TabOpenError } = await import("./errors.js");
 const { LAUNCH_ID_RE } = await import("./launch-identity.js");
+const { writingRoutine } = await import("./ui/output.js");
+
+/** resolveConfig with the `.summon` content the trusted read would hand it: whatever mockReadKVFile says about that file. */
+function resolveConfigWithMockedSummon(targetDir: string, overrides: CLIOverrides): ReturnType<typeof resolveConfig> {
+  const project = mockReadKVFile(`${targetDir}/.summon`);
+  return resolveConfig(targetDir, overrides, [...project].map(([key, value]) => `${key}=${value}`).join("\n"));
+}
 const ANY_LAUNCH_ID = expect.stringMatching(LAUNCH_ID_RE);
 
 let savedSummonWorkspace: string | undefined;
@@ -167,7 +176,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockReadStatus.mockReturnValue(null);
   mockReadStatusRecord.mockReturnValue(null);
-  mockAdoptOrphans.mockReturnValue([]);
+  mockAdoptOrphansForLaunch.mockReturnValue([]);
   mockMaybeSwitch.mockReturnValue({ kind: "proceed" });
   mockSessionState.mockReturnValue({ state: "stopped", liveBlocks: [] });
   rexLaunches.length = 0;
@@ -331,14 +340,14 @@ describe("config resolution", () => {
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "claude"]]));
     mockReadKVFile.mockReturnValue(new Map([["editor", "vim"]]));
 
-    const { opts } = resolveConfig("/tmp/workspace", {});
+    const { opts } = resolveConfigWithMockedSummon("/tmp/workspace", {});
     expect(opts.editor).toBe("vim");
   });
 
   it("CLI overrides project config", () => {
     mockReadKVFile.mockReturnValue(new Map([["editor", "vim"]]));
 
-    const { opts } = resolveConfig("/tmp/workspace", { editor: "nano" });
+    const { opts } = resolveConfigWithMockedSummon("/tmp/workspace", { editor: "nano" });
     expect(opts.editor).toBe("nano");
   });
 
@@ -351,7 +360,7 @@ describe("config resolution", () => {
     );
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
 
-    const { opts } = resolveConfig("/tmp/workspace", {});
+    const { opts } = resolveConfigWithMockedSummon("/tmp/workspace", {});
     // Preset minimal sets editorPanes=1, but project overrides to 4
     expect(opts.editorPanes).toBe(4);
     // Preset minimal sets shell=false, no override → stays false
@@ -372,7 +381,7 @@ describe("config resolution", () => {
     mockReadKVFile.mockReturnValue(new Map());
 
     const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
-    const { opts } = resolveConfig("/tmp/workspace", { layout: "cli" });
+    const { opts } = resolveConfigWithMockedSummon("/tmp/workspace", { layout: "cli" });
 
     // cli preset: editorPanes=1, shell="true"
     // Empty config strings should NOT override these
@@ -393,7 +402,7 @@ describe("config resolution", () => {
     );
 
     const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
-    const { opts } = resolveConfig("/tmp/workspace", {});
+    const { opts } = resolveConfigWithMockedSummon("/tmp/workspace", {});
 
     // full preset: editorPanes=3
     expect(opts.editorPanes).toBe(3);
@@ -410,7 +419,7 @@ describe("config resolution", () => {
     mockReadKVFile.mockReturnValue(new Map([["layout", "bogus"]]));
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
 
-    const { opts } = resolveConfig("/tmp/workspace", {});
+    const { opts } = resolveConfigWithMockedSummon("/tmp/workspace", {});
     expect(warnSpy).toHaveBeenCalledWith(
       'summon: warning: Unknown layout preset: "bogus". Valid presets: minimal, full, pair, cli, btop. Using defaults.\n',
     );
@@ -423,7 +432,7 @@ describe("config resolution", () => {
     mockReadKVFile.mockReturnValue(new Map([["layout", "invalid"]]));
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
 
-    resolveConfig("/tmp/workspace", {});
+    resolveConfigWithMockedSummon("/tmp/workspace", {});
 
     const warnMessages = warnSpy.mock.calls.map((c) => c[0] as string);
     const presetWarn = warnMessages.find((m) => m.includes("Unknown layout preset"));
@@ -742,7 +751,7 @@ describe("input validation", () => {
     const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
 
-    const { opts } = resolveConfig("/tmp/workspace", { panes: "abc" });
+    const { opts } = resolveConfigWithMockedSummon("/tmp/workspace", { panes: "abc" });
     expect(opts.editorPanes).toBe(2);
     expect(warnSpy).toHaveBeenCalled();
     warnSpy.mockRestore();
@@ -752,7 +761,7 @@ describe("input validation", () => {
     const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
 
-    const { opts } = resolveConfig("/tmp/workspace", { panes: "0" });
+    const { opts } = resolveConfigWithMockedSummon("/tmp/workspace", { panes: "0" });
     expect(opts.editorPanes).toBe(2);
     expect(warnSpy).toHaveBeenCalled();
     warnSpy.mockRestore();
@@ -762,7 +771,7 @@ describe("input validation", () => {
     const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
 
-    const { opts } = resolveConfig("/tmp/workspace", { panes: "-2" });
+    const { opts } = resolveConfigWithMockedSummon("/tmp/workspace", { panes: "-2" });
     expect(opts.editorPanes).toBe(2);
     expect(warnSpy).toHaveBeenCalled();
     warnSpy.mockRestore();
@@ -772,7 +781,7 @@ describe("input validation", () => {
     const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
 
-    const { opts } = resolveConfig("/tmp/workspace", { "editor-size": "0" });
+    const { opts } = resolveConfigWithMockedSummon("/tmp/workspace", { "editor-size": "0" });
     expect(opts.editorSize).toBe(75);
     expect(warnSpy).toHaveBeenCalled();
     warnSpy.mockRestore();
@@ -782,7 +791,7 @@ describe("input validation", () => {
     const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
 
-    const { opts } = resolveConfig("/tmp/workspace", { "editor-size": "150" });
+    const { opts } = resolveConfigWithMockedSummon("/tmp/workspace", { "editor-size": "150" });
     expect(opts.editorSize).toBe(75);
     expect(warnSpy).toHaveBeenCalled();
     warnSpy.mockRestore();
@@ -792,7 +801,7 @@ describe("input validation", () => {
     const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
 
-    const { opts } = resolveConfig("/tmp/workspace", { "editor-size": "big" });
+    const { opts } = resolveConfigWithMockedSummon("/tmp/workspace", { "editor-size": "big" });
     expect(opts.editorSize).toBe(75);
     expect(warnSpy).toHaveBeenCalled();
     warnSpy.mockRestore();
@@ -802,7 +811,7 @@ describe("input validation", () => {
     const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
 
-    const { opts } = resolveConfig("/tmp/workspace", { panes: "5" });
+    const { opts } = resolveConfigWithMockedSummon("/tmp/workspace", { panes: "5" });
     expect(opts.editorPanes).toBe(5);
     expect(warnSpy).not.toHaveBeenCalled();
     warnSpy.mockRestore();
@@ -812,7 +821,7 @@ describe("input validation", () => {
     const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
 
-    const { opts } = resolveConfig("/tmp/workspace", { "editor-size": "60" });
+    const { opts } = resolveConfigWithMockedSummon("/tmp/workspace", { "editor-size": "60" });
     expect(opts.editorSize).toBe(60);
     expect(warnSpy).not.toHaveBeenCalled();
     warnSpy.mockRestore();
@@ -822,7 +831,7 @@ describe("input validation", () => {
     mockReadKVFile.mockReturnValue(new Map([["font-size", "18"]]));
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
 
-    const { opts } = resolveConfig("/tmp/workspace", {});
+    const { opts } = resolveConfigWithMockedSummon("/tmp/workspace", {});
     expect(opts.fontSize).toBe(18);
   });
 });
@@ -985,7 +994,7 @@ describe("autoResize config resolution", () => {
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
     mockReadKVFile.mockReturnValue(new Map<string, string>());
 
-    const { opts } = resolveConfig("/tmp/workspace", { "auto-resize": "false" });
+    const { opts } = resolveConfigWithMockedSummon("/tmp/workspace", { "auto-resize": "false" });
     expect(opts.autoResize).toBe(false);
   });
 
@@ -993,7 +1002,7 @@ describe("autoResize config resolution", () => {
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
     mockReadKVFile.mockReturnValue(new Map<string, string>());
 
-    const { opts } = resolveConfig("/tmp/workspace", { "auto-resize": "true" });
+    const { opts } = resolveConfigWithMockedSummon("/tmp/workspace", { "auto-resize": "true" });
     expect(opts.autoResize).toBe(true);
   });
 });
@@ -1067,7 +1076,7 @@ describe("config read caching (#31)", () => {
     );
     mockReadKVFile.mockReturnValue(new Map<string, string>());
 
-    resolveConfig("/tmp/workspace", {});
+    resolveConfigWithMockedSummon("/tmp/workspace", {});
 
     // listConfig should be called exactly once
     expect(listConfig).toHaveBeenCalledTimes(1);
@@ -1083,7 +1092,7 @@ describe("config read caching (#31)", () => {
     );
     mockReadKVFile.mockReturnValue(new Map<string, string>());
 
-    const { opts } = resolveConfig("/tmp/workspace", {});
+    const { opts } = resolveConfigWithMockedSummon("/tmp/workspace", {});
 
     expect(opts.editor).toBe("vim");
     expect(opts.sidebarCommand).toBe("htop");
@@ -1711,7 +1720,7 @@ describe("shell metacharacter confirmation (#90)", () => {
     );
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
 
-    const result = resolveConfig("/tmp/workspace", {});
+    const result = resolveConfigWithMockedSummon("/tmp/workspace", {});
     expect(result.projectOverrides).toBeInstanceOf(Map);
     expect(result.projectOverrides.get("editor")).toBe("vim");
     expect(result.projectOverrides.get("shell")).toBe("npm run dev");
@@ -1806,7 +1815,7 @@ describe("shell metacharacter confirmation (#90)", () => {
       mockReadKVFile.mockReturnValue(new Map([["starship-preset", "gruvbox-rainbow"]]));
       vi.mocked(listConfig).mockReturnValue(new Map([["starship-preset", "jetpack"]]));
 
-      const result = resolveConfig("/tmp/workspace", { "starship-preset": "tokyo-night" });
+      const result = resolveConfigWithMockedSummon("/tmp/workspace", { "starship-preset": "tokyo-night" });
       expect(result.starshipPreset).toBe("tokyo-night");
     });
 
@@ -1814,7 +1823,7 @@ describe("shell metacharacter confirmation (#90)", () => {
       mockReadKVFile.mockReturnValue(new Map([["starship-preset", "gruvbox-rainbow"]]));
       vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
 
-      const result = resolveConfig("/tmp/workspace", {});
+      const result = resolveConfigWithMockedSummon("/tmp/workspace", {});
       expect(result.starshipPreset).toBe("gruvbox-rainbow");
     });
 
@@ -1822,7 +1831,7 @@ describe("shell metacharacter confirmation (#90)", () => {
       mockReadKVFile.mockReturnValue(new Map());
       vi.mocked(listConfig).mockReturnValue(new Map([["starship-preset", "jetpack"]]));
 
-      const result = resolveConfig("/tmp/workspace", {});
+      const result = resolveConfigWithMockedSummon("/tmp/workspace", {});
       expect(result.starshipPreset).toBe("jetpack");
     });
 
@@ -1830,7 +1839,7 @@ describe("shell metacharacter confirmation (#90)", () => {
       mockReadKVFile.mockReturnValue(new Map([["starship-preset", "gruvbox-rainbow"]]));
       vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
 
-      const result = resolveConfig("/tmp/workspace", { "starship-preset": "tokyo-night" });
+      const result = resolveConfigWithMockedSummon("/tmp/workspace", { "starship-preset": "tokyo-night" });
       expect(result.starshipPreset).toBe("tokyo-night");
     });
 
@@ -1838,7 +1847,7 @@ describe("shell metacharacter confirmation (#90)", () => {
       mockReadKVFile.mockReturnValue(new Map([["starship-preset", "gruvbox-rainbow"]]));
       vi.mocked(listConfig).mockReturnValue(new Map([["starship-preset", "jetpack"]]));
 
-      const result = resolveConfig("/tmp/workspace", {});
+      const result = resolveConfigWithMockedSummon("/tmp/workspace", {});
       expect(result.starshipPreset).toBe("gruvbox-rainbow");
     });
 
@@ -2122,7 +2131,7 @@ describe("on-start hook (#107)", () => {
       mockReadKVFile.mockReturnValue(new Map([["env.NODE_ENV", "development"]]));
       vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
 
-      const result = resolveConfig("/tmp/workspace", {});
+      const result = resolveConfigWithMockedSummon("/tmp/workspace", {});
       expect(result.envVars).toEqual({ NODE_ENV: "development" });
     });
 
@@ -2130,7 +2139,7 @@ describe("on-start hook (#107)", () => {
       mockReadKVFile.mockReturnValue(new Map([["env.A", "project"]]));
       vi.mocked(listConfig).mockReturnValue(new Map([["env.A", "machine"], ["env.B", "machine"]]));
 
-      const result = resolveConfig("/tmp/workspace", { env: ["A=cli"] });
+      const result = resolveConfigWithMockedSummon("/tmp/workspace", { env: ["A=cli"] });
       expect(result.envVars.A).toBe("cli"); // CLI wins
       expect(result.envVars.B).toBe("machine"); // machine fills in
     });
@@ -2140,7 +2149,7 @@ describe("on-start hook (#107)", () => {
       vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
       const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
-      const result = resolveConfig("/tmp/workspace", {});
+      const result = resolveConfigWithMockedSummon("/tmp/workspace", {});
       expect(result.envVars).toEqual({ VALID_KEY: "ok" });
       expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("bad;key"));
       warnSpy.mockRestore();
@@ -2150,7 +2159,7 @@ describe("on-start hook (#107)", () => {
       mockReadKVFile.mockReturnValue(new Map());
       vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
 
-      const result = resolveConfig("/tmp/workspace", {});
+      const result = resolveConfigWithMockedSummon("/tmp/workspace", {});
       expect(result.envVars).toEqual({});
     });
 
@@ -2159,7 +2168,7 @@ describe("on-start hook (#107)", () => {
       vi.mocked(listConfig).mockReturnValue(new Map([["env.VALID_KEY", "ok"], ["env.bad;key", "evil"]]));
       const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
-      const result = resolveConfig("/tmp/workspace", {});
+      const result = resolveConfigWithMockedSummon("/tmp/workspace", {});
       expect(result.envVars).toEqual({ VALID_KEY: "ok" });
       expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining(`invalid env var key "bad;key" from machine config`));
       warnSpy.mockRestore();
@@ -2170,7 +2179,7 @@ describe("on-start hook (#107)", () => {
       vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
       const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
-      const result = resolveConfig("/tmp/workspace", { env: ["INVALID KEY=val"] });
+      const result = resolveConfigWithMockedSummon("/tmp/workspace", { env: ["INVALID KEY=val"] });
       expect(result.envVars).not.toHaveProperty("INVALID KEY");
       expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("INVALID KEY"));
       warnSpy.mockRestore();
@@ -2181,7 +2190,7 @@ describe("on-start hook (#107)", () => {
       vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
       const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
-      const result = resolveConfig("/tmp/workspace", { env: ["VALID_KEY=val"] });
+      const result = resolveConfigWithMockedSummon("/tmp/workspace", { env: ["VALID_KEY=val"] });
       expect(result.envVars).toEqual({ VALID_KEY: "val" });
       expect(warnSpy).not.toHaveBeenCalled();
       warnSpy.mockRestore();
@@ -2192,7 +2201,7 @@ describe("on-start hook (#107)", () => {
       vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
       const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
-      const result = resolveConfig("/tmp/workspace", { env: ["123BAD=val"] });
+      const result = resolveConfigWithMockedSummon("/tmp/workspace", { env: ["123BAD=val"] });
       expect(result.envVars).not.toHaveProperty("123BAD");
       expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("123BAD"));
       warnSpy.mockRestore();
@@ -2212,7 +2221,7 @@ describe("on-start hook (#107)", () => {
       vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
       const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
-      const result = resolveConfig("/tmp/workspace", {});
+      const result = resolveConfigWithMockedSummon("/tmp/workspace", {});
       expect(result.envVars).not.toHaveProperty(envKey);
       // UX-M2: the one warning prefix; the text after it is unchanged.
       expect(warnSpy).toHaveBeenCalledWith(`summon: warning: ignoring denylisted env var key "${envKey}" from .summon file.\n`);
@@ -2227,7 +2236,7 @@ describe("layout name validation from .summon files", () => {
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
     mockIsCustomLayout.mockReturnValue(true); // simulate file existing at traversed path
 
-    const result = resolveConfig("/tmp/workspace", {});
+    const result = resolveConfigWithMockedSummon("/tmp/workspace", {});
     // Should NOT call isCustomLayout with the traversal name
     expect(mockIsCustomLayout).not.toHaveBeenCalled();
     // Should fall through to default layout (no base overrides)
@@ -2240,7 +2249,7 @@ describe("layout name validation from .summon files", () => {
     mockIsCustomLayout.mockReturnValue(true);
     mockReadCustomLayout.mockReturnValue(new Map([["editor", "vim"]]));
 
-    resolveConfig("/tmp/workspace", {});
+    resolveConfigWithMockedSummon("/tmp/workspace", {});
     expect(mockIsCustomLayout).toHaveBeenCalledWith("my-layout");
   });
 });
@@ -2259,7 +2268,7 @@ describe("custom tree layout integration (Phase 4)", () => {
       vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
       mockReadKVFile.mockReturnValue(new Map([["layout", "mywork"]]));
 
-      const result = resolveConfig("/tmp/workspace", {});
+      const result = resolveConfigWithMockedSummon("/tmp/workspace", {});
       expect(result.treeLayout).toBeDefined();
       expect(result.treeLayout!.tree).toBeDefined();
       expect(result.treeLayout!.panes.get("main")).toBe("claude");
@@ -2278,7 +2287,7 @@ describe("custom tree layout integration (Phase 4)", () => {
       vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
       mockReadKVFile.mockReturnValue(new Map([["layout", "traditional"]]));
 
-      const result = resolveConfig("/tmp/workspace", {});
+      const result = resolveConfigWithMockedSummon("/tmp/workspace", {});
       expect(result.treeLayout).toBeUndefined();
       // Traditional custom layout applies to opts
       expect(result.opts.editor).toBe("vim");
@@ -2304,7 +2313,7 @@ describe("custom tree layout integration (Phase 4)", () => {
       vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
       mockReadKVFile.mockReturnValue(new Map([["layout", "mywork"]]));
 
-      const result = resolveConfig("/tmp/workspace", {});
+      const result = resolveConfigWithMockedSummon("/tmp/workspace", {});
       expect(result.treeLayout).toBeDefined();
       expect(result.opts.fontSize).toBe(16);
       expect(result.opts.autoResize).toBe(false);
@@ -2328,7 +2337,7 @@ describe("custom tree layout integration (Phase 4)", () => {
       vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
       mockReadKVFile.mockReturnValue(new Map([["layout", "mywork"]]));
 
-      const result = resolveConfig("/tmp/workspace", { fullscreen: "true" });
+      const result = resolveConfigWithMockedSummon("/tmp/workspace", { fullscreen: "true" });
       expect(result.treeLayout).toBeDefined();
       expect(result.opts.fullscreen).toBe(true);
     });
@@ -2623,7 +2632,7 @@ describe("custom layout with null readCustomLayout (#168)", () => {
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
     mockReadKVFile.mockReturnValue(new Map([["layout", "my-layout"]]));
 
-    const result = resolveConfig("/tmp/workspace", {});
+    const result = resolveConfigWithMockedSummon("/tmp/workspace", {});
     // Should not crash and should fall through to defaults
     expect(result.treeLayout).toBeUndefined();
     expect(result.opts.editor).toBe("vim"); // from machine config
@@ -2829,7 +2838,7 @@ describe("project config log (#146)", () => {
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    resolveConfig("/tmp/workspace", {});
+    resolveConfigWithMockedSummon("/tmp/workspace", {});
 
     const logMessages = logSpy.mock.calls.map((c) => c[0] as string);
     const configMsg = logMessages.find((m) => m.includes(".summon"));
@@ -2843,7 +2852,7 @@ describe("project config log (#146)", () => {
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    resolveConfig("/tmp/workspace", {});
+    resolveConfigWithMockedSummon("/tmp/workspace", {});
 
     const logMessages = logSpy.mock.calls.map((c) => c[0] as string);
     const configMsg = logMessages.find((m) => m.includes(".summon"));
@@ -2866,7 +2875,7 @@ describe("project config log (#146)", () => {
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
     const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
-    resolveConfig("/tmp/workspace", {});
+    resolveConfigWithMockedSummon("/tmp/workspace", {});
 
     const warnMessages = warnSpy.mock.calls.map((c) => c[0] as string);
     const trustMsg = warnMessages.find((m) => m.includes("Review .summon"));
@@ -2887,7 +2896,7 @@ describe("project config log (#146)", () => {
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
     const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
-    resolveConfig("/tmp/workspace", {});
+    resolveConfigWithMockedSummon("/tmp/workspace", {});
 
     const warnMessages = warnSpy.mock.calls.map((c) => c[0] as string);
     const trustMsg = warnMessages.find((m) => m.includes("Review .summon"));
@@ -2903,7 +2912,7 @@ describe("project config log (#146)", () => {
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
     const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
-    resolveConfig("/tmp/workspace", {});
+    resolveConfigWithMockedSummon("/tmp/workspace", {});
 
     const warnMessages = warnSpy.mock.calls.map((c) => c[0] as string);
     const trustMsg = warnMessages.find((m) => m.includes("Review .summon"));
@@ -3007,7 +3016,7 @@ describe("tree layout + project CWD merge (#185)", () => {
     );
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
 
-    const result = resolveConfig("/tmp/workspace", {});
+    const result = resolveConfigWithMockedSummon("/tmp/workspace", {});
 
     expect(result.treeLayout).toBeDefined();
     expect(result.treeLayout!.paneCwds).toBeDefined();
@@ -3036,7 +3045,7 @@ describe("tree layout + project CWD merge (#185)", () => {
     );
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
 
-    const result = resolveConfig("/tmp/workspace", {});
+    const result = resolveConfigWithMockedSummon("/tmp/workspace", {});
 
     expect(result.treeLayout).toBeDefined();
     expect(result.treeLayout!.paneCwds).toBeDefined();
@@ -3056,7 +3065,7 @@ describe("tree layout + project CWD merge (#185)", () => {
     mockReadKVFile.mockReturnValue(new Map([["layout", "mywork"]]));
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
 
-    const result = resolveConfig("/tmp/workspace", {});
+    const result = resolveConfigWithMockedSummon("/tmp/workspace", {});
 
     expect(result.treeLayout).toBeDefined();
     expect(result.treeLayout!.paneCwds).toBeUndefined();
@@ -3080,7 +3089,7 @@ describe("tree layout + project CWD merge (#185)", () => {
     );
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
 
-    const result = resolveConfig("/tmp/workspace", {});
+    const result = resolveConfigWithMockedSummon("/tmp/workspace", {});
 
     expect(result.treeLayout).toBeDefined();
     expect(result.treeLayout!.paneCwds).toBeDefined();
@@ -3107,7 +3116,7 @@ describe("BE-M2 (#593): cwd containment validated at ingestion in resolveConfig"
     );
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
 
-    expect(() => resolveConfig("/tmp/workspace", {})).toThrow(/outside project directory/);
+    expect(() => resolveConfigWithMockedSummon("/tmp/workspace", {})).toThrow(/outside project directory/);
   });
 
   it("allows project .summon pane cwd that is a subdirectory of targetDir", () => {
@@ -3127,7 +3136,7 @@ describe("BE-M2 (#593): cwd containment validated at ingestion in resolveConfig"
     );
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
 
-    const result = resolveConfig("/tmp/workspace", {});
+    const result = resolveConfigWithMockedSummon("/tmp/workspace", {});
     expect(result.treeLayout!.paneCwds!.get("editor")).toBe("src");
   });
 });
@@ -3407,7 +3416,7 @@ describe("R5: maximize/float config layering coverage (#190)", () => {
     mockReadKVFile.mockReturnValue(new Map([["maximize", "true"]]));
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
 
-    const { opts } = resolveConfig("/tmp/workspace", {});
+    const { opts } = resolveConfigWithMockedSummon("/tmp/workspace", {});
     expect(opts.maximize).toBe(true);
   });
 
@@ -3415,7 +3424,7 @@ describe("R5: maximize/float config layering coverage (#190)", () => {
     mockReadKVFile.mockReturnValue(new Map([["float", "true"]]));
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
 
-    const { opts } = resolveConfig("/tmp/workspace", {});
+    const { opts } = resolveConfigWithMockedSummon("/tmp/workspace", {});
     expect(opts.float).toBe(true);
   });
 
@@ -3423,7 +3432,7 @@ describe("R5: maximize/float config layering coverage (#190)", () => {
     mockReadKVFile.mockReturnValue(new Map([["maximize", "false"]]));
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
 
-    const { opts } = resolveConfig("/tmp/workspace", { maximize: "true" });
+    const { opts } = resolveConfigWithMockedSummon("/tmp/workspace", { maximize: "true" });
     expect(opts.maximize).toBe(true);
   });
 
@@ -3431,7 +3440,7 @@ describe("R5: maximize/float config layering coverage (#190)", () => {
     mockReadKVFile.mockReturnValue(new Map([["float", "false"]]));
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
 
-    const { opts } = resolveConfig("/tmp/workspace", { float: "true" });
+    const { opts } = resolveConfigWithMockedSummon("/tmp/workspace", { float: "true" });
     expect(opts.float).toBe(true);
   });
 
@@ -3439,7 +3448,7 @@ describe("R5: maximize/float config layering coverage (#190)", () => {
     mockReadKVFile.mockReturnValue(new Map());
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"], ["maximize", "true"]]));
 
-    const { opts } = resolveConfig("/tmp/workspace", {});
+    const { opts } = resolveConfigWithMockedSummon("/tmp/workspace", {});
     expect(opts.maximize).toBe(true);
   });
 
@@ -3447,7 +3456,7 @@ describe("R5: maximize/float config layering coverage (#190)", () => {
     mockReadKVFile.mockReturnValue(new Map());
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"], ["float", "true"]]));
 
-    const { opts } = resolveConfig("/tmp/workspace", {});
+    const { opts } = resolveConfigWithMockedSummon("/tmp/workspace", {});
     expect(opts.float).toBe(true);
   });
 
@@ -3455,7 +3464,7 @@ describe("R5: maximize/float config layering coverage (#190)", () => {
     mockReadKVFile.mockReturnValue(new Map([["maximize", "true"]]));
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"], ["maximize", "false"]]));
 
-    const { opts } = resolveConfig("/tmp/workspace", {});
+    const { opts } = resolveConfigWithMockedSummon("/tmp/workspace", {});
     expect(opts.maximize).toBe(true);
   });
 
@@ -3463,7 +3472,7 @@ describe("R5: maximize/float config layering coverage (#190)", () => {
     mockReadKVFile.mockReturnValue(new Map([["float", "true"]]));
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"], ["float", "false"]]));
 
-    const { opts } = resolveConfig("/tmp/workspace", {});
+    const { opts } = resolveConfigWithMockedSummon("/tmp/workspace", {});
     expect(opts.float).toBe(true);
   });
 });
@@ -4073,7 +4082,7 @@ describe("AR-M1: secondary-editor round-trips through optsToConfigMap (#543)", (
     ]));
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
 
-    const { opts } = resolveConfig("/tmp/workspace", {});
+    const { opts } = resolveConfigWithMockedSummon("/tmp/workspace", {});
     expect(opts.secondaryEditor).toBe("btop");
   });
 });
@@ -4395,6 +4404,8 @@ describe("SE-M1: every .summon read is content-pinned", () => {
     summonContent = undefined;
     vi.mocked(fs.readFileSync).mockImplementation(((path: string, ...rest: unknown[]) => {
       if (String(path) === SUMMON && summonContent !== undefined) return summonContent;
+      // A file the fixture says is absent cannot be read either.
+      if (String(path) === SUMMON && !fs.existsSync(path)) throw Object.assign(new Error(`ENOENT: ${path}`), { code: "ENOENT" });
       return fallback!(path, ...rest);
     }) as never);
   });
@@ -4451,6 +4462,15 @@ describe("SE-M1: every .summon read is content-pinned", () => {
     expect(mockGenerateAppleScript).toHaveBeenCalled();
   });
 
+  it("resolveConfig never reads .summon itself: without trusted content the project config is empty", () => {
+    mockReadKVFile.mockImplementation((path: string) => path === SUMMON ? new Map([["on-start", "touch /tmp/pwned"]]) : new Map());
+    const resolved = resolveConfig("/tmp/workspace", {}, undefined);
+    expect(resolved.onStart).toBeUndefined();
+    expect(resolved.projectOverrides.size).toBe(0);
+    expect(mockReadKVFile).not.toHaveBeenCalled();
+    expect(resolveConfig("/tmp/workspace", {}, "on-start=echo hi\n").onStart).toBe("echo hi");
+  });
+
   it("a .summon that appears after the trust check found none is never parsed (launch, and the resolveConfig of freeze/keybindings)", async () => {
     vi.mocked(existsSync).mockImplementation((path) => String(path) !== SUMMON || summonContent !== undefined);
     // The file is created right after the check (assertTrusted sees no file and returns).
@@ -4459,6 +4479,7 @@ describe("SE-M1: every .summon read is content-pinned", () => {
       mockReadKVFile.mockImplementation((path: string) => path === SUMMON ? new Map([["on-start", "touch /tmp/pwned"]]) : new Map());
     });
     const resolved = resolveConfig("/tmp/workspace", {}, readTrustedSummonFile("/tmp/workspace", {}));
+    expect(mockAssertTrusted).toHaveBeenCalledWith("/tmp/workspace");
     expect(resolved.onStart).toBeUndefined();
     expect(resolved.projectOverrides.size).toBe(0);
     summonContent = undefined;
@@ -4472,6 +4493,20 @@ describe("SE-M1: every .summon read is content-pinned", () => {
     }
     expect(mockExecSync).not.toHaveBeenCalledWith("touch /tmp/pwned", expect.anything());
     expect(mockExecSync.mock.calls.flat()).not.toContain("touch /tmp/pwned");
+  });
+
+  it("readTrustedSummonFile reads once, with no existence check: a missing or unreadable file is checked as no file", async () => {
+    const fs = await import("node:fs");
+    vi.mocked(fs.existsSync).mockClear();
+    for (const code of ["ENOENT", "EISDIR"]) {
+      mockAssertTrusted.mockClear();
+      mockAssertTrustedContent.mockClear();
+      vi.mocked(fs.readFileSync).mockImplementationOnce(() => { throw Object.assign(new Error(code), { code }); });
+      expect(readTrustedSummonFile("/tmp/workspace", {})).toBe("");
+      expect(mockAssertTrusted).toHaveBeenCalledWith("/tmp/workspace");
+      expect(mockAssertTrustedContent).not.toHaveBeenCalled();
+    }
+    expect(vi.mocked(fs.existsSync)).not.toHaveBeenCalledWith(SUMMON);
   });
 
   it("readTrustedSummonFile returns the checked bytes, skips with --no-project-config and propagates a refusal", async () => {
@@ -4832,18 +4867,20 @@ describe("Rex launch (plan P2, P8, P13, P15; Phase 3)", () => {
   const REX_CONTEXT = { ok: true, backend: "rex", placement: "inside-rex", server: "unix:///tmp/rex.sock", rexBinary: "/usr/local/bin/rex", notices: [] };
   const rexCalls = () => mockExecFileSync.mock.calls.filter((c) => c[0] === "osascript" || String(c[0]).endsWith("/rex"));
   let stderrText = "";
+  let routineText = "";
   let errSpy: ReturnType<typeof vi.spyOn>;
   beforeEach(() => {
     mockResolveBackendForLaunch.mockReturnValue(REX_CONTEXT);
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
     stderrText = "";
-    errSpy = vi.spyOn(process.stderr, "write").mockImplementation((chunk: unknown) => { stderrText += String(chunk); return true; });
+    routineText = "";
+    errSpy = vi.spyOn(process.stderr, "write").mockImplementation((chunk: unknown) => { stderrText += String(chunk); if (writingRoutine()) routineText += String(chunk); return true; });
   });
   afterEach(() => { errSpy.mockRestore(); });
 
   it("adopts orphans and decides the switch before the wizard, the pane probe and on-start, and never cleans restored panes", async () => {
     const order: string[] = [];
-    mockAdoptOrphans.mockImplementation(() => { order.push("adopt"); return ["adopted earlier launch x"]; });
+    mockAdoptOrphansForLaunch.mockImplementation(() => { order.push("adopt"); return [{ text: "adopted earlier launch x" }]; });
     mockMaybeSwitch.mockImplementation(() => { order.push("switch"); return { kind: "proceed" }; });
     mockRunSetup.mockImplementation(async () => { order.push("setup"); vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]])); });
     mockExecSync.mockImplementation(() => { order.push("on-start"); return ""; });
@@ -4857,7 +4894,7 @@ describe("Rex launch (plan P2, P8, P13, P15; Phase 3)", () => {
     }
     expect(order).toEqual(["adopt", "switch", "setup", "on-start"]);
     expect(mockRunSetup).toHaveBeenCalledWith({ backend: "rex" });
-    expect(mockAdoptOrphans).toHaveBeenCalledWith("workspace", { forLaunch: true });
+    expect(mockAdoptOrphansForLaunch).toHaveBeenCalledWith("workspace");
     expect(mockMaybeSwitch).toHaveBeenCalledWith("workspace", false, expect.objectContaining({ cliFor: expect.any(Function) }));
     expect(stderrText).toContain("summon: note: adopted earlier launch x");
     expect(stderrText).toContain("summon: note: Rex cannot honor clean; ignored");
@@ -4942,13 +4979,23 @@ describe("Rex launch (plan P2, P8, P13, P15; Phase 3)", () => {
   it("prints one P8 notice per flag Rex cannot honor when the flag is given on the command line", async () => {
     await launch("/tmp/workspace", { maximize: "true", float: "true", fullscreen: "true", "font-size": "14", clean: "true", "new-window": "true" });
     for (const flag of ["maximize", "float", "fullscreen", "font-size", "clean"]) expect(stderrText).toContain(`summon: note: Rex cannot honor ${flag}; ignored`);
+    expect(stderrText.match(/Rex cannot honor/g)).toHaveLength(5);
+    expect(stderrText).not.toContain("Rex cannot honor new-window");
     expect(mockCreateRexBackend).toHaveBeenCalledWith(REX_CONTEXT, expect.objectContaining({ newWindow: true }));
   });
 
-  it("still discloses an on-stop hook under Rex (the D1 watch treats that line as routine)", async () => {
+  it("still discloses an on-stop hook under Rex, marked routine for the D1 watch", async () => {
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"], ["on-stop", "echo bye"]]));
     await launch("/tmp/workspace");
     expect(stderrText).toContain("summon: note: on-stop will run on workspace exit.\n");
+    expect(routineText).toBe("summon: note: on-stop will run on workspace exit.\n");
+  });
+
+  it("prints the adoption notices for a launch, marked routine only where adoptOrphansForLaunch says so (D1)", async () => {
+    mockAdoptOrphansForLaunch.mockReturnValue([{ text: "removed the files of earlier launch x (its Rex session is gone)", routine: true }, { text: "adopted earlier launch y" }]);
+    await launch("/tmp/workspace");
+    expect(stderrText).toContain("summon: note: removed the files of earlier launch x (its Rex session is gone)\nsummon: note: adopted earlier launch y\n");
+    expect(routineText).toBe("summon: note: removed the files of earlier launch x (its Rex session is gone)\n");
   });
 
   it("a dry run with an active Rex record calls neither adoptOrphans nor the switch decision nor any rex process, and prints the request plus the note", async () => {
@@ -4960,7 +5007,7 @@ describe("Rex launch (plan P2, P8, P13, P15; Phase 3)", () => {
     logSpy.mockRestore();
     expect(output).toContain("-- Note: workspace is recorded as a Rex workspace (session:0000aaaa-0000-0000-0000-000000000001)");
     expect(output).toContain('"initial_windows"');
-    expect(mockAdoptOrphans).not.toHaveBeenCalled();
+    expect(mockAdoptOrphansForLaunch).not.toHaveBeenCalled();
     expect(mockMaybeSwitch).not.toHaveBeenCalled();
     expect(mockSessionState).not.toHaveBeenCalled();
     expect(rexLaunches).toEqual([]);
@@ -4978,7 +5025,7 @@ describe("Rex launch (plan P2, P8, P13, P15; Phase 3)", () => {
       Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, configurable: true });
     }
     expect(stderrText).toContain("interactive confirmation");
-    expect(mockAdoptOrphans).toHaveBeenCalledWith("workspace", { forLaunch: true });
+    expect(mockAdoptOrphansForLaunch).toHaveBeenCalledWith("workspace");
     expect(rexLaunches).toEqual([]);
     expect(statusModule.publishStatus).not.toHaveBeenCalled();
   });
@@ -4989,7 +5036,7 @@ describe("Rex launch (plan P2, P8, P13, P15; Phase 3)", () => {
     mockSessionState.mockReturnValue({ state: "partial", reason: "root pane closed", liveBlocks: ["editor-2"] });
     await launch("/tmp/workspace");
     expect(stderrText).toContain("summon: note: Rex session [workspace] session:0000aaaa-0000-0000-0000-000000000001 is still running; rex kill session:0000aaaa-0000-0000-0000-000000000001 closes it");
-    expect(mockAdoptOrphans).not.toHaveBeenCalled();
+    expect(mockAdoptOrphansForLaunch).not.toHaveBeenCalled();
     expect(statusModule.publishStatus).toHaveBeenCalledWith(expect.objectContaining({ backend: "ghostty" }));
     mockSessionState.mockReturnValue({ state: "stopped", liveBlocks: [] });
     stderrText = "";

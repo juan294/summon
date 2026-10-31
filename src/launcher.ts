@@ -15,17 +15,17 @@ import {
 } from "./layout.js";
 import type { LayoutOptions } from "./layout.js";
 export { traditionalPaneNames } from "./layout.js";
-import { listConfig, listProjects, readKVFile, readKVFromString, readCustomLayout, isCustomLayout, LAYOUT_NAME_RE } from "./config.js";
+import { listConfig, listProjects, readKVFromString, readCustomLayout, isCustomLayout, LAYOUT_NAME_RE } from "./config.js";
 import { publishStatus, readStatus, readStatusRecord } from "./status.js";
 import type { WorkspaceStatus } from "./status.js";
 import { generateAppleScript, generateTreeAppleScript } from "./script.js";
 import { newLaunchId } from "./launch-identity.js";
-import { callerRexSession, resolveBackendForLaunch } from "./backend.js";
+import { REX_UNHONORED_FLAGS, callerRexSession, resolveBackendForLaunch } from "./backend.js";
 import type { BackendId, LaunchContext } from "./backend.js";
 import { GhosttyBackend, ghosttyCommandEntries } from "./backends/ghostty.js";
 import type { BackendLaunchContext, BackendLaunchResult, TerminalBackend } from "./backends/ghostty.js";
 import { createRexBackend } from "./backends/rex/backend.js";
-import { adoptOrphans, adoptDeps, maybeSwitchToExisting } from "./backends/rex/launch.js";
+import { adoptOrphansForLaunch, adoptDeps, maybeSwitchToExisting } from "./backends/rex/launch.js";
 import { createRexCli, discoverRex } from "./backends/rex/cli.js";
 import { focusRex, sessionState } from "./backends/rex/status.js";
 import { closeLauncherTabAfterRexLaunch, startLauncherTabWatch } from "./backends/rex/launcher-tab.js";
@@ -520,16 +520,16 @@ function layerConfigValues(
   return result;
 }
 
-export function resolveConfig(targetDir: string, cliOverrides: CLIOverrides, summonFileContent?: string): ResolvedConfig {
+/**
+ * `summonFileContent` is `readTrustedSummonFile`'s result: the `.summon` content that passed the trust check, read once
+ * (TOCTOU prevention, BE-B2 #357; SE-M1). The file is never read here, so an untrusted `.summon` is never parsed.
+ */
+export function resolveConfig(targetDir: string, cliOverrides: CLIOverrides, summonFileContent: string | undefined): ResolvedConfig {
   const projectConfigPath = join(targetDir, ".summon");
   const skipProjectConfig = cliOverrides["no-project-config"] === "true";
-  // Use pre-read content if provided (TOCTOU prevention, BE-B2 #357). Every launch-path caller passes
-  // readTrustedSummonFile's result (SE-M1); the disk read below serves only callers that pass nothing.
-  const project = skipProjectConfig
+  const project = skipProjectConfig || summonFileContent === undefined
     ? new Map<string, string>()
-    : summonFileContent !== undefined
-      ? readKVFromString(summonFileContent)
-      : readKVFile(projectConfigPath);
+    : readKVFromString(summonFileContent);
   if (project.size > 0) {
     console.log(`Using project config: ${projectConfigPath}`);
   }
@@ -860,14 +860,9 @@ type LaunchedLayout = { paneNames: string[] } & BackendLaunchResult;
  * command line are named (UX-H1): the same keys in config are Ghostty preferences, silent under Rex like `clean=true`.
  */
 export function rexLimitationNotices(overrides: CLIOverrides): string[] {
-  const limited: Array<[string, boolean]> = [
-    ["maximize", overrides.maximize === "true"],
-    ["float", overrides.float === "true"],
-    ["fullscreen", overrides.fullscreen === "true"],
-    ["font-size", overrides["font-size"] !== undefined],
-    ["clean", overrides.clean === "true"],
-  ];
-  return limited.filter(([, set]) => set).map(([flag]) => `Rex cannot honor ${flag}; ignored`);
+  return REX_UNHONORED_FLAGS
+    .filter((flag) => (flag === "font-size" ? overrides[flag] !== undefined : overrides[flag] === "true"))
+    .map((flag) => `Rex cannot honor ${flag}; ignored`);
 }
 
 /** A Ghostty launch over a live Rex session of the same project replaces the record; the session stays (plan §6). */
@@ -903,12 +898,11 @@ export function readTrustedSummonFile(targetDir: string, cliOverrides: CLIOverri
   if (cliOverrides["no-project-config"] === "true") return undefined;
   const summonFilePath = join(targetDir, ".summon");
   let content: string | undefined;
-  if (existsSync(summonFilePath)) {
-    try {
-      content = readFileSync(summonFilePath, "utf-8");
-    } catch {
-      content = undefined;
-    }
+  try {
+    content = readFileSync(summonFilePath, "utf-8");
+  } catch {
+    // No file (ENOENT), or one that cannot be read: the check below is the one for a directory without content.
+    content = undefined;
   }
   if (content !== undefined) assertTrustedContent(targetDir, content);
   else assertTrusted(targetDir);
@@ -952,7 +946,7 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
     // P13 late adoption, then the P2 reuse decision: both before the wizard, the pane probe
     // and on-start, so a switch never reruns them. A dry run skips both (P2) and runs no Rex command.
     // A session the record's --new-window launch announced is not repeated on every launch (F12); status still names it.
-    for (const line of adoptOrphans(projectName, adoptDeps(launchContext.rexBinary), { forLaunch: true })) note(line);
+    for (const notice of adoptOrphansForLaunch(projectName, adoptDeps(launchContext.rexBinary))) note(notice.text, { routine: notice.routine === true });
     const decision = maybeSwitchToExisting(projectName, newWindowFlag, { cliFor: (server) => createRexCli(launchContext.rexBinary, server), callerSession });
     if (decision.kind === "switched") {
       closeLauncherTabAfterRexLaunch(launchContext);
@@ -1048,7 +1042,9 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
   // on-stop is embedded in the AppleScript's EXIT trap and runs silently; a launch-time notice
   // makes the hook visible without requiring users to inspect the generated script.
   if (effectiveOnStop && !cliOverrides?.dryRun) {
-    note("on-stop will run on workspace exit.");
+    // UX-H1: repeated on every launch with a hook (from the user's own config or a `.summon` trusted by content hash; one
+    // with shell metacharacters still gets the interactive warning), so it is routine for the D1 launcher-tab watch.
+    note("on-stop will run on workspace exit.", { routine: true });
   }
 
   // Cache resolved command paths so the same binary is only looked up once

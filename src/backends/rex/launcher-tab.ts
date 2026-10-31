@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import type { LaunchContext } from "../../backend.js";
+import { writingRoutine } from "../../ui/output.js";
 import { debugLog } from "../../utils.js";
 import { createRexCli } from "./cli.js";
 import type { RexCli } from "./cli.js";
@@ -50,21 +51,6 @@ let armed = false;
 let watching = false;
 let attention = false;
 
-/** Routine stderr lines of a clean Rex launch or switch (nothing to act on); anything else is for the user to read. */
-const ROUTINE_STDERR = [
-  /^Workspace \[[^\]]+\] is already running in Rex; switched to it /,
-  // Housekeeping after a session ended outside Summon; its failure ("could not remove the files ...") is not routine.
-  /^summon: note: removed the files of earlier launch \S+ \(its Rex session is gone\)$/,
-  // UX-H1: the on-stop disclosure repeats on every launch with a hook. The hook comes from the user's own config or a
-  // `.summon` trusted by content hash, and one with shell metacharacters still gets the interactive warning.
-  /^summon: note: on-stop will run on workspace exit\.$/,
-];
-
-/** Every non-blank line of a write must be routine; one line to read flags the whole write. */
-function routine(text: string): boolean {
-  return text.split("\n").every((line) => line.trim() === "" || ROUTINE_STDERR.some((re) => re.test(line)));
-}
-
 /** @internal test hook */
 export function resetLauncherTabForTests(): void {
   armed = false;
@@ -72,7 +58,7 @@ export function resetLauncherTabForTests(): void {
   attention = false;
 }
 
-/** Whether anything other than routine output reached stderr since the watch started. */
+/** Whether anything other than output marked routine reached stderr since the watch started. */
 export function needsAttention(): boolean {
   return attention;
 }
@@ -87,7 +73,8 @@ export function watchForAttention(stream: NodeJS.WriteStream = process.stderr): 
   const write = stream.write.bind(stream) as (...args: unknown[]) => boolean;
   stream.write = ((chunk: unknown, ...rest: unknown[]) => {
     const text = typeof chunk === "string" ? chunk : Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk);
-    if (!routine(text)) attention = true;
+    // D1: a write its source marked routine (note/err with `{ routine: true }`) and blank output pass; anything else is for the user.
+    if (!writingRoutine() && text.trim() !== "") attention = true;
     return write(chunk, ...rest);
   }) as NodeJS.WriteStream["write"];
 }
