@@ -43,7 +43,7 @@ src/
   file-lock.ts          withFileLock/withFileLockAsync: cross-process lock (directory rename, dead-owner recovery) for config, status records and the Rex launch lock
   launch-guards.ts      Pre-launch safety checks (ensureGhostty, ensureAccessibility, confirmDangerousCommands); shared by the launcher and the Ghostty backend
   status-record.ts      Record layer: WorkspaceStatus (in-memory union per backend), readStatusRecord, withOwnedRecord locked writes, launch artifact removal, Ghostty sidecar liveness
-  status.ts             Status reader: readStatus/readAllStatuses over both backends (active/partial/stopped/unknown) through the record ports; hasRexState
+  status.ts             Status reader: readStatus/readAllStatuses over both backends (active/partial/stopped/unknown) through the record ports; readMaySpawn, statusesMaySpawn
   briefing.ts           Morning project briefing (overnight commits, dirty files, recommendations)
   monitor.ts            Interactive TUI dashboard for workspace status (refresh loop, keyboard nav)
   monitor-input.ts      Monitor input decoder: terminal replies and user keys share one byte stream (pure)
@@ -74,7 +74,7 @@ src/
     ghostty/
       read.ts           The Ghostty half of a status read: per-launch sidecar liveness (P12); no native scripting
       backend.ts        GhosttyBackend adapter: AppleScript launch, executeScript, spinner, rollback, probePaneCount, decideCleanRestoredPanes, dry-run body
-      workspace.ts      GhosttyWorkspace record port: sidecar liveness, focus, inspect, title through the native identity, sweepDeadGhosttyLaunches
+      workspace.ts      GhosttyWorkspace record port: focus, inspect, title through the native identity, sweepDeadGhosttyLaunches
       script.ts         AppleScript generator (pure function — builds script string)
       native.ts         Native Ghostty scripting: inventory, focus and title scripts and their runners (exact terminal ids)
       pane-inventory.ts Ghostty pane inventory: creation-order pane variables, NativeMetadata parse, native capture parse
