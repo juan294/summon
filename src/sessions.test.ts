@@ -100,7 +100,6 @@ import {
   readSession,
   writeSession,
   deleteSession,
-  sessionExists,
 } from "./sessions.js";
 
 beforeEach(() => {
@@ -223,10 +222,10 @@ describe("deleteSession", () => {
   it("returns true when session exists and deletes it", () => {
     dirs.add(TEST_SESSIONS_DIR);
     writeSession("todelete", ["projA"]);
-    expect(sessionExists("todelete")).toBe(true);
+    expect(readSession("todelete")).not.toBeNull();
     const result = deleteSession("todelete");
     expect(result).toBe(true);
-    expect(sessionExists("todelete")).toBe(false);
+    expect(readSession("todelete")).toBeNull();
   });
 
   it("returns false when session does not exist", () => {

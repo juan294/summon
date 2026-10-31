@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A mistyped subcommand gets a suggestion when it is a prefix or one edit away (`summon stauts` prints `Did you mean: summon status?` and no longer says to register `stauts` as a project). The `Did you mean` line now comes right after the error, and `summon remove`, `focus`, `inspect`, `title`, `clean` and `session` print it too for a project name that is not registered. Exit codes do not change.
 - The setup wizard's tips are correct and match the detected terminal: `summon session add <name> <project>...` (there is no `session save`), `summon . --dry-run` (it needs a target), `--on-start` runs before the workspace is created, and the `--font-size` tip shows under Ghostty only. When a first-run wizard is followed by the launch you asked for, it ends with `Summoning your workspace now…` instead of telling you to run `summon .`.
 - A Rex launch on an interactive terminal shows a transient `Summoning <project>…` line on stdout while the session is created, and says when it opens the Rex app; the line is cleared before the result. Piped output does not change.
+- Development dependencies: `@types/node` now follows the Node.js 22 floor (`^22.12.0`), and eslint 10.12.0, typescript-eslint 8.71.2 and actions/setup-node 7.1.0 are picked up. The published package does not change.
 
 ### Fixed
 

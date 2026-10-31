@@ -53,7 +53,7 @@ vi.mock("./snapshot.js", async (original) => ({
   writeSnapshotFile: (snapshot: unknown) => snapshotMocks.writeSnapshotFile(snapshot),
 }));
 
-const { hasRexState, writeStatus, publishStatus, clearStatus, readStatus, readAllStatuses, readProjectStatus, getGitBranch, parseWorkspaceStatus, readStatusRecord, withOwnedRecord, statusTestHooks, resetRexBinaryMemo, newRexReadContext, removeLaunchFileSet, NO_LIVE_PANES } = await import("./status.js");
+const { hasRexState, writeStatus, publishStatus, readStatus, readAllStatuses, readProjectStatus, getGitBranch, parseWorkspaceStatus, readStatusRecord, withOwnedRecord, statusTestHooks, resetRexBinaryMemo, newRexReadContext, removeLaunchFileSet, NO_LIVE_PANES } = await import("./status.js");
 const { launchArtifactFiles } = await import("./launch-identity.js");
 const { writeLaunchManifest } = await import("./launch-identity.js");
 import type { WorkspaceStatus } from "./status.js";
@@ -152,29 +152,6 @@ describe("writeStatus", () => {
     const filePath = join(TEST_STATUS_DIR, "myapp.json");
     const mode = statSync(filePath).mode & 0o777;
     expect(mode).toBe(0o600);
-  });
-});
-
-describe("clearStatus", () => {
-  it("removes status file and marker", () => {
-    writeStatus(makeStatus({ project: "myapp" }));
-    // Simulate shell bootstrap writing marker + pid
-    writeFileSync(join(TEST_STATUS_DIR, "myapp.active"), "");
-    writeFileSync(join(TEST_STATUS_DIR, "myapp.pid"), String(process.pid));
-    expect(existsSync(join(TEST_STATUS_DIR, "myapp.json"))).toBe(true);
-    expect(existsSync(join(TEST_STATUS_DIR, "myapp.active"))).toBe(true);
-    clearStatus("myapp");
-    expect(existsSync(join(TEST_STATUS_DIR, "myapp.json"))).toBe(false);
-    expect(existsSync(join(TEST_STATUS_DIR, "myapp.active"))).toBe(false);
-    expect(existsSync(join(TEST_STATUS_DIR, "myapp.pid"))).toBe(false);
-  });
-
-  it("does not throw if files missing", () => {
-    expect(() => clearStatus("nonexistent")).not.toThrow();
-  });
-
-  it("rejects path traversal in project name", () => {
-    expect(() => clearStatus("../../etc/evil")).toThrow("Invalid status path");
   });
 });
 
@@ -976,7 +953,7 @@ describe("per-launch liveness (plan P12)", () => {
       expect(rexMocks.adoptOrphans).toHaveBeenCalledTimes(1);
 
       // Without adoption the manifest stays an unverified row.
-      clearStatus("orphan");
+      rmSync(join(TEST_STATUS_DIR, "orphan.json"));
       const again = readAllStatuses();
       expect(again.map((r) => [r.project, r.state, r.reason])).toEqual([["orphan", "unknown", "unverified launch"]]);
     });
@@ -1301,29 +1278,6 @@ describe("removeLaunchFileSet keeps the retry proof", () => {
   const launchFileListExists = () => [...files().liveness, ...files().panes, files().manifest!, files().token!].filter((f) => existsSync(f));
 });
 
-describe("clearStatus with a generation", () => {
-  it("clearStatus with a generation removes that launch's own files and the legacy paths", () => {
-    writeStatus(makeStatus({ project: "p", launchId: GEN_A }));
-    writeLaunchFiles("p", GEN_A);
-    writeLaunchFiles("p", GEN_B);
-    writeFileSync(join(TEST_STATUS_DIR, "p.active"), "");
-    clearStatus("p", GEN_A);
-    expect(existsSync(join(TEST_STATUS_DIR, "p.json"))).toBe(false);
-    expect(existsSync(join(TEST_STATUS_DIR, "p.active"))).toBe(false);
-    expect(existsSync(join(launchDir("p"), `${GEN_A}.pid`))).toBe(false);
-    expect(existsSync(join(launchDir("p"), `${GEN_A}.active`))).toBe(false);
-    expect(existsSync(join(launchDir("p"), `${GEN_B}.pid`))).toBe(true);
-  });
-
-  it("clearStatus with a stale generation leaves everything in place", () => {
-    writeStatus(makeStatus({ project: "p", launchId: GEN_B }));
-    writeLaunchFiles("p", GEN_B);
-    clearStatus("p", GEN_A);
-    expect(existsSync(join(TEST_STATUS_DIR, "p.json"))).toBe(true);
-    expect(existsSync(join(launchDir("p"), `${GEN_B}.pid`))).toBe(true);
-  });
-});
-
 describe("readAllStatuses discovery of unverified launches (plan P13 §6)", () => {
   function manifest(project: string, launchId: string): LaunchManifest {
     return {
@@ -1544,7 +1498,7 @@ describe("hasRexState (PE-H1: only Rex state reads off the monitor's thread)", (
   it("is true with a Rex record or a Rex launch manifest without a record", () => {
     writeStatus(makeStatus({ project: "rexy", launchId: GEN_A, backend: "rex", rex: rexIdentity(), panes: ["editor"] }));
     expect(hasRexState()).toBe(true);
-    clearStatus("rexy");
+    rmSync(join(TEST_STATUS_DIR, "rexy.json"));
     expect(hasRexState()).toBe(false);
     writeLaunchManifest(manifest("orphan", "rex"));
     expect(hasRexState()).toBe(true);

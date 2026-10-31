@@ -114,7 +114,6 @@ const {
   // Phase 3 — arrow-key grid builder:
   createGridState,
   applyGridAction,
-  renderGridBuilderPreview,
   renderGridBuilderHints,
   runGridBuilder,
   // Issue fixes:
@@ -3169,31 +3168,6 @@ describe("applyGridAction", () => {
     const original = { ...state, columns: [...state.columns] };
     applyGridAction(state, "addCol");
     expect(state).toEqual(original);
-  });
-});
-
-describe("renderGridBuilderPreview", () => {
-  it("focused cell contains marker character", () => {
-    const preview = renderGridBuilderPreview([2, 1], 0, 0);
-    expect(preview).toContain("*");
-  });
-
-  it("non-focused cells contain dot marker", () => {
-    const preview = renderGridBuilderPreview([2, 1], 0, 0);
-    expect(preview).toContain("\u00b7"); // ·
-  });
-
-  it("single column renders correctly", () => {
-    const preview = renderGridBuilderPreview([1], 0, 0);
-    expect(preview).toContain("\u250c"); // ┌
-    expect(preview).toContain("\u2514"); // └
-  });
-
-  it("renders correct number of separators for multi-pane column", () => {
-    const preview = renderGridBuilderPreview([3, 1], 0, 0);
-    const lines = preview.split("\n");
-    const separatorCount = lines.filter((l: string) => l.includes("\u251c")).length; // ├
-    expect(separatorCount).toBe(2);
   });
 });
 

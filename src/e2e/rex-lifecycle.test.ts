@@ -13,10 +13,17 @@ import { join } from "node:path";
 
 const { destroySessions, rexGate, sleep, until, withRexEnv } = await import("./rex-harness.js");
 const { discoverRex, createRexCli, defaultRexServer } = await import("../backends/rex/cli.js");
-const { readStatusRecord, readStatus, clearStatus } = await import("../status.js");
+const { readStatusRecord, readStatus } = await import("../status.js");
+const { STATUS_DIR } = await import("../paths.js");
 const { launchArtifactPaths, launchesDir } = await import("../launch-identity.js");
 const { clearSnapshot } = await import("../snapshot.js");
 const { launch } = await import("../launcher.js");
+
+/** Best-effort removal of this suite's status record and legacy liveness files. */
+function removeStatusFiles(project: string): void {
+  for (const ext of ["json", "active", "pid"]) rmSync(join(STATUS_DIR, `${project}.${ext}`), { force: true });
+}
+
 const harness = rexGate(process.env, "rex-lifecycle e2e");
 const { prereq } = harness;
 
@@ -131,7 +138,7 @@ describe("rex lifecycle observations (plan D6, Phase 5 step 0)", () => {
       // rest are killed here and every one is proven absent (guide C20).
       cleanupFailures = await destroySessions(cli, created.map((c) => c.sessionId));
       for (const { project } of created) {
-        try { clearStatus(project); } catch { /* best effort */ }
+        removeStatusFiles(project);
         try { clearSnapshot(project); } catch { /* best effort */ }
         rmSync(launchesDir(project), { recursive: true, force: true });
       }

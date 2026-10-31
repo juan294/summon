@@ -5,7 +5,7 @@ vi.mock("./backends/rex/cli.js", async (original) => ({
   ...(await original<typeof import("./backends/rex/cli.js")>()),
   probeWhoami: (binary: string, server: string) => mockProbeWhoami(binary, server),
 }));
-const { resolveBackendForLaunch, resolveBackendForRecord, isBackendId, REX_UNHONORED_FLAGS, GHOSTTY_ONLY_CONFIG_KEYS } = await import("./backend.js");
+const { resolveBackendForLaunch, isBackendId, REX_UNHONORED_FLAGS, GHOSTTY_ONLY_CONFIG_KEYS } = await import("./backend.js");
 
 const REX_BIN = "/fake/rex";
 const SERVER = "unix:///tmp/rex.sock";
@@ -91,21 +91,6 @@ describe("resolveBackendForLaunch", () => {
       discoverRex: () => ({ path: REX_BIN, searched: ["PATH"] }),
     });
     expect(context).toMatchObject({ ok: true, backend: "rex", server: expect.stringMatching(/^unix:\/\/.*\/rex\/server\.sock$/) });
-  });
-});
-
-describe("resolveBackendForRecord (plan P6)", () => {
-  it("treats a record without backend as Ghostty", () => {
-    expect(resolveBackendForRecord({})).toEqual({ backend: "ghostty" });
-  });
-
-  it("returns the recorded Rex server", () => {
-    expect(resolveBackendForRecord({ backend: "rex", rex: { server: SERVER, hostId: "h", sessionId: "session:x", windowId: "window:x", rootBlockId: "block:x", blocks: [] } }))
-      .toEqual({ backend: "rex", server: SERVER });
-  });
-
-  it("returns rex without a server when the identity is missing", () => {
-    expect(resolveBackendForRecord({ backend: "rex" })).toEqual({ backend: "rex" });
   });
 });
 

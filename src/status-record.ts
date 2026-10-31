@@ -258,25 +258,6 @@ export function unlinkIgnoringMissing(path: string): boolean {
   catch (error) { return (error as NodeJS.ErrnoException).code === "ENOENT"; }
 }
 
-/** Remove the record and its liveness files (explicit user command; "replace" unless a generation is given). */
-export function clearStatus(projectName: string, launchId?: string): void {
-  const legacyPaths = [markerFilePath(projectName), pidFilePath(projectName)];
-  withOwnedRecord(
-    projectName,
-    launchId ? { launchId } : "replace",
-    () => null,
-    () => {
-      unlinkIgnoringMissing(statusFilePath(projectName));
-      for (const path of legacyPaths) unlinkIgnoringMissing(path);
-      if (launchId) {
-        const paths = launchArtifactPaths(projectName, launchId);
-        unlinkIgnoringMissing(paths.pid);
-        unlinkIgnoringMissing(paths.active);
-      }
-    },
-  );
-}
-
 // --- Read ---
 
 function readPidFile(path: string): number | null {
