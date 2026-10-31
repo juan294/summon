@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { escapeControlChars, isDisplaySafe } from "../../pane-inventory.js";
+import { escapeControlChars, isDisplaySafe } from "../../ui/sanitize.js";
 import { BUNDLE_NAMES } from "./cli.js";
 import type { RexCli } from "./cli.js";
 import type { RexFailure, RexResult } from "./types.js";

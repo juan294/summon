@@ -4,7 +4,6 @@ import {
   removeProject,
   listProjects,
 } from "../config.js";
-import { focusWorkspace } from "../workspace-focus.js";
 import { withTrustPrompt } from "../trust.js";
 import { promptUser, exitWithUsageHint, PromptCancelled, CANCELLED_EXIT_CODE } from "../utils.js";
 import { fail, warn } from "../ui/output.js";
@@ -87,7 +86,7 @@ async function watchSwitch(project: string): Promise<() => void> {
   const detection = resolveBackendForLaunch();
   if (!detection.ok || detection.backend !== (record.backend ?? "ghostty")) return () => {};
   const { createTerminalBackend } = await import("../backends/select.js");
-  const backend = createTerminalBackend(detection);
+  const backend = await createTerminalBackend(detection);
   backend.watchOutput?.();
   return () => backend.afterSuccess?.();
 }
@@ -104,6 +103,8 @@ async function openRow(row: ProjectRow, overrides: CommandContext["overrides"]):
     process.exit(2);
   }
   if (isLiveState(row.state)) {
+    // Loaded here so `list`, `add` and `remove` never load the status reader or the record backends (PE-L2).
+    const { focusWorkspace } = await import("../workspace-focus.js");
     const armClose = await watchSwitch(row.name);
     const result = focusWorkspace(row.name);
     if (result.kind !== "focused") { fail(result.reason); process.exit(2); }

@@ -58,7 +58,10 @@ const { writeStatus, publishStatus, parseWorkspaceStatus, readStatusRecord, with
 const { NO_LIVE_PANES } = await import("./backends/rex/status.js");
 const { launchArtifactFiles } = await import("./launch-identity.js");
 const { writeLaunchManifest } = await import("./launch-identity.js");
-import type { WorkspaceStatus } from "./status-record.js";
+import type { RexWorkspaceStatus, WorkspaceStatus } from "./status-record.js";
+import type { BackendId } from "./backend-detect.js";
+import type { NativeMetadata } from "./backends/ghostty/pane-inventory.js";
+import type { RexIdentity } from "./backends/rex/types.js";
 import type { LaunchManifest } from "./launch-identity.js";
 
 /** Every caller reads with reconciliation (AR-M3), so these suites pin the reconciling read. */
@@ -91,7 +94,10 @@ function rexIdentity() {
   };
 }
 
-function makeStatus(overrides?: Partial<WorkspaceStatus>): WorkspaceStatus {
+/** Any field combination a status file may hold; the parser decides what a read keeps (AR-L2). */
+type StatusFixture = Partial<Omit<WorkspaceStatus, "backend" | "native" | "rex">> & { backend?: BackendId; native?: NativeMetadata; rex?: RexIdentity };
+
+function makeStatus(overrides?: StatusFixture): WorkspaceStatus {
   return {
     project: "testapp",
     directory: "/tmp/testapp",
@@ -102,7 +108,7 @@ function makeStatus(overrides?: Partial<WorkspaceStatus>): WorkspaceStatus {
     source: "summon",
     version: 1,
     ...overrides,
-  };
+  } as WorkspaceStatus;
 }
 
 beforeEach(() => {
@@ -740,7 +746,7 @@ describe("per-launch liveness (plan P12)", () => {
   });
 
   describe("Rex records resolve through sessionState (plan P10, Phase 4)", () => {
-    const rexRecord = (project = "myapp", extra: Partial<WorkspaceStatus> = {}) => makeStatus({ project, launchId: GEN_A, backend: "rex", rex: rexIdentity(), panes: ["editor"], startedAt: new Date(Date.now() - 60_000).toISOString(), ...extra });
+    const rexRecord = (project = "myapp", extra: StatusFixture = {}) => makeStatus({ project, launchId: GEN_A, backend: "rex", rex: rexIdentity(), panes: ["editor"], startedAt: new Date(Date.now() - 60_000).toISOString(), ...extra });
     beforeEach(() => {
       rexMocks.listSessions.mockReset().mockReturnValue({ ok: true, sessions: [] });
       rexMocks.sessionState.mockReset().mockReturnValue({ state: "stopped", reason: "Rex session no longer exists", liveBlocks: [] });
@@ -830,8 +836,8 @@ describe("per-launch liveness (plan P12)", () => {
     });
     /** A refresh that finds the shell pane's file: the record gains its block under the lock. */
     const refreshFindsShell = () => rexMocks.refreshPaneMapping.mockImplementation((record: unknown) => {
-      const r = record as WorkspaceStatus;
-      writeStatus({ ...r, rex: { ...r.rex!, blocks: [...r.rex!.blocks, { name: "shell", blockId: SHELL_BLOCK, label: "shell" }] } });
+      const r = record as RexWorkspaceStatus;
+      writeStatus({ ...r, rex: { ...r.rex, blocks: [...r.rex.blocks, { name: "shell", blockId: SHELL_BLOCK, label: "shell" }] } });
       return { notices: ["pane x of myapp has an unreadable pane file; summon clean --orphans names it"], changed: true };
     });
 
@@ -1050,6 +1056,68 @@ describe("optional identity fields (plan P16)", () => {
 
   it("drops an unparsable endedAt silently", () => {
     expect(parseWorkspaceStatus({ ...makeStatus(), endedAt: "not a date" })?.endedAt).toBeUndefined();
+  });
+});
+
+describe("in-memory record union (AR-L2): the JSON on disk is unchanged", () => {
+  const id = "00000000-0000-4000-8000-000000000001";
+  const native = { rootTerminalId: id, panes: [{ name: "editor", terminalId: id }] };
+  const fields = { project: "unionapp", directory: "/tmp/unionapp", pid: 4242, startedAt: "2026-10-29T09:00:00.000Z", layout: "minimal", panes: ["editor"], source: "summon", version: 1 };
+  const file = () => join(TEST_STATUS_DIR, "unionapp.json");
+  /** Store `raw` as a status file, read it, write the parsed record back; returns the bytes before and after. */
+  const roundTrip = (raw: Record<string, unknown>): { before: string; after: string; parsed: WorkspaceStatus } => {
+    mkdirSync(TEST_STATUS_DIR, { recursive: true });
+    const before = JSON.stringify(raw, null, 2) + "\n";
+    writeFileSync(file(), before);
+    const parsed = readStatusRecord("unionapp")!;
+    writeStatus(parsed);
+    return { before, after: readFileSync(file(), "utf-8"), parsed };
+  };
+
+  it("a legacy record without a backend field parses as Ghostty and is rewritten byte for byte, still without the field", () => {
+    const { before, after, parsed } = roundTrip({ ...fields, native });
+    expect(parsed.backend).toBeUndefined();
+    expect(parsed.native).toEqual(native);
+    expect(after).toBe(before);
+    expect(after).not.toContain('"backend"');
+    // A legacy record with neither identity nor launch id round-trips too.
+    expect(roundTrip({ ...fields }).after).toBe(JSON.stringify(fields, null, 2) + "\n");
+  });
+
+  it("a Ghostty and a Rex record as launches write them are rewritten byte for byte", () => {
+    const ghostty = roundTrip({ ...fields, native, launchId: GEN_A, backend: "ghostty", endedAt: "2026-10-29T10:00:00.000Z" });
+    expect(ghostty.parsed.backend).toBe("ghostty");
+    expect(ghostty.after).toBe(ghostty.before);
+    const rex = roundTrip({ ...fields, launchId: GEN_A, backend: "rex", rex: rexIdentity(), endedAt: "2026-10-29T10:00:00.000Z" });
+    expect(rex.parsed.backend === "rex" && rex.parsed.rex).toEqual(rexIdentity());
+    expect(rex.after).toBe(rex.before);
+  });
+
+  it("a Rex record whose identity was discarded stays a Rex record without identity, and its rewrite adds no field", () => {
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    try {
+      const { after, parsed } = roundTrip({ ...fields, launchId: GEN_A, backend: "rex", rex: { ...rexIdentity(), sessionId: "nope" } });
+      expect(parsed.backend).toBe("rex");
+      expect(parsed.rex).toBeUndefined();
+      expect(Object.keys(parsed)).toEqual([...Object.keys(fields), "launchId", "backend"]);
+      expect(after).toBe(JSON.stringify({ ...fields, launchId: GEN_A, backend: "rex" }, null, 2) + "\n");
+      // Every reader treats it as unknown (plan P10), never as Ghostty.
+      expect(readStatus("unionapp")).toMatchObject({ backend: "rex", state: "unknown", reason: "the record has no Rex identity; run summon unionapp --new-window to relaunch" });
+    } finally {
+      stderr.mockRestore();
+    }
+  });
+
+  it("the type admits only the identity of the record's own backend", () => {
+    const base: Omit<WorkspaceStatus, "backend" | "native" | "rex"> = { project: "x", directory: "/x", pid: 1, startedAt: "2026-10-29T09:00:00.000Z", layout: "minimal", panes: [], source: "summon", version: 1 };
+    const rex: WorkspaceStatus = { ...base, backend: "rex", rex: rexIdentity() };
+    const unidentified: WorkspaceStatus = { ...base, backend: "rex" };
+    const legacy: WorkspaceStatus = { ...base, native };
+    // @ts-expect-error a Rex record cannot carry a Ghostty identity
+    const mixed: WorkspaceStatus = { ...base, backend: "rex", rex: rexIdentity(), native };
+    // @ts-expect-error a Ghostty record cannot carry a Rex identity
+    const foreign: WorkspaceStatus = { ...base, backend: "ghostty", rex: rexIdentity() };
+    expect([rex, unidentified, legacy, mixed, foreign]).toHaveLength(5);
   });
 });
 

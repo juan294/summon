@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { planLayout, getPreset, traditionalPaneNames } from "../../layout.js";
 import type { LayoutPlan } from "../../layout.js";
 import { parseTreeDSL, resolveTreeCommands, buildTreePlan } from "../../tree.js";
-import { traditionalInventory } from "../../pane-inventory.js";
+import { traditionalInventory } from "../ghostty/pane-inventory.js";
 import { bootstrapLine, cleanupTrapLine, paneFileLine } from "../../launch-identity.js";
 import { buildSessionCreateRequest, resolveLoginShell, TERMINAL_FLAVOR } from "./layout.js";
 import type { RexBlockNode, RexLayoutNode, SessionCreateInput } from "./layout.js";

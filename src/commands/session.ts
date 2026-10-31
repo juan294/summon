@@ -141,7 +141,7 @@ async function cmdLaunch(ctx: CommandContext, name: string | undefined): Promise
   // Plan P11: the backend decides whether later projects open as tabs of the first one's window (Ghostty) or each
   // as its own session, with the first one shown again at the end (Rex).
   const detection = resolveBackendForLaunch();
-  const backend = detection.ok ? createTerminalBackend(detection) : null;
+  const backend = detection.ok ? await createTerminalBackend(detection) : null;
   const opensTabs = backend?.opensSessionTabs ?? true;
   // D1: a skipped project is printed before its launch starts; watch from here so it keeps the launcher tab.
   if (backend && !ctx.overrides.dryRun) backend.watchOutput?.();

@@ -3,11 +3,11 @@ import { launchArtifactFiles, launchArtifactPaths, listLaunchManifests, readLaun
 import type { LaunchArtifactPaths, LaunchManifest } from "../../launch-identity.js";
 import { ghosttyLiveness, isLiveState, readStatusRecord, removeLaunchFileSet, rexIdentityMissing, withOwnedRecord } from "../../status-record.js";
 import type { LaunchRemoval } from "../../status-record.js";
-import type { WorkspaceState, WorkspaceStatus } from "../../status-record.js";
+import type { RexWorkspaceStatus, WorkspaceState, WorkspaceStatus } from "../../status-record.js";
 import { err, note } from "../../ui/output.js";
 import { shellQuote } from "../../shell-escape.js";
 import { getErrorMessage } from "../../utils.js";
-import { escapeControlChars } from "../../pane-inventory.js";
+import { escapeControlChars } from "../../ui/sanitize.js";
 import { createRexCli, whoamiOf } from "./cli.js";
 import type { RexCli } from "./cli.js";
 import { pickAppClient, pollUntil, realClock, selectInApp, waitForAppClient } from "./app.js";
@@ -300,10 +300,10 @@ export interface PaneRefresh {
  * Fill in the blocks of panes whose file appeared after adoption, under the lock with the
  * record's own generation. Malformed or foreign files are reported, never deleted.
  */
-export function refreshPaneMapping(record: WorkspaceStatus): PaneRefresh {
+export function refreshPaneMapping(record: RexWorkspaceStatus): PaneRefresh {
   const identity = record.rex;
   const unchanged: PaneRefresh = { notices: [], changed: false };
-  if (!identity || !record.launchId) return unchanged;
+  if (!record.launchId) return unchanged;
   const known = new Set(identity.blocks.map((b) => b.name));
   const missing = record.panes.filter((name) => !known.has(name));
   if (missing.length === 0) return unchanged;
@@ -549,9 +549,8 @@ export type ShowResult = { shown: true; clientId: string } | { shown: false; rea
  * app when `callerSession` names one, else the newest, with the same notice when several are
  * connected); for a partial workspace focus the first live pane first.
  */
-export function showWorkspace(cli: RexCli, record: WorkspaceStatus, liveBlocks: string[] = [], callerSession?: string): ShowResult {
+export function showWorkspace(cli: RexCli, record: RexWorkspaceStatus, liveBlocks: string[] = [], callerSession?: string): ShowResult {
   const identity = record.rex;
-  if (!identity) return { shown: false, reason: "the record has no Rex identity" };
   const choice = pickAppClient(cli, callerSession);
   if (!choice) return { shown: false, reason: `no Rex app is connected; open Rex and pick [${record.project}]` };
   if (choice.others.length > 0) note(multipleAppsNotice(choice));
@@ -594,7 +593,7 @@ export function maybeSwitchToExisting(project: string, newWindow: boolean, deps:
   const state = sessionState(cli, identity, project, deps.listings?.of(cli));
   if (state.state === "unknown") return { kind: "refused", reason: `${project} is recorded in Rex but could not be verified on ${identity.server}: ${state.reason ?? "unknown"}. Open the Rex app and retry, or run summon doctor.` };
   if (state.state === "stopped") return { kind: "proceed" };
-  const shown = showWorkspace(cli, { ...current, rex: identity }, state.liveBlocks, deps.callerSession);
+  const shown = showWorkspace(cli, { ...record, rex: identity }, state.liveBlocks, deps.callerSession);
   // D1: the switch line is routine (the launcher tab may close); the failure below is for the user to read.
   if (shown.shown) err(`Workspace [${project}] is already running in Rex; switched to it (use --new-window for a fresh one)`, { routine: true });
   else err(`Workspace [${project}] is already running in Rex but could not be shown (${shown.reason}); run summon open ${project}`);
@@ -608,7 +607,8 @@ export function maybeSwitchToExisting(project: string, newWindow: boolean, deps:
  */
 export function keptSession(project: string, cliFor: (server: string) => RexCli, listings?: SessionListings): { notice: string; keeps: string[] } | undefined {
   const record = readStatusRecord(project);
-  if (record?.backend !== "rex" || !record.rex) return;
+  // Only a Rex record carries a Rex identity (AR-L2).
+  if (!record?.rex) return;
   const cli = cliFor(record.rex.server);
   if (!isLiveState(sessionState(cli, record.rex, project, listings?.of(cli)).state)) return;
   const id = record.rex.sessionId;

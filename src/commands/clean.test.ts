@@ -42,7 +42,7 @@ const { handleCleanCommand } = await import("./clean.js");
 const { writeStatus, readStatusRecord } = await import("../status-record.js");
 const { resetRexBinaryMemo } = await import("../status.js");
 const { writeLaunchManifest, launchArtifactPaths } = await import("../launch-identity.js");
-type WorkspaceStatus = import("../status-record.js").WorkspaceStatus;
+type RexWorkspaceStatus = import("../status-record.js").RexWorkspaceStatus;
 type LaunchManifest = import("../launch-identity.js").LaunchManifest;
 
 const GEN = "0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f";
@@ -54,7 +54,7 @@ const SESSION2 = "session:0000aaaa-0000-0000-0000-000000000002";
 const WINDOW = "window:0000aaaa-0000-0000-0000-000000000002";
 const BLOCK = "block:0000aaaa-0000-0000-0000-000000000010";
 
-function record(extra: Partial<WorkspaceStatus> = {}): WorkspaceStatus {
+function record(extra: Partial<RexWorkspaceStatus> = {}): RexWorkspaceStatus {
   return { project: "chapa", directory: "/tmp/chapa", pid: 1, startedAt: "2026-10-29T09:00:00.000Z", layout: "minimal", panes: ["editor"], source: "summon", version: 1, launchId: GEN, backend: "rex", rex: { server: SERVER, hostId: "host-1", sessionId: SESSION, windowId: WINDOW, rootBlockId: BLOCK, blocks: [{ name: "editor", blockId: BLOCK, label: "editor · vim" }] }, ...extra };
 }
 function manifest(launchId: string, extra: Partial<LaunchManifest> = {}): LaunchManifest {

@@ -11,7 +11,7 @@ import {
   parseEffectiveConfig,
   probeGhostty,
   probeGhosttyDetach,
-} from "./ghostty.js";
+} from "./probe.js";
 
 let temp: string;
 const config =

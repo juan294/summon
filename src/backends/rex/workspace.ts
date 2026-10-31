@@ -16,7 +16,7 @@ import { isLiveState, unverifiedMessage } from "../../status-record.js";
 import { launchArtifactFiles, launchArtifactPaths, launchFileList, listLaunchManifests } from "../../launch-identity.js";
 import type { LaunchManifest } from "../../launch-identity.js";
 import type { ResolvedStatus } from "../../status.js";
-import { escapeControlChars } from "../../pane-inventory.js";
+import { escapeControlChars } from "../../ui/sanitize.js";
 import { shellQuote } from "../../shell-escape.js";
 import { fail, note, out } from "../../ui/output.js";
 import type { WorkspaceBackend } from "../port.js";

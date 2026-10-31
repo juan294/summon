@@ -4,12 +4,12 @@ import { debugLog, atomicWrite, confinedPath } from "./utils.js";
 import { withFileLock } from "./file-lock.js";
 import { isLaunchId, isPaneNameList, launchArtifactPaths } from "./launch-identity.js";
 import type { LaunchFileSet } from "./launch-identity.js";
-import { isBackendId } from "./backend.js";
-import type { BackendId } from "./backend.js";
+import { isBackendId } from "./backend-detect.js";
+import type { BackendId } from "./backend-detect.js";
 import { parseRexIdentity } from "./backends/rex/types.js";
 import type { RexIdentity } from "./backends/rex/types.js";
-import { parseNativeMetadata } from "./pane-inventory.js";
-import type { NativeMetadata } from "./pane-inventory.js";
+import { parseNativeMetadata } from "./backends/ghostty/pane-inventory.js";
+import type { NativeMetadata } from "./backends/ghostty/pane-inventory.js";
 
 /**
  * The status record layer: the shared record `status/<project>.json`, its parser, the locked
@@ -19,7 +19,8 @@ import type { NativeMetadata } from "./pane-inventory.js";
  */
 // --- Types ---
 
-export interface WorkspaceStatus {
+/** Fields every status record carries, whatever its backend. */
+interface WorkspaceStatusFields {
   /** Registered project name or directory basename */
   project: string;
   /** Absolute path to project directory */
@@ -36,17 +37,43 @@ export interface WorkspaceStatus {
   source: "summon";
   /** Schema version for future compatibility */
   version: 1;
-  /** Exact surface-lifetime native identity (Ghostty); optional for legacy launches. */
-  native?: NativeMetadata;
   /** Launch generation (UUID v4, plan P12); absent on records written before per-launch ownership. */
   launchId?: string;
-  /** Owning terminal backend; absent means Ghostty (plan P6). */
-  backend?: BackendId;
-  /** Exact Rex identity (plan P16); mutually exclusive with `native`. */
-  rex?: RexIdentity;
   /** Set by lifecycle reconciliation once the workspace ended; absent while live. */
   endedAt?: string;
 }
+
+/** A Ghostty record; `backend` is absent on records written before the Rex backend (plan P6). */
+export interface GhosttyWorkspaceStatus extends WorkspaceStatusFields {
+  backend?: "ghostty";
+  /** Exact surface-lifetime native identity; optional for legacy launches. */
+  native?: NativeMetadata;
+  rex?: undefined;
+}
+
+/** A Rex record with its exact identity (plan P16). */
+export interface RexWorkspaceStatus extends WorkspaceStatusFields {
+  backend: "rex";
+  rex: RexIdentity;
+  native?: undefined;
+}
+
+/**
+ * A Rex record without an identity: the parser discarded an invalid one, or none was stored. Every reader treats it
+ * as `unknown` (`rexIdentityMissing`, plan P10). It is the record as stored (`backend: "rex"`, no `rex` field), so a
+ * rewrite of it is byte-identical; no marker field is added.
+ */
+export interface UnidentifiedRexWorkspaceStatus extends WorkspaceStatusFields {
+  backend: "rex";
+  rex?: undefined;
+  native?: undefined;
+}
+
+/**
+ * The status record in memory (AR-L2): the backend decides which identity a record may carry, so `native` (Ghostty)
+ * and `rex` never appear together. The JSON on disk is unchanged (schema version 1).
+ */
+export type WorkspaceStatus = GhosttyWorkspaceStatus | RexWorkspaceStatus | UnidentifiedRexWorkspaceStatus;
 
 /** `partial`: a Rex session whose root pane closed while other recorded panes live (plan P10). */
 export type WorkspaceState = "active" | "partial" | "stopped" | "unknown";
@@ -414,20 +441,20 @@ export function parseWorkspaceStatus(raw: unknown): WorkspaceStatus | null {
     else debugLog("parseWorkspaceStatus: invalid endedAt discarded");
   }
 
-  // BE-L3 #514: reconstruct explicitly from validated fields — no unknown keys leak through
-  return {
+  // BE-L3 #514: reconstruct explicitly from validated fields — no unknown keys leak through.
+  // The key order is the one this parser has always produced, so a rewrite of a parsed record is byte-identical.
+  const fields = {
     project: d["project"] as string,
     directory: d["directory"] as string,
     pid: d["pid"] as number,
     startedAt: d["startedAt"] as string,
     layout: d["layout"] as string,
     panes: validPanes,
-    source: "summon",
-    version: 1,
-    ...(native ? { native } : {}),
-    ...(launchId ? { launchId } : {}),
-    ...(backend ? { backend } : {}),
-    ...(rex ? { rex } : {}),
-    ...(endedAt ? { endedAt } : {}),
+    source: "summon" as const,
+    version: 1 as const,
   };
+  const tail = { ...(launchId ? { launchId } : {}) };
+  const ended = { ...(endedAt ? { endedAt } : {}) };
+  if (backend === "rex") return { ...fields, ...tail, backend, ...(rex ? { rex } : {}), ...ended };
+  return { ...fields, ...(native ? { native } : {}), ...tail, ...(backend ? { backend } : {}), ...ended };
 }

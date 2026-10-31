@@ -64,8 +64,8 @@ async function warnIfNested(
   return answer !== "y";
 }
 
-// The Ghostty pane-count probe and restored-pane decision moved to backends/ghostty.ts (AR-M1); re-exported for callers.
-export { decideCleanRestoredPanes, probePaneCount } from "./backends/ghostty.js";
+// The Ghostty pane-count probe and restored-pane decision moved to backends/ghostty/backend.ts (AR-M1, AR-L1); re-exported for callers.
+export { decideCleanRestoredPanes, probePaneCount } from "./backends/ghostty/backend.js";
 
 /**
  * Execute the on-start hook command before workspace creation.
@@ -223,7 +223,7 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
   for (const notice of launchContext.notices) err(notice);
   const projectName = resolveProjectName(targetDir);
   const dryRun = cliOverrides?.dryRun === true;
-  const backend: TerminalBackend = createTerminalBackend(launchContext, { newWindow: cliOverrides?.["new-window"] === "true" });
+  const backend: TerminalBackend = await createTerminalBackend(launchContext, { newWindow: cliOverrides?.["new-window"] === "true" });
   if (!dryRun) {
     // A dry run skips this (P2) and runs no backend command. Rex: late adoption and the P2 switch, before the wizard,
     // the pane probe and on-start, so a switch never reruns them.
@@ -380,20 +380,18 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
     if (dryRun) return;
 
     // Write workspace status for monitoring features
-    const status: WorkspaceStatus = {
+    const fields = {
       project: projectName,
       directory: resolve(targetDir),
       pid: process.pid,
       startedAt: new Date().toISOString(),
       layout: layoutLabel,
       panes: launched.paneNames,
-      ...(launched.native ? { native: launched.native } : {}),
-      source: "summon",
-      version: 1,
-      launchId,
-      backend: backend.id,
-      ...(launched.rex ? { rex: launched.rex } : {}),
     };
+    // The key order of the record on disk; each backend keeps only its own identity (AR-L2).
+    const status: WorkspaceStatus = backend.id === "rex"
+      ? { ...fields, source: "summon", version: 1, launchId, backend: "rex", ...(launched.rex ? { rex: launched.rex } : {}) }
+      : { ...fields, ...(launched.native ? { native: launched.native } : {}), source: "summon", version: 1, launchId, backend: "ghostty" };
 
     // A user-initiated launch always publishes (expectation "replace", plan P12); a failed write
     // discards only the record observed under the publication's own lock.

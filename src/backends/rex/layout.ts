@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import type { LayoutPlan } from "../../layout.js";
 import type { LayoutNode, PlannedLayout } from "../../tree.js";
-import { formatTitle } from "../../pane-inventory.js";
+import { formatTitle } from "../../layout.js";
 import { shellQuote } from "../../shell-escape.js";
 import { bootstrapLine, buildEnvVarsList, cleanupTrapLine, paneFileLine } from "../../launch-identity.js";
 
@@ -114,7 +114,7 @@ function column(leaves: Leaf[]): Node {
 }
 
 /**
- * The traditional plan as the split tree Ghostty's script builds (`src/script.ts`): the
+ * The traditional plan as the split tree Ghostty's script builds (`src/backends/ghostty/script.ts`): the
  * sidebar is split right from the root first, the right column is split right from the root
  * afterwards (so it sits between editor and sidebar), and the extra editors and the shell
  * chain downwards. The sidebar pane is created even without a command, exactly like Ghostty.

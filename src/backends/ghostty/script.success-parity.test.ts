@@ -3,9 +3,9 @@ import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { generateAppleScript, generateTreeAppleScript } from "./script.js";
-import { planLayout, getPreset } from "./layout.js";
-import { buildTreePlan } from "./tree.js";
-import type { LayoutNode } from "./tree.js";
+import { planLayout, getPreset } from "../../layout.js";
+import { buildTreePlan } from "../../tree.js";
+import type { LayoutNode } from "../../tree.js";
 
 /**
  * BE-M2 / SE-L1 success-path guard: every Ghostty script mode, as generated at develop 890db69
@@ -16,7 +16,7 @@ import type { LayoutNode } from "./tree.js";
  *     created window or tab id and the outer try that reports it on failure. Default mode (reused
  *     window) gets no rollback lines at all.
  */
-const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const FIXTURE = join(PROJECT_ROOT, "src", "fixtures", "dry-run-ghostty-modes-890db69.txt");
 const LAUNCH_ID = "0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f";
 const TARGET = "/tmp/my project";

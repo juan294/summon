@@ -1,6 +1,6 @@
 import { rexOpTraits, isMutatingOp } from "./types.js";
 import type { RexFailure, RexFailureKind, RexOp, RexOutcome, RexRawResult } from "./types.js";
-import { escapeControlChars } from "../../pane-inventory.js";
+import { escapeControlChars } from "../../ui/sanitize.js";
 import { truncate } from "../../ui/width.js";
 
 /**

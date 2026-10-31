@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { resolveCommand } from "../../utils.js";
-import { isDisplaySafe } from "../../pane-inventory.js";
+import { isDisplaySafe } from "../../ui/sanitize.js";
 import type { RexDiscovery } from "../../backend-detect.js";
 import { classifyRexFailure } from "./errors.js";
 import { rexOpTraits } from "./types.js";

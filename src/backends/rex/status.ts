@@ -3,7 +3,7 @@ import type { RexCli } from "./cli.js";
 import { classifyRexFailure } from "./errors.js";
 import { pickAppClient, selectInApp } from "./app.js";
 import { asRecord } from "./types.js";
-import { isDisplaySafe } from "../../pane-inventory.js";
+import { isDisplaySafe } from "../../ui/sanitize.js";
 import type { RexFailure, RexIdentity, RexResult } from "./types.js";
 
 /**

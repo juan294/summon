@@ -3,7 +3,7 @@
  * the connected apps. The server counts as a check only when this shell launches in Rex; otherwise it is informational.
  */
 import type { Detection, RexDiscovery } from "../../backend-detect.js";
-import { escapeControlChars } from "../../pane-inventory.js";
+import { escapeControlChars } from "../../ui/sanitize.js";
 import { createRexCli, defaultRexServer, discoverRex, whoamiOf } from "./cli.js";
 import { listAppClients } from "./app.js";
 

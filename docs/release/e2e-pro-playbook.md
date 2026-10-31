@@ -267,7 +267,7 @@ in hosted CI, each individually sufficient:
 1. macOS TCC Accessibility cannot be granted non-interactively -- no CLI, no
    plist, no env var (`src/utils.ts:165-176`).
 2. There is no GUI session; Ghostty must be running and windowable, and the
-   script drives it via System Events keystrokes (`src/script.ts:349`).
+   script drives it via System Events keystrokes (`src/backends/ghostty/script.ts:262`, `emitVerifiedKeystroke`).
 3. The AppleScript dictionary is not resolvable after `brew install --cask
    ghostty` on a headless runner (empirically confirmed).
 

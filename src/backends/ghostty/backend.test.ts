@@ -5,15 +5,15 @@ const mockExecFileSync = vi.fn();
 vi.mock("node:child_process", () => ({
   execFileSync: (...args: unknown[]) => mockExecFileSync(...args),
 }));
-vi.mock("../launch-guards.js", async (original) => ({
-  ...(await original<typeof import("../launch-guards.js")>()),
+vi.mock("../../launch-guards.js", async (original) => ({
+  ...(await original<typeof import("../../launch-guards.js")>()),
   ensureGhostty: vi.fn(),
   ensureAccessibility: vi.fn(),
 }));
 
-const { GhosttyBackend, closeCreatedContainer } = await import("./ghostty.js");
-const { planLayout } = await import("../layout.js");
-import type { BackendLaunchContext } from "./ghostty.js";
+const { GhosttyBackend, closeCreatedContainer } = await import("./backend.js");
+const { planLayout } = await import("../../layout.js");
+import type { BackendLaunchContext } from "../port.js";
 
 const ctx: BackendLaunchContext = {
   targetDir: "/tmp/project",
@@ -107,7 +107,7 @@ describe("Ghostty failure rollback (BE-M2)", () => {
 
   it("the tree launch path rolls back the same way", async () => {
     failLaunchWith("execution error: x [summon-rollback window:W-7] (-1728)");
-    const { buildTreePlan } = await import("../tree.js");
+    const { buildTreePlan } = await import("../../tree.js");
     const plan = buildTreePlan({ type: "pane", name: "editor", command: "nvim" }, { newWindow: true });
     await expect(GhosttyBackend.launchTree(plan, ctx)).rejects.toThrow("Failed to execute workspace script");
     expect(rollbackCalls()).toHaveLength(1);
