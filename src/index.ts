@@ -18,6 +18,8 @@ const ONCE_ALLOWED_SUBCOMMANDS = new Set(["status"]);
 // FE-L1 (#621): Subcommands that legitimately consume --vim / --fix.
 const VIM_ALLOWED_SUBCOMMANDS = new Set(["keybindings"]);
 const FIX_ALLOWED_SUBCOMMANDS = new Set(["doctor"]);
+// Flags consumed by exactly one subcommand; any other use (including a launch target) gets a warning.
+const SINGLE_OWNER_FLAGS: Array<[flag: "orphans", owner: string]> = [["orphans", "clean"]];
 
 // PE-H2 (#369): Lazy-import registry — handlers are only loaded when the subcommand is used.
 const registry: Record<string, () => Promise<CommandHandler>> = {
@@ -44,9 +46,19 @@ const registry: Record<string, () => Promise<CommandHandler>> = {
   layout:      () => import("./commands/layout.js").then(m => m.handleLayoutCommand),
   session:     () => import("./commands/session.js").then(m => m.handleSessionCommand),
   trust:       () => import("./commands/trust.js").then(m => m.handleTrustCommand),
+  clean:       () => import("./commands/clean.js").then(m => m.handleCleanCommand),
 };
 
 async function main(): Promise<void> {
+  // Remember how this process was started: the cleanup trap typed into a workspace runs this
+  // same binary for its snapshot, not whatever `summon` is on the pane's PATH when the shell exits.
+  const { registerSelfInvocation } = await import("./self.js");
+  const { realpathSync } = await import("node:fs");
+  let script = process.argv[1];
+  // Resolve the bin symlink of a global install: the trap must run this build, not whatever the
+  // symlink points at when the shell exits (an upgrade or a rollback in between).
+  try { if (script) script = realpathSync(script); } catch { /* keep the path as typed */ }
+  registerSelfInvocation(process.execPath, script);
   // Load the CLI parser dynamically — skipped entirely on the --version fast path above.
   const { parseCli, buildOverrides } = await import("./cli/parse.js");
 
@@ -99,6 +111,12 @@ async function main(): Promise<void> {
     }
   }
 
+  for (const [flag, owner] of SINGLE_OWNER_FLAGS) {
+    if (!parsed.values[flag]) continue;
+    const sub = parsed.subcommand;
+    if (sub !== owner) console.error(`Warning: --${flag} has no effect with the '${sub ?? ""}' command. --${flag} is only valid with 'summon ${owner}'.`);
+  }
+
   // FE-L1 (#621): Warn if --fix is used with a command that doesn't consume it.
   if (parsed.values.fix) {
     const sub = parsed.subcommand;
@@ -129,7 +147,9 @@ async function main(): Promise<void> {
       if (parsed.subcommand === undefined || isDirectoryTarget) {
         console.log("Press Ctrl+C at any time to skip setup. Re-run later with: summon setup");
         const { runSetup } = await import("./setup.js");
-        await runSetup();
+        const { detectedSetupBackend } = await import("./commands/setup.js");
+        // A directory target launches right after the wizard, and the launch prints the detection notices itself.
+        await runSetup(detectedSetupBackend({ showNotices: !isDirectoryTarget }));
         // UX-M3 (#476): After wizard completes (returns normally), continue with the original
         // launch intent when the user was targeting a directory. Cancellation (Ctrl+C) exits
         // inside runSetup itself, so this code only runs on successful completion.

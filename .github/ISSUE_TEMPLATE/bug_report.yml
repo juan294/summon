@@ -48,16 +48,16 @@ body:
     attributes:
       label: CLI Version
       description: "Output of `summon --version`"
-      placeholder: "1.3.0"
+      placeholder: "2.0.0"
     validations:
       required: true
 
   - type: input
-    id: ghostty-version
+    id: terminal-version
     attributes:
-      label: Ghostty Version
-      description: "Your Ghostty version (1.3.1+ required)"
-      placeholder: "1.3.1"
+      label: Terminal and Version
+      description: "The terminal Summon ran in and its version: Ghostty (1.3.1+ required) or Rex (beta)"
+      placeholder: "Ghostty 1.4.0"
     validations:
       required: true
 
@@ -66,7 +66,7 @@ body:
     attributes:
       label: Node.js Version
       description: "Output of `node --version`"
-      placeholder: "v22.0.0"
+      placeholder: "v22.12.0"
     validations:
       required: true
 

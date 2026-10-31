@@ -14,6 +14,7 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  chmodSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -24,6 +25,12 @@ vi.mock("node:os", async (original) => ({
   homedir: () => home,
 }));
 vi.mock("node:child_process", () => ({ execFileSync: exec }));
+// Rex discovery is machine-dependent (the app bundle may exist on the developer's Mac): pin it.
+const mockDiscoverRex = vi.hoisted(() => vi.fn((): { path: string | null; searched: string[] } => ({ path: null, searched: ["PATH", "/Applications/Rex Beta.app"] })));
+vi.mock("../backends/rex/cli.js", async (original) => ({
+  ...(await original<typeof import("../backends/rex/cli.js")>()),
+  discoverRex: () => mockDiscoverRex(),
+}));
 home = mkdtempSync(join(tmpdir(), "summon-doctor-"));
 const { handleDoctorCommand } = await import("./doctor.js");
 const { resetConfigCache } = await import("../config.js");
@@ -64,6 +71,7 @@ beforeEach(() => {
   resetConfigCache();
   effective = scalarConfig;
   exec.mockReset();
+  mockDiscoverRex.mockReturnValue({ path: null, searched: ["PATH", "/Applications/Rex Beta.app"] });
   exec.mockImplementation((binary: string, args: string[]) => {
     if (binary === "osascript") return "Finder";
     if (binary === "/usr/bin/which")
@@ -275,5 +283,106 @@ describe("doctor effective diagnostics", () => {
     expect(output()).toContain("Ghostty path:");
     expect(output()).toContain("1 project");
     expect(stdout).not.toHaveBeenCalled();
+  });
+});
+
+describe("doctor Rex section (plan P15, Phase 3)", () => {
+  const REX = "/Applications/Rex Beta.app/Contents/Helpers/Rex Server.rex/Contents/MacOS/rex";
+  const rexAnswers = (reachable: boolean) => (binary: string, args: string[]) => {
+    if (binary === REX) {
+      if (args.includes("version")) return "rex 0.0.1793131181-gdd9a20\ncommit: dd9a201\napi: revision 7 (supports 0 to 7)\n";
+      if (args.includes("whoami")) {
+        if (!reachable) throw Object.assign(new Error("exit 4"), { status: 4, stderr: "Error: dial unix: connect: no such file\n" });
+        return JSON.stringify({ host_id: "host-1" });
+      }
+      if (args.includes("client.list")) return JSON.stringify({ clients: [
+        { client_id: "client:a", connected_at: "2026-10-29T08:00:00Z", connection_state: "connected", info: { kind: "app", label: "Studio" } },
+        { client_id: "client:b", connected_at: "2026-10-29T07:00:00Z", connection_state: "lost", info: { kind: "app" } },
+      ] });
+    }
+    if (binary === "osascript") return "Finder";
+    if (binary === "/usr/bin/which") return "/usr/bin/nvim";
+    if (binary === "/bin/ps") return join(app, "Contents/MacOS/ghostty");
+    if (args[0] === "--version") return "Ghostty 1.4.0";
+    if (args[0] === "+list-actions") return "move_tab_to_new_window";
+    return effective;
+  };
+
+  it("says the Rex CLI is not found when it is absent", async () => {
+    await handleDoctorCommand(context());
+    expect(output()).toContain("Checking Rex...");
+    expect(output()).toContain("Rex CLI not found (searched PATH, /Applications/Rex Beta.app); not applicable");
+  });
+
+  it("reports version, api revision, server, app clients with their state and this shell's backend", async () => {
+    mockDiscoverRex.mockReturnValue({ path: REX, searched: ["PATH"] });
+    exec.mockImplementation(rexAnswers(true));
+    await handleDoctorCommand(context());
+    expect(output()).toContain(`Rex CLI found at ${REX}`);
+    expect(output()).toContain("rex 0.0.1793131181-gdd9a20 (api: revision 7 (supports 0 to 7))");
+    expect(output()).toContain("Rex server reachable at unix://");
+    expect(output()).toContain("app client client:a (Studio) connected");
+    expect(output()).toContain("app client client:b lost");
+    expect(output()).toContain("this shell launches in ghostty (placement outside)");
+    expect(output()).toMatch(/checks passed/);
+    const rexCalls = exec.mock.calls.filter((c) => c[0] === REX).map((c) => c[1] as string[]);
+    expect(rexCalls.every((args) => args.includes("--autostart=false"))).toBe(true);
+  });
+
+  it("escapes control characters in the rex version lines and the app client fields (Strix CWE-150)", async () => {
+    mockDiscoverRex.mockReturnValue({ path: REX, searched: ["PATH"] });
+    const answers = rexAnswers(true);
+    exec.mockImplementation((binary: string, args: string[]) => {
+      if (binary === REX && args.includes("version")) return "rex 1\u001b]52;c;aGk=\u0007\napi: revision 7\u001b[2K\n";
+      if (binary === REX && args.includes("client.list")) return JSON.stringify({ clients: [{ client_id: "client:a", connected_at: "2026-10-29T08:00:00Z", connection_state: "connected", info: { kind: "app", label: "Stu\u001b[2Kdio" } }] });
+      return answers(binary, args);
+    });
+    await handleDoctorCommand(context());
+    expect(output()).not.toContain("\u001b");
+    expect(output()).toContain("rex 1\\u001b]52;c;aGk=\\u0007 (api: revision 7\\u001b[2K)");
+    expect(output()).toContain("app client client:a (Stu\\u001b[2Kdio) connected");
+  });
+
+  it("an unreachable server is informational under Ghostty and a failure when Rex is this shell's backend", async () => {
+    mockDiscoverRex.mockReturnValue({ path: REX, searched: ["PATH"] });
+    exec.mockImplementation(rexAnswers(false));
+    await handleDoctorCommand(context());
+    expect(output()).toContain("INFO  Rex server not reachable");
+
+    errors.mockClear();
+    vi.stubEnv("TERM_PROGRAM", "rex");
+    await expect(handleDoctorCommand(context())).rejects.toThrow("exit:2");
+    expect(output()).toContain("FAIL  Rex server not reachable");
+    expect(output()).toContain("this shell launches in rex (placement inside-rex");
+  });
+
+  it("marks the Ghostty checks not applicable, uncounted, when Ghostty is absent and Rex is present", async () => {
+    GHOSTTY_PATHS.splice(0, GHOSTTY_PATHS.length, join(home, "missing.app"));
+    mockDiscoverRex.mockReturnValue({ path: REX, searched: ["PATH"] });
+    exec.mockImplementation(rexAnswers(true));
+    try {
+      await handleDoctorCommand(context());
+    } finally {
+      GHOSTTY_PATHS.splice(0, GHOSTTY_PATHS.length, app);
+    }
+    expect(output()).toContain("not applicable (Rex detected, Ghostty not installed)");
+    expect(output()).not.toContain("Ghostty.app not found");
+    expect(output()).not.toContain("Accessibility permission");
+    expect(output()).toMatch(/\d+\/\d+ checks passed\./);
+  });
+});
+describe("doctor configured commands", () => {
+  it("accepts an executable absolute path for editor without calling which (T1.9)", async () => {
+    const editor = join(home, "bin/hx");
+    mkdirSync(join(home, "bin"), { recursive: true });
+    writeFileSync(editor, "#!/bin/sh\n");
+    chmodSync(editor, 0o755);
+    writeFileSync(join(home, ".config/summon/config"), `editor=${editor}\n`);
+    resetConfigCache();
+
+    await handleDoctorCommand(context());
+
+    expect(output()).toContain(`editor command "${editor}" found at ${editor}`);
+    expect(exec).not.toHaveBeenCalledWith("/usr/bin/which", [editor], expect.anything());
   });
 });

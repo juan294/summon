@@ -142,6 +142,7 @@ function makeSummary(overrides?: Partial<BriefingSummary>): BriefingSummary {
   return {
     totalProjects: 3,
     activeCount: 1,
+    unverifiedCount: 0,
     totalOvernightCommits: 5,
     recommendation: null,
     allClean: false,
@@ -419,15 +420,16 @@ describe("collectBriefingData", () => {
     expect(summary.activeCount).toBe(1);
   });
 
-  it("handles unknown state when no status found", async () => {
+  it("reports a project with no record as stopped, not as unverified", async () => {
     listProjects.mockReturnValue([["myapp", "/tmp/myapp"]]);
     readAllStatuses.mockReturnValue([]);
     getGitBranch.mockReturnValue("main");
     execFileSync.mockReturnValue("");
 
-    const { projects } = await collectBriefingData();
-    expect(projects[0]!.state).toBe("unknown");
+    const { projects, summary } = await collectBriefingData();
+    expect(projects[0]!.state).toBe("stopped");
     expect(projects[0]!.uptime).toBeNull();
+    expect(summary.unverifiedCount).toBe(0);
   });
 
   it("counts overnight commits in summary", async () => {
@@ -808,3 +810,24 @@ describe("runBriefing", () => {
     expect(output).toContain("myapp");
   });
 });
+
+describe("four-state rows (plan P10, Phase 4)", () => {
+  it("lists unknown workspaces as unverified with the reason and counts partial as active", async () => {
+    listProjects.mockReturnValue([["rexapp", "/tmp/rexapp"], ["half", "/tmp/half"]]);
+    readAllStatuses.mockReturnValue([
+      { project: "rexapp", state: "unknown", uptime: null, reason: "server unreachable" },
+      { project: "half", state: "partial", uptime: 3_600_000, reason: "root pane closed" },
+    ]);
+    getGitBranch.mockReturnValue("develop");
+    execFileSync.mockReturnValue("");
+    const { projects, summary } = await collectBriefingData();
+    const byName = new Map(projects.map((p) => [p.name, p]));
+    expect([...byName.values()].map((p) => [p.name, p.state, p.reason]).sort()).toEqual([["half", "partial", "root pane closed"], ["rexapp", "unknown", "server unreachable"]]);
+    expect(summary.activeCount).toBe(1);
+    expect(summary.unverifiedCount).toBe(1);
+    expect(formatProjectBriefing(byName.get("rexapp")!)).toContain("unverified (server unreachable)");
+    expect(formatProjectBriefing(byName.get("half")!)).toContain("partial");
+    expect(formatBriefingSummary(summary)).toContain("1 unverified");
+  });
+});
+

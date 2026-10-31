@@ -29,6 +29,11 @@ export function out(msg: string): void {
  * Use for hint/continuation lines that follow a fail() call, blank
  * separator lines (pass ""), or warnings that are not errors.
  */
+/** Advisory stderr line: "summon: note: <msg>" (not an error; the command continues). */
+export function note(msg: string): void {
+  process.stderr.write(`summon: note: ${msg}\n`);
+}
+
 export function err(msg: string): void {
   process.stderr.write(`${msg}\n`);
 }

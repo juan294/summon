@@ -31,7 +31,7 @@ When verifying a tarball with `tar tzf summon-ws-<version>.tgz`, expect to see
 - [x] Package name `summon-ws` chosen (npm)
 - [x] `bin` entry for `summon`
 - [x] `files` glob limits published contents to JS chunks + README + LICENSE (sourcemaps excluded)
-- [x] `engines: { "node": ">=20.19" }`
+- [x] `engines: { "node": ">=22.12" }`
 - [x] `os: ["darwin"]` enforces macOS-only
 - [x] `prepublishOnly` runs `pnpm typecheck && pnpm lint && pnpm test && pnpm build`
 - [x] `license: "MIT"` + LICENSE file
@@ -59,7 +59,7 @@ The `.github/workflows/release.yml` workflow is the **canonical publish path**.
 It runs on GitHub Release publication, performs full typecheck/lint/test/build,
 validates the tarball contents (index.js + chunk files + README + LICENSE), runs
 AppleScript E2E smoke tests, publishes with `--provenance` via OIDC trusted
-publishing, and then validates the published tarball across Node 20.19 and 24.
+publishing, and then validates the published tarball across Node 22.12 and 24.
 
 **Always use this path for production releases.**
 
@@ -106,7 +106,7 @@ npm i -g ./summon-ws-<version>.tgz
 summon --version
 summon --help
 
-# Test a real launch (requires Ghostty running):
+# Test a real launch (requires Ghostty running; from a Rex terminal it creates a Rex session):
 summon .
 
 # Clean up:
@@ -120,9 +120,12 @@ rm summon-ws-<version>.tgz
 - [ ] Verify all presets create correct layouts
 - [ ] Verify commands run in correct panes
 
+#### 2b. Real Rex Test
+- [ ] Run the Rex end-to-end suites and the manual steps in `docs/release/rex-e2e-guide.md`
+
 #### 3. Version Strategy
 - Follow semver: breaking changes = major, features = minor, fixes = patch
-- The project is stable (1.x). Minor releases add features, patch releases fix bugs.
+- The project is stable (2.x; 2.0.0 raised the Node floor to 22.12). Minor releases add features, patch releases fix bugs.
 
 #### 4. Create GitHub Release
 - [ ] Merge the release PR to `main`

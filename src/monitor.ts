@@ -1,4 +1,6 @@
-import { readAllStatuses, getGitBranch } from "./status.js";
+import { sym } from "./ui/symbols.js";
+import { readAllStatuses, readProjectStatus, getGitBranch, isLiveState as isLiveWorkspaceState, unverifiedMessage } from "./status.js";
+import type { ProgramState } from "./backends/rex/status.js";
 import type { ResolvedStatus } from "./status.js";
 import { listProjects } from "./config.js";
 import { bold, dim, green, red, yellow, cyan, invert } from "./ui/ansi.js";
@@ -9,7 +11,8 @@ import { createMonitorVisibility, type VisibilityEffects } from "./monitor-visib
 
 // --- Types ---
 
-export type ProjectState = "active" | "active-long" | "stopped" | "unknown";
+/** `partial`: a Rex workspace whose root pane closed while other panes live; `unknown`: liveness could not be read (plan P10). */
+export type ProjectState = "active" | "active-long" | "partial" | "stopped" | "unknown";
 
 export interface ProjectRow {
   name: string;
@@ -17,6 +20,28 @@ export interface ProjectRow {
   state: ProjectState;
   uptime: string;
   gitBranch: string;
+  /** Why the state is `unknown` or `partial`; shown in the detail column. */
+  reason?: string;
+  /** Advisory lines (late adoption, pane-file refresh) printed under the row by `summon status --once`. */
+  notices?: string[];
+  /** Rex only: the root pane's program status (OSC 7501), shown as a glyph before the dot. */
+  programStatus?: ProgramState;
+}
+
+/** One column: what the root pane's program reports (`idle` and nothing shows a space). */
+export function programGlyph(state: ProgramState | undefined): string {
+  switch (state) {
+    case "blocked": return yellow(sym.warn);
+    case "error": return red(sym.fail);
+    case "working": return cyan("\u22EF"); // ⋯
+    case "done": return green(sym.ok);
+    default: return " ";
+  }
+}
+
+/** States that have a live workspace to focus (`active-long` is `active` with a long uptime). */
+export function isLiveState(state: ProjectState): boolean {
+  return isLiveWorkspaceState(state === "active-long" ? "active" : state);
 }
 
 // --- Constants ---
@@ -26,7 +51,7 @@ const REFRESH_INTERVAL_MS = 3000;
 const NAME_WIDTH = 16;
 const STATE_WIDTH = 8;
 const UPTIME_WIDTH = 8;
-const FIXED_COLS = 2 + NAME_WIDTH + 2 + STATE_WIDTH + 2 + UPTIME_WIDTH + 2; // dot + spaces + padding
+const FIXED_COLS = 2 + 1 + NAME_WIDTH + 2 + STATE_WIDTH + 2 + UPTIME_WIDTH + 2; // dot + program glyph + spaces + padding
 const MIN_COLS = 60; // below this width, show the narrow-terminal guard
 
 // Terminal control sequences
@@ -59,7 +84,8 @@ export function formatUptime(ms: number): string {
 export function stateColor(state: ProjectState): (s: string) => string {
   switch (state) {
     case "active": return green;
-    case "active-long": return yellow;
+    case "active-long":
+    case "partial": return yellow;
     case "stopped":
     case "unknown": return dim;
   }
@@ -68,7 +94,8 @@ export function stateColor(state: ProjectState): (s: string) => string {
 export function stateDot(state: ProjectState): string {
   switch (state) {
     case "active":
-    case "active-long": return "\u25CF"; // ●
+    case "active-long":
+    case "partial": return "\u25CF"; // ●
     case "stopped":
     case "unknown": return "\u25CB"; // ○
   }
@@ -83,6 +110,11 @@ function displayPadEnd(str: string, targetWidth: number): string {
   return w < targetWidth ? str + " ".repeat(targetWidth - w) : str;
 }
 
+/** The reason a non-active row shows in its detail column (Rex: partial, stopped, unknown), if any. */
+function rowDetail(row: ProjectRow): string | undefined {
+  return row.state !== "active" && row.state !== "active-long" && row.reason ? row.reason : undefined;
+}
+
 export function renderRow(row: ProjectRow, width: number, selected: boolean): string {
   const colorFn = stateColor(row.state);
   const dot = colorFn(stateDot(row.state));
@@ -95,13 +127,15 @@ export function renderRow(row: ProjectRow, width: number, selected: boolean): st
   const uptime = row.uptime.padEnd(UPTIME_WIDTH);
 
   const branchWidth = Math.max(0, width - FIXED_COLS);
-  // For stopped/unknown workspaces, show the directory path (dimmed) instead of em dash
+  // For stopped/unknown workspaces, show the directory path (dimmed) instead of em dash;
+  // any non-active state with a reason (Rex: partial, stopped, unknown) shows the reason instead.
   const isStopped = row.state === "stopped" || row.state === "unknown";
-  const rawBranchText = isStopped ? row.directory : row.gitBranch;
+  const detail = rowDetail(row);
+  const rawBranchText = detail ?? (isStopped ? row.directory : row.gitBranch);
   const branchText = truncate(rawBranchText, branchWidth);
-  const branch = isStopped ? dim(branchText) : branchText;
+  const branch = isStopped || detail ? dim(branchText) : branchText;
 
-  const line = `  ${dot} ${name}  ${stateLabel}${statePad}  ${uptime}  ${branch}`;
+  const line = ` ${programGlyph(row.programStatus)}${dot} ${name}  ${stateLabel}${statePad}  ${uptime}  ${branch}`;
 
   if (selected) {
     return invert(line);
@@ -132,7 +166,7 @@ export function renderScreen(rows: ProjectRow[], selectedIndex: number, width: n
     return `Terminal too narrow \u2014 widen to \u2265${MIN_COLS} cols`;
   }
 
-  const activeCount = rows.filter(r => r.state === "active" || r.state === "active-long").length;
+  const activeCount = rows.filter(r => isLiveState(r.state)).length;
   const header = renderHeader(activeCount, rows.length, width);
   const separator = dim("\u2500".repeat(width));
   const footer = renderFooter(width, visibilityUnavailable);
@@ -192,7 +226,7 @@ function getCachedGitBranch(directory: string): string | null {
 export async function prefetchGitBranches(rows: ProjectRow[], onUpdate: () => void): Promise<void> {
   const toFetch = rows.filter(
     (r) =>
-      (r.state === "active" || r.state === "active-long") &&
+      isLiveState(r.state) &&
       !getCachedGitBranch(r.directory) &&
       !gitBranchFetching.has(r.directory),
   );
@@ -221,15 +255,18 @@ export function resetGitBranchCache(): void {
 
 // --- Data Loading ---
 
-function classifyState(status: ResolvedStatus): ProjectState {
-  if (status.state !== "active") return "stopped";
+/** The four workspace states map one to one; `active` splits by uptime (plan P10: `unknown` is never collapsed). */
+export function classifyState(status: ResolvedStatus): ProjectState {
+  if (status.state === "unknown") return "unknown";
+  if (status.state === "partial") return "partial";
+  if (status.state === "stopped") return "stopped";
   if (status.uptime !== null && status.uptime > LONG_RUNNING_MS) return "active-long";
   return "active";
 }
 
 function statusToRow(name: string, directory: string, status: ResolvedStatus): ProjectRow {
   const state = classifyState(status);
-  const isActive = status.state === "active";
+  const isActive = status.state === "active" || status.state === "partial";
   let gitBranch: string;
   if (isActive) {
     const cached = getCachedGitBranch(directory);
@@ -244,12 +281,31 @@ function statusToRow(name: string, directory: string, status: ResolvedStatus): P
     state,
     uptime: status.uptime !== null ? formatUptime(status.uptime) : "\u2014",
     gitBranch,
+    ...(status.reason ? { reason: status.reason } : {}),
+    ...(status.notices && status.notices.length > 0 ? { notices: status.notices } : {}),
+    ...(status.programStatus ? { programStatus: status.programStatus.state } : {}),
   };
+}
+
+/** A registered project with no status record was never launched: stopped, with nothing to verify. */
+function neverLaunchedRow(name: string, directory: string): ProjectRow {
+  return { name, directory, state: "stopped", uptime: "\u2014", gitBranch: "\u2014" };
+}
+
+/**
+ * One project's row from one status read (`summon open <project>`); undefined when it is not registered.
+ * A launch with a manifest but no record is `unknown` here as in the full listing (never launched over).
+ */
+export function loadProjectRow(name: string): ProjectRow | undefined {
+  const directory = listProjects().get(name);
+  if (directory === undefined) return undefined;
+  const status = readProjectStatus(name);
+  return status ? statusToRow(name, directory, status) : neverLaunchedRow(name, directory);
 }
 
 export function loadProjectRows(): ProjectRow[] {
   const projects = listProjects();
-  const statuses = readAllStatuses();
+  const statuses = readAllStatuses({ programStatus: true });
   const statusMap = new Map<string, ResolvedStatus>();
   for (const s of statuses) {
     statusMap.set(s.project, s);
@@ -261,11 +317,7 @@ export function loadProjectRows(): ProjectRow[] {
   for (const [name, directory] of projects) {
     seen.add(name);
     const status = statusMap.get(name);
-    if (status) {
-      rows.push(statusToRow(name, directory, status));
-    } else {
-      rows.push({ name, directory, state: "unknown", uptime: "\u2014", gitBranch: "\u2014" });
-    }
+    rows.push(status ? statusToRow(name, directory, status) : neverLaunchedRow(name, directory));
   }
 
   for (const status of statuses) {
@@ -273,7 +325,7 @@ export function loadProjectRows(): ProjectRow[] {
     rows.push(statusToRow(status.project, status.directory, status));
   }
 
-  const stateOrder: Record<ProjectState, number> = { active: 0, "active-long": 1, stopped: 2, unknown: 3 };
+  const stateOrder: Record<ProjectState, number> = { active: 0, "active-long": 1, partial: 2, stopped: 3, unknown: 4 };
   return rows.sort((a, b) => stateOrder[a.state] - stateOrder[b.state]);
 }
 
@@ -286,12 +338,16 @@ export function printStatusOnce(): void {
     return;
   }
 
-  const activeCount = rows.filter(r => r.state === "active" || r.state === "active-long").length;
+  const activeCount = rows.filter(r => isLiveState(r.state)).length;
   console.log(`Workspace status (${activeCount} active / ${rows.length} total):\n`);
 
   const width = process.stdout.columns || 80;
   for (const row of rows) {
     console.log(renderRow(row, width, false));
+    // A reason the detail column cuts off is printed in full: it often ends with the command to run (F16).
+    const detail = rowDetail(row);
+    if (detail && getDisplayWidth(detail) > Math.max(0, width - FIXED_COLS)) console.log(`      ${dim(`reason: ${detail}`)}`);
+    for (const line of row.notices ?? []) console.log(`      ${dim(`note: ${line}`)}`);
   }
 }
 
@@ -363,7 +419,7 @@ export async function runMonitor(): Promise<void> {
       if (!current(owner) || owner.hidden) return;
       for (const row of rows) {
         const cached = getCachedGitBranch(row.directory);
-        if ((row.state === "active" || row.state === "active-long") && cached) row.gitBranch = cached;
+        if (isLiveState(row.state) && cached) row.gitBranch = cached;
       }
       if (ui === "dashboard") render();
     });
@@ -477,8 +533,10 @@ export async function runMonitor(): Promise<void> {
   async function handoff(selected: ProjectRow): Promise<void> {
     if (!session.hidden) process.stdout.write(`Opening ${selected.name}...\n`);
     cleanup();
-    const isActive = selected.state === "active" || selected.state === "active-long";
+    const isActive = isLiveState(selected.state);
     try {
+      // Plan P10: an unknown workspace is never launched over or focused; the reason is shown.
+      if (selected.state === "unknown") throw new Error(unverifiedMessage(selected.name, selected.reason));
       const { launch, focusWorkspace } = await import("./launcher.js");
       if (isActive) {
         const result = focusWorkspace(selected.name);
@@ -487,7 +545,7 @@ export async function runMonitor(): Promise<void> {
       finish();
     } catch (error) {
       ui = "error";
-      errorLines = ["", `  ${bold(isActive ? "Focus failed:" : "Launch failed:")}`,
+      errorLines = ["", `  ${bold(selected.state === "unknown" ? "Cannot open (state unknown):" : isActive ? "Focus failed:" : "Launch failed:")}`,
         `  ${red(error instanceof Error ? error.message : String(error))}`, "",
         `  ${dim("Press any key to continue...")}`];
       enter();

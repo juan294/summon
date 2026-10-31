@@ -75,7 +75,7 @@ async function buildHelp(): Promise<string> {
   });
 
   return [
-    wrap(`${bold(`summon v${__VERSION__}`)} ${note("-- Launch multi-pane Ghostty workspaces")}`),
+    wrap(`${bold(`summon v${__VERSION__}`)} ${note("-- Launch multi-pane terminal workspaces (Ghostty or Rex)")}`),
     "",
     wrap(`${bold("Usage:")} summon <command|target> [options]`),
     "",
@@ -84,7 +84,7 @@ async function buildHelp(): Promise<string> {
     wrap(`  ${cmd("summon title <project> [pane]")}  Read/set/reset native titles`),
     wrap(`  ${cmd("summon focus <project> [pane]")}  Focus an exact existing pane`),
     wrap(`  ${cmd("summon inspect <project>")}       Inspect native panes (--json)`),
-    wrap(`  ${cmd("summon open")}                 Select and launch a registered project ${note("(alias: switch)")}`),
+    wrap(`  ${cmd("summon open [project]")}       Focus a running workspace or launch a stopped one ${note("(alias: switch; no name: pick)")}`),
     "",
     h("SESSIONS"),
     wrap(`  ${cmd("summon session <name>")}          Launch a saved multi-project session`),
@@ -119,10 +119,11 @@ async function buildHelp(): Promise<string> {
     wrap(`  ${cmd("summon snapshot <action>")}    Manage context snapshots (save, show, clear)`),
     "",
     h("TOOLS"),
-    wrap(`  ${cmd("summon doctor")}               Check Ghostty config for recommended settings`),
+    wrap(`  ${cmd("summon doctor")}               Check terminal setup (Ghostty config, Rex server)`),
     wrap(`  ${cmd("summon doctor --fix")}         Auto-add missing recommended settings (backs up first)`),
     wrap(`  ${cmd("summon completions <shell>")}  Generate shell completion script (zsh, bash, fish)`),
     wrap(`  ${cmd("summon trust [path]")}         Trust the .summon file in the given directory (default: current)`),
+    wrap(`  ${cmd("summon clean <project>")}      Close an empty Rex session and clear its launch files (--orphans: earlier launches)`),
     "",
     bold("Options:"),
     wrap(`  -h, --help                  Show this help message`),
@@ -136,19 +137,19 @@ async function buildHelp(): Promise<string> {
     wrap(`  --shell <value>             Shell pane: true, false, or a command`),
     wrap(`  --auto-resize               Resize sidebar to match editor-size (default: on)`),
     wrap(`  --no-auto-resize            Disable auto-resize`),
-    wrap(`  --clean                     Auto-close stale panes from prior Ghostty session (default: on)`),
+    wrap(`  --clean                     Auto-close stale panes from prior Ghostty session (default: off)`),
     wrap(`  --no-clean                  Skip auto-close of restored panes`),
     wrap(`  --starship-preset <preset>  Starship prompt preset name (per-workspace)`),
     wrap(`  --env <KEY=VALUE>           Set environment variable (repeatable; e.g. --env PORT=3000)`),
     wrap(`  --font-size <n>             Override font size for workspace panes`),
     wrap(`  --on-start <cmd>            Run command before workspace creation`),
-    wrap(`  --new-window                Open workspace in a new Ghostty window`),
-    wrap(`  --new-tab                   Open workspace in a new Ghostty tab`),
+    wrap(`  --new-window                Open workspace in a new terminal window (a fresh session under Rex)`),
+    wrap(`  --new-tab                   Open workspace in a new terminal tab`),
     wrap(`  --no-project-config         Skip the .summon file (do not require trust)`),
     wrap(`  --fullscreen                Start workspace in fullscreen mode`),
     wrap(`  --maximize                  Start workspace maximized`),
     wrap(`  --float                     Float workspace window on top`),
-    wrap(`  -n, --dry-run               Print generated AppleScript without executing`),
+    wrap(`  -n, --dry-run               Print the generated launch script or request`),
     "",
     bold("Config keys:") + note(" (set via 'summon set <key> <value>' or in .summon file)"),
     wrap(`  editor          Command for coding panes (set during setup)`),
@@ -159,7 +160,7 @@ async function buildHelp(): Promise<string> {
     wrap(`  shell           Shell pane: true, false, or command (default: true)`),
     wrap(`  layout          Default layout preset or custom layout name`),
     wrap(`  auto-resize     Resize sidebar to match editor-size (default: on)`),
-    wrap(`  clean           Auto-close restored panes on launch (default: on)`),
+    wrap(`  clean           Auto-close restored panes on launch (default: off)`),
     wrap(`  starship-preset Starship prompt theme preset (per-workspace)`),
     wrap(`  new-window      Open workspace in a new window (default: false)`),
     wrap(`  fullscreen      Start workspace in fullscreen (default: false)`),
@@ -183,7 +184,7 @@ async function buildHelp(): Promise<string> {
     wrap(`  Note: .summon files can specify commands that will be executed.`),
     wrap(`  Review .summon files before running summon in untrusted directories.`),
     "",
-    note("Requires: macOS, Ghostty 1.3.1+ (1.4.0 recommended security baseline)"),
+    note("Requires: macOS and either Ghostty 1.3.1+ (1.4.0 recommended security baseline) or Rex (beta)"),
     "",
     bold("Examples:"),
     wrap(`  summon .                        Launch workspace in current directory`),
@@ -241,14 +242,26 @@ Setup (add to your shell config):
   title: `Usage: summon title <project> [pane] [--set <text> | --reset]
 
 Read a title override, set it with --set, or clear it with --reset.
-Default target: the current tab containing the recorded root. An explicit pane targets that pane.
+Default target: the current tab containing the recorded root (the window label under Rex). An explicit pane targets that pane (its block label under Rex).
 Titles support ordinary Unicode up to 256 codepoints; controls and bidi overrides are rejected.
 Unavailable capability or target exits 2. After an unknown mutation outcome, read the title before retrying.`,
 
   inspect: `Usage: summon inspect <project> [--json]
 
-Read stored workspace state and exact native pane observations without activating Ghostty.
+Read stored workspace state and exact native pane observations without activating the terminal (Ghostty terminal ids, or Rex block ids).
 Legacy records require an explicit relaunch to capture native identity. Unavailable targets exit 2.`,
+
+  clean: `Usage: summon clean <project> [--orphans]
+
+Close the project's Rex session when Summon's own check shows it empty (no blocks), then
+save a snapshot, mark the record ended and remove this launch's files. Refuses (exit 2) when
+the session cannot be verified or still has panes, naming them. Rex has no conditional destroy:
+anything added to the session between the check and the close is closed with it.
+
+Options:
+  --orphans  Review launches other than the current one: adopt or remove what the server
+             confirms, close empty sessions, print the exact command for anything left (never
+             deletes an unreadable or unconfirmed launch file).`,
 
   focus: `Usage: summon focus <project> [pane]
 
@@ -266,22 +279,25 @@ Options:
 In TUI mode: ↑↓/jk navigate, Enter focuses active projects or launches stopped projects, r refreshes, q quits.
 Automatically uses --once when stdout is not a TTY (e.g., piped output).`,
 
-  open: `Usage: summon open
+  open: `Usage: summon open [project]
 
-Interactively select a registered project to launch with status indicators.
-Active projects are focused (switched to); stopped projects launch a new workspace.`,
+Without a project: interactively select a registered project, with status indicators.
+With a project: act on it directly. A running workspace is focused (switched to), a stopped
+one launches a new workspace with the flags given, and one whose liveness cannot be read
+(Rex server not answering) is refused with the reason (exit 2).`,
 
-  switch: `Usage: summon switch
+  switch: `Usage: summon switch [project]
 
-Alias for 'summon open'. Switch to an active workspace or launch a stopped one.`,
+Alias for 'summon open'. Switch to a running workspace or launch a stopped one.`,
 
   snapshot: `Usage: summon snapshot <save|show|clear> [project]
 
 Manage workspace context snapshots.
 
 Actions:
-  save [--dir <path>] [--project <name>] [--layout <name>]
-        Save a snapshot of the current project state
+  save [--dir <path>] [--project <name>] [--layout <name>] [--launch <id>]
+        Save a snapshot of the current project state. --launch <id> (used by the
+        workspace cleanup trap) saves only while that launch still owns the record.
   show <project>    Display a saved snapshot
   clear <project>   Remove a saved snapshot`,
 
@@ -299,8 +315,8 @@ recommendation for where to start.`,
 
   doctor: `Usage: summon doctor [--fix] [--verbose]
 
-Check your Ghostty configuration for recommended settings.
-Exits with code 2 if issues are found.
+Check your Ghostty configuration for recommended settings, and the Rex CLI, server and app
+when Rex is installed. Exits with code 2 if issues are found.
 
 Options:
   --fix      Auto-add missing recommended settings (backs up config first)
@@ -319,6 +335,7 @@ Examples:
 
 Generate Ghostty key table configuration for workspace pane navigation.
 Output can be appended to ~/.config/ghostty/config.
+Rex key bindings are not generated: they live in ~/.config/rex/init.lua (see docs/rex.md).
 
 Options:
   --vim  Use vim-style keys (hjkl) instead of arrow keys
@@ -357,7 +374,7 @@ hyphens, and underscores. Built-in preset names cannot be used.`,
           summon session list
           summon session show <name>
 
-Launch a saved multi-project session. Each project opens in its own Ghostty tab.
+Launch a saved multi-project session. Each project opens in its own terminal tab (one Rex session per project under Rex).
 
 Actions:
   <name>              Launch the named session

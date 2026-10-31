@@ -307,9 +307,20 @@ describe("detectProjectPorts", () => {
 });
 
 describe("detectAllPorts", () => {
+  it("reports a project without a status record as stopped, never unknown (guide F5)", async () => {
+    const dir = projectDir("proj-fresh");
+    writeFileSync(join(dir, ".summon"), "env.PORT=3100\n");
+    listProjects.mockReturnValue([["proj-fresh", dir]]);
+    readAllStatuses.mockReturnValue([]);
+    const { assignments, projectCount } = await detectAllPorts();
+    expect(assignments.map((a) => [a.project, a.state])).toEqual([["proj-fresh", "stopped"]]);
+    expect(projectCount).toBe(1);
+  });
+
   it("returns empty when no projects registered", async () => {
     listProjects.mockReturnValue([]);
-    const { assignments, conflicts } = await detectAllPorts();
+    const { assignments, conflicts, projectCount } = await detectAllPorts();
+    expect(projectCount).toBe(0);
     expect(assignments).toEqual([]);
     expect(conflicts.size).toBe(0);
   });
@@ -490,3 +501,16 @@ describe("detectAllPorts", () => {
     expect(conflicts.has(5000)).toBe(false);
   });
 });
+
+describe("four-state rows (plan P10, Phase 4)", () => {
+  it("passes partial and unknown states through to the assignments", async () => {
+    const dir = projectDir("proj-a");
+    writeFileSync(join(dir, ".summon"), "env.PORT=3000\n");
+    listProjects.mockReturnValue([["proj-a", dir]]);
+    readAllStatuses.mockReturnValue([{ project: "proj-a", state: "partial" }]);
+    expect((await detectAllPorts()).assignments[0]!.state).toBe("partial");
+    readAllStatuses.mockReturnValue([{ project: "proj-a", state: "unknown" }]);
+    expect((await detectAllPorts()).assignments[0]!.state).toBe("unknown");
+  });
+});
+

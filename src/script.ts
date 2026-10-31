@@ -2,10 +2,12 @@ import { basename, resolve } from "node:path";
 import type { LayoutPlan } from "./layout.js";
 import type { TreeLayoutPlan, LayoutNode } from "./tree.js";
 import { firstLeaf, walkLeaves } from "./tree.js";
-import { GHOSTTY_APP_NAME, SUMMON_WORKSPACE_ENV } from "./utils.js";
-import { escapeAppleScript, shellQuote, shellDoubleQuote } from "./shell-escape.js";
-import { traditionalInventory, treeInventory } from "./pane-inventory.js";
+import { GHOSTTY_APP_NAME } from "./utils.js";
+import { escapeAppleScript, shellQuote } from "./shell-escape.js";
+import { traditionalInventory, treeInventory, formatTitle } from "./pane-inventory.js";
 import type { PaneDescriptor } from "./pane-inventory.js";
+import { bootstrapLine, cleanupTrapLine, buildEnvVarsList } from "./launch-identity.js";
+import type { CleanupTrapOptions } from "./launch-identity.js";
 
 // --- AppleScript timing constants (empirically tuned for Ghostty responsiveness) ---
 
@@ -75,108 +77,28 @@ function buildScriptBuilder(
   return { add, blank, sendCommand, setInitialInput, clearInitialInput, setCwd };
 }
 
-/** Build combined env vars list (workspace marker + Starship + tab title + user-defined). */
-function buildEnvVarsList(
-  starshipConfigPath: string | null | undefined,
-  envVars: Record<string, string> | undefined,
-  projectName?: string,
-): string[] {
-  const allEnvVars: string[] = [`${SUMMON_WORKSPACE_ENV}=1`];
-  if (projectName) {
-    allEnvVars.push(`SUMMON_TAB_TITLE=${projectName}`);
-  }
-  if (starshipConfigPath) {
-    allEnvVars.push(`STARSHIP_CONFIG=${starshipConfigPath}`);
-  }
-  if (envVars) {
-    for (const [key, value] of Object.entries(envVars)) {
-      allEnvVars.push(`${key}=${value}`);
-    }
-  }
-  return allEnvVars;
-}
-
 /**
- * Emit unified cleanup trap: on-stop → snapshot → marker removal.
- *
- * SE-L1: on-stop execution context
- *
- * The on-stop command is inlined into a shell EXIT/HUP trap that runs inside the
- * root Ghostty pane (the terminal itself), not in the Node.js launcher process.
- *
- * Execution scope:
- *   - **cwd**: the project directory (options.targetDir), set via `cd` before the
- *     editor command in emitRootPaneCommand. The trap inherits that working directory.
- *   - **environment**: the user's login shell environment as started by Ghostty, plus
- *     any env vars set via surface configuration (SUMMON_WORKSPACE, STARSHIP_CONFIG,
- *     user-defined env.* keys). The trap inherits the full pane environment.
- *   - **trust**: the on-stop command is sourced from a .summon file that has already
- *     passed the trust gate (assertTrustedContent) before launch(). Additionally,
- *     confirmDangerousCommands() warns the user if the value contains shell metacharacters.
- *     The command is NOT passed through shellQuote — it is inlined as a trusted shell
- *     fragment, which is required so it can use shell features (pipes, redirects, etc.).
- *     escapeAppleScript() is applied at the outer boundary (sendCommand) to keep the
- *     AppleScript string safe.
- *   - **stdout/stderr**: redirected to $HOME/.config/summon/logs/cleanup-<project>.log.
- *     The command's output is NOT shown in the terminal.
- *
- * // SE-L1: on-stop runs in the project directory with the user's login environment
+ * Emit the unified cleanup trap (on-stop, snapshot, own liveness-file removal). The shell
+ * text comes from cleanupTrapLine (SE-L1 execution context and P12 ownership documented
+ * there); escapeAppleScript is applied by sendCommand at the AppleScript boundary.
  */
 function emitCleanupTrap(
   { sendCommand }: ScriptBuilder,
   rootPaneVar: string,
   projectName: string,
-  options?: { onStop?: string; targetDir?: string; layout?: string },
+  launchId: string,
+  options?: CleanupTrapOptions,
 ): void {
-  const parts: string[] = [];
-
-  // Ensure log directory exists for cleanup error logging.
-  // SE-L3: mode 700 restricts access to the log directory to the owning user only,
-  // consistent with STATUS_DIR/SNAPSHOTS_DIR which are also created with 0o700.
-  const configDir = `"$HOME/.config/summon"`;
-  const logDir = `"$HOME/.config/summon/logs"`;
-  parts.push(`mkdir -p ${configDir} ${logDir}`);
-  parts.push(`chmod 700 ${configDir} ${logDir}`);
-
-  if (options?.onStop) {
-    // Inline the on-stop command directly (no eval wrapper).
-    // Redirect errors to a log file instead of suppressing them.
-    const logFile = `"$HOME/.config/summon/logs/cleanup-${shellDoubleQuote(projectName)}.log"`;
-    parts.push(`: >> ${logFile}`);
-    parts.push(`chmod 600 ${logFile}`);
-    parts.push(`${options.onStop} >> ${logFile} 2>&1`);
-  }
-
-  if (options?.targetDir) {
-    parts.push(
-      `summon snapshot save`
-      + ` --dir "${shellDoubleQuote(options.targetDir)}"`
-      + ` --project "${shellDoubleQuote(projectName)}"`
-      + ` --layout "${shellDoubleQuote(options.layout ?? "unknown")}"`
-      + ` 2>/dev/null`,
-    );
-  }
-
-  const markerPath = `"$HOME/.config/summon/status/${shellDoubleQuote(projectName)}.active"`;
-  const pidPath = `"$HOME/.config/summon/status/${shellDoubleQuote(projectName)}.pid"`;
-  parts.push(`rm -f ${markerPath} ${pidPath} 2>/dev/null`);
-
-  const body = parts.join("; ");
-  // body: paths/names pre-escaped via shellDoubleQuote; onStop is a trusted shell command
-  // fragment (not a value) — quoting it would break execution. escapeAppleScript applied
-  // by sendCommand at the outer boundary.
-  sendCommand(rootPaneVar, `__summon_cleanup() { ${body}; }; trap '__summon_cleanup' EXIT HUP`); // lint-allow-escape: pre-escaped parts; onStop is trusted command fragment from validated config
+  sendCommand(rootPaneVar, cleanupTrapLine(projectName, launchId, options));
 }
 
 function emitRootPanePidBootstrap(
   { sendCommand }: ScriptBuilder,
   rootPaneVar: string,
   projectName: string,
+  launchId: string,
 ): void {
-  const statusDir = '"$HOME/.config/summon/status"';
-  const pidPath    = `"$HOME/.config/summon/status/${shellDoubleQuote(projectName)}.pid"`;
-  const markerPath = `"$HOME/.config/summon/status/${shellDoubleQuote(projectName)}.active"`;
-  sendCommand(rootPaneVar, `mkdir -p ${statusDir} && printf '%s\\n' "$$" > ${pidPath} && : > ${markerPath}`); // lint-allow-escape: statusDir is constant; pidPath/markerPath pre-escaped via shellDoubleQuote above
+  sendCommand(rootPaneVar, bootstrapLine(projectName, launchId, "ghostty"));
 }
 
 /** Emit surface configuration block: working directory, font size, env vars. */
@@ -289,11 +211,6 @@ function emitWindowState(
     add(1, "-- Float on top");
     add(1, `perform action "toggle_window_float_on_top" on ${rootPaneVar}`);
   }
-}
-
-/** Format a pane title: "role · cmd" or just "role" when cmd is falsy. */
-function formatTitle(role: string, cmd: string | null | undefined): string {
-  return cmd ? `${role} \u00B7 ${cmd}` : role;
 }
 
 // --- Internal helpers for script generation ---
@@ -570,8 +487,16 @@ export { generateNativeFocusScript as generateFocusScript } from "./ghostty-nati
  * The cache was removed because it never hit in production (one script per process)
  * and created divergence with generateTreeAppleScript which had no cache.
  */
-export function generateAppleScript(plan: LayoutPlan, targetDir: string, starshipConfigPath?: string | null, envVars?: Record<string, string>, projectName?: string, onStop?: string): string {
+/** A tracked workspace has both a project name and a launch id; neither alone is valid. */
+function launchIdentity(projectName: string | undefined, launchId: string | undefined): { projectName: string; launchId: string } | undefined {
+  if (!projectName) return undefined;
+  if (!launchId) throw new Error("launchId is required when projectName is set");
+  return { projectName, launchId };
+}
+
+export function generateAppleScript(plan: LayoutPlan, targetDir: string, starshipConfigPath?: string | null, envVars?: Record<string, string>, projectName?: string, onStop?: string, launchId?: string): string {
   const lines: string[] = [];
+  const identity = launchIdentity(projectName, launchId);
   const titles: Array<[string, string]> = [];
   const interactiveShellPanes: string[] = [];
   const sb = buildScriptBuilder(lines);
@@ -611,13 +536,10 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, starshi
   // Root pane env var exports
   emitRootPaneEnvExports(sb, "paneRoot", allEnvVars);
 
-  if (projectName) {
-    emitRootPanePidBootstrap(sb, "paneRoot", projectName);
-  }
-
-  // Cleanup trap: on-stop → snapshot → marker/pid removal
-  if (projectName) {
-    emitCleanupTrap(sb, "paneRoot", projectName, { onStop, targetDir });
+  if (identity) {
+    emitRootPanePidBootstrap(sb, "paneRoot", identity.projectName, identity.launchId);
+    // Cleanup trap: on-stop → snapshot → own marker/pid removal
+    emitCleanupTrap(sb, "paneRoot", identity.projectName, identity.launchId, { onStop, targetDir });
   }
 
   for (const pane of interactiveShellPanes) {
@@ -643,10 +565,12 @@ export function generateTreeAppleScript(
   envVars?: Record<string, string>,
   projectName?: string,
   onStop?: string,
+  launchId?: string,
 ): string {
   const lines: string[] = [];
   const titles: Array<[string, string]> = [];
   const sb = buildScriptBuilder(lines);
+  const identity = launchIdentity(projectName, launchId);
 
   const allEnvVars = buildEnvVarsList(starshipConfigPath, envVars, projectName);
   const inventory = treeInventory(plan);
@@ -670,13 +594,10 @@ export function generateTreeAppleScript(
   const rootCwd = rootLeaf.cwd ? resolve(targetDir, rootLeaf.cwd) : targetDir;
   emitRootPaneEnvExports(sb, rootPaneVar, allEnvVars);
 
-  if (projectName) {
-    emitRootPanePidBootstrap(sb, rootPaneVar, projectName);
-  }
-
-  // Cleanup trap: on-stop → snapshot → marker/pid removal
-  if (projectName) {
-    emitCleanupTrap(sb, rootPaneVar, projectName, { onStop, targetDir });
+  if (identity) {
+    emitRootPanePidBootstrap(sb, rootPaneVar, identity.projectName, identity.launchId);
+    // Cleanup trap: on-stop → snapshot → own marker/pid removal
+    emitCleanupTrap(sb, rootPaneVar, identity.projectName, identity.launchId, { onStop, targetDir });
   }
 
   emitRootPaneCommand(sb, rootPaneVar, rootCwd, rootLeaf.command);

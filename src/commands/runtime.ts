@@ -2,6 +2,8 @@ import { resolve } from "node:path";
 import { exitWithUsageHint } from "../utils.js";
 import { validateProjectNameOrExit } from "../validation.js";
 import type { CommandContext } from "./types.js";
+import { isLiveState } from "../status.js";
+import type { ContextSnapshot } from "../snapshot.js";
 
 export async function handleStatusCommand({ values }: CommandContext): Promise<void> {
   const { runMonitor, printStatusOnce } = await import("../monitor.js");
@@ -12,10 +14,12 @@ export async function handleStatusCommand({ values }: CommandContext): Promise<v
   await runMonitor();
 }
 
-export async function handleSnapshotCommand({ args }: CommandContext): Promise<void> {
+export async function handleSnapshotCommand({ args, values }: CommandContext): Promise<void> {
   const [action, ...snapshotArgs] = args;
   const {
     saveSnapshot,
+    collectSnapshot,
+    writeSnapshotFile,
     readSnapshot,
     clearSnapshot,
     formatRestorationBanner,
@@ -23,26 +27,31 @@ export async function handleSnapshotCommand({ args }: CommandContext): Promise<v
 
   switch (action) {
     case "save": {
-      let dir = process.cwd();
-      let project = "";
-      let layout = "unknown";
-      for (let index = 0; index < snapshotArgs.length; index++) {
-        if (snapshotArgs[index] === "--dir" && snapshotArgs[index + 1]) {
-          dir = snapshotArgs[++index]!;
-        } else if (snapshotArgs[index] === "--project" && snapshotArgs[index + 1]) {
-          project = snapshotArgs[++index]!;
-        } else if (snapshotArgs[index] === "--layout" && snapshotArgs[index + 1]) {
-          layout = snapshotArgs[++index]!;
-        } else if (!project) {
-          project = snapshotArgs[index]!;
-        }
-      }
-      if (!project) {
-        project = resolve(dir).split("/").pop() || "unknown";
-      }
+      const dir = values.dir ?? process.cwd();
+      const project = values.project ?? snapshotArgs[0] ?? (resolve(dir).split("/").pop() || "unknown");
+      const layout = values.layout ?? "unknown";
       validateProjectNameOrExit(project, "snapshot project name");
-      const result = saveSnapshot(project, dir, layout);
-      console.log(result ? `Snapshot saved for ${project}` : `No git repo found in ${dir}`);
+      let snapshot: ContextSnapshot | null;
+      if (values.launch === undefined) {
+        snapshot = saveSnapshot(project, dir, layout);
+      } else {
+        // Generation-checked save (plan P12): the cleanup trap of launch <id> may write the
+        // snapshot only while the record still belongs to that launch. The git reads happen
+        // before the lock; only the ownership check and the file write hold it.
+        const { isLaunchId } = await import("../launch-identity.js");
+        if (!isLaunchId(values.launch)) {
+          exitWithUsageHint("Usage: summon snapshot save --launch <launch-id> (a UUID written by summon)");
+        }
+        const { withOwnedRecord } = await import("../status.js");
+        snapshot = collectSnapshot(project, dir, layout);
+        const collected = snapshot;
+        const { outcome } = withOwnedRecord(project, { launchId: values.launch }, () => {
+          if (collected) writeSnapshotFile(collected);
+          return null;
+        });
+        if (outcome === "superseded") return;
+      }
+      console.log(snapshot ? `Snapshot saved for ${project}` : `No git repo found in ${dir}`);
       return;
     }
     case "show": {
@@ -68,7 +77,7 @@ export async function handleSnapshotCommand({ args }: CommandContext): Promise<v
       exitWithUsageHint(
         "Usage: summon snapshot <save|show|clear> [project]\n\n" +
         "Subcommands:\n" +
-        "  summon snapshot save [name]    Save current workspace state\n" +
+        "  summon snapshot save [name]    Save current workspace state (--launch <id>: only while that launch owns the record)\n" +
         "  summon snapshot show [name]    Show a saved snapshot\n" +
         "  summon snapshot clear [name]   Remove a saved snapshot\n\n" +
         "Examples:\n" +
@@ -88,11 +97,16 @@ export async function handlePortsCommand(): Promise<void> {
   const { detectAllPorts } = await import("../ports.js");
   const { green, dim, yellow, truncateLine } = await import("../ui/ansi.js");
   const { sym } = await import("../ui/symbols.js");
-  const { assignments, conflicts } = await detectAllPorts();
+  const { assignments, conflicts, projectCount } = await detectAllPorts();
 
   if (assignments.length === 0) {
-    console.log("No port assignments detected.");
-    console.log("Run `summon add <name> <path>` to register a project.");
+    if (projectCount === 0) {
+      console.log("No port assignments detected.");
+      console.log("Run `summon add <name> <path>` to register a project.");
+    } else {
+      console.log(`No port assignments detected in ${projectCount} registered project${projectCount === 1 ? "" : "s"}.`);
+      console.log("Ports are read from PORT-style variables in a trusted .summon, --port/-p flags of dev-server scripts in package.json, and framework config files.");
+    }
     return;
   }
 
@@ -107,8 +121,8 @@ export async function handlePortsCommand(): Promise<void> {
     const portStr = String(assignment.port).padEnd(6);
     const projectStr = truncateLine(assignment.project, 16).padEnd(16);
     const sourceStr = truncateLine(assignment.source, 18).padEnd(18);
-    const dot = assignment.state === "active" ? green(sym.dotFilled) : dim(sym.dotEmpty);
-    const stateStr = assignment.state === "active" ? green("active") : dim(assignment.state);
+    const dot = isLiveState(assignment.state) ? (assignment.state === "active" ? green(sym.dotFilled) : yellow(sym.dotFilled)) : dim(sym.dotEmpty);
+    const stateStr = assignment.state === "active" ? green("active") : assignment.state === "partial" ? yellow("partial") : dim(assignment.state);
     const conflict = conflicts.has(assignment.port)
       ? truncateLine(yellow(" ← conflict"), conflictWidth)
       : "";

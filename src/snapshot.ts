@@ -1,7 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, unlinkSync } from "node:fs";
-import { join, resolve, sep } from "node:path";
 import { SNAPSHOTS_DIR } from "./paths.js";
-import { debugLog, atomicWrite, gitOutputSync } from "./utils.js";
+import { debugLog, atomicWrite, gitOutputSync, confinedPath } from "./utils.js";
 import { dim, green } from "./ui/ansi.js";
 
 // --- Types ---
@@ -22,11 +21,7 @@ export interface ContextSnapshot {
 // --- Helpers ---
 
 function snapshotPath(project: string): string {
-  const filePath = join(SNAPSHOTS_DIR, `${project}.json`);
-  if (!resolve(filePath).startsWith(resolve(SNAPSHOTS_DIR) + sep)) {
-    throw new Error(`Invalid snapshot path: "${project}"`);
-  }
-  return filePath;
+  return confinedPath(SNAPSHOTS_DIR, `${project}.json`, "snapshot");
 }
 
 /**
@@ -43,7 +38,8 @@ function gitCommand(dir: string, args: string[]): string | null {
 
 // --- Public API ---
 
-export function saveSnapshot(project: string, directory: string, layout: string): ContextSnapshot | null {
+/** Gather the snapshot content without writing anything. Null when the directory is gone or not a git repo. */
+export function collectSnapshot(project: string, directory: string, layout: string): ContextSnapshot | null {
   if (!existsSync(directory)) {
     console.warn("Snapshot: project directory no longer exists: " + directory);
     return null;
@@ -71,8 +67,18 @@ export function saveSnapshot(project: string, directory: string, layout: string)
     version: 1,
   };
 
+  return snapshot;
+}
+
+/** Write a snapshot file atomically. Takes no lock of its own: generation-checked callers run it inside `withOwnedRecord`. */
+export function writeSnapshotFile(snapshot: ContextSnapshot): void {
   mkdirSync(SNAPSHOTS_DIR, { recursive: true, mode: 0o700 });
-  atomicWrite(snapshotPath(project), JSON.stringify(snapshot, null, 2) + "\n", { mode: 0o600 });
+  atomicWrite(snapshotPath(snapshot.project), JSON.stringify(snapshot, null, 2) + "\n", { mode: 0o600 });
+}
+
+export function saveSnapshot(project: string, directory: string, layout: string): ContextSnapshot | null {
+  const snapshot = collectSnapshot(project, directory, layout);
+  if (snapshot) writeSnapshotFile(snapshot);
   return snapshot;
 }
 

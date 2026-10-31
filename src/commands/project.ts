@@ -6,7 +6,10 @@ import {
 } from "../config.js";
 import { focusWorkspace, launch } from "../launcher.js";
 import { promptUser, exitWithUsageHint, PromptCancelled } from "../utils.js";
-import { fail } from "../ui/output.js";
+import { err, fail } from "../ui/output.js";
+import { unverifiedMessage } from "../status.js";
+import { projectArgOrExit } from "../validation.js";
+import type { ProjectRow } from "../monitor.js";
 import { validateProjectNameOrExit } from "../validation.js";
 // PE-H1 (#473): Re-export from new leaf module for backward compatibility with callers.
 export { resolveTargetDirectory, expandHome } from "../cli/resolve-target.js";
@@ -69,8 +72,40 @@ export async function handleListCommand(): Promise<void> {
   }
 }
 
-export async function handleOpenCommand({ overrides }: CommandContext): Promise<void> {
-  const { loadProjectRows, renderRow } = await import("../monitor.js");
+/** Focus a live workspace, launch a stopped one, refuse an unknown one: the picker and `open <project>` agree. */
+async function openRow(row: ProjectRow, overrides: CommandContext["overrides"]): Promise<void> {
+  const { isLiveState } = await import("../monitor.js");
+  // Plan P10: an unknown workspace is never launched over or focused.
+  if (row.state === "unknown") {
+    fail(unverifiedMessage(row.name, row.reason));
+    process.exit(2);
+  }
+  if (isLiveState(row.state)) {
+    const result = focusWorkspace(row.name);
+    if (result.kind !== "focused") { fail(result.reason); process.exit(2); }
+    console.log(`Switched to [${row.name}]`);
+    return;
+  }
+  await launch(row.directory, overrides);
+}
+
+export async function handleOpenCommand({ args, overrides }: CommandContext): Promise<void> {
+  if (args.length > 0) {
+    const target = projectArgOrExit(args, 1, "Usage: summon open [project]");
+    const { loadProjectRow } = await import("../monitor.js");
+    const row = loadProjectRow(target);
+    if (!row) {
+      fail(`"${target}" is not a registered project. See available: summon list`);
+      const { projectSuggestions } = await import("../cli/resolve-target.js");
+      const suggestions = projectSuggestions(target);
+      if (suggestions.length > 0) err(`Did you mean: ${suggestions.join(", ")}?`);
+      process.exit(1);
+    }
+    await openRow(row, overrides);
+    return;
+  }
+
+  const { loadProjectRows, renderRow, isLiveState } = await import("../monitor.js");
 
   const rows = loadProjectRows();
   if (rows.length === 0) {
@@ -78,7 +113,7 @@ export async function handleOpenCommand({ overrides }: CommandContext): Promise<
     process.exit(1);
   }
 
-  const activeCount = rows.filter((row) => row.state === "active" || row.state === "active-long").length;
+  const activeCount = rows.filter((row) => isLiveState(row.state)).length;
   const { nameWidth } = computeColumnWidths(rows);
   const colPad = " ".repeat(Math.max(0, nameWidth - "name".length));
   console.log(`  summon — select a project${colPad}  ${activeCount} active / ${rows.length} total\n`);
@@ -117,13 +152,6 @@ export async function handleOpenCommand({ overrides }: CommandContext): Promise<
     selectedRow = rows[index];
   }
 
-  if (selectedRow.state === "active" || selectedRow.state === "active-long") {
-    const result = focusWorkspace(selectedRow.name);
-    if (result.kind !== "focused") { fail(result.reason); process.exit(2); }
-    console.log(`Switched to [${selectedRow.name}]`);
-    return;
-  }
-
-  await launch(selectedRow.directory, overrides);
+  await openRow(selectedRow, overrides);
 }
 

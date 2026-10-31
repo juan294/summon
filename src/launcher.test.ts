@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import type { BackendLaunchContext } from "./backends/ghostty.js";
 
 // Mock child_process before importing launcher
 const mockExecSync = vi.fn();
@@ -23,9 +24,53 @@ vi.mock("./config.js", () => ({
   LAYOUT_NAME_RE: /^[a-zA-Z][a-zA-Z0-9_-]*$/,
 }));
 
+// Mock backend detection: the table is covered by backend-detect.test.ts; here the launcher's
+// seam is exercised by steering the resolved detection directly.
+const mockResolveBackendForLaunch = vi.fn((): unknown => ({ ok: true, backend: "ghostty", placement: "outside", notices: [] }));
+vi.mock("./backend.js", async (original) => ({
+  ...(await original<typeof import("./backend.js")>()),
+  resolveBackendForLaunch: () => mockResolveBackendForLaunch(),
+}));
+
+// Rex launch path (Phase 3): the adapter, adoption and switch decision are mocked; their own
+// suites cover them. The fake backend records what the launcher hands it.
+const mockAdoptOrphans = vi.fn((_project: string, _options?: { repeatAnnounced?: boolean }): string[] => []);
+const mockMaybeSwitch = vi.fn((..._args: unknown[]): unknown => ({ kind: "proceed" }));
+const mockSessionState = vi.fn((..._args: unknown[]): unknown => ({ state: "stopped", liveBlocks: [] }));
+const rexLaunches: Array<{ kind: string; plan: unknown; ctx: Record<string, unknown> }> = [];
+const REX_IDENTITY = {
+  server: "unix:///tmp/rex.sock", hostId: "host-1",
+  sessionId: "session:0000aaaa-0000-0000-0000-000000000001", windowId: "window:0000aaaa-0000-0000-0000-000000000002", rootBlockId: "block:0000aaaa-0000-0000-0000-000000000010",
+  blocks: [{ name: "editor", blockId: "block:0000aaaa-0000-0000-0000-000000000010", label: "editor · vim" }, { name: "editor-2", blockId: "block:0000aaaa-0000-0000-0000-000000000011", label: "editor · vim" }],
+};
+const mockCreateRexBackend = vi.fn((_context: unknown, _deps: unknown) => ({
+  id: "rex",
+  async launchTraditional(plan: unknown, ctx: Record<string, unknown>) { rexLaunches.push({ kind: "traditional", plan, ctx }); return { rex: REX_IDENTITY }; },
+  async launchTree(plan: unknown, ctx: Record<string, unknown>) { rexLaunches.push({ kind: "tree", plan, ctx }); return { rex: REX_IDENTITY }; },
+}));
+vi.mock("./backends/rex/backend.js", () => ({ createRexBackend: (context: unknown, deps: unknown) => mockCreateRexBackend(context, deps) }));
+vi.mock("./backends/rex/launch.js", () => ({
+  adoptOrphans: (project: string, _deps: unknown, options?: { repeatAnnounced?: boolean }) => mockAdoptOrphans(project, options),
+  adoptDeps: vi.fn(() => ({})),
+  maybeSwitchToExisting: (...args: unknown[]) => mockMaybeSwitch(...args),
+}));
+vi.mock("./backends/rex/status.js", () => ({ sessionState: (...args: unknown[]) => mockSessionState(...args) }));
+vi.mock("./backends/rex/cli.js", () => ({
+  createRexCli: vi.fn((binary: string, server: string) => ({ binary, server, call: vi.fn() })),
+  discoverRex: vi.fn(() => ({ path: "/usr/local/bin/rex", searched: ["PATH"] })),
+}));
+
 // Mock status module (write is a no-op in tests)
 const mockReadStatus = vi.fn();
-vi.mock("./status.js", () => ({ writeStatus: vi.fn(), discardStatusRecord: vi.fn(()=>true), readStatus: (...args: unknown[]) => mockReadStatus(...args) }));
+const mockReadStatusRecord = vi.fn((_project: string): unknown => null);
+vi.mock("./status.js", () => ({
+  publishStatus: vi.fn(() => "published"),
+  readStatus: (...args: unknown[]) => mockReadStatus(...args),
+  readStatusRecord: (project: string) => mockReadStatusRecord(project),
+  isLiveState: (state: string) => state === "active" || state === "partial",
+  unverifiedMessage: (project: string, reason?: string) => `[${project}] could not be verified: ${reason ?? "no liveness information"}.`,
+  rexCommandGate: vi.fn(() => ({ ok: false, failure: { kind: "unavailable", code: "unavailable", reason: "mock gate" } })),
+}));
 
 // Mock starship
 const mockIsStarshipInstalled = vi.fn(() => false);
@@ -39,9 +84,13 @@ vi.mock("./starship.js", () => ({
 }));
 
 // Mock fs.existsSync for directory and Ghostty.app checks
+const mockStatSync = vi.fn((_path: string): { isFile: () => boolean } => { throw new Error("ENOENT"); });
 vi.mock("node:fs", () => ({
   existsSync: vi.fn(() => true),
   realpathSync: vi.fn((path: string) => path),
+  statSync: (path: string) => mockStatSync(path),
+  accessSync: () => {},
+  constants: { X_OK: 1 },
   readFileSync: vi.fn((path: string) => { if(path.endsWith("Ghostty.sdef")) return '<class name="terminal"><property name="id"/><property name="pid"/><property name="tty"/></class>'; throw new Error("fixture absent"); }),
 }));
 
@@ -57,9 +106,9 @@ vi.mock("node:readline", () => ({
 }));
 
 // Mock setup wizard — prevents real setup.js from loading via dynamic import
-const mockRunSetup = vi.fn(async () => {});
+const mockRunSetup = vi.fn(async (..._args: unknown[]) => {});
 vi.mock("./setup.js", () => ({
-  runSetup: () => mockRunSetup(),
+  runSetup: (...args: unknown[]) => mockRunSetup(...args),
 }));
 
 // Mock trust module — default no-op (trust passes), overridable per test
@@ -93,19 +142,30 @@ vi.mock("./script.js", () => ({
 }));
 
 // Import after mocks are set up
-const { launch, resolveConfig, optsToConfigMap, focusWorkspace, resolveProjectName, probePaneCount, decideCleanRestoredPanes, closeWorkspaceWindow, layoutOptsToTreePlanOpts, isStaticLaunchSpinner, withLaunchSpinner } = await import("./launcher.js");
+const { launch, resolveConfig, optsToConfigMap, focusWorkspace, resolveProjectName, probePaneCount, decideCleanRestoredPanes, layoutOptsToTreePlanOpts, commandFixHint } = await import("./launcher.js");
+const { closeWorkspaceWindow, isStaticLaunchSpinner, withLaunchSpinner, GhosttyBackend, ghosttyCommandEntries } = await import("./backends/ghostty.js");
+const { planLayout } = await import("./layout.js");
+const { buildTreePlan, findPaneByName, parseTreeDSL, resolveTreeCommands } = await import("./tree.js");
 const { listConfig, listProjects } = await import("./config.js");
 const { existsSync } = await import("node:fs");
 const { TabOpenError } = await import("./errors.js");
+const { LAUNCH_ID_RE } = await import("./launch-identity.js");
+const ANY_LAUNCH_ID = expect.stringMatching(LAUNCH_ID_RE);
 
 let savedSummonWorkspace: string | undefined;
 
 beforeEach(() => {
   vi.clearAllMocks();
   mockReadStatus.mockReturnValue(null);
+  mockReadStatusRecord.mockReturnValue(null);
+  mockAdoptOrphans.mockReturnValue([]);
+  mockMaybeSwitch.mockReturnValue({ kind: "proceed" });
+  mockSessionState.mockReturnValue({ state: "stopped", liveBlocks: [] });
+  rexLaunches.length = 0;
   // Prevent warnIfNested from activating when tests run inside a summon workspace
   savedSummonWorkspace = process.env.SUMMON_WORKSPACE;
   delete process.env.SUMMON_WORKSPACE;
+  mockResolveBackendForLaunch.mockReturnValue({ ok: true, backend: "ghostty", placement: "outside", notices: [] });
   // Default: execSync no-ops (osascript, etc.)
   mockExecSync.mockImplementation(() => "");
   // Default: all commands are installed (resolveCommand uses execFileSync)
@@ -125,6 +185,8 @@ beforeEach(() => {
   // Trust mocks default to no-op (trusted)
   mockAssertTrusted.mockImplementation(() => {});
   mockAssertTrustedContent.mockImplementation(() => {});
+  // Default: no absolute path exists, so absolute commands fail as a missing path
+  mockStatSync.mockImplementation(() => { throw new Error("ENOENT"); });
 });
 
 afterEach(() => {
@@ -219,6 +281,7 @@ describe("script execution", () => {
       undefined,
       "workspace",
       undefined,
+      ANY_LAUNCH_ID,
     );
   });
 
@@ -234,6 +297,7 @@ describe("script execution", () => {
       undefined,
       "api",
       undefined,
+      ANY_LAUNCH_ID,
     );
   });
 });
@@ -941,6 +1005,7 @@ describe("falsy sidebarCommand guard", () => {
       undefined,
       "workspace",
       undefined,
+      ANY_LAUNCH_ID,
     );
   });
 
@@ -960,6 +1025,7 @@ describe("falsy sidebarCommand guard", () => {
       undefined,
       "workspace",
       undefined,
+      ANY_LAUNCH_ID,
     );
   });
 
@@ -977,6 +1043,7 @@ describe("falsy sidebarCommand guard", () => {
       undefined,
       "workspace",
       undefined,
+      ANY_LAUNCH_ID,
     );
   });
 });
@@ -1111,6 +1178,7 @@ describe("command resolution cache for shared binaries (#61)", () => {
       undefined,
       "workspace",
       undefined,
+      ANY_LAUNCH_ID,
     );
   });
 });
@@ -1209,6 +1277,7 @@ describe("path resolution", () => {
       undefined,
       "workspace",
       undefined,
+      ANY_LAUNCH_ID,
     );
   });
 
@@ -1232,6 +1301,7 @@ describe("path resolution", () => {
       undefined,
       "workspace",
       undefined,
+      ANY_LAUNCH_ID,
     );
   });
 });
@@ -1655,6 +1725,7 @@ describe("shell metacharacter confirmation (#90)", () => {
         undefined,
         "workspace",
         undefined,
+        ANY_LAUNCH_ID,
       );
     });
 
@@ -1670,6 +1741,7 @@ describe("shell metacharacter confirmation (#90)", () => {
         undefined,
         "workspace",
         undefined,
+        ANY_LAUNCH_ID,
       );
     });
 
@@ -1689,6 +1761,7 @@ describe("shell metacharacter confirmation (#90)", () => {
         undefined,
         "workspace",
         undefined,
+        ANY_LAUNCH_ID,
       );
       warnSpy.mockRestore();
     });
@@ -1712,6 +1785,7 @@ describe("shell metacharacter confirmation (#90)", () => {
         undefined,
         "workspace",
         undefined,
+        ANY_LAUNCH_ID,
       );
       warnSpy.mockRestore();
     });
@@ -1774,6 +1848,7 @@ describe("shell metacharacter confirmation (#90)", () => {
         undefined,
         "workspace",
         undefined,
+        ANY_LAUNCH_ID,
       );
       logSpy.mockRestore();
     });
@@ -1822,7 +1897,7 @@ describe("on-start hook (#107)", () => {
       const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
       // Must NOT throw — launch should continue even when on-start fails
-      await expect(launch("/tmp/workspace", { "on-start": "false" })).resolves.toBeUndefined();
+      await expect(launch("/tmp/workspace", { "on-start": "false" })).resolves.toBe("launched");
       // Must warn about the failure
       expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("on-start command failed"));
 
@@ -1912,6 +1987,7 @@ describe("on-start hook (#107)", () => {
         undefined,
         "workspace",
         undefined,
+        ANY_LAUNCH_ID,
       );
     });
 
@@ -2345,6 +2421,7 @@ describe("custom tree layout integration (Phase 4)", () => {
         undefined,
         "workspace",
         undefined,
+        ANY_LAUNCH_ID,
       );
       logSpy.mockRestore();
     });
@@ -2428,6 +2505,21 @@ describe("custom tree layout integration (Phase 4)", () => {
       await launch("/tmp/workspace", { "new-window": "true" });
 
       expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining("existing summon workspace"));
+      warnSpy.mockRestore();
+    });
+
+    it("skips the warning and the prompt for a Rex launch, which creates a session and never splits the caller's pane (F14)", async () => {
+      process.env.SUMMON_WORKSPACE = "1";
+      Object.defineProperty(process.stdin, "isTTY", { value: true, writable: true });
+      mockResolveBackendForLaunch.mockReturnValue({ ok: true, backend: "rex", placement: "inside-rex", server: "unix:///tmp/rex.sock", rexBinary: "/usr/local/bin/rex", notices: [] });
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      mockQuestion.mockClear();
+
+      await expect(launch("/tmp/workspace")).resolves.toBe("launched");
+      expect(rexLaunches).toHaveLength(1);
+
+      expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining("existing summon workspace"));
+      expect(mockQuestion).not.toHaveBeenCalledWith(expect.stringContaining("Continue anyway?"), expect.anything());
       warnSpy.mockRestore();
     });
 
@@ -2548,6 +2640,7 @@ describe("env vars passed to script generator (#168)", () => {
       { NODE_ENV: "production" },
       "workspace",
       undefined,
+      ANY_LAUNCH_ID,
     );
   });
 
@@ -2564,6 +2657,7 @@ describe("env vars passed to script generator (#168)", () => {
       { NODE_ENV: "production" },
       "workspace",
       undefined,
+      ANY_LAUNCH_ID,
     );
     logSpy.mockRestore();
   });
@@ -2589,6 +2683,7 @@ describe("env vars passed to script generator (#168)", () => {
       { NODE_ENV: "test" },
       "workspace",
       undefined,
+      ANY_LAUNCH_ID,
     );
   });
 
@@ -2614,6 +2709,7 @@ describe("env vars passed to script generator (#168)", () => {
       { MY_VAR: "hello" },
       "workspace",
       undefined,
+      ANY_LAUNCH_ID,
     );
     logSpy.mockRestore();
   });
@@ -2679,6 +2775,7 @@ describe("tree dry-run without starship preset (#168)", () => {
       undefined,
       "workspace",
       undefined,
+      ANY_LAUNCH_ID,
     );
     logSpy.mockRestore();
   });
@@ -3229,7 +3326,7 @@ describe("R19: on-start failure diagnostics (#190)", () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
     // Launch continues (does not reject) — failure is non-fatal
-    await expect(launch("/tmp/workspace", { "on-start": "broken-command" })).resolves.toBeUndefined();
+    await expect(launch("/tmp/workspace", { "on-start": "broken-command" })).resolves.toBe("launched");
 
     const warnMessages = warnSpy.mock.calls.map((c) => c[0] as string);
     const failMsg = warnMessages.find((m) => m.includes("on-start command failed"));
@@ -3585,7 +3682,7 @@ describe("AR-M1: process.exit -> thrown errors in launcher (#306)", () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
     // Should NOT throw — warn and continue
-    await expect(launch("/tmp/workspace", { "on-start": "bad-command" })).resolves.toBeUndefined();
+    await expect(launch("/tmp/workspace", { "on-start": "bad-command" })).resolves.toBe("launched");
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("on-start command failed"));
 
     warnSpy.mockRestore();
@@ -4398,17 +4495,542 @@ describe("P2 capture failure isolation",()=>{
   it.each(["", "SUMMON_NATIVE_UNAVAILABLE", "SUMMON_NATIVE_V1\ninvalid", "x".repeat(65537)])("launch stays successful for invalid capture",async output=>{
     const status=await import("./status.js");
     mockExecFileSync.mockImplementation((bin:string,args:string[],opts?:{input?:string})=> bin === "/usr/bin/which" ? "/usr/bin/stub\n" : opts?.input ? output : "");
-    await expect(launch("/tmp/workspace",{layout:"minimal"})).resolves.toBeUndefined();
-    expect(status.writeStatus).toHaveBeenCalledWith(expect.objectContaining({project:"workspace",version:1}));
-    expect(vi.mocked(status.writeStatus).mock.calls[0]?.[0].native).toBeUndefined();
+    await expect(launch("/tmp/workspace",{layout:"minimal"})).resolves.toBe("launched");
+    expect(status.publishStatus).toHaveBeenCalledWith(expect.objectContaining({project:"workspace",version:1}));
+    expect(vi.mocked(status.publishStatus).mock.calls[0]?.[0].native).toBeUndefined();
     expect(mockExecFileSync.mock.calls.filter(c=>String(c[2]?.input).includes("close front window"))).toHaveLength(0);
   });
   it("maps successful capture and warns without throwing on status write failure",async()=>{
     const status=await import("./status.js"); const err=vi.spyOn(process.stderr,"write").mockImplementation(()=>true);
     mockExecFileSync.mockImplementation((bin:string,args:string[],opts?:{input?:string})=>bin === "/usr/bin/which" ? "/usr/bin/stub\n" : opts?.input ? `SUMMON_NATIVE_V1\n${id}\n00000000-0000-4000-8000-000000000002\n` : "");
-    vi.mocked(status.writeStatus).mockImplementationOnce(()=>{throw new Error("disk");});
-    await expect(launch("/tmp/workspace",{layout:"minimal"})).resolves.toBeUndefined();
-    expect(status.writeStatus).toHaveBeenCalledWith(expect.objectContaining({native:expect.objectContaining({rootTerminalId:id})}));
-    expect(err).toHaveBeenCalledWith(expect.stringContaining("status could not be saved"));err.mockRestore();
+    vi.mocked(status.publishStatus).mockReturnValueOnce("discarded");
+    await expect(launch("/tmp/workspace",{layout:"minimal"})).resolves.toBe("launched");
+    expect(status.publishStatus).toHaveBeenCalledWith(expect.objectContaining({native:expect.objectContaining({rootTerminalId:id})}));
+    expect(err).toHaveBeenCalledWith(expect.stringContaining("status could not be saved; exact targeting is unavailable"));
+    // The publication layer owns the discard (bound to the record observed under its lock); the launcher only words the outcome.
+    vi.mocked(status.publishStatus).mockReturnValueOnce("unsaved");
+    await expect(launch("/tmp/workspace",{layout:"minimal"})).resolves.toBe("launched");
+    expect(err).toHaveBeenCalledWith(expect.stringContaining("could not be saved or invalidated. Previous metadata may remain"));
+    err.mockRestore();
+  });
+});
+
+const statusModule = await import("./status.js");
+
+describe("backend seam (plan P15, Phase 1)", () => {
+  const status = statusModule;
+
+  it("dry-run header names the backend and the launch id", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+    await launch("/tmp/workspace", { dryRun: true });
+    const output = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    logSpy.mockRestore();
+    const header = output.split("\n").filter((line) => line.startsWith("-- "));
+    expect(header[0]).toBe("-- summon dry-run");
+    expect(header).toContain("-- Backend: ghostty");
+    expect(header.find((line) => line.startsWith("-- Launch: "))).toMatch(new RegExp(`^-- Launch: ${LAUNCH_ID_RE.source.slice(1, -1)}$`));
+  });
+
+  it("dry-run header for a tree layout also names the backend and launch id", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockIsCustomLayout.mockReturnValue(true);
+    mockReadCustomLayout.mockReturnValue(new Map([["tree", "a | b"], ["pane.a", "vim"], ["pane.b", "htop"]]));
+    vi.mocked(listConfig).mockReturnValue(new Map([["layout", "mytree"]]));
+    await launch("/tmp/workspace", { dryRun: true });
+    const output = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    logSpy.mockRestore();
+    expect(output).toContain("-- Layout: tree layout, 2 panes");
+    expect(output).toContain("-- Backend: ghostty");
+    expect(output).toMatch(/-- Launch: [0-9a-f-]{36}/);
+  });
+
+  it("publishes the status record with the launch id and backend", async () => {
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+    await launch("/tmp/workspace");
+    expect(status.publishStatus).toHaveBeenCalledWith(expect.objectContaining({
+      project: "workspace",
+      backend: "ghostty",
+      launchId: ANY_LAUNCH_ID,
+    }));
+    const written = vi.mocked(status.publishStatus).mock.calls[0]?.[0];
+    const dryRunId = mockGenerateAppleScript.mock.calls[0]?.[6];
+    expect(written?.launchId).toBe(dryRunId);
+  });
+
+  it("dry-run falls back to the Ghostty script with the detection notices when neither terminal is found; a real launch fails", async () => {
+    mockResolveBackendForLaunch.mockReturnValue({ ok: false, reason: "Neither Ghostty.app nor the Rex CLI was found. Install one.", notices: ["Rex detected but its CLI was not found at PATH"] });
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    let stderrText: string;
+    let output: string;
+    try {
+      await launch("/tmp/workspace", { dryRun: true });
+      stderrText = errSpy.mock.calls.map((c) => String(c[0])).join("");
+      output = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      await expect(launch("/tmp/workspace")).rejects.toThrow("Neither Ghostty.app nor the Rex CLI was found");
+    } finally {
+      errSpy.mockRestore();
+      logSpy.mockRestore();
+    }
+    expect(stderrText).toContain("Rex detected but its CLI was not found at PATH");
+    expect(stderrText).toContain("Neither Ghostty.app nor the Rex CLI was found. Install one. Dry run continues with the Ghostty script.");
+    expect(output).toContain("-- Backend: ghostty");
+    expect(status.publishStatus).not.toHaveBeenCalled();
+  });
+
+  it("prints detection notices and continues on Ghostty when the table says so", async () => {
+    mockResolveBackendForLaunch.mockReturnValue({ ok: true, backend: "ghostty", placement: "inside-rex", notices: ["Rex detected but its CLI was not found at PATH"] });
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+    const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    let stderrText: string;
+    try {
+      await launch("/tmp/workspace");
+      stderrText = errSpy.mock.calls.map((c) => String(c[0])).join("");
+    } finally {
+      errSpy.mockRestore();
+    }
+    expect(stderrText).toContain("Rex detected but its CLI was not found at PATH");
+    expect(status.publishStatus).toHaveBeenCalledWith(expect.objectContaining({ backend: "ghostty" }));
+  });
+});
+
+describe("Rex dry run (plan P2, Phase 2)", () => {
+  const REX_CONTEXT = { ok: true, backend: "rex", placement: "inside-rex", server: "unix:///tmp/rex.sock", rexBinary: "/usr/local/bin/rex", notices: [] };
+
+  /** Calls that would drive a terminal: AppleScript or the Rex CLI. */
+  const terminalCalls = () => mockExecFileSync.mock.calls.filter((c) => c[0] === "osascript" || String(c[0]).endsWith("/rex"));
+
+  async function dryRun(overrides: Record<string, unknown> = {}, config: Array<[string, string]> = [["editor", "vim"]]): Promise<string> {
+    mockResolveBackendForLaunch.mockReturnValue(REX_CONTEXT);
+    vi.mocked(listConfig).mockReturnValue(new Map(config));
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      await launch("/tmp/workspace", { dryRun: true, ...overrides });
+      // The dry run is the last console.log call; config notices may precede it.
+      return String(logSpy.mock.calls.at(-1)?.[0]);
+    } finally {
+      logSpy.mockRestore();
+    }
+  }
+
+  function requestOf(output: string): { label: string; initial_windows: Array<{ window_label: string; layout: unknown }> } {
+    const json = output.split("\n").filter((line) => !line.startsWith("-- ")).join("\n");
+    return JSON.parse(json);
+  }
+
+  it("prints the header, the session.create request and the pane order instead of AppleScript, and runs nothing", async () => {
+    const output = await dryRun({ env: ["FOO=bar"] });
+
+    expect(output).toMatch(/^-- summon dry-run\n/);
+    expect(output).toContain("-- Layout: 2 editor panes, editor=vim, sidebar=lazygit, shell=true");
+    expect(output).toContain("-- Target: /tmp/workspace");
+    expect(output).toContain("-- Backend: rex");
+    expect(output).toMatch(/-- Launch: [0-9a-f-]{36}/);
+    expect(output).toContain("-- Server: unix:///tmp/rex.sock");
+    expect(output).toContain("-- Pane order (block_ids): editor, right-1, shell, sidebar");
+    expect(output).not.toContain("-- Note:");
+    expect(output).not.toContain('tell application "Ghostty"');
+
+    const request = requestOf(output);
+    expect(request.label).toBe("workspace");
+    expect(request.initial_windows[0]!.window_label).toBe("[workspace]");
+    const launchId = /-- Launch: ([0-9a-f-]{36})/.exec(output)![1];
+    expect(output).toContain(`"SUMMON_LAUNCH_ID=${launchId}"`);
+    expect(output).toContain('"FOO=bar"');
+    // The printed request is the one a real launch sends: the root cleanup trap carries the layout label.
+    expect(output).toContain('--layout \\"default\\"');
+    expect(output).not.toContain('--layout \\"unknown\\"');
+
+    expect(mockGenerateAppleScript).not.toHaveBeenCalled();
+    expect(mockGenerateTreeAppleScript).not.toHaveBeenCalled();
+    expect(terminalCalls()).toEqual([]);
+    expect(mockExecSync).not.toHaveBeenCalled();
+    expect(statusModule.publishStatus).not.toHaveBeenCalled();
+  });
+
+  it("prints the tree request with the tree's pane order", async () => {
+    mockIsCustomLayout.mockReturnValue(true);
+    mockReadCustomLayout.mockReturnValue(new Map([["tree", "(editor / shell) | sidebar"], ["pane.editor", "claude"], ["pane.shell", "npm run dev"], ["pane.sidebar", "lazygit"]]));
+    mockReadKVFile.mockReturnValue(new Map([["layout", "mywork"]]));
+    const output = await dryRun();
+
+    expect(output).toContain("-- Layout: tree layout, 3 panes");
+    expect(output).toContain("-- Backend: rex");
+    expect(output).toContain("-- Pane order (block_ids): editor, shell, sidebar");
+    const request = requestOf(output);
+    expect(request.initial_windows[0]!.layout).toMatchObject({ split: { direction: "horizontal", ratio: 0.75 } });
+    expect(mockGenerateTreeAppleScript).not.toHaveBeenCalled();
+    expect(terminalCalls()).toEqual([]);
+  });
+
+  it("includes the starship preset path in the env wrapper and the header", async () => {
+    mockGetPresetConfigPath.mockReturnValue("/mock/.config/summon/starship/tokyo-night.toml");
+    const output = await dryRun({}, [["editor", "vim"], ["starship-preset", "tokyo-night"]]);
+    expect(output).toContain("-- Starship preset: tokyo-night (/mock/.config/summon/starship/tokyo-night.toml)");
+    expect(output).toContain('"STARSHIP_CONFIG=/mock/.config/summon/starship/tokyo-night.toml"');
+    expect(mockEnsurePresetConfig).not.toHaveBeenCalled();
+  });
+
+  it("notes a recorded Rex workspace without probing or switching to it", async () => {
+    mockReadStatusRecord.mockReturnValue({ project: "workspace", backend: "rex", rex: { sessionId: "session:0123" } });
+    const output = await dryRun();
+    expect(mockReadStatusRecord).toHaveBeenCalledWith("workspace");
+    expect(output).toContain("-- Note: workspace is recorded as a Rex workspace (session:0123); while it is running, a real run switches to it instead of creating this one");
+    expect(output).toContain('"label": "workspace"');
+    expect(terminalCalls()).toEqual([]);
+    expect(statusModule.publishStatus).not.toHaveBeenCalled();
+  });
+
+  it("does not note a Ghostty record", async () => {
+    mockReadStatusRecord.mockReturnValue({ project: "workspace", backend: "ghostty" });
+    expect(await dryRun()).not.toContain("-- Note:");
+  });
+});
+
+describe("Rex launch (plan P2, P8, P13, P15; Phase 3)", () => {
+  const REX_CONTEXT = { ok: true, backend: "rex", placement: "inside-rex", server: "unix:///tmp/rex.sock", rexBinary: "/usr/local/bin/rex", notices: [] };
+  const rexCalls = () => mockExecFileSync.mock.calls.filter((c) => c[0] === "osascript" || String(c[0]).endsWith("/rex"));
+  let stderrText = "";
+  let errSpy: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    mockResolveBackendForLaunch.mockReturnValue(REX_CONTEXT);
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+    stderrText = "";
+    errSpy = vi.spyOn(process.stderr, "write").mockImplementation((chunk: unknown) => { stderrText += String(chunk); return true; });
+  });
+  afterEach(() => { errSpy.mockRestore(); });
+
+  it("adopts orphans and decides the switch before the wizard, the pane probe and on-start, and never cleans restored panes", async () => {
+    const order: string[] = [];
+    mockAdoptOrphans.mockImplementation(() => { order.push("adopt"); return ["adopted earlier launch x"]; });
+    mockMaybeSwitch.mockImplementation(() => { order.push("switch"); return { kind: "proceed" }; });
+    mockRunSetup.mockImplementation(async () => { order.push("setup"); vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]])); });
+    mockExecSync.mockImplementation(() => { order.push("on-start"); return ""; });
+    vi.mocked(listConfig).mockReturnValue(new Map());
+    const origIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
+    try {
+      await launch("/tmp/workspace", { "on-start": "echo hi", clean: "true" });
+    } finally {
+      Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, configurable: true });
+    }
+    expect(order).toEqual(["adopt", "switch", "setup", "on-start"]);
+    expect(mockRunSetup).toHaveBeenCalledWith({ backend: "rex" });
+    expect(mockAdoptOrphans).toHaveBeenCalledWith("workspace", { repeatAnnounced: false });
+    expect(mockMaybeSwitch).toHaveBeenCalledWith("workspace", false, expect.objectContaining({ cliFor: expect.any(Function) }));
+    expect(stderrText).toContain("summon: note: adopted earlier launch x");
+    expect(stderrText).toContain("summon: note: Rex cannot honor clean; ignored");
+    expect(rexCalls()).toEqual([]);
+    expect(rexLaunches).toHaveLength(1);
+  });
+
+  it("returns after a switch without launching, probing or writing status", async () => {
+    mockMaybeSwitch.mockReturnValue({ kind: "switched" });
+    mockExecSync.mockImplementation(() => { throw new Error("on-start must not run"); });
+    await launch("/tmp/workspace", { "on-start": "echo hi" });
+    expect(rexLaunches).toEqual([]);
+    expect(mockRunSetup).not.toHaveBeenCalled();
+    expect(statusModule.publishStatus).not.toHaveBeenCalled();
+    expect(mockExecSync).not.toHaveBeenCalled();
+  });
+
+  it("refuses with exit 2 when the recorded workspace cannot be verified", async () => {
+    mockMaybeSwitch.mockReturnValue({ kind: "refused", reason: "workspace is recorded in Rex but could not be verified" });
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(((code: number) => { throw new Error(`exit:${code}`); }) as never);
+    try {
+      await expect(launch("/tmp/workspace")).rejects.toThrow("exit:2");
+    } finally {
+      exitSpy.mockRestore();
+    }
+    expect(stderrText).toContain("could not be verified");
+    expect(rexLaunches).toEqual([]);
+  });
+
+  it("passes --new-window to the switch decision", async () => {
+    await launch("/tmp/workspace", { "new-window": "true" });
+    expect(mockMaybeSwitch).toHaveBeenCalledWith("workspace", true, expect.anything());
+  });
+
+  it("publishes the Rex identity with the display-order panes and the layout label", async () => {
+    await launch("/tmp/workspace", { layout: "full" });
+    expect(rexLaunches[0]).toMatchObject({ kind: "traditional", ctx: { projectName: "workspace", layoutLabel: "full", targetDir: "/tmp/workspace" } });
+    expect(mockCreateRexBackend).toHaveBeenCalledWith(REX_CONTEXT, expect.objectContaining({ callerSession: process.env["REX_SESSION"] }));
+    expect(statusModule.publishStatus).toHaveBeenCalledWith(expect.objectContaining({
+      project: "workspace",
+      backend: "rex",
+      layout: "full",
+      panes: ["editor", "sidebar", "editor-2", "right-1", "shell"],
+      launchId: ANY_LAUNCH_ID,
+      rex: REX_IDENTITY,
+    }));
+    const written = vi.mocked(statusModule.publishStatus).mock.calls[0]![0];
+    expect(written.native).toBeUndefined();
+    // Named focus targets resolve through the identity, never through display position.
+    expect(written.rex!.blocks.find((b) => b.name === "editor-2")!.blockId).toBe("block:0000aaaa-0000-0000-0000-000000000011");
+    expect(written.panes.indexOf("editor-2")).not.toBe(written.rex!.blocks.findIndex((b) => b.name === "editor-2"));
+  });
+
+  it("prints one P8 notice per flag Rex cannot honor", async () => {
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"], ["maximize", "true"], ["float", "true"], ["fullscreen", "true"], ["font-size", "14"]]));
+    await launch("/tmp/workspace");
+    for (const flag of ["maximize", "float", "fullscreen", "font-size"]) expect(stderrText).toContain(`summon: note: Rex cannot honor ${flag}; ignored`);
+    expect(stderrText).not.toContain("Rex cannot honor clean");
+  });
+
+  it("a dry run with an active Rex record calls neither adoptOrphans nor the switch decision nor any rex process, and prints the request plus the note", async () => {
+    mockReadStatusRecord.mockReturnValue({ project: "workspace", backend: "rex", rex: REX_IDENTITY });
+    mockSessionState.mockReturnValue({ state: "active", liveBlocks: ["editor"] });
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    await launch("/tmp/workspace", { dryRun: true });
+    const output = String(logSpy.mock.calls.at(-1)?.[0]);
+    logSpy.mockRestore();
+    expect(output).toContain("-- Note: workspace is recorded as a Rex workspace (session:0000aaaa-0000-0000-0000-000000000001)");
+    expect(output).toContain('"initial_windows"');
+    expect(mockAdoptOrphans).not.toHaveBeenCalled();
+    expect(mockMaybeSwitch).not.toHaveBeenCalled();
+    expect(mockSessionState).not.toHaveBeenCalled();
+    expect(rexLaunches).toEqual([]);
+    expect(rexCalls()).toEqual([]);
+    expect(statusModule.publishStatus).not.toHaveBeenCalled();
+  });
+
+  it("a non-TTY launch under Rex keeps the dangerous-command gate", async () => {
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim && echo hi"]]));
+    const origIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", { value: false, configurable: true });
+    try {
+      await expect(launch("/tmp/workspace")).rejects.toThrow();
+    } finally {
+      Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, configurable: true });
+    }
+    expect(stderrText).toContain("interactive confirmation");
+    expect(mockAdoptOrphans).toHaveBeenCalledWith("workspace", { repeatAnnounced: false });
+    expect(rexLaunches).toEqual([]);
+    expect(statusModule.publishStatus).not.toHaveBeenCalled();
+  });
+
+  it("a Ghostty launch over a live Rex session of the same project warns and goes on", async () => {
+    mockResolveBackendForLaunch.mockReturnValue({ ok: true, backend: "ghostty", placement: "outside", notices: [] });
+    mockReadStatusRecord.mockReturnValue({ project: "workspace", backend: "rex", rex: REX_IDENTITY });
+    mockSessionState.mockReturnValue({ state: "partial", reason: "root pane closed", liveBlocks: ["editor-2"] });
+    await launch("/tmp/workspace");
+    expect(stderrText).toContain("summon: note: Rex session [workspace] session:0000aaaa-0000-0000-0000-000000000001 is still running; rex kill session:0000aaaa-0000-0000-0000-000000000001 closes it");
+    expect(mockAdoptOrphans).not.toHaveBeenCalled();
+    expect(statusModule.publishStatus).toHaveBeenCalledWith(expect.objectContaining({ backend: "ghostty" }));
+    mockSessionState.mockReturnValue({ state: "stopped", liveBlocks: [] });
+    stderrText = "";
+    await launch("/tmp/workspace");
+    expect(stderrText).not.toContain("is still running");
+  });
+});
+
+describe("absolute command paths and fix hints", () => {
+  const useTreeLayout = (enhance: string): void => {
+    mockIsCustomLayout.mockReturnValue(true);
+    mockReadCustomLayout.mockReturnValue(
+      new Map([
+        ["tree", "main | enhance"],
+        ["pane.main", "claude"],
+        ["pane.enhance", enhance],
+      ]),
+    );
+    mockReadKVFile.mockReturnValue(new Map([["layout", "mywork"]]));
+  };
+  const whichMissing = (name: string): void => {
+    mockExecFileSync.mockImplementation((bin: string, args?: string[]) => {
+      if (bin === "/usr/bin/which" && args?.[0] === name) throw new Error("not found");
+      if (bin === "/usr/bin/which") return "/usr/bin/stub\n";
+      return "";
+    });
+  };
+  const stderrOf = async (run: () => Promise<unknown>): Promise<string> => {
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    try {
+      await run();
+      // Read the calls before mockRestore, which clears them
+      return writeSpy.mock.calls.map((c) => String(c[0])).join("");
+    } finally {
+      writeSpy.mockRestore();
+    }
+  };
+
+  it("launches a tree pane whose command is an executable absolute path (T1.4)", async () => {
+    useTreeLayout("/opt/homebrew/bin/gh-glance");
+    mockStatSync.mockImplementation(() => ({ isFile: () => true }));
+
+    await launch("/tmp/workspace");
+
+    expect(mockStatSync).toHaveBeenCalledWith("/opt/homebrew/bin/gh-glance");
+    expect(mockExecFileSync).not.toHaveBeenCalledWith("/usr/bin/which", ["/opt/homebrew/bin/gh-glance"], expect.anything());
+    expect(JSON.stringify(mockGenerateTreeAppleScript.mock.calls[0]?.[0])).toContain("/opt/homebrew/bin/gh-glance");
+  });
+
+  it("stops with a missing-path message and a layout hint, without an install prompt (T1.5)", async () => {
+    useTreeLayout("/opt/homebrew/bin/nope");
+
+    const text = await stderrOf(() => expect(launch("/tmp/workspace")).rejects.toThrow());
+
+    expect(text).toContain("`/opt/homebrew/bin/nope` was not found or is not executable.");
+    expect(text).toContain("summon layout edit mywork");
+    expect(text).not.toContain("summon set");
+    expect(mockQuestion).not.toHaveBeenCalled();
+  });
+
+  it("rejects a home-relative path with the rule, without an install prompt (T1.6)", async () => {
+    useTreeLayout("~/bin/tool --flag");
+
+    const text = await stderrOf(() => expect(launch("/tmp/workspace")).rejects.toThrow());
+
+    expect(text).toContain("`~/bin/tool` is not a command name or an absolute path.");
+    expect(text).toContain("full path that starts with `/`");
+    expect(mockQuestion).not.toHaveBeenCalled();
+  });
+
+  it("names the layout file, not summon set, for a missing bare command in a tree pane (T1.7)", async () => {
+    useTreeLayout("nope-tool");
+    whichMissing("nope-tool");
+
+    const text = await stderrOf(() => expect(launch("/tmp/workspace")).rejects.toThrow());
+
+    expect(text).toContain("is required but not installed, and no known install method was found.");
+    expect(text).toContain("`pane.enhance=` in layout mywork: summon layout edit mywork");
+    expect(text).not.toContain("summon set enhance");
+  });
+
+  it("names the layout file when an install is declined for a tree pane (T1.8)", async () => {
+    mockIsCustomLayout.mockReturnValue(true);
+    mockReadCustomLayout.mockReturnValue(new Map([["tree", "main | sidebar"], ["pane.main", "claude"], ["pane.sidebar", "lazygit"]]));
+    mockReadKVFile.mockReturnValue(new Map([["layout", "mywork"]]));
+    whichMissing("lazygit");
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("n"));
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await expect(launch("/tmp/workspace")).rejects.toThrow();
+
+    const logged = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    logSpy.mockRestore();
+    expect(logged).toContain("summon layout edit mywork");
+    expect(logged).not.toContain("summon set sidebar");
+  });
+
+  it("commandFixHint keeps summon set for config keys and names the layout for pane keys", () => {
+    expect(commandFixHint("editor")).toBe("change your config with: summon set editor <command>");
+    expect(commandFixHint("shell", "mywork")).toBe("change your config with: summon set shell <command>");
+    expect(commandFixHint("pane.enhance", "mywork")).toBe("change `pane.enhance=` in layout mywork: summon layout edit mywork");
+    expect(commandFixHint("pane.enhance")).toBe("change `pane.enhance=` in your layout file");
+  });
+
+  describe("dry-run command check (Phase 2)", () => {
+    const dryRunOutput = async (): Promise<{ stdout: string; notes: string[] }> => {
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      try {
+        const stderr = await stderrOf(() => launch("/tmp/workspace", { dryRun: true }));
+        const notes = stderr.split("\n").filter((line) => line.startsWith("summon: note:") && line.includes("a real launch"));
+        return { stdout: logSpy.mock.calls.map((c) => String(c[0])).join("\n"), notes };
+      } finally {
+        logSpy.mockRestore();
+      }
+    };
+
+    it("notes a missing absolute pane command and still prints the script (T2.1)", async () => {
+      useTreeLayout("/opt/homebrew/bin/nope");
+
+      const { stdout, notes } = await dryRunOutput();
+
+      expect(stdout).toContain("-- tree layout");
+      expect(notes).toEqual(["summon: note: pane `enhance`: `/opt/homebrew/bin/nope` was not found or is not executable; a real launch stops here."]);
+      expect(mockQuestion).not.toHaveBeenCalled();
+      expect(mockExecFileSync).not.toHaveBeenCalledWith("osascript", expect.anything(), expect.anything());
+    });
+
+    it("notes a missing command once per executable and labels config keys (T2.2)", async () => {
+      vi.mocked(listConfig).mockReturnValue(new Map([["editor", "nope-tool --wait"], ["sidebar", "nope-tool"], ["shell", "./bin/tool"]]));
+      whichMissing("nope-tool");
+
+      const { notes } = await dryRunOutput();
+
+      expect(notes).toEqual([
+        "summon: note: `editor`: `nope-tool` is not on your PATH; a real launch stops here.",
+        "summon: note: `shell`: `./bin/tool` is not a command name or an absolute path; a real launch stops here.",
+      ]);
+    });
+
+    it("says a real launch offers an install for a missing command it knows how to install", async () => {
+      vi.mocked(listConfig).mockReturnValue(new Map([["editor", "claude"]]));
+      whichMissing("claude");
+
+      const { notes } = await dryRunOutput();
+
+      expect(notes).toEqual(["summon: note: `editor`: `claude` is not on your PATH; a real launch offers to install it."]);
+      expect(mockQuestion).not.toHaveBeenCalled();
+      expect(mockExecFileSync).not.toHaveBeenCalledWith("npm", expect.anything(), expect.anything());
+    });
+
+    it("treats an inherited object name as a command with no install method", async () => {
+      vi.mocked(listConfig).mockReturnValue(new Map([["editor", "toString"]]));
+      whichMissing("toString");
+
+      expect((await dryRunOutput()).notes).toEqual(["summon: note: `editor`: `toString` is not on your PATH; a real launch stops here."]);
+      const text = await stderrOf(() => expect(launch("/tmp/workspace")).rejects.toThrow("is required but not installed"));
+      expect(text).toContain("no known install method was found");
+    });
+
+    it("does not check commands under Rex (T2.3)", async () => {
+      useTreeLayout("/opt/homebrew/bin/nope");
+      mockResolveBackendForLaunch.mockReturnValue({ ok: true, backend: "rex", placement: "inside-rex", server: "unix:///tmp/rex.sock", rexBinary: "/usr/local/bin/rex", notices: [] });
+
+      const { stdout, notes } = await dryRunOutput();
+
+      expect(stdout).toContain("-- Backend: rex");
+      expect(notes).toEqual([]);
+      expect(mockStatSync).not.toHaveBeenCalled();
+    });
+
+    it("prints no note when every command resolves (T2.4)", async () => {
+      useTreeLayout("/opt/homebrew/bin/gh-glance");
+      mockStatSync.mockImplementation(() => ({ isFile: () => true }));
+
+      expect((await dryRunOutput()).notes).toEqual([]);
+
+      useTreeLayout("vim");
+      expect((await dryRunOutput()).notes).toEqual([]);
+    });
+
+    it("lists the same keys, in the same order, that the Ghostty backend resolves, and stores each result back (T2.5)", async () => {
+      const resolvedKeys = async (launchWith: (ctx: BackendLaunchContext) => Promise<unknown>): Promise<string[]> => {
+        const ensureAndResolve = vi.fn(async (cmd: string, _key: string) => `/r/${cmd}`);
+        const ctx: BackendLaunchContext = {
+          targetDir: "/tmp/workspace",
+          envVars: undefined,
+          projectName: "workspace",
+          onStop: undefined,
+          launchId: "l-1",
+          layoutLabel: "custom",
+          ensureAndResolve,
+          resolveStarship: () => null,
+        };
+        const outSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+        try {
+          await stderrOf(() => launchWith(ctx));
+        } finally {
+          outSpy.mockRestore();
+        }
+        return ensureAndResolve.mock.calls.map((c) => c[1]);
+      };
+
+      const plan = planLayout({ editor: "vim", sidebarCommand: "lazygit", secondaryEditor: "nvim", shell: "htop" });
+      const traditionalKeys = ghosttyCommandEntries({ kind: "traditional", plan }).map((e) => e.key);
+      expect(traditionalKeys).toEqual(["editor", "sidebar", "editor", "shell"]);
+      expect(await resolvedKeys((ctx) => GhosttyBackend.launchTraditional(plan, ctx))).toEqual(traditionalKeys);
+      expect([plan.editor, plan.sidebarCommand, plan.secondaryEditor, plan.shellCommand]).toEqual(["/r/vim", "/r/lazygit", "/r/nvim", "/r/htop"]);
+
+      const treePlan = buildTreePlan(resolveTreeCommands(parseTreeDSL("a | b | c"), new Map([["a", "vim"], ["b", ""], ["c", "htop"]])));
+      const treeKeys = ghosttyCommandEntries({ kind: "tree", plan: treePlan }).map((e) => e.key);
+      expect(treeKeys).toEqual(["pane.a", "pane.c"]);
+      expect(await resolvedKeys((ctx) => GhosttyBackend.launchTree(treePlan, ctx))).toEqual(treeKeys);
+      expect(["a", "b", "c"].map((name) => findPaneByName(treePlan.tree, name)?.command)).toEqual(["/r/vim", "", "/r/htop"]);
+    });
   });
 });

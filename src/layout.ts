@@ -127,3 +127,13 @@ export function planLayout(partial?: Partial<LayoutOptions>): LayoutPlan {
   }
   return result;
 }
+
+/** Extract pane names from a traditional LayoutPlan. */
+export function traditionalPaneNames(plan: { sidebarCommand: string; leftColumnCount: number; rightColumnEditorCount: number; hasShell: boolean }): string[] {
+  const names = ["editor"];
+  if (plan.sidebarCommand) names.push("sidebar");
+  for (let i = 1; i < plan.leftColumnCount; i++) names.push(`editor-${i + 1}`);
+  for (let i = 0; i < plan.rightColumnEditorCount; i++) names.push(`right-${i + 1}`);
+  if (plan.hasShell) names.push("shell");
+  return names;
+}

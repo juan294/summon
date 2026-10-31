@@ -3,6 +3,10 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     include: ["src/**/*.test.ts"],
+    // Backend detection (plan P5) reads the terminal that runs the tests. Pin Ghostty so every
+    // suite, including subprocess suites that spread process.env, behaves the same under Rex,
+    // iTerm or CI. Tests that need another terminal stub TERM_PROGRAM explicitly.
+    env: { TERM_PROGRAM: "ghostty" },
     // Cap worker pool to reduce starvation risk on high-load machines.
     // Default is numCPUs; 8 leaves headroom while preserving parallelism.
     maxWorkers: 8,
@@ -17,6 +21,7 @@ export default defineConfig({
         "src/**/*.test.ts",
         "src/index.ts", // CLI entry point — tested via subprocess, not instrumentable by v8
         "src/globals.d.ts", // type-only file — no runtime code to cover
+        "src/e2e/rex-harness.ts", // runs only against a real Rex (gated e2e suites)
       ],
       thresholds: {
         statements: 95,

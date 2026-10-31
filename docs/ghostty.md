@@ -2,6 +2,8 @@
 
 Summon supports Ghostty 1.3.1 and later on macOS. Ghostty 1.4.0 is the recommended security baseline. Run `summon doctor` to see the installed version, detected capabilities and effective configuration.
 
+Summon also runs workspaces in Rex (beta). The backend is detected from the terminal that runs `summon`, so nothing on this page changes when Ghostty is the terminal in use; what differs under Rex (detection, session and pane mapping, already-running behavior, `summon clean`, per-launch files) is documented in [Summon under Rex](rex.md).
+
 ## Compatibility
 
 | Runtime | Behavior | Validation |
@@ -41,7 +43,7 @@ New launches capture exact native terminal IDs. `focus myapp` selects the record
 
 Old status records remain readable but may lack native identity. Closed panes, legacy records or unavailable permissions produce guidance and exit 2; focus never guesses by title/directory or automatically launches another workspace. Select the workspace in Ghostty, or explicitly relaunch when you are ready to capture fresh identity. For permission failures, run doctor and review System Settings > Privacy & Security > Automation and Accessibility.
 
-`summon open` and its alias `summon switch` show an interactive picker. Selecting an active row focuses its recorded root; selecting a stopped row launches it. The status dashboard uses the same active/stopped distinction for Enter. Use `summon focus myapp` for a direct named target, or `summon myapp` for an explicit launch.
+`summon open myapp` and its alias `summon switch myapp` act on that project directly: a running workspace is focused, a stopped one launches, and one whose liveness cannot be read is refused with the reason (exit 2). Without a name both show an interactive picker. Selecting an active row focuses its recorded root; selecting a stopped row launches it. The status dashboard uses the same active/stopped distinction for Enter. Use `summon focus myapp` for a direct named target, or `summon myapp` for an explicit launch.
 
 ## Read, set and reset titles
 

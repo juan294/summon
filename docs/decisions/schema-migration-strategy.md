@@ -13,6 +13,8 @@ Summon writes versioned JSON files to disk for two subsystems:
 
 Both include a top-level `"version": 1` field. As summon evolves, the schema of these files may need to change. Without a migration policy, old files written by previous versions of summon may fail to parse or produce incorrect behavior on upgrade.
 
+**Update (2026-10-31, v2.0.0):** launch manifests (`~/.config/summon/status/<project>.launches/<launchId>.json`) are a third versioned file (`"version": 1`, `src/launch-identity.ts`), and status records resolve to four states (active, partial, stopped, unknown). Both changes added only optional fields or new files, so no version bump was needed; see `status-record-launch-ownership-and-backend.md`.
+
 ## Decision
 
 ### Version field

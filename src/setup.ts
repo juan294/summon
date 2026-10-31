@@ -2,6 +2,7 @@ import { setConfig, isValidLayoutName, isCustomLayout, saveCustomLayout } from "
 // PE-L2 (#445): setup-gallery is lazy-imported inside wizard functions that need it.
 // Type-only re-export is cost-free (erased at compile time).
 export type { GridTemplate } from "./setup-gallery.js";
+import type { BackendId } from "./backend.js";
 import { SAFE_COMMAND_RE, resolveCommand as resolveCommandPath, promptUser, checkAccessibility, openAccessibilitySettings, isGhosttyInstalled, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT, debugLog } from "./utils.js";
 import { isStarshipInstalled, listStarshipPresets } from "./starship.js";
 import { bold, dim, green, yellow, cyan, magenta, brightCyan, colorSwatch } from "./ui/ansi.js";
@@ -9,6 +10,7 @@ import { renderLayoutPreview, renderTemplateGallery, getDisplayWidth } from "./u
 import { sym } from "./ui/symbols.js";
 import { commandExecutable, replaceCommandExecutable } from "./command-spec.js";
 import { fail, err } from "./ui/output.js";
+import { editDistance } from "./edit-distance.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -718,7 +720,7 @@ const INSTALL_HINTS: Record<string, string> = {
 // Phase 2 — Wizard functions
 // ---------------------------------------------------------------------------
 
-function printWelcome(): void {
+function printWelcome(underRex = false): void {
   console.log();
 
   // Color functions for the logo gradient: cyan → brightCyan → green
@@ -738,7 +740,7 @@ function printWelcome(): void {
       const colorFn = logoColors[i] ?? cyan;
       console.log(`  ${mascotLine}${gap}${colorFn(SUMMON_LOGO[i]!)}`);
     } else if (i === taglineIdx) {
-      console.log(`  ${mascotLine}${gap}Summon your Ghostty workspace.`);
+      console.log(`  ${mascotLine}${gap}Summon your ${underRex ? "Rex" : "Ghostty"} workspace.`);
     } else if (i === subtitleIdx) {
       console.log(`  ${mascotLine}${gap}Let's set up your defaults.`);
     } else {
@@ -1036,10 +1038,12 @@ export function validateSetup(result: SetupResult): ValidationResult {
   return { warnings, ghosttyFound };
 }
 
-function printValidation(validation: ValidationResult): void {
+function printValidation(validation: ValidationResult, underRex = false): void {
   printSection("Checking tools");
 
-  if (validation.ghosttyFound) {
+  if (underRex) {
+    console.log(`  ${green(sym.ok)} Rex        detected (Ghostty not required)`);
+  } else if (validation.ghosttyFound) {
     console.log(`  ${green(sym.ok)} Ghostty    found`);
   } else {
     console.log(
@@ -1119,7 +1123,13 @@ const enum WizardStep {
 // AR-L2 (#399): This function is the wizard state machine and composes multiple concerns
 // (welcome, layout, editor, sidebar, shell, starship, confirm). Extracting it into a
 // dedicated module (e.g., src/wizard.ts) is tracked as architectural debt in #399.
-export async function runSetup(): Promise<void> {
+export interface SetupOptions {
+  /** Detected launch backend (plan P15): under Rex the Ghostty install and Accessibility steps are skipped. */
+  backend?: BackendId;
+}
+
+export async function runSetup(options: SetupOptions = {}): Promise<void> {
+  const underRex = options.backend === "rex";
   if (!process.stdin.isTTY) {
     fail("Setup requires an interactive terminal.");
     err("Configure manually with: summon set <key> <value>");
@@ -1127,7 +1137,7 @@ export async function runSetup(): Promise<void> {
   }
 
   debugLog("wizard start");
-  printWelcome();
+  printWelcome(underRex);
 
   // UX-H3 (#282): accessibility check runs AFTER the first selectLayout prompt
   // so users can read the welcome before being presented with a system-permission dialog.
@@ -1161,7 +1171,8 @@ export async function runSetup(): Promise<void> {
       debugLog(`wizard step complete: layout=${layout}`);
       if (!accessibilityChecked) {
         accessibilityChecked = true;
-        await checkAndRecoverAccessibility();
+        if (underRex) console.log(dim("  Rex detected: Ghostty install and Accessibility checks skipped."));
+        else await checkAndRecoverAccessibility();
       }
       history.push(WizardStep.Layout);
       const isCustom = isCustomLayout(layout);
@@ -1266,7 +1277,7 @@ export async function runSetup(): Promise<void> {
 
       if (!isCustom) {
         const validation = validateSetup(wizardResult);
-        printValidation(validation);
+        printValidation(validation, underRex);
       }
 
       debugLog("wizard exit: completed");
@@ -1300,7 +1311,7 @@ export async function runSetup(): Promise<void> {
 
 /**
  * Find the closest match to `input` from a list of known commands.
- * Uses simple edit distance (Levenshtein). Returns null if no close match.
+ * Uses the shared edit distance (`edit-distance.ts`). Returns null if no close match.
  */
 /** @internal — exported for testing */
 export function findClosestCommand(input: string, known: string[]): string | null {
@@ -1314,23 +1325,6 @@ export function findClosestCommand(input: string, known: string[]): string | nul
     }
   }
   return best;
-}
-
-/** Simple Levenshtein distance for short command names. */
-function editDistance(a: string, b: string): number {
-  const m = a.length;
-  const n = b.length;
-  const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0) as number[]);
-  for (let i = 0; i <= m; i++) dp[i]![0] = i;
-  for (let j = 0; j <= n; j++) dp[0]![j] = j;
-  for (let i = 1; i <= m; i++) {
-    for (let j = 1; j <= n; j++) {
-      dp[i]![j] = a[i - 1] === b[j - 1]
-        ? dp[i - 1]![j - 1]!
-        : 1 + Math.min(dp[i - 1]![j]!, dp[i]![j - 1]!, dp[i - 1]![j - 1]!);
-    }
-  }
-  return dp[m]![n]!;
 }
 
 /**

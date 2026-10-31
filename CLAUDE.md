@@ -2,13 +2,13 @@
 
 ## One-liner
 
-CLI tool that launches configurable multi-pane Ghostty workspaces using AppleScript (macOS).
+CLI tool that launches configurable multi-pane terminal workspaces in Ghostty (AppleScript) or Rex (session API), macOS only, with automatic backend detection.
 
 ## Stack
 
-TypeScript 6 · Node >= 20.19 · pnpm@10.29.2 · tsup · Vitest 4 · ESLint · zero runtime deps · macOS only
+TypeScript 6 · Node >= 22.12 · pnpm@10.29.2 · tsup · Vitest 4 · ESLint · zero runtime deps · macOS only
 
-Contributors need Node >=20.19. DevDeps use current stable majors (TS 6, Vitest 4, Vite 8) — ensure your toolchain is up to date before contributing.
+Contributors need Node >=22.12. DevDeps use current stable majors (TS 6, Vitest 4, Vite 8) — ensure your toolchain is up to date before contributing.
 
 ## Build & Run
 
@@ -33,13 +33,28 @@ src/
   layout.ts             Layout calculation (pure function)
   tree.ts               Tree DSL parser, layout node model, plan builder (pure function)
   script.ts             AppleScript generator (pure function — builds script string)
-  launcher.ts           Orchestrator: resolve config, generate script, execute via osascript
+  launcher.ts           Orchestrator: resolve config, resolve backend (P15 seam), generate script, dispatch to a backend
+  backend.ts            BackendId, LaunchContext, resolveBackendForLaunch, resolveBackendForRecord
+  backend-detect.ts     Pure backend detection table over an env snapshot plus injected probe results
+  launch-identity.ts    Per-launch ids and artifacts: newLaunchId, launchArtifactPaths, bootstrap/trap shell fragments, launch manifests
+  self.ts               How this process was started (node binary, resolved script), registered by index.ts so the cleanup trap runs the same Summon
+  file-lock.ts          withFileLock: cross-process lock (directory rename, dead-owner recovery) for config and status records
+  backends/ghostty.ts   GhosttyBackend adapter: AppleScript launch, executeScript, spinner, rollback
+  backends/rex/cli.ts   discoverRex (PATH, REX_BIN_DIR, app bundles), defaultRexServer
+  backends/rex/types.ts RexIdentity type and parser, REX_OPS trait table, result types
+  backends/rex/errors.ts classifyRexFailure (CLI failure classifier, P14)
+  backends/rex/layout.ts buildSessionCreateRequest: LayoutPlan/TreeLayoutPlan -> session.create request, pane order, block labels (pure)
+  backends/rex/app.ts   App client listing and choice (P7), selectInApp, waitForAppClient, openRexApp
+  backends/rex/launch.ts createWorkspace (manifest first, token wait, adoption), adoptOrphans (P13), showWorkspace, maybeSwitchToExisting (P2)
+  backends/rex/status.ts sessionState (four-state table P10), focusRex, inspectRex, titleRex, program status (OSC 7501)
+  backends/rex/backend.ts createRexBackend: Backend adapter wiring the pieces above
   launch-guards.ts      Pre-launch safety checks (ensureGhostty, ensureAccessibility, confirmDangerousCommands)
-  status.ts             Workspace status tracking (active/stopped, PID, uptime, marker files)
+  status-record.ts      Record layer: WorkspaceStatus, readStatusRecord, withOwnedRecord locked writes, launch artifact removal, Ghostty liveness
+  status.ts             Status reader: readStatus/readAllStatuses over both backends (active/partial/stopped/unknown), Rex adoption and reconciliation, endRexLaunch; re-exports status-record
   briefing.ts           Morning project briefing (overnight commits, dirty files, recommendations)
   monitor.ts            Interactive TUI dashboard for workspace status (refresh loop, keyboard nav)
   ports.ts              Port detection across projects (env vars, package.json, framework configs)
-  snapshot.ts           Context snapshot save/restore (git state, layout, branch)
+  snapshot.ts           Context snapshot collect/write/restore (git state, layout, branch)
   setup.ts              Interactive setup wizard, visual layout builder (back-nav, numbered select, accessibility prompt)
   setup-gallery.ts      Template gallery data extracted from setup.ts (LAYOUT_INFO, GRID_TEMPLATES)
   starship.ts           Starship detection, preset listing, TOML config caching
@@ -50,6 +65,7 @@ src/
   shell-escape.ts       AppleScript/shell escape primitives (escapeAppleScript, shellQuote, shellDoubleQuote)
   command-spec.ts       Command string analysis (analyzeCommand, commandHasShellMeta, commandExecutable)
   errors.ts             Named error classes (TabOpenError — recoverable new-tab failure for session --all)
+  edit-distance.ts      editDistance: optimal string alignment distance shared by the layout builder and the "Did you mean" hint (pure)
   trust.ts              .summon file trust management — SHA-256 allowlist (assertTrusted, trustProject, isTrusted)
   utils.ts              Shared utilities (SAFE_COMMAND_RE, GHOSTTY_PATHS, resolveCommand, promptUser, getErrorMessage, isDebug, debugLog, gitSafeEnv, confirm, supportsColor)
   validation.ts         Input validation helpers (parseIntInRange, parsePositiveFloat, validateProjectNameOrExit)
@@ -57,8 +73,10 @@ src/
   cli/
     parse.ts            CLI argument parsing extracted from index.ts (parseCli, buildOverrides)
     help.ts             Help text, lazily imported on --help path (showHelp, hasSubcommandHelp, showSubcommandHelp)
-    resolve-target.ts   Resolves launch target directory from name/path/. (resolveTargetDirectory, expandHome)
+    resolve-target.ts   Resolves launch target directory from name/path/. (resolveTargetDirectory, expandHome); projectSuggestions "Did you mean" lookup
+    suggest.ts          suggestProjects: prefix, subsequence and edit-distance suggestions ranked by launch recency (pure)
   commands/
+    clean.ts            handleCleanCommand — close an empty Rex session (P17) or review earlier launches (--orphans)
     config.ts           handleConfigCommand, handleExportCommand, handleFreezeCommand, handleSetCommand
     doctor.ts           handleDoctorCommand
     layout.ts           handleLayoutCommand
@@ -68,6 +86,7 @@ src/
     session.ts          handleSessionCommand — named session save/restore subcommand handler
     setup.ts            handleCompletionsCommand, handleKeybindingsCommand, handleSetupCommand
     trust.ts            handleTrustCommand — .summon file trust subcommand handler
+    workspace.ts        handleFocusCommand, handleInspectCommand, handleTitleCommand — per-backend workspace commands
     types.ts            CommandHandler and CommandContext interfaces
   ui/
     ansi.ts             ANSI color/style helpers extracted from setup.ts (bold, dim, green, yellow, cyan, etc.)
@@ -75,6 +94,13 @@ src/
     width.ts            Display-width primitives for CJK/emoji-safe truncation (isWideCodePoint, getDisplayWidth, truncate)
     layout-preview.ts   Layout preview renderer for the setup wizard
     symbols.ts          Canonical glyph vocabulary (sym.ok, sym.warn, sym.fail, sym.info, sym.bullet)
+  e2e/
+    rex-harness.ts      Rex E2E gate (SUMMON_REX_E2E advisory, SUMMON_REX_E2E_REQUIRED), prerequisites, polling helpers (coverage-excluded)
+    rex-native.test.ts  Rex launch/adopt/switch E2E against a real server (run the two Rex E2E files one at a time)
+    rex-lifecycle.test.ts Observed Rex lifecycle table (which actions fire the cleanup trap)
+    rex-cli.test.ts     Rex CLI E2E: the built CLI as a child process under a sandbox home (docs/release/rex-e2e-guide.md)
+  fixtures/
+    build-cli.ts        Bundles the CLI into a private directory for subprocess suites (never races the shared dist/)
   *.test.ts             Co-located unit tests
 ```
 
@@ -89,14 +115,18 @@ src/
 
 ## Architecture
 
-### Backend: AppleScript via osascript
+### Two backends, detected automatically
 
-Summon generates AppleScript that drives Ghostty's native split system. The script is executed via `osascript -e "<script>"`. This replaces tmux entirely -- no terminal multiplexer, just native Ghostty panes.
+Summon drives two terminals through one `Backend` seam resolved in `launcher.ts` right after config resolution (`backend.ts`, pure table in `backend-detect.ts`). The terminal running Summon decides: `TERM_PROGRAM=rex` means Rex, `TERM_PROGRAM=ghostty` means Ghostty, another terminal or none means Ghostty when installed, else Rex when its CLI is found; an inherited `REX_SERVER` counts only when `rex whoami` answers on it. There is no config key and no flag for the backend (plan decision D2, owner preference for autodetection).
+
+- **Ghostty** (`backends/ghostty.ts`): generates AppleScript that drives Ghostty's native split system and executes it via `osascript`. No terminal multiplexer, just native Ghostty panes.
+- **Rex** (`backends/rex/`): sends one `session.create` request through the `rex` CLI (one session per workspace, one block per pane), shows it in a connected Rex app, and reads it back through `session.view`. Every launch has an id and a manifest so a lost answer can be adopted later. See `docs/rex.md` for the user-facing contract.
 
 ### Key Design Decisions
 
-- **AppleScript is generated as a string** by a pure function (`script.ts`). This makes it testable without actually running osascript.
-- **Layout planning is separated from script generation.** `layout.ts` computes the abstract plan, `script.ts` turns it into AppleScript.
+- **AppleScript is generated as a string** by a pure function (`script.ts`). This makes it testable without actually running osascript. The Rex request is built the same way (`backends/rex/layout.ts`).
+- **Layout planning is separated from script generation.** `layout.ts`/`tree.ts` compute the abstract plan; `script.ts` turns it into AppleScript and `backends/rex/layout.ts` into a Rex request.
+- **Status records are owned per launch.** `status-record.ts` writes the shared record only under a file lock with an ownership expectation; Rex liveness is resolved from the server on read (`status.ts`), never from stale markers.
 - **Config system is identical to termplex.** Same key=value files, same layering (CLI > project > global > preset > defaults), same project registry.
 - **macOS only.** The `os` field in package.json enforces this. No cross-platform abstraction.
 
@@ -203,7 +233,7 @@ primary injection defense. See src/shell-escape.ts for the escape functions it p
 
 ## Schema Migrations
 
-JSON files written by summon (`status/*.json`, `snapshot/*.json`) include a `version` field (currently `1`).
+JSON files written by summon (`status/*.json`, `status/<project>.launches/*.json` launch manifests, `snapshot/*.json`) include a `version` field (currently `1`).
 
 **Policy:**
 - Backward compatibility is required for at least one major version after a schema bump.

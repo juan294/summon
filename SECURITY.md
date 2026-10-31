@@ -6,8 +6,8 @@ Only the current major release receives security patches.
 
 | Version | Supported |
 |---------|-----------|
-| 1.x     | Yes       |
-| < 1.0   | No        |
+| 2.x     | Yes       |
+| < 2.0   | No        |
 
 ## Reporting a Vulnerability
 
@@ -58,10 +58,12 @@ Summon executes commands configured in `.summon` project files. As of v0.8.0+, p
 
 ## Scope
 
-This tool runs on macOS only and invokes `osascript` with generated AppleScript. The main attack surface is:
+This tool runs on macOS only. Under Ghostty it invokes `osascript` with generated AppleScript; under Rex it invokes the `rex` CLI with a generated `session.create` request whose pane shells start under `/usr/bin/env` (`src/backends/rex/layout.ts`). The main attack surface is:
 
 - **AppleScript injection** via workspace config values (project names, commands, environment variables)
-- **Shell injection** via the same config values when constructing shell commands
+- **Shell injection** via the same config values when constructing shell commands, including the pane bootstrap and cleanup-trap fragments of each launch (`src/launch-identity.ts`)
+- **Rex request injection** via the same values in the `session.create` request (argv and environment of each block)
+- **Per-launch files** under `~/.config/summon/status/<project>.launches/` (manifests, pane files, liveness files): a launch's cleanup trap removes only its own files, and `summon clean` removes another launch's files only after proving its process dead or its Rex session gone
 - **Trust bypass** in the `.summon` file allowlist (`src/trust.ts`)
 
 Out of scope: issues requiring physical access to the machine, issues in development dependencies not affecting the published CLI.

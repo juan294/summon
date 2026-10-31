@@ -3,6 +3,7 @@
 import { realpathSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import { EDITOR_SIZE_DEFAULT } from "./layout.js";
+import type { LayoutPlan } from "./layout.js";
 
 // ---------- Types ----------
 
@@ -55,6 +56,9 @@ export function assertPaneCwdContained(targetDir: string, cwd: string): void {
   }
 }
 
+/** A planned layout of either kind, as both backends and the dry run receive it. */
+export type PlannedLayout = { kind: "traditional"; plan: LayoutPlan } | { kind: "tree"; plan: TreeLayoutPlan };
+
 export interface TreeLayoutPlan {
   tree: LayoutNode;
   leaves: string[];
@@ -75,7 +79,8 @@ export interface TreeLayoutPlan {
 /** Maximum allowed nesting depth for parenthesised tree expressions. */
 const MAX_TREE_DEPTH = 32;
 
-const PANE_NAME_RE = /^[a-zA-Z_][a-zA-Z0-9_-]*$/;
+/** Pane names are identifiers, never paths; shared with the per-launch shell fragments. */
+export const PANE_NAME_RE = /^[a-zA-Z_][a-zA-Z0-9_-]*$/;
 const PANE_CWD_RE = /^pane\.([a-zA-Z_][a-zA-Z0-9_-]*)\.cwd$/;
 const NAME_START_RE = /[a-zA-Z_]/;
 const NAME_CHAR_RE = /[a-zA-Z0-9_-]/;

@@ -5,6 +5,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [2.0.0] - 2026-10-31
+
+### Added
+
+- Launching inside a Rex terminal (or with Rex installed and Ghostty absent) creates a Rex session named after the project, one block per pane, and shows it in the Rex app attached to the caller's own Rex session, else the newest connected app. Running `summon <project>` again while that session is alive switches to it instead of creating another; `--new-window` creates a fresh session (shown in the current Rex window: Rex opens new windows with their own session, so this flag cannot open one) and says once that the earlier session stays open; later switches do not repeat it. `maximize`, `float`, `fullscreen` and `font-size` (flag or config) and the `--clean` flag are ignored under Rex with one notice each; a `clean=true` config value is ignored silently. `summon session` under Rex creates one session per project and returns to the first, reporting `Switched to <project>` for a project already running. A launch from a pane of a Summon workspace does not warn about nested splits under Rex. `summon setup` skips the Ghostty install and Accessibility steps under Rex; `summon doctor` gains a Rex section and marks the Ghostty checks "not applicable" when Ghostty is absent and Rex is present. `summon keybindings` notes that Rex key bindings live in `~/.config/rex/init.lua`.
+- The terminal backend is resolved automatically right after config resolution: the terminal running Summon decides (`TERM_PROGRAM`), an inherited `REX_SERVER` counts only when `rex whoami` answers on it, otherwise Ghostty if installed, else Rex if installed. The `rex` CLI is searched on `PATH`, then in `REX_BIN_DIR`, then inside the Rex app bundles.
+- `summon clean <project>` closes an empty Rex session (refuses with the live pane names otherwise), saves a snapshot, marks the record ended and removes the launch files; `summon clean --orphans <project>` reviews earlier launches (closes empty sessions, removes files the server confirms gone, prints the exact command for anything it will not touch); `--orphans` with any other command warns that it has no effect, and shell completion offers `--orphans` and project names after `clean`. A Rex workspace that ended outside Summon is reconciled on the next status read: snapshot, `endedAt` on the record, then its launch files, with one notice. `summon status` and `summon inspect` show the root pane's program status (OSC 7501: blocked, error, working, done) for Rex workspaces. See `docs/rex.md`.
+- `summon status`, the monitor, `summon open`, `summon focus`, `summon inspect`, `summon title`, `summon briefing` and `summon ports` understand Rex workspaces: a Rex record resolves to `active`, `partial` (root pane closed, other panes alive), `stopped` or `unknown` (server unreachable) with a reason; `unknown` is never launched over or focused (`open` exits 2 with the reason); `focus`, `inspect` and `title` work through the Rex server (block ids instead of terminal ids; the tty is not available under Rex); the briefing lists `unknown` workspaces as unverified. Launches with an unknown outcome are adopted on the next status read.
+- `--dry-run` inside a Rex terminal prints the Rex `session.create` request a real launch would send (one block per pane, each an interactive login shell started under `/usr/bin/env` with the workspace variables), the server it would target and the pane order its block ids arrive in. A recorded Rex workspace is noted. Beyond the read-only `rex whoami` probe of backend detection, no Rex command runs during a dry run.
+- Switching to a running Rex workspace (`summon <project>` again, the end of `summon session`) picks the app the way creation does: the app attached to the caller's own Rex session first, else the newest, with the same notice when several apps are connected. A Rex record whose identity could not be read refuses an ordinary launch (`--new-window` replaces it). A named-session dry run no longer selects a session at the end.
+- A mistyped project name now ends with `Did you mean: chapa, chapa-cli?` (up to three registered names by prefix, subsequence or small edit distance, most recently launched first); the exit code and the target do not change. Help, completions, README, `CLAUDE.md` and `docs/architecture.md` describe both terminals; `docs/rex.md` is the Rex contract.
+
+### Changed
+
+- **Breaking:** `summon` run inside a Rex terminal now creates a Rex session instead of driving Ghostty (with the `rex` CLI found; there is no flag or config key to override it). To keep launching Ghostty workspaces, run `summon` from Ghostty or another terminal.
+- **Breaking:** the Node.js engine requirement is now `>=22.12` (was `>=20.19`), the Vite 8 floor. The bundle targets `node22`, CI tests Node 22 and 24, and the post-publish smoke matrix covers Node 22.12 and 24.
+- `summon open <project>` (and `summon switch <project>`) act on one project directly: a running workspace is focused, a stopped one launches with the flags given, and one whose liveness cannot be read is refused with the reason (exit 2). The notices that already said `run summon open <project>` now describe a command that exists. Without a name both still show the picker. Shell completions offer project names for `open` and `switch`.
+- Every launch now has a launch id. Liveness sidecars live under `status/<project>.launches/<launchId>.*`, the cleanup trap removes only its own files, and the shared status record is written only by Node under a file lock with an explicit ownership expectation. Records gain optional `launchId`, `backend`, `rex` and `endedAt` fields (schema version stays 1; see `docs/decisions/status-record-launch-ownership-and-backend.md`).
+- `--dry-run` output gains two header lines, `-- Backend:` and `-- Launch:`. A dry run on a machine with neither Ghostty.app nor the Rex CLI prints the Ghostty script with a notice instead of failing.
+
+### Fixed
+
+- `summon --help` said `--clean` and the `clean` key default to on; they default to off (since #362), as the README says.
+- zsh and bash complete `true`/`false` after `summon set <boolean key>` again (they compared a literal string since 0.7.0).
+- `summon status --once` prints a reason the detail column cuts off in full on the next line, so a recommended command such as `summon clean <project>` stays visible at 80 columns.
+- `summon ports` with registered projects but no detected port explains where ports are read from instead of asking to register a project.
+- The cleanup trap removes the launch's liveness files before it runs the `on-stop` hook and the snapshot save, so a trap the terminal cuts short under load rarely leaves a `.pid` behind that a reused process id could make look alive (a kill before the trap's first command still can).
+- The cleanup trap's `summon snapshot save` and the `on-stop` hook no longer inherit the pane's terminal (`</dev/null >/dev/null 2>&1`). After `rex kill` or a window close the pty is already hung up, and Node aborts at startup when a standard descriptor is such a pty, so the trap never wrote the on-exit snapshot itself (observed under Rex, where the next status read's reconciliation hid it; a terminal window close is expected to behave the same).
+- A registered project that was never launched showed as `unknown` in `summon status`, the picker and the briefing, the state Summon reserves for a workspace whose liveness could not be read, so `summon open` and the monitor's Enter key refused to launch it. It is `stopped` now, and launches.
+- The cleanup trap typed into every workspace called `summon snapshot save` by name, so the on-exit snapshot was saved by whatever `summon` was on the pane's PATH at the time (an older install, or none). The trap now runs the same node binary and the resolved script path (the bin symlink of a global install resolved at launch time) that created the launch.
+- A command whose executable is an absolute path (`pane.enhance=/opt/homebrew/bin/gh-glance`) no longer fails a Ghostty launch as "required but not installed". Summon accepts a full path to an executable file, keeps it as written, and reports a missing path, a `~/` or relative path, and a missing command on PATH with different messages. For a tree pane the fix hint now names `summon layout edit <layout>` and the `pane.<name>=` line instead of `summon set <name>`, which `summon set` rejects.
+- `--dry-run` under Ghostty now prints one `summon: note:` line on stderr for each command that a real launch would reject (or offer to install). The script on stdout and the exit code do not change. Rex launches do not check commands.
+- `summon snapshot save --dir … --project … --layout …`, the call made by the workspace cleanup trap, was rejected by the global flag parser ("Unknown flag '--dir'") so the on-exit snapshot never saved. The flags are now parsed like every other option (and `--layout` is validated as a preset only for launches); `--launch <id>` performs a generation-checked save.
+
 ## [1.9.0] - 2026-10-29
 
 ### Added
@@ -807,7 +843,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CodeQL security scanning
 - Dependabot for npm and GitHub Actions
 
-[Unreleased]: https://github.com/juan294/summon/compare/v1.9.0...develop
+[Unreleased]: https://github.com/juan294/summon/compare/v2.0.0...develop
+[2.0.0]: https://github.com/juan294/summon/compare/v1.9.0...v2.0.0
 [1.9.0]: https://github.com/juan294/summon/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/juan294/summon/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/juan294/summon/compare/v1.6.0...v1.7.0

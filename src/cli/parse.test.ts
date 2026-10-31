@@ -630,3 +630,19 @@ describe("--vim and --fix misuse warnings (#621 FE-L1)", () => {
     expect(output).toContain("--fix");
   });
 });
+
+describe("snapshot flags", () => {
+  it("parses the cleanup trap's snapshot save flags as ordinary values; --layout is a label there, not a preset", () => {
+    const parsed = parseCli(["snapshot", "save", "--dir", "/tmp/p", "--project", "p", "--layout", "unknown", "--launch", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"]);
+    expect(parsed.subcommand).toBe("snapshot");
+    expect(parsed.args).toEqual(["save"]);
+    expect(parsed.values).toMatchObject({ dir: "/tmp/p", project: "p", layout: "unknown", launch: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" });
+    expect(mockValidateLayoutOrExit).not.toHaveBeenCalled();
+  });
+
+  it("keeps --help, --version and unknown-flag diagnostics on the snapshot path", () => {
+    expect(parseCli(["snapshot", "--help"]).values.help).toBe(true);
+    expect(parseCli(["snapshot", "--version"]).values.version).toBe(true);
+    expect(() => parseCli(["snapshot", "save", "--bogus"])).toThrow("usage:");
+  });
+});

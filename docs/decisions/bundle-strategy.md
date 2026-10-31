@@ -27,7 +27,7 @@ The build is configured in `tsup.config.ts` as:
 export default defineConfig({
   entry: ["src/index.ts"],
   format: "esm",
-  target: "node20",
+  target: "node22",
   splitting: true,
   minify: true,
   // ...

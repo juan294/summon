@@ -1,10 +1,13 @@
-import { existsSync, writeFileSync, renameSync, unlinkSync } from "node:fs";
+import { existsSync, writeFileSync, renameSync, unlinkSync, statSync, accessSync, constants as fsConstants } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { join } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { homedir, availableParallelism } from "node:os";
 import { randomBytes } from "node:crypto";
 
-/** Regex for safe command names — only letters, digits, hyphens, dots, underscores, plus signs. */
+/**
+ * Regex for safe bare command names — only letters, digits, hyphens, dots, underscores, plus signs.
+ * Absolute paths never match; resolveCommand handles them separately.
+ */
 export const SAFE_COMMAND_RE = /^[a-zA-Z0-9_][a-zA-Z0-9_.+-]*$/;
 
 /**
@@ -28,6 +31,18 @@ export function atomicWrite(path: string, content: string, options?: Parameters<
     try { unlinkSync(tmpPath); } catch { /* ignore cleanup errors */ }
     throw err;
   }
+}
+
+/**
+ * Join `name` under `root` and refuse any result that escapes the root (path traversal).
+ * `label` names the artifact family in the error ("Invalid status path: ...").
+ */
+export function confinedPath(root: string, name: string, label: string): string {
+  const filePath = join(root, name);
+  if (!resolve(filePath).startsWith(resolve(root) + sep)) {
+    throw new Error(`Invalid ${label} path: "${name}"`);
+  }
+  return filePath;
 }
 
 /** @internal — exported for testing only */
@@ -122,12 +137,31 @@ export function getErrorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+/** True when `path` is a regular file (symlinks followed) that the current user can execute. */
+export function isExecutableFile(path: string): boolean {
+  try {
+    if (!statSync(path).isFile()) return false;
+    accessSync(path, fsConstants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** C0, DEL and C1 control characters: never valid in a command, a selector or displayed process text. */
+// eslint-disable-next-line no-control-regex -- the point is to reject control characters
+export const CONTROL_CHARS_RE = /[\x00-\x1f\x7f-\x9f]/;
+
 /**
- * Resolve a command name to its full path, or return null if not found.
+ * Resolve a command to its full path, or return null if not found.
+ * An absolute path is returned unchanged when it names an executable file (no realpath, so a
+ * symlink pin such as /opt/homebrew/bin/<tool> keeps following upgrades).
  * Returns null without calling the shell if the command name is invalid.
  * Uses /usr/bin/which directly to avoid shell invocation.
  */
 export function resolveCommand(cmd: string): string | null {
+  if (CONTROL_CHARS_RE.test(cmd)) return null;
+  if (cmd.startsWith("/")) return isExecutableFile(cmd) ? cmd : null;
   if (!SAFE_COMMAND_RE.test(cmd)) return null;
   try {
     return execFileSync("/usr/bin/which", [cmd], {
@@ -137,6 +171,22 @@ export function resolveCommand(cmd: string): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Why resolveCommand returned null, for the failure message:
+ * - "missing-path": an absolute path that is missing or not executable
+ * - "bad-form": neither a bare command name nor an absolute path (~/x, ./x, bin/x, metacharacters,
+ *   control characters)
+ * - "missing-name": a valid bare name that is not on PATH (the install flow applies)
+ */
+export type CommandFailureKind = "missing-path" | "bad-form" | "missing-name";
+
+export function describeCommandFailure(cmd: string): CommandFailureKind {
+  if (CONTROL_CHARS_RE.test(cmd)) return "bad-form";
+  if (cmd.startsWith("/")) return "missing-path";
+  if (!SAFE_COMMAND_RE.test(cmd)) return "bad-form";
+  return "missing-name";
 }
 
 /** User-facing path to the Accessibility settings pane. */
@@ -355,7 +405,7 @@ export async function runPool<T, R>(
 /**
  * Default concurrency cap for parallel I/O fan-out (git subprocesses, fs scans).
  * Parallel on big machines, gentle on small ones. `os.availableParallelism` is
- * always present on the supported Node range (>=20.19).
+ * always present on the supported Node range (>=22.12).
  */
 export function ioConcurrency(): number {
   return Math.max(2, Math.min(8, availableParallelism()));

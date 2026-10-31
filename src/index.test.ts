@@ -32,6 +32,16 @@ function run(...args: string[]) {
 }
 
 describe("CLI integration", () => {
+  it("accepts the cleanup trap's snapshot save flags (--dir/--project/--layout/--launch)", () => {
+    const result = run("snapshot", "save", "--dir", TEMP_HOME, "--project", "trapdemo", "--layout", "unknown");
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("No git repo found in");
+    const generation = run("snapshot", "save", "--dir", TEMP_HOME, "--project", "trapdemo", "--layout", "unknown", "--launch", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+    // No record for this generation: superseded, silent, exit 0.
+    expect(generation.status, generation.stderr).toBe(0);
+    expect(generation.stdout).toBe("");
+  });
+
   it("prints help with --help and exits 0", () => {
     const result = run("--help");
     expect(result.status).toBe(0);
@@ -169,6 +179,26 @@ describe("CLI integration", () => {
       const result = run("config", "--help");
       expect(result.status).toBe(0);
       expect(result.stdout).toContain("Usage: summon config");
+    });
+  });
+
+  // Phase 6 Unit A (D7): a mistyped project name gets suggestions; the exit code and target do not change.
+  describe("did-you-mean suggestions", () => {
+    beforeAll(() => {
+      run("add", "chapa", TEMP_HOME);
+      run("add", "chapa-cli", TEMP_HOME);
+    });
+    afterAll(() => {
+      run("remove", "chapa");
+      run("remove", "chapa-cli");
+    });
+
+    it("suggests the closest registered name and exits 1", () => {
+      const result = run("chpaa");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain(`"chpaa" is not a known command or registered project`);
+      expect(result.stderr).toContain("Or see available:         summon list");
+      expect(result.stderr.trimEnd().endsWith("Did you mean: chapa?")).toBe(true);
     });
   });
 
@@ -2027,7 +2057,7 @@ describe("CLI integration", () => {
 describe("P2 explicit native commands",()=>{
  it("inspect missing record returns structured unavailable exit2",()=>{
   const result=run("inspect","never-launched","--json");expect(result.status).toBe(2);
-  expect(JSON.parse(result.stdout)).toMatchObject({project:"never-launched",availability:"unavailable",state:"unknown",reason:expect.stringContaining("relaunch")});
+  expect(JSON.parse(result.stdout)).toMatchObject({project:"never-launched",availability:"unavailable",state:"stopped",reason:expect.stringContaining("relaunch")});
  });
  it("focus legacy/missing record explains recovery, never launches",()=>{
   const result=run("focus","never-launched");expect(result.status).toBe(2);expect(result.stderr).toContain("identity");expect(result.stdout).not.toContain("Summoning");

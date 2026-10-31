@@ -30,6 +30,7 @@ export type ParsedValues = {
   maximize?: boolean;
   float?: boolean;
   fix?: boolean;
+  orphans?: boolean;
   vim?: boolean;
   once?: boolean;
   "dry-run"?: boolean;
@@ -39,6 +40,10 @@ export type ParsedValues = {
   set?: string;
   reset?: boolean;
   "detach-tab"?: boolean;
+  /** `summon snapshot save` flags (also sent by the workspace cleanup trap). */
+  dir?: string;
+  project?: string;
+  launch?: string;
 };
 
 export type ParsedCli = {
@@ -75,6 +80,7 @@ const parseOpts = {
     maximize: { type: "boolean" },
     float: { type: "boolean" },
     fix: { type: "boolean" },
+    orphans: { type: "boolean" },
     vim: { type: "boolean" },
     once: { type: "boolean" },
     "dry-run": { type: "boolean", short: "n" },
@@ -84,6 +90,9 @@ const parseOpts = {
     set: { type: "string" },
     reset: { type: "boolean" },
     "detach-tab": { type: "boolean" },
+    dir: { type: "string" },
+    project: { type: "string" },
+    launch: { type: "string" },
   },
 } as const;
 
@@ -110,6 +119,13 @@ function safeParse(args: string[]): { values: ParsedValues; positionals: string[
   }
 }
 
+/**
+ * `--layout` is overloaded: a preset or custom layout name for a launch, a free label for
+ * `summon snapshot save` (the cleanup trap, including traps from older versions, passes the
+ * recorded layout label). The preset validation applies to every other invocation.
+ */
+const LAYOUT_LABEL_SUBCOMMANDS = new Set(["snapshot"]);
+
 export function parseCli(argv: string[]): ParsedCli {
   const { values, positionals } = safeParse(argv);
 
@@ -133,7 +149,7 @@ export function parseCli(argv: string[]): ParsedCli {
     validateFloatFlag("font-size", values["font-size"]);
   }
 
-  if (values.layout !== undefined) {
+  if (values.layout !== undefined && !LAYOUT_LABEL_SUBCOMMANDS.has(positionals[0] ?? "")) {
     validateLayoutOrExit(values.layout, "--layout");
   }
 

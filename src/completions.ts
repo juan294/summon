@@ -41,13 +41,13 @@ const SUBCOMMAND_SPECS: SubcommandSpec[] = [
   { name: "config",       desc: "Show current config" },
   { name: "setup",        desc: "Interactive setup wizard" },
   { name: "completions",  desc: "Generate shell completions" },
-  { name: "doctor",       desc: "Check Ghostty config" },
-  { name: "open",         desc: "Select and launch a project" },
+  { name: "doctor",       desc: "Check terminal setup (Ghostty config, Rex server)" },
+  { name: "open",         desc: "Focus a running workspace or launch a stopped one (no name: pick)" },
   { name: "inspect",      desc: "Inspect exact native workspace panes" },
   { name: "title",        desc: "Read, set or reset native titles" },
   { name: "focus",        desc: "Focus an existing workspace pane" },
   { name: "status",       desc: "Show workspace status across all projects" },
-  { name: "switch",       desc: "Switch to an active project" },
+  { name: "switch",       desc: "Alias for open" },
   { name: "snapshot",     desc: "Manage context snapshots" },
   { name: "briefing",     desc: "Morning briefing across all projects" },
   { name: "ports",        desc: "Show port assignments across projects" },
@@ -57,6 +57,7 @@ const SUBCOMMAND_SPECS: SubcommandSpec[] = [
   { name: "layout",       desc: "Manage custom layouts" },
   { name: "session",      desc: "Launch a saved multi-project session" },
   { name: "trust",        desc: "Trust the .summon file in a directory" },
+  { name: "clean",        desc: "Close an empty Rex session and clear its files" },
 ];
 
 /**
@@ -81,13 +82,13 @@ const FLAG_SPECS: FlagSpec[] = [
   { long: "env",                           desc: "Set environment variable (KEY=VALUE)", arg: "value", repeatable: true },
   { long: "font-size",                     desc: "Font size in points",        arg: "number" },
   { long: "on-start",                      desc: "Run command before workspace creation", arg: "command" },
-  { long: "new-window",                    desc: "Open in new Ghostty window" },
-  { long: "new-tab",                       desc: "Open in a new Ghostty tab" },
+  { long: "new-window",                    desc: "Open in new window (new Rex session)" },
+  { long: "new-tab",                       desc: "Open in a new terminal tab" },
   { long: "no-project-config",             desc: "Skip loading project-level config file" },
   { long: "fullscreen",                    desc: "Start in fullscreen mode" },
   { long: "maximize",                      desc: "Start maximized" },
   { long: "float",                         desc: "Float window on top" },
-  { long: "dry-run",           short: "n", desc: "Print AppleScript without executing" },
+  { long: "dry-run",           short: "n", desc: "Print the launch script or request" },
   { long: "set",                           desc: "Set native title override", arg: "value" },
   { long: "reset",                         desc: "Clear native title override" },
   { long: "detach-tab",                    desc: "Add opt-in detach-tab navigation binding" },
@@ -95,6 +96,8 @@ const FLAG_SPECS: FlagSpec[] = [
   { long: "verbose",                       desc: "Show verbose output (e.g. resolved config paths)" },
   // --once is a subcommand flag (status), included in CLI_FLAGS for bash completion
   { long: "once",                          desc: "Print status table once and exit" },
+  // --orphans is a subcommand flag (clean), included in CLI_FLAGS like --once
+  { long: "orphans",                       desc: "Review earlier launches (clean)" },
 ];
 
 // Verify at module load that FLAG_SPECS covers all CLI_FLAGS entries.
@@ -119,7 +122,7 @@ if (process.env["NODE_ENV"] !== "test") {
 
 export function generateZshCompletion(): string {
   const configKeys = VALID_KEYS.join(" ");
-  const booleanKeyCheck = [...BOOLEAN_KEYS].map(k => `"\\$\{words[2]}" == "${k}"`).join(" || ");
+  const booleanKeyCheck = [...BOOLEAN_KEYS].map(k => `"\${words[2]}" == "${k}"`).join(" || ");
 
   // Build subcommand list from SUBCOMMAND_SPECS
   const subcommandLines = SUBCOMMAND_SPECS
@@ -207,8 +210,12 @@ ${argLines}
       ;;
     args)
       case "\${words[1]}" in
-        remove|inspect|focus|title)
+        remove|inspect|focus|title|open|switch)
           compadd -a project_names
+          ;;
+        clean)
+          compadd -a project_names
+          compadd -- --orphans
           ;;
         set)
           if (( CURRENT == 2 )); then
@@ -296,7 +303,7 @@ compdef _summon summon
 export function generateBashCompletion(): string {
   const configKeys = VALID_KEYS.join(" ");
   const flagsList = CLI_FLAGS.join(" ");
-  const booleanKeyCheck = [...BOOLEAN_KEYS].map(k => `"\\$\{words[2]}" == "${k}"`).join(" || ");
+  const booleanKeyCheck = [...BOOLEAN_KEYS].map(k => `"\${words[2]}" == "${k}"`).join(" || ");
 
   // Build subcommand string from SUBCOMMAND_SPECS
   const subcommandList = SUBCOMMAND_SPECS.map(s => s.name).join(" ");
@@ -345,6 +352,11 @@ export function generateBashCompletion(): string {
       return ;;
   esac
 
+  if [[ "\${words[1]}" == "clean" && "$cur" == -* ]]; then
+    COMPREPLY=($(compgen -W "--orphans" -- "$cur"))
+    return
+  fi
+
   if [[ "$cur" == -* ]]; then
     COMPREPLY=($(compgen -W "${flagsList}" -- "$cur"))
     return
@@ -359,7 +371,7 @@ export function generateBashCompletion(): string {
 
   # Context-specific completions
   case "\${words[1]}" in
-    remove|inspect|focus|title)
+    remove|inspect|focus|title|open|switch|clean)
       COMPREPLY=($(compgen -W "$project_names" -- "$cur"))
       ;;
     set)
@@ -441,7 +453,7 @@ export function generateFishCompletion(): string {
   // --once is a status-specific flag — rendered with subcommand guard, not as a global flag.
   // --layout is rendered separately with preset values appended, so skip it here.
   const globalFlagLines = FLAG_SPECS
-    .filter(f => !["once", "layout", "set", "reset", "detach-tab"].includes(f.long))
+    .filter(f => !["once", "orphans", "layout", "set", "reset", "detach-tab"].includes(f.long))
     .map(f => {
       const short = f.short ? ` -s ${f.short}` : "";
       return `complete -c summon -l ${f.long}${short} -d '${f.desc}'`;
@@ -456,11 +468,12 @@ complete -c summon -f
 ${subcommandLines}
 ${globalFlagLines}
 complete -c summon -l layout -s l -d 'Layout preset or tree DSL' -a '${layoutPresets}'
-complete -c summon -n '__fish_seen_subcommand_from inspect focus title' -a '(cut -d= -f1 ~/.config/summon/projects 2>/dev/null)' -d 'Project'
+complete -c summon -n '__fish_seen_subcommand_from inspect focus title open switch clean' -a '(cut -d= -f1 ~/.config/summon/projects 2>/dev/null)' -d 'Project'
 complete -c summon -n '__fish_seen_subcommand_from title' -l set -r -d 'Set title override'
 complete -c summon -n '__fish_seen_subcommand_from title' -l reset -d 'Clear title override'
 complete -c summon -n '__fish_seen_subcommand_from keybindings' -l detach-tab -d 'Include detach-tab binding'
 complete -c summon -n '__fish_seen_subcommand_from status' -l once -d 'Print status table once and exit'
+complete -c summon -n '__fish_seen_subcommand_from clean' -l orphans -d 'Review earlier launches'
 complete -c summon -n '__fish_seen_subcommand_from set' -n '__fish_is_nth_token 2' -a '${configKeys}' -d 'Config key'
 complete -c summon -n '__fish_seen_subcommand_from session' -n 'not __fish_seen_subcommand_from add remove list show' -a 'add remove list show' -d 'Session action'
 complete -c summon -n '__fish_seen_subcommand_from session' -l all -d 'Launch every registered project'

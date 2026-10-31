@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   mkdtempSync,
   mkdirSync,
@@ -43,6 +43,11 @@ vi.mock("node:fs", async (original) => {
 vi.mock("node:child_process", async (original) => ({
   ...(await original<typeof import("node:child_process")>()),
   execFileSync: fixture.exec,
+}));
+// The Rex binary is pinned; every rex call goes through fixture.exec like osascript does.
+vi.mock("../backends/rex/cli.js", async (original) => ({
+  ...(await original<typeof import("../backends/rex/cli.js")>()),
+  discoverRex: () => ({ path: "/mock/rex", searched: ["PATH"] }),
 }));
 fixture.home = mkdtempSync(join(tmpdir(), "summon-workspace-test-"));
 const { writeStatus, readStatus } = await import("../status.js");
@@ -194,7 +199,7 @@ describe("workspace commands with real status fixtures", () => {
         clean: "false",
         "no-project-config": "true",
       }),
-    ).resolves.toBeUndefined();
+    ).resolves.toBe("launched");
     expect(readStatus("demo")).toBeNull();
     expect(readFileSync(join(STATUS_DIR, "demo.pid"), "utf8")).toBe(
       String(process.pid),
@@ -344,3 +349,207 @@ describe("P4 detach command real generator", () => {
     exit.mockRestore();
   });
 });
+
+describe("workspace commands under Rex (plan P10, Phase 4)", () => {
+  const SESSION = "session:0000aaaa-0000-0000-0000-000000000001";
+  const WINDOW = "window:0000aaaa-0000-0000-0000-000000000002";
+  const block = (n: number) => `block:0000aaaa-0000-0000-0000-0000000000${String(n).padStart(2, "0")}`;
+  // Full preset: display order differs from the block order the server assigned (paneOrder).
+  const PANES = ["editor", "sidebar", "editor-2", "right-1", "shell"];
+  const BLOCKS = [
+    { name: "editor", blockId: block(1), label: "editor · vim" },
+    { name: "editor-2", blockId: block(2), label: "editor · vim" },
+    { name: "right-1", blockId: block(3), label: "editor · vim" },
+    { name: "shell", blockId: block(4), label: "shell" },
+    { name: "sidebar", blockId: block(5), label: "sidebar · lazygit" },
+  ];
+  const rex = { server: "unix:///tmp/rex.sock", hostId: "host-1", sessionId: SESSION, windowId: WINDOW, rootBlockId: block(1), blocks: BLOCKS };
+  function seedRex(blocks = BLOCKS) {
+    writeStatus({ ...base, panes: PANES, launchId: "0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f", backend: "rex", rex: { ...rex, blocks } });
+  }
+  type RexAnswers = { present?: boolean; live?: string[]; unreachable?: boolean; windowLabel?: string; program?: Array<Record<string, unknown>> };
+  function rexExec(answers: RexAnswers = {}) {
+    const live = (answers.live ?? BLOCKS.map((b) => b.name)).map((name) => BLOCKS.find((b) => b.name === name)!.blockId);
+    const calls: string[][] = [];
+    fixture.exec.mockImplementation((bin: string, args: string[]) => {
+      if (bin !== "/mock/rex") return "";
+      calls.push(args);
+      const sub = args.slice(args.indexOf("-S") + 2);
+      if (answers.unreachable) throw Object.assign(new Error("exit 4"), { status: 4, stderr: "Error: dial unix: connect: no such file\n" });
+      if (sub[0] === "ls") return JSON.stringify({ sessions: answers.present === false ? [] : [{ session_id: SESSION, label: "demo" }] });
+      if (sub.includes("session.view")) return JSON.stringify({ session_id: SESSION, label: "demo", revision: 3, windows: [{ window_id: WINDOW, label: answers.windowLabel ?? "[demo]", layers: [{ layer_id: "l", kind: "tiled", bounds: [0, 0, 1, 1], layout: null, blocks: live.map((id) => ({ block_id: id, host_id: "host-1" })) }] }] });
+      if (sub[0] === "focus") return "";
+      if (sub.includes("client.list")) return JSON.stringify({ clients: [{ client_id: "client:app", connected_at: "2026-10-29T08:00:00Z", connection_state: "connected", info: { kind: "app" } }] });
+      if (sub.includes("session.select")) return "{}";
+      if (sub[0] === "block" && sub[1] === "ls") return JSON.stringify({ blocks: live.map((id) => ({ block_id: id, label: BLOCKS.find((b) => b.blockId === id)!.label, window_id: WINDOW })) });
+      if (sub[0] === "block" && sub[1] === "call" && sub.at(-1) === "program_status") return JSON.stringify({ records: answers.program ?? [] });
+      if (sub[0] === "block" && sub[1] === "call") return sub.at(-1) === "title" ? JSON.stringify({ title: "vim ~/x" }) : JSON.stringify({ foreground: { pid: 4242, cwd: "/tmp/demo" }, child: { pid: 4000 } });
+      if (sub.includes("session.set_block_label") || sub.includes("session.set_window_label")) return JSON.stringify({ revision: 4 });
+      throw new Error(`unexpected rex call ${args.join(" ")}`);
+    });
+    return calls;
+  }
+  let exitSpy: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    exitSpy = vi.spyOn(process, "exit").mockImplementation(((code: number) => { throw new Error(`exit:${code}`); }) as never);
+  });
+  afterEach(() => { exitSpy.mockRestore(); });
+
+  it("focus targets the root block of an active session, then selects it in the app", async () => {
+    seedRex();
+    const calls = rexExec();
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    await handleFocusCommand(context(["demo"]));
+    expect(logSpy).toHaveBeenCalledWith("Focused [demo]");
+    logSpy.mockRestore();
+    expect(calls.map((c) => c.slice(c.indexOf("-S") + 2))).toContainEqual(["focus", "-s", SESSION, block(1)]);
+    expect(calls.some((c) => c.includes("session.select") && c.includes(`window_id=${WINDOW}`))).toBe(true);
+  });
+
+  it("focus by pane name maps through the record, never through display position", async () => {
+    seedRex();
+    const calls = rexExec();
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    await handleFocusCommand(context(["demo", "editor-2"]));
+    logSpy.mockRestore();
+    const focus = calls.map((c) => c.slice(c.indexOf("-S") + 2)).find((c) => c[0] === "focus")!;
+    expect(focus).toEqual(["focus", "-s", SESSION, block(2)]);
+    expect(PANES.indexOf("editor-2")).not.toBe(1);
+  });
+
+  it("focus on a partial session goes to the first live pane; stopped and unknown refuse with exit 2", async () => {
+    seedRex();
+    const calls = rexExec({ live: ["shell", "sidebar"] });
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    await handleFocusCommand(context(["demo"]));
+    logSpy.mockRestore();
+    expect(calls.map((c) => c.slice(c.indexOf("-S") + 2)).find((c) => c[0] === "focus")).toEqual(["focus", "-s", SESSION, block(4)]);
+
+    rexExec({ present: false });
+    const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    await expect(handleFocusCommand(context(["demo"]))).rejects.toThrow("exit:2");
+    expect(errSpy.mock.calls.map((c) => String(c[0])).join("")).toContain("no longer exists in Rex");
+    errSpy.mockClear();
+    rexExec({ unreachable: true });
+    await expect(handleFocusCommand(context(["demo"]))).rejects.toThrow("exit:2");
+    expect(errSpy.mock.calls.map((c) => String(c[0])).join("")).toContain("could not be verified");
+    errSpy.mockRestore();
+  });
+
+  it("inspect prints block ids, pids and titles with the tty UNAVAILABLE and exit 0 when every recorded block is present", async () => {
+    seedRex();
+    rexExec();
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    await handleInspectCommand(context(["demo"], { json: true }));
+    const result = JSON.parse(String(logSpy.mock.calls[0]![0]));
+    expect(result).toMatchObject({ project: "demo", state: "active", backend: "rex", availability: "available" });
+    expect(result.panes.map((p: Record<string, unknown>) => [p.name, p.blockId, p.pid, p.tty, p.title, p.availability])).toEqual([
+      ["editor", block(1), 4242, null, "vim ~/x", "available"],
+      ["sidebar", block(5), 4242, null, "vim ~/x", "available"],
+      ["editor-2", block(2), 4242, null, "vim ~/x", "available"],
+      ["right-1", block(3), 4242, null, "vim ~/x", "available"],
+      ["shell", block(4), 4242, null, "vim ~/x", "available"],
+    ]);
+    logSpy.mockClear();
+    await handleInspectCommand(context(["demo"]));
+    const text = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(text).toContain("demo: active (available, Rex)");
+    expect(text).toContain(`  shell  ${block(4)}  PID 4242  UNAVAILABLE  vim ~/x`);
+    logSpy.mockRestore();
+  });
+
+  it("inspect on a partial or unknown session is unavailable with the reason and exit 2", async () => {
+    seedRex();
+    rexExec({ live: ["editor", "shell"] });
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    await expect(handleInspectCommand(context(["demo"], { json: true }))).rejects.toThrow("exit:2");
+    const partial = JSON.parse(String(logSpy.mock.calls[0]![0]));
+    expect(partial).toMatchObject({ state: "active", availability: "unavailable", reason: expect.stringContaining("closed in Rex (sidebar, editor-2, right-1)") });
+    logSpy.mockClear();
+    rexExec({ unreachable: true });
+    await expect(handleInspectCommand(context(["demo"], { json: true }))).rejects.toThrow("exit:2");
+    expect(JSON.parse(String(logSpy.mock.calls[0]![0]))).toMatchObject({ state: "unknown", availability: "unavailable", reason: expect.stringContaining("could not be verified") });
+    logSpy.mockRestore();
+  });
+
+  it("title reads, sets and resets pane labels and the tab (window) label through the server", async () => {
+    seedRex();
+    const calls = rexExec({ windowLabel: "[demo]" });
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    await handleTitleCommand(context(["demo", "shell"]));
+    expect(logSpy).toHaveBeenLastCalledWith("shell");
+    await handleTitleCommand(context(["demo", "shell"], { set: "logs" }));
+    expect(logSpy).toHaveBeenLastCalledWith("logs");
+    await handleTitleCommand(context(["demo", "shell"], { reset: true }));
+    expect(logSpy).toHaveBeenLastCalledWith("shell");
+    await handleTitleCommand(context(["demo"]));
+    expect(logSpy).toHaveBeenLastCalledWith("[demo]");
+    await handleTitleCommand(context(["demo"], { set: "work" }));
+    expect(logSpy).toHaveBeenLastCalledWith("work");
+    logSpy.mockRestore();
+    const labels = calls.filter((c) => c.includes("session.set_block_label") || c.includes("session.set_window_label"));
+    expect(labels).toHaveLength(3);
+  });
+
+  it("title on a stopped or unknown session exits 2 before any label call; inspect on a stopped session lists nothing", async () => {
+    seedRex();
+    const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    for (const answers of [{ present: false }, { unreachable: true }]) {
+      const calls = rexExec(answers);
+      await expect(handleTitleCommand(context(["demo", "shell"], { set: "x" }))).rejects.toThrow("exit:2");
+      expect(calls.some((c) => c.includes("session.set_block_label"))).toBe(false);
+    }
+    expect(errSpy.mock.calls.map((c) => String(c[0])).join("")).toContain("no longer exists in Rex");
+    const calls = rexExec({ present: false });
+    await expect(handleInspectCommand(context(["demo"], { json: true }))).rejects.toThrow("exit:2");
+    expect(JSON.parse(String(logSpy.mock.calls.at(-1)![0]))).toMatchObject({ state: "stopped", availability: "unavailable", reason: expect.stringContaining("no longer exists in Rex"), panes: [] });
+    expect(calls.some((c) => c.includes("block"))).toBe(false);
+    errSpy.mockRestore();
+    logSpy.mockRestore();
+  });
+
+  it("inspect prints the root pane's program status when its programs report one", async () => {
+    seedRex();
+    rexExec({ program: [{ state: "blocked", kind: "question", app: "claude", title: "Review", msg: "Continue?" }] });
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    await handleInspectCommand(context(["demo"]));
+    const text = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(text).toContain("  program: blocked (question) claude Review Continue?");
+    logSpy.mockClear();
+    await handleInspectCommand(context(["demo"], { json: true }));
+    expect(JSON.parse(String(logSpy.mock.calls[0]![0])).programStatus).toEqual({ state: "blocked", kind: "question", app: "claude", title: "Review", msg: "Continue?" });
+    logSpy.mockRestore();
+  });
+
+  it("inspect prints a program status without optional fields as its state and app only", async () => {
+    seedRex();
+    rexExec({ program: [{ state: "working", app: "pnpm" }] });
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    await handleInspectCommand(context(["demo"]));
+    expect(logSpy.mock.calls.map((c) => String(c[0]))).toContain("  program: working pnpm");
+    logSpy.mockRestore();
+  });
+
+  it("inspect escapes control characters in every program status field, kind and app included", async () => {
+    seedRex();
+    rexExec({ program: [{ state: "blocked", kind: "question\u001b[31m", app: "claude\u0007", title: "T\u001b]0;x\u0007", msg: "m\n" }] });
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    await handleInspectCommand(context(["demo"]));
+    const line = logSpy.mock.calls.map((c) => String(c[0])).find((l) => l.startsWith("  program:"))!;
+    expect(line).toBe("  program: blocked (question\\u001b[31m) claude\\u0007 T\\u001b]0;x\\u0007 m\\u000a");
+    logSpy.mockRestore();
+  });
+
+  it("inspect on a partial session (root closed) reports state partial with the closed panes named", async () => {
+    seedRex();
+    rexExec({ live: ["shell"] });
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    await expect(handleInspectCommand(context(["demo"], { json: true }))).rejects.toThrow("exit:2");
+    const result = JSON.parse(String(logSpy.mock.calls[0]![0]));
+    expect(result).toMatchObject({ state: "partial", availability: "unavailable", reason: expect.stringContaining("closed in Rex (editor, sidebar, editor-2, right-1)") });
+    expect(result.panes.find((p: Record<string, unknown>) => p.name === "shell")).toMatchObject({ availability: "available", pid: 4242 });
+    logSpy.mockRestore();
+  });
+});
+

@@ -518,7 +518,7 @@ describe("FE-S2 (#444) — declarative spec: all shells derive from same source"
     const knownSubcommands = [
       "add", "remove", "list", "set", "config", "setup", "completions",
       "doctor", "open", "status", "switch", "snapshot", "briefing", "ports",
-      "export", "freeze", "keybindings", "layout", "session", "trust",
+      "export", "freeze", "keybindings", "layout", "session", "trust", "clean",
     ];
     const bash = generateBashCompletion();
     const zsh = generateZshCompletion();
@@ -555,4 +555,52 @@ describe("P4 title/detach completions",()=>{
   for(const script of [generateBashCompletion(),generateZshCompletion(),generateFishCompletion()])for(const token of ["title","set","reset","detach-tab"])expect(script).toContain(token);
   expect(generateFishCompletion()).toMatch(/title.*-l set -r/);
  });
+});
+
+describe("clean completions and boolean config values (F17, F18)", () => {
+  async function bashComplete(words: string[]): Promise<string[]> {
+    const { spawnSync } = await import("node:child_process");
+    const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const home = mkdtempSync(join(tmpdir(), "summon-completion-"));
+    mkdirSync(join(home, ".config/summon"), { recursive: true });
+    writeFileSync(join(home, ".config/summon/projects"), "demo=/tmp/demo\n");
+    try {
+      const script = generateBashCompletion() + `\n_init_completion(){ words=("\${COMP_WORDS[@]}"); cword=$COMP_CWORD; cur=\${COMP_WORDS[COMP_CWORD]}; prev=\${COMP_WORDS[COMP_CWORD-1]}; }\nsummon(){ :; }\nCOMP_WORDS=(${words.join(" ")}); COMP_CWORD=${words.length - 1}; _summon; printf '%s\\n' "\${COMPREPLY[@]}"`;
+      const result = spawnSync("bash", ["-c", script], { encoding: "utf8", env: { ...process.env, HOME: home } });
+      expect(result.status).toBe(0);
+      return result.stdout.split("\n").filter(Boolean);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  }
+
+  test("bash completes project names and --orphans after clean", async () => {
+    expect(await bashComplete(["summon", "clean", "de"])).toEqual(["demo"]);
+    expect(await bashComplete(["summon", "clean", "--o"])).toEqual(["--orphans"]);
+    expect(await bashComplete(["summon", "clean", "demo", "--o"])).toEqual(["--orphans"]);
+  });
+
+  test("bash completes true/false for a boolean config key", async () => {
+    expect(await bashComplete(["summon", "set", "auto-resize", "t"])).toEqual(["true"]);
+  });
+
+  test("zsh completes project names and --orphans after clean", () => {
+    const script = generateZshCompletion();
+    expect(script).toContain("        clean)\n          compadd -a project_names\n          compadd -- --orphans\n          ;;");
+  });
+
+  test("zsh and bash compare the config key itself, not the literal text \\${words[2]}", () => {
+    for (const script of [generateZshCompletion(), generateBashCompletion()]) {
+      expect(script).toContain('"${words[2]}" == "auto-resize"');
+      expect(script).not.toContain('"\\${words[2]}"');
+    }
+  });
+
+  test("fish completes project names and --orphans after clean", () => {
+    const script = generateFishCompletion();
+    expect(script).toMatch(/__fish_seen_subcommand_from inspect focus title open switch clean' -a/);
+    expect(script).toMatch(/__fish_seen_subcommand_from clean' -l orphans/);
+  });
 });
