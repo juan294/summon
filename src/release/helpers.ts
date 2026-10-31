@@ -40,12 +40,16 @@ const DIST_DIR = join(PROJECT_ROOT, "dist");
 let snapshotDir: string | null = null;
 
 /**
- * Call from beforeAll. The release job builds dist/ first and probes that build.
- * An ordinary `pnpm test` has no build step (no suite rebuilds dist/ any more),
- * so without dist/index.js the probes get a private production build instead.
+ * Call from beforeAll. `pnpm test:release` (SUMMON_PROBE_DIST=1, the CI and release jobs, which
+ * build dist/ first) probes that build: the release candidate. Every other run (`pnpm test`, the
+ * pre-commit hook) probes a private production build of the current source, so a stale local
+ * dist/ is never what gets probed.
  */
 export async function prepareCli(): Promise<void> {
-  if (existsSync(join(DIST_DIR, "index.js"))) return;
+  if (process.env["SUMMON_PROBE_DIST"] === "1") {
+    if (!existsSync(join(DIST_DIR, "index.js"))) throw new Error("SUMMON_PROBE_DIST=1 needs a built dist/ (run pnpm build first)");
+    return;
+  }
   const target = mkdtempSync(join(tmpdir(), "summon-rel-cli-"));
   await buildCliInto(PROJECT_ROOT, target, { production: true });
   snapshotDir = target;
