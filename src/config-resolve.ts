@@ -95,9 +95,9 @@ const ENV_DENYLIST_EXACT = new Set([
   "CDPATH",
   "IFS",
   // SE-L3: both backends apply these before the pane shell starts, so they change what runs at
-  // shell startup or inside common tools. PATH, PYTHONPATH and HOME stay allowed (search paths and
-  // the home directory users set on purpose; the rex-cli E2E harness passes env.HOME).
-  "ZDOTDIR", // zsh reads .zshenv/.zprofile/.zshrc from $ZDOTDIR
+  // shell startup or inside common tools. PATH, PYTHONPATH, ZDOTDIR and HOME stay allowed: search
+  // paths, a startup location and the home directory users set on purpose (the Rex E2E suites pass
+  // --env ZDOTDIR=<dir> and env.HOME).
   "ENV", // sh, ksh and bash in POSIX mode source $ENV at startup
   "SHELL", // tools such as vim, tmux and script(1) run $SHELL
   "PS1", // bash runs command substitutions in the prompt at each prompt

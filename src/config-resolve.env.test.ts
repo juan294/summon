@@ -39,7 +39,6 @@ function resolveWith(summon: Map<string, string>, overrides: CLIOverrides = {}):
 }
 
 const NEWLY_DENIED = [
-  "ZDOTDIR",
   "ENV",
   "SHELL",
   "PS1",
@@ -96,8 +95,9 @@ describe("env denylist: shell startup and tool hooks (SE-L3)", () => {
 });
 
 describe("env keys that stay allowed (SE-L3)", () => {
-  // PATH and PYTHONPATH are search paths users set on purpose; HOME carries the rex-cli E2E sandbox.
-  it.each(["PATH", "HOME", "PYTHONPATH", "GIT_AUTHOR_NAME", "LESS"])("keeps %s from every source without a warning", (envKey) => {
+  // PATH and PYTHONPATH are search paths users set on purpose; HOME carries the rex-cli E2E sandbox;
+  // ZDOTDIR is a user-chosen zsh startup location (the Rex E2E suites pass --env ZDOTDIR=<dir>).
+  it.each(["PATH", "HOME", "PYTHONPATH", "ZDOTDIR", "GIT_AUTHOR_NAME", "LESS"])("keeps %s from every source without a warning", (envKey) => {
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"], [`env.${envKey}`, "machine"]]));
     expect(resolveWith(new Map()).envVars[envKey]).toBe("machine");
     expect(resolveWith(new Map([[`env.${envKey}`, "project"]])).envVars[envKey]).toBe("project");
