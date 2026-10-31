@@ -35,7 +35,7 @@ vi.mock("./backend.js", async (original) => ({
 
 // Rex launch path (Phase 3): the adapter, adoption and switch decision are mocked; their own
 // suites cover them. The fake backend records what the launcher hands it.
-const mockAdoptOrphans = vi.fn((_project: string, _options?: { forLaunch?: boolean }): string[] => []);
+const mockAdoptOrphansForLaunch = vi.fn((_project: string): Array<{ text: string; routine?: true }> => []);
 const mockMaybeSwitch = vi.fn((..._args: unknown[]): unknown => ({ kind: "proceed" }));
 const mockSessionState = vi.fn((..._args: unknown[]): unknown => ({ state: "stopped", liveBlocks: [] }));
 const rexLaunches: Array<{ kind: string; plan: unknown; ctx: Record<string, unknown> }> = [];
@@ -51,7 +51,7 @@ const mockCreateRexBackend = vi.fn((_context: unknown, _deps: unknown) => ({
 }));
 vi.mock("./backends/rex/backend.js", () => ({ createRexBackend: (context: unknown, deps: unknown) => mockCreateRexBackend(context, deps) }));
 vi.mock("./backends/rex/launch.js", () => ({
-  adoptOrphans: (project: string, _deps: unknown, options?: { forLaunch?: boolean }) => mockAdoptOrphans(project, options),
+  adoptOrphansForLaunch: (project: string, _deps: unknown) => mockAdoptOrphansForLaunch(project),
   adoptDeps: vi.fn(() => ({})),
   maybeSwitchToExisting: (...args: unknown[]) => mockMaybeSwitch(...args),
 }));
@@ -159,6 +159,7 @@ const { listConfig, listProjects } = await import("./config.js");
 const { existsSync } = await import("node:fs");
 const { TabOpenError } = await import("./errors.js");
 const { LAUNCH_ID_RE } = await import("./launch-identity.js");
+const { writingRoutine } = await import("./ui/output.js");
 const ANY_LAUNCH_ID = expect.stringMatching(LAUNCH_ID_RE);
 
 let savedSummonWorkspace: string | undefined;
@@ -167,7 +168,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockReadStatus.mockReturnValue(null);
   mockReadStatusRecord.mockReturnValue(null);
-  mockAdoptOrphans.mockReturnValue([]);
+  mockAdoptOrphansForLaunch.mockReturnValue([]);
   mockMaybeSwitch.mockReturnValue({ kind: "proceed" });
   mockSessionState.mockReturnValue({ state: "stopped", liveBlocks: [] });
   rexLaunches.length = 0;
@@ -4832,18 +4833,20 @@ describe("Rex launch (plan P2, P8, P13, P15; Phase 3)", () => {
   const REX_CONTEXT = { ok: true, backend: "rex", placement: "inside-rex", server: "unix:///tmp/rex.sock", rexBinary: "/usr/local/bin/rex", notices: [] };
   const rexCalls = () => mockExecFileSync.mock.calls.filter((c) => c[0] === "osascript" || String(c[0]).endsWith("/rex"));
   let stderrText = "";
+  let routineText = "";
   let errSpy: ReturnType<typeof vi.spyOn>;
   beforeEach(() => {
     mockResolveBackendForLaunch.mockReturnValue(REX_CONTEXT);
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
     stderrText = "";
-    errSpy = vi.spyOn(process.stderr, "write").mockImplementation((chunk: unknown) => { stderrText += String(chunk); return true; });
+    routineText = "";
+    errSpy = vi.spyOn(process.stderr, "write").mockImplementation((chunk: unknown) => { stderrText += String(chunk); if (writingRoutine()) routineText += String(chunk); return true; });
   });
   afterEach(() => { errSpy.mockRestore(); });
 
   it("adopts orphans and decides the switch before the wizard, the pane probe and on-start, and never cleans restored panes", async () => {
     const order: string[] = [];
-    mockAdoptOrphans.mockImplementation(() => { order.push("adopt"); return ["adopted earlier launch x"]; });
+    mockAdoptOrphansForLaunch.mockImplementation(() => { order.push("adopt"); return [{ text: "adopted earlier launch x" }]; });
     mockMaybeSwitch.mockImplementation(() => { order.push("switch"); return { kind: "proceed" }; });
     mockRunSetup.mockImplementation(async () => { order.push("setup"); vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]])); });
     mockExecSync.mockImplementation(() => { order.push("on-start"); return ""; });
@@ -4857,7 +4860,7 @@ describe("Rex launch (plan P2, P8, P13, P15; Phase 3)", () => {
     }
     expect(order).toEqual(["adopt", "switch", "setup", "on-start"]);
     expect(mockRunSetup).toHaveBeenCalledWith({ backend: "rex" });
-    expect(mockAdoptOrphans).toHaveBeenCalledWith("workspace", { forLaunch: true });
+    expect(mockAdoptOrphansForLaunch).toHaveBeenCalledWith("workspace");
     expect(mockMaybeSwitch).toHaveBeenCalledWith("workspace", false, expect.objectContaining({ cliFor: expect.any(Function) }));
     expect(stderrText).toContain("summon: note: adopted earlier launch x");
     expect(stderrText).toContain("summon: note: Rex cannot honor clean; ignored");
@@ -4945,10 +4948,18 @@ describe("Rex launch (plan P2, P8, P13, P15; Phase 3)", () => {
     expect(mockCreateRexBackend).toHaveBeenCalledWith(REX_CONTEXT, expect.objectContaining({ newWindow: true }));
   });
 
-  it("still discloses an on-stop hook under Rex (the D1 watch treats that line as routine)", async () => {
+  it("still discloses an on-stop hook under Rex, marked routine for the D1 watch", async () => {
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"], ["on-stop", "echo bye"]]));
     await launch("/tmp/workspace");
     expect(stderrText).toContain("summon: note: on-stop will run on workspace exit.\n");
+    expect(routineText).toBe("summon: note: on-stop will run on workspace exit.\n");
+  });
+
+  it("prints the adoption notices for a launch, marked routine only where adoptOrphansForLaunch says so (D1)", async () => {
+    mockAdoptOrphansForLaunch.mockReturnValue([{ text: "removed the files of earlier launch x (its Rex session is gone)", routine: true }, { text: "adopted earlier launch y" }]);
+    await launch("/tmp/workspace");
+    expect(stderrText).toContain("summon: note: removed the files of earlier launch x (its Rex session is gone)\nsummon: note: adopted earlier launch y\n");
+    expect(routineText).toBe("summon: note: removed the files of earlier launch x (its Rex session is gone)\n");
   });
 
   it("a dry run with an active Rex record calls neither adoptOrphans nor the switch decision nor any rex process, and prints the request plus the note", async () => {
@@ -4960,7 +4971,7 @@ describe("Rex launch (plan P2, P8, P13, P15; Phase 3)", () => {
     logSpy.mockRestore();
     expect(output).toContain("-- Note: workspace is recorded as a Rex workspace (session:0000aaaa-0000-0000-0000-000000000001)");
     expect(output).toContain('"initial_windows"');
-    expect(mockAdoptOrphans).not.toHaveBeenCalled();
+    expect(mockAdoptOrphansForLaunch).not.toHaveBeenCalled();
     expect(mockMaybeSwitch).not.toHaveBeenCalled();
     expect(mockSessionState).not.toHaveBeenCalled();
     expect(rexLaunches).toEqual([]);
@@ -4978,7 +4989,7 @@ describe("Rex launch (plan P2, P8, P13, P15; Phase 3)", () => {
       Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, configurable: true });
     }
     expect(stderrText).toContain("interactive confirmation");
-    expect(mockAdoptOrphans).toHaveBeenCalledWith("workspace", { forLaunch: true });
+    expect(mockAdoptOrphansForLaunch).toHaveBeenCalledWith("workspace");
     expect(rexLaunches).toEqual([]);
     expect(statusModule.publishStatus).not.toHaveBeenCalled();
   });
@@ -4989,7 +5000,7 @@ describe("Rex launch (plan P2, P8, P13, P15; Phase 3)", () => {
     mockSessionState.mockReturnValue({ state: "partial", reason: "root pane closed", liveBlocks: ["editor-2"] });
     await launch("/tmp/workspace");
     expect(stderrText).toContain("summon: note: Rex session [workspace] session:0000aaaa-0000-0000-0000-000000000001 is still running; rex kill session:0000aaaa-0000-0000-0000-000000000001 closes it");
-    expect(mockAdoptOrphans).not.toHaveBeenCalled();
+    expect(mockAdoptOrphansForLaunch).not.toHaveBeenCalled();
     expect(statusModule.publishStatus).toHaveBeenCalledWith(expect.objectContaining({ backend: "ghostty" }));
     mockSessionState.mockReturnValue({ state: "stopped", liveBlocks: [] });
     stderrText = "";

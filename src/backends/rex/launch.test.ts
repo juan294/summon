@@ -18,8 +18,9 @@ vi.mock("./../../paths.js", async (importOriginal) => {
 const { launchArtifactPaths, writeLaunchManifest, listLaunchManifests } = await import("../../launch-identity.js");
 const { readStatusRecord, withOwnedRecord, statusTestHooks } = await import("../../status.js");
 const { STATUS_DIR } = await import("../../paths.js");
-const { createWorkspace, readPaneFile, readPaneMapping, waitForToken, adoptOrphans, refreshPaneMapping, maybeSwitchToExisting, keptSession, showWorkspace, showRecordedWorkspace, strandedTokenNotice } = await import("./launch.js");
+const { createWorkspace, readPaneFile, readPaneMapping, waitForToken, adoptOrphans, adoptOrphansForLaunch, refreshPaneMapping, maybeSwitchToExisting, keptSession, showWorkspace, showRecordedWorkspace, strandedTokenNotice } = await import("./launch.js");
 const { selectInApp } = await import("./app.js");
+const { writingRoutine } = await import("../../ui/output.js");
 type LaunchModule = typeof import("./launch.js");
 type CreateContext = Parameters<LaunchModule["createWorkspace"]>[2];
 type AdoptDeps = Parameters<LaunchModule["adoptOrphans"]>[1];
@@ -584,6 +585,24 @@ describe("adoptOrphans (plan P13 late adoption)", () => {
     expect(existsSync(paths.pane("editor").file)).toBe(false);
   });
 
+  it("for a launch, marks the gone-session cleanup routine (D1) and a failed removal not", async () => {
+    writeLaunchManifest(manifestFor());
+    writePane(ID, "editor", SESSION, blockId(1));
+    const paths = launchArtifactPaths("chapa", ID);
+    const cli = fakeCli({ "ls": () => ok("ls", { sessions: [] }) });
+    chmodSync(paths.dir, 0o500);
+    let failed: ReturnType<typeof adoptOrphansForLaunch>;
+    try {
+      failed = adoptOrphansForLaunch("chapa", depsFor({ [SERVER]: cli }));
+    } finally {
+      chmodSync(paths.dir, 0o700);
+    }
+    expect(failed).toHaveLength(1);
+    expect(failed[0]!.text).toMatch(/^could not remove the files of earlier launch /);
+    expect(failed[0]!.routine).toBeUndefined();
+    expect(adoptOrphansForLaunch("chapa", depsFor({ [SERVER]: cli }))).toEqual([{ text: `removed the files of earlier launch ${ID} (its Rex session is gone)`, routine: true }]);
+  });
+
   it("a selective removal failure keeps the manifest and the root token (the session proof), so the retry verifies and finishes", async () => {
     writeLaunchManifest(manifestFor(ID, { panes: ["editor", "shell"], paneOrder: ["editor", "shell"] }));
     writePane(ID, "editor", SESSION, blockId(1));
@@ -815,7 +834,12 @@ describe("maybeSwitchToExisting (plan P2) and showWorkspace", () => {
   const lsPresent = () => ok("ls", { sessions: [{ session_id: SESSION, label: "chapa" }] });
   let stderrText = "";
   let errSpy: ReturnType<typeof vi.spyOn>;
-  beforeEach(() => { stderrText = ""; errSpy = vi.spyOn(process.stderr, "write").mockImplementation((chunk: unknown) => { stderrText += String(chunk); return true; }); });
+  let routineText = "";
+  beforeEach(() => {
+    stderrText = "";
+    routineText = "";
+    errSpy = vi.spyOn(process.stderr, "write").mockImplementation((chunk: unknown) => { stderrText += String(chunk); if (writingRoutine()) routineText += String(chunk); return true; });
+  });
   afterEach(() => { errSpy.mockRestore(); });
 
   it("proceeds without any Rex call when there is no record, a Ghostty record, or --new-window", () => {
@@ -873,6 +897,8 @@ describe("maybeSwitchToExisting (plan P2) and showWorkspace", () => {
     expect(cli.calls.map((c) => c.op)).toEqual(["ls", "session-view", "client-ls", "do-select"]);
     expect(cli.calls.find((c) => c.op === "do-select")!.argv).toEqual(["-C", "client:app", "do", "session.select", `session_id=${SESSION}`, `window_id=${WINDOW}`, "--json"]);
     expect(stderrText).toContain("Workspace [chapa] is already running in Rex; switched to it (use --new-window for a fresh one)");
+    // D1: the switch line is marked routine where it is written, so the launcher tab can close.
+    expect(routineText).toBe("Workspace [chapa] is already running in Rex; switched to it (use --new-window for a fresh one)\n");
   });
 
   it("reuse prefers the app attached to the caller's session over a newer unrelated app, with the several-apps notice (P7)", () => {
@@ -911,6 +937,7 @@ describe("maybeSwitchToExisting (plan P2) and showWorkspace", () => {
     expect(readStatusRecord("chapa")!.rex!.blocks.map((b) => b.name)).toEqual(["editor", "shell"]);
     expect(stderrText).toContain("Workspace [chapa] is already running in Rex but could not be shown (no Rex app is connected; open Rex and pick [chapa]); run summon open chapa");
     expect(stderrText).not.toContain("switched to it");
+    expect(routineText).toBe("");
   });
 
   it("showWorkspace reports a failed select, and showRecordedWorkspace needs a Rex record", () => {

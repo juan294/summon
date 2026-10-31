@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { findLauncherTab, closeLauncherTabOnExit, closeLauncherTabAfterRexLaunch, resetLauncherTabForTests, spawnAfterExit, watchForAttention, needsAttention, startLauncherTabWatch } from "./launcher-tab.js";
 import type { RexCli } from "./cli.js";
+import { err, note, warn, writingRoutine } from "../../ui/output.js";
 import type { RexResult } from "./types.js";
 
 const SESSION = "session:0000aaaa-0000-0000-0000-000000000001";
@@ -147,30 +148,40 @@ describe("watchForAttention (D1)", () => {
     return { stream, written };
   }
 
-  it("lets the routine switch line and blank output through, and flags any note, warning or other line, still writing everything", () => {
-    for (const [line, flagged] of [
-      ["Workspace [api] is already running in Rex; switched to it (use --new-window for a fresh one)\n", false],
-      ["\n", false],
-      ["summon: note: removed the files of earlier launch 547c18b7-b4d4-45ae-aebe-3b642197ec3a (its Rex session is gone)\n", false],
-      ["Workspace [api] is already running in Rex; switched to it (use --new-window for a fresh one)\nWarning: something else\n", true],
-      ["summon: note: could not remove the files of earlier launch 547c18b7-b4d4-45ae-aebe-3b642197ec3a (its Rex session is gone): EPERM\n", true],
-      ["summon: note: Rex cannot honor maximize; ignored\n", true],
+  it("lets writes marked routine at their source and blank output through, and flags any other write, still writing everything", () => {
+    const SWITCH = "Workspace [api] is already running in Rex; switched to it (use --new-window for a fresh one)";
+    const CLEANUP = "removed the files of earlier launch 547c18b7-b4d4-45ae-aebe-3b642197ec3a (its Rex session is gone)";
+    const ON_STOP = "on-stop will run on workspace exit.";
+    for (const [label, write, flagged] of [
+      ["switch line", () => err(SWITCH, { routine: true }), false],
+      ["blank line", () => err(""), false],
+      ["cleanup note", () => note(CLEANUP, { routine: true }), false],
       // UX-H1: the on-stop disclosure prints on every launch with a hook; it is not something to act on.
-      ["summon: note: on-stop will run on workspace exit.\n", false],
-      ["summon: note: on-stop will run on workspace exit.\nsummon: warning: something else\n", true],
-      // UX-M2: the old unprefixed line is no longer what Summon prints, so it is not routine.
-      ["Note: on-stop will run on workspace exit.\n", true],
-      ["summon: warning: ignoring invalid env var key \"1X\" from .summon file.\n", true],
-      ["Workspace [api] is already running in Rex but could not be shown (no app); run summon open api\n", true],
-      [Buffer.from("[2/3] Skipped web \u2014 untrusted .summon file.\n"), true],
+      ["on-stop note", () => note(ON_STOP, { routine: true }), false],
+      // The source decides: the same text written without the marker is for the user to read.
+      ["unmarked switch line", () => err(SWITCH), true],
+      ["unmarked on-stop note", () => note(ON_STOP), true],
+      ["failed cleanup note", () => note("could not remove the files of earlier launch 547c18b7-b4d4-45ae-aebe-3b642197ec3a (its Rex session is gone): EPERM"), true],
+      ["P8 notice", () => note("Rex cannot honor maximize; ignored"), true],
+      ["warning", () => warn("ignoring invalid env var key \"1X\" from .summon file."), true],
+      ["routine note then a warning", () => { note(ON_STOP, { routine: true }); warn("something else"); }, true],
+      ["multi-line write", () => process.stderr.write(`${SWITCH}\nWarning: something else\n`), true],
+      ["could not be shown", () => err("Workspace [api] is already running in Rex but could not be shown (no app); run summon open api"), true],
+      ["skipped project", () => process.stderr.write(Buffer.from("[2/3] Skipped web \u2014 untrusted .summon file.\n")), true],
     ] as const) {
       resetLauncherTabForTests();
-      const { stream, written } = fakeStream();
-      watchForAttention(stream);
-      stream.write(line);
-      expect(needsAttention(), String(line)).toBe(flagged);
-      expect(written).toEqual([String(line)]);
+      const written: string[] = [];
+      const spy = vi.spyOn(process.stderr, "write").mockImplementation((chunk: unknown) => { written.push(String(chunk)); return true; });
+      try {
+        watchForAttention(process.stderr);
+        write();
+        expect(needsAttention(), label).toBe(flagged);
+        expect(written.length, label).toBeGreaterThan(0);
+      } finally {
+        spy.mockRestore();
+      }
     }
+    expect(writingRoutine()).toBe(false);
   });
 
   it("is installed once, and only for a Rex launch from inside Rex", () => {

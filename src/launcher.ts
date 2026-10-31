@@ -25,7 +25,7 @@ import type { BackendId, LaunchContext } from "./backend.js";
 import { GhosttyBackend, ghosttyCommandEntries } from "./backends/ghostty.js";
 import type { BackendLaunchContext, BackendLaunchResult, TerminalBackend } from "./backends/ghostty.js";
 import { createRexBackend } from "./backends/rex/backend.js";
-import { adoptOrphans, adoptDeps, maybeSwitchToExisting } from "./backends/rex/launch.js";
+import { adoptOrphansForLaunch, adoptDeps, maybeSwitchToExisting } from "./backends/rex/launch.js";
 import { createRexCli, discoverRex } from "./backends/rex/cli.js";
 import { focusRex, sessionState } from "./backends/rex/status.js";
 import { closeLauncherTabAfterRexLaunch, startLauncherTabWatch } from "./backends/rex/launcher-tab.js";
@@ -952,7 +952,7 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
     // P13 late adoption, then the P2 reuse decision: both before the wizard, the pane probe
     // and on-start, so a switch never reruns them. A dry run skips both (P2) and runs no Rex command.
     // A session the record's --new-window launch announced is not repeated on every launch (F12); status still names it.
-    for (const line of adoptOrphans(projectName, adoptDeps(launchContext.rexBinary), { forLaunch: true })) note(line);
+    for (const notice of adoptOrphansForLaunch(projectName, adoptDeps(launchContext.rexBinary))) note(notice.text, { routine: notice.routine === true });
     const decision = maybeSwitchToExisting(projectName, newWindowFlag, { cliFor: (server) => createRexCli(launchContext.rexBinary, server), callerSession });
     if (decision.kind === "switched") {
       closeLauncherTabAfterRexLaunch(launchContext);
@@ -1048,7 +1048,9 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
   // on-stop is embedded in the AppleScript's EXIT trap and runs silently; a launch-time notice
   // makes the hook visible without requiring users to inspect the generated script.
   if (effectiveOnStop && !cliOverrides?.dryRun) {
-    note("on-stop will run on workspace exit.");
+    // UX-H1: repeated on every launch with a hook (from the user's own config or a `.summon` trusted by content hash; one
+    // with shell metacharacters still gets the interactive warning), so it is routine for the D1 launcher-tab watch.
+    note("on-stop will run on workspace exit.", { routine: true });
   }
 
   // Cache resolved command paths so the same binary is only looked up once
