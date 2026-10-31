@@ -1020,7 +1020,7 @@ All files use `key=value` format, one entry per line.
 | `0` | Success |
 | `1` | Usage error or configuration error (bad flag, invalid value, unknown project, etc.), or a launch failure (no supported terminal found, Accessibility permission denied, etc.) |
 | `2` | A guard failure or refusal, for example: commands with shell metacharacters that cannot be confirmed without a TTY, `summon doctor` found issues, a Rex workspace that cannot be verified (Rex server not answering, or a record whose Rex identity cannot be read), the `rex` CLI missing for a command that needs it, or `summon clean` refusing a session that still has panes |
-| `130` | User cancelled — Ctrl+C or EOF at a prompt, `n` at a confirmation prompt, or `0` in the `summon open` picker (128 + SIGINT) |
+| `130` | User cancelled — Ctrl+C or EOF at a prompt (and Escape at a yes/no key prompt), `n` at a launch confirmation (nested workspace, install, dangerous commands), or `0` in the `summon open` picker (128 + SIGINT). Declining to save or overwrite a custom layout exits 0; declining "Save these settings?" in the wizard starts it over |
 
 If you see an unexpected error, re-run with `SUMMON_DEBUG=1` for full diagnostics:
 

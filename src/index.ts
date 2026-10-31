@@ -226,6 +226,7 @@ async function launchOrExit(targetDir: string, overrides: CLIOverrides): Promise
 
 /** Present operational failures without Node's uncaught source excerpt. */
 async function reportError(error: unknown): Promise<void> {
+  // Set before the lazy import below, so a failing import still exits 1; exitCodeFor refines it.
   process.exitCode = 1;
   // Error-only imports preserve the true lazy --version and --help paths.
   const { PromptCancelled, exitCodeFor, getErrorMessage, isDebug } = await import("./utils.js");

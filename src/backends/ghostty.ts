@@ -8,7 +8,7 @@ import { traditionalInventory, treeInventory, parseNativeCapture } from "../pane
 import type { NativeMetadata, PaneDescriptor } from "../pane-inventory.js";
 import type { BackendId } from "../backend.js";
 import type { RexIdentity } from "./rex/types.js";
-import { getErrorMessage, ACCESSIBILITY_SETTINGS_PATH } from "../utils.js";
+import { getErrorMessage, ACCESSIBILITY_SETTINGS_PATH, QUICK_PROCESS_LIMITS } from "../utils.js";
 import { escapeAppleScript } from "../shell-escape.js";
 import { isStaticLaunchSpinner, transientLine } from "../ui/progress.js";
 import { fail, err } from "../ui/output.js";
@@ -99,9 +99,6 @@ function parseRollbackMark(raw: string): { message: string; created?: CreatedCon
   return { message, created: { kind: target[1] as CreatedContainer["kind"], id: target[2]! } };
 }
 
-/** Bounded so a rollback after a Ghostty failure can never hang the CLI (PE-L3). */
-const ROLLBACK_TIMEOUT_MS = 5_000;
-
 /**
  * Best-effort rollback: close exactly the window or tab a failed launch created (BE-S26 #322,
  * BE-M2), found by its recorded id, never the front window. Silently ignored if Ghostty is not
@@ -129,7 +126,7 @@ end tell`
   end repeat
 end tell`;
   try {
-    execFileSync("osascript", [], { input: closeScript, encoding: "utf-8", timeout: ROLLBACK_TIMEOUT_MS, killSignal: "SIGKILL" });
+    execFileSync("osascript", [], { input: closeScript, encoding: "utf-8", ...QUICK_PROCESS_LIMITS });
   } catch {
     // Silently ignore — rollback is best-effort
   }

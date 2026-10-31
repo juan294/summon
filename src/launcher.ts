@@ -27,7 +27,7 @@ import type { BackendLaunchContext, BackendLaunchResult, TerminalBackend } from 
 import { createRexBackend } from "./backends/rex/backend.js";
 import { adoptOrphansForLaunch, adoptDeps, maybeSwitchToExisting } from "./backends/rex/launch.js";
 import { createRexCli, discoverRex } from "./backends/rex/cli.js";
-import { focusRex, sessionState } from "./backends/rex/status.js";
+import { focusRex, sessionState, sessionListings } from "./backends/rex/status.js";
 import { closeLauncherTabAfterRexLaunch, markAttention, startLauncherTabWatch } from "./backends/rex/launcher-tab.js";
 import type { ResolvedStatus } from "./status.js";
 import { isLiveState, rexCommandGate } from "./status.js";
@@ -949,8 +949,11 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
     // P13 late adoption, then the P2 reuse decision: both before the wizard, the pane probe
     // and on-start, so a switch never reruns them. A dry run skips both (P2) and runs no Rex command.
     // A session the record's --new-window launch announced is not repeated on every launch (F12); status still names it.
-    for (const notice of adoptOrphansForLaunch(projectName, adoptDeps(launchContext.rexBinary))) note(notice.text, { routine: notice.routine === true });
-    const decision = maybeSwitchToExisting(projectName, newWindowFlag, { cliFor: (server) => createRexCli(launchContext.rexBinary, server), callerSession });
+    // PE-L1: one `rex ls` per server serves both steps. The backend's kept-session check runs after the wizard
+    // and on-start, so it lists afresh rather than reuse a listing that may be minutes old.
+    const listings = sessionListings();
+    for (const notice of adoptOrphansForLaunch(projectName, adoptDeps(launchContext.rexBinary, listings))) note(notice.text, { routine: notice.routine === true });
+    const decision = maybeSwitchToExisting(projectName, newWindowFlag, { cliFor: (server) => createRexCli(launchContext.rexBinary, server), callerSession, listings });
     if (decision.kind === "switched") {
       closeLauncherTabAfterRexLaunch(launchContext);
       return "switched";
