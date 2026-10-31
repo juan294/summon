@@ -21,7 +21,7 @@ Technical reference for contributors.
 | `commands/types.ts` | `CommandHandler` and `CommandContext` interfaces | **pure** | none |
 | `cli/resolve-target.ts` | Resolves the launch target directory from a project name, path, or `.` — `resolveTargetDirectory`, `expandHome`; "Did you mean" hint on a mistyped name | yes | config, status-record, cli/suggest, node:path, node:os |
 | `ui/symbols.ts` | Canonical glyph vocabulary — `sym.ok`, `sym.warn`, `sym.fail`, `sym.info`, `sym.bullet` | **pure** | none |
-| `launcher.ts` | Orchestrator `launch()`: trust and config (through config-resolve), backend resolution (seam) and `createTerminalBackend`, the backend's `beforeLaunch` (Rex adoption and switch), the note about another backend's live workspace, wizard, nested-workspace check, the backend's `applyLaunchOptions` (Ghostty pane probe, Rex P8 notices), on-start, dispatch to the backend or the dry run, status publication. No backend branch | yes | config, config-resolve, command-install, dry-run, layout, tree, utils, validation, starship, status-record, launch-guards, trust, command-spec, launch-identity, ui/output, ui/attention, backend, backends/select, backends/workspace (dynamic) |
+| `launcher.ts` | Orchestrator `launch()`: trust and config (through config-resolve), backend resolution (seam) and `createTerminalBackend`, the backend's `beforeLaunch` (Rex adoption and switch), the note about another backend's live workspace, wizard, nested-workspace check, the backend's `applyLaunchOptions` (Ghostty pane probe, Rex P8 notices), on-start, dispatch to the backend or the dry run, status publication. No backend branch | yes | config, config-resolve, command-install, dry-run, layout, tree, utils, validation, starship, status-record, launch-guards, command-spec, launch-identity, ui/output, ui/attention, backend, backends/select, backends/workspace (dynamic), setup (dynamic) |
 | `config-resolve.ts` | Config layering (CLI > project > global > preset > defaults) — `resolveConfig`, `readTrustedSummonFile` (one trusted `.summon` read), `optsToConfigMap`, `pickConfigValue`, `CLIOverrides`, env-var collection and the env-key denylist | yes | config, layout, tree, trust, validation, ui/output |
 | `command-install.ts` | Command checks for a launch — `checkCommand` (no side effects), `ensureCommand` (stop, or offer the install method of a known tool), `commandFixHint` | yes | utils, ui/attention, ui/output |
 | `dry-run.ts` | Dry-run output for both backends — `printDryRun` for either layout kind: header and extras, then the backend's `dryRun` (AppleScript and Ghostty command notes, or the Rex `session.create` request) | yes | starship, ui/output, backends/port (types) |
@@ -35,7 +35,7 @@ Technical reference for contributors.
 | `backends/ghostty/read.ts` | `resolveGhosttyStatus` — a Ghostty record's state from its per-launch sidecars (P12) | yes | status-record |
 | `backends/ghostty/backend.ts` | `GhosttyBackend`, the Ghostty `TerminalBackend` — `ensureGhostty`/`ensureAccessibility` guards, command resolution, AppleScript launch, `executeScript`, spinner, rollback, `probePaneCount`, `decideCleanRestoredPanes`, the dry-run body and command notes | yes | script, pane-inventory, tree, launch-guards, config-resolve, command-spec, command-install, errors, shell-escape, ui/progress, ui/output, utils |
 | `backends/ghostty/workspace.ts` | `GhosttyWorkspace` record port — focus, inspect and title through the native identity, `sweepDeadGhosttyLaunches` | yes | native, status-record, launch-identity, validation, cli/resolve-target, ui/sanitize, ui/output |
-| `backends/ghostty/script.ts` | AppleScript generator — builds script string from LayoutPlan or TreeLayoutPlan; options-object API | **pure** | tree, layout, shell-escape, launch-identity, pane-inventory, native, utils |
+| `backends/ghostty/script.ts` | AppleScript generator — builds script string from LayoutPlan or TreeLayoutPlan; positional arguments | **pure** | tree, layout, shell-escape, launch-identity, pane-inventory, native, utils |
 | `backends/ghostty/native.ts` | Native Ghostty scripting with exact terminal ids: `readNativeInventory`, `focusTerminal`, `titleTerminal` and their script generators | yes | probe, pane-inventory, shell-escape, ui/sanitize, backends/port (types) |
 | `backends/ghostty/pane-inventory.ts` | Ghostty pane inventory: creation-order pane variables (`traditionalInventory`, `treeInventory`), `NativeMetadata` and its parser, the native capture parser, `TERMINAL_ID_RE` | **pure** | ui/sanitize |
 | `backends/ghostty/probe.ts` | Ghostty app discovery, version, capability probes and effective config (`probeGhostty`, `probeGhosttyNative`, `probeGhosttyDetach`) for `doctor` and `setup` | yes | utils |
@@ -46,7 +46,7 @@ Technical reference for contributors.
 | `backends/rex/app.ts` | App client listing and choice, `selectInApp`, `waitForAppClient`, `openRexApp` | yes | cli |
 | `backends/rex/launch.ts` | `createWorkspace`, `adoptOrphans`, `showWorkspace`, `maybeSwitchToExisting`, pane mapping | yes | cli, app, status, types, status-record, launch-identity, shell-escape, ui/output |
 | `backends/rex/status.ts` | `sessionState` (four-state table), `focusRex`, `inspectRex`, `titleRex`, program status | yes | cli, errors, app, types |
-| `backends/rex/read.ts` | The Rex half of a status read: `resolveRexStatus` (one generation at a time, the reconciling steps when asked), `adoptUnrecordedRex`, the `rex` binary memo, `requireRexBinary`, `rexCommandGate` | yes | cli, status, reconcile, status-record |
+| `backends/rex/read.ts` | The Rex half of a status read: `resolveRexStatus` (one generation at a time, the reconciling steps unless the read passes `{ reconcile: false }`), `adoptUnrecordedRex`, the `rex` binary memo, `requireRexBinary`, `rexCommandGate` | yes | cli, status, reconcile, status-record |
 | `backends/rex/workspace.ts` | `RexWorkspace` record port — focus, inspect, title, the note for a launch on another backend, `summon clean` (P17) and the `--orphans` review | yes | cli, status, launch, reconcile, read, status-record, launch-identity, shell-escape, ui/output |
 | `backends/rex/launcher-tab.ts` | D1: close the launcher tab after a launch or switch made inside Rex (`startLauncherTabWatch`, `closeLauncherTabAfterRexLaunch`) | yes | cli, status, types, ui/attention, utils |
 | `backends/rex/doctor.ts` | The Rex section of `summon doctor`: CLI, version, server, app clients | yes | cli, app, ui/sanitize |
@@ -68,7 +68,7 @@ Technical reference for contributors.
 | `trust.ts` | `.summon` file trust management — SHA-256 allowlist (`assertTrusted`, `trustProject`, `isTrusted`, `hashSummonFile`) and the TTY trust prompt (`withTrustPrompt`) | yes | paths, utils, ui/sanitize, ui/output |
 | `command-spec.ts` | Command string analysis — `analyzeCommand`, `commandHasShellMeta`, `commandExecutable`, `replaceCommandExecutable` | **pure** | shell-escape |
 | `shell-escape.ts` | AppleScript/shell escape primitives — `escapeAppleScript`, `shellQuote`, `shellDoubleQuote` | **pure** | none |
-| `setup.ts` | Interactive setup wizard — back-navigation, numbered-select, accessibility prompt | yes | config, utils, starship, setup-gallery, ui/ansi, edit-distance |
+| `setup.ts` | Interactive setup wizard — back-navigation, numbered-select, accessibility prompt | yes | config, utils, starship, setup-gallery (dynamic), ui/ansi, ui/layout-preview, ui/output, ui/symbols, command-spec, edit-distance |
 | `setup-gallery.ts` | Template gallery data — `LAYOUT_INFO`, `GRID_TEMPLATES`, `GridTemplate` (extracted from setup.ts) | **pure** | none |
 | `ui/ansi.ts` | ANSI color/style helpers — `bold`, `dim`, `green`, `yellow`, `cyan`, `magenta`, `brightCyan`, `colorSwatch` (extracted from setup.ts) | **pure** | utils, ui/width |
 | `ui/attention.ts` | D1 stderr watch — `watchForAttention`, `markAttention`, `needsAttention` | yes | ui/output |
@@ -83,8 +83,8 @@ Technical reference for contributors.
 | `starship.ts` | Starship detection, preset listing, TOML config caching | yes | paths, utils |
 | `tree.ts` | Tree data model, DSL parser, plan builder (pure — no side effects) | **pure** | layout |
 | `status.ts` | Status reader over both backends: `readStatus`/`readProjectStatus`/`readAllStatuses` (`active`/`partial`/`stopped`/`unknown`), each record resolved by `recordReaderFor(record.backend).resolve`, `readMaySpawn` and `statusesMaySpawn`, git branch lookup; re-exports the Rex binary memo for the monitor's child read (PE-H1). A read runs the steps of `backends/rex/reconcile.ts` by default, as every status command needs; one that passes `{ reconcile: false }` writes nothing. No re-export of `status-record.ts` | yes | status-record, launch-identity, backends/read, backends/rex/read, paths, utils |
-| `briefing.ts` | Morning project briefing — overnight commits, dirty files, recommendations | yes | config, status, status-record, ui/ansi |
-| `monitor.ts` | Interactive TUI dashboard — real-time workspace status with keyboard navigation | yes | status, status-record, config, ui/ansi, workspace-focus, launcher and trust (dynamic, on Enter) |
+| `briefing.ts` | Morning project briefing — overnight commits, dirty files, recommendations | yes | config, status, status-record, ui/ansi, ui/symbols, utils |
+| `monitor.ts` | Interactive TUI dashboard — real-time workspace status with keyboard navigation | yes | status, status-record, monitor-read, monitor-input, monitor-visibility, config, self, ui/ansi, ui/symbols, ui/width, utils; workspace-focus, launcher and trust (dynamic, on Enter) |
 | `monitor-input.ts` | `createMonitorInputDecoder` — terminal replies and user keys share one byte stream; CSI payloads are never dispatched as keys | **pure** | none |
 | `monitor-visibility.ts` | `createMonitorVisibility` — the monitor's visibility protocol policy; the TUI owns IO and schedules the single deadline it returns | **pure** | monitor-input (types) |
 | `monitor-read.ts` | The monitor's child status read (PE-H1): the hidden `MONITOR_READ_ARG`, `writeMonitorRead`; a leaf module that loads the status code only when it reads | yes | status (dynamic) |
@@ -105,7 +105,8 @@ Technical reference for contributors.
 
 ```mermaid
 graph TD
-    %% every index.ts edge is a dynamic import()
+    %% every index.ts edge is a dynamic import. Elsewhere a dotted arrow labelled dynamic is a dynamic import and a solid arrow a static one. Type-only imports are not shown
+    %% rex is the aggregate of backends/rex/* other than read.ts and reconcile.ts, which have their own nodes
     index[index.ts] -.-> cliparse[cli/parse.ts]
     index -.-> cmds[commands/*]
     index -.-> clean[commands/clean.ts]
@@ -118,12 +119,18 @@ graph TD
     index -.-> setup[setup.ts]
     index -.-> self[self.ts]
     index -.-> uioutput[ui/output.ts]
+    index -.-> monitorread[monitor-read.ts]
 
     cliparse --> layout[layout.ts]
     cliparse --> validation[validation.ts]
     cliparse --> utils
     cliparse --> uioutput
     cliparse --> layoutsupport[commands/layout-support.ts]
+
+    layoutsupport --> config
+    layoutsupport --> layout
+    layoutsupport --> uioutput
+    layoutsupport --> utils
 
     help --> config
     help --> uiansi[ui/ansi.ts]
@@ -132,19 +139,31 @@ graph TD
     cmds --> config
     cmds --> configresolve[config-resolve.ts]
     cmds --> workspacefocus[workspace-focus.ts]
-    cmds -.->|dynamic| launcher
+    cmds --> launcher
     cmds --> utils
     cmds --> validation
     cmds --> status[status.ts]
-    cmds --> statusrecord
+    cmds --> statusrecord[status-record.ts]
     cmds --> resolvetarget
+    cmds --> layoutsupport
+    cmds --> layout
+    cmds --> tree[tree.ts]
+    cmds --> starship[starship.ts]
+    cmds --> trust
+    cmds --> commandspec[command-spec.ts]
+    cmds --> filelock[file-lock.ts]
+    cmds --> paths[paths.ts]
+    cmds --> uiansi
+    cmds --> uisanitize[ui/sanitize.ts]
     cmds --> uisymbols[ui/symbols.ts]
     cmds --> uioutput
+    cmds --> uilayoutpreview[ui/layout-preview.ts]
     cmds --> errors[errors.ts]
     cmds --> sessions[sessions.ts]
     cmds --> backend[backend.ts]
-    cmds --> ports["backends/select.ts,
-    backends/workspace.ts"]
+    cmds --> bkselect[backends/select.ts]
+    cmds --> bkworkspace[backends/workspace.ts]
+    cmds --> ghosttyprobe[backends/ghostty/probe.ts]
     cmds -->|doctor section| rex["backends/rex/*"]
     cmds -.->|dynamic| monitor[monitor.ts]
     cmds -.->|dynamic| snapshot[snapshot.ts]
@@ -155,12 +174,10 @@ graph TD
     cmds -.->|dynamic| keybindings[keybindings.ts]
     cmds -.->|dynamic| setup
 
-    clean --> status
-    clean --> statusrecord[status-record.ts]
-    clean --> launchidentity
-    clean --> ports
+    clean --> statusrecord
+    clean --> bkworkspace
+    clean --> resolvetarget
     clean --> validation
-    clean --> shellescape[shell-escape.ts]
     clean --> uioutput
 
     resolvetarget --> config
@@ -174,20 +191,19 @@ graph TD
     launcher --> commandinstall[command-install.ts]
     launcher --> dryrun[dry-run.ts]
     launcher --> layout
-    launcher --> tree[tree.ts]
+    launcher --> tree
     launcher --> utils
     launcher --> validation
-    launcher --> starship[starship.ts]
+    launcher --> starship
     launcher --> statusrecord
     launcher --> launchguards[launch-guards.ts]
-    launcher --> trust
-    launcher --> commandspec[command-spec.ts]
+    launcher --> commandspec
     launcher --> launchidentity
     launcher --> uioutput
     launcher --> backend
-    launcher --> ghosttybk[backends/ghostty/backend.ts]
-    launcher --> ports
+    launcher --> bkselect
     launcher --> uiattention[ui/attention.ts]
+    launcher -.->|dynamic| bkworkspace
     launcher -.->|dynamic| setup
 
     configresolve --> config
@@ -205,18 +221,31 @@ graph TD
     dryrun --> uioutput
 
     workspacefocus --> status
-    workspacefocus --> ports
+    workspacefocus --> bkworkspace
     workspacefocus --> validation
 
-    ports --> ghosttybk
-    ports --> ghosttyws[backends/ghostty/workspace.ts]
-    ports --> rex
+    bkselect --> backend
+    bkselect --> ghosttybk[backends/ghostty/backend.ts]
+    bkselect -.->|dynamic| rex
+    bkworkspace --> ghosttyws[backends/ghostty/workspace.ts]
+    bkworkspace --> rex
+    bkread[backends/read.ts] --> ghosttyread[backends/ghostty/read.ts]
+    bkread --> rexread[backends/rex/read.ts]
+
     ghosttyws --> ghosttynative[backends/ghostty/native.ts]
-    ghosttyws --> uisanitize[ui/sanitize.ts]
-    ghosttynative --> ghosttyprobe[backends/ghostty/probe.ts]
-    ghosttynative --> paneinv[backends/ghostty/pane-inventory.ts]
-    paneinv --> uisanitize
+    ghosttyws --> resolvetarget
+    ghosttyws --> launchidentity
     ghosttyws --> statusrecord
+    ghosttyws --> validation
+    ghosttyws --> uisanitize
+    ghosttyws --> uioutput
+    ghosttynative --> ghosttyprobe
+    ghosttynative --> paneinv[backends/ghostty/pane-inventory.ts]
+    ghosttynative --> shellescape[shell-escape.ts]
+    ghosttynative --> uisanitize
+    ghosttyprobe --> utils
+    paneinv --> uisanitize
+    ghosttyread --> statusrecord
 
     backend --> backenddetect[backend-detect.ts]
     backend --> rex
@@ -225,32 +254,50 @@ graph TD
     ghosttybk --> script[backends/ghostty/script.ts]
     ghosttybk --> paneinv
     ghosttybk --> commandinstall
+    ghosttybk --> commandspec
     ghosttybk --> configresolve
     ghosttybk --> tree
     ghosttybk --> launchguards
     ghosttybk --> errors
+    ghosttybk --> shellescape
+    ghosttybk --> uiprogress[ui/progress.ts]
     ghosttybk --> uioutput
     ghosttybk --> utils
 
+    rex --> backend
+    rex --> rexread
+    rex --> rexreconcile[backends/rex/reconcile.ts]
     rex --> launchidentity
     rex --> statusrecord
-    rex --> snapshot
+    rex --> filelock
     rex --> layout
     rex --> shellescape
+    rex --> uiattention
     rex --> uioutput
+    rex --> uiprogress
     rex --> uisymbols
     rex --> uiwidth[ui/width.ts]
     rex --> uisanitize
     rex --> utils
 
+    rexread --> rex
+    rexread --> rexreconcile
+    rexread --> statusrecord
+
+    rexreconcile --> rex
+    rexreconcile --> launchidentity
+    rexreconcile --> snapshot
+    rexreconcile --> statusrecord
+    rexreconcile --> utils
+
     status --> statusrecord
     status --> launchidentity
-    status --> ports
-    status --> rex
-    status --> paths[paths.ts]
+    status --> bkread
+    status --> rexread
+    status --> paths
     status --> utils
 
-    statusrecord --> filelock[file-lock.ts]
+    statusrecord --> filelock
     statusrecord --> launchidentity
     statusrecord --> backenddetect
     statusrecord --> rex
@@ -267,29 +314,50 @@ graph TD
 
     launchguards --> utils
     launchguards --> commandspec
+    launchguards --> uioutput
+
+    commandspec --> shellescape
 
     script --> tree
     script --> shellescape
     script --> launchidentity
     script --> paneinv
+    script --> ghosttynative
     script --> layout
+    script --> utils
 
     trust --> paths
+    trust --> filelock
     trust --> utils
     trust --> uisanitize
+    trust --> uioutput
 
     config --> paths
     config --> filelock
+    config --> layout
+    config --> validation
+    config --> utils
 
     sessions --> paths
     sessions --> config
     uioutput --> utils
+    uiattention --> uioutput
+    uiprogress --> utils
+    uisanitize --> utils
+    uiansi --> uiwidth
+    uiansi --> utils
+    uilayoutpreview --> uiansi
+    uilayoutpreview --> uiwidth
 
     setup --> config
     setup --> utils
     setup --> starship
-    setup --> setupgallery
+    setup -.->|dynamic| setupgallery
     setup --> uiansi
+    setup --> uilayoutpreview
+    setup --> uisymbols
+    setup --> uioutput
+    setup --> commandspec
     setup --> editdistance
 
     briefing --> config
@@ -297,26 +365,39 @@ graph TD
     briefing --> statusrecord
     briefing --> uiansi
     briefing --> uisymbols
+    briefing --> utils
 
     monitor --> status
     monitor --> statusrecord
+    monitor --> monitorread
+    monitor --> monitorinput[monitor-input.ts]
+    monitor --> monitorvisibility[monitor-visibility.ts]
+    monitor -.->|dynamic| launcher
+    monitor -.->|dynamic| workspacefocus
     monitor -.->|dynamic| trust
     monitor --> config
+    monitor --> self
     monitor --> uiansi
     monitor --> uisymbols
     monitor --> uiwidth
+    monitor --> utils
+
+    monitorread -.->|dynamic| status
 
     tree --> layout
+    tree --> uioutput
     starship --> paths
     starship --> utils
     validation --> utils
     completions --> config
     completions --> layout
     snapshot --> paths
+    snapshot --> uiansi
+    snapshot --> utils
     ports --> config
     ports --> status
-    ports --> statusrecord
     ports --> trust
+    ports --> utils
 
     config -.- cfg_fns["addProject, removeProject,
     getProject, listProjects,
@@ -336,8 +417,7 @@ graph TD
     LayoutOptions, LayoutPlan"]
     script -.- scr_fns["generateAppleScript,
     generateTreeAppleScript,
-    generateFocusScript,
-    GenerateAppleScriptOptions"]
+    generateFocusScript"]
     shellescape -.- esc_fns["escapeAppleScript,
     shellQuote, shellDoubleQuote"]
     commandspec -.- cs_fns["analyzeCommand,
@@ -393,12 +473,15 @@ graph TD
     validateProjectNameOrExit"]
     status -.- status_fns["readStatus, readProjectStatus,
     readAllStatuses, readMaySpawn,
-    getGitBranch, rexCommandGate,
+    getGitBranch,
     ResolvedStatus, ReadOptions"]
+    rexread -.- rexread_fns["resolveRexStatus,
+    adoptUnrecordedRex, rexBinaryPath,
+    requireRexBinary, rexCommandGate"]
     statusrecord -.- sr_fns["writeStatus, publishStatus,
     readStatusRecord, withOwnedRecord,
     WorkspaceStatus"]
-    briefing -.- briefing_fns["collectBriefing,
+    briefing -.- briefing_fns["collectBriefingData,
     resetGitDataCache,
     ProjectBriefing"]
     monitor -.- monitor_fns["runMonitor, printStatusOnce"]
@@ -430,11 +513,12 @@ graph TD
     style sym_fns fill:none,stroke-dasharray:5
     style rt_fns fill:none,stroke-dasharray:5
     style sr_fns fill:none,stroke-dasharray:5
+    style rexread_fns fill:none,stroke-dasharray:5
 ```
 
 `layout.ts`, `backends/ghostty/script.ts`, `backends/ghostty/pane-inventory.ts`, `tree.ts`, `shell-escape.ts`, `ui/sanitize.ts`, `command-spec.ts`, `setup-gallery.ts`, `ui/ansi.ts`, `ui/width.ts`, `completions.ts`, and `validation.ts` are pure modules with no side effects. `utils.ts` and `paths.ts` only use Node stdlib. `config.ts` depends on `paths.ts` for directory constants and uses in-process mtime-based memoization to avoid redundant disk reads within one invocation. There is no cross-invocation cache: the earlier `cache.json` gave no measured gain and was removed (PE-M1); `SUMMON_NO_CACHE` has no effect. `starship.ts` handles Starship binary detection (cached), preset listing, and TOML config file generation — it depends on `paths.ts` and `utils.ts`.
 
-`index.ts` is a thin dispatch registry (~250 lines) that delegates to `commands/*` handlers and `cli/parse.ts`. It has no static runtime imports: `cli/parse.ts`, `config.ts`, `trust.ts`, `utils.ts`, `launcher.ts`, the help text (`cli/help.ts`) and each command handler (through the lazy registry) are loaded via dynamic `import()` where needed, and the handlers load the full setup wizard, `completions.ts`, `keybindings.ts`, `monitor.ts`, `ports.ts` and `snapshot.ts` the same way. This keeps the `--version`/`--help` and simple-subcommand paths from pulling in the full launch graph. `launcher.ts` also dynamically imports `setup.ts` when no editor is configured. `focus`, `title`, `inspect`, `list` and `freeze` do not load `launcher.ts`: they import `workspace-focus.ts` or `config-resolve.ts`, and `open` and the monitor load the launcher only to launch a stopped workspace. `config-resolve.ts` imports `assertTrusted` from `trust.ts`; `launcher.ts` imports `confirmDangerousCommands` from `launch-guards.ts` and the Ghostty backend; `backends/select.ts` loads the Rex backend through `import()` only when Rex is detected, and `summon list`, `add` and `remove` do not load the status reader (PE-L2); `backends/ghostty/backend.ts` imports `ensureGhostty` and `ensureAccessibility`. All user-facing output is funnelled through `ui/output.ts` (`out`/`err`/`fail`, the unified `summon: error:` prefix); `briefing.ts` and `monitor.ts` import color helpers from `ui/ansi.ts` (not `setup.ts`), and `monitor.ts` imports width-aware truncation from `ui/width.ts` for TUI rendering.
+`index.ts` is a thin dispatch registry (~250 lines) that delegates to `commands/*` handlers and `cli/parse.ts`. It has no static runtime imports: `cli/parse.ts`, `config.ts`, `trust.ts`, `utils.ts`, `launcher.ts`, the help text (`cli/help.ts`) and each command handler (through the lazy registry) are loaded via dynamic `import()` where needed, and the handlers load the full setup wizard, `completions.ts`, `keybindings.ts`, `monitor.ts`, `ports.ts` and `snapshot.ts` the same way. This keeps the `--version`/`--help` and simple-subcommand paths from pulling in the full launch graph. `launcher.ts` also dynamically imports `setup.ts` when no editor is configured. `focus`, `title`, `inspect`, `list` and `freeze` do not load `launcher.ts`: they import `workspace-focus.ts` or `config-resolve.ts`, and `open` and the monitor load the launcher only to launch a stopped workspace. `config-resolve.ts` imports `assertTrusted` from `trust.ts`; `launcher.ts` imports `confirmDangerousCommands` from `launch-guards.ts` and `createTerminalBackend` from `backends/select.ts`, which imports the Ghostty backend and loads the Rex backend through `import()` only when Rex is detected, and `summon list`, `add` and `remove` do not load the status reader (PE-L2); `backends/ghostty/backend.ts` imports `ensureGhostty` and `ensureAccessibility`. All user-facing output is funnelled through `ui/output.ts` (`out`/`err`/`fail`, the unified `summon: error:` prefix); `briefing.ts` and `monitor.ts` import color helpers from `ui/ansi.ts` (not `setup.ts`), and `monitor.ts` imports width-aware truncation from `ui/width.ts` for TUI rendering.
 
 All interactive prompts use `promptUser()` from `utils.ts`. On Ctrl+C or EOF, `promptUser` throws `PromptCancelled` instead of calling `process.exit`, allowing callers to clean up before exiting.
 
@@ -452,7 +536,7 @@ Branches that stay outside `src/backends/` are generic: `status-record.ts` parse
 | Another `TERM_PROGRAM` | Ghostty when installed, else Rex when its CLI is found (`REX_SERVER` ignored) |
 | No `TERM_PROGRAM` | `REX_SERVER` only when `rex whoami` answers on it; else Ghostty when installed, else Rex |
 
-The table is a pure function (`backend-detect.ts`) over an env snapshot and injected probes, so each row is a unit test. `backend.ts` looks the `rex` CLI up at most once per detection; `status.ts` caches the binary path per process.
+The table is a pure function (`backend-detect.ts`) over an env snapshot and injected probes, so each row is a unit test. `backend.ts` looks the `rex` CLI up at most once per detection; `backends/rex/read.ts` caches the binary path per process (`rexBinaryPath`), and `status.ts` re-exports that memo.
 
 - **Ghostty** (`backends/ghostty/`): the adapter (`backend.ts`), the record port (`workspace.ts`), the AppleScript generator (`script.ts`), native scripting (`native.ts`), the pane inventory and the app probes; the AppleScript path described below; liveness from the per-launch `.pid`/`.active` markers.
 - **Rex** (`backends/rex/`): the launch writes a manifest first, sends `session.create` (one block per pane, each an interactive login shell started under `/usr/bin/env` with the workspace variables), records the session, window and block ids from the server's answer (on a lost answer it waits for the root pane's token file instead), and selects the session in a connected Rex app (the one attached to the caller's Rex session when there is one, else the newest; the same choice when a later `summon <project>` switches to the running workspace). Liveness is read from the server (`ls`, `session.view`) into four states (`active`, `partial`, `stopped`, `unknown`); a lost creation answer is adopted from the manifest and pane files on the next status read; a record with unverified panes is refreshed from the pane files before the state probe; a workspace that ended outside Summon is reconciled (snapshot, `endedAt`, file removal) under the status lock, and a read whose record is replaced by another launch meanwhile resolves the new generation on its own. Adoption, the refresh and the end of a launch are the writing steps of `backends/rex/reconcile.ts`; the reader in `status.ts` runs them on every read unless it passes `{ reconcile: false }`; every status command (`status`, the monitor, `open`, `focus`, `inspect`, `title`, `briefing`, `ports`) reconciles. A read with `{ reconcile: false }` writes nothing; the launch path and the dry run read the record only.
@@ -527,7 +611,7 @@ flowchart TD
     dispatch -->|"switch"| switchcmd["alias of open: a named project
     focuses or launches directly,
     else the picker"]
-    dispatch -->|"briefing"| briefingcmd["briefing.ts: collectBriefing()
+    dispatch -->|"briefing"| briefingcmd["briefing.ts: collectBriefingData()
     overnight commits, dirty files, recommendations"]
     dispatch -->|"ports"| portscmd["ports.ts: detectAllPorts()
     scan env, package.json, framework configs"]
@@ -547,16 +631,17 @@ flowchart TD
     from parsed flags"]
     overrides --> launch["launcher.launch(targetDir, cliOverrides)"]
 
-    launch --> trustcheck["trust.ts: assertTrusted(targetDir)
-    verify .summon SHA-256 hash"]
-    trustcheck -->|untrusted| trustprompt["prompt to trust .summon
-    (or abort)"]
+    launch --> trustcheck["config-resolve.ts: readTrustedSummonFile()
+    read .summon once, assertTrustedContent()
+    verifies its SHA-256 hash"]
+    trustcheck -->|untrusted| trustprompt["trust.ts: withTrustPrompt()
+    prompt to trust .summon (or abort)"]
     trustcheck -->|trusted| resolvecfg
     trustprompt -->|accepted| resolvecfg
-    trustprompt -->|denied| abort1["exit 1"]
+    trustprompt -->|denied| abort1["exit 130 (cancelled)"]
     resolvecfg["config-resolve.ts: resolveConfig(targetDir, cliOverrides, content)"]
 
-    resolvecfg --> readkv["readKVFile(targetDir/.summon)"]
+    resolvecfg --> readkv["readKVFromString(trusted .summon content)"]
     resolvecfg --> resolvekey["resolve layout key
     CLI > project > global"]
     resolvecfg --> expand["expand preset or custom layout
@@ -628,7 +713,12 @@ flowchart TD
     gen --> exec["executeScript():
     execFileSync('osascript', { input: script })"]
 
-    backendfork -->|rex| rexwho["backends/rex/backend.ts:
+    backendfork -->|rex| rexlock{"exclusiveLaunch() (BE-L1):
+    per-project launch lock, held through publishStatus();
+    P2 decision made again if the record changed"}
+    rexlock -->|switched| switched
+    rexlock -->|refused| abortrex
+    rexlock -->|proceed| rexwho["backends/rex/backend.ts:
     rex whoami on the server"]
     rexwho --> rexbuild["buildSessionCreateRequest()
     build the launch manifest"]
@@ -690,7 +780,7 @@ tsup automatically code-splits `setup.ts` and `completions.ts` into separate chu
 
 ## AppleScript Generation
 
-`backends/ghostty/script.ts` exports three pure functions: `generateAppleScript(opts: GenerateAppleScriptOptions)` for traditional grid layouts (also accepts positional args via overload for backward compat), `generateTreeAppleScript(plan, targetDir, starshipConfigPath, envVars)` for tree-based custom layouts, and `generateFocusScript(tabTitle)` for switching to an active workspace by tab title. Both return a string. Environment variables (including `STARSHIP_CONFIG` when a preset is configured) are set via Ghostty's `surface configuration` mechanism, which propagates them to all panes automatically (including new windows). Font size is also set via surface configuration when `--font-size` is provided. The traditional generator produces this script:
+`backends/ghostty/script.ts` exports three pure functions: `generateAppleScript(plan, targetDir, starshipConfigPath, envVars, projectName, onStop, launchId)` for traditional grid layouts, `generateTreeAppleScript` with the same positional parameters for tree-based custom layouts, and `generateFocusScript(terminalId)` (re-exported from `native.ts`, where it is `generateNativeFocusScript`) for focusing a recorded terminal by its exact id. Each returns a string. Environment variables (including `STARSHIP_CONFIG` when a preset is configured) are set via Ghostty's `surface configuration` mechanism, which propagates them to all panes automatically (including new windows). Font size is also set via surface configuration when `--font-size` is provided. The traditional generator produces this script:
 
 1. Creates a `surface configuration` with the target working directory, font size, and environment variables
 2. Creates a new Ghostty window with that configuration (or reuses the front window unless `--new-window` is set)
@@ -742,7 +832,7 @@ implemented by `emitVerifiedKeystroke` in `backends/ghostty/script.ts`:
 5. **Error mapping** — `executeScript` in `backends/ghostty/backend.ts` catches these sentinels
    before the rollback step: `summon-newtab-failed` maps to `TabOpenError`
    (recoverable — `session --all` skips and continues); `summon-newwindow-failed`
-   maps to a plain `Error`. Neither triggers `closeWorkspaceWindow()` because no
+   maps to a plain `Error`. Neither triggers `closeCreatedContainer()` because no
    new surface was created.
 
 `count of tabs` was empirically validated as a working Ghostty AppleScript query
@@ -775,7 +865,7 @@ The module imports `VALID_KEYS`, `CLI_FLAGS`, and `listCustomLayouts()` from `co
 
 ### `.summon` File Trust Gate
 
-`trust.ts` implements a direnv-style trust model. Before `launcher.ts` acts on any `.summon` file, `assertTrusted(targetDir)` checks the file's SHA-256 hash against `~/.config/summon/trust`. If the hash is absent or stale, the user is prompted to trust it via `summon trust <dir>`. Trust is revoked on content change.
+`trust.ts` implements a direnv-style trust model. Before `launcher.ts` acts on any `.summon` file, `readTrustedSummonFile()` in `config-resolve.ts` reads it once and `assertTrustedContent()` checks the SHA-256 hash of those exact bytes against `~/.config/summon/trust`. If the hash is absent or stale, `withTrustPrompt()` asks on a TTY to trust it; otherwise the user trusts it with `summon trust <dir>`. Trust is revoked on content change.
 
 ### Command Name Validation
 
@@ -795,7 +885,7 @@ The module imports `VALID_KEYS`, `CLI_FLAGS`, and `listCustomLayouts()` from `co
 
 ### osascript Execution
 
-`executeScript` in `backends/ghostty/backend.ts` uses `execFileSync` (not `execSync`) to pass the generated AppleScript to `osascript` via stdin, avoiding shell interpretation of the script content. On failure, `closeWorkspaceWindow()` is called to roll back any partially-opened window.
+`executeScript` in `backends/ghostty/backend.ts` uses `execFileSync` (not `execSync`) to pass the generated AppleScript to `osascript` via stdin, avoiding shell interpretation of the script content. On failure, `closeCreatedContainer()` is called to roll back the window or tab the script recorded as created; it never closes the user's front window.
 
 ## Config Resolution
 
@@ -809,7 +899,7 @@ flowchart LR
     style defaults fill:#888,color:#fff
 ```
 
-1. Read project `.summon` file via `readKVFile(join(targetDir, ".summon"))`
+1. Parse the project `.summon` content that `readTrustedSummonFile()` already read and checked, via `readKVFromString` (the file is not read again here)
 2. Resolve the `layout` key (CLI > project > global) and expand the matching preset or custom layout as a base. Custom layouts with a `tree=` key produce a `treeLayout` instead of preset-like config.
 3. For each config key (`editor`, `sidebar`, `panes`, `editor-size`, `shell`, `auto-resize`, `starship-preset`, `font-size`, `on-start`, `on-stop`, `new-window`, `fullscreen`, `maximize`, `float`), pick the highest-priority value
 4. Return `ResolvedConfig` — includes `opts` (partial `LayoutOptions`), `starshipPreset`, `onStart`, `onStop`, `envVars`, and optionally `treeLayout` (tree DSL + pane definitions). `planLayout()` fills remaining defaults for traditional layouts; tree layouts go through `buildTreePlan()` instead.
@@ -961,4 +1051,4 @@ A `.summon` file in the project root uses the same `key=value` format.
 4. **Code splitting**: `setup.ts` and `completions.ts` are auto-split into separate chunks via dynamic `import()`
 5. **prepublishOnly**: runs `pnpm run build` before any `npm publish`
 
-The `files` field in package.json limits the published package to `dist/` only. Total bundle size is ~67 KB across 7 chunks.
+The `files` field in package.json limits the published package to `dist/` only. Total bundle size is about 279 KB of JavaScript across 83 files (entry plus chunks, source maps excluded; measured 2026-10-31 at b7879cf).
