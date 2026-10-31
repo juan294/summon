@@ -812,9 +812,11 @@ Use cases:
 
 - **Runtime config per project** — each project's `.summon` file carries its own environment, so `summon api` and `summon frontend` launch with different `PORT`, `NODE_ENV`, etc.
 - **API keys for dev tools** — pass keys to panes without adding them to your shell profile
-- **Tool configuration** — set `EDITOR`, `PAGER`, or tool-specific vars per workspace
+- **Tool configuration** — set tool-specific vars per workspace
 
 Environment variables are layered: CLI flags override `.summon`, which overrides machine config.
+
+**Environment values run before the shell starts.** Both backends apply `env.<KEY>` values (from machine config, a trusted `.summon` file and `--env`) to each pane before its login shell starts, so a variable can change what the shell and the tools in it run. Summon ignores the keys that load startup files, run a command or inject options, and prints `summon: warning: ignoring denylisted env var key "<KEY>" from <source>.` for each one: `ZDOTDIR`, `ENV`, `BASH_ENV`, `SHELL`, `PS1`, `PROMPT`, `PROMPT_COMMAND`, `CDPATH`, `IFS`, `NODE_OPTIONS`, `PERL5OPT`, `RUBYOPT`, `PYTHONSTARTUP`, `PAGER`, `EDITOR`, `VISUAL`, `GIT_EDITOR`, `GIT_PAGER`, `GIT_SSH_COMMAND`, `GIT_EXTERNAL_DIFF`, `GIT_ASKPASS`, `SSH_ASKPASS`, `LESSOPEN`, `LESSCLOSE`, and every key that starts with `DYLD_`, `LD_` or `GIT_CONFIG`. `PATH`, `PYTHONPATH` and `HOME` stay allowed, because users set them on purpose; a trusted `.summon` that sets `PATH` decides which programs the panes find, so review it like the commands.
 
 ## Window Management
 
