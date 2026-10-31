@@ -263,7 +263,7 @@ This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.
 | `COLORTERM` | When set to `truecolor` or `24bit`, the setup wizard shows colored palette swatches for Starship presets. |
 | `STARSHIP_CONFIG` | Set automatically when `starship-preset` is configured. Points each workspace to a cached preset TOML file. Do not set manually. |
 | `SUMMON_WORKSPACE` | Set to `1` inside summon workspaces. Used to detect and warn about nested launches. |
-| `SUMMON_DEBUG` | Set to `1` to enable debug output. Each message is written to stderr with an ISO timestamp and also logged to `~/.config/summon/logs/`. |
+| `SUMMON_DEBUG` | Set to `1` to enable debug output. Each message is written to stderr with an ISO timestamp; nothing is written to a file. |
 | `SUMMON_NO_CACHE` | Set to `1` to disable the persistent cross-invocation read cache (`~/.config/summon/cache.json`). Reads always hit disk. |
 | `SUMMON_NO_VISIBILITY` | Set to `1` to keep normal status-monitor polling instead of negotiating terminal visibility reports. |
 | `EDITOR` | Editor used by `summon layout edit`. Falls back to `vi` if unset. |
