@@ -50,10 +50,11 @@ src/
   backends/rex/app.ts   App client listing and choice (P7), selectInApp, waitForAppClient, openRexApp
   backends/rex/launch.ts createWorkspace (manifest first, token wait, adoption), adoptOrphans (P13), showWorkspace, maybeSwitchToExisting (P2)
   backends/rex/status.ts sessionState (four-state table P10), focusRex, inspectRex, titleRex, program status (OSC 7501)
+  backends/rex/reconcile.ts Writing steps of a reconciling read: adoptOnce (P13), pane-file refresh, endRexLaunch (snapshot, endedAt, file removal; also used by clean)
   backends/rex/backend.ts createRexBackend: Backend adapter wiring the pieces above
   launch-guards.ts      Pre-launch safety checks (ensureGhostty, ensureAccessibility, confirmDangerousCommands)
   status-record.ts      Record layer: WorkspaceStatus, readStatusRecord, withOwnedRecord locked writes, launch artifact removal, Ghostty liveness
-  status.ts             Status reader: readStatus/readAllStatuses over both backends (active/partial/stopped/unknown), Rex adoption and reconciliation, endRexLaunch; re-exports status-record
+  status.ts             Status reader: readStatus/readAllStatuses over both backends (active/partial/stopped/unknown); writes nothing unless a read passes { reconcile: true } (every status command does); no re-export of status-record
   briefing.ts           Morning project briefing (overnight commits, dirty files, recommendations)
   monitor.ts            Interactive TUI dashboard for workspace status (refresh loop, keyboard nav)
   monitor-read.ts       The monitor's child status read (hidden MONITOR_READ_ARG, writeMonitorRead); leaf module, status code loaded lazily
@@ -130,7 +131,7 @@ Summon drives two terminals through one `Backend` seam resolved in `launcher.ts`
 
 - **AppleScript is generated as a string** by a pure function (`script.ts`). This makes it testable without actually running osascript. The Rex request is built the same way (`backends/rex/layout.ts`).
 - **Layout planning is separated from script generation.** `layout.ts`/`tree.ts` compute the abstract plan; `script.ts` turns it into AppleScript and `backends/rex/layout.ts` into a Rex request.
-- **Status records are owned per launch.** `status-record.ts` writes the shared record only under a file lock with an ownership expectation; Rex liveness is resolved from the server on read (`status.ts`), never from stale markers.
+- **Status records are owned per launch.** `status-record.ts` writes the shared record only under a file lock with an ownership expectation; Rex liveness is resolved from the server on read (`status.ts`), never from stale markers. A read writes only when it passes `{ reconcile: true }` (adoption, pane refresh and the end of a launch, in `backends/rex/reconcile.ts`); consumers of record-layer symbols import `status-record.ts` directly.
 - **Config system is identical to termplex.** Same key=value files, same layering (CLI > project > global > preset > defaults), same project registry.
 - **macOS only.** The `os` field in package.json enforces this. No cross-platform abstraction.
 
