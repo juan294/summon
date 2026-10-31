@@ -260,13 +260,17 @@ This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.
 |---|---|
 | `SHELL` | Login shell used to execute pane commands. Must be an absolute path. Falls back to `/bin/bash` if unset or invalid. |
 | `NO_COLOR` | When set, disables ANSI colors in the setup wizard. Follows the [NO_COLOR](https://no-color.org) standard. |
+| `FORCE_COLOR` | `1` turns ANSI colors on and `0` turns them off, whether or not stdout is a terminal. `NO_COLOR` wins over it. |
 | `COLORTERM` | When set to `truecolor` or `24bit`, the setup wizard shows colored palette swatches for Starship presets. |
 | `STARSHIP_CONFIG` | Set automatically when `starship-preset` is configured. Points each workspace to a cached preset TOML file. Do not set manually. |
 | `SUMMON_WORKSPACE` | Set to `1` inside summon workspaces. Used to detect and warn about nested launches. |
 | `SUMMON_DEBUG` | Set to `1` to enable debug output. Each message is written to stderr with an ISO timestamp; nothing is written to a file. |
-| `SUMMON_NO_CACHE` | Set to `1` to disable the persistent cross-invocation read cache (`~/.config/summon/cache.json`). Reads always hit disk. |
+| `SUMMON_NO_CACHE` | No effect. It disabled a cross-invocation read cache (`~/.config/summon/cache.json`), which is gone; config is always read from disk. An old `cache.json` is no longer read, and you can delete it. |
+| `SUMMON_NO_SPINNER` | When set (to any value), launch progress is printed as plain lines instead of an animated spinner. |
 | `SUMMON_NO_VISIBILITY` | Set to `1` to keep normal status-monitor polling instead of negotiating terminal visibility reports. |
 | `EDITOR` | Editor used by `summon layout edit`. Falls back to `vi` if unset. |
+| `TERM_PROGRAM` | Set by your terminal. Summon reads it to pick the backend: `rex` selects Rex, `ghostty` selects Ghostty. Unset or another terminal: Ghostty when installed, else Rex (see [docs/rex.md](docs/rex.md)). |
+| `XDG_CONFIG_HOME` | Read by `summon doctor --fix`. When it points anywhere other than `~/.config`, doctor does not edit the Ghostty config, because Ghostty may load another file. |
 | `REX_SERVER` | Set by Rex terminals; inside Rex, Summon uses it as the server (else `~/Library/Application Support/rex/server.sock`). With `TERM_PROGRAM` unset, an inherited value selects Rex only when `rex whoami` answers on it; other terminals ignore it. |
 | `REX_BIN_DIR` | Set by Rex terminals. Searched for the `rex` CLI after `PATH`, before the Rex app bundles. |
 
@@ -274,7 +278,7 @@ This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.
 
 `.summon` files configure commands that summon executes in each pane (`editor`, `sidebar`, `shell`, `on-start`). Running `summon .` in a directory will execute whatever commands its `.summon` file specifies -- this is the same trust model as `Makefile`, direnv `.envrc`, or VS Code `.vscode/tasks.json`.
 
-Summon uses a direnv-style trust gate: before a project's `.summon` file is acted upon, its SHA-256 hash must be recorded as trusted. The first time you run summon in a directory with a `.summon` file, it prompts you to trust it. You can also grant trust explicitly:
+Summon uses a direnv-style trust gate: before a project's `.summon` file is acted upon, its SHA-256 hash must be recorded as trusted. The first time you run summon in a directory with a `.summon` file, or after that file changed (for example after `git pull`), summon says which case it is. On a terminal it shows the file and asks `Trust and launch? [y/N]`; `y` trusts exactly the content shown and launches, and `n` exits with 130. Without a terminal (scripts, CI) and in `summon session --all`, nothing is asked: the launch fails, or the project is skipped. You can also grant trust explicitly:
 
 ```bash
 summon trust .                    # trust the .summon file in the current directory
