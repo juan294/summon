@@ -1537,7 +1537,7 @@ describe("shell metacharacter confirmation (#90)", () => {
     const writeSpy = warnSpy;
 
     await expect(launch("/tmp/workspace")).rejects.toThrow("process.exit");
-    expect(mockExit).toHaveBeenCalledWith(1);
+    expect(mockExit).toHaveBeenCalledWith(130);
 
     mockExit.mockRestore();
     warnSpy.mockRestore();

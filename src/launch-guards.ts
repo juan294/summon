@@ -69,7 +69,7 @@ async function promptLower(question: string): Promise<string> {
  * Prompts the user for each dangerous command:
  *   y / yes → proceed with this command
  *   s / skip → omit this pane from launch (UX-S2 #340)
- *   n / anything else → abort entire launch
+ *   n / anything else → abort entire launch (exit 130, a user cancel)
  *
  * On non-TTY, refuses if any dangerous commands are present.
  * Returns a DangerousCommandDecision describing confirmed and skipped keys.
@@ -110,9 +110,10 @@ export async function confirmDangerousCommands(
     } else if (answer === "y" || answer === "yes") {
       // explicit yes → proceed
     } else {
-      // Empty Enter, "n", "no", or anything else → abort (N is the default)
+      // Empty Enter, "n", "no", or anything else → abort (N is the default). A decline is a
+      // user cancel: exit 130 like Ctrl+C, as the user manual's exit-code table says.
       err("Aborted.");
-      process.exit(1);
+      process.exit(130);
     }
   }
 
