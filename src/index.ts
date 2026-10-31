@@ -135,7 +135,8 @@ async function main(): Promise<void> {
   }
 
   try {
-    // DO-L1 (#547): Test hook — throw a synthetic unhandled error to verify the debug hint is printed.
+    // INTERNAL TEST HOOK, not a user setting (DO-L1): SUMMON_TEST_THROW=1 throws a synthetic unhandled error so
+    // index.test.ts can check the debug hint. Undocumented on purpose; keep it, the suite depends on it.
     if (process.env["SUMMON_TEST_THROW"] === "1") {
       throw new Error("Synthetic test error (SUMMON_TEST_THROW)");
     }
@@ -169,6 +170,7 @@ async function main(): Promise<void> {
     if (!parsed.subcommand) {
       // UX-S1 (#315): Show quick-start hint for returning users in TTY
       // UX-L1 (#425): Include setup and --help in the hint so users know where to start
+      // INTERNAL TEST HOOK (DO-L1): SUMMON_FORCE_TTY=1 lets index.test.ts reach the TTY hint from a pipe. Undocumented on purpose.
       const isTTY = process.stdin.isTTY || process.env["SUMMON_FORCE_TTY"] === "1";
       if (isTTY) {
         console.log(
@@ -209,13 +211,16 @@ async function main(): Promise<void> {
   }
 }
 
-/** A direct launch: an untrusted `.summon` (SummonError) is a branded error and exit 1, without the debug hint (UX-M2). */
+/**
+ * A direct launch: an untrusted `.summon` (SummonError) is a branded error and exit 1, without the debug hint (UX-M2).
+ * On a terminal the user is first offered to trust the file and launch (UX-M4); declining exits 130.
+ */
 async function launchOrExit(targetDir: string, overrides: CLIOverrides): Promise<void> {
   // PE-M1 (#474): launch and trust load only when a launch happens, not at startup.
   const { launch } = await import("./launcher.js");
-  const { SummonError } = await import("./trust.js");
+  const { SummonError, withTrustPrompt } = await import("./trust.js");
   try {
-    await launch(targetDir, overrides);
+    await withTrustPrompt(() => launch(targetDir, overrides));
   } catch (error) {
     if (!(error instanceof SummonError)) throw error;
     const { fail } = await import("./ui/output.js");
