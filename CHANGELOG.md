@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.1] - 2026-10-31
+
 ### Changed
 
 - Under Rex, `summon <project>`, `summon open <project>` and `summon session` close the tab they were typed in once the workspace is shown in its own session, when that tab holds only that pane. No empty launcher tab or session stays behind (Ghostty reuses that tab, so nothing changes there). A tab with splits, a workspace tab, a failed launch, a dry run, a Summon run by an agent or a script, and any run that printed a note or a warning to read are left alone.
@@ -852,7 +854,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CodeQL security scanning
 - Dependabot for npm and GitHub Actions
 
-[Unreleased]: https://github.com/juan294/summon/compare/v2.0.0...develop
+[Unreleased]: https://github.com/juan294/summon/compare/v2.0.1...develop
+[2.0.1]: https://github.com/juan294/summon/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/juan294/summon/compare/v1.9.0...v2.0.0
 [1.9.0]: https://github.com/juan294/summon/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/juan294/summon/compare/v1.7.0...v1.8.0
