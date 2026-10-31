@@ -146,6 +146,17 @@ describe("confirmDangerousCommands — TTY confirmation", () => {
     warnSpy.mockRestore();
   });
 
+  // UX-M2: the preamble carries the one warning prefix and stays on console.warn (stderr); the listed lines are unchanged.
+  it("prints the preamble as summon: warning: through console.warn", async () => {
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("y"));
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await confirmDangerousCommands([["shell", "npm run dev; echo done"]]);
+    expect(warnSpy.mock.calls).toEqual([["summon: warning: config contains commands with shell metacharacters:\n  shell = npm run dev; echo done"]]);
+
+    warnSpy.mockRestore();
+  });
+
   it("proceeds when user answers yes", async () => {
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("yes"));
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});

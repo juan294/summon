@@ -16,20 +16,11 @@ function walkTs(dir: string): string[] {
 /** A string literal that starts (after an optional `${...}` glyph) with a hand-written prefix. */
 const HAND_WRITTEN_PREFIX = /["'`](?:\$\{[^}]*\}\s*)?(?:Warning|Note|Error):/;
 
-/**
- * Files outside this unit's ownership that still carry a hand-written prefix. Each entry is a known
- * gap with an owner, never a new exception: convert the call site to warn()/note() and delete the line.
- */
-const KNOWN_GAPS = new Set([
-  "launch-guards.ts", // shell-metacharacter confirmation preamble (UX-M2, outside the W1-C file set)
-]);
-
 function offenders(): string[] {
   const found: string[] = [];
   for (const file of walkTs(SRC_DIR)) {
     const rel = relative(SRC_DIR, file);
     if (rel.endsWith(".test.ts") || rel === "ui/output.ts" || rel.startsWith("e2e/") || rel.startsWith("fixtures/")) continue;
-    if (KNOWN_GAPS.has(rel)) continue;
     readFileSync(file, "utf8").split("\n").forEach((line, i) => {
       const code = line.trim();
       if (code.startsWith("//") || code.startsWith("*") || code.startsWith("/*")) return;
