@@ -16,7 +16,7 @@ import { commandExecutable } from "../command-spec.js";
 import { green, red, yellow, bold, dim } from "../ui/ansi.js";
 import { sym } from "../ui/symbols.js";
 import { CONFIG_DIR, STATUS_DIR, TRUST_FILE } from "../paths.js";
-import { inspectLock, recoverStaleLock, type LockState } from "../file-lock.js";
+import { describeLock, inspectLock, recoverStaleLock, type LockState } from "../file-lock.js";
 import { GHOSTTY_ONLY_CONFIG_KEYS, resolveBackendForLaunch } from "../backend.js";
 import { createRexCli, defaultRexServer, discoverRex, whoamiOf } from "../backends/rex/cli.js";
 import { listAppClients } from "../backends/rex/app.js";
@@ -375,8 +375,9 @@ export async function handleDoctorCommand({
   for (const lock of lockDirs) {
     const shown = escapeControlChars(lock);
     let state: LockState;
+    let removed: boolean;
     try {
-      state = fixFlag ? recoverStaleLock(lock) : inspectLock(lock);
+      ({ state, removed } = fixFlag ? recoverStaleLock(lock) : { state: inspectLock(lock), removed: false });
     } catch (error) {
       lockFindings++;
       record(false);
@@ -385,18 +386,18 @@ export async function handleDoctorCommand({
     }
     if (state.kind === "absent" || state.kind === "live") continue;
     lockFindings++;
+    const why = escapeControlChars(describeLock(state));
     if (state.kind === "unrecognized") {
       record(false);
-      console.error(`  ${FAIL}  Unrecognized lock ${shown} (${state.entries.map(escapeControlChars).join(", ")})`);
+      console.error(`  ${FAIL}  Unrecognized lock ${shown} (${why})`);
       console.error("    Make sure no summon process is running, then remove it by hand.");
       continue;
     }
-    const why = state.kind === "released" ? "interrupted release"
-      : state.kind === "dead" ? `owner process ${state.pid} is gone`
-      : `owner token is ${Math.round(state.ageMs / 1000)} s old`;
-    record(!!fixFlag);
-    if (fixFlag) {
+    record(removed);
+    if (removed) {
       console.error(`  ${PASS}  Removed stale lock ${shown} (${why})`);
+    } else if (fixFlag) {
+      console.error(`  ${FAIL}  Could not remove stale lock ${shown} (${why}); it is not empty. Retry summon doctor --fix.`);
     } else {
       autoFixable++;
       console.error(`  ${FAIL}  Stale lock ${shown} (${why})`);

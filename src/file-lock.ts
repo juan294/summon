@@ -6,11 +6,12 @@ const pause = new Int32Array(new SharedArrayBuffer(4));
 
 /**
  * BE-L2: an owner token older than this is stale whatever the PID probe says (a reused PID, or
- * EPERM). Every critical section is local I/O on one small file (a key=value config file, a status
- * record, the trust DB) plus idempotent side-file removal: no subprocess, network or git call runs
- * under the lock, so a transaction takes milliseconds and a waiter gives up after 3 s. One minute
- * is 20 times that wait. Only an owner suspended mid-transaction (Ctrl-Z, sleep) for a minute could
- * lose the lock.
+ * EPERM). A token dated this far in the future (the clock jumped back) is stale too. Every critical
+ * section is local I/O on one small file (a key=value config file, a status record, the trust DB),
+ * idempotent side-file removal and at most a warning written to stderr: no subprocess, network or
+ * git call runs under the lock, so a transaction takes milliseconds and a waiter gives up after 3 s.
+ * One minute is 20 times that wait. Only an owner suspended mid-transaction (Ctrl-Z, system sleep)
+ * for a minute could lose the lock.
  */
 export const STALE_LOCK_MS = 60_000;
 
@@ -20,8 +21,8 @@ function code(error: unknown): string | undefined {
   return (error as NodeJS.ErrnoException).code;
 }
 
-/** Remove only the observed owner's token; a replacement owner keeps the directory nonempty. */
-function removeOwner(directory: string, token?: string): void {
+/** Remove only the observed owner's token; a replacement owner keeps the directory nonempty. True when the directory is gone. */
+function removeOwner(directory: string, token?: string): boolean {
   if (token) {
     try { unlinkSync(join(directory, token)); } catch (error) {
       if (code(error) !== "ENOENT") throw error;
@@ -29,7 +30,9 @@ function removeOwner(directory: string, token?: string): void {
   }
   try { rmdirSync(directory); } catch (error) {
     if (!["ENOENT", "ENOTEMPTY", "EEXIST"].includes(code(error) ?? "")) throw error;
+    return code(error) === "ENOENT";
   }
+  return true;
 }
 
 export type LockState =
@@ -40,6 +43,21 @@ export type LockState =
   | { kind: "unrecognized"; entries: string[] }
   /** `live` within STALE_LOCK_MS, `dead` once the PID is proven absent, `expired` past the bound. */
   | { kind: "live" | "dead" | "expired"; pid: number; token: string; ageMs: number };
+
+/** Why a lock is in its state, for diagnostics (raw entry names: escape before printing). */
+export function describeLock(state: LockState): string {
+  switch (state.kind) {
+    case "absent": return "no lock";
+    case "released": return "interrupted release";
+    case "unrecognized": return state.entries.join(", ");
+    case "live": return `held by process ${state.pid}`;
+    case "dead": return `owner process ${state.pid} is gone`;
+    case "expired": {
+      const seconds = Math.round(Math.abs(state.ageMs) / 1000);
+      return state.ageMs >= 0 ? `owner token is ${seconds} s old` : `owner token is dated ${seconds} s in the future`;
+    }
+  }
+}
 
 /** Classify a lock directory without changing it (recovery and `summon doctor` share this rule). */
 export function inspectLock(directory: string): LockState {
@@ -62,15 +80,15 @@ export function inspectLock(directory: string): LockState {
     // Only ESRCH proves absence; EPERM may be a reused PID, which the age bound settles.
     alive = code(error) !== "ESRCH";
   }
-  return { kind: !alive ? "dead" : ageMs > STALE_LOCK_MS ? "expired" : "live", pid, token, ageMs };
+  return { kind: !alive ? "dead" : Math.abs(ageMs) > STALE_LOCK_MS ? "expired" : "live", pid, token, ageMs };
 }
 
-/** Remove a released, dead or expired lock (only its observed token); live and unrecognized locks stay. */
-export function recoverStaleLock(directory: string): LockState {
+/** Remove a released, dead or expired lock (only its observed token); live and unrecognized locks stay. `removed`: this call removed the directory. */
+export function recoverStaleLock(directory: string): { state: LockState; removed: boolean } {
   const state = inspectLock(directory);
-  if (state.kind === "released") removeOwner(directory);
-  else if (state.kind === "dead" || state.kind === "expired") removeOwner(directory, state.token);
-  return state;
+  if (state.kind === "released") return { state, removed: removeOwner(directory) };
+  if (state.kind === "dead" || state.kind === "expired") return { state, removed: removeOwner(directory, state.token) };
+  return { state, removed: false };
 }
 
 /** Remove this file's staging directories that killed acquirers left past STALE_LOCK_MS. They never block, so this is best effort. */
@@ -126,7 +144,6 @@ export function withFileLock<T>(file: string, action: () => T, timeoutMs = 3000)
       }
       Atomics.wait(pause, 0, 0, 10);
     }
-    sweepStaleStaging(file);
     result = action();
   } catch (error) {
     // Preserve a transaction/acquisition error rather than masking it with cleanup.
@@ -137,5 +154,6 @@ export function withFileLock<T>(file: string, action: () => T, timeoutMs = 3000)
     throw error;
   }
   removeOwner(directory, token);
+  sweepStaleStaging(file);
   return result;
 }

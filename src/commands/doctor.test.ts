@@ -21,6 +21,18 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 const exec = vi.hoisted(() => vi.fn());
+// A pass-through rmdirSync that a test can make fail (doctor --fix reporting, BE-L2).
+const rmdirFault = vi.hoisted(() => ({ path: "", code: "" }));
+vi.mock("node:fs", async (original) => {
+  const fs = await original<typeof import("node:fs")>();
+  return {
+    ...fs,
+    rmdirSync: (...args: Parameters<typeof fs.rmdirSync>) => {
+      if (rmdirFault.path && String(args[0]) === rmdirFault.path) throw Object.assign(new Error(rmdirFault.code), { code: rmdirFault.code });
+      return fs.rmdirSync(...args);
+    },
+  };
+});
 let home = "";
 vi.mock("node:os", async (original) => ({
   ...(await original<typeof import("node:os")>()),
@@ -464,6 +476,19 @@ describe("doctor lock files (BE-L2, QA-L1)", () => {
       if (pid === DEAD) throw Object.assign(new Error("ESRCH"), { code: "ESRCH" });
       return kill(pid, signal);
     }) as typeof process.kill);
+  });
+
+  it("--fix reports a stale lock it could not remove instead of claiming it removed it", async () => {
+    const dead = lock(join(summonDir(), "config.lock"), [{ name: `${DEAD}-${uuid}.owner` }]);
+    rmdirFault.path = dead;
+    rmdirFault.code = "ENOTEMPTY";
+    try {
+      await expect(handleDoctorCommand(context({ fix: true }))).rejects.toThrow("exit:2");
+    } finally {
+      rmdirFault.path = "";
+    }
+    expect(output()).toContain(`Could not remove stale lock ${dead} (owner process ${DEAD} is gone)`);
+    expect(output()).not.toContain("Removed stale lock");
   });
 
   it("passes when no lock is stale, and a live owner's lock is not a finding", async () => {

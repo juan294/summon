@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
@@ -32,6 +32,9 @@ describe("SE-L5: concurrent trust grants (real processes, sandbox HOME)", () => 
       // An unlocked writer would have read the missing DB and exited by now.
       const early = await Promise.race([exited.then(() => `exited early: ${stderr}`), new Promise<string>((resolve) => setTimeout(() => resolve("waiting"), 1000))]);
       expect(early).toBe("waiting");
+      // Proof the child waits on the lock: it is still running and has written nothing.
+      expect(child.exitCode).toBeNull();
+      expect(existsSync(trustFile)).toBe(false);
       const other = { "/other": "b".repeat(64) };
       writeFileSync(trustFile, JSON.stringify(other));
       rmSync(`${trustFile}.lock`, { recursive: true });

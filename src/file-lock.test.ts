@@ -21,7 +21,7 @@ vi.mock("node:fs", async (original) => {
   return { ...fs, readdirSync: wrap("readdirSync"), renameSync: wrap("renameSync"), unlinkSync: wrap("unlinkSync"), rmdirSync: wrap("rmdirSync"), lstatSync: wrap("lstatSync") };
 });
 
-import { inspectLock, recoverStaleLock, STALE_LOCK_MS, withFileLock } from "./file-lock.js";
+import { describeLock, inspectLock, recoverStaleLock, STALE_LOCK_MS, withFileLock } from "./file-lock.js";
 
 const dirs: string[] = [];
 function fixture(): string {
@@ -210,6 +210,39 @@ describe("stale-lock recovery (BE-L2)", () => {
     expect(readdirSync(dir)).toEqual([]);
   });
 
+  it("treats a token dated more than the bound in the future (clock jumped back) as expired, not live forever", () => {
+    const dir = fixture(), file = join(dir, "config");
+    const token = owner(file, process.pid);
+    age(join(`${file}.lock`, token), -(STALE_LOCK_MS + 5000));
+    expect(inspectLock(`${file}.lock`)).toMatchObject({ kind: "expired", pid: process.pid, token });
+    expect(withFileLock(file, () => 8, 200)).toBe(8);
+    expect(readdirSync(dir)).toEqual([]);
+    const near = owner(file, process.pid);
+    age(join(`${file}.lock`, near), -(STALE_LOCK_MS - 5000));
+    expect(inspectLock(`${file}.lock`)).toMatchObject({ kind: "live" });
+  });
+
+  it("describes each state for diagnostics", () => {
+    const base = { pid: 7, token: "t", ageMs: 65_400 };
+    expect(describeLock({ kind: "absent" })).toBe("no lock");
+    expect(describeLock({ kind: "released" })).toBe("interrupted release");
+    expect(describeLock({ kind: "unrecognized", entries: ["a", "b"] })).toBe("a, b");
+    expect(describeLock({ kind: "live", ...base })).toBe("held by process 7");
+    expect(describeLock({ kind: "dead", ...base })).toBe("owner process 7 is gone");
+    expect(describeLock({ kind: "expired", ...base })).toBe("owner token is 65 s old");
+    expect(describeLock({ kind: "expired", ...base, ageMs: -65_400 })).toBe("owner token is dated 65 s in the future");
+  });
+
+  it("recovery says whether the directory is gone", () => {
+    const dir = fixture(), file = join(dir, "config");
+    mkdirSync(`${file}.lock`);
+    hooks.rmdirSync = () => { throw errno("ENOTEMPTY"); };
+    expect(recoverStaleLock(`${file}.lock`)).toEqual({ state: { kind: "released" }, removed: false });
+    delete hooks.rmdirSync;
+    expect(recoverStaleLock(`${file}.lock`)).toEqual({ state: { kind: "released" }, removed: true });
+    expect(recoverStaleLock(`${file}.lock`)).toEqual({ state: { kind: "absent" }, removed: false });
+  });
+
   it("never steals a live owner's lock within the bound", () => {
     const dir = fixture(), file = join(dir, "config");
     const token = owner(file, process.pid);
@@ -254,7 +287,7 @@ describe("stale-lock recovery (BE-L2)", () => {
     const huge = `99999999999999999999-${randomUUID()}.owner`;
     writeFileSync(join(`${file}.lock`, huge), "");
     age(join(`${file}.lock`, huge), STALE_LOCK_MS * 10);
-    expect(recoverStaleLock(`${file}.lock`)).toEqual({ kind: "unrecognized", entries: [huge] });
+    expect(recoverStaleLock(`${file}.lock`)).toEqual({ state: { kind: "unrecognized", entries: [huge] }, removed: false });
     expect(readdirSync(`${file}.lock`)).toEqual([huge]);
   });
 
@@ -263,7 +296,7 @@ describe("stale-lock recovery (BE-L2)", () => {
     expect(inspectLock(`${file}.lock`)).toEqual({ kind: "absent" });
     mkdirSync(`${file}.lock`);
     expect(inspectLock(`${file}.lock`)).toEqual({ kind: "released" });
-    expect(recoverStaleLock(`${file}.lock`)).toEqual({ kind: "released" });
+    expect(recoverStaleLock(`${file}.lock`)).toEqual({ state: { kind: "released" }, removed: true });
     expect(existsSync(`${file}.lock`)).toBe(false);
   });
 
@@ -384,6 +417,17 @@ describe("staging sweep (BE-L2)", () => {
     age(join(dir, "config.lock-junk.tmp"), STALE_LOCK_MS + 5000);
     expect(withFileLock(file, () => 5)).toBe(5);
     expect(readdirSync(dir).sort()).toEqual([fresh, "config.lock-junk.tmp", foreign].sort());
+  });
+
+  it("sweeps after the release, so the sweep is not lock hold time", () => {
+    const dir = fixture(), file = join(dir, "config");
+    let lockHeldDuringSweep: boolean | undefined;
+    hooks.readdirSync = (real, ...args) => {
+      if (String(args[0]) === dir) lockHeldDuringSweep = existsSync(`${file}.lock`);
+      return real(...args);
+    };
+    expect(withFileLock(file, () => 9)).toBe(9);
+    expect(lockHeldDuringSweep).toBe(false);
   });
 
   it("never fails the transaction when the sweep cannot list or stat", () => {
