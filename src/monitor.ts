@@ -7,7 +7,7 @@ import type { ResolvedStatus } from "./status.js";
 import { listProjects } from "./config.js";
 import { bold, dim, green, red, yellow, cyan, invert } from "./ui/ansi.js";
 import { getDisplayWidth, truncate } from "./ui/width.js";
-import { runPool, IO_CONCURRENCY } from "./utils.js";
+import { runPool, IO_CONCURRENCY, PromptCancelled } from "./utils.js";
 import { createMonitorInputDecoder, type MonitorInput } from "./monitor-input.js";
 import { createMonitorVisibility, type VisibilityEffects } from "./monitor-visibility.js";
 import { selfInvocation } from "./self.js";
@@ -391,8 +391,7 @@ export class ChildReadError extends Error {
  */
 export function readStatusesInChild(execPath: string, args: readonly string[], signal?: AbortSignal, env: NodeJS.ProcessEnv = {}): Promise<ResolvedStatus[]> {
   return new Promise((resolve, reject) => {
-    // With the config cache off, the child never rewrites cache.json at exit (one child per tick).
-    const childEnv: NodeJS.ProcessEnv = { ...process.env, ...env, SUMMON_NO_CACHE: "1" };
+    const childEnv: NodeJS.ProcessEnv = { ...process.env, ...env };
     // A key set to undefined in `env` is removed, never inherited from this process.
     for (const [key, value] of Object.entries(env)) if (value === undefined) delete childEnv[key];
     const child = spawn(execPath, args, { detached: true, stdio: ["ignore", "pipe", "ignore"], env: childEnv });
@@ -739,14 +738,24 @@ export async function runMonitor(options: MonitorOptions = {}): Promise<void> {
     try {
       // Plan P10: an unknown workspace is never launched over or focused; the reason is shown.
       if (selected.state === "unknown") throw new Error(unverifiedMessage(selected.name, selected.reason));
-      const { launch, focusWorkspace } = await import("./launcher.js");
+      const { launch, focusWorkspace, withTrustPrompt } = await import("./launcher.js");
       if (isActive) {
         const result = focusWorkspace(selected.name);
         if (result.kind !== "focused") throw new Error(result.reason);
-      } else await launch(selected.directory);
+      } else {
+        // UX-M4: a new or changed `.summon` is shown and offered for trust here, on the normal screen.
+        await withTrustPrompt(() => launch(selected.directory));
+      }
       finish();
     } catch (error) {
       ui = "error";
+      // UX-M4: n or Enter ("Trust declined.") and Ctrl+C or Esc at the trust prompt are a cancel, not a failure.
+      if (error instanceof PromptCancelled) {
+        const detail = error.message === "Trust declined." ? "Trust declined. Nothing was trusted." : "Nothing was trusted.";
+        errorLines = ["", `  ${bold("Launch cancelled.")}`, `  ${dim(detail)}`, "", `  ${dim("Press any key to continue...")}`];
+        enter();
+        return;
+      }
       errorLines = ["", `  ${bold(selected.state === "unknown" ? "Cannot open (state unknown):" : isActive ? "Focus failed:" : "Launch failed:")}`,
         `  ${red(error instanceof Error ? error.message : String(error))}`, "",
         `  ${dim("Press any key to continue...")}`];

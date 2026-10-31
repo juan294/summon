@@ -51,7 +51,7 @@ function sandbox(recipe: Recipe) {
   symlinkSync(process.execPath, join(bin, "node"));
   const run = (...args: string[]) => spawnSync(join(cliCopy, "index.js"), args, {
     cwd: project, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 30_000,
-    env: { ...process.env, HOME: home, PATH: `${bin}:${process.env.PATH ?? "/usr/bin:/bin"}`, SUMMON_NO_CACHE: "1", SUMMON_WORKSPACE: undefined, NODE_OPTIONS: undefined, NODE_COMPILE_CACHE: undefined, NODE_DISABLE_COMPILE_CACHE: "1", NO_COLOR: "1" },
+    env: { ...process.env, HOME: home, PATH: `${bin}:${process.env.PATH ?? "/usr/bin:/bin"}`, SUMMON_WORKSPACE: undefined, NODE_OPTIONS: undefined, NODE_COMPILE_CACHE: undefined, NODE_DISABLE_COMPILE_CACHE: "1", NO_COLOR: "1" },
   });
   return { root, home, project, status, marker, run };
 }

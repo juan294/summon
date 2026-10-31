@@ -1877,6 +1877,50 @@ describe("CLI integration", () => {
     });
   });
 
+  // UX-M4: a direct launch on a terminal offers to trust the shown `.summon` (wired in launchOrExit).
+  describe("trust prompt on a terminal (UX-M4)", () => {
+    /** A dry-run launch of a fresh project whose stdin and stdout claim to be terminals; `answer` is typed at the prompt. */
+    function runOnTerminal(answer: string) {
+      const home = mkdtempSync(join(tmpdir(), "summon-trust-tty-"));
+      try {
+        const dir = join(home, "proj");
+        mkdirSync(join(home, ".config", "summon"), { recursive: true });
+        writeFileSync(join(home, ".config", "summon", "config"), "");
+        mkdirSync(dir);
+        writeFileSync(join(dir, ".summon"), "editor=vim\n");
+        const preload = join(home, "tty.mjs");
+        writeFileSync(preload, "process.stdin.isTTY = true; process.stdout.isTTY = true;\n");
+        const env: NodeJS.ProcessEnv = { ...process.env, HOME: home, TERM_PROGRAM: "ghostty", NO_COLOR: "1" };
+        for (const key of Object.keys(env)) if (/^(REX_|SUMMON_)/.test(key)) delete env[key];
+        const result = spawnSync("node", ["--import", pathToFileURL(preload).href, CLI_PATH, dir, "--dry-run"], {
+          encoding: "utf-8", cwd: home, env, input: answer, timeout: 30_000,
+        });
+        const trustFile = join(home, ".config", "summon", "trust.json");
+        return { ...result, trust: existsSync(trustFile) ? readFileSync(trustFile, "utf-8") : null };
+      } finally {
+        rmSync(home, { recursive: true, force: true });
+      }
+    }
+
+    it("y: shows the file, asks a question that fits a dry run, trusts it and continues", () => {
+      const result = runOnTerminal("y");
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout).toContain(".summon is not trusted yet:");
+      expect(result.stdout).toContain("  editor=vim");
+      expect(result.stdout).toContain("Trust this file and continue? [y/N]");
+      expect(result.stdout).toContain("-- summon dry-run");
+      expect(result.trust).not.toBeNull();
+    });
+
+    it("n: trusts nothing, runs nothing and exits 130", () => {
+      const result = runOnTerminal("n");
+      expect(result.status).toBe(130);
+      expect(result.stdout).toContain("Trust this file and continue? [y/N]");
+      expect(result.stdout).not.toContain("-- summon dry-run");
+      expect(result.trust).toBeNull();
+    });
+  });
+
   // UX-M2 (#430): Unknown command error includes "Try" or "help" suggestion
   describe("unknown command error includes actionable suggestion (UX-M2 #430)", () => {
     it("unknown subcommand error message contains 'Try' and '--help'", () => {

@@ -1189,7 +1189,7 @@ describe("cross-process KV mutations", () => {
       for (const mode of ["add", "remove"]) {
         const gate = join(dir, mode);
         const workers = Array.from({ length: 4 }, (_, id) => {
-          const child = spawn(process.execPath, [join(dir, "worker.mjs"), mode, String(id), gate], { env: { ...process.env, HOME: home, SUMMON_NO_CACHE: "1" }, timeout: 10_000, stdio: ["ignore", "pipe", "pipe"] });
+          const child = spawn(process.execPath, [join(dir, "worker.mjs"), mode, String(id), gate], { env: { ...process.env, HOME: home }, timeout: 10_000, stdio: ["ignore", "pipe", "pipe"] });
           let stderr = "";
           child.stderr.on("data", (data: Buffer) => { stderr += data.toString(); });
           const ready = new Promise<void>((resolve, reject) => {

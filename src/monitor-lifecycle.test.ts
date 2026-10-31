@@ -75,7 +75,6 @@ function status(active = true) {
 }
 beforeEach(() => {
   vi.useFakeTimers();
-  vi.stubEnv("SUMMON_NO_CACHE", "1");
   writes = [];
   callbacks = [];
   fs.rmSync(join(home, ".config"), { recursive: true, force: true });

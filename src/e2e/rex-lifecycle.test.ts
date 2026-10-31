@@ -11,18 +11,12 @@ import { join } from "node:path";
  * (Rex 0.0.1793131181-gdd9a20, api revision 7); a later Rex build that behaves differently fails.
  */
 
-const { destroySessions, rexGate, sleep, until, withRexEnv } = await import("./rex-harness.js");
+const { destroySessions, removeStatusFiles, rexGate, sleep, until, withRexEnv } = await import("./rex-harness.js");
 const { discoverRex, createRexCli, defaultRexServer } = await import("../backends/rex/cli.js");
 const { readStatusRecord, readStatus } = await import("../status.js");
-const { STATUS_DIR } = await import("../paths.js");
 const { launchArtifactPaths, launchesDir } = await import("../launch-identity.js");
 const { clearSnapshot } = await import("../snapshot.js");
 const { launch } = await import("../launcher.js");
-
-/** Best-effort removal of this suite's status record and legacy liveness files. */
-function removeStatusFiles(project: string): void {
-  for (const ext of ["json", "active", "pid"]) rmSync(join(STATUS_DIR, `${project}.${ext}`), { force: true });
-}
 
 const harness = rexGate(process.env, "rex-lifecycle e2e");
 const { prereq } = harness;

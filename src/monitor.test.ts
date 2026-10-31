@@ -19,9 +19,12 @@ vi.mock("./status.js", async (importOriginal) => {
 });
 const mockLaunch = vi.fn();
 const mockFocusWorkspace = vi.fn<(...args: unknown[]) => import("./ghostty-native.js").FocusResult>((..._args: unknown[])=>({kind:"focused",terminalId:"00000000-0000-4000-8000-000000000001"}));
+// UX-M4: the Enter handoff launches through the trust prompt (re-exported by launcher.js); by default it runs the launch once.
+const mockWithTrustPrompt = vi.fn(async (attempt: () => Promise<unknown>) => attempt());
 vi.mock("./launcher.js", () => ({
   launch: (...args: unknown[]) => mockLaunch(...args),
   focusWorkspace: (...args: unknown[]) => mockFocusWorkspace(...args),
+  withTrustPrompt: (attempt: () => Promise<unknown>) => mockWithTrustPrompt(attempt),
 }));
 
 const monitorModule = await import("./monitor.js");
@@ -1555,6 +1558,66 @@ describe("handoff on the four states (plan P10, Phase 4)", () => {
     expect(mockLaunch).not.toHaveBeenCalled();
   });
 
+  it("UX-M4: Enter on a stopped row launches inside the trust prompt, on the normal screen; a focus skips it", async () => {
+    mockWithTrustPrompt.mockClear();
+    listProjects.mockReturnValue([["myapp", "/tmp/myapp"]]);
+    readAllStatuses.mockReturnValue([makeResolvedStatus({ project: "myapp", state: "stopped", uptime: null })]);
+    let screenLeftBeforePrompt = false;
+    mockWithTrustPrompt.mockImplementationOnce(async (attempt) => {
+      screenLeftBeforePrompt = writeSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("").includes("\x1b[?1049l");
+      return attempt();
+    });
+    const monitorPromise = runMonitor();
+    process.stdin.emit("data", Buffer.from("\r"));
+    await monitorPromise;
+    await vi.dynamicImportSettled();
+    expect(mockWithTrustPrompt).toHaveBeenCalledTimes(1);
+    expect(screenLeftBeforePrompt).toBe(true);
+    expect(mockLaunch).toHaveBeenCalledWith("/tmp/myapp");
+
+    mockWithTrustPrompt.mockClear();
+    readAllStatuses.mockReturnValue([makeResolvedStatus({ project: "myapp", state: "active", uptime: 60_000 })]);
+    const second = runMonitor();
+    process.stdin.emit("data", Buffer.from("\r"));
+    await second;
+    await vi.dynamicImportSettled();
+    expect(mockFocusWorkspace).toHaveBeenCalledWith("myapp");
+    expect(mockWithTrustPrompt).not.toHaveBeenCalled();
+  });
+
+  /** Enter on a stopped row whose trust prompt ends with `cancel`; returns the text written after the handoff. */
+  async function cancelAtTrustPrompt(cancel: Error): Promise<string> {
+    listProjects.mockReturnValue([["myapp", "/tmp/myapp"]]);
+    readAllStatuses.mockReturnValue([makeResolvedStatus({ project: "myapp", state: "stopped", uptime: null })]);
+    mockWithTrustPrompt.mockRejectedValueOnce(cancel);
+    const monitorPromise = runMonitor();
+    process.stdin.emit("data", Buffer.from("\r"));
+    const written = () => writeSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("");
+    await vi.waitFor(() => expect(written()).toContain("Launch cancelled."));
+    const shown = written();
+    // Any key returns to the dashboard, where q quits as usual.
+    process.stdin.emit("data", Buffer.from(" "));
+    process.stdin.emit("data", Buffer.from("q"));
+    await monitorPromise;
+    expect(mockLaunch).not.toHaveBeenCalled();
+    return shown;
+  }
+
+  it("UX-M4: n or Enter at the trust prompt is a neutral cancel that names the decline, then the dashboard", async () => {
+    const { PromptCancelled } = await import("./utils.js");
+    const shown = await cancelAtTrustPrompt(new PromptCancelled("Trust declined."));
+    expect(shown).toContain("Trust declined.");
+    expect(shown).not.toContain("Launch failed");
+  });
+
+  it("UX-M4: Ctrl+C or Esc at the trust prompt is a neutral cancel, never a launch failure", async () => {
+    const { PromptCancelled } = await import("./utils.js");
+    const shown = await cancelAtTrustPrompt(new PromptCancelled());
+    expect(shown).toContain("Nothing was trusted.");
+    expect(shown).not.toContain("Launch failed");
+    expect(shown).not.toContain("Cancelled");
+  });
+
   it("Enter on an unknown row shows the reason and neither launches nor focuses", async () => {
     listProjects.mockReturnValue([["myapp", "/tmp/myapp"]]);
     readAllStatuses.mockReturnValue([makeResolvedStatus({ project: "myapp", state: "unknown", uptime: null, reason: "server unreachable" })]);
@@ -1919,14 +1982,14 @@ describe("PE-H1: readStatusesInChild", () => {
     return file;
   }
 
-  it("resolves the child's statuses while the event loop keeps running, with the cache off in the child", async () => {
-    const file = await script(`setTimeout(() => process.stdout.write(JSON.stringify([{ project: "a", args: process.argv.slice(2), noCache: process.env.SUMMON_NO_CACHE }])), 300);`);
+  it("resolves the child's statuses while the event loop keeps running", async () => {
+    const file = await script(`setTimeout(() => process.stdout.write(JSON.stringify([{ project: "a", args: process.argv.slice(2) }])), 300);`);
     const order: string[] = [];
     setTimeout(() => order.push("timer"), 20);
     const statuses = await monitorModule.readStatusesInChild(process.execPath, [file, "--flag"]);
     order.push("read");
     expect(order).toEqual(["timer", "read"]);
-    expect(statuses).toEqual([{ project: "a", args: ["--flag"], noCache: "1" }]);
+    expect(statuses).toEqual([{ project: "a", args: ["--flag"] }]);
   });
 
   it("rejects a child that fails or prints something other than JSON", async () => {

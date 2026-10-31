@@ -36,6 +36,9 @@ vi.mock("../status-record.js", () => ({ readStatusRecord: (project: string) => m
 vi.mock("../backend.js", () => ({ resolveBackendForLaunch: () => mockDetection() }));
 const mockStartWatch = vi.fn();
 vi.mock("../backends/rex/launcher-tab.js", () => ({ closeLauncherTabAfterRexLaunch: (...args: unknown[]) => mockCloseLauncherTab(...args), startLauncherTabWatch: (...args: unknown[]) => mockStartWatch(...args) }));
+// UX-M4: the trust prompt wraps launches; by default it runs the launch once, as the real one does on success.
+const mockWithTrustPrompt = vi.fn(async (attempt: () => Promise<unknown>) => attempt());
+vi.mock("../trust.js", () => ({ withTrustPrompt: (attempt: () => Promise<unknown>) => mockWithTrustPrompt(attempt) }));
 vi.mock("../launcher.js", () => ({
   focusWorkspace: (...args: unknown[]) => mockFocusWorkspace(...args),
   launch: (...args: unknown[]) => mockLaunch(...args),
@@ -659,6 +662,34 @@ describe("summon open <project> (guide F1: the documented direct form)", () => {
     await handleOpenCommand(makeContext({ args: ["api"], overrides: { layout: "minimal" } }));
     expect(mockLaunch).toHaveBeenCalledWith("/tmp/api", { layout: "minimal" });
     expect(mockFocusWorkspace).not.toHaveBeenCalled();
+  });
+
+  it("UX-M4: the launch goes through the trust prompt; a focus does not", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockWithTrustPrompt.mockClear();
+    mockLoadProjectRow.mockReturnValue({ name: "api", directory: "/tmp/api", state: "stopped", uptime: "—", gitBranch: "—" });
+    mockLaunch.mockImplementation(async () => {
+      // The launch runs inside the prompt's attempt, never before or beside it.
+      expect(mockWithTrustPrompt).toHaveBeenCalledTimes(1);
+    });
+    await handleOpenCommand(makeContext({ args: ["api"] }));
+    expect(mockLaunch).toHaveBeenCalledTimes(1);
+
+    mockWithTrustPrompt.mockClear();
+    mockLoadProjectRow.mockReturnValue({ name: "api", directory: "/tmp/api", state: "active", uptime: "1h", gitBranch: "main" });
+    mockFocusWorkspace.mockReturnValue({ kind: "focused", terminalId: "block:1" });
+    await handleOpenCommand(makeContext({ args: ["api"] }));
+    expect(mockWithTrustPrompt).not.toHaveBeenCalled();
+    mockLaunch.mockReset();
+    logSpy.mockRestore();
+  });
+
+  it("UX-M4: a declined trust prompt is a user cancel that reaches the CLI's exit 130 handling", async () => {
+    mockLoadProjectRow.mockReturnValue({ name: "api", directory: "/tmp/api", state: "stopped", uptime: "—", gitBranch: "—" });
+    const declined = new MockPromptCancelled("Trust declined.");
+    mockWithTrustPrompt.mockRejectedValueOnce(declined);
+    await expect(handleOpenCommand(makeContext({ args: ["api"] }))).rejects.toBe(declined);
+    expect(mockLaunch).not.toHaveBeenCalled();
   });
 
   it("refuses an unknown workspace with its reason (exit 2) and never launches over it", async () => {

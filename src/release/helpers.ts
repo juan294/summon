@@ -125,7 +125,7 @@ export function makeIsolatedHome(): IsolatedHome {
         stdio: ["ignore", "pipe", "pipe"],
         encoding: "utf-8",
         timeout: 30_000,
-        env: { ...process.env, HOME: home, SUMMON_NO_CACHE: "1" },
+        env: { ...process.env, HOME: home },
       });
       return {
         status: result.status,
