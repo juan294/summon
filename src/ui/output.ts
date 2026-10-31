@@ -17,7 +17,7 @@
  *
  * debugLog (SUMMON_DEBUG) and progress/spinner lines are intentionally NOT
  * routed here — they have distinct semantics and are handled in utils.ts /
- * launcher.ts respectively.
+ * ui/progress.ts (used by both backends) respectively.
  */
 
 import { formatUserError } from "../utils.js";

@@ -2,8 +2,8 @@
  * Rex reconciliation (AR-M3, moved from status.ts): the writing steps of a Rex status read. Late
  * adoption (P13), the pane-file refresh of a record with unverified panes (P13 next-read recovery)
  * and the end of a launch that ended outside Summon (P12: snapshot, `endedAt`, file removal under
- * the lock). The reader in status.ts runs them only for a read that asks to reconcile; `summon clean`
- * calls `endRexLaunch` directly.
+ * the lock). The reader in status.ts runs them on every read by default (ReadOptions.reconcile); only a read
+ * that passes `{ reconcile: false }` skips them and writes nothing. `summon clean` calls `endRexLaunch` directly.
  */
 import { existsSync } from "node:fs";
 import { getErrorMessage } from "../../utils.js";

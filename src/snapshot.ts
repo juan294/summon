@@ -114,7 +114,7 @@ export function readSnapshot(project: string): ContextSnapshot | null {
 /**
  * Validates raw JSON parsed from a snapshot file. Returns a typed ContextSnapshot
  * if all required fields have correct types, or null if the shape is invalid.
- * Mirrors the rigor of parseWorkspaceStatus in status.ts (BE-M1 #592).
+ * Mirrors the rigor of parseWorkspaceStatus in status-record.ts (BE-M1 #592).
  */
 export function parseContextSnapshot(raw: unknown): ContextSnapshot | null {
   if (typeof raw !== "object" || raw === null) return null;

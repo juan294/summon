@@ -122,7 +122,7 @@ summon ~/code/myapp
 summon myapp
 ```
 
-Under Rex the workspace opens in its own session. When you typed `summon` in a tab with a single pane, Summon closes that tab once the workspace is shown, so no empty launcher tab stays behind (the session it was in ends too when that was its only tab). Tabs with splits, workspace tabs and failed launches are left alone, and so is any launch that printed a note or a warning for you to read. See [Summon under Rex](rex.md#seeing-a-workspace-in-the-app).
+Under Rex the workspace opens in its own session. When you typed `summon` in a tab with a single pane, Summon closes that tab once the workspace is shown, so no empty launcher tab stays behind (the session it was in ends too when that was its only tab). Tabs with splits, workspace tabs and failed launches are left alone, and so is any launch that printed a note or a warning for you to read, ran an `on-start` hook, or installed a missing tool. See [Summon under Rex](rex.md#seeing-a-workspace-in-the-app).
 
 ### `summon add <name> <path>`
 
@@ -233,6 +233,8 @@ Check your terminal setup: the Ghostty config for recommended settings, macOS Ac
 - `shell-integration = detect` — shell integration for status tracking
 - Accessibility permission — required for pane resizing via System Events
 
+When System Events does not answer the Accessibility check within 2 seconds, doctor prints `INFO  Accessibility permission could not be checked (System Events did not answer); a launch will report it if it is missing`. This counts as neither a pass nor a failure.
+
 When Rex is installed and Ghostty is not, the Ghostty checks are reported as not applicable and do not count as issues.
 
 The `Checking Rex...` section reports on:
@@ -242,16 +244,19 @@ The `Checking Rex...` section reports on:
 - Whether the Rex server answers at the socket this shell would use. A failure counts as an issue only when Rex is the backend of this shell; otherwise it is informational.
 - The connected Rex apps
 - The backend this shell launches in, with its placement and server
+- The Ghostty-only settings in your machine config that Rex ignores, when there are any (`INFO  Rex ignores these Ghostty settings from your config: ...`)
+
+The `Checking lock files...` section looks at the lock directories under `~/.config/summon` and its `status` folder. It prints `No stale lock files` when there is nothing to report. Otherwise it names each `Stale lock` (its owner process is gone, its owner token is more than 60 seconds old, or 5 minutes for a Rex launch lock `<project>.launch.lock`, or its release was interrupted) and each `Unrecognized lock`, which you remove by hand after you make sure no summon process is running. Without `--fix` this check changes nothing.
 
 Exits with code 2 if any issues are found, 0 when all clear.
 
-With `--fix`, automatically adds missing Ghostty settings to `~/.config/ghostty/config` (backs up the config with a timestamp first).
+With `--fix`, automatically adds missing Ghostty settings to `~/.config/ghostty/config` (backs up the config with a timestamp first) and removes stale locks (`Removed stale lock ...`). An unrecognized lock is left in place.
 
 With `--verbose`, prints additional diagnostic info: summon version, Node.js version, config directory path, detected Ghostty binary path, and trust DB summary.
 
 ```bash
 summon doctor              # check for issues
-summon doctor --fix        # auto-fix missing Ghostty settings
+summon doctor --fix        # add missing Ghostty settings, remove stale locks
 summon doctor --verbose    # include diagnostic info in output
 ```
 
@@ -330,7 +335,10 @@ The TUI refreshes every 3 seconds and supports keyboard navigation:
 - `↑`/`↓` or `j`/`k` — navigate projects
 - `Enter` — focus an active or partial workspace, or launch a stopped one (an `unknown` workspace is refused with the reason)
 - `r` — force refresh
+- `?` — show the key bindings and the state legend
 - `q` — quit
+
+Any key, such as Esc, closes the help screen and an error screen and returns to the dashboard. When a status read takes longer than one refresh, the header shows `updating…`; after a failed read it shows `last updated Ns ago` (for example `last updated 12s ago`) instead of showing old rows silently.
 
 When stdout is not a TTY (e.g., piped), `--once` mode is used automatically.
 
@@ -779,7 +787,7 @@ Or per-project in `.summon`:
 on-start=npm install && npm run build
 ```
 
-This ensures every `summon myapp` starts with fresh dependencies and a clean build. If `npm install` or `npm run build` fails, the workspace doesn't open — so you won't end up with broken panes running against stale code.
+This ensures every `summon myapp` starts with fresh dependencies and a clean build. If `npm install` or `npm run build` fails, Summon prints the on-start warning and still opens the workspace, so read the hook's output before you rely on the panes.
 
 ## Per-Workspace Environment Variables
 
@@ -1071,7 +1079,7 @@ All config files are at `~/.config/summon/`:
 ~/.config/summon/
   config      machine-level settings
   projects    project name -> path mappings
-  trust       SHA-256 hashes of trusted .summon files
+  trust.json  SHA-256 hashes of trusted .summon files
   layouts/    custom layout files (one file per layout)
   starship/   cached Starship preset TOML files (auto-generated)
   status/     workspace status JSON per project, plus <project>.launches/ with
@@ -1102,36 +1110,36 @@ Trust this file and continue? [y/N]
 | `n` or Enter | Nothing more is printed; exit 130 | `Launch cancelled.` and `Trust declined. Nothing was trusted.`, then any key returns to the dashboard |
 | Escape or Ctrl+C | Nothing more is printed; exit 130 | `Launch cancelled.` and `Nothing was trusted.`, then any key returns to the dashboard |
 
-Other keys are ignored until you answer. The status monitor asks on the normal screen after it closes the dashboard. Without a terminal (scripts, CI) nothing is asked: the launch fails with exit 1, as before. `summon session --all` never asks; it skips the untrusted project and continues. You can also grant trust explicitly:
+Other keys are ignored until you answer. The status monitor asks on the normal screen after it closes the dashboard. Without a terminal (scripts, CI) nothing is asked: the launch fails with exit 1, as before. `summon session` (a named session or `--all`) never asks; it skips the untrusted project and continues. You can also grant trust explicitly:
 
 ```bash
 summon trust .                    # trust the .summon file in current directory
 summon trust ~/code/myapp         # trust a specific project
 ```
 
-Trust is stored in `~/.config/summon/trust` and revoked automatically if the `.summon` file content changes. Re-run `summon trust <dir>` after any edit.
+Trust is stored in `~/.config/summon/trust.json` and revoked automatically if the `.summon` file content changes. Re-run `summon trust <dir>` after any edit.
 
 ### Shell Metacharacter Detection
 
 When summon reads a `.summon` file from a project directory, it checks the command keys (`editor`, `sidebar`, `shell`, `on-start`) for shell metacharacters: `;`, `|`, `&`, `` ` ``, `$(`, `${`, `<`, `>`.
 
-If any are found, summon displays the suspicious commands and prompts for confirmation:
+If any are found, summon lists the suspicious commands, then asks about each one in turn:
 
 ```
-⚠  This .summon file contains commands with shell metacharacters:
+summon: warning: config contains commands with shell metacharacters:
   shell = npm run dev && echo "done"
-
-Run these commands? [y/N/s(kip pane)]
+  shell = npm run dev && echo "done"
+Continue? [y/N/s(kip pane)]
 ```
 
-Choose `y` to run all, `n` to abort, or `s` to skip that pane and continue with the others.
+Choose `y` to run that command, or `s` to skip that pane and continue with the others. `n`, Enter or any other answer aborts the launch: summon prints `Aborted.` and exits 130 (user cancelled).
 
 This protects against accidentally executing unreviewed commands from cloned repositories. The behavior depends on the environment:
 
 | Context | Behavior |
 |---|---|
 | Interactive terminal (TTY) | Prompts for confirmation (default: no) |
-| Non-interactive (CI, piped) | Refuses to execute, exits with error |
+| Non-interactive (CI, piped) | Refuses to execute, exits with code 2 |
 | `--dry-run` | Skipped (no commands are executed) |
 | CLI flags | Not checked (you typed them yourself) |
 | Machine config | Not checked (you set them via `summon set`) |

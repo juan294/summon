@@ -123,7 +123,7 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 | `summon config` | Show current machine configuration |
 | `summon open [project]` | Focus a running workspace or launch a stopped one; without a name, pick one interactively |
 | `summon export [path]` | Export resolved config as a `.summon` file |
-| `summon doctor [--fix] [--verbose]` | Check version, capabilities and effective settings (--fix appends eligible missing settings to an unambiguous existing file; --verbose adds diagnostic info) |
+| `summon doctor [--fix] [--verbose]` | Check version, capabilities and effective settings (--fix appends eligible missing settings to an unambiguous existing file and removes stale locks; --verbose adds diagnostic info) |
 | `summon freeze <name>` | Save current resolved config as a reusable custom layout |
 | `summon keybindings [--vim] [--detach-tab]` | Print pane navigation config, optionally including whole-tab detachment |
 | `summon layout <action>` | Manage custom layouts (create, save, list, show, delete, edit) |
@@ -142,7 +142,7 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 | `summon session show <name>` | Print a session's project list |
 | `summon session remove <name>` | Delete a saved session |
 | `summon session --all` | Launch every registered project as tabs |
-| `summon trust <dir>` | Trust a project's `.summon` file (required before first launch in untrusted directories) |
+| `summon trust <dir>` | Trust a project's `.summon` file ahead of a launch (a launch on a terminal otherwise shows the file and asks; without a terminal it fails) |
 | `summon completions <shell>` | Generate shell completion script (`zsh`, `bash`, `fish`) |
 
 `summon open myapp` and `summon switch myapp` focus the workspace when it is running and launch it when it is stopped; without a name both show the same picker. `summon focus myapp` only focuses an existing recorded pane, and `summon myapp` launches explicitly. Missing or legacy native identity produces recovery guidance; focus does not automatically launch a replacement.
@@ -278,7 +278,7 @@ This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.
 
 `.summon` files configure commands that summon executes in each pane (`editor`, `sidebar`, `shell`, `on-start`). Running `summon .` in a directory will execute whatever commands its `.summon` file specifies -- this is the same trust model as `Makefile`, direnv `.envrc`, or VS Code `.vscode/tasks.json`.
 
-Summon uses a direnv-style trust gate: before a project's `.summon` file is acted upon, its SHA-256 hash must be recorded as trusted. The first time you run summon in a directory with a `.summon` file, or after that file changed (for example after `git pull`), summon says which case it is. On a terminal (a direct launch, `--dry-run`, `summon open`, the picker or Enter in `summon status`) it shows the file and asks `Trust this file and continue? [y/N]`; `y` trusts exactly the content shown and continues, and `n` exits with 130 (in `summon status`, it returns to the dashboard). Without a terminal (scripts, CI) and in `summon session --all`, nothing is asked: the launch fails, or the project is skipped. You can also grant trust explicitly:
+Summon uses a direnv-style trust gate: before a project's `.summon` file is acted upon, its SHA-256 hash must be recorded as trusted. The first time you run summon in a directory with a `.summon` file, or after that file changed (for example after `git pull`), summon says which case it is. On a terminal (a direct launch, `--dry-run`, `summon open`, the picker or Enter in `summon status`) it shows the file and asks `Trust this file and continue? [y/N]`; `y` trusts exactly the content shown and continues, and `n` exits with 130 (in `summon status`, it returns to the dashboard). Without a terminal (scripts, CI) and in `summon session` (a named session or `--all`), nothing is asked: the launch fails, or the project is skipped. You can also grant trust explicitly:
 
 ```bash
 summon trust .                    # trust the .summon file in the current directory
@@ -287,7 +287,7 @@ summon trust ~/code/myapp         # trust a specific project's .summon file
 
 Trust is revoked automatically if the file content changes. Run `summon trust <dir>` again after any edit.
 
-When a `.summon` file contains command values with shell metacharacters (`;`, `|`, `&`, `` ` ``, `$(`, `${`, `<`, `>`), summon displays the commands and prompts for confirmation before executing. The prompt offers three choices: `y` (run all), `n` (abort), or `s` (skip that pane). In non-interactive environments (piped input, CI), execution is refused outright. This check is skipped for `--dry-run` since no commands are executed.
+When a `.summon` file contains command values with shell metacharacters (`;`, `|`, `&`, `` ` ``, `$(`, `${`, `<`, `>`), summon lists the commands and asks about each one before executing: `y` runs it, `s` skips that pane, and `n` or Enter aborts with exit 130. In non-interactive environments (piped input, CI), execution is refused outright with exit 2. This check is skipped for `--dry-run` since no commands are executed.
 
 **`on-start` note:** The `on-start` hook executes its value via a shell (`execSync`) rather than `execFileSync`. This is intentional -- `on-start` supports complex shell commands like `docker compose up -d && npm install` that require shell interpretation. The `editor`, `sidebar`, and `shell` commands are validated against `SAFE_COMMAND_RE` before execution, but `on-start` is not, since it is designed to run arbitrary shell snippets. The `confirmDangerousCommands` safety net still applies: if `on-start` is set in a `.summon` file and contains shell metacharacters, the user is prompted before execution.
 

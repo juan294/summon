@@ -120,7 +120,7 @@ async function buildHelp(): Promise<string> {
     "",
     h("TOOLS"),
     wrap(`  ${cmd("summon doctor")}               Check terminal setup (Ghostty config, Rex server)`),
-    wrap(`  ${cmd("summon doctor --fix")}         Auto-add missing recommended settings (backs up first)`),
+    wrap(`  ${cmd("summon doctor --fix")}         Auto-add missing settings, remove stale locks (backs up first)`),
     wrap(`  ${cmd("summon completions <shell>")}  Generate shell completion script (zsh, bash, fish)`),
     wrap(`  ${cmd("summon trust [path]")}         Trust the .summon file in the given directory (default: current)`),
     wrap(`  ${cmd("summon clean <project>")}      Close an empty Rex session and clear its launch files (--orphans: earlier launches)`),
@@ -276,7 +276,8 @@ Launches an interactive TUI dashboard with live refresh.
 Options:
   --once  Print status table once and exit (non-interactive)
 
-In TUI mode: ↑↓/jk navigate, Enter focuses active projects or launches stopped projects, r refreshes, q quits.
+In TUI mode: ↑↓/jk navigate, Enter focuses active projects or launches stopped projects, r refreshes,
+? shows help (any key, such as Esc, closes the help and error screens), q quits.
 Automatically uses --once when stdout is not a TTY (e.g., piped output).`,
 
   open: `Usage: summon open [project]
@@ -319,7 +320,7 @@ Check your Ghostty configuration for recommended settings, and the Rex CLI, serv
 when Rex is installed. Exits with code 2 if issues are found.
 
 Options:
-  --fix      Auto-add missing recommended settings (backs up config first)
+  --fix      Auto-add missing recommended settings (backs up config first) and remove stale locks
   --verbose  Show resolved config paths, version info, and trust database details`,
 
   export: `Usage: summon export [path]
@@ -392,8 +393,10 @@ Reserved names: add, remove, list, show, all.`,
 Mark the .summon file in the given directory as trusted.
 Defaults to the current directory if no path is given.
 
-Summon refuses to execute .summon files from untrusted directories.
-Running this command approves the file's current contents.
+A launch never runs an untrusted .summon file. On a terminal it shows the file and asks
+"Trust this file and continue? [y/N]"; without a terminal it fails with exit 1, and
+'summon session' skips the project. Running this command approves the file's
+current contents.
 
 Example:
   summon trust         Trust .summon in current directory

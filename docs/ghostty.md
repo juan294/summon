@@ -28,6 +28,10 @@ Doctor reads effective configuration through Ghostty's CLI, including defaults. 
 
 An upgrade warning alone does not fail the command. Unresolved failures or unavailable diagnostic evidence return exit code 2, including command, permission and port failures that remain after a configuration fix. Repair the reported cause and run doctor again; probe failures are retried on the next invocation.
 
+When System Events does not answer the Accessibility check within 2 seconds, doctor prints `Accessibility permission could not be checked (System Events did not answer); a launch will report it if it is missing` as INFO, which is neither a pass nor a failure. A launch also goes on in that case, and a real denial is reported when the workspace script runs. A check that answers with a denial still stops the launch before any window opens.
+
+When a launch fails, Summon closes only what that launch created: the window opened by `--new-window` or the tab opened by `--new-tab`, found by its id. It never closes your own front window. A launch into an existing window closes nothing, and any splits it already added there stay, so close them by hand.
+
 ## Inspect and focus existing panes
 
 ```bash
