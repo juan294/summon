@@ -9,6 +9,11 @@ updates:
       interval: "weekly"
       day: "monday"
     open-pull-requests-limit: 10
+    ignore:
+      # @types/node tracks the Node.js floor (engines >=22.12, tsup target node22),
+      # so newer majors would type APIs that supported runtimes lack.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
     groups:
       # Keep major upgrades out of routine batches so unsupported toolchain
       # jumps (for example TypeScript 6 -> 7) can be evaluated independently.

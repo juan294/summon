@@ -1,7 +1,8 @@
 import { listProjects } from "./config.js";
 import { readAllStatuses, getGitBranch } from "./status.js";
-import { isLiveState } from "./status.js";
-import type { ResolvedStatus, WorkspaceState } from "./status.js";
+import type { ResolvedStatus } from "./status.js";
+import { isLiveState } from "./status-record.js";
+import type { WorkspaceState } from "./status-record.js";
 import { bold, dim, green, yellow, cyan } from "./ui/ansi.js";
 import { sym } from "./ui/symbols.js";
 import { gitOutput, runPool, IO_CONCURRENCY } from "./utils.js";

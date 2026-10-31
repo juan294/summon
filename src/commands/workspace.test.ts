@@ -44,14 +44,22 @@ vi.mock("node:child_process", async (original) => ({
   ...(await original<typeof import("node:child_process")>()),
   execFileSync: fixture.exec,
 }));
+// AR-M3: the real reader runs; the spy only records how each command reads.
+const readStatusSpy = vi.hoisted(() => ({ calls: [] as unknown[][] }));
+vi.mock("../status.js", async (original) => {
+  const actual = await original<typeof import("../status.js")>();
+  return { ...actual, readStatus: (...args: Parameters<typeof actual.readStatus>) => { readStatusSpy.calls.push(args); return actual.readStatus(...args); } };
+});
 // The Rex binary is pinned; every rex call goes through fixture.exec like osascript does.
 vi.mock("../backends/rex/cli.js", async (original) => ({
   ...(await original<typeof import("../backends/rex/cli.js")>()),
   discoverRex: () => ({ path: "/mock/rex", searched: ["PATH"] }),
 }));
 fixture.home = mkdtempSync(join(tmpdir(), "summon-workspace-test-"));
-const { writeStatus, readStatus } = await import("../status.js");
-const { focusWorkspace, launch } = await import("../launcher.js");
+const { writeStatus } = await import("../status-record.js");
+const { readStatus } = await import("../status.js");
+const { focusWorkspace } = await import("../workspace-focus.js");
+const { launch } = await import("../launcher.js");
 const { handleFocusCommand, handleInspectCommand, handleTitleCommand } =
   await import("./workspace.js");
 const { STATUS_DIR } = await import("../paths.js");
@@ -126,7 +134,10 @@ describe("workspace commands with real status fixtures", () => {
       ]),
     );
     const out = vi.spyOn(console, "log").mockImplementation(() => {});
+    readStatusSpy.calls.length = 0;
     await handleInspectCommand(context(["demo"], { json: true }));
+    // AR-M3: inspect reads with reconciliation, as every status read did before the reader split.
+    expect(readStatusSpy.calls).toEqual([["demo"]]);
     const result = JSON.parse(String(out.mock.calls[0]![0]));
     expect(result.state).toBe("active");
     expect(result.panes[0]).toMatchObject({
@@ -159,6 +170,40 @@ describe("workspace commands with real status fixtures", () => {
     exit.mockRestore();
     out.mockRestore();
     fail.mockRestore();
+  });
+  // UX-M3: a name with no record that is not registered gets the closest registered names; the exit code stays 2.
+  it("focus, inspect and title on an unknown name suggest registered projects on stderr and still exit 2", async () => {
+    const configDir = join(fixture.home, ".config", "summon");
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(join(configDir, "projects"), "chapa=/tmp/chapa\n");
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const out = vi.spyOn(console, "log").mockImplementation(() => {});
+    const exit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+    try {
+      for (const run of [
+        () => handleFocusCommand(context(["chpaa"])),
+        () => handleInspectCommand(context(["chpaa"], { json: true })),
+        () => handleTitleCommand(context(["chpaa"])),
+      ]) {
+        stderr.mockClear();
+        await expect(run()).rejects.toThrow("exit:2");
+        const lines = stderr.mock.calls.map((c) => String(c[0]));
+        expect(lines.at(-1)).toBe("Did you mean: chapa?\n");
+      }
+      // A name with a record is never second-guessed.
+      seed(false);
+      stderr.mockClear();
+      await expect(handleFocusCommand(context(["demo"]))).rejects.toThrow("exit:2");
+      expect(stderr.mock.calls.map((c) => String(c[0])).join("")).not.toContain("Did you mean");
+      expect(fixture.exec).not.toHaveBeenCalled();
+    } finally {
+      rmSync(join(configDir, "projects"), { force: true });
+      stderr.mockRestore();
+      out.mockRestore();
+      exit.mockRestore();
+    }
   });
   it("focus handler reports confirmed success only", async () => {
     seed();
@@ -241,7 +286,10 @@ describe("P4 title handler real status fixtures", () => {
         override: "existing\n\u202e🦊",
       }),
     );
+    readStatusSpy.calls.length = 0;
     await handleTitleCommand(context(["demo"]));
+    // AR-M3: title reads with reconciliation, as every status read did before the reader split.
+    expect(readStatusSpy.calls).toEqual([["demo"]]);
     expect(fixture.exec.mock.calls[0]![2].input).not.toMatch(
       /\bactivate\b|set name override/,
     );
@@ -322,7 +370,7 @@ describe("P4 detach command real generator", () => {
     const { handleKeybindingsCommand } = await import("./setup.js");
     const out = vi.spyOn(console, "log").mockImplementation(() => {});
     fixture.exec.mockReturnValue("move_tab_to_new_window\n");
-    await handleKeybindingsCommand(context([], { "detach-tab": true }));
+    await handleKeybindingsCommand({ ...context([], { "detach-tab": true }), overrides: { "no-project-config": "true" } });
     expect(out.mock.calls.flat().join("")).toContain(
       "summon-nav:n = move_tab_to_new_window",
     );
@@ -340,7 +388,7 @@ describe("P4 detach command real generator", () => {
     });
     fixture.exec.mockReturnValue("set_tab_title\n");
     await expect(
-      handleKeybindingsCommand(context([], { "detach-tab": true })),
+      handleKeybindingsCommand({ ...context([], { "detach-tab": true }), overrides: { "no-project-config": "true" } }),
     ).rejects.toThrow("exit2");
     expect(out).not.toHaveBeenCalled();
     expect(exit).toHaveBeenCalledWith(2);

@@ -448,15 +448,12 @@ describe("resolveTreeCommands", () => {
       ["editor", "claude"],
       ["unused", "lazygit"],
     ]);
-    const stderrSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+    // UX-M2: warn() writes to stderr with the one warning prefix.
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const resolved = resolveTreeCommands(tree, panes) as PaneNode;
     expect(resolved.command).toBe("claude");
-    expect(stderrSpy).toHaveBeenCalled();
-    const output = stderrSpy.mock.calls
-      .map((c) => String(c[0]))
-      .join("");
-    expect(output).toContain("unused");
-    stderrSpy.mockRestore();
+    expect(warnSpy.mock.calls).toEqual([["summon: warning: pane definition 'unused' is not used in the tree\n"]]);
+    warnSpy.mockRestore();
   });
 });
 

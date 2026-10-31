@@ -1,3 +1,8 @@
+/** Format a pane title: "role · cmd" or just "role" when cmd is falsy (both backends label panes this way). */
+export function formatTitle(role: string, cmd: string | null | undefined): string {
+  return cmd ? `${role} \u00B7 ${cmd}` : role;
+}
+
 /** Minimum number of editor panes. */
 export const PANES_MIN = 1;
 

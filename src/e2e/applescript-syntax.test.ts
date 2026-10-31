@@ -3,11 +3,11 @@ import { execFileSync } from "node:child_process";
 import { existsSync, writeFileSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { generateAppleScript, generateTreeAppleScript } from "../script.js";
+import { generateAppleScript, generateTreeAppleScript } from "../backends/ghostty/script.js";
 import { planLayout } from "../layout.js";
 import { buildTreePlan, parseTreeDSL } from "../tree.js";
-import { generateInventoryScript, generateNativeFocusScript, generateTitleScript } from "../ghostty-native.js";
-import { probeGhosttyNative } from "../ghostty.js";
+import { generateInventoryScript, generateNativeFocusScript, generateTitleScript } from "../backends/ghostty/native.js";
+import { probeGhosttyNative } from "../backends/ghostty/probe.js";
 
 /**
  * Probe whether osacompile can resolve Ghostty's scripting dictionary.

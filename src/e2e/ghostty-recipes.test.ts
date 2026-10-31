@@ -1,13 +1,14 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readKVFromString } from "../config.js";
 import { collectLeaves, extractPaneDefinitions, findPaneByName, parseTreeDSL, resolveTreeCommands } from "../tree.js";
 import { shellQuote } from "../shell-escape.js";
+import { cliBuild } from "../fixtures/cli-builds.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const docs = () => readFileSync(join(ROOT, "docs/ghostty.md"), "utf8");
@@ -26,34 +27,9 @@ type Recipe = typeof recipes[number];
 let cliCopy = "";
 const fixtures = new Set<string>();
 
-/** Snapshot dist because index.test.ts rebuilds it concurrently in the ordinary full suite. */
-beforeAll(async () => {
-  let lastError: unknown;
-  for (let attempt = 0; attempt < 10; attempt++) {
-    const target = mkdtempSync(join(tmpdir(), "summon-recipe-cli-"));
-    try {
-      cpSync(join(ROOT, "dist"), target, { recursive: true });
-      if (!existsSync(join(target, "index.js"))) throw new Error("Built CLI missing");
-      for (const name of readdirSync(target).filter(name => name.endsWith(".js"))) {
-        const source = readFileSync(join(target, name), "utf8");
-        for (const match of source.matchAll(/\b(?:from\s*|import\s*\()\s*["'](\.\/[^"']+)["']/g)) {
-          if (!existsSync(join(target, match[1]!))) throw new Error("CLI snapshot copied during rebuild");
-        }
-      }
-      writeFileSync(join(target, "package.json"), '{"type":"module"}\n');
-      chmodSync(join(target, "index.js"), 0o700);
-      cliCopy = target;
-      return;
-    } catch (error) {
-      lastError = error;
-      rmSync(target, { recursive: true, force: true });
-      await new Promise(resolve => setTimeout(resolve, 200));
-    }
-  }
-  throw new Error(`Recipe tests require pnpm build first: ${String(lastError)}`);
-});
+/** A private production build: the shared dist/ may be absent or emptied by a concurrent `pnpm build`. */
+beforeAll(() => { cliCopy = dirname(cliBuild("production")); });
 afterEach(() => { for (const fixture of fixtures) rmSync(fixture, { recursive: true, force: true }); fixtures.clear(); });
-afterAll(() => { if (cliCopy) rmSync(cliCopy, { recursive: true, force: true }); });
 
 function sandbox(recipe: Recipe) {
   const root = mkdtempSync(join(tmpdir(), "summon-ssh-recipe-"));
@@ -75,7 +51,7 @@ function sandbox(recipe: Recipe) {
   symlinkSync(process.execPath, join(bin, "node"));
   const run = (...args: string[]) => spawnSync(join(cliCopy, "index.js"), args, {
     cwd: project, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 30_000,
-    env: { ...process.env, HOME: home, PATH: `${bin}:${process.env.PATH ?? "/usr/bin:/bin"}`, SUMMON_NO_CACHE: "1", SUMMON_WORKSPACE: undefined, NODE_OPTIONS: undefined, NODE_COMPILE_CACHE: undefined, NODE_DISABLE_COMPILE_CACHE: "1", NO_COLOR: "1" },
+    env: { ...process.env, HOME: home, PATH: `${bin}:${process.env.PATH ?? "/usr/bin:/bin"}`, SUMMON_WORKSPACE: undefined, NODE_OPTIONS: undefined, NODE_COMPILE_CACHE: undefined, NODE_DISABLE_COMPILE_CACHE: "1", NO_COLOR: "1" },
   });
   return { root, home, project, status, marker, run };
 }

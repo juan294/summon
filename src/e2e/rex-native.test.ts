@@ -10,12 +10,13 @@ import { join } from "node:path";
  * It creates sessions labelled `summon-e2e-<suffix>` on the local server and destroys only those.
  */
 
-const { destroySessions, rexGate, rexWindowCount, until } = await import("./rex-harness.js");
+const { destroySessions, removeStatusFiles, rexGate, rexWindowCount, until } = await import("./rex-harness.js");
 const { discoverRex, createRexCli, defaultRexServer } = await import("../backends/rex/cli.js");
 const { listSessions, viewSession } = await import("../backends/rex/status.js");
-const { readStatusRecord, clearStatus } = await import("../status.js");
+const { readStatusRecord } = await import("../status-record.js");
 const { launchArtifactPaths, launchesDir } = await import("../launch-identity.js");
 const { launch } = await import("../launcher.js");
+
 const harness = rexGate(process.env, "rex-native e2e", { window: true });
 const { prereq } = harness;
 
@@ -164,7 +165,7 @@ describe("rex native e2e", () => {
       // The suite's own sessions must be proven gone (guide C20): a kill the server rejected or a
       // session still listed fails the test instead of leaving it for the owner to find.
       cleanupFailures = await destroySessions(cli, sessions);
-      try { clearStatus(project); } catch { /* best effort */ }
+      removeStatusFiles(project);
       rmSync(launchesDir(project), { recursive: true, force: true });
       rmSync(root, { recursive: true, force: true });
       for (const key of Object.keys(process.env)) if (!(key in savedEnv)) delete process.env[key];

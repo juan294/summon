@@ -9,17 +9,19 @@ import { join } from "node:path";
 const HAS_CHFLAGS = spawnSync("chflags", ["nouchg", "/nonexistent-summon-probe"], { stdio: "ignore" }).error === undefined;
 
 const tmpHome = mkdtempSync(join(tmpdir(), "summon-rex-launch-"));
-vi.mock("./../../paths.js", async (importOriginal) => {
+vi.mock("../../paths.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../paths.js")>();
   const configDir = join(tmpHome, ".config", "summon");
   return { ...actual, CONFIG_DIR: configDir, STATUS_DIR: join(configDir, "status") };
 });
 
 const { launchArtifactPaths, writeLaunchManifest, listLaunchManifests } = await import("../../launch-identity.js");
-const { readStatusRecord, withOwnedRecord, statusTestHooks } = await import("../../status.js");
+const { readStatusRecord, withOwnedRecord, statusTestHooks } = await import("../../status-record.js");
 const { STATUS_DIR } = await import("../../paths.js");
-const { createWorkspace, readPaneFile, readPaneMapping, waitForToken, adoptOrphans, refreshPaneMapping, maybeSwitchToExisting, keptSession, showWorkspace, showRecordedWorkspace, strandedTokenNotice } = await import("./launch.js");
+const { createWorkspace, readPaneFile, readPaneMapping, waitForToken, adoptOrphans, adoptOrphansForLaunch, refreshPaneMapping, maybeSwitchToExisting, keptSession, showWorkspace, showRecordedWorkspace, strandedTokenNotice } = await import("./launch.js");
 const { selectInApp } = await import("./app.js");
+const { sessionListings, sessionState } = await import("./status.js");
+const { writingRoutine } = await import("../../ui/output.js");
 type LaunchModule = typeof import("./launch.js");
 type CreateContext = Parameters<LaunchModule["createWorkspace"]>[2];
 type AdoptDeps = Parameters<LaunchModule["adoptOrphans"]>[1];
@@ -28,7 +30,9 @@ const { planLayout, getPreset } = await import("../../layout.js");
 type RexCli = import("./cli.js").RexCli;
 type RexResult = import("./types.js").RexResult;
 type LaunchManifest = import("../../launch-identity.js").LaunchManifest;
-type WorkspaceStatus = import("../../status.js").WorkspaceStatus;
+type RexWorkspaceStatus = import("../../status-record.js").RexWorkspaceStatus;
+type UnidentifiedRexWorkspaceStatus = import("../../status-record.js").UnidentifiedRexWorkspaceStatus;
+type GhosttyWorkspaceStatus = import("../../status-record.js").GhosttyWorkspaceStatus;
 
 const ID = "0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f";
 const ID2 = "1f1f1f1f-1f1f-4f1f-8f1f-1f1f1f1f1f1f";
@@ -260,6 +264,48 @@ describe("createWorkspace", () => {
     expect(cli.calls.map((c) => c.op)).toEqual(["ls", "session-create"]);
   });
 
+  it("BE-M1: a definitely failed create (rolled-back or none) removes its manifest under the status lock; nothing is left to report", async () => {
+    for (const outcome of ["rolled-back", "none"] as const) {
+      const locks: string[] = [];
+      statusTestHooks.beforeLock = () => { locks.push("lock"); };
+      const cli = fakeCli({
+        "ls": () => ok("ls", { sessions: [] }),
+        "session-create": () => fail("session-create", outcome === "none" ? "unreachable" : "rejected", outcome, "boom"),
+      });
+      const result = await createWorkspace(manifestFor(), fullBuild().request, ctxFor(cli));
+      expect(result, outcome).toMatchObject({ kind: "failed", notices: [] });
+      expect(existsSync(launchArtifactPaths("chapa", ID).manifest), outcome).toBe(false);
+      expect(listLaunchManifests("chapa"), outcome).toEqual([]);
+      expect(locks, outcome).toEqual(["lock"]);
+      delete statusTestHooks.beforeLock;
+    }
+  });
+
+  it("BE-M1: a failed removal is reported as a notice, never hidden, and the launch still fails with the server's reason", async () => {
+    const rejected = () => fakeCli({ "ls": () => ok("ls", { sessions: [] }), "session-create": () => fail("session-create", "rejected", "rolled-back", "boom") });
+    // The status lock cannot be taken.
+    statusTestHooks.beforeLock = () => { throw new Error("lock busy"); };
+    const locked = await createWorkspace(manifestFor(), fullBuild().request, ctxFor(rejected()));
+    delete statusTestHooks.beforeLock;
+    expect(locked).toMatchObject({ kind: "failed", reason: "boom", notices: [`could not remove the files of failed launch ${ID}: lock busy; summon clean --orphans names it`] });
+    expect(existsSync(launchArtifactPaths("chapa", ID).manifest)).toBe(true);
+    rmSync(launchArtifactPaths("chapa", ID).dir, { recursive: true, force: true });
+
+    // The manifest cannot be removed (read-only launches directory).
+    const paths = launchArtifactPaths("chapa", ID);
+    statusTestHooks.beforeLock = () => { chmodSync(paths.dir, 0o500); };
+    try {
+      const stuck = await createWorkspace(manifestFor(), fullBuild().request, ctxFor(rejected()));
+      expect(stuck).toMatchObject({ kind: "failed", reason: "boom" });
+      expect(stuck.notices).toHaveLength(1);
+      expect(stuck.notices[0]).toMatch(new RegExp(`^could not remove the files of failed launch ${ID}: .*${ID}\\.json: .*EACCES.*; summon clean --orphans names it$`));
+      expect(existsSync(paths.manifest)).toBe(true);
+    } finally {
+      delete statusTestHooks.beforeLock;
+      chmodSync(paths.dir, 0o700);
+    }
+  });
+
   it("an unreachable server (outcome none) is failed with the hint", async () => {
     const cli = fakeCli({
       "ls": () => fail("ls", "unreachable", "none"),
@@ -411,9 +457,20 @@ describe("createWorkspace", () => {
         "client-ls": (_argv, _input, nth) => ok("client-ls", { clients: nth >= 3 ? [CLIENT] : [] }),
         "do-select": () => ok("do-select", {}),
       });
-      const outcome = await createWorkspace(manifestFor(), fullBuild().request, ctxFor(cli, { app: { discover: () => "/Applications/Rex Beta.app", open } }));
+      const progress = vi.fn();
+      const outcome = await createWorkspace(manifestFor(), fullBuild().request, ctxFor(cli, { app: { discover: () => "/Applications/Rex Beta.app", open }, progress }));
       expect(outcome.kind).toBe("created");
       expect(open).toHaveBeenCalledWith("/Applications/Rex Beta.app");
+      // UX-M1: the progress line says the app is being opened; nothing about it becomes a notice.
+      expect(progress).toHaveBeenCalledWith("Summoning chapa… opening the Rex app");
+      expect(outcome.notices).toEqual([]);
+    });
+
+    it("does not report opening the app when one is already connected (UX-M1)", async () => {
+      const progress = vi.fn();
+      const cli = fakeCli({ "ls": () => ok("ls", { sessions: [] }), "session-create": created, "client-ls": () => ok("client-ls", { clients: [CLIENT] }), "do-select": () => ok("do-select", {}) });
+      await createWorkspace(manifestFor(), fullBuild().request, ctxFor(cli, { progress }));
+      expect(progress).not.toHaveBeenCalled();
     });
 
     it("is created-unselected when no client appears in time, when the app bundle is missing, or when select fails", async () => {
@@ -444,13 +501,25 @@ describe("selectInApp", () => {
 
 // --- adoptOrphans / refreshPaneMapping ---
 
-function recordFor(launchId: string, overrides: Partial<WorkspaceStatus> = {}): WorkspaceStatus {
+function recordFor(launchId: string, overrides: Partial<RexWorkspaceStatus> = {}): RexWorkspaceStatus {
   return {
     project: "chapa", directory: "/Users/me/code/chapa", pid: 1, startedAt: "2026-10-29T09:00:00.000Z", layout: "full",
     panes: ["editor", "sidebar", "editor-2", "right-1", "shell"], source: "summon", version: 1, launchId, backend: "rex",
     rex: { server: SERVER, hostId: "host-1", sessionId: "session:0000cccc-0000-0000-0000-000000000001", windowId: "window:0000cccc-0000-0000-0000-000000000002", rootBlockId: blockId(9), blocks: [{ name: "editor", blockId: blockId(9), label: "editor · vim" }] },
     ...overrides,
   };
+}
+
+/** The same record with its Rex identity discarded (as the parser leaves an invalid one). */
+function unidentified(record: RexWorkspaceStatus): UnidentifiedRexWorkspaceStatus {
+  const { rex: _rex, ...rest } = record;
+  return rest;
+}
+
+/** The same fields as a Ghostty record without the `backend` field (a legacy record). */
+function ghosttyOf(record: RexWorkspaceStatus): GhosttyWorkspaceStatus {
+  const { rex: _rex, backend: _backend, ...rest } = record;
+  return rest;
 }
 
 function depsFor(clis: Record<string, RexCli>, extra: Partial<AdoptDeps> = {}): AdoptDeps {
@@ -529,6 +598,24 @@ describe("adoptOrphans (plan P13 late adoption)", () => {
     expect(adoptOrphans("chapa", depsFor({ [SERVER]: cli }))).toEqual([`removed the files of earlier launch ${ID} (its Rex session is gone)`]);
     expect(existsSync(paths.manifest)).toBe(false);
     expect(existsSync(paths.pane("editor").file)).toBe(false);
+  });
+
+  it("for a launch, marks the gone-session cleanup routine (D1) and a failed removal not", async () => {
+    writeLaunchManifest(manifestFor());
+    writePane(ID, "editor", SESSION, blockId(1));
+    const paths = launchArtifactPaths("chapa", ID);
+    const cli = fakeCli({ "ls": () => ok("ls", { sessions: [] }) });
+    chmodSync(paths.dir, 0o500);
+    let failed: ReturnType<typeof adoptOrphansForLaunch>;
+    try {
+      failed = adoptOrphansForLaunch("chapa", depsFor({ [SERVER]: cli }));
+    } finally {
+      chmodSync(paths.dir, 0o700);
+    }
+    expect(failed).toHaveLength(1);
+    expect(failed[0]!.text).toMatch(/^could not remove the files of earlier launch /);
+    expect(failed[0]!.routine).toBeUndefined();
+    expect(adoptOrphansForLaunch("chapa", depsFor({ [SERVER]: cli }))).toEqual([{ text: `removed the files of earlier launch ${ID} (its Rex session is gone)`, routine: true }]);
   });
 
   it("a selective removal failure keeps the manifest and the root token (the session proof), so the retry verifies and finishes", async () => {
@@ -633,7 +720,7 @@ describe("adoptOrphans (plan P13 late adoption)", () => {
   });
 
   it("refuses a Rex record without identity before any lookup (defense in depth against reader recursion)", async () => {
-    withOwnedRecord("chapa", "replace", () => { const r = recordFor(ID2); delete r.rex; return r; });
+    withOwnedRecord("chapa", "replace", () => unidentified(recordFor(ID2)));
     writeLaunchManifest(manifestFor());
     writePane(ID, "editor", SESSION, blockId(1));
     const cli = fakeCli({});
@@ -644,7 +731,7 @@ describe("adoptOrphans (plan P13 late adoption)", () => {
   });
 
   it("abstains with a notice when a legacy record (no launchId) is present", async () => {
-    withOwnedRecord("chapa", "replace", () => { const r = recordFor(ID); delete r.launchId; delete r.backend; delete r.rex; return r; });
+    withOwnedRecord("chapa", "replace", () => { const r = ghosttyOf(recordFor(ID)); delete r.launchId; return r; });
     writeLaunchManifest(manifestFor());
     const cli = fakeCli({});
     expect(adoptOrphans("chapa", depsFor({ [SERVER]: cli }))).toEqual(["chapa has a record from an older Summon; run summon chapa to replace it"]);
@@ -705,7 +792,7 @@ describe("adoptOrphans (plan P13 late adoption)", () => {
   });
 
   it("treats a live Ghostty record like any live record (the orphan is reported, not adopted)", async () => {
-    withOwnedRecord("chapa", "replace", () => { const r = recordFor(ID2); delete r.backend; delete r.rex; return r; });
+    withOwnedRecord("chapa", "replace", () => ghosttyOf(recordFor(ID2)));
     writeLaunchManifest(manifestFor());
     writePane(ID, "editor", SESSION, blockId(1));
     const cli = fakeCli({ "ls": () => ok("ls", { sessions: [{ session_id: SESSION, label: "chapa" }] }), "session-view": () => liveView([blockId(1)]) });
@@ -740,18 +827,21 @@ describe("refreshPaneMapping", () => {
     expect(readStatusRecord("chapa")!.rex!.blocks.map((b) => b.name)).toEqual(["editor"]);
   });
 
-  it("does nothing for a record without unverified panes or without a Rex identity", () => {
+  it("does nothing for a record without unverified panes; a record without a Rex identity does not type-check (AR-L2)", () => {
     const complete = recordFor(ID, { panes: ["editor"] });
     expect(refreshPaneMapping(complete)).toEqual({ notices: [], changed: false });
-    const ghostty = recordFor(ID); delete ghostty.rex;
-    expect(refreshPaneMapping(ghostty)).toEqual({ notices: [], changed: false });
+    // @ts-expect-error a Rex record whose identity was discarded is not a RexWorkspaceStatus
+    const check = (): unknown => refreshPaneMapping(unidentified(recordFor(ID)));
+    // @ts-expect-error neither is a Ghostty record
+    const checkGhostty = (): unknown => refreshPaneMapping(ghosttyOf(recordFor(ID)));
+    expect([check, checkGhostty].every((f) => typeof f === "function")).toBe(true);
   });
 });
 
 describe("artifacts", () => {
-  it("the manifest written by createWorkspace is readable through listLaunchManifests", async () => {
-    const cli = fakeCli({ "ls": () => ok("ls", { sessions: [] }), "session-create": () => fail("session-create", "rejected", "rolled-back", "nope") });
-    await createWorkspace(manifestFor(), fullBuild().request, ctxFor(cli));
+  it("the manifest written by createWorkspace is readable through listLaunchManifests, and survives an unknown outcome for late adoption", async () => {
+    const cli = fakeCli({ "ls": () => ok("ls", { sessions: [] }), "session-create": () => fail("session-create", "unreachable", "unknown", "server disconnected") });
+    expect((await createWorkspace(manifestFor(), fullBuild().request, ctxFor(cli))).kind).toBe("unknown");
     expect(listLaunchManifests("chapa").map((m) => m.launchId)).toEqual([ID]);
     expect(JSON.parse(readFileSync(launchArtifactPaths("chapa", ID).manifest, "utf-8")).server).toBe(SERVER);
   });
@@ -762,13 +852,18 @@ describe("maybeSwitchToExisting (plan P2) and showWorkspace", () => {
   const lsPresent = () => ok("ls", { sessions: [{ session_id: SESSION, label: "chapa" }] });
   let stderrText = "";
   let errSpy: ReturnType<typeof vi.spyOn>;
-  beforeEach(() => { stderrText = ""; errSpy = vi.spyOn(process.stderr, "write").mockImplementation((chunk: unknown) => { stderrText += String(chunk); return true; }); });
+  let routineText = "";
+  beforeEach(() => {
+    stderrText = "";
+    routineText = "";
+    errSpy = vi.spyOn(process.stderr, "write").mockImplementation((chunk: unknown) => { stderrText += String(chunk); if (writingRoutine()) routineText += String(chunk); return true; });
+  });
   afterEach(() => { errSpy.mockRestore(); });
 
   it("proceeds without any Rex call when there is no record, a Ghostty record, or --new-window", () => {
     const cli = fakeCli({});
     expect(maybeSwitchToExisting("chapa", false, { cliFor: () => cli })).toEqual({ kind: "proceed" });
-    withOwnedRecord("chapa", "replace", () => { const r = recordFor(ID); delete r.backend; delete r.rex; return r; });
+    withOwnedRecord("chapa", "replace", () => ghosttyOf(recordFor(ID)));
     expect(maybeSwitchToExisting("chapa", false, { cliFor: () => cli })).toEqual({ kind: "proceed" });
     withOwnedRecord("chapa", "replace", liveRecord);
     expect(maybeSwitchToExisting("chapa", true, { cliFor: () => cli })).toEqual({ kind: "proceed" });
@@ -778,9 +873,9 @@ describe("maybeSwitchToExisting (plan P2) and showWorkspace", () => {
   it("keptSession names a live recorded session that --new-window leaves open, with the launches it keeps, and nothing else (F12)", () => {
     const cli = fakeCli({});
     expect(keptSession("chapa", () => cli)).toBeUndefined();
-    withOwnedRecord("chapa", "replace", () => { const r = recordFor(ID); delete r.backend; delete r.rex; return r; });
+    withOwnedRecord("chapa", "replace", () => ghosttyOf(recordFor(ID)));
     expect(keptSession("chapa", () => cli)).toBeUndefined();
-    withOwnedRecord("chapa", "replace", () => { const r = recordFor(ID); delete r.rex; return r; });
+    withOwnedRecord("chapa", "replace", () => unidentified(recordFor(ID)));
     expect(keptSession("chapa", () => cli)).toBeUndefined();
     expect(cli.calls).toEqual([]);
     withOwnedRecord("chapa", "replace", liveRecord);
@@ -799,7 +894,7 @@ describe("maybeSwitchToExisting (plan P2) and showWorkspace", () => {
   });
 
   it("a Rex record whose identity was discarded refuses an ordinary launch without a Rex call; --new-window proceeds", () => {
-    withOwnedRecord("chapa", "replace", () => { const r = recordFor(ID); delete r.rex; return r; });
+    withOwnedRecord("chapa", "replace", () => unidentified(recordFor(ID)));
     const cli = fakeCli({});
     expect(maybeSwitchToExisting("chapa", false, { cliFor: () => cli })).toEqual({ kind: "refused", reason: "chapa is recorded in Rex but the record has no Rex identity; run summon chapa --new-window to relaunch" });
     expect(maybeSwitchToExisting("chapa", true, { cliFor: () => cli })).toEqual({ kind: "proceed" });
@@ -820,6 +915,8 @@ describe("maybeSwitchToExisting (plan P2) and showWorkspace", () => {
     expect(cli.calls.map((c) => c.op)).toEqual(["ls", "session-view", "client-ls", "do-select"]);
     expect(cli.calls.find((c) => c.op === "do-select")!.argv).toEqual(["-C", "client:app", "do", "session.select", `session_id=${SESSION}`, `window_id=${WINDOW}`, "--json"]);
     expect(stderrText).toContain("Workspace [chapa] is already running in Rex; switched to it (use --new-window for a fresh one)");
+    // D1: the switch line is marked routine where it is written, so the launcher tab can close.
+    expect(routineText).toBe("Workspace [chapa] is already running in Rex; switched to it (use --new-window for a fresh one)\n");
   });
 
   it("reuse prefers the app attached to the caller's session over a newer unrelated app, with the several-apps notice (P7)", () => {
@@ -858,17 +955,73 @@ describe("maybeSwitchToExisting (plan P2) and showWorkspace", () => {
     expect(readStatusRecord("chapa")!.rex!.blocks.map((b) => b.name)).toEqual(["editor", "shell"]);
     expect(stderrText).toContain("Workspace [chapa] is already running in Rex but could not be shown (no Rex app is connected; open Rex and pick [chapa]); run summon open chapa");
     expect(stderrText).not.toContain("switched to it");
+    expect(routineText).toBe("");
   });
 
   it("showWorkspace reports a failed select, and showRecordedWorkspace needs a Rex record", () => {
     const record = liveRecord();
     const failing = fakeCli({ "client-ls": () => ok("client-ls", { clients: [CLIENT] }), "do-select": () => fail("do-select", "failed", "unknown", "select exploded") });
     expect(showWorkspace(failing, record)).toEqual({ shown: false, reason: "select exploded" });
-    const ghostty = recordFor(ID); delete ghostty.rex;
-    expect(showWorkspace(failing, ghostty)).toEqual({ shown: false, reason: "the record has no Rex identity" });
+    // @ts-expect-error showWorkspace takes only a Rex record with its identity (AR-L2)
+    expect(typeof ((): unknown => showWorkspace(failing, unidentified(recordFor(ID))))).toBe("function");
     expect(showRecordedWorkspace("chapa", "/nonexistent/rex")).toEqual({ shown: false, reason: "chapa has no Rex record" });
     withOwnedRecord("chapa", "replace", liveRecord);
     // A missing binary surfaces as "no app connected": nothing is spawned beyond the ENOENT attempt.
     expect(showRecordedWorkspace("chapa", "/nonexistent/rex")).toEqual({ shown: false, reason: "no Rex app is connected; open Rex and pick [chapa]" });
+  });
+});
+
+describe("PE-L1: one session listing per server per launch", () => {
+  let errSpy: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => { errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true); });
+  afterEach(() => { errSpy.mockRestore(); });
+
+  function relaunchCli() {
+    return fakeCli({
+      // The record's session (cccc) is gone; the orphan's session is listed.
+      "ls": () => ok("ls", { sessions: [{ session_id: SESSION, label: "chapa" }] }),
+      "session-view": () => ok("session-view", viewJson([blockId(1)])),
+      "client-ls": () => ok("client-ls", { clients: [CLIENT] }),
+      "do-select": () => ok("do-select", {}),
+      "session-create": () => ok("session-create", createdJson),
+    });
+  }
+
+  function seedRelaunch(): void {
+    withOwnedRecord("chapa", "replace", () => recordFor(ID2));
+    writeLaunchManifest(manifestFor());
+    writePane(ID, "editor", SESSION, blockId(1));
+  }
+
+  it("adoption lists each server once for the current record and every earlier launch", () => {
+    seedRelaunch();
+    const cli = relaunchCli();
+    expect(adoptOrphans("chapa", depsFor({ [SERVER]: cli }))).toEqual([`adopted earlier launch ${ID} of chapa (Rex session ${SESSION})`]);
+    expect(cli.calls.filter((c) => c.op === "ls")).toHaveLength(1);
+  });
+
+  it("adoption, the P2 switch and the kept-session check share one listing; the switch still views the session itself", () => {
+    seedRelaunch();
+    const cli = relaunchCli();
+    const listings = sessionListings();
+    const notices = adoptOrphansForLaunch("chapa", { ...depsFor({ [SERVER]: cli }), listings });
+    expect(notices.map((n) => n.text)).toEqual([`adopted earlier launch ${ID} of chapa (Rex session ${SESSION})`]);
+    expect(maybeSwitchToExisting("chapa", false, { cliFor: () => cli, listings })).toEqual({ kind: "switched" });
+    expect(keptSession("chapa", () => cli, listings)?.keeps).toEqual([ID]);
+    expect(cli.calls.map((c) => c.op)).toEqual(["ls", "session-view", "session-view", "client-ls", "do-select", "session-view"]);
+    // Without a shared listing each probe lists again (the earlier behavior stays available to other callers).
+    expect(sessionState(cli, readStatusRecord("chapa")!.rex!, "chapa").state).toBe("active");
+    expect(cli.calls.filter((c) => c.op === "ls")).toHaveLength(2);
+  });
+
+  it("P13: createWorkspace never reuses the launch's listing; its `before` snapshot is listed right before session.create", async () => {
+    seedRelaunch();
+    const cli = relaunchCli();
+    const listings = sessionListings();
+    adoptOrphansForLaunch("chapa", { ...depsFor({ [SERVER]: cli }), listings });
+    keptSession("chapa", () => cli, listings);
+    const before = cli.calls.length;
+    await createWorkspace(manifestFor(ID2), fullBuild().request, ctxFor(cli));
+    expect(cli.calls.slice(before).map((c) => c.op).slice(0, 2)).toEqual(["ls", "session-create"]);
   });
 });

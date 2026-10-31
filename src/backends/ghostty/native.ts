@@ -1,7 +1,9 @@
 import { execFileSync } from "node:child_process";
-import { escapeAppleScript } from "./shell-escape.js";
-import { probeGhosttyNative } from "./ghostty.js";
+import { escapeAppleScript } from "../../shell-escape.js";
+import { probeGhosttyNative } from "./probe.js";
 import { TERMINAL_ID_RE } from "./pane-inventory.js";
+import { validateTitleText } from "../../ui/sanitize.js";
+import type { FocusResult, NativeFailure, TitleOperation, TitleResult, TitleScope } from "../port.js";
 
 export interface NativePane {
   terminalId: string;
@@ -13,13 +15,6 @@ export interface NativePane {
   windowId: string;
   focused: boolean;
 }
-export interface NativeFailure {
-  kind: "unavailable" | "failed";
-  code: "permission" | "timeout" | "missing" | "unavailable";
-  reason: string;
-}
-export type FocusResult =
-  { kind: "focused"; terminalId: string } | NativeFailure;
 export type InventoryResult =
   { kind: "available"; panes: NativePane[] } | NativeFailure;
 const RECOVERY =
@@ -239,24 +234,7 @@ function nativeSupport(
   }
 }
 
-export type TitleOperation =
-  { kind: "read" } | { kind: "set"; text: string } | { kind: "reset" };
-export type TitleScope = "tab" | "pane";
-export type TitleResult =
-  | { kind: "title"; terminalId: string; scope: TitleScope; override: string }
-  | NativeFailure;
 
-/** Validation is shared by the CLI and native emitter; existing titles are read verbatim via JSON. */
-export function validateTitleText(text: string): string | null {
-  if (text.length === 0)
-    return "Empty title is invalid; use --reset to clear the override.";
-  if ([...text].length > 256)
-    return "Title must be at most 256 Unicode codepoints.";
-  // eslint-disable-next-line no-control-regex -- user-authored titles cannot contain terminal or bidi controls
-  if (/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/.test(text))
-    return "Title cannot contain control or bidi override/isolate characters.";
-  return null;
-}
 
 export function generateTitleScript(
   terminalId: string,

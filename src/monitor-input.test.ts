@@ -45,6 +45,34 @@ describe("monitor byte stream decoder", () => {
     expect(decoder.push("[q", 101)).toEqual([]);
     expect(decoder.push("q", 102)).toEqual([{ type: "key", bytes: "q" }]);
   });
+  it("FE-M2: a lone Esc becomes an escape key when it expires and keeps the next key", () => {
+    const decoder = createMonitorInputDecoder();
+    expect(decoder.push("\x1b", 0)).toEqual([]);
+    expect(decoder.expire(99)).toEqual([]);
+    expect(decoder.expire(100)).toEqual([{ type: "key", bytes: "\x1b" }]);
+    expect(decoder.expire(200)).toEqual([]);
+    expect(decoder.push("q", 101)).toEqual([{ type: "key", bytes: "q" }]);
+  });
+  it("FE-M2: a key read after the Esc deadline releases the escape first, then the key", () => {
+    const decoder = createMonitorInputDecoder();
+    decoder.push("\x1b", 0);
+    expect(decoder.push("q", 150)).toEqual([
+      { type: "key", bytes: "\x1b" },
+      { type: "key", bytes: "q" },
+    ]);
+  });
+  it("FE-M2: a reply split after a lone-Esc expiry still never reaches the key handler", () => {
+    const decoder = createMonitorInputDecoder();
+    decoder.push("\x1b", 0);
+    expect(decoder.expire(100)).toEqual([{ type: "key", bytes: "\x1b" }]);
+    expect(decoder.push("[?999;1n", 101)).toEqual([]);
+    expect(decoder.push("q", 102)).toEqual([{ type: "key", bytes: "q" }]);
+  });
+  it("FE-M2: an incomplete CSI that expires emits no escape key", () => {
+    const decoder = createMonitorInputDecoder();
+    decoder.push("\x1b[?999;", 0);
+    expect(decoder.expire(100)).toEqual([]);
+  });
   it("quarantines overflow with bounded state and suppresses embedded Enter/q", () => {
     const decoder = createMonitorInputDecoder();
     expect(decoder.push("\x1b[" + "9".repeat(20_000) + "\rq", 0)).toEqual([]);

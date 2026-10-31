@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { writeFakeRex } from "./fixtures/fake-rex.js";
 
 /**
  * The stopped reader composed with the real snapshot writer over a real temporary git repository,
@@ -16,7 +17,9 @@ const STATUS_DIR = join(CONFIG_DIR, "status");
 const SNAPSHOTS_DIR = join(CONFIG_DIR, "snapshots");
 vi.mock("./paths.js", async (original) => ({ ...(await original<typeof import("./paths.js")>()), CONFIG_DIR, STATUS_DIR, SNAPSHOTS_DIR }));
 
-const { readStatus, readStatusRecord, writeStatus, resetRexBinaryMemo, resetReadAllStatusesCache, NO_LIVE_PANES, SESSION_GONE } = await import("./status.js");
+const { readStatus, readAllStatuses, readProjectStatus, resetRexBinaryMemo } = await import("./status.js");
+const { readStatusRecord, statusTestHooks, writeStatus } = await import("./status-record.js");
+const { NO_LIVE_PANES, SESSION_GONE } = await import("./backends/rex/status.js");
 const { writeLaunchManifest, launchArtifactPaths } = await import("./launch-identity.js");
 const { gitSafeEnv } = await import("./utils.js");
 
@@ -56,17 +59,14 @@ const files = () => ({ pid: existsSync(paths.pid), active: existsSync(paths.acti
 beforeAll(() => {
   // A real executable at the Rex process boundary, found before any installed rex.
   mkdirSync(binDir, { recursive: true });
-  const script = [
-    `#!${process.execPath}`,
+  writeFakeRex(join(binDir, "rex"), [
     "const fs = require('node:fs');",
     `const d = JSON.parse(fs.readFileSync(${JSON.stringify(fixture)}, 'utf8'));`,
     "const a = process.argv.slice(2);",
     "if (a.includes('ls')) console.log(JSON.stringify({ sessions: d.sessions }));",
     "else if (a.includes('session.view')) console.log(JSON.stringify(d.view));",
     "else { console.error('unexpected fake rex operation', a); process.exit(2); }",
-  ].join("\n");
-  writeFileSync(join(binDir, "rex"), script + "\n");
-  chmodSync(join(binDir, "rex"), 0o755);
+  ].join("\n") + "\n");
   process.env["PATH"] = `${binDir}:${savedEnv.PATH ?? ""}`;
   process.env["REX_BIN_DIR"] = binDir;
 
@@ -92,14 +92,13 @@ beforeEach(() => {
   rmSync(SNAPSHOTS_DIR, { recursive: true, force: true });
   mkdirSync(paths.dir, { recursive: true });
   resetRexBinaryMemo();
-  resetReadAllStatusesCache();
 });
 
 describe("stopped reader with the real snapshot writer and a real repository", () => {
   it("reconciles a workspace that ended outside Summon: snapshot of the repository, endedAt, files removed", { timeout: 15_000 }, () => {
     seed(["editor"], [["editor", EDITOR]]);
     server([], []);
-    const row = readStatus(PROJECT)!;
+    const row = readStatus(PROJECT, { reconcile: true })!;
     expect(row).toMatchObject({ state: "stopped", reason: SESSION_GONE, launchId: GEN });
     expect(row.notices).toHaveLength(1);
     expect(row.notices![0]).toMatch(/^workspace ended outside Summon; snapshot saved \d{4}-\d{2}-\d{2}T/);
@@ -119,7 +118,7 @@ describe("stopped reader with the real snapshot writer and a real repository", (
     chmodSync(SNAPSHOTS_DIR, 0o500);
     let first;
     try {
-      first = readStatus(PROJECT)!;
+      first = readStatus(PROJECT, { reconcile: true })!;
     } finally {
       chmodSync(SNAPSHOTS_DIR, 0o700);
     }
@@ -130,7 +129,7 @@ describe("stopped reader with the real snapshot writer and a real repository", (
     expect(readStatusRecord(PROJECT)!.endedAt).toBeUndefined();
     expect(files()).toEqual({ pid: true, active: true, manifest: true, pane: true });
 
-    const second = readStatus(PROJECT)!;
+    const second = readStatus(PROJECT, { reconcile: true })!;
     expect(second.notices![0]).toMatch(/^workspace ended outside Summon; snapshot saved /);
     expect(existsSync(snapshotFile)).toBe(true);
     expect(readStatusRecord(PROJECT)!.endedAt).toBeDefined();
@@ -141,7 +140,7 @@ describe("stopped reader with the real snapshot writer and a real repository", (
     // Root closed, shell alive: partial with the recovered pane; then root back: active.
     seed(["editor", "shell"], [["editor", EDITOR]]);
     server([SESSION], [SHELL]);
-    const partial = readStatus(PROJECT)!;
+    const partial = readStatus(PROJECT, { reconcile: true })!;
     expect(partial).toMatchObject({ state: "partial", reason: "root pane closed", liveBlocks: ["shell"] });
     expect(partial.rex!.blocks.map((b) => b.name)).toEqual(["editor", "shell"]);
     expect(partial.notices).toBeUndefined();
@@ -149,8 +148,7 @@ describe("stopped reader with the real snapshot writer and a real repository", (
     expect(existsSync(paths.pane("shell").file)).toBe(true);
 
     server([SESSION], [EDITOR, SHELL]);
-    resetReadAllStatusesCache();
-    const active = readStatus(PROJECT)!;
+    const active = readStatus(PROJECT, { reconcile: true })!;
     expect(active).toMatchObject({ state: "active", liveBlocks: ["editor", "shell"] });
     expect(active.reason).toBeUndefined();
   });
@@ -158,17 +156,70 @@ describe("stopped reader with the real snapshot writer and a real repository", (
   it("a read before the pane file arrives does not end the launch; the file arriving later still recovers it", { timeout: 15_000 }, () => {
     seed(["editor", "shell"], [["editor", EDITOR]], { shellFile: false });
     server([SESSION], [SHELL]); // the root closed; a block remains that no recorded pane names yet
-    const before = readStatus(PROJECT)!;
+    const before = readStatus(PROJECT, { reconcile: true })!;
     expect(before).toMatchObject({ state: "stopped", reason: `${NO_LIVE_PANES}; 1 pane unverified`, liveBlocks: [] });
     expect(readStatusRecord(PROJECT)!.endedAt).toBeUndefined();
     expect(existsSync(snapshotFile)).toBe(false);
     expect(files()).toEqual({ pid: true, active: true, manifest: true, pane: true });
 
     writeFileSync(paths.pane("shell").file, `${SESSION}\n${SHELL}\n`);
-    resetReadAllStatusesCache();
-    const after = readStatus(PROJECT)!;
+    const after = readStatus(PROJECT, { reconcile: true })!;
     expect(after).toMatchObject({ state: "partial", reason: "root pane closed", liveBlocks: ["shell"] });
     expect(after.rex!.blocks.map((b) => b.name)).toEqual(["editor", "shell"]);
     expect(readStatusRecord(PROJECT)!.endedAt).toBeUndefined();
+  });
+});
+
+/** Every file under the config directory with its bytes (directories as entries), to compare before and after a read. */
+function configTree(dir = CONFIG_DIR, prefix = ""): Map<string, string> {
+  const tree = new Map<string, string>();
+  if (!existsSync(dir)) return tree;
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = `${prefix}${entry.name}`;
+    if (entry.isDirectory()) {
+      tree.set(`${path}/`, "");
+      for (const [child, bytes] of configTree(join(dir, entry.name), `${path}/`)) tree.set(child, bytes);
+    } else {
+      tree.set(path, readFileSync(join(dir, entry.name), "utf-8"));
+    }
+  }
+  return tree;
+}
+
+/** A read that asks not to reconcile (reconciliation is the default). */
+const READ_ONLY = { reconcile: false } as const;
+
+describe("a non-reconciling read writes nothing (AR-M3)", () => {
+  it("leaves an ended workspace, a delayed pane file and an unverified launch untouched, takes no lock; the next reconciling read still recovers", { timeout: 15_000 }, () => {
+    // Every writing step has work here: the shell's pane file arrived late (refresh), the session is
+    // gone (end of launch: snapshot, endedAt, file removal) and another project has a manifest without a record (adoption).
+    seed(["editor", "shell"], [["editor", EDITOR]]);
+    server([], []);
+    writeLaunchManifest({ version: 1, launchId: GEN, project: "orphan", directory: repoDir, layout: "pair", panes: ["editor"], paneOrder: ["editor"], blockLabels: { editor: "editor" }, backend: "rex", server: SERVER, startedAt: STARTED });
+    const before = configTree();
+    statusTestHooks.beforeLock = () => { throw new Error("a non-reconciling read must not take the status lock"); };
+    try {
+      const row = readStatus(PROJECT, READ_ONLY)!;
+      expect(row).toMatchObject({ state: "stopped", reason: SESSION_GONE, launchId: GEN });
+      expect(row.endedAt).toBeUndefined();
+      expect(row.notices).toBeUndefined();
+      expect(row.rex!.blocks.map((b) => b.name)).toEqual(["editor"]);
+      expect(readProjectStatus(PROJECT, READ_ONLY)).toMatchObject({ state: "stopped", reason: SESSION_GONE });
+      expect(readProjectStatus("orphan", READ_ONLY)).toMatchObject({ state: "unknown", reason: "unverified launch" });
+      const rows = readAllStatuses({ programStatus: true, ...READ_ONLY });
+      expect(rows.map((r) => [r.project, r.state, r.notices])).toEqual([[PROJECT, "stopped", undefined], ["orphan", "unknown", undefined]]);
+    } finally {
+      delete statusTestHooks.beforeLock;
+    }
+    expect(configTree()).toEqual(before);
+    expect(existsSync(snapshotFile)).toBe(false);
+
+    // Next-read recovery: the first reconciling read (the default) refreshes the pane, saves the snapshot, marks the record and removes the files.
+    const reconciled = readStatus(PROJECT)!;
+    expect(reconciled.notices![0]).toMatch(/^workspace ended outside Summon; snapshot saved /);
+    expect(reconciled.rex!.blocks.map((b) => b.name)).toEqual(["editor", "shell"]);
+    expect(readStatusRecord(PROJECT)!.endedAt).toBeDefined();
+    expect(existsSync(snapshotFile)).toBe(true);
+    expect(files()).toEqual({ pid: false, active: false, manifest: false, pane: false });
   });
 });

@@ -3,18 +3,18 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { discoverGhostty, probeGhosttyNative, probeGhosttyDetach } from "../ghostty.js";
-import { readNativeInventory, focusTerminal, titleTerminal } from "../ghostty-native.js";
-import { generateAppleScript, generateTreeAppleScript } from "../script.js";
+import { discoverGhostty, probeGhosttyNative, probeGhosttyDetach } from "../backends/ghostty/probe.js";
+import { readNativeInventory, focusTerminal, titleTerminal } from "../backends/ghostty/native.js";
+import { generateAppleScript, generateTreeAppleScript } from "../backends/ghostty/script.js";
 import { planLayout } from "../layout.js";
 import { buildTreePlan, parseTreeDSL } from "../tree.js";
-import type { NativeMetadata } from "../pane-inventory.js";
+import type { NativeMetadata } from "../backends/ghostty/pane-inventory.js";
 import {
   traditionalInventory,
   treeInventory,
   parseNativeCapture,
   TERMINAL_ID_RE,
-} from "../pane-inventory.js";
+} from "../backends/ghostty/pane-inventory.js";
 import { escapeAppleScript, shellQuote } from "../shell-escape.js";
 
 type NativeMode = "off" | "advisory" | "required";
@@ -182,7 +182,7 @@ await runMonitor();
 process.stdin.setRawMode(true);process.stdin.resume();state.finalMode=await mode();state.done=true;save();process.stdin.setRawMode(false);process.stdin.pause();
 `);
   const state = (): { reports: number[]; events: Array<{tag:string;status?:number;at:number}>; frames: number; ready: boolean; done: boolean; childPid: number; fallback: boolean; initialMode: number; finalMode: number } => JSON.parse(readFileSync(statePath, "utf8"));
-  const command = ["env", `HOME=${shellQuote(home)}`, "SUMMON_NO_CACHE=1", shellQuote(process.execPath), shellQuote(childPath)].join(" ") + " 2>" + shellQuote(join(dir,"visibility-child.stderr"));
+  const command = ["env", `HOME=${shellQuote(home)}`, shellQuote(process.execPath), shellQuote(childPath)].join(" ") + " 2>" + shellQuote(join(dir,"visibility-child.stderr"));
   run(`tell application "Ghostty"
 input text "${escapeAppleScript(command)}" to ${exactTerminal(root)}
 send key "enter" to ${exactTerminal(root)}

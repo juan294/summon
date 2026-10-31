@@ -1,0 +1,664 @@
+=== traditional default
+tell application "Ghostty"
+    activate
+
+    set cfg to new surface configuration
+    set initial working directory of cfg to "/tmp/my project"
+    set environment variables of cfg to {"SUMMON_WORKSPACE=1", "SUMMON_TAB_TITLE=myapp"}
+
+    set win to front window
+    set paneRoot to terminal 1 of selected tab of win
+
+    set initial input of cfg to "lazygit\n"
+    set paneSidebar to split paneRoot direction right with configuration cfg
+
+    -- Resize editor/sidebar split
+    delay 0.3
+    tell application "System Events"
+        tell process "Ghostty"
+            set windowSize to size of front window
+            set windowWidth to item 1 of windowSize
+        end tell
+    end tell
+    set resizeAmount to round (windowWidth * 0.25)
+    set resizeAction to "resize_split:right," & (resizeAmount as text)
+    perform action resizeAction on paneRoot
+    delay 0.2
+
+    set initial input of cfg to ""
+    set paneRightCol to split paneRoot direction right with configuration cfg
+
+    set initial input of cfg to ""
+    set paneRight2 to split paneRightCol direction down with configuration cfg
+
+    input text "export SUMMON_WORKSPACE='1'" to paneRoot
+    send key "enter" to paneRoot
+    input text "export SUMMON_TAB_TITLE='myapp'" to paneRoot
+    send key "enter" to paneRoot
+    input text "mkdir -p \"$HOME/.config/summon/status/myapp.launches\" && chmod 700 \"$HOME/.config/summon/status/myapp.launches\" && printf '%s\\n' \"$$\" > \"$HOME/.config/summon/status/myapp.launches/0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f.pid\" && printf '%s\\n' '0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f' > \"$HOME/.config/summon/status/myapp.launches/0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f.active\"" to paneRoot
+    send key "enter" to paneRoot
+    input text "__summon_cleanup() { rm -f \"$HOME/.config/summon/status/myapp.launches/0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f.pid\" \"$HOME/.config/summon/status/myapp.launches/0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f.active\" 2>/dev/null; mkdir -p \"$HOME/.config/summon\" \"$HOME/.config/summon/logs\"; chmod 700 \"$HOME/.config/summon\" \"$HOME/.config/summon/logs\"; : >> \"$HOME/.config/summon/logs/cleanup-myapp.log\"; chmod 600 \"$HOME/.config/summon/logs/cleanup-myapp.log\"; echo bye </dev/null >> \"$HOME/.config/summon/logs/cleanup-myapp.log\" 2>&1; summon snapshot save --dir \"/tmp/my project\" --project \"myapp\" --layout \"unknown\" --launch '0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f' </dev/null >/dev/null 2>&1; }; trap '__summon_cleanup' EXIT HUP" to paneRoot
+    send key "enter" to paneRoot
+    input text "clear" to paneRight2
+    send key "enter" to paneRight2
+    input text "cd '/tmp/my project'" to paneRoot
+    send key "enter" to paneRoot
+    input text "clear" to paneRoot
+    send key "enter" to paneRoot
+
+    -- Set pane and tab titles
+    perform action "set_tab_title:[myapp]" on paneRoot
+    perform action "set_surface_title:editor" on paneRoot
+    perform action "set_surface_title:sidebar · lazygit" on paneSidebar
+    perform action "set_surface_title:editor" on paneRightCol
+    perform action "set_surface_title:shell" on paneRight2
+
+    focus paneRoot
+    try
+        set summonCapture to "SUMMON_NATIVE_V1"
+        set summonCapture to summonCapture & linefeed & (id of paneRoot as text)
+        set summonCapture to summonCapture & linefeed & (id of paneSidebar as text)
+        set summonCapture to summonCapture & linefeed & (id of paneRightCol as text)
+        set summonCapture to summonCapture & linefeed & (id of paneRight2 as text)
+        return summonCapture
+    on error
+        return "SUMMON_NATIVE_UNAVAILABLE"
+    end try
+end tell
+=== traditional default full untracked
+tell application "Ghostty"
+    activate
+
+    set cfg to new surface configuration
+    set initial working directory of cfg to "/tmp/my project"
+    set environment variables of cfg to {"SUMMON_WORKSPACE=1"}
+
+    set win to front window
+    set paneRoot to terminal 1 of selected tab of win
+
+    set initial input of cfg to "lazygit\n"
+    set paneSidebar to split paneRoot direction right with configuration cfg
+
+    -- Resize editor/sidebar split
+    delay 0.3
+    tell application "System Events"
+        tell process "Ghostty"
+            set windowSize to size of front window
+            set windowWidth to item 1 of windowSize
+        end tell
+    end tell
+    set resizeAmount to round (windowWidth * 0.25)
+    set resizeAction to "resize_split:right," & (resizeAmount as text)
+    perform action resizeAction on paneRoot
+    delay 0.2
+
+    set initial input of cfg to ""
+    set paneRightCol to split paneRoot direction right with configuration cfg
+
+    set initial input of cfg to ""
+    set paneRight2 to split paneRightCol direction down with configuration cfg
+
+    set paneLeft2 to split paneRoot direction down with configuration cfg
+
+    input text "export SUMMON_WORKSPACE='1'" to paneRoot
+    send key "enter" to paneRoot
+    input text "clear" to paneRight2
+    send key "enter" to paneRight2
+    input text "cd '/tmp/my project'" to paneRoot
+    send key "enter" to paneRoot
+    input text "clear" to paneRoot
+    send key "enter" to paneRoot
+
+    -- Set pane and tab titles
+    perform action "set_tab_title:my project" on paneRoot
+    perform action "set_surface_title:editor" on paneRoot
+    perform action "set_surface_title:sidebar · lazygit" on paneSidebar
+    perform action "set_surface_title:editor" on paneRightCol
+    perform action "set_surface_title:shell" on paneRight2
+    perform action "set_surface_title:editor" on paneLeft2
+
+    focus paneRoot
+    try
+        set summonCapture to "SUMMON_NATIVE_V1"
+        set summonCapture to summonCapture & linefeed & (id of paneRoot as text)
+        set summonCapture to summonCapture & linefeed & (id of paneSidebar as text)
+        set summonCapture to summonCapture & linefeed & (id of paneRightCol as text)
+        set summonCapture to summonCapture & linefeed & (id of paneRight2 as text)
+        set summonCapture to summonCapture & linefeed & (id of paneLeft2 as text)
+        return summonCapture
+    on error
+        return "SUMMON_NATIVE_UNAVAILABLE"
+    end try
+end tell
+=== traditional default clean-restored
+tell application "Ghostty"
+    activate
+
+    set cfg to new surface configuration
+    set initial working directory of cfg to "/tmp/my project"
+    set environment variables of cfg to {"SUMMON_WORKSPACE=1", "SUMMON_TAB_TITLE=myapp", "STARSHIP_CONFIG=/tmp/star.toml", "FOO=bar"}
+
+    -- Clear restored panes from previous Ghostty session
+    set targetTab to selected tab of front window
+    repeat while (count of terminals of targetTab) > 1
+        close last terminal of targetTab
+    end repeat
+    delay 0.1
+
+    set win to front window
+    set paneRoot to terminal 1 of selected tab of win
+
+    set initial input of cfg to "lazygit\n"
+    set paneSidebar to split paneRoot direction right with configuration cfg
+
+    -- Resize editor/sidebar split
+    delay 0.3
+    tell application "System Events"
+        tell process "Ghostty"
+            set windowSize to size of front window
+            set windowWidth to item 1 of windowSize
+        end tell
+    end tell
+    set resizeAmount to round (windowWidth * 0.25)
+    set resizeAction to "resize_split:right," & (resizeAmount as text)
+    perform action resizeAction on paneRoot
+    delay 0.2
+
+    set initial input of cfg to ""
+    set paneRightCol to split paneRoot direction right with configuration cfg
+
+    set initial input of cfg to ""
+    set paneRight2 to split paneRightCol direction down with configuration cfg
+
+    input text "export SUMMON_WORKSPACE='1'" to paneRoot
+    send key "enter" to paneRoot
+    input text "export SUMMON_TAB_TITLE='myapp'" to paneRoot
+    send key "enter" to paneRoot
+    input text "export STARSHIP_CONFIG='/tmp/star.toml'" to paneRoot
+    send key "enter" to paneRoot
+    input text "export FOO='bar'" to paneRoot
+    send key "enter" to paneRoot
+    input text "mkdir -p \"$HOME/.config/summon/status/myapp.launches\" && chmod 700 \"$HOME/.config/summon/status/myapp.launches\" && printf '%s\\n' \"$$\" > \"$HOME/.config/summon/status/myapp.launches/0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f.pid\" && printf '%s\\n' '0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f' > \"$HOME/.config/summon/status/myapp.launches/0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f.active\"" to paneRoot
+    send key "enter" to paneRoot
+    input text "__summon_cleanup() { rm -f \"$HOME/.config/summon/status/myapp.launches/0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f.pid\" \"$HOME/.config/summon/status/myapp.launches/0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f.active\" 2>/dev/null; mkdir -p \"$HOME/.config/summon\" \"$HOME/.config/summon/logs\"; chmod 700 \"$HOME/.config/summon\" \"$HOME/.config/summon/logs\"; summon snapshot save --dir \"/tmp/my project\" --project \"myapp\" --layout \"unknown\" --launch '0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f' </dev/null >/dev/null 2>&1; }; trap '__summon_cleanup' EXIT HUP" to paneRoot
+    send key "enter" to paneRoot
+    input text "clear" to paneRight2
+    send key "enter" to paneRight2
+    input text "cd '/tmp/my project'" to paneRoot
+    send key "enter" to paneRoot
+    input text "clear" to paneRoot
+    send key "enter" to paneRoot
+
+    -- Set pane and tab titles
+    perform action "set_tab_title:[myapp]" on paneRoot
+    perform action "set_surface_title:editor" on paneRoot
+    perform action "set_surface_title:sidebar · lazygit" on paneSidebar
+    perform action "set_surface_title:editor" on paneRightCol
+    perform action "set_surface_title:shell" on paneRight2
+
+    focus paneRoot
+    try
+        set summonCapture to "SUMMON_NATIVE_V1"
+        set summonCapture to summonCapture & linefeed & (id of paneRoot as text)
+        set summonCapture to summonCapture & linefeed & (id of paneSidebar as text)
+        set summonCapture to summonCapture & linefeed & (id of paneRightCol as text)
+        set summonCapture to summonCapture & linefeed & (id of paneRight2 as text)
+        return summonCapture
+    on error
+        return "SUMMON_NATIVE_UNAVAILABLE"
+    end try
+end tell
+=== traditional new-window
+tell application "Ghostty"
+    activate
+
+    set cfg to new surface configuration
+    set initial working directory of cfg to "/tmp/my project"
+    set environment variables of cfg to {"SUMMON_WORKSPACE=1", "SUMMON_TAB_TITLE=myapp"}
+
+    set summonWindowsBefore to -1
+    try
+        set summonWindowsBefore to count of windows
+    end try
+    set summonWindowOpened to false
+    repeat 2 times
+        tell application "System Events"
+            tell process "Ghostty" to set frontmost to true
+        end tell
+        delay 0.15
+        tell application "System Events"
+            tell process "Ghostty"
+                keystroke "n" using command down
+            end tell
+        end tell
+        if summonWindowsBefore is equal to -1 then
+            delay 0.5
+            set summonWindowOpened to true
+            exit repeat
+        end if
+        repeat 12 times
+            delay 0.05
+            if (count of windows) > summonWindowsBefore then
+                set summonWindowOpened to true
+                exit repeat
+            end if
+        end repeat
+        if summonWindowOpened then exit repeat
+    end repeat
+    if not summonWindowOpened then
+        error "summon-newwindow-failed"
+    end if
+    set win to front window
+    set paneRoot to terminal 1 of selected tab of win
+
+    set initial input of cfg to "lazygit\n"
+    set paneSidebar to split paneRoot direction right with configuration cfg
+
+    -- Resize editor/sidebar split
+    delay 0.3
+    tell application "System Events"
+        tell process "Ghostty"
+            set windowSize to size of front window
+            set windowWidth to item 1 of windowSize
+        end tell
+    end tell
+    set resizeAmount to round (windowWidth * 0.25)
+    set resizeAction to "resize_split:right," & (resizeAmount as text)
+    perform action resizeAction on paneRoot
+    delay 0.2
+
+    set initial input of cfg to ""
+    set paneRightCol to split paneRoot direction right with configuration cfg
+
+    set initial input of cfg to ""
+    set paneRight2 to split paneRightCol direction down with configuration cfg
+
+    input text "export SUMMON_WORKSPACE='1'" to paneRoot
+    send key "enter" to paneRoot
+    input text "export SUMMON_TAB_TITLE='myapp'" to paneRoot
+    send key "enter" to paneRoot
+    input text "mkdir -p \"$HOME/.config/summon/status/myapp.launches\" && chmod 700 \"$HOME/.config/summon/status/myapp.launches\" && printf '%s\\n' \"$$\" > \"$HOME/.config/summon/status/myapp.launches/0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f.pid\" && printf '%s\\n' '0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f' > \"$HOME/.config/summon/status/myapp.launches/0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f.active\"" to paneRoot
+    send key "enter" to paneRoot
+    input text "__summon_cleanup() { rm -f \"$HOME/.config/summon/status/myapp.launches/0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f.pid\" \"$HOME/.config/summon/status/myapp.launches/0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f.active\" 2>/dev/null; mkdir -p \"$HOME/.config/summon\" \"$HOME/.config/summon/logs\"; chmod 700 \"$HOME/.config/summon\" \"$HOME/.config/summon/logs\"; : >> \"$HOME/.config/summon/logs/cleanup-myapp.log\"; chmod 600 \"$HOME/.config/summon/logs/cleanup-myapp.log\"; echo bye </dev/null >> \"$HOME/.config/summon/logs/cleanup-myapp.log\" 2>&1; summon snapshot save --dir \"/tmp/my project\" --project \"myapp\" --layout \"unknown\" --launch '0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f' </dev/null >/dev/null 2>&1; }; trap '__summon_cleanup' EXIT HUP" to paneRoot
+    send key "enter" to paneRoot
+    input text "clear" to paneRight2
+    send key "enter" to paneRight2
+    input text "cd '/tmp/my project'" to paneRoot
+    send key "enter" to paneRoot
+    input text "clear" to paneRoot
+    send key "enter" to paneRoot
+
+    -- Set pane and tab titles
+    perform action "set_tab_title:[myapp]" on paneRoot
+    perform action "set_surface_title:editor" on paneRoot
+    perform action "set_surface_title:sidebar · lazygit" on paneSidebar
+    perform action "set_surface_title:editor" on paneRightCol
+    perform action "set_surface_title:shell" on paneRight2
+
+    focus paneRoot
+
+    -- Fullscreen mode
+    perform action "toggle_fullscreen" on paneRoot
+    try
+        set summonCapture to "SUMMON_NATIVE_V1"
+        set summonCapture to summonCapture & linefeed & (id of paneRoot as text)
+        set summonCapture to summonCapture & linefeed & (id of paneSidebar as text)
+        set summonCapture to summonCapture & linefeed & (id of paneRightCol as text)
+        set summonCapture to summonCapture & linefeed & (id of paneRight2 as text)
+        return summonCapture
+    on error
+        return "SUMMON_NATIVE_UNAVAILABLE"
+    end try
+end tell
+=== traditional new-tab
+tell application "Ghostty"
+    activate
+
+    set cfg to new surface configuration
+    set initial working directory of cfg to "/tmp/my project"
+    set environment variables of cfg to {"SUMMON_WORKSPACE=1", "SUMMON_TAB_TITLE=myapp"}
+
+    -- Open a new tab (anchored to the front window + verified)
+    set summonWin to front window
+    set summonTabsBefore to -1
+    try
+        set summonTabsBefore to count of tabs of summonWin
+    end try
+    set summonTabOpened to false
+    repeat 2 times
+        tell application "System Events"
+            tell process "Ghostty" to set frontmost to true
+        end tell
+        delay 0.15
+        tell application "System Events"
+            tell process "Ghostty"
+                keystroke "t" using command down
+            end tell
+        end tell
+        if summonTabsBefore is equal to -1 then
+            delay 0.5
+            set summonTabOpened to true
+            exit repeat
+        end if
+        repeat 12 times
+            delay 0.05
+            if (count of tabs of summonWin) > summonTabsBefore then
+                set summonTabOpened to true
+                exit repeat
+            end if
+        end repeat
+        if summonTabOpened then exit repeat
+    end repeat
+    if not summonTabOpened then
+        error "summon-newtab-failed"
+    end if
+    set paneRoot to terminal 1 of selected tab of summonWin
+
+    set initial input of cfg to "lazygit\n"
+    set paneSidebar to split paneRoot direction right with configuration cfg
+
+    -- Resize editor/sidebar split
+    delay 0.3
+    tell application "System Events"
+        tell process "Ghostty"
+            set windowSize to size of front window
+            set windowWidth to item 1 of windowSize
+        end tell
+    end tell
+    set resizeAmount to round (windowWidth * 0.25)
+    set resizeAction to "resize_split:right," & (resizeAmount as text)
+    perform action resizeAction on paneRoot
+    delay 0.2
+
+    set initial input of cfg to ""
+    set paneRightCol to split paneRoot direction right with configuration cfg
+
+    set initial input of cfg to ""
+    set paneRight2 to split paneRightCol direction down with configuration cfg
+
+    set paneLeft2 to split paneRoot direction down with configuration cfg
+
+    input text "export SUMMON_WORKSPACE='1'" to paneRoot
+    send key "enter" to paneRoot
+    input text "export SUMMON_TAB_TITLE='myapp'" to paneRoot
+    send key "enter" to paneRoot
+    input text "mkdir -p \"$HOME/.config/summon/status/myapp.launches\" && chmod 700 \"$HOME/.config/summon/status/myapp.launches\" && printf '%s\\n' \"$$\" > \"$HOME/.config/summon/status/myapp.launches/0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f.pid\" && printf '%s\\n' '0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f' > \"$HOME/.config/summon/status/myapp.launches/0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f.active\"" to paneRoot
+    send key "enter" to paneRoot
+    input text "__summon_cleanup() { rm -f \"$HOME/.config/summon/status/myapp.launches/0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f.pid\" \"$HOME/.config/summon/status/myapp.launches/0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f.active\" 2>/dev/null; mkdir -p \"$HOME/.config/summon\" \"$HOME/.config/summon/logs\"; chmod 700 \"$HOME/.config/summon\" \"$HOME/.config/summon/logs\"; summon snapshot save --dir \"/tmp/my project\" --project \"myapp\" --layout \"unknown\" --launch '0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f' </dev/null >/dev/null 2>&1; }; trap '__summon_cleanup' EXIT HUP" to paneRoot
+    send key "enter" to paneRoot
+    input text "clear" to paneRight2
+    send key "enter" to paneRight2
+    input text "cd '/tmp/my project'" to paneRoot
+    send key "enter" to paneRoot
+    input text "clear" to paneRoot
+    send key "enter" to paneRoot
+
+    -- Set pane and tab titles
+    perform action "set_tab_title:[myapp]" on paneRoot
+    perform action "set_surface_title:editor" on paneRoot
+    perform action "set_surface_title:sidebar · lazygit" on paneSidebar
+    perform action "set_surface_title:editor" on paneRightCol
+    perform action "set_surface_title:shell" on paneRight2
+    perform action "set_surface_title:editor" on paneLeft2
+
+    focus paneRoot
+    try
+        set summonCapture to "SUMMON_NATIVE_V1"
+        set summonCapture to summonCapture & linefeed & (id of paneRoot as text)
+        set summonCapture to summonCapture & linefeed & (id of paneSidebar as text)
+        set summonCapture to summonCapture & linefeed & (id of paneRightCol as text)
+        set summonCapture to summonCapture & linefeed & (id of paneRight2 as text)
+        set summonCapture to summonCapture & linefeed & (id of paneLeft2 as text)
+        return summonCapture
+    on error
+        return "SUMMON_NATIVE_UNAVAILABLE"
+    end try
+end tell
+=== tree default
+tell application "Ghostty"
+    activate
+
+    set cfg to new surface configuration
+    set initial working directory of cfg to "/tmp/my project"
+    set environment variables of cfg to {"SUMMON_WORKSPACE=1", "SUMMON_TAB_TITLE=myapp"}
+
+    set win to front window
+    set pane_editor to terminal 1 of selected tab of win
+
+    set initial input of cfg to ""
+    set initial working directory of cfg to "/tmp/my project"
+    set pane_shell to split pane_editor direction right with configuration cfg
+
+    -- Resize editor/sidebar split
+    delay 0.3
+    tell application "System Events"
+        tell process "Ghostty"
+            set windowSize to size of front window
+            set windowWidth to item 1 of windowSize
+        end tell
+    end tell
+    set resizeAmount to round (windowWidth * 0.2)
+    set resizeAction to "resize_split:right," & (resizeAmount as text)
+    perform action resizeAction on pane_editor
+    delay 0.2
+    set initial input of cfg to "tail -f log\n"
+    set initial working directory of cfg to "/tmp/my project/logs"
+    set pane_logs to split pane_shell direction down with configuration cfg
+
+    input text "export SUMMON_WORKSPACE='1'" to pane_editor
+    send key "enter" to pane_editor
+    input text "export SUMMON_TAB_TITLE='myapp'" to pane_editor
+    send key "enter" to pane_editor
+    input text "mkdir -p \"$HOME/.config/summon/status/myapp.launches\" && chmod 700 \"$HOME/.config/summon/status/myapp.launches\" && printf '%s\\n' \"$$\" > \"$HOME/.config/summon/status/myapp.launches/0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f.pid\" && printf '%s\\n' '0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f' > \"$HOME/.config/summon/status/myapp.launches/0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f.active\"" to pane_editor
+    send key "enter" to pane_editor
+    input text "__summon_cleanup() { rm -f \"$HOME/.config/summon/status/myapp.launches/0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f.pid\" \"$HOME/.config/summon/status/myapp.launches/0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f.active\" 2>/dev/null; mkdir -p \"$HOME/.config/summon\" \"$HOME/.config/summon/logs\"; chmod 700 \"$HOME/.config/summon\" \"$HOME/.config/summon/logs\"; : >> \"$HOME/.config/summon/logs/cleanup-myapp.log\"; chmod 600 \"$HOME/.config/summon/logs/cleanup-myapp.log\"; echo bye </dev/null >> \"$HOME/.config/summon/logs/cleanup-myapp.log\" 2>&1; summon snapshot save --dir \"/tmp/my project\" --project \"myapp\" --layout \"unknown\" --launch '0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f' </dev/null >/dev/null 2>&1; }; trap '__summon_cleanup' EXIT HUP" to pane_editor
+    send key "enter" to pane_editor
+    input text "cd '/tmp/my project'" to pane_editor
+    send key "enter" to pane_editor
+    input text "clear" to pane_editor
+    send key "enter" to pane_editor
+    input text "nvim" to pane_editor
+    send key "enter" to pane_editor
+
+    -- Set pane and tab titles
+    perform action "set_tab_title:[myapp]" on pane_editor
+    perform action "set_surface_title:editor · nvim" on pane_editor
+    perform action "set_surface_title:shell" on pane_shell
+    perform action "set_surface_title:logs · tail -f log" on pane_logs
+
+    focus pane_editor
+    try
+        set summonCapture to "SUMMON_NATIVE_V1"
+        set summonCapture to summonCapture & linefeed & (id of pane_editor as text)
+        set summonCapture to summonCapture & linefeed & (id of pane_shell as text)
+        set summonCapture to summonCapture & linefeed & (id of pane_logs as text)
+        return summonCapture
+    on error
+        return "SUMMON_NATIVE_UNAVAILABLE"
+    end try
+end tell
+=== tree new-window
+tell application "Ghostty"
+    activate
+
+    set cfg to new surface configuration
+    set initial working directory of cfg to "/tmp/my project"
+    set environment variables of cfg to {"SUMMON_WORKSPACE=1", "SUMMON_TAB_TITLE=myapp"}
+
+    set summonWindowsBefore to -1
+    try
+        set summonWindowsBefore to count of windows
+    end try
+    set summonWindowOpened to false
+    repeat 2 times
+        tell application "System Events"
+            tell process "Ghostty" to set frontmost to true
+        end tell
+        delay 0.15
+        tell application "System Events"
+            tell process "Ghostty"
+                keystroke "n" using command down
+            end tell
+        end tell
+        if summonWindowsBefore is equal to -1 then
+            delay 0.5
+            set summonWindowOpened to true
+            exit repeat
+        end if
+        repeat 12 times
+            delay 0.05
+            if (count of windows) > summonWindowsBefore then
+                set summonWindowOpened to true
+                exit repeat
+            end if
+        end repeat
+        if summonWindowOpened then exit repeat
+    end repeat
+    if not summonWindowOpened then
+        error "summon-newwindow-failed"
+    end if
+    set win to front window
+    set pane_editor to terminal 1 of selected tab of win
+
+    set initial input of cfg to ""
+    set initial working directory of cfg to "/tmp/my project"
+    set pane_shell to split pane_editor direction right with configuration cfg
+
+    -- Resize editor/sidebar split
+    delay 0.3
+    tell application "System Events"
+        tell process "Ghostty"
+            set windowSize to size of front window
+            set windowWidth to item 1 of windowSize
+        end tell
+    end tell
+    set resizeAmount to round (windowWidth * 0.2)
+    set resizeAction to "resize_split:right," & (resizeAmount as text)
+    perform action resizeAction on pane_editor
+    delay 0.2
+    set initial input of cfg to "tail -f log\n"
+    set initial working directory of cfg to "/tmp/my project/logs"
+    set pane_logs to split pane_shell direction down with configuration cfg
+
+    input text "export SUMMON_WORKSPACE='1'" to pane_editor
+    send key "enter" to pane_editor
+    input text "export SUMMON_TAB_TITLE='myapp'" to pane_editor
+    send key "enter" to pane_editor
+    input text "mkdir -p \"$HOME/.config/summon/status/myapp.launches\" && chmod 700 \"$HOME/.config/summon/status/myapp.launches\" && printf '%s\\n' \"$$\" > \"$HOME/.config/summon/status/myapp.launches/0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f.pid\" && printf '%s\\n' '0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f' > \"$HOME/.config/summon/status/myapp.launches/0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f.active\"" to pane_editor
+    send key "enter" to pane_editor
+    input text "__summon_cleanup() { rm -f \"$HOME/.config/summon/status/myapp.launches/0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f.pid\" \"$HOME/.config/summon/status/myapp.launches/0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f.active\" 2>/dev/null; mkdir -p \"$HOME/.config/summon\" \"$HOME/.config/summon/logs\"; chmod 700 \"$HOME/.config/summon\" \"$HOME/.config/summon/logs\"; summon snapshot save --dir \"/tmp/my project\" --project \"myapp\" --layout \"unknown\" --launch '0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f' </dev/null >/dev/null 2>&1; }; trap '__summon_cleanup' EXIT HUP" to pane_editor
+    send key "enter" to pane_editor
+    input text "cd '/tmp/my project'" to pane_editor
+    send key "enter" to pane_editor
+    input text "clear" to pane_editor
+    send key "enter" to pane_editor
+    input text "nvim" to pane_editor
+    send key "enter" to pane_editor
+
+    -- Set pane and tab titles
+    perform action "set_tab_title:[myapp]" on pane_editor
+    perform action "set_surface_title:editor · nvim" on pane_editor
+    perform action "set_surface_title:shell" on pane_shell
+    perform action "set_surface_title:logs · tail -f log" on pane_logs
+
+    focus pane_editor
+    try
+        set summonCapture to "SUMMON_NATIVE_V1"
+        set summonCapture to summonCapture & linefeed & (id of pane_editor as text)
+        set summonCapture to summonCapture & linefeed & (id of pane_shell as text)
+        set summonCapture to summonCapture & linefeed & (id of pane_logs as text)
+        return summonCapture
+    on error
+        return "SUMMON_NATIVE_UNAVAILABLE"
+    end try
+end tell
+=== tree new-tab
+tell application "Ghostty"
+    activate
+
+    set cfg to new surface configuration
+    set initial working directory of cfg to "/tmp/my project"
+    set environment variables of cfg to {"SUMMON_WORKSPACE=1"}
+
+    -- Open a new tab (anchored to the front window + verified)
+    set summonWin to front window
+    set summonTabsBefore to -1
+    try
+        set summonTabsBefore to count of tabs of summonWin
+    end try
+    set summonTabOpened to false
+    repeat 2 times
+        tell application "System Events"
+            tell process "Ghostty" to set frontmost to true
+        end tell
+        delay 0.15
+        tell application "System Events"
+            tell process "Ghostty"
+                keystroke "t" using command down
+            end tell
+        end tell
+        if summonTabsBefore is equal to -1 then
+            delay 0.5
+            set summonTabOpened to true
+            exit repeat
+        end if
+        repeat 12 times
+            delay 0.05
+            if (count of tabs of summonWin) > summonTabsBefore then
+                set summonTabOpened to true
+                exit repeat
+            end if
+        end repeat
+        if summonTabOpened then exit repeat
+    end repeat
+    if not summonTabOpened then
+        error "summon-newtab-failed"
+    end if
+    set pane_editor to terminal 1 of selected tab of summonWin
+
+    set initial input of cfg to ""
+    set initial working directory of cfg to "/tmp/my project"
+    set pane_shell to split pane_editor direction right with configuration cfg
+
+    -- Resize editor/sidebar split
+    delay 0.3
+    tell application "System Events"
+        tell process "Ghostty"
+            set windowSize to size of front window
+            set windowWidth to item 1 of windowSize
+        end tell
+    end tell
+    set resizeAmount to round (windowWidth * 0.2)
+    set resizeAction to "resize_split:right," & (resizeAmount as text)
+    perform action resizeAction on pane_editor
+    delay 0.2
+    set initial input of cfg to "tail -f log\n"
+    set initial working directory of cfg to "/tmp/my project/logs"
+    set pane_logs to split pane_shell direction down with configuration cfg
+
+    input text "export SUMMON_WORKSPACE='1'" to pane_editor
+    send key "enter" to pane_editor
+    input text "cd '/tmp/my project'" to pane_editor
+    send key "enter" to pane_editor
+    input text "clear" to pane_editor
+    send key "enter" to pane_editor
+    input text "nvim" to pane_editor
+    send key "enter" to pane_editor
+
+    -- Set pane and tab titles
+    perform action "set_tab_title:my project" on pane_editor
+    perform action "set_surface_title:editor · nvim" on pane_editor
+    perform action "set_surface_title:shell" on pane_shell
+    perform action "set_surface_title:logs · tail -f log" on pane_logs
+
+    focus pane_editor
+    try
+        set summonCapture to "SUMMON_NATIVE_V1"
+        set summonCapture to summonCapture & linefeed & (id of pane_editor as text)
+        set summonCapture to summonCapture & linefeed & (id of pane_shell as text)
+        set summonCapture to summonCapture & linefeed & (id of pane_logs as text)
+        return summonCapture
+    on error
+        return "SUMMON_NATIVE_UNAVAILABLE"
+    end try
+end tell

@@ -54,7 +54,7 @@ If you discover that this test can be bypassed — for example, through a code p
 
 ## Security Model
 
-Summon executes commands configured in `.summon` project files. As of v0.8.0+, project `.summon` files require explicit trust (`summon trust .`) before their commands are executed. See the README for details on the trust model.
+Summon executes commands configured in `.summon` project files. As of v0.8.0+, a project `.summon` file must be trusted before its commands are executed. On a terminal, a launch shows an untrusted file and asks `Trust this file and continue? [y/N]`; without a terminal it fails with exit 1, and `summon session` (a named session or `--all`) skips the project. `summon trust <dir>` grants trust ahead of time. See the README for details on the trust model.
 
 ## Scope
 

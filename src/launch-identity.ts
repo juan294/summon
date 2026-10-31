@@ -2,13 +2,13 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { STATUS_DIR } from "./paths.js";
-import { atomicWrite, debugLog, confinedPath, SUMMON_WORKSPACE_ENV } from "./utils.js";
-import { shellDoubleQuote } from "./shell-escape.js";
+import { atomicWrite, debugLog, confinedPath, CONTROL_CHARS_RE, SUMMON_WORKSPACE_ENV } from "./utils.js";
+import { shellDoubleQuote, shellQuote } from "./shell-escape.js";
 import { selfInvocation } from "./self.js";
 
 export { clearSelfInvocation, registerSelfInvocation } from "./self.js";
-import { isBackendId } from "./backend.js";
-import type { BackendId } from "./backend.js";
+import { isBackendId } from "./backend-detect.js";
+import type { BackendId } from "./backend-detect.js";
 import { PANE_NAME_RE } from "./tree.js";
 
 /**
@@ -17,7 +17,7 @@ import { PANE_NAME_RE } from "./tree.js";
  * Every launch owns a UUID v4. Its liveness sidecars, manifest and pane files live under
  * `STATUS_DIR/<project>.launches/<launchId>.*`, so a cleanup trap from one launch can never
  * remove another launch's files, and the shared record `<project>.json` is written only by
- * Node code under the status lock (see `withOwnedRecord` in status.ts).
+ * Node code under the status lock (see `withOwnedRecord` in status-record.ts).
  */
 
 export const LAUNCH_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -126,10 +126,22 @@ export function buildEnvVarsList(
   return allEnvVars;
 }
 
+/**
+ * A path that is typed into a pane's line editor (the root pane's `cd`, the trap's snapshot save).
+ * Control characters could act as editing keys there or end a bracketed paste, so they are refused
+ * (SE-L1); the caller still quotes the path.
+ */
+export function typedPath(path: string): string {
+  if (CONTROL_CHARS_RE.test(path)) {
+    throw new Error(`Path contains a control character and cannot be typed into a terminal safely: ${JSON.stringify(path)}`);
+  }
+  return path;
+}
+
 // --- Shell fragments (typed into the root pane; `$HOME` resolves inside the shell) ---
 //
 // Every interpolating line in this section is checked by src/shell-escape.lint.test.ts
-// (shell-fragment region rule): user text goes through shellDoubleQuote, pane names are
+// (shell-fragment region rule): user text goes through shellDoubleQuote or shellQuote, pane names are
 // validated against PANE_NAME_RE, and the launch id through shellLaunchId, which asserts
 // LAUNCH_ID_RE (hex and dashes only) before it is interpolated.
 
@@ -162,11 +174,12 @@ function shellPaneFile(project: string, launchId: string, paneName: string): { f
  * The command that runs `summon snapshot save` from the trap: the node binary and script this
  * process was started with (registered by the CLI entry), so the binary that created the launch
  * is the one that saves its snapshot, whatever `summon` is on the pane's PATH at exit time.
- * Listed in SHELL_FRAGMENT_SAFE_CALL of src/shell-escape.lint.test.ts: both paths are double-quoted here.
+ * Listed in SHELL_FRAGMENT_SAFE_CALL of src/shell-escape.lint.test.ts: both paths are single-quoted
+ * here, so the interactive shell's history expansion (`!`) never applies to them (SE-L1).
  */
 function summonCommand(): string {
   const self = selfInvocation();
-  return self ? `"${shellDoubleQuote(self.execPath)}" "${shellDoubleQuote(self.script)}"` : "summon";
+  return self ? `${shellQuote(typedPath(self.execPath))} ${shellQuote(typedPath(self.script))}` : "summon";
 }
 
 /** Quoted cleanup log file of a project. */
@@ -176,13 +189,10 @@ function shellLogFile(project: string): string {
 
 /**
  * Root-pane bootstrap: publish this launch's pid and active marker under its own directory.
- * Under Rex it also publishes the root pane's file, which is the ownership token (P13).
+ * A Rex root pane also publishes its pane file, the ownership token (P13), appended by backends/rex/layout.ts.
  */
-export function bootstrapLine(project: string, launchId: string, backend: BackendId, rootPaneName?: string): string {
-  const line = `mkdir -p ${shellLaunchDir(project)} && chmod 700 ${shellLaunchDir(project)} && printf '%s\\n' "$$" > ${shellArtifact(project, launchId, "pid")} && printf '%s\\n' '${shellLaunchId(launchId)}' > ${shellArtifact(project, launchId, "active")}`;
-  if (backend !== "rex") return line;
-  if (rootPaneName === undefined) throw new Error("Rex bootstrap requires the root pane name");
-  return `${line} && ${paneFileLine(project, launchId, rootPaneName)}`;
+export function bootstrapLine(project: string, launchId: string): string {
+  return `mkdir -p ${shellLaunchDir(project)} && chmod 700 ${shellLaunchDir(project)} && printf '%s\\n' "$$" > ${shellArtifact(project, launchId, "pid")} && printf '%s\\n' '${shellLaunchId(launchId)}' > ${shellArtifact(project, launchId, "active")}`;
 }
 
 /**
@@ -207,8 +217,9 @@ export interface CleanupTrapOptions {
  * record and the legacy `<project>.active`/`.pid` paths are never named here (P12).
  *
  * SE-L1: the trap runs inside the root pane with the project directory as cwd and the pane's
- * login environment. `onStop` comes from a trusted `.summon` file (trust gate) and has passed
- * confirmDangerousCommands; it is inlined as a shell fragment so pipes and redirects work, and
+ * login environment. That shell is interactive, so history expansion is on: the paths in this
+ * line are single-quoted, and paths with control characters are refused (typedPath). `onStop`
+ * comes from a trusted `.summon` file (trust gate) and has passed confirmDangerousCommands; it is inlined as a shell fragment so pipes and redirects work, and
  * its output goes to the cleanup log, never to the terminal. escapeAppleScript is applied by
  * the AppleScript emitter at the outer boundary.
  *
@@ -240,7 +251,7 @@ export function cleanupTrapLine(project: string, launchId: string, options: Clea
   if (options.targetDir) {
     parts.push(
       `${summonCommand()} snapshot save`
-      + ` --dir "${shellDoubleQuote(options.targetDir)}"`
+      + ` --dir ${shellQuote(typedPath(options.targetDir))}`
       + ` --project "${shellDoubleQuote(project)}"`
       + ` --layout "${shellDoubleQuote(options.layout ?? "unknown")}"`
       + ` --launch '${shellLaunchId(launchId)}'`
@@ -276,13 +287,18 @@ function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
 
+/** BE-L3: a list of pane identifiers (PANE_NAME_RE), so no stored name can turn a pane file path into another file. */
+export function isPaneNameList(value: unknown): value is string[] {
+  return isStringArray(value) && value.every((name) => PANE_NAME_RE.test(name));
+}
+
 export function parseLaunchManifest(raw: unknown): LaunchManifest | null {
   if (typeof raw !== "object" || raw === null) return null;
   const d = raw as Record<string, unknown>;
   if (d["version"] !== 1) return null;
   if (!isLaunchId(d["launchId"])) return null;
   if (typeof d["project"] !== "string" || typeof d["directory"] !== "string" || typeof d["layout"] !== "string") return null;
-  if (!isStringArray(d["panes"]) || !isStringArray(d["paneOrder"])) return null;
+  if (!isPaneNameList(d["panes"]) || !isPaneNameList(d["paneOrder"])) return null;
   if (typeof d["blockLabels"] !== "object" || d["blockLabels"] === null || Array.isArray(d["blockLabels"])) return null;
   const labels = d["blockLabels"] as Record<string, unknown>;
   if (!Object.values(labels).every((label) => typeof label === "string")) return null;

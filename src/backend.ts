@@ -2,14 +2,18 @@ import { isGhosttyInstalled } from "./utils.js";
 import { detectBackend, snapshotEnv } from "./backend-detect.js";
 import type { Detection, RexDiscovery } from "./backend-detect.js";
 import { discoverRex, defaultRexServer, probeWhoami } from "./backends/rex/cli.js";
-import type { WorkspaceStatus } from "./status.js";
 
-/** Terminal backend that owns a workspace. Records without the field are Ghostty. */
-export type BackendId = "ghostty" | "rex";
+/**
+ * Ghostty-only launch keys (plan P8, UX-H1): a Rex launch honors none of them. Given on the command line, each is
+ * named once ("Rex cannot honor <flag>; ignored"); from config they are Ghostty preferences, silent under Rex.
+ */
+export const REX_UNHONORED_FLAGS = ["maximize", "float", "fullscreen", "font-size", "clean"] as const;
 
-export function isBackendId(value: unknown): value is BackendId {
-  return value === "ghostty" || value === "rex";
-}
+/**
+ * Config keys a Rex launch ignores, which doctor names once: the flags above, plus `new-window`. As a flag Rex
+ * honors `--new-window` (a fresh session, see the P2 switch); a config `new-window=true` has no meaning under Rex.
+ */
+export const GHOSTTY_ONLY_CONFIG_KEYS = [...REX_UNHONORED_FLAGS, "new-window"] as const;
 
 /** Resolved backend for a new launch (plan P5): the successful detection rows. */
 export type LaunchContext = Extract<Detection, { ok: true }>;
@@ -49,11 +53,4 @@ export function resolveBackendForLaunch(probes: BackendProbes = {}): Detection {
 /** The caller's own Rex session (P7 app preference): `REX_SESSION` only when Summon runs inside Rex. */
 export function callerRexSession(context: Pick<LaunchContext, "placement">): string | undefined {
   return context.placement === "inside-rex" ? process.env["REX_SESSION"] : undefined;
-}
-
-/** Resolve the backend of an existing workspace from its record (plan P6). */
-export function resolveBackendForRecord(record: Pick<WorkspaceStatus, "backend" | "rex">): { backend: BackendId; server?: string } {
-  const backend = record.backend ?? "ghostty";
-  if (backend === "rex" && record.rex?.server) return { backend, server: record.rex.server };
-  return { backend };
 }

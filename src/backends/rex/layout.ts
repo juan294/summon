@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import type { LayoutPlan } from "../../layout.js";
 import type { LayoutNode, PlannedLayout } from "../../tree.js";
-import { formatTitle } from "../../pane-inventory.js";
+import { formatTitle } from "../../layout.js";
 import { shellQuote } from "../../shell-escape.js";
 import { bootstrapLine, buildEnvVarsList, cleanupTrapLine, paneFileLine } from "../../launch-identity.js";
 
@@ -114,7 +114,7 @@ function column(leaves: Leaf[]): Node {
 }
 
 /**
- * The traditional plan as the split tree Ghostty's script builds (`src/script.ts`): the
+ * The traditional plan as the split tree Ghostty's script builds (`src/backends/ghostty/script.ts`): the
  * sidebar is split right from the root first, the right column is split right from the root
  * afterwards (so it sits between editor and sidebar), and the extra editors and the shell
  * chain downwards. The sidebar pane is created even without a command, exactly like Ghostty.
@@ -152,7 +152,8 @@ function envWrapper(input: SessionCreateInput, loginShell: string): string[] {
 function buildInitialInput(input: SessionCreateInput, pane: Leaf, isRoot: boolean): string {
   const lines = isRoot
     ? [
-      bootstrapLine(input.project, input.launchId, "rex", pane.name),
+      // The root pane's file is the ownership token (P13): written right after the pid and active marker.
+      `${bootstrapLine(input.project, input.launchId)} && ${paneFileLine(input.project, input.launchId, pane.name)}`,
       cleanupTrapLine(input.project, input.launchId, { onStop: input.onStop, targetDir: input.targetDir, layout: input.layoutLabel }),
     ]
     : [paneFileLine(input.project, input.launchId, pane.name)];

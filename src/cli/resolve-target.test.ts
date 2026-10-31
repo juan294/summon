@@ -1,6 +1,7 @@
 // Tests for #473 PE-H1: resolveTargetDirectory and expandHome in a leaf module
 // These tests verify that the new cli/resolve-target.ts module works correctly.
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { registryNames } from "../fixtures/registry-names.js";
 
 const mockListProjects = vi.fn(() => new Map<string, string>());
 const mockReadStatusRecord = vi.fn((_name: string): { startedAt: string } | null => null);
@@ -17,7 +18,7 @@ vi.mock("node:os", () => ({
   homedir: () => "/Users/tester",
 }));
 
-const { resolveTargetDirectory, expandHome, projectSuggestions } = await import("./resolve-target.js");
+const { resolveTargetDirectory, expandHome, projectSuggestions, printProjectSuggestions } = await import("./resolve-target.js");
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -25,13 +26,16 @@ beforeEach(() => {
   mockReadStatusRecord.mockImplementation(() => null);
 });
 
-function captureFailure(target: string): string {
+/** The dispatch registry's names (src/index.ts). */
+const REGISTRY = registryNames();
+
+function captureFailure(target: string, commands: readonly string[] = []): string {
   const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
   const exitSpy = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
     throw new Error(`exit:${code}`);
   }) as never);
   try {
-    expect(() => resolveTargetDirectory(target)).toThrow("exit:1");
+    expect(() => resolveTargetDirectory(target, commands)).toThrow("exit:1");
     return writeSpy.mock.calls.map((c) => String(c[0])).join("");
   } finally {
     writeSpy.mockRestore();
@@ -104,13 +108,63 @@ describe("resolve-target (PE-H1 #473)", () => {
         expect(out).toContain("Or see available:         summon list");
       });
 
-      it("prints up to three suggestions after the two hint lines and still exits 1", () => {
+      // UX-M3: the suggestion line comes straight after the error, before the two generic hints.
+      it("prints up to three suggestions before the two hint lines and still exits 1", () => {
         mockListProjects.mockImplementation(() => new Map([["chapa", "/w/chapa"], ["chapa-cli", "/w/chapa-cli"], ["summon", "/w/summon"]]));
         const out = captureFailure("cha");
         const lines = out.split("\n").filter(Boolean);
-        expect(lines[lines.length - 3]).toContain("To register as a project: summon add cha /path/to/project");
-        expect(lines[lines.length - 2]).toContain("Or see available:         summon list");
-        expect(lines[lines.length - 1]).toBe("Did you mean: chapa, chapa-cli?");
+        expect(lines).toHaveLength(4);
+        expect(lines[0]).toContain(`"cha" is not a known command or registered project`);
+        expect(lines[1]).toBe("Did you mean: chapa, chapa-cli?");
+        expect(lines[2]).toContain("To register as a project: summon add cha /path/to/project");
+        expect(lines[3]).toContain("Or see available:         summon list");
+      });
+
+      it("suggests a subcommand as `summon <command>` and drops the register hint (UX-M3)", () => {
+        mockListProjects.mockImplementation(() => new Map([["chapa", "/w/chapa"]]));
+        const lines = captureFailure("stauts", REGISTRY).split("\n").filter(Boolean);
+        expect(lines).toEqual([
+          `summon: error: "stauts" is not a known command or registered project. Try: summon --help`,
+          "Did you mean: summon status?",
+          "Or see available: summon list",
+        ]);
+        // A command's recency is never read from a status record.
+        expect(mockReadStatusRecord).not.toHaveBeenCalledWith("status");
+        expect(captureFailure("sesion", REGISTRY)).toContain("Did you mean: summon session?");
+      });
+
+      // Review should-fix: a command is suggested only for a close match (prefix or one edit).
+      it.each(["docs", "cli"])("%s suggests no command and keeps the register hint", (target) => {
+        const lines = captureFailure(target, REGISTRY).split("\n").filter(Boolean);
+        expect(lines.join("\n")).not.toContain("Did you mean");
+        expect(lines[1]).toBe(`To register as a project: summon add ${target} /path/to/project`);
+        expect(lines[2]).toBe("Or see available:         summon list");
+      });
+
+      it("keeps the register hint when a project, not a command, is the best match", () => {
+        mockListProjects.mockImplementation(() => new Map([["docs-site", "/w/docs-site"]]));
+        const lines = captureFailure("docs", REGISTRY).split("\n").filter(Boolean);
+        expect(lines[1]).toBe("Did you mean: docs-site?");
+        expect(lines[2]).toContain("To register as a project: summon add docs /path/to/project");
+      });
+
+      it("does not repeat summon list when it is the suggestion", () => {
+        const lines = captureFailure("lsit", REGISTRY).split("\n").filter(Boolean);
+        expect(lines).toEqual([
+          `summon: error: "lsit" is not a known command or registered project. Try: summon --help`,
+          "Did you mean: summon list?",
+        ]);
+      });
+
+      it("ranks commands and projects together, a project keeps its bare name", () => {
+        mockListProjects.mockImplementation(() => new Map([["statsd", "/w/statsd"]]));
+        const out = captureFailure("stat", ["status"]);
+        expect(out).toContain("Did you mean: statsd, summon status?");
+      });
+
+      it("a name that is both a command and a project is offered as the command (the registry wins)", () => {
+        mockListProjects.mockImplementation(() => new Map([["status", "/w/status"]]));
+        expect(captureFailure("stauts", ["status"])).toContain("Did you mean: summon status?");
       });
 
       it("ranks the most recently launched project first inside a tier (records of matching names only, no probes)", () => {
@@ -136,6 +190,38 @@ describe("resolve-target (PE-H1 #473)", () => {
       it("never reads records when the registry is empty", () => {
         captureFailure("missing");
         expect(mockReadStatusRecord).not.toHaveBeenCalled();
+      });
+    });
+
+    // UX-M3: the commands that take a project name share one suggestion line.
+    describe("printProjectSuggestions", () => {
+      function capture(target: string): string {
+        const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+        try {
+          printProjectSuggestions(target);
+          return writeSpy.mock.calls.map((c) => String(c[0])).join("");
+        } finally {
+          writeSpy.mockRestore();
+        }
+      }
+
+      it("writes the closest registered names to stderr", () => {
+        mockListProjects.mockImplementation(() => new Map([["chapa", "/w/chapa"], ["summon", "/w/summon"]]));
+        expect(capture("chpaa")).toBe("Did you mean: chapa?\n");
+      });
+
+      it("names the target when several unknown names are reported together", () => {
+        mockListProjects.mockImplementation(() => new Map([["chapa", "/w/chapa"]]));
+        const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+        printProjectSuggestions("chpaa", true);
+        expect(writeSpy.mock.calls.map((c) => String(c[0]))).toEqual(["For chpaa, did you mean: chapa?\n"]);
+        writeSpy.mockRestore();
+      });
+
+      it("writes nothing when nothing is close or the name is registered", () => {
+        mockListProjects.mockImplementation(() => new Map([["chapa", "/w/chapa"]]));
+        expect(capture("zzzzzz")).toBe("");
+        expect(capture("chapa")).toBe("");
       });
     });
   });

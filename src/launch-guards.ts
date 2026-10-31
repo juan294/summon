@@ -8,17 +8,9 @@
  *   - Dangerous command metacharacter confirmation with skip-pane support (UX-S2 #340)
  */
 
-import {
-  isGhosttyInstalled,
-  isAccessibilityError,
-  checkAccessibility,
-  promptUser,
-  ACCESSIBILITY_SETTINGS_PATH,
-  ACCESSIBILITY_ENABLE_HINT,
-  ACCESSIBILITY_REQUIRED_MSG,
-} from "./utils.js";
+import { isGhosttyInstalled, isAccessibilityError, checkAccessibility, promptUser, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT, ACCESSIBILITY_REQUIRED_MSG, CANCELLED_EXIT_CODE } from "./utils.js";
 import { commandHasShellMeta } from "./command-spec.js";
-import { fail, err } from "./ui/output.js";
+import { fail, err, warn } from "./ui/output.js";
 
 // Re-export for callers that previously imported these from utils via launcher
 export { isAccessibilityError };
@@ -69,7 +61,7 @@ async function promptLower(question: string): Promise<string> {
  * Prompts the user for each dangerous command:
  *   y / yes → proceed with this command
  *   s / skip → omit this pane from launch (UX-S2 #340)
- *   n / anything else → abort entire launch
+ *   n / anything else → abort entire launch (exit 130, a user cancel)
  *
  * On non-TTY, refuses if any dangerous commands are present.
  * Returns a DangerousCommandDecision describing confirmed and skipped keys.
@@ -99,8 +91,7 @@ export async function confirmDangerousCommands(
   }
 
   const lines = dangerous.map(([key, value]) => `  ${key} = ${value}`).join("\n");
-  const message = `Warning: config contains commands with shell metacharacters:\n${lines}`;
-  console.warn(message);
+  warn(`config contains commands with shell metacharacters:\n${lines}`);
 
   for (const [key, value] of dangerous) {
     const answer = await promptLower(
@@ -111,9 +102,10 @@ export async function confirmDangerousCommands(
     } else if (answer === "y" || answer === "yes") {
       // explicit yes → proceed
     } else {
-      // Empty Enter, "n", "no", or anything else → abort (N is the default)
+      // Empty Enter, "n", "no", or anything else → abort (N is the default). A decline is a
+      // user cancel: exit 130 like Ctrl+C, as the user manual's exit-code table says.
       err("Aborted.");
-      process.exit(1);
+      process.exit(CANCELLED_EXIT_CODE);
     }
   }
 

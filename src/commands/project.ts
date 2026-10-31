@@ -4,16 +4,16 @@ import {
   removeProject,
   listProjects,
 } from "../config.js";
-import { focusWorkspace, launch } from "../launcher.js";
-import { promptUser, exitWithUsageHint, PromptCancelled } from "../utils.js";
-import { err, fail } from "../ui/output.js";
-import { unverifiedMessage } from "../status.js";
+import { withTrustPrompt } from "../trust.js";
+import { promptUser, exitWithUsageHint, PromptCancelled, CANCELLED_EXIT_CODE } from "../utils.js";
+import { fail, warn } from "../ui/output.js";
+import { unverifiedMessage } from "../status-record.js";
 import { projectArgOrExit } from "../validation.js";
 import type { ProjectRow } from "../monitor.js";
 import { validateProjectNameOrExit } from "../validation.js";
 // PE-H1 (#473): Re-export from new leaf module for backward compatibility with callers.
 export { resolveTargetDirectory, expandHome } from "../cli/resolve-target.js";
-import { expandHome } from "../cli/resolve-target.js";
+import { expandHome, printProjectSuggestions } from "../cli/resolve-target.js";
 import type { CommandContext } from "./types.js";
 import { sym } from "../ui/symbols.js";
 
@@ -32,7 +32,7 @@ export async function handleAddCommand({ args }: CommandContext): Promise<void> 
   const resolved = expandHome(path);
   const pathExists = existsSync(resolved);
   if (!pathExists) {
-    console.warn(`${sym.warn} Warning: path does not exist: ${resolved}`);
+    warn(`path does not exist: ${resolved}`);
   }
   addProject(name, resolved);
   // UX-M1 (#395): distinguish between clean registration and registration with a warning
@@ -55,6 +55,7 @@ export async function handleRemoveCommand({ args }: CommandContext): Promise<voi
   }
 
   fail(`Project not found: ${name}`);
+  printProjectSuggestions(name);
   console.error("Run 'summon list' to see registered projects.");
   process.exit(1);
 }
@@ -73,21 +74,30 @@ export async function handleListCommand(): Promise<void> {
 }
 
 /**
- * D1: switching to a running Rex workspace from inside Rex closes the launcher tab, as a launch does. Returns the
- * close to arm after a successful switch (the stderr watch starts now, before the switch prints anything).
+ * D1: switching to a running workspace of the backend this shell launches in behaves as a launch's switch does (Rex
+ * inside Rex closes the launcher tab). Returns the step to run after a successful switch (the backend's output watch
+ * starts now, before the switch prints anything).
  */
-async function watchRexSwitch(project: string): Promise<() => void> {
+async function watchSwitch(project: string): Promise<() => void> {
   const { readStatusRecord } = await import("../status-record.js");
-  if (readStatusRecord(project)?.backend !== "rex") return () => {};
+  const record = readStatusRecord(project);
+  if (!record) return () => {};
   const { resolveBackendForLaunch } = await import("../backend.js");
-  const detection = resolveBackendForLaunch();
-  if (!detection.ok) return () => {};
-  const { closeLauncherTabAfterRexLaunch, startLauncherTabWatch } = await import("../backends/rex/launcher-tab.js");
-  startLauncherTabWatch(detection);
-  return () => closeLauncherTabAfterRexLaunch(detection);
+  // The focus that follows reads the status, which looks the `rex` binary up once per process: detection shares that
+  // lookup. Its `searched` list is only printed by a failed detection's notice, which this watch never shows.
+  const { rexBinaryPath } = await import("../status.js");
+  const detection = resolveBackendForLaunch({ discoverRex: () => ({ path: rexBinaryPath(), searched: [] }) });
+  if (!detection.ok || detection.backend !== (record.backend ?? "ghostty")) return () => {};
+  const { createTerminalBackend } = await import("../backends/select.js");
+  const backend = await createTerminalBackend(detection);
+  backend.watchOutput?.();
+  return () => backend.afterSuccess?.();
 }
 
-/** Focus a live workspace, launch a stopped one, refuse an unknown one: the picker and `open <project>` agree. */
+/**
+ * Focus a live workspace, launch a stopped one, refuse an unknown one: the picker and `open <project>` agree.
+ * A launch offers to trust a new or changed `.summon` on a terminal, as a direct launch does (UX-M4).
+ */
 async function openRow(row: ProjectRow, overrides: CommandContext["overrides"]): Promise<void> {
   const { isLiveState } = await import("../monitor.js");
   // Plan P10: an unknown workspace is never launched over or focused.
@@ -96,14 +106,18 @@ async function openRow(row: ProjectRow, overrides: CommandContext["overrides"]):
     process.exit(2);
   }
   if (isLiveState(row.state)) {
-    const armClose = await watchRexSwitch(row.name);
+    // Loaded here so `list`, `add` and `remove` never load the status reader or the record backends (PE-L2).
+    const { focusWorkspace } = await import("../workspace-focus.js");
+    const armClose = await watchSwitch(row.name);
     const result = focusWorkspace(row.name);
     if (result.kind !== "focused") { fail(result.reason); process.exit(2); }
     console.log(`Switched to [${row.name}]`);
     armClose();
     return;
   }
-  await launch(row.directory, overrides);
+  // AR-M2: only a launch loads the launcher; `list`, `add`, `remove` and a focus do not.
+  const { launch } = await import("../launcher.js");
+  await withTrustPrompt(() => launch(row.directory, overrides));
 }
 
 export async function handleOpenCommand({ args, overrides }: CommandContext): Promise<void> {
@@ -113,9 +127,7 @@ export async function handleOpenCommand({ args, overrides }: CommandContext): Pr
     const row = loadProjectRow(target);
     if (!row) {
       fail(`"${target}" is not a registered project. See available: summon list`);
-      const { projectSuggestions } = await import("../cli/resolve-target.js");
-      const suggestions = projectSuggestions(target);
-      if (suggestions.length > 0) err(`Did you mean: ${suggestions.join(", ")}?`);
+      printProjectSuggestions(target);
       process.exit(1);
     }
     await openRow(row, overrides);
@@ -139,7 +151,7 @@ export async function handleOpenCommand({ args, overrides }: CommandContext): Pr
   const prefixWidth = 2 + numWidth + 2; // "  N  "
   for (const [index, row] of rows.entries()) {
     const num = String(index + 1).padStart(numWidth);
-    console.log(`  ${num}  ${renderRow(row, width - prefixWidth, false).trimStart()}`);
+    console.log(`  ${num}  ${renderRow(row, width - prefixWidth, false, { leadingPad: false })}`);
   }
   console.log(`(↑↓/jk in 'summon status' for interactive mode)`);
 
@@ -151,7 +163,7 @@ export async function handleOpenCommand({ args, overrides }: CommandContext): Pr
       answer = await promptUser(`Select [1-${rows.length}] (0 to cancel): `);
     } catch (err) {
       if (err instanceof PromptCancelled) {
-        process.exit(130);
+        process.exit(CANCELLED_EXIT_CODE);
       }
       throw err;
     }
@@ -159,7 +171,7 @@ export async function handleOpenCommand({ args, overrides }: CommandContext): Pr
     // UX-M2 (#475): 0 cancels immediately.
     if (num === 0) {
       console.log("Cancelled.");
-      process.exit(0);
+      process.exit(CANCELLED_EXIT_CODE);
     }
     const index = num - 1;
     if (Number.isNaN(index) || index < 0 || index >= rows.length) {

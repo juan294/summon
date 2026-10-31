@@ -39,9 +39,10 @@ vi.mock("../snapshot.js", async (original) => ({
 }));
 
 const { handleCleanCommand } = await import("./clean.js");
-const { writeStatus, readStatusRecord, resetRexBinaryMemo, resetReadAllStatusesCache } = await import("../status.js");
+const { writeStatus, readStatusRecord } = await import("../status-record.js");
+const { resetRexBinaryMemo } = await import("../status.js");
 const { writeLaunchManifest, launchArtifactPaths } = await import("../launch-identity.js");
-type WorkspaceStatus = import("../status.js").WorkspaceStatus;
+type RexWorkspaceStatus = import("../status-record.js").RexWorkspaceStatus;
 type LaunchManifest = import("../launch-identity.js").LaunchManifest;
 
 const GEN = "0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f";
@@ -53,7 +54,7 @@ const SESSION2 = "session:0000aaaa-0000-0000-0000-000000000002";
 const WINDOW = "window:0000aaaa-0000-0000-0000-000000000002";
 const BLOCK = "block:0000aaaa-0000-0000-0000-000000000010";
 
-function record(extra: Partial<WorkspaceStatus> = {}): WorkspaceStatus {
+function record(extra: Partial<RexWorkspaceStatus> = {}): RexWorkspaceStatus {
   return { project: "chapa", directory: "/tmp/chapa", pid: 1, startedAt: "2026-10-29T09:00:00.000Z", layout: "minimal", panes: ["editor"], source: "summon", version: 1, launchId: GEN, backend: "rex", rex: { server: SERVER, hostId: "host-1", sessionId: SESSION, windowId: WINDOW, rootBlockId: BLOCK, blocks: [{ name: "editor", blockId: BLOCK, label: "editor · vim" }] }, ...extra };
 }
 function manifest(launchId: string, extra: Partial<LaunchManifest> = {}): LaunchManifest {
@@ -94,7 +95,6 @@ beforeEach(() => {
   rex.calls.length = 0;
   for (const key of Object.keys(rex.answers)) delete rex.answers[key];
   resetRexBinaryMemo();
-  resetReadAllStatusesCache();
   logs = [];
   errs = [];
   vi.spyOn(process.stdout, "write").mockImplementation((chunk: unknown) => { logs.push(String(chunk)); return true; });
@@ -116,6 +116,20 @@ describe("summon clean <project> (plan P17)", () => {
     await expect(handleCleanCommand(context(["chapa"]))).rejects.toThrow("exit:2");
     expect(stderr()).toContain("could not be verified: no socket");
     expect(rex.calls.some((c) => c.op === "kill")).toBe(false);
+  });
+
+  // UX-M3: an unknown name gets the closest registered names after the error; the exit code stays 2.
+  it("suggests a registered project for a name without a record", async () => {
+    const configDir = join(tmpdir(), `summon-clean-config-${process.pid}`);
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(join(configDir, "projects"), "chapa=/tmp/chapa\n");
+    try {
+      await expect(handleCleanCommand(context(["chpaa"]))).rejects.toThrow("exit:2");
+      expect(errs).toEqual(["summon: error: [chpaa] has no workspace record; nothing to clean.\n", "Did you mean: chapa?\n"]);
+      expect(rex.calls).toEqual([]);
+    } finally {
+      rmSync(configDir, { recursive: true, force: true });
+    }
   });
 
   it.each([["layers: string", "malformed"], ["layers: [[]]", [[]]]])("a malformed session view (%s) is unverifiable: no kill, exit 2, record untouched", async (_label, layers) => {

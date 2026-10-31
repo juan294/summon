@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockResolveConfig = vi.fn();
 const mockTraditionalPaneNames = vi.fn();
+const mockReadTrustedSummonFile = vi.fn((..._args: unknown[]): string | undefined => "layout=pair\n");
 const mockExitWithUsageHint = vi.fn((message?: string) => {
   throw new Error(`usage:${message ?? ""}`);
 });
@@ -14,9 +15,9 @@ const mockResolveTreeCommands = vi.fn();
 const mockPlanLayout = vi.fn();
 const mockRunSetup = vi.fn();
 
-vi.mock("../launcher.js", () => ({
+vi.mock("../config-resolve.js", () => ({
   resolveConfig: (...args: unknown[]) => mockResolveConfig(...args),
-  traditionalPaneNames: (...args: unknown[]) => mockTraditionalPaneNames(...args),
+  readTrustedSummonFile: (...args: unknown[]) => mockReadTrustedSummonFile(...args),
 }));
 
 vi.mock("../utils.js", () => ({
@@ -40,6 +41,7 @@ vi.mock("../tree.js", () => ({
 
 vi.mock("../layout.js", () => ({
   planLayout: (...args: unknown[]) => mockPlanLayout(...args),
+  traditionalPaneNames: (...args: unknown[]) => mockTraditionalPaneNames(...args),
 }));
 
 const mockResolveBackendForLaunch = vi.fn((): unknown => ({ ok: true, backend: "ghostty", placement: "outside", notices: [] }));
@@ -178,6 +180,23 @@ describe("handleKeybindingsCommand", () => {
     expect(mockResolveTreeCommands).toHaveBeenCalled();
     expect(mockGenerateKeyTableConfig).toHaveBeenCalledWith(["main", "shell"], "tree", "vim");
     expect(logSpy).toHaveBeenCalledWith("key table");
+  });
+
+  it("SE-M1: reads .summon through the trust check and resolves from the checked bytes; a refusal prints nothing", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockResolveConfig.mockReturnValue({ opts: { panes: 2 }, treeLayout: null });
+    mockPlanLayout.mockReturnValue({ layout: "pair-plan" });
+    mockTraditionalPaneNames.mockReturnValue(["editor"]);
+    await handleKeybindingsCommand(makeContext({ values: {}, overrides: { layout: "pair" } }));
+    expect(mockReadTrustedSummonFile).toHaveBeenCalledWith(process.cwd(), { layout: "pair" });
+    expect(mockResolveConfig).toHaveBeenCalledWith(process.cwd(), { layout: "pair" }, "layout=pair\n");
+    logSpy.mockClear();
+    mockResolveConfig.mockClear();
+    mockReadTrustedSummonFile.mockImplementationOnce(() => { throw new Error("This project has a .summon file."); });
+    await expect(handleKeybindingsCommand(makeContext({ values: {}, overrides: {} }))).rejects.toThrow("This project has a .summon file.");
+    expect(mockResolveConfig).not.toHaveBeenCalled();
+    expect(logSpy).not.toHaveBeenCalled();
+    logSpy.mockRestore();
   });
 
   it("falls back to planned layouts and arrow style", async () => {

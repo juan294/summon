@@ -1,6 +1,11 @@
 import { describe, test, expect, vi } from "vitest";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { generateZshCompletion, generateBashCompletion, generateFishCompletion } from "./completions.js";
 import { VALID_KEYS, CLI_FLAGS } from "./config.js";
+import { getPresetNames } from "./layout.js";
 
 describe("generateZshCompletion", () => {
   test("returns a string starting with #compdef summon", () => {
@@ -131,16 +136,16 @@ describe("layout subcommand completions", () => {
     }
   });
 
-  test("zsh layout show/delete/edit complete with dynamic layout names", () => {
+  // show/delete/edit act on custom layouts only (presets are rejected), so they complete
+  // with the runtime custom-layout list, never the presets.
+  test("zsh layout show/delete/edit complete with dynamic custom layout names", () => {
     const result = generateZshCompletion();
-    // The layout case should reference layout_presets (dynamically populated) for show/delete/edit
-    expect(result).toMatch(/layout\)[\s\S]*?show\b.*\bdelete\b.*\bedit\b[\s\S]*?layout_presets/s);
+    expect(result).toMatch(/layout\)[\s\S]*?show\|delete\|edit\)\s*compadd -a custom_layouts/);
   });
 
-  test("bash layout show/delete/edit complete with dynamic layout names", () => {
+  test("bash layout show/delete/edit complete with dynamic custom layout names", () => {
     const result = generateBashCompletion();
-    // The layout case should reference layout_presets (dynamically populated) for show/delete/edit
-    expect(result).toMatch(/layout\)[\s\S]*?show\b.*\bdelete\b.*\bedit\b[\s\S]*?layout_presets/s);
+    expect(result).toMatch(/layout\)[\s\S]*?show\|delete\|edit\)\s*COMPREPLY=\(\$\(compgen -W "\$custom_layouts"/);
   });
 });
 
@@ -182,14 +187,15 @@ describe("bash _init_completion portability", () => {
 });
 
 describe("freeze subcommand completions", () => {
-  test("bash freeze completes with layout names", () => {
+  // freeze rejects reserved preset names, so it offers existing custom layouts only.
+  test("bash freeze completes with custom layout names", () => {
     const result = generateBashCompletion();
-    expect(result).toMatch(/freeze\)[\s\S]*?layout_presets/);
+    expect(result).toMatch(/freeze\)\s*COMPREPLY=\(\$\(compgen -W "\$custom_layouts"/);
   });
 
-  test("zsh freeze completes with layout names", () => {
+  test("zsh freeze completes with custom layout names", () => {
     const result = generateZshCompletion();
-    expect(result).toMatch(/freeze\)[\s\S]*?layout_presets/);
+    expect(result).toMatch(/freeze\)\s*compadd -a custom_layouts/);
   });
 });
 
@@ -378,7 +384,9 @@ describe("layout list --names for completions (FE-M4 #388)", () => {
 describe("fish completions setup snippet (UX-M8 #397)", () => {
   test("fish completions include fish shell setup snippet hint", () => {
     const result = generateFishCompletion();
-    expect(result).toContain("psub");
+    // `eval (... | psub)` hands eval a temp file path, not the script; fish sources stdin.
+    expect(result).toContain("# Setup: summon completions fish | source");
+    expect(result).not.toContain("psub");
   });
 });
 
@@ -602,5 +610,92 @@ describe("clean completions and boolean config values (F17, F18)", () => {
     const script = generateFishCompletion();
     expect(script).toMatch(/__fish_seen_subcommand_from inspect focus title open switch clean' -a/);
     expect(script).toMatch(/__fish_seen_subcommand_from clean' -l orphans/);
+  });
+});
+
+// FE-M3: every shell must offer the built-in presets wherever a layout value is completed,
+// plus custom layouts. Presets are embedded statically; zsh and bash look up custom layouts
+// at completion time.
+describe("layout preset parity across shells (FE-M3)", () => {
+  const words = (list: string | undefined) => (list ?? "").split(/\s+/).filter(Boolean);
+
+  const layoutValues: Record<string, () => string[]> = {
+    zsh: () => words(/local -a layout_presets=\(([^)]*)\)/.exec(generateZshCompletion())?.[1]),
+    bash: () => words(/local layout_presets="([^"]*)"/.exec(generateBashCompletion())?.[1]),
+    fish: () => words(/-l layout -s l -d '[^']*' -a '([^']*)'/.exec(generateFishCompletion())?.[1]),
+    "fish set layout": () =>
+      words(/-n '__fish_seen_subcommand_from layout' -a '([^']*)'/.exec(generateFishCompletion())?.[1]),
+  };
+
+  test.each(Object.keys(layoutValues))("%s offers every built-in preset", (shell) => {
+    const values = layoutValues[shell]!();
+    for (const preset of getPresetNames()) {
+      expect(values).toContain(preset);
+    }
+  });
+
+  test("zsh and bash keep the runtime custom-layout lookup in the layout values", () => {
+    expect(generateZshCompletion()).toContain(
+      'local -a custom_layouts=(${(f)"$(summon layout list --names 2>/dev/null)"})',
+    );
+    expect(layoutValues["zsh"]!()).toContain("$custom_layouts");
+    expect(generateBashCompletion()).toContain("custom_layouts=$(summon layout list --names 2>/dev/null)");
+    expect(layoutValues["bash"]!()).toContain("$custom_layouts");
+  });
+
+  test("fish offers custom layouts for --layout and set layout", async () => {
+    const config = await import("./config.js");
+    const spy = vi.spyOn(config, "listCustomLayouts").mockReturnValue(["mywork"]);
+    try {
+      expect(layoutValues["fish"]!()).toContain("mywork");
+      expect(layoutValues["fish set layout"]!()).toContain("mywork");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  test("custom-only positions never offer presets", () => {
+    for (const script of [generateZshCompletion(), generateBashCompletion()]) {
+      const custom = /custom_layouts=(.*)/.exec(script)?.[1] ?? "";
+      for (const preset of getPresetNames()) {
+        expect(custom).not.toMatch(new RegExp(`\\b${preset}\\b`));
+      }
+    }
+  });
+
+  // Runs the generated bash script for real with a stub `summon` that reports one custom layout.
+  describe("bash completion at runtime", () => {
+    function complete(...line: string[]): string[] {
+      const home = mkdtempSync(join(tmpdir(), "summon-completion-"));
+      try {
+        const program = [
+          generateBashCompletion(),
+          'summon() { [[ "$*" == "layout list --names" ]] && echo mywork; }',
+          `COMP_WORDS=(${line.map((w) => `'${w}'`).join(" ")})`,
+          "COMP_CWORD=$(( ${#COMP_WORDS[@]} - 1 ))",
+          "_summon",
+          'printf "%s\\n" "${COMPREPLY[@]}"',
+        ].join("\n");
+        const out = execFileSync("bash", ["--norc", "--noprofile", "-c", program], {
+          encoding: "utf8",
+          env: { PATH: process.env["PATH"] ?? "", HOME: home },
+        });
+        return words(out);
+      } finally {
+        rmSync(home, { recursive: true, force: true });
+      }
+    }
+
+    test("--layout offers presets and custom layouts", () => {
+      expect(complete("summon", "--layout", "").sort()).toEqual([...getPresetNames(), "mywork"].sort());
+    });
+
+    test("set layout offers presets and custom layouts", () => {
+      expect(complete("summon", "set", "layout", "").sort()).toEqual([...getPresetNames(), "mywork"].sort());
+    });
+
+    test("layout delete offers custom layouts only", () => {
+      expect(complete("summon", "layout", "delete", "")).toEqual(["mywork"]);
+    });
   });
 });

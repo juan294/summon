@@ -32,12 +32,17 @@ vi.mock("../config.js", () => ({
 const mockReadStatusRecord = vi.fn((_project: string): unknown => null);
 const mockDetection = vi.fn((): unknown => ({ ok: true, backend: "rex", placement: "inside-rex", server: "unix:///s", rexBinary: "/r", notices: [] }));
 const mockCloseLauncherTab = vi.fn();
-vi.mock("../status-record.js", () => ({ readStatusRecord: (project: string) => mockReadStatusRecord(project) }));
-vi.mock("../backend.js", () => ({ resolveBackendForLaunch: () => mockDetection() }));
+vi.mock("../status-record.js", async (original) => ({ ...(await original<typeof import("../status-record.js")>()), readStatusRecord: (project: string) => mockReadStatusRecord(project) }));
+vi.mock("../backend.js", async (original) => ({ ...(await original<typeof import("../backend.js")>()), resolveBackendForLaunch: () => mockDetection() }));
 const mockStartWatch = vi.fn();
 vi.mock("../backends/rex/launcher-tab.js", () => ({ closeLauncherTabAfterRexLaunch: (...args: unknown[]) => mockCloseLauncherTab(...args), startLauncherTabWatch: (...args: unknown[]) => mockStartWatch(...args) }));
-vi.mock("../launcher.js", () => ({
+// UX-M4: the trust prompt wraps launches; by default it runs the launch once, as the real one does on success.
+const mockWithTrustPrompt = vi.fn(async (attempt: () => Promise<unknown>) => attempt());
+vi.mock("../trust.js", () => ({ withTrustPrompt: (attempt: () => Promise<unknown>) => mockWithTrustPrompt(attempt) }));
+vi.mock("../workspace-focus.js", () => ({
   focusWorkspace: (...args: unknown[]) => mockFocusWorkspace(...args),
+}));
+vi.mock("../launcher.js", () => ({
   launch: (...args: unknown[]) => mockLaunch(...args),
 }));
 
@@ -57,12 +62,6 @@ vi.mock("../utils.js", async (importOriginal) => {
 });
 
 const mockLoadProjectRow = vi.fn();
-const mockProjectSuggestions = vi.fn((..._args: unknown[]) => [] as string[]);
-vi.mock("../cli/resolve-target.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../cli/resolve-target.js")>()),
-  projectSuggestions: (...args: unknown[]) => mockProjectSuggestions(...args),
-}));
-
 vi.mock("../monitor.js", () => ({
   loadProjectRows: (...args: unknown[]) => mockLoadProjectRows(...args),
   loadProjectRow: (...args: unknown[]) => mockLoadProjectRow(...args),
@@ -140,14 +139,15 @@ describe("handleAddCommand", () => {
   });
 
   it("warns when the path does not exist and registers the expanded path", async () => {
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     mockExistsSync.mockReturnValue(false);
 
     await handleAddCommand(makeContext({ args: ["demo", "~/code/demo"] }));
 
     expect(mockAddProject).toHaveBeenCalledWith("demo", "/Users/tester/code/demo");
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("Warning: path does not exist: /Users/tester/code/demo"));
+    // UX-M2: the one warning prefix, on stderr as before
+    expect(warnSpy).toHaveBeenCalledWith("summon: warning: path does not exist: /Users/tester/code/demo\n");
     // UX-M1 (#395): message should indicate warning, not plain success
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("Registered with warning"));
     logSpy.mockRestore();
@@ -168,16 +168,17 @@ describe("handleAddCommand", () => {
 });
 
 describe("FE-H1/UX-H3 (#526,#530): canonical glyph vocabulary", () => {
-  it("uses ⚠ (not !) as warn glyph in warn message to console.warn", async () => {
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+  // UX-M2: the stderr warning uses the one "summon: warning:" prefix; the ⚠ glyph stays on the stdout summary line.
+  it("prefixes the stderr warning with summon: warning: instead of a glyph", async () => {
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     mockExistsSync.mockReturnValue(false);
 
     await handleAddCommand(makeContext({ args: ["demo", "~/code/demo"] }));
 
     const warnMsg = warnSpy.mock.calls.map(c => c[0] as string).join("\n");
-    expect(warnMsg).toContain("⚠");
-    expect(warnMsg).not.toMatch(/^!/m);
+    expect(warnMsg).toMatch(/^summon: warning: /);
+    expect(warnMsg).not.toContain("⚠");
     warnSpy.mockRestore();
     logSpy.mockRestore();
   });
@@ -205,7 +206,7 @@ describe("FE-H1/UX-H3 (#526,#530): canonical glyph vocabulary", () => {
   });
 
   it("uses ⚠ (not !) as warn glyph in path-missing log message", async () => {
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     mockExistsSync.mockReturnValue(false);
 
@@ -241,11 +242,12 @@ describe("handleRemoveCommand", () => {
       throw new Error(`exit:${code}`);
     }) as never);
     mockRemoveProject.mockReturnValue(false);
+    mockListProjects.mockReturnValue(new Map([["missing-app", "/w/missing-app"]]));
 
     await expect(handleRemoveCommand(makeContext({ args: ["missing"] }))).rejects.toThrow("exit:1");
-    const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");
-    expect(allWrites).toContain("summon: error:");
-    expect(allWrites).toContain("Project not found: missing");
+    const allWrites = writeSpy.mock.calls.map((c) => String(c[0]));
+    // UX-M3: the suggestion follows the error line directly.
+    expect(allWrites).toEqual(["summon: error: Project not found: missing\n", "Did you mean: missing-app?\n"]);
     // The hint line still goes through console.error
     expect(errorSpy).toHaveBeenCalledWith("Run 'summon list' to see registered projects.");
     expect(exitSpy).toHaveBeenCalledWith(1);
@@ -362,12 +364,13 @@ describe("handleOpenCommand", () => {
       expect.objectContaining({ name: "web" }),
       75,
       false,
+      { leadingPad: false },
     );
     expect(logSpy).toHaveBeenCalled();
   });
 
   // UX-M2 (#475): selecting 0 cancels without launching
-  it("exits 0 with 'Cancelled.' message when user selects 0", async () => {
+  it("exits 130 (a user cancel, UX-L3) with 'Cancelled.' message when user selects 0", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     const exitSpy = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error(`exit:${code}`);
@@ -377,7 +380,7 @@ describe("handleOpenCommand", () => {
     ]);
     mockPromptUser.mockResolvedValueOnce("0");
 
-    await expect(handleOpenCommand(makeContext())).rejects.toThrow("exit:0");
+    await expect(handleOpenCommand(makeContext())).rejects.toThrow("exit:130");
     const allLogs = logSpy.mock.calls.map((c) => c[0] as string).join("\n");
     expect(allLogs).toContain("Cancelled.");
     logSpy.mockRestore();
@@ -395,7 +398,7 @@ describe("handleOpenCommand", () => {
     ]);
     mockPromptUser.mockResolvedValueOnce("0");
 
-    await expect(handleOpenCommand(makeContext())).rejects.toThrow("exit:0");
+    await expect(handleOpenCommand(makeContext())).rejects.toThrow("exit:130");
     // The prompt passed to promptUser must include "(0 to cancel)"
     const promptArg = mockPromptUser.mock.calls[0]?.[0] as string;
     expect(promptArg).toContain("0 to cancel");
@@ -414,6 +417,23 @@ describe("handleOpenCommand", () => {
 
     const allLogs = logSpy.mock.calls.map((c) => c[0] as string).join("\n");
     expect(allLogs).toMatch(/summon status.*interactive/i);
+  });
+
+  it("FE-L2: prints each row as rendered, never trimmed, with or without a program glyph", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockLoadProjectRows.mockReturnValue([
+      { name: "api", directory: "/tmp/api", state: "active", uptime: "1h", gitBranch: "main", programStatus: "blocked" },
+      { name: "web", directory: "/tmp/web", state: "stopped", uptime: null, gitBranch: "develop" },
+    ]);
+    mockRenderRow.mockImplementation((row: { name: string; programStatus?: string }) =>
+      `${row.programStatus ? "!" : " "}\u25CF ${row.name}`);
+    mockPromptUser.mockResolvedValueOnce("2");
+
+    await handleOpenCommand(makeContext({ overrides: { dryRun: true } }));
+
+    const lines = logSpy.mock.calls.map((c) => String(c[0]));
+    expect(lines).toContain("  1  !\u25CF api");
+    expect(lines).toContain("  2   \u25CF web");
   });
 
   it("passes dynamic row width based on longest project name", async () => {
@@ -621,8 +641,6 @@ describe("summon open <project> (guide F1: the documented direct form)", () => {
       throw new Error(`exit:${code}`);
     }) as never);
     mockLoadProjectRow.mockReset();
-    mockProjectSuggestions.mockReset();
-    mockProjectSuggestions.mockReturnValue([]);
     mockFocusWorkspace.mockReset();
     mockLaunch.mockReset();
   });
@@ -648,6 +666,34 @@ describe("summon open <project> (guide F1: the documented direct form)", () => {
     expect(mockFocusWorkspace).not.toHaveBeenCalled();
   });
 
+  it("UX-M4: the launch goes through the trust prompt; a focus does not", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockWithTrustPrompt.mockClear();
+    mockLoadProjectRow.mockReturnValue({ name: "api", directory: "/tmp/api", state: "stopped", uptime: "—", gitBranch: "—" });
+    mockLaunch.mockImplementation(async () => {
+      // The launch runs inside the prompt's attempt, never before or beside it.
+      expect(mockWithTrustPrompt).toHaveBeenCalledTimes(1);
+    });
+    await handleOpenCommand(makeContext({ args: ["api"] }));
+    expect(mockLaunch).toHaveBeenCalledTimes(1);
+
+    mockWithTrustPrompt.mockClear();
+    mockLoadProjectRow.mockReturnValue({ name: "api", directory: "/tmp/api", state: "active", uptime: "1h", gitBranch: "main" });
+    mockFocusWorkspace.mockReturnValue({ kind: "focused", terminalId: "block:1" });
+    await handleOpenCommand(makeContext({ args: ["api"] }));
+    expect(mockWithTrustPrompt).not.toHaveBeenCalled();
+    mockLaunch.mockReset();
+    logSpy.mockRestore();
+  });
+
+  it("UX-M4: a declined trust prompt is a user cancel that reaches the CLI's exit 130 handling", async () => {
+    mockLoadProjectRow.mockReturnValue({ name: "api", directory: "/tmp/api", state: "stopped", uptime: "—", gitBranch: "—" });
+    const declined = new MockPromptCancelled("Trust declined.");
+    mockWithTrustPrompt.mockRejectedValueOnce(declined);
+    await expect(handleOpenCommand(makeContext({ args: ["api"] }))).rejects.toBe(declined);
+    expect(mockLaunch).not.toHaveBeenCalled();
+  });
+
   it("refuses an unknown workspace with its reason (exit 2) and never launches over it", async () => {
     const err = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     mockLoadProjectRow.mockReturnValue({ name: "web", directory: "/tmp/web", state: "unknown", uptime: "—", gitBranch: "—", reason: "server unreachable" });
@@ -667,7 +713,7 @@ describe("summon open <project> (guide F1: the documented direct form)", () => {
   it("names an unregistered project with suggestions (exit 1)", async () => {
     const err = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     mockLoadProjectRow.mockReturnValue(undefined);
-    mockProjectSuggestions.mockReturnValue(["chapa", "chapa-cli"]);
+    mockListProjects.mockReturnValue(new Map([["chapa", "/w/chapa"], ["chapa-cli", "/w/chapa-cli"]]));
     await expect(handleOpenCommand(makeContext({ args: ["chap"] }))).rejects.toThrow("exit:1");
     const text = err.mock.calls.flat().join("");
     expect(text).toContain('"chap" is not a registered project');

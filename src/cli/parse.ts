@@ -1,5 +1,5 @@
 import { parseArgs } from "node:util";
-import type { CLIOverrides } from "../launcher.js";
+import type { CLIOverrides } from "../config-resolve.js";
 import { PANES_MIN, EDITOR_SIZE_MIN, EDITOR_SIZE_MAX } from "../layout.js";
 import { validateIntFlag, validateFloatFlag } from "../validation.js";
 import { getErrorMessage, exitWithUsageHint } from "../utils.js";

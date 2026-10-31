@@ -11,12 +11,14 @@ import { join } from "node:path";
  * (Rex 0.0.1793131181-gdd9a20, api revision 7); a later Rex build that behaves differently fails.
  */
 
-const { destroySessions, rexGate, sleep, until, withRexEnv } = await import("./rex-harness.js");
+const { destroySessions, removeStatusFiles, rexGate, sleep, until, withRexEnv } = await import("./rex-harness.js");
 const { discoverRex, createRexCli, defaultRexServer } = await import("../backends/rex/cli.js");
-const { readStatusRecord, readStatus, clearStatus, resetReadAllStatusesCache } = await import("../status.js");
+const { readStatusRecord } = await import("../status-record.js");
+const { readStatus } = await import("../status.js");
 const { launchArtifactPaths, launchesDir } = await import("../launch-identity.js");
 const { clearSnapshot } = await import("../snapshot.js");
 const { launch } = await import("../launcher.js");
+
 const harness = rexGate(process.env, "rex-lifecycle e2e");
 const { prereq } = harness;
 
@@ -72,8 +74,7 @@ describe("rex lifecycle observations (plan D6, Phase 5 step 0)", () => {
         }
       };
       const stateOf = (project: string) => {
-        resetReadAllStatusesCache();
-        const status = readStatus(project)!;
+        const status = readStatus(project, { reconcile: true })!;
         return { state: status.state, reason: status.reason };
       };
 
@@ -132,7 +133,7 @@ describe("rex lifecycle observations (plan D6, Phase 5 step 0)", () => {
       // rest are killed here and every one is proven absent (guide C20).
       cleanupFailures = await destroySessions(cli, created.map((c) => c.sessionId));
       for (const { project } of created) {
-        try { clearStatus(project); } catch { /* best effort */ }
+        removeStatusFiles(project);
         try { clearSnapshot(project); } catch { /* best effort */ }
         rmSync(launchesDir(project), { recursive: true, force: true });
       }

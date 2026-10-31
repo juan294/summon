@@ -1,7 +1,6 @@
 import { launch } from "../launcher.js";
-import { callerRexSession, resolveBackendForLaunch } from "../backend.js";
-import { showRecordedWorkspace } from "../backends/rex/launch.js";
-import { startLauncherTabWatch } from "../backends/rex/launcher-tab.js";
+import { resolveBackendForLaunch } from "../backend.js";
+import { createTerminalBackend } from "../backends/select.js";
 import { listProjects, getProject } from "../config.js";
 import {
   listSessions,
@@ -12,9 +11,10 @@ import {
 } from "../sessions.js";
 import { SummonError } from "../trust.js";
 import { TabOpenError } from "../errors.js";
-import { exitWithUsageHint, getErrorMessage, supportsColor } from "../utils.js";
+import { exitCodeFor, exitWithUsageHint, getErrorMessage, supportsColor, PromptCancelled } from "../utils.js";
 import { sym } from "../ui/symbols.js";
-import { fail, err, note } from "../ui/output.js";
+import { fail, err } from "../ui/output.js";
+import { printProjectSuggestions } from "../cli/resolve-target.js";
 import type { CommandContext } from "./types.js";
 
 const RESERVED = new Set(["add", "remove", "list", "show", "all"]);
@@ -63,6 +63,14 @@ export async function handleSessionCommand(ctx: CommandContext): Promise<void> {
     default:
       return cmdLaunch(ctx, sub);
   }
+}
+
+/** Unknown project names: the error, the closest registered names (UX-M3), the register hint, exit 1. */
+function exitUnknownProjects(missing: readonly string[]): never {
+  fail(`Unknown project(s): ${missing.join(", ")}`);
+  for (const name of missing) printProjectSuggestions(name, missing.length > 1);
+  err("Register them with: summon add <name> <path>");
+  process.exit(1);
 }
 
 async function cmdLaunch(ctx: CommandContext, name: string | undefined): Promise<void> {
@@ -117,11 +125,7 @@ async function cmdLaunch(ctx: CommandContext, name: string | undefined): Promise
       missing.push(proj);
     }
   }
-  if (missing.length > 0) {
-    fail(`Unknown project(s): ${missing.join(", ")}`);
-    err("Register them with: summon add <name> <path>");
-    process.exit(1);
-  }
+  if (missing.length > 0) exitUnknownProjects(missing);
 
   const total = projects.length;
   // Every project that succeeded (launched, switched to, or printed as a dry run), in order: under Rex the first is shown again at the end.
@@ -134,18 +138,18 @@ async function cmdLaunch(ctx: CommandContext, name: string | undefined): Promise
   // every subsequent one opens a new tab.
   let openedFirst = false;
   const baseOverrides = { ...ctx.overrides };
-  // Plan P11: under Rex every project is its own session; tabs do not apply and the first
-  // launched session is shown again at the end.
+  // Plan P11: the backend decides whether later projects open as tabs of the first one's window (Ghostty) or each
+  // as its own session, with the first one shown again at the end (Rex).
   const detection = resolveBackendForLaunch();
-  const rex = detection.ok && detection.backend === "rex" ? detection : null;
-  const underRex = rex !== null;
+  const backend = detection.ok ? await createTerminalBackend(detection) : null;
+  const opensTabs = backend?.opensSessionTabs ?? true;
   // D1: a skipped project is printed before its launch starts; watch from here so it keeps the launcher tab.
-  if (rex && !ctx.overrides.dryRun) startLauncherTabWatch(rex);
+  if (backend && !ctx.overrides.dryRun) backend.watchOutput?.();
 
   for (let i = 0; i < total; i++) {
     const proj = projects[i]!;
     const dir = getProject(proj)!;
-    const overrides = { ...baseOverrides, "new-tab": openedFirst && !underRex ? "true" : undefined };
+    const overrides = { ...baseOverrides, "new-tab": openedFirst && opensTabs ? "true" : undefined };
     if (openedFirst) {
       delete overrides["new-window"];
     }
@@ -171,11 +175,12 @@ async function cmdLaunch(ctx: CommandContext, name: string | undefined): Promise
         failedTab.push(proj);
         continue;
       }
-      fail(`launching ${proj}: ${getErrorMessage(caught)}`);
+      // UX-L3: a user cancel (a declined prompt, Ctrl+C) stops the run quietly with 130; any other failure is an error (1).
+      if (!(caught instanceof PromptCancelled)) fail(`launching ${proj}: ${getErrorMessage(caught)}`);
       if (launched.length > 0) {
         err(`Already launched: ${launched.join(", ")}`);
       }
-      process.exit(1);
+      process.exit(exitCodeFor(caught));
     }
     if (i < total - 1) {
       await new Promise((r) => setTimeout(r, INTER_LAUNCH_DELAY_MS));
@@ -183,10 +188,7 @@ async function cmdLaunch(ctx: CommandContext, name: string | undefined): Promise
   }
 
   // A dry run never switches (P2): the per-project dry runs printed their requests and nothing was launched.
-  if (rex && launched.length > 1 && !ctx.overrides.dryRun) {
-    const shown = showRecordedWorkspace(launched[0]!, rex.rexBinary, callerRexSession(rex));
-    if (!shown.shown) note(`could not show [${launched[0]}] in Rex: ${shown.reason}`);
-  }
+  if (backend?.showAgain && launched.length > 1 && !ctx.overrides.dryRun) backend.showAgain(launched[0]!);
 
   const parts: string[] = [];
   if (counts.launched > 0 || launched.length === 0) parts.push(`${counts.launched} launched`);
@@ -227,11 +229,7 @@ async function cmdAdd(rest: string[], _ctx: CommandContext): Promise<void> {
       missing.push(proj);
     }
   }
-  if (missing.length > 0) {
-    fail(`Unknown project(s): ${missing.join(", ")}`);
-    err("Register them with: summon add <name> <path>");
-    process.exit(1);
-  }
+  if (missing.length > 0) exitUnknownProjects(missing);
 
   writeSession(name, projectArgs);
   console.log(`${sym.ok} Session saved: ${name} (${projectArgs.length} project(s): ${projectArgs.join(", ")})`);

@@ -11,8 +11,6 @@ import {
   readKVFile,
   readKVFromString,
   resetConfigCache,
-  clearKVCache,
-  clearProjectCache,
   isFirstRun,
   LAYOUTS_DIR,
   listCustomLayouts,
@@ -861,68 +859,6 @@ describe("readKVFromString (BE-B2, BE-M1 #357 #375)", () => {
   });
 });
 
-describe("clearKVCache and clearProjectCache — aliases for resetConfigCache (#402 #403 #404 #512)", () => {
-  it("clearKVCache is exported and callable", () => {
-    expect(clearKVCache).toBeDefined();
-    expect(() => clearKVCache()).not.toThrow();
-  });
-
-  it("clearProjectCache is exported and callable", () => {
-    expect(clearProjectCache).toBeDefined();
-    expect(() => clearProjectCache()).not.toThrow();
-  });
-
-  it("clearKVCache causes re-read on next call", async () => {
-    const fs = await import("node:fs");
-    const readFileSpy = fs.readFileSync as ReturnType<typeof vi.fn>;
-
-    // Warm cache
-    listProjects();
-
-    // Freeze mtime so cache would normally be hit
-    const store = await getStore();
-    const mtimes = await getMtimes();
-    for (const key of store.keys()) {
-      if (!mtimes.has(key)) mtimes.set(key, 1000);
-    }
-
-    readFileSpy.mockClear();
-    listProjects(); // should hit cache (no read)
-    expect(readFileSpy).not.toHaveBeenCalled();
-
-    // Clear the KV cache
-    clearKVCache();
-
-    listProjects(); // should re-read after cache cleared
-    expect(readFileSpy).toHaveBeenCalled();
-  });
-
-  it("clearProjectCache causes re-read on next call", async () => {
-    const fs = await import("node:fs");
-    const readFileSpy = fs.readFileSync as ReturnType<typeof vi.fn>;
-
-    addProject("cachetest", "/some/path");
-
-    // Warm the cache with a read after the write
-    getProject("cachetest");
-
-    // Freeze mtime so subsequent reads hit cache
-    const store = await getStore();
-    const mtimes = await getMtimes();
-    for (const key of store.keys()) {
-      if (!mtimes.has(key)) mtimes.set(key, 1000);
-    }
-
-    readFileSpy.mockClear();
-    getProject("cachetest"); // should hit cache — no read
-    expect(readFileSpy).not.toHaveBeenCalled();
-
-    clearProjectCache();
-    getProject("cachetest"); // should re-read after cache cleared
-    expect(readFileSpy).toHaveBeenCalled();
-  });
-});
-
 describe("readCustomLayout uses mtime cache (#402 AR-M3)", () => {
   it("readCustomLayout uses cached result when mtime is unchanged", async () => {
     const fs = await import("node:fs");
@@ -1179,7 +1115,42 @@ describe("saveCustomLayout uses atomicWrite (#561 AR-L1)", () => {
   });
 });
 
-// Separate OS processes exercise the real config/cache modules and real filesystem.
+// PE-M1: the persistent cache.json gave no measured gain (it cost a write on every exit), so reads write nothing.
+describe("config reads in a real process", () => {
+  it("never write cache.json, with or without SUMMON_NO_CACHE (now a no-op)", async () => {
+    const fs = await vi.importActual<typeof import("node:fs")>("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { spawnSync } = await import("node:child_process");
+    const { build } = await import("tsup");
+    const dir = fs.mkdtempSync(join(tmpdir(), "summon-config-reads-"));
+    try {
+      const home = join(dir, "home");
+      const configDir = join(home, ".config/summon");
+      fs.mkdirSync(configDir, { recursive: true });
+      fs.writeFileSync(join(configDir, "config"), "# kept\neditor=vim\n");
+      fs.writeFileSync(join(configDir, "projects"), "app=/tmp/app\n");
+      await build({ config: false, entry: { config: new URL("./config.ts", import.meta.url).pathname }, bundle: true, platform: "node", format: ["esm"], outDir: dir, outExtension: () => ({ js: ".mjs" }), silent: true });
+      fs.writeFileSync(join(dir, "reader.mjs"), `
+        const config = await import('./config.mjs');
+        process.stdout.write(config.getProject('app') + ' ' + config.listConfig().get('editor'));
+      `);
+      for (const noCache of [undefined, "1"]) {
+        const env = { ...process.env, HOME: home, SUMMON_NO_CACHE: noCache };
+        for (let run = 0; run < 2; run++) {
+          const result = spawnSync(process.execPath, [join(dir, "reader.mjs")], { env, encoding: "utf8", timeout: 10_000 });
+          expect(result.stderr).toBe("");
+          expect(result.stdout).toBe("/tmp/app vim");
+        }
+        expect(fs.readdirSync(configDir).sort()).toEqual(["config", "projects"]);
+      }
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+// Separate OS processes exercise the real config modules and real filesystem.
 // Delay only the filesystem read boundary to make overlapping transactions repeatable.
 describe("cross-process KV mutations", () => {
   it("preserves all acknowledged adds, sets and removals", async () => {
@@ -1218,7 +1189,7 @@ describe("cross-process KV mutations", () => {
       for (const mode of ["add", "remove"]) {
         const gate = join(dir, mode);
         const workers = Array.from({ length: 4 }, (_, id) => {
-          const child = spawn(process.execPath, [join(dir, "worker.mjs"), mode, String(id), gate], { env: { ...process.env, HOME: home, SUMMON_NO_CACHE: "1" }, timeout: 10_000, stdio: ["ignore", "pipe", "pipe"] });
+          const child = spawn(process.execPath, [join(dir, "worker.mjs"), mode, String(id), gate], { env: { ...process.env, HOME: home }, timeout: 10_000, stdio: ["ignore", "pipe", "pipe"] });
           let stderr = "";
           child.stderr.on("data", (data: Buffer) => { stderr += data.toString(); });
           const ready = new Promise<void>((resolve, reject) => {

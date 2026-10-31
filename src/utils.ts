@@ -76,6 +76,17 @@ export class PromptCancelled extends Error {
   }
 }
 
+/** UX-L3: the exit status of every user cancel (Ctrl+C, Escape, EOF, or declining a prompt): 128 + SIGINT. */
+export const CANCELLED_EXIT_CODE = 130;
+
+/** UX-L3: the exit status for an error that reached the top level: a user cancel is 130, anything else 1. */
+export function exitCodeFor(error: unknown): number {
+  return error instanceof PromptCancelled ? CANCELLED_EXIT_CODE : 1;
+}
+
+/** PE-L3: a quick lookup (`which`, `command -v`, `open`) is killed after 5 s instead of hanging the CLI. */
+export const QUICK_PROCESS_LIMITS = { timeout: 5000, killSignal: "SIGKILL" } as const;
+
 /**
  * Prompt the user with a question via readline and return the trimmed answer.
  * Dynamically imports node:readline so callers that never prompt pay no cost.
@@ -167,6 +178,7 @@ export function resolveCommand(cmd: string): string | null {
     return execFileSync("/usr/bin/which", [cmd], {
       encoding: "utf-8",
       stdio: ["ignore", "pipe", "ignore"],
+      ...QUICK_PROCESS_LIMITS,
     }).trim();
   } catch {
     return null;
@@ -207,22 +219,28 @@ export function isAccessibilityError(message: string): boolean {
 }
 
 /**
- * Check whether the current terminal has macOS Accessibility permission.
+ * Probe whether the current terminal has macOS Accessibility permission.
  * Summon uses System Events (for auto-resize and new-window) which requires
  * the calling terminal app to be granted Accessibility access.
- * Returns true if System Events responds, false otherwise.
+ * "granted" when System Events answers, "denied" when osascript fails, and "unknown" when it did not
+ * answer within 2 s (PE-L3: a slow System Events is not a denial; the workspace script reports a real one).
  */
-export function checkAccessibility(): boolean {
+export function probeAccessibility(): "granted" | "denied" | "unknown" {
   try {
     execFileSync(
       "osascript",
       ["-e", 'tell application "System Events" to get name of first process'],
-      { encoding: "utf-8", timeout: 2000 },
+      { encoding: "utf-8", timeout: 2000, killSignal: "SIGKILL" },
     );
-    return true;
-  } catch {
-    return false;
+    return "granted";
+  } catch (caught) {
+    return (caught as NodeJS.ErrnoException).code === "ETIMEDOUT" ? "unknown" : "denied";
   }
+}
+
+/** False only for a probe that answered "denied": a launch proceeds when the probe timed out. */
+export function checkAccessibility(): boolean {
+  return probeAccessibility() !== "denied";
 }
 
 /**
@@ -234,7 +252,7 @@ export function openAccessibilitySettings(): void {
   try {
     execFileSync("open", [
       "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
-    ]);
+    ], QUICK_PROCESS_LIMITS);
   } catch {
     // Silently fail — the manual instructions are always shown alongside
   }

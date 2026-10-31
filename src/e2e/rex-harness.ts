@@ -1,9 +1,12 @@
 import { execFileSync } from "node:child_process";
+import { rmSync } from "node:fs";
 import { loadavg } from "node:os";
+import { join } from "node:path";
 import { listAppClients } from "../backends/rex/app.js";
 import { createRexCli, defaultRexServer, discoverRex, probeWhoami } from "../backends/rex/cli.js";
 import type { RexCli } from "../backends/rex/cli.js";
 import { listSessions } from "../backends/rex/status.js";
+import { STATUS_DIR } from "../paths.js";
 
 /**
  * Gating shared by the Rex end-to-end suites (plan §5):
@@ -100,6 +103,11 @@ export function rexGate(env: NodeJS.ProcessEnv = process.env, suite = "rex e2e",
       return true;
     },
   };
+}
+
+/** Best-effort removal of a suite's status record and legacy liveness files. */
+export function removeStatusFiles(project: string): void {
+  for (const ext of ["json", "active", "pid"]) rmSync(join(STATUS_DIR, `${project}.${ext}`), { force: true });
 }
 
 export const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));

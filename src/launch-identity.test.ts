@@ -77,7 +77,7 @@ describe("shell fragments", () => {
   const dir = `$HOME/.config/summon/status/chapa.launches`;
 
   it("bootstrapLine creates the launch dir and writes pid then active, every path carrying the launch id", () => {
-    const line = bootstrapLine("chapa", ID, "ghostty");
+    const line = bootstrapLine("chapa", ID);
     expect(line).toBe(
       `mkdir -p "${dir}" && chmod 700 "${dir}"`
       + ` && printf '%s\\n' "$$" > "${dir}/${ID}.pid"`
@@ -86,12 +86,6 @@ describe("shell fragments", () => {
     const paths = line.match(/"\$HOME[^"]*"/g) ?? [];
     expect(paths.length).toBe(4);
     for (const p of paths.slice(2)) expect(p).toContain(ID);
-  });
-
-  it("bootstrapLine for rex appends the root pane-file write and requires the root pane name", () => {
-    const line = bootstrapLine("chapa", ID, "rex", "editor");
-    expect(line.endsWith(` && ${paneFileLine("chapa", ID, "editor")}`)).toBe(true);
-    expect(() => bootstrapLine("chapa", ID, "rex")).toThrow("root pane name");
   });
 
   it("paneFileLine names only that pane's file and its .tmp and publishes atomically", () => {
@@ -106,7 +100,7 @@ describe("shell fragments", () => {
   });
 
   it("routes names through shellDoubleQuote", () => {
-    expect(bootstrapLine('my"proj', ID, "ghostty")).toContain('my\\"proj.launches');
+    expect(bootstrapLine('my"proj', ID)).toContain('my\\"proj.launches');
     expect(paneFileLine('my"proj', ID, "editor")).toContain(`my\\"proj.launches/${ID}.pane.editor`);
   });
 
@@ -115,7 +109,7 @@ describe("shell fragments", () => {
     expect(line.startsWith("__summon_cleanup() { ")).toBe(true);
     expect(line.endsWith("; }; trap '__summon_cleanup' EXIT HUP")).toBe(true);
     expect(line).toContain(`echo bye </dev/null >> "$HOME/.config/summon/logs/cleanup-chapa.log" 2>&1`);
-    expect(line).toContain(`summon snapshot save --dir "/tmp/chapa" --project "chapa" --layout "full" --launch '${ID}' </dev/null >/dev/null 2>&1`);
+    expect(line).toContain(`summon snapshot save --dir '/tmp/chapa' --project "chapa" --layout "full" --launch '${ID}' </dev/null >/dev/null 2>&1`);
     expect(line).toContain(`rm -f "${dir}/${ID}.pid" "${dir}/${ID}.active" 2>/dev/null`);
     // Never named: pane files, manifest, shared record, legacy paths.
     expect(line).not.toContain(".pane.");
@@ -160,12 +154,11 @@ describe("shell fragments", () => {
   it("paneFileLine rejects a pane name that is not an identifier (no paths, no traversal)", () => {
     for (const bad of ["../x", "a/b", "a b", "", "1abc"]) {
       expect(() => paneFileLine("chapa", ID, bad)).toThrow(`Invalid pane name: ${JSON.stringify(bad)}`);
-      expect(() => bootstrapLine("chapa", ID, "rex", bad)).toThrow("Invalid pane name");
     }
   });
 
   it("every fragment rejects an invalid launch id (ids are never user text)", () => {
-    expect(() => bootstrapLine("chapa", "x", "ghostty")).toThrow("Invalid launch id");
+    expect(() => bootstrapLine("chapa", "x")).toThrow("Invalid launch id");
     expect(() => paneFileLine("chapa", "x", "editor")).toThrow("Invalid launch id");
     expect(() => cleanupTrapLine("chapa", "x")).toThrow("Invalid launch id");
   });
@@ -221,6 +214,10 @@ describe("launch manifests", () => {
     ["project", { project: 1 }],
     ["panes", { panes: ["a", 2] }],
     ["paneOrder", { paneOrder: "a" }],
+    // BE-L3: a pane name is an identifier, never a path: `x/../<id>` would name a sibling launch's file.
+    ["panes path", { panes: ["editor", `x/../${OTHER}`] }],
+    ["paneOrder path", { paneOrder: ["editor", `x/../${OTHER}`] }],
+    ["paneOrder empty name", { paneOrder: [""] }],
     ["blockLabels array", { blockLabels: ["a"] }],
     ["blockLabels value", { blockLabels: { a: 1 } }],
     ["backend", { backend: "zsh" }],
@@ -258,16 +255,32 @@ describe("launch manifests", () => {
 describe("the trap runs the binary that created the launch (guide F4)", () => {
   afterEach(() => clearSelfInvocation());
 
-  it("types the registered node and script paths, double-quoted, instead of a bare summon", () => {
-    registerSelfInvocation("/usr/local/bin/node", '/opt/my "tools"/summon/dist/index.js');
+  it("types the registered node and script paths, single-quoted, instead of a bare summon", () => {
+    registerSelfInvocation("/usr/local/bin/node", "/opt/my 'tools'/summon/dist/index.js");
     const line = cleanupTrapLine("chapa", ID, { targetDir: "/tmp/chapa", layout: "full" });
-    expect(line).toContain(`"/usr/local/bin/node" "/opt/my \\"tools\\"/summon/dist/index.js" snapshot save --dir "/tmp/chapa" --project "chapa" --layout "full" --launch '${ID}' </dev/null >/dev/null 2>&1`);
+    expect(line).toContain(`'/usr/local/bin/node' '/opt/my '\\''tools'\\''/summon/dist/index.js' snapshot save --dir '/tmp/chapa' --project "chapa" --layout "full" --launch '${ID}' </dev/null >/dev/null 2>&1`);
     expect(line).not.toMatch(/[;{] *summon snapshot/);
   });
 
   it("falls back to summon on PATH when no invocation is registered (library use, tests)", () => {
     const line = cleanupTrapLine("chapa", ID, { targetDir: "/tmp/chapa" });
-    expect(line).toContain(`; summon snapshot save --dir "/tmp/chapa"`);
+    expect(line).toContain(`; summon snapshot save --dir '/tmp/chapa'`);
+  });
+
+  it("single-quotes paths so history expansion (!) and $ never apply in the interactive login shell (SE-L1)", () => {
+    registerSelfInvocation("/opt/node!22/bin/node", "/opt/$HOME/summon!/index.js");
+    const line = cleanupTrapLine("chapa", ID, { targetDir: "/tmp/wow!$x`y`" });
+    expect(line).toContain(`'/opt/node!22/bin/node' '/opt/$HOME/summon!/index.js' snapshot save --dir '/tmp/wow!$x\`y\`' --project`);
+  });
+
+  it.each([
+    ["the project directory", "/tmp/a\u001b[201~b", undefined],
+    ["the project directory (newline)", "/tmp/a\nb", undefined],
+    ["the node binary", "/tmp/chapa", "/usr/local/bin/no\u0007de"],
+    ["the node binary (C1)", "/tmp/chapa", "/usr/local/bin/no\u009bde"],
+  ])("rejects a control character in %s with a clear error (SE-L1)", (_label, targetDir, execPath) => {
+    if (execPath) registerSelfInvocation(execPath, "/opt/summon/dist/index.js");
+    expect(() => cleanupTrapLine("chapa", ID, { targetDir })).toThrow(/contains a control character/);
   });
 
   it("ignores a registration without a script path", () => {

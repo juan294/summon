@@ -1,5 +1,6 @@
-import { resolveConfig, traditionalPaneNames } from "../launcher.js";
-import { probeGhosttyDetach } from "../ghostty.js";
+import { readTrustedSummonFile, resolveConfig } from "../config-resolve.js";
+import { traditionalPaneNames } from "../layout.js";
+import { probeGhosttyDetach } from "../backends/ghostty/probe.js";
 import { err, fail } from "../ui/output.js";
 import { exitWithUsageHint } from "../utils.js";
 import type { CommandContext } from "./types.js";
@@ -43,7 +44,7 @@ export async function handleKeybindingsCommand({ values, overrides }: CommandCon
   const { generateKeyTableConfig } = await import("../keybindings.js");
   const { collectLeaves, resolveTreeCommands } = await import("../tree.js");
   const style = values.vim ? "vim" as const : "arrows" as const;
-  const config = resolveConfig(process.cwd(), overrides);
+  const config = resolveConfig(process.cwd(), overrides, readTrustedSummonFile(process.cwd(), overrides));
 
   let paneNames: string[];
   let layoutName: string;

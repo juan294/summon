@@ -10,7 +10,7 @@ import {
 } from "../config.js";
 import { isPresetName } from "../layout.js";
 import { SAFE_COMMAND_RE, exitWithUsageHint } from "../utils.js";
-import { fail, err } from "../ui/output.js";
+import { fail, err, warn } from "../ui/output.js";
 import { parseTreeDSL } from "../tree.js";
 import { renderLayoutPreview } from "../ui/layout-preview.js";
 import { bold, cyan } from "../ui/ansi.js";
@@ -50,7 +50,7 @@ export async function handleLayoutCommand({ args }: CommandContext): Promise<voi
       validateLayoutNameOrExit(layoutName);
       const config = listConfig();
       if (config.size === 0) {
-        console.warn("Warning: saving layout with empty config. Set values first with: summon set <key> <value>");
+        warn("saving layout with empty config. Set values first with: summon set <key> <value>");
       }
       saveCustomLayout(layoutName, config);
       console.log(`Saved custom layout: ${layoutName}`);

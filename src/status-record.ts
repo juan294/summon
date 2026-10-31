@@ -2,14 +2,15 @@ import { existsSync, mkdirSync, readFileSync, unlinkSync } from "node:fs";
 import { STATUS_DIR } from "./paths.js";
 import { debugLog, atomicWrite, confinedPath } from "./utils.js";
 import { withFileLock } from "./file-lock.js";
-import { isLaunchId, launchArtifactPaths } from "./launch-identity.js";
+import { isLaunchId, isPaneNameList, launchArtifactPaths } from "./launch-identity.js";
 import type { LaunchFileSet } from "./launch-identity.js";
-import { isBackendId } from "./backend.js";
-import type { BackendId } from "./backend.js";
+import { isBackendId } from "./backend-detect.js";
+import type { BackendId } from "./backend-detect.js";
 import { parseRexIdentity } from "./backends/rex/types.js";
 import type { RexIdentity } from "./backends/rex/types.js";
-import { parseNativeMetadata } from "./pane-inventory.js";
-import type { NativeMetadata } from "./pane-inventory.js";
+import { parseNativeMetadata } from "./backends/ghostty/pane-inventory.js";
+import type { NativeMetadata } from "./backends/ghostty/pane-inventory.js";
+import type { ResolvedStatus, StatusRow } from "./status.js";
 
 /**
  * The status record layer: the shared record `status/<project>.json`, its parser, the locked
@@ -19,7 +20,8 @@ import type { NativeMetadata } from "./pane-inventory.js";
  */
 // --- Types ---
 
-export interface WorkspaceStatus {
+/** Fields every status record carries, whatever its backend. */
+interface WorkspaceStatusFields {
   /** Registered project name or directory basename */
   project: string;
   /** Absolute path to project directory */
@@ -36,17 +38,43 @@ export interface WorkspaceStatus {
   source: "summon";
   /** Schema version for future compatibility */
   version: 1;
-  /** Exact surface-lifetime native identity (Ghostty); optional for legacy launches. */
-  native?: NativeMetadata;
   /** Launch generation (UUID v4, plan P12); absent on records written before per-launch ownership. */
   launchId?: string;
-  /** Owning terminal backend; absent means Ghostty (plan P6). */
-  backend?: BackendId;
-  /** Exact Rex identity (plan P16); mutually exclusive with `native`. */
-  rex?: RexIdentity;
   /** Set by lifecycle reconciliation once the workspace ended; absent while live. */
   endedAt?: string;
 }
+
+/** A Ghostty record; `backend` is absent on records written before the Rex backend (plan P6). */
+export interface GhosttyWorkspaceStatus extends WorkspaceStatusFields {
+  backend?: "ghostty";
+  /** Exact surface-lifetime native identity; optional for legacy launches. */
+  native?: NativeMetadata;
+  rex?: undefined;
+}
+
+/** A Rex record with its exact identity (plan P16). */
+export interface RexWorkspaceStatus extends WorkspaceStatusFields {
+  backend: "rex";
+  rex: RexIdentity;
+  native?: undefined;
+}
+
+/**
+ * A Rex record without an identity: the parser discarded an invalid one, or none was stored. Every reader treats it
+ * as `unknown` (`rexIdentityMissing`, plan P10). It is the record as stored (`backend: "rex"`, no `rex` field), so a
+ * rewrite of it is byte-identical; no marker field is added.
+ */
+export interface UnidentifiedRexWorkspaceStatus extends WorkspaceStatusFields {
+  backend: "rex";
+  rex?: undefined;
+  native?: undefined;
+}
+
+/**
+ * The status record in memory (AR-L2): the backend decides which identity a record may carry, so `native` (Ghostty)
+ * and `rex` never appear together. The JSON on disk is unchanged (schema version 1).
+ */
+export type WorkspaceStatus = GhosttyWorkspaceStatus | RexWorkspaceStatus | UnidentifiedRexWorkspaceStatus;
 
 /** `partial`: a Rex session whose root pane closed while other recorded panes live (plan P10). */
 export type WorkspaceState = "active" | "partial" | "stopped" | "unknown";
@@ -56,9 +84,30 @@ export function rexIdentityMissing(project: string): string {
   return `the record has no Rex identity; run summon ${project} --new-window to relaunch`;
 }
 
+/** The one wording every consumer prints for an `unknown` workspace (plan P10). */
+export function unverifiedMessage(project: string, reason: string | undefined): string {
+  return `[${project}] could not be verified: ${reason ?? "no liveness information"}. Open the Rex app and retry, or run summon doctor.`;
+}
+
+/** Rex: recorded panes whose block is not known yet (the pane file had not appeared when last looked). */
+export function unverifiedPanes(record: WorkspaceStatus): number {
+  return record.panes.length - (record.rex?.blocks.length ?? 0);
+}
+
 /** States with a live workspace to focus or count (plan P10 reader rules). */
 export function isLiveState(state: WorkspaceState): boolean {
   return state === "active" || state === "partial";
+}
+
+/** Milliseconds since `startedAt` for a live state; null for any other state or an unreadable timestamp. */
+export function liveUptime(state: WorkspaceState, startedAt: string): number | null {
+  const started = Date.parse(startedAt);
+  return isLiveState(state) && !Number.isNaN(started) ? Date.now() - started : null;
+}
+
+/** A row whose liveness could not be read: `unknown`, with the reason and any notices carried so far. */
+export function unknownRow(record: StatusRow, reason: string, notices: string[] = []): ResolvedStatus {
+  return { ...record, state: "unknown", uptime: null, reason, ...(notices.length > 0 ? { notices } : {}) };
 }
 
 /** Who may write the shared record (plan §3 "Status write protocol"). */
@@ -82,12 +131,35 @@ export const statusTestHooks: { beforeLock?: () => void; beforeWrite?: () => voi
 
 // --- Paths ---
 
-function statusArtifactPath(projectName: string, extension: "json" | "active" | "pid"): string {
+function statusArtifactPath(projectName: string, extension: "json" | "active" | "pid" | "launch"): string {
   return confinedPath(STATUS_DIR, `${projectName}.${extension}`, "status");
 }
 
 function statusFilePath(projectName: string): string {
   return statusArtifactPath(projectName, "json");
+}
+
+/**
+ * BE-L1: the stale bound of a launch lock. Its owner runs `rex` subprocesses synchronously (execFileSync), so its
+ * token is not refreshed while it works. The worst case under the lock, summed from the call timeouts (each read 8 s
+ * plus a 2 s grace, `session.create` 10 s, the token and app waits 8 s each), is about 2 minutes; 5 minutes keeps a
+ * slow live launch its lock, and a hung or suspended (Ctrl-Z) owner is still taken over after that. A dead owner is
+ * recovered at once.
+ */
+export const LAUNCH_LOCK_STALE_MS = 5 * 60_000;
+
+/** The stale bound of a lock directory under the config directory: a launch lock's own, else the shared STALE_LOCK_MS. */
+export function lockStaleBound(directory: string): number | undefined {
+  return directory.endsWith(".launch.lock") ? LAUNCH_LOCK_STALE_MS : undefined;
+}
+
+/**
+ * BE-L1: the file a backend's per-project launch lock is named after (`<project>.launch.lock/` once held), distinct
+ * from the record lock (`<project>.json.lock/`). The status directory exists afterwards.
+ */
+export function launchLockFile(projectName: string): string {
+  mkdirSync(STATUS_DIR, { recursive: true, mode: 0o700 });
+  return statusArtifactPath(projectName, "launch");
 }
 
 function markerFilePath(projectName: string): string {
@@ -258,25 +330,6 @@ export function unlinkIgnoringMissing(path: string): boolean {
   catch (error) { return (error as NodeJS.ErrnoException).code === "ENOENT"; }
 }
 
-/** Remove the record and its liveness files (explicit user command; "replace" unless a generation is given). */
-export function clearStatus(projectName: string, launchId?: string): void {
-  const legacyPaths = [markerFilePath(projectName), pidFilePath(projectName)];
-  withOwnedRecord(
-    projectName,
-    launchId ? { launchId } : "replace",
-    () => null,
-    () => {
-      unlinkIgnoringMissing(statusFilePath(projectName));
-      for (const path of legacyPaths) unlinkIgnoringMissing(path);
-      if (launchId) {
-        const paths = launchArtifactPaths(projectName, launchId);
-        unlinkIgnoringMissing(paths.pid);
-        unlinkIgnoringMissing(paths.active);
-      }
-    },
-  );
-}
-
 // --- Read ---
 
 function readPidFile(path: string): number | null {
@@ -358,12 +411,9 @@ export function parseWorkspaceStatus(raw: unknown): WorkspaceStatus | null {
   if (typeof d["layout"] !== "string") return null;
   if (!Array.isArray(d["panes"])) return null;
 
-  // Validate that every pane element is a string (BE-M5 #379).
-  // If any element is not a string, return empty panes rather than rejecting the record.
-  const rawPanes = d["panes"] as unknown[];
-  const validPanes = rawPanes.every((p) => typeof p === "string")
-    ? rawPanes as string[]
-    : [];
+  // Every pane element must be a pane identifier (BE-M5 #379, BE-L3: never a path that names another launch's file).
+  // Otherwise the record keeps empty panes rather than being rejected.
+  const validPanes = isPaneNameList(d["panes"]) ? d["panes"] : [];
 
   const warn = (message: string) => process.stderr.write(`summon: warning: ${message}\n`);
 
@@ -403,20 +453,20 @@ export function parseWorkspaceStatus(raw: unknown): WorkspaceStatus | null {
     else debugLog("parseWorkspaceStatus: invalid endedAt discarded");
   }
 
-  // BE-L3 #514: reconstruct explicitly from validated fields — no unknown keys leak through
-  return {
+  // BE-L3 #514: reconstruct explicitly from validated fields — no unknown keys leak through.
+  // The key order is the one this parser has always produced, so a rewrite of a parsed record is byte-identical.
+  const fields = {
     project: d["project"] as string,
     directory: d["directory"] as string,
     pid: d["pid"] as number,
     startedAt: d["startedAt"] as string,
     layout: d["layout"] as string,
     panes: validPanes,
-    source: "summon",
-    version: 1,
-    ...(native ? { native } : {}),
-    ...(launchId ? { launchId } : {}),
-    ...(backend ? { backend } : {}),
-    ...(rex ? { rex } : {}),
-    ...(endedAt ? { endedAt } : {}),
+    source: "summon" as const,
+    version: 1 as const,
   };
+  const tail = { ...(launchId ? { launchId } : {}) };
+  const ended = { ...(endedAt ? { endedAt } : {}) };
+  if (backend === "rex") return { ...fields, ...tail, backend, ...(rex ? { rex } : {}), ...ended };
+  return { ...fields, ...(native ? { native } : {}), ...tail, ...(backend ? { backend } : {}), ...ended };
 }

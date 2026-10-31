@@ -15,10 +15,24 @@ import {
   readdirSync,
   rmSync,
   chmodSync,
+  existsSync,
+  utimesSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 const exec = vi.hoisted(() => vi.fn());
+// A pass-through rmdirSync that a test can make fail (doctor --fix reporting, BE-L2).
+const rmdirFault = vi.hoisted(() => ({ path: "", code: "" }));
+vi.mock("node:fs", async (original) => {
+  const fs = await original<typeof import("node:fs")>();
+  return {
+    ...fs,
+    rmdirSync: (...args: Parameters<typeof fs.rmdirSync>) => {
+      if (rmdirFault.path && String(args[0]) === rmdirFault.path) throw Object.assign(new Error(rmdirFault.code), { code: rmdirFault.code });
+      return fs.rmdirSync(...args);
+    },
+  };
+});
 let home = "";
 vi.mock("node:os", async (original) => ({
   ...(await original<typeof import("node:os")>()),
@@ -109,6 +123,22 @@ describe("doctor effective diagnostics", () => {
     expect(output()).toContain("nativeIdentity: supported");
     expect(readFileSync(target, "utf-8")).toBe("# existing preferences\n");
     expect(output()).toContain("scrollback-compression=true");
+  });
+  it("reports a timed-out accessibility probe as INFO, counted neither as a pass nor as a failure (PE-L3)", async () => {
+    await handleDoctorCommand(context());
+    const [, passed, total] = /(\d+)\/(\d+) checks passed\./.exec(output()) ?? [];
+    errors.mockClear();
+    const answer = exec.getMockImplementation()!;
+    exec.mockImplementation((binary: string, args: string[]) => {
+      if (binary === "osascript" && String(args[1]).includes("System Events"))
+        throw Object.assign(new Error("spawnSync osascript ETIMEDOUT"), { code: "ETIMEDOUT", signal: "SIGKILL" });
+      return answer(binary, args);
+    });
+    await handleDoctorCommand(context());
+    expect(output()).toContain("INFO  Accessibility permission could not be checked (System Events did not answer); a launch will report it if it is missing");
+    expect(output()).not.toContain("Accessibility permission is granted");
+    expect(output()).not.toContain("Accessibility permission is required");
+    expect(output()).toContain(`${Number(passed) - 1}/${Number(total) - 1} checks passed.`);
   });
   it("warns on 1.3.1 while retaining success", async () => {
     exec.mockImplementationOnce(() => "Ghostty 1.3.1");
@@ -356,6 +386,46 @@ describe("doctor Rex section (plan P15, Phase 3)", () => {
     expect(output()).toContain("this shell launches in rex (placement inside-rex");
   });
 
+  it("reads the config once, so an unknown key is warned about once (Rex checks and command checks share it)", async () => {
+    mockDiscoverRex.mockReturnValue({ path: REX, searched: ["PATH"] });
+    exec.mockImplementation(rexAnswers(true));
+    writeFileSync(join(home, ".config/summon/config"), "editor=nvim\nmaximize=true\nbogus=1\n");
+    resetConfigCache();
+    const warns = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await handleDoctorCommand(context());
+      expect(warns.mock.calls.flat().filter((line) => String(line).includes("unknown config key: bogus"))).toHaveLength(1);
+    } finally {
+      warns.mockRestore();
+    }
+    expect(output()).toContain("Rex ignores these Ghostty settings from your config: maximize");
+    expect(output()).toContain("Checking configured commands");
+  });
+
+  it("UX-H1: names once the Ghostty-only settings in config that Rex ignores silently, and only when some are set", async () => {
+    mockDiscoverRex.mockReturnValue({ path: REX, searched: ["PATH"] });
+    exec.mockImplementation(rexAnswers(true));
+    writeFileSync(join(home, ".config/summon/config"), "editor=nvim\nmaximize=true\nfloat=false\nfont-size=14\nnew-window=true\n");
+    resetConfigCache();
+    await handleDoctorCommand(context());
+    const lines = output().split("\n").filter((line: string) => line.includes("Rex ignores"));
+    expect(lines).toEqual(["  INFO  Rex ignores these Ghostty settings from your config: maximize, font-size, new-window"]);
+
+    errors.mockClear();
+    writeFileSync(join(home, ".config/summon/config"), "editor=nvim\nfloat=false\n");
+    resetConfigCache();
+    await handleDoctorCommand(context());
+    expect(output()).not.toContain("Rex ignores");
+
+    // Without Rex there is nothing to say.
+    errors.mockClear();
+    mockDiscoverRex.mockReturnValue({ path: null, searched: ["PATH"] });
+    writeFileSync(join(home, ".config/summon/config"), "editor=nvim\nmaximize=true\n");
+    resetConfigCache();
+    await handleDoctorCommand(context());
+    expect(output()).not.toContain("Rex ignores");
+  });
+
   it("marks the Ghostty checks not applicable, uncounted, when Ghostty is absent and Rex is present", async () => {
     GHOSTTY_PATHS.splice(0, GHOSTTY_PATHS.length, join(home, "missing.app"));
     mockDiscoverRex.mockReturnValue({ path: REX, searched: ["PATH"] });
@@ -384,5 +454,95 @@ describe("doctor configured commands", () => {
 
     expect(output()).toContain(`editor command "${editor}" found at ${editor}`);
     expect(exec).not.toHaveBeenCalledWith("/usr/bin/which", [editor], expect.anything());
+  });
+});
+
+describe("doctor lock files (BE-L2, QA-L1)", () => {
+  const summonDir = () => join(home, ".config/summon");
+  const DEAD = 424242;
+  function lock(path: string, entries: Array<{ name: string; ageMs?: number }>): string {
+    mkdirSync(path, { recursive: true });
+    for (const { name, ageMs = 0 } of entries) {
+      writeFileSync(join(path, name), "");
+      const seconds = (Date.now() - ageMs) / 1000;
+      utimesSync(join(path, name), seconds, seconds);
+    }
+    return path;
+  }
+  const uuid = "0f8fad5b-d9cb-469f-a165-70867728950e";
+  beforeEach(() => {
+    const kill = process.kill.bind(process);
+    vi.spyOn(process, "kill").mockImplementation(((pid: number, signal?: string | number) => {
+      if (pid === DEAD) throw Object.assign(new Error("ESRCH"), { code: "ESRCH" });
+      return kill(pid, signal);
+    }) as typeof process.kill);
+  });
+
+  it("--fix reports a stale lock it could not remove instead of claiming it removed it", async () => {
+    const dead = lock(join(summonDir(), "config.lock"), [{ name: `${DEAD}-${uuid}.owner` }]);
+    rmdirFault.path = dead;
+    rmdirFault.code = "ENOTEMPTY";
+    try {
+      await expect(handleDoctorCommand(context({ fix: true }))).rejects.toThrow("exit:2");
+    } finally {
+      rmdirFault.path = "";
+    }
+    expect(output()).toContain(`Could not remove stale lock ${dead} (owner process ${DEAD} is gone)`);
+    expect(output()).not.toContain("Removed stale lock");
+  });
+
+  it("passes when no lock is stale, and a live owner's lock is not a finding", async () => {
+    lock(join(summonDir(), "trust.json.lock"), [{ name: `${process.pid}-${uuid}.owner` }]);
+    await handleDoctorCommand(context({ fix: true }));
+    expect(output()).toContain("No stale lock files");
+    expect(output()).not.toContain("trust.json.lock");
+    expect(existsSync(join(summonDir(), "trust.json.lock"))).toBe(true);
+  });
+
+  it("BE-L1: a live Rex launch lock older than STALE_LOCK_MS is not a finding; one past its own bound is", async () => {
+    const slow = lock(join(summonDir(), "status/p.launch.lock"), [{ name: `${process.pid}-${uuid}.owner`, ageMs: 90_000 }]);
+    await handleDoctorCommand(context());
+    expect(output()).toContain("No stale lock files");
+    expect(output()).not.toContain("p.launch.lock");
+    await expect(handleDoctorCommand(context({ fix: true }))).resolves.toBeUndefined();
+    expect(existsSync(slow)).toBe(true);
+    rmSync(slow, { recursive: true });
+    const hung = lock(join(summonDir(), "status/q.launch.lock"), [{ name: `${process.pid}-${uuid}.owner`, ageMs: 400_000 }]);
+    errors.mockClear();
+    await expect(handleDoctorCommand(context())).rejects.toThrow("exit:2");
+    expect(output()).toContain(`Stale lock ${hung} (owner token is 400 s old)`);
+    rmSync(hung, { recursive: true });
+  });
+
+  it("reports stale and unrecognized locks without changing them, and --fix removes only the stale ones", async () => {
+    const dead = lock(join(summonDir(), "config.lock"), [{ name: `${DEAD}-${uuid}.owner` }]);
+    const expired = lock(join(summonDir(), "status/p.json.lock"), [{ name: `${process.pid}-${uuid}.owner`, ageMs: 65_000 }]);
+    const released = lock(join(summonDir(), "status/q.json.lock"), []);
+    const unknown = lock(join(summonDir(), "projects.lock"), [{ name: "junk\u001b[31m" }]);
+    const live = lock(join(summonDir(), "trust.json.lock"), [{ name: `${process.pid}-${uuid}.owner` }]);
+
+    await expect(handleDoctorCommand(context())).rejects.toThrow("exit:2");
+    const report = output();
+    expect(report).toContain(`Stale lock ${dead} (owner process ${DEAD} is gone)`);
+    expect(report).toContain(`Stale lock ${expired} (owner token is 65 s old)`);
+    expect(report).toContain(`Stale lock ${released} (interrupted release)`);
+    expect(report).toContain(`Unrecognized lock ${unknown} (junk\\u001b[31m)`);
+    expect(report).not.toContain("\u001b[31m");
+    expect(report).toContain("(3 auto-fixable with --fix)");
+    for (const path of [dead, expired, released, unknown, live]) expect(existsSync(path)).toBe(true);
+
+    errors.mockClear();
+    await expect(handleDoctorCommand(context({ fix: true }))).rejects.toThrow("exit:2");
+    expect(output()).toContain(`Removed stale lock ${dead}`);
+    expect(output()).toContain(`Removed stale lock ${expired}`);
+    expect(output()).toContain(`Removed stale lock ${released}`);
+    for (const path of [dead, expired, released]) expect(existsSync(path)).toBe(false);
+    expect(readdirSync(unknown)).toEqual(["junk\u001b[31m"]);
+    expect(existsSync(live)).toBe(true);
+
+    rmSync(unknown, { recursive: true });
+    errors.mockClear();
+    await handleDoctorCommand(context());
+    expect(output()).toContain("No stale lock files");
   });
 });

@@ -1,28 +1,38 @@
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
-import { probeGhostty, type GhosttyConfigKey } from "../ghostty.js";
+import { probeGhostty, type GhosttyConfigKey } from "../backends/ghostty/probe.js";
 import { homedir } from "node:os";
 import { listConfig, listProjects } from "../config.js";
 import {
-  checkAccessibility,
+  probeAccessibility,
   resolveCommand,
   GHOSTTY_PATHS,
   ACCESSIBILITY_REQUIRED_MSG,
   ACCESSIBILITY_SETTINGS_PATH,
   ACCESSIBILITY_ENABLE_HINT,
+  getErrorMessage,
 } from "../utils.js";
 import { commandExecutable } from "../command-spec.js";
 import { green, red, yellow, bold, dim } from "../ui/ansi.js";
 import { sym } from "../ui/symbols.js";
-import { CONFIG_DIR, TRUST_FILE } from "../paths.js";
-import { resolveBackendForLaunch } from "../backend.js";
-import { createRexCli, defaultRexServer, discoverRex, whoamiOf } from "../backends/rex/cli.js";
-import { listAppClients } from "../backends/rex/app.js";
-import { escapeControlChars } from "../pane-inventory.js";
+import { CONFIG_DIR, STATUS_DIR, TRUST_FILE } from "../paths.js";
+import { describeLock, inspectLock, recoverStaleLock, type LockState } from "../file-lock.js";
+import { GHOSTTY_ONLY_CONFIG_KEYS, resolveBackendForLaunch } from "../backend.js";
+import { lockStaleBound } from "../status-record.js";
+import { discoverRex, printRexChecks } from "../backends/rex/doctor.js";
+import { escapeControlChars } from "../ui/sanitize.js";
 import type { CommandContext } from "./types.js";
 
 const PASS = green(`${sym.ok} PASS`);
 const FAIL = red(`${sym.fail} FAIL`);
+
+/** UX-H1: Ghostty-only preferences a Rex launch ignores silently when they come from config; doctor names them once. */
+function rexIgnoredConfigKeys(config: Map<string, string>): string[] {
+  return GHOSTTY_ONLY_CONFIG_KEYS.filter((key) => {
+    const value = config.get(key);
+    return key === "font-size" ? value !== undefined && value !== "" : value === "true";
+  });
+}
 
 export async function handleDoctorCommand({
   values,
@@ -35,6 +45,7 @@ export async function handleDoctorCommand({
     accessSync,
     constants,
     lstatSync,
+    readdirSync,
   } = await import("node:fs");
 
   const fixFlag = values.fix;
@@ -45,6 +56,10 @@ export async function handleDoctorCommand({
   let autoFixable = 0;
   let totalChecks = 0;
   let passedChecks = 0;
+
+  // Read once: listConfig warns about unknown keys on every read. The first read stays where it was (Rex section or command checks).
+  let configRead: Map<string, string> | undefined;
+  const userConfig = (): Map<string, string> => (configRead ??= listConfig());
 
   let allGood = true;
   const record = (ok: boolean): void => {
@@ -251,12 +266,16 @@ export async function handleDoctorCommand({
   console.error();
   console.error("Checking permissions...\n");
 
-  const accessOk = checkAccessibility();
-  totalChecks++;
-  if (accessOk) {
+  const access = probeAccessibility();
+  if (access === "unknown") {
+    // PE-L3: System Events did not answer in time; that is neither a pass nor a failure.
+    console.error("  INFO  Accessibility permission could not be checked (System Events did not answer); a launch will report it if it is missing");
+  } else if (access === "granted") {
+    totalChecks++;
     passedChecks++;
     console.error(`  ${PASS}  Accessibility permission is granted`);
   } else {
+    totalChecks++;
     allGood = false;
     totalIssues++;
     console.error(`  ${FAIL}  Accessibility permission is required`);
@@ -269,45 +288,11 @@ export async function handleDoctorCommand({
 
   console.error();
   console.error("Checking Rex...\n");
-  if (rexDiscovery.path === null) {
-    console.error(`  - Rex CLI not found (searched ${rexDiscovery.searched.join(", ")}); not applicable`);
-  } else {
-    const rexContext = detection.ok && detection.backend === "rex" ? detection : null;
-    const server = rexContext?.server ?? defaultRexServer();
-    const cli = createRexCli(rexDiscovery.path, server);
-    console.error(`  ${PASS}  Rex CLI found at ${rexDiscovery.path}`);
-    const version = cli.call("version", ["version"]);
-    const versionLines = version.ok ? version.stdout.split("\n").map(escapeControlChars) : [];
-    record(version.ok);
-    console.error(version.ok
-      ? `  ${PASS}  ${versionLines[0] ?? ""} (${versionLines.find((line) => line.startsWith("api:")) ?? "api revision unknown"})`
-      : `  ${FAIL}  rex version failed: ${version.reason}`);
-    const who = whoamiOf(cli);
-    // The server is required only when Rex is the backend of this shell; otherwise it is informational.
-    record(rexContext ? who.answers : true);
-    if (who.answers) console.error(`  ${PASS}  Rex server reachable at ${server} (host ${who.hostId})`);
-    else console.error(`  ${rexContext ? FAIL : "INFO"}  Rex server not reachable at ${server} (${who.reason}); open the Rex app to start it`);
-    if (who.answers) {
-      const clients = listAppClients(cli, { includeLost: true });
-      if (!clients.ok) {
-        console.error(`  INFO  app clients unavailable (${clients.reason})`);
-      } else if (clients.clients.length === 0) {
-        console.error("  INFO  no Rex app connected; open Rex to show workspaces");
-      } else {
-        for (const client of clients.clients) {
-          console.error(`    app client ${client.clientId} ${client.label ? `(${client.label}) ` : ""}${client.connectionState}`);
-        }
-      }
-    }
-    console.error(detection.ok
-      ? `  INFO  this shell launches in ${detection.backend} (placement ${detection.placement}${detection.backend === "rex" ? `, server ${detection.server}` : ""})`
-      : `  INFO  this shell cannot launch: ${detection.reason}`);
-  }
+  printRexChecks({ discovery: rexDiscovery, detection, record, ignoredConfigKeys: () => rexIgnoredConfigKeys(userConfig()), pass: PASS, fail: FAIL });
 
-  const userConfig = listConfig();
   const commandChecks: Array<{ key: string; cmd: string }> = [];
-  const editorCmd = userConfig.get("editor");
-  const sidebarCmd = userConfig.get("sidebar");
+  const editorCmd = userConfig().get("editor");
+  const sidebarCmd = userConfig().get("sidebar");
   if (editorCmd) commandChecks.push({ key: "editor", cmd: editorCmd });
   if (sidebarCmd) commandChecks.push({ key: "sidebar", cmd: sidebarCmd });
 
@@ -336,6 +321,58 @@ export async function handleDoctorCommand({
         console.error();
       }
     }
+  }
+
+  // BE-L2, QA-L1: a lock whose owner is gone or unrecognized makes every config and status write
+  // time out. Read-only by default; --fix applies the same recovery rule as the lock itself.
+  console.error();
+  console.error("Checking lock files...\n");
+  const lockDirs = [CONFIG_DIR, STATUS_DIR].flatMap((dir) => {
+    try {
+      return readdirSync(dir, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory() && entry.name.endsWith(".lock"))
+        .map((entry) => join(dir, entry.name));
+    } catch {
+      return [];
+    }
+  });
+  let lockFindings = 0;
+  for (const lock of lockDirs) {
+    const shown = escapeControlChars(lock);
+    let state: LockState;
+    let removed: boolean;
+    try {
+      // BE-L1: a Rex launch lock has its own, longer bound; a slow live launch is not a finding.
+      const staleMs = lockStaleBound(lock);
+      ({ state, removed } = fixFlag ? recoverStaleLock(lock, staleMs) : { state: inspectLock(lock, staleMs), removed: false });
+    } catch (error) {
+      lockFindings++;
+      record(false);
+      console.error(`  ${FAIL}  Could not ${fixFlag ? "recover" : "inspect"} lock ${shown}: ${escapeControlChars(getErrorMessage(error))}`);
+      continue;
+    }
+    if (state.kind === "absent" || state.kind === "live") continue;
+    lockFindings++;
+    const why = escapeControlChars(describeLock(state));
+    if (state.kind === "unrecognized") {
+      record(false);
+      console.error(`  ${FAIL}  Unrecognized lock ${shown} (${why})`);
+      console.error("    Make sure no summon process is running, then remove it by hand.");
+      continue;
+    }
+    record(removed);
+    if (removed) {
+      console.error(`  ${PASS}  Removed stale lock ${shown} (${why})`);
+    } else if (fixFlag) {
+      console.error(`  ${FAIL}  Could not remove stale lock ${shown} (${why}); it is not empty. Retry summon doctor --fix.`);
+    } else {
+      autoFixable++;
+      console.error(`  ${FAIL}  Stale lock ${shown} (${why})`);
+    }
+  }
+  if (lockFindings === 0) {
+    record(true);
+    console.error(`  ${PASS}  No stale lock files`);
   }
 
   console.error();

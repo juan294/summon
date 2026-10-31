@@ -1,6 +1,6 @@
-import type { LayoutPlan } from "./layout.js";
-import type { TreeLayoutPlan } from "./tree.js";
-import { CONTROL_CHARS_RE } from "./utils.js";
+import type { LayoutPlan } from "../../layout.js";
+import type { TreeLayoutPlan } from "../../tree.js";
+import { isPlainText } from "../../ui/sanitize.js";
 
 export interface PaneDescriptor {
   name: string;
@@ -10,32 +10,6 @@ export interface NativeMetadata {
   rootTerminalId: string;
   panes: Array<{ name: string; terminalId: string }>;
 }
-/** Bounded, control-free text for names and labels that end up in native selectors or titles. */
-export const MAX_TEXT_LENGTH = 256;
-export function isPlainText(value: unknown, options: { allowEmpty?: boolean } = {}): value is string {
-  if (typeof value !== "string" || value.length > MAX_TEXT_LENGTH || CONTROL_CHARS_RE.test(value)) return false;
-  return options.allowEmpty === true || value.length > 0;
-}
-
-/** Process-controlled text for terminal output: controls and bidi overrides become `\uNNNN`. */
-export function escapeControlChars(text: string): string {
-  return text.replace(
-    // eslint-disable-next-line no-control-regex -- display process text without terminal control effects
-    /[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g,
-    (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`,
-  );
-}
-
-/** Plain text that also prints unchanged (no controls, no bidi overrides): server ids Summon shows. */
-export function isDisplaySafe(value: unknown): value is string {
-  return isPlainText(value) && escapeControlChars(value) === value;
-}
-
-/** Format a pane title: "role · cmd" or just "role" when cmd is falsy. */
-export function formatTitle(role: string, cmd: string | null | undefined): string {
-  return cmd ? `${role} \u00B7 ${cmd}` : role;
-}
-
 export const TERMINAL_ID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

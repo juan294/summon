@@ -122,7 +122,7 @@ summon ~/code/myapp
 summon myapp
 ```
 
-Under Rex the workspace opens in its own session. When you typed `summon` in a tab with a single pane, Summon closes that tab once the workspace is shown, so no empty launcher tab stays behind (the session it was in ends too when that was its only tab). Tabs with splits, workspace tabs and failed launches are left alone, and so is any launch that printed a note or a warning for you to read. See [Summon under Rex](rex.md#seeing-a-workspace-in-the-app).
+Under Rex the workspace opens in its own session. When you typed `summon` in a tab with a single pane, Summon closes that tab once the workspace is shown, so no empty launcher tab stays behind (the session it was in ends too when that was its only tab). Tabs with splits, workspace tabs and failed launches are left alone, and so is any launch that printed a note or a warning for you to read, ran an `on-start` hook, or installed a missing tool. See [Summon under Rex](rex.md#seeing-a-workspace-in-the-app).
 
 ### `summon add <name> <path>`
 
@@ -208,7 +208,7 @@ Machine config:
 
 With a project name: focus its workspace when it is running, launch it when it is stopped. A workspace whose liveness cannot be read (the Rex server is not answering) is refused with the reason and exit code 2, so nothing is launched over it. A name that is not registered exits 1 with the closest registered names. `summon switch` is an alias.
 
-Without a name: lists all projects with their state and prompts you to pick one by number; the pick is handled the same way. Any CLI flags passed are forwarded to a launch. Enter `0` to cancel and exit without launching.
+Without a name: lists all projects with their state and prompts you to pick one by number; the pick is handled the same way. Any CLI flags passed are forwarded to a launch. Enter `0` to cancel and exit without launching (exit code 130).
 
 ```bash
 summon open myapp
@@ -233,6 +233,8 @@ Check your terminal setup: the Ghostty config for recommended settings, macOS Ac
 - `shell-integration = detect` — shell integration for status tracking
 - Accessibility permission — required for pane resizing via System Events
 
+When System Events does not answer the Accessibility check within 2 seconds, doctor prints `INFO  Accessibility permission could not be checked (System Events did not answer); a launch will report it if it is missing`. This counts as neither a pass nor a failure.
+
 When Rex is installed and Ghostty is not, the Ghostty checks are reported as not applicable and do not count as issues.
 
 The `Checking Rex...` section reports on:
@@ -242,16 +244,19 @@ The `Checking Rex...` section reports on:
 - Whether the Rex server answers at the socket this shell would use. A failure counts as an issue only when Rex is the backend of this shell; otherwise it is informational.
 - The connected Rex apps
 - The backend this shell launches in, with its placement and server
+- The Ghostty-only settings in your machine config that Rex ignores, when there are any (`INFO  Rex ignores these Ghostty settings from your config: ...`)
+
+The `Checking lock files...` section looks at the lock directories under `~/.config/summon` and its `status` folder. It prints `No stale lock files` when there is nothing to report. Otherwise it names each `Stale lock` (its owner process is gone, its owner token is more than 60 seconds old, or 5 minutes for a Rex launch lock `<project>.launch.lock`, or its release was interrupted) and each `Unrecognized lock`, which you remove by hand after you make sure no summon process is running. Without `--fix` this check changes nothing.
 
 Exits with code 2 if any issues are found, 0 when all clear.
 
-With `--fix`, automatically adds missing Ghostty settings to `~/.config/ghostty/config` (backs up the config with a timestamp first).
+With `--fix`, automatically adds missing Ghostty settings to `~/.config/ghostty/config` (backs up the config with a timestamp first) and removes stale locks (`Removed stale lock ...`). An unrecognized lock is left in place.
 
 With `--verbose`, prints additional diagnostic info: summon version, Node.js version, config directory path, detected Ghostty binary path, and trust DB summary.
 
 ```bash
 summon doctor              # check for issues
-summon doctor --fix        # auto-fix missing Ghostty settings
+summon doctor --fix        # add missing Ghostty settings, remove stale locks
 summon doctor --verbose    # include diagnostic info in output
 ```
 
@@ -330,7 +335,10 @@ The TUI refreshes every 3 seconds and supports keyboard navigation:
 - `↑`/`↓` or `j`/`k` — navigate projects
 - `Enter` — focus an active or partial workspace, or launch a stopped one (an `unknown` workspace is refused with the reason)
 - `r` — force refresh
+- `?` — show the key bindings and the state legend
 - `q` — quit
+
+Any key, such as Esc, closes the help screen and an error screen and returns to the dashboard. When a status read takes longer than one refresh, the header shows `updating…`; after a failed read it shows `last updated Ns ago` (for example `last updated 12s ago`) instead of showing old rows silently.
 
 When stdout is not a TTY (e.g., piped), `--once` mode is used automatically.
 
@@ -505,13 +513,15 @@ summon completions fish | source
 - `summon <TAB>` — subcommands, registered project names, directories
 - `summon remove <TAB>` — registered project names
 - `summon set <TAB>` — config keys
-- `summon set layout <TAB>` — layout presets
+- `summon set layout <TAB>` — built-in presets and custom layouts
 - `summon set starship-preset <TAB>` — Starship preset names (dynamic)
-- `summon --layout <TAB>` — layout presets
+- `summon --layout <TAB>` — built-in presets and custom layouts
 - `summon --starship-preset <TAB>` — Starship preset names (dynamic)
 - `summon --<TAB>` — all CLI flags
 
-`summon open <TAB>`, `summon switch <TAB>` and `summon clean <TAB>` complete registered project names, and `summon clean` also completes `--orphans`. In zsh and bash, `summon set <boolean key> <TAB>` completes `true` and `false`.
+`summon open <TAB>`, `summon switch <TAB>` and `summon clean <TAB>` complete registered project names, and `summon clean` also completes `--orphans`. In zsh and bash, `summon set <boolean key> <TAB>` completes `true` and `false`, and `summon layout show|delete|edit <TAB>` and `summon freeze <TAB>` complete custom layout names only, because those commands reject the built-in presets.
+
+zsh and bash read custom layouts each time you press Tab. Fish lists only the custom layouts that existed when the script was generated, so after `summon layout save <name>`, regenerate it (open a new fish shell, or run `summon completions fish | source` again).
 
 Project names are read dynamically from `~/.config/summon/projects`,
 so newly added projects are immediately completable.
@@ -752,7 +762,7 @@ summon set shell "python -m http.server"
 
 ## Pre-Launch Hooks
 
-The `on-start` option runs a command in the target directory before the workspace opens. If it fails, Summon prints `on-start command failed; continuing workspace launch` and opens the workspace anyway.
+The `on-start` option runs a command in the target directory before the workspace opens. If it fails, Summon prints `summon: warning: on-start command failed; continuing workspace launch` and opens the workspace anyway.
 
 ```bash
 # Install deps before launching
@@ -777,7 +787,7 @@ Or per-project in `.summon`:
 on-start=npm install && npm run build
 ```
 
-This ensures every `summon myapp` starts with fresh dependencies and a clean build. If `npm install` or `npm run build` fails, the workspace doesn't open — so you won't end up with broken panes running against stale code.
+This ensures every `summon myapp` starts with fresh dependencies and a clean build. If `npm install` or `npm run build` fails, Summon prints the on-start warning and still opens the workspace, so read the hook's output before you rely on the panes.
 
 ## Per-Workspace Environment Variables
 
@@ -810,9 +820,11 @@ Use cases:
 
 - **Runtime config per project** — each project's `.summon` file carries its own environment, so `summon api` and `summon frontend` launch with different `PORT`, `NODE_ENV`, etc.
 - **API keys for dev tools** — pass keys to panes without adding them to your shell profile
-- **Tool configuration** — set `EDITOR`, `PAGER`, or tool-specific vars per workspace
+- **Tool configuration** — set tool-specific vars per workspace
 
 Environment variables are layered: CLI flags override `.summon`, which overrides machine config.
+
+**Environment values run before the shell starts.** Both backends apply `env.<KEY>` values (from machine config, a trusted `.summon` file and `--env`) to each pane before its login shell starts, so a variable can change what the shell and the tools in it run. Summon ignores the keys that load startup files, run a command or inject options, and prints `summon: warning: ignoring denylisted env var key "<KEY>" from <source>.` for each one: `ENV`, `BASH_ENV`, `SHELL`, `PS1`, `PROMPT`, `PROMPT_COMMAND`, `CDPATH`, `IFS`, `NODE_OPTIONS`, `PERL5OPT`, `RUBYOPT`, `PYTHONSTARTUP`, `PAGER`, `EDITOR`, `VISUAL`, `GIT_EDITOR`, `GIT_PAGER`, `GIT_SSH_COMMAND`, `GIT_EXTERNAL_DIFF`, `GIT_ASKPASS`, `SSH_ASKPASS`, `LESSOPEN`, `LESSCLOSE`, and every key that starts with `DYLD_`, `LD_` or `GIT_CONFIG`. `HOME` stays allowed. `PATH`, `PYTHONPATH` and `ZDOTDIR` also stay allowed because users set them on purpose, but they change what runs: `PATH` and `PYTHONPATH` decide which programs and Python modules the panes find, and `ZDOTDIR` decides which zsh startup files run. Review them in a trusted `.summon` file just as you review its commands.
 
 ## Window Management
 
@@ -850,7 +862,7 @@ float=true
 
 If both `--fullscreen` and `--maximize` are set, fullscreen takes priority.
 
-Under Rex, `maximize`, `float`, `fullscreen`, `font-size` and `clean` have no equivalent. Each one that is set prints one notice (`Rex cannot honor <key>; ignored`) and the launch continues. For `clean`, only the `--clean` flag prints the notice; a `clean=true` config value is ignored silently.
+Under Rex, `maximize`, `float`, `fullscreen`, `font-size` and `clean` have no equivalent. Each one given as a flag (`--maximize`, `--float`, `--fullscreen`, `--font-size`, `--clean`) prints one notice (`Rex cannot honor <key>; ignored`) and the launch continues. The same keys in config (machine config, `.summon` or a layout) are Ghostty preferences: Rex ignores them silently, so one config works in both terminals. `new-window=true` in config is ignored the same way under Rex. `summon doctor` names the ones set in your machine config.
 
 Under Rex, `--new-window` creates a fresh session instead of switching to the running one. Rex opens new windows with their own session and does not let a client move a session into another window, so Summon shows the new session in the current window with a notice. When the earlier session is still alive, the launch says once that it stays open and that `rex kill <id>` closes it. `--new-tab` has no separate meaning under Rex: a workspace is always one session in the current window.
 
@@ -873,7 +885,7 @@ summon set font-size 14
 font-size=24
 ```
 
-Useful for presentations, pairing sessions, or projects where you want a different density than your global Ghostty setting. Under Rex, `font-size` is ignored with a notice.
+Useful for presentations, pairing sessions, or projects where you want a different density than your global Ghostty setting. Under Rex, `font-size` is ignored: the `--font-size` flag prints a notice, and a config value is ignored silently.
 
 ## Per-project Config
 
@@ -1001,12 +1013,16 @@ All files use `key=value` format, one entry per line.
 |---|---|
 | `SHELL` | Login shell used to execute pane commands. Must be an absolute path (e.g., `/bin/zsh`). Falls back to `/bin/bash` if unset or invalid. |
 | `NO_COLOR` | When set, disables ANSI colors in the setup wizard. Follows the [NO_COLOR](https://no-color.org) standard. |
+| `FORCE_COLOR` | `1` turns ANSI colors on and `0` turns them off, whether or not stdout is a terminal. `NO_COLOR` wins over it. |
 | `COLORTERM` | When set to `truecolor` or `24bit`, the setup wizard shows colored palette swatches for Starship presets. |
 | `STARSHIP_CONFIG` | Set automatically by summon when `starship-preset` is configured. Points each workspace to a cached preset TOML file. Do not set manually. |
 | `SUMMON_WORKSPACE` | Set to `1` in all panes inside a summon workspace. Used to detect nested launches — if you run `summon` inside an existing workspace, you'll see a warning prompt suggesting `--new-window` instead. There is no warning when the backend is Rex, because a Rex launch creates its own session. |
-| `SUMMON_DEBUG` | Set to `1` to enable debug output. Each message is timestamped and written to stderr, and also appended to a log file in `~/.config/summon/logs/`. Useful for diagnosing launch issues or AppleScript failures. |
-| `SUMMON_NO_CACHE` | Set to `1` to disable the persistent cross-invocation read cache (`~/.config/summon/cache.json`). Machine config and the project registry are then read from disk on every invocation. |
+| `SUMMON_DEBUG` | Set to `1` to enable debug output. Each message is timestamped and written to stderr only; Summon does not write debug output to a file. Useful for diagnosing launch issues or AppleScript failures. |
+| `SUMMON_NO_CACHE` | No effect. It disabled a cross-invocation read cache (`~/.config/summon/cache.json`), which is gone: machine config and the project registry are read from disk on every invocation. An old `cache.json` is no longer read, and you can delete it. |
+| `SUMMON_NO_SPINNER` | When set (to any value), launch progress is printed as plain lines instead of an animated spinner. |
+| `SUMMON_NO_VISIBILITY` | Set to `1` to keep normal status-monitor polling instead of negotiating terminal visibility reports. |
 | `EDITOR` | Editor used by `summon layout edit` to open a custom layout file. Falls back to `vi` if unset. |
+| `XDG_CONFIG_HOME` | Read by `summon doctor --fix`. When it points anywhere other than `~/.config`, doctor does not edit the Ghostty config, because Ghostty may load another file. |
 | `TERM_PROGRAM` | Set by your terminal. Summon reads it to pick the backend: `rex` selects Rex, `ghostty` selects Ghostty (see [Prerequisites](#prerequisites)). |
 | `REX_SERVER` | The Rex server that a Rex terminal exports. Inside a Rex terminal, Summon launches on this server (else on the default socket, `~/Library/Application Support/rex/server.sock`). With no `TERM_PROGRAM`, it counts only when `rex whoami` answers on it. Inside Ghostty or another terminal it is ignored. |
 | `REX_BIN_DIR` | A directory that contains the `rex` CLI. Summon looks for `rex` there after `PATH` and before the Rex app bundles. |
@@ -1018,7 +1034,7 @@ All files use `key=value` format, one entry per line.
 | `0` | Success |
 | `1` | Usage error or configuration error (bad flag, invalid value, unknown project, etc.), or a launch failure (no supported terminal found, Accessibility permission denied, etc.) |
 | `2` | A guard failure or refusal, for example: commands with shell metacharacters that cannot be confirmed without a TTY, `summon doctor` found issues, a Rex workspace that cannot be verified (Rex server not answering, or a record whose Rex identity cannot be read), the `rex` CLI missing for a command that needs it, or `summon clean` refusing a session that still has panes |
-| `130` | User cancelled — Ctrl+C or `n` at a confirmation prompt (128 + SIGINT) |
+| `130` | User cancelled — Ctrl+C or EOF at a prompt (and Escape at a yes/no key prompt), `n` at a launch confirmation (nested workspace, install, dangerous commands), or `0` in the `summon open` picker (128 + SIGINT). Declining to save or overwrite a custom layout exits 0; declining "Save these settings?" in the wizard starts it over |
 
 If you see an unexpected error, re-run with `SUMMON_DEBUG=1` for full diagnostics:
 
@@ -1026,7 +1042,7 @@ If you see an unexpected error, re-run with `SUMMON_DEBUG=1` for full diagnostic
 SUMMON_DEBUG=1 summon .
 ```
 
-Debug output is timestamped and written to both stderr and `~/.config/summon/logs/`.
+Debug output is timestamped and written to stderr only. To keep it, redirect stderr, for example `SUMMON_DEBUG=1 summon . 2> summon-debug.log`.
 
 ## Troubleshooting
 
@@ -1048,12 +1064,12 @@ With Ghostty, on first use macOS will ask you to grant permission for your termi
 
 ```
 summon: error: "myap" is not a known command or registered project. Try: summon --help
+Did you mean: myapp?
 To register as a project: summon add myap /path/to/project
 Or see available:         summon list
-Did you mean: myapp?
 ```
 
-This appears when the first argument is neither a known subcommand nor a registered project. The `Did you mean` line appears when registered names are close to the argument: up to three names that match by prefix, subsequence or a small edit distance, the most recently launched first. The exit code is still 1, and Summon does not launch the suggested project. Fix the name, register the project with `summon add myapp /path/to/project`, list registered projects with `summon list`, or pass a direct path (e.g. `summon ~/code/myapp`) instead.
+This appears when the first argument is neither a known subcommand nor a registered project. The `Did you mean` line comes right after the error when registered names or subcommands are close to the argument: up to three names, the most recently launched project first. A project matches by prefix, subsequence or a small edit distance. A subcommand matches only by prefix or one edit (a typo such as `summon stauts` or `summon sesion`), and is shown as `summon <command>`. When a subcommand is the best match, the `summon add` hint is left out, and the `summon list` hint is left out when `summon list` is itself the suggestion. The exit code is still 1, and Summon does not run or launch the suggestion. `summon open`, `remove`, `session add` and `session <name>` print the same `Did you mean` line for a project name that is not registered. `summon focus`, `inspect`, `title` and `clean` print it only when the name is not registered and has no status record (Summon has never launched it); they keep exit code 2. Fix the name, register the project with `summon add myapp /path/to/project`, list registered projects with `summon list`, or pass a direct path (e.g. `summon ~/code/myapp`) instead.
 
 ### Config file location
 
@@ -1063,13 +1079,14 @@ All config files are at `~/.config/summon/`:
 ~/.config/summon/
   config      machine-level settings
   projects    project name -> path mappings
-  trust       SHA-256 hashes of trusted .summon files
+  trust.json  SHA-256 hashes of trusted .summon files
   layouts/    custom layout files (one file per layout)
   starship/   cached Starship preset TOML files (auto-generated)
   status/     workspace status JSON per project, plus <project>.launches/ with
               per-launch manifests, pane files and liveness (.pid, .active) files
   snapshots/  context snapshot JSON files per project
-  logs/       debug log files (written when SUMMON_DEBUG=1)
+  logs/       cleanup-<project>.log: on-stop command output, written by the
+              cleanup trap when a workspace closes (debug output is not logged here)
 ```
 
 Per-project config lives in your project root as `.summon`.
@@ -1080,36 +1097,49 @@ Files are plain text (`key=value` format) and safe to edit manually.
 
 ### `.summon` File Trust Gate
 
-Before a project's `.summon` file is acted upon, its SHA-256 hash must be recorded as trusted. This is a direnv-style model: on first launch in a directory with a `.summon` file, summon prompts you to trust it. You can also grant trust explicitly:
+Before a project's `.summon` file is acted upon, its SHA-256 hash must be recorded as trusted. This is a direnv-style model. A launch with an untrusted file says why: `This project has a .summon file.` when it was never trusted, or `This project's .summon file changed since you trusted it.` (for example after `git pull`). On a terminal, summon then shows the file (control characters escaped) and asks:
+
+```
+Trust this file and continue? [y/N]
+```
+
+`y` trusts exactly the content shown and continues (launches, or prints the `--dry-run` script). Any other answer trusts nothing and launches nothing:
+
+| Key | Direct launch, `--dry-run`, `summon open` and the picker | Enter in `summon status` |
+|-----|-----------------------------------------------------------|--------------------------|
+| `n` or Enter | Nothing more is printed; exit 130 | `Launch cancelled.` and `Trust declined. Nothing was trusted.`, then any key returns to the dashboard |
+| Escape or Ctrl+C | Nothing more is printed; exit 130 | `Launch cancelled.` and `Nothing was trusted.`, then any key returns to the dashboard |
+
+Other keys are ignored until you answer. The status monitor asks on the normal screen after it closes the dashboard. Without a terminal (scripts, CI) nothing is asked: the launch fails with exit 1, as before. `summon session` (a named session or `--all`) never asks; it skips the untrusted project and continues. You can also grant trust explicitly:
 
 ```bash
 summon trust .                    # trust the .summon file in current directory
 summon trust ~/code/myapp         # trust a specific project
 ```
 
-Trust is stored in `~/.config/summon/trust` and revoked automatically if the `.summon` file content changes. Re-run `summon trust <dir>` after any edit.
+Trust is stored in `~/.config/summon/trust.json` and revoked automatically if the `.summon` file content changes. Re-run `summon trust <dir>` after any edit.
 
 ### Shell Metacharacter Detection
 
 When summon reads a `.summon` file from a project directory, it checks the command keys (`editor`, `sidebar`, `shell`, `on-start`) for shell metacharacters: `;`, `|`, `&`, `` ` ``, `$(`, `${`, `<`, `>`.
 
-If any are found, summon displays the suspicious commands and prompts for confirmation:
+If any are found, summon lists the suspicious commands, then asks about each one in turn:
 
 ```
-⚠  This .summon file contains commands with shell metacharacters:
+summon: warning: config contains commands with shell metacharacters:
   shell = npm run dev && echo "done"
-
-Run these commands? [y/N/s(kip pane)]
+  shell = npm run dev && echo "done"
+Continue? [y/N/s(kip pane)]
 ```
 
-Choose `y` to run all, `n` to abort, or `s` to skip that pane and continue with the others.
+Choose `y` to run that command, or `s` to skip that pane and continue with the others. `n`, Enter or any other answer aborts the launch: summon prints `Aborted.` and exits 130 (user cancelled).
 
 This protects against accidentally executing unreviewed commands from cloned repositories. The behavior depends on the environment:
 
 | Context | Behavior |
 |---|---|
 | Interactive terminal (TTY) | Prompts for confirmation (default: no) |
-| Non-interactive (CI, piped) | Refuses to execute, exits with error |
+| Non-interactive (CI, piped) | Refuses to execute, exits with code 2 |
 | `--dry-run` | Skipped (no commands are executed) |
 | CLI flags | Not checked (you typed them yourself) |
 | Machine config | Not checked (you set them via `summon set`) |

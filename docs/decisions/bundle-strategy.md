@@ -2,7 +2,8 @@
 
 **Status:** Accepted  
 **Date:** 2026-06-14  
-**Issues:** #446 (PE-S1), #329, #330
+**Issues:** #446 (PE-S1), #329, #330  
+**Status note:** 2026-10-31, see the end of this record
 
 ## Context
 
@@ -109,5 +110,17 @@ that justify switching. Retained.
   `files` field must continue to include `"dist/**/*.js"`.
 - Any new large feature module should be placed behind a dynamic `import()` in
   `src/index.ts` or in the command handler that first uses it.
-- PE-S1 (#329) and PE-S2 (#330) remain open. Neither is blocking; both are
-  incremental improvements to cold-start cost beyond what splitting already provides.
+- PE-S1 (#329) remains open. It is not blocking; it is an incremental improvement to
+  cold-start cost beyond what splitting already provides.
+- PE-S2 (#330) is closed. The persistent cross-invocation cache (`cache.json`, #516)
+  was measured, gave no gain (median `summon list` 45.05 ms with it, 44.34 ms without)
+  and wrote the file on every exit, so PE-M1 removed it. `SUMMON_NO_CACHE` is a
+  documented no-op.
+
+## Status Note (2026-10-31)
+
+The decision above still holds. Three statements in the text are no longer current; they stay as written because this record is history:
+
+- **The gallery is lazy now.** `setup.ts` loads `setup-gallery.ts` with `await import("./setup-gallery.js")` in each wizard function that needs `LAYOUT_INFO` or `GRID_TEMPLATES` (PE-L2, #445). The "statically imported" statement under Costs and limitations describes the earlier code. The setup chunk measured 21,527 bytes (about 21.5 KB) in a build of b7879cf.
+- **#329 is closed** (closed 2026-05-09). The PE-S1 bullet under Costs and limitations and the PE-S1 line under Consequences called it open. Further splitting of the layout builder is still possible.
+- **PE-S2 is closed.** The Costs and limitations bullet still calls the persistent cache a future gain. The last Consequences bullet is the current state: the cache was measured, gave no gain and was removed in PE-M1.

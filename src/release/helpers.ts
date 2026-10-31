@@ -12,6 +12,7 @@
  * rule (playbook D19).
  */
 import { spawnSync } from "node:child_process";
+import { inject } from "vitest";
 import {
   mkdtempSync,
   rmSync,
@@ -19,61 +20,42 @@ import {
   writeFileSync,
   mkdirSync,
   readdirSync,
-  cpSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { cliBuild } from "../fixtures/cli-builds.js";
 
 export const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const DIST_DIR = join(PROJECT_ROOT, "dist");
+
+let cliPath: string | null = null;
 
 /**
- * Probes run against an immutable copy of dist/, not dist/ itself.
- *
- * src/index.test.ts rebuilds the project in its beforeAll, and tsup cleans the
- * output folder first. Under the full suite that races with these probes and
- * they fail with "Cannot find module dist/index.js" -- a flaky required probe,
- * which is precisely the failure mode this system exists to prevent. Snapshot
- * once per worker and the race disappears.
+ * Call from beforeAll. `pnpm test:release` (SUMMON_PROBE_DIST=1, the CI and release jobs, which
+ * build dist/ first) probes that build: the release candidate, through the copy of dist/ the
+ * globalSetup (src/fixtures/cli-builds.setup.ts) made once before any test ran, so a later
+ * `pnpm build` cannot empty it mid-run. Every other run (`pnpm test`, the pre-commit hook) probes
+ * the run's private production build of the current source, so a stale local dist/ is never what
+ * gets probed.
  */
-let snapshotDir: string | null = null;
-
-function snapshotCli(): string {
-  if (snapshotDir && existsSync(snapshotDir)) return join(snapshotDir, "index.js");
-
-  let lastError: unknown;
-  // A concurrent `tsup` clean can empty dist mid-copy; retry across the window.
-  for (let attempt = 0; attempt < 10; attempt += 1) {
-    try {
-      if (existsSync(join(DIST_DIR, "index.js"))) {
-        const target = mkdtempSync(join(tmpdir(), "summon-rel-cli-"));
-        cpSync(DIST_DIR, target, { recursive: true });
-        if (existsSync(join(target, "index.js"))) {
-          snapshotDir = target;
-          return join(target, "index.js");
-        }
-        rmSync(target, { recursive: true, force: true });
-      }
-    } catch (err) {
-      lastError = err;
-    }
-    // Synchronous backoff: this runs inside a test body, not an async context.
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 200);
+export async function prepareCli(): Promise<void> {
+  if (process.env["SUMMON_PROBE_DIST"] === "1") {
+    const snapshot = inject("summonCliDistSnapshot");
+    if (!snapshot) throw new Error("SUMMON_PROBE_DIST=1 needs a built dist/ (run pnpm build first)");
+    cliPath = snapshot;
+    return;
   }
-
-  throw new Error(
-    `release probes require a build: could not snapshot ${DIST_DIR}. ` +
-      `Run \`pnpm build\` first.${lastError ? ` Last error: ${String(lastError)}` : ""}`,
-  );
+  cliPath = cliBuild("production");
 }
 
-/** Remove the per-worker CLI snapshot. Safe to call more than once. */
+function snapshotCli(): string {
+  if (!cliPath) throw new Error("release probes: call prepareCli() in beforeAll first");
+  return cliPath;
+}
+
+/** Forget the probed CLI; the globalSetup removes the build itself. Safe to call more than once. */
 export function cleanupCliSnapshot(): void {
-  if (snapshotDir) {
-    rmSync(snapshotDir, { recursive: true, force: true });
-    snapshotDir = null;
-  }
+  cliPath = null;
 }
 
 /** Shared fixture prefix — also bound into .claude/commands/explore-release.md. */
@@ -143,7 +125,7 @@ export function makeIsolatedHome(): IsolatedHome {
         stdio: ["ignore", "pipe", "pipe"],
         encoding: "utf-8",
         timeout: 30_000,
-        env: { ...process.env, HOME: home, SUMMON_NO_CACHE: "1" },
+        env: { ...process.env, HOME: home },
       });
       return {
         status: result.status,

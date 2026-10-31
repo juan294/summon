@@ -11,8 +11,10 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, mkdirSync, realpathSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { atomicWrite } from "./utils.js";
+import { atomicWrite, confirm, PromptCancelled } from "./utils.js";
 import { TRUST_FILE, CONFIG_DIR } from "./paths.js";
+import { withFileLock } from "./file-lock.js";
+import { escapeControlChars, unicodeEscape } from "./ui/sanitize.js";
 import { fail } from "./ui/output.js";
 
 /** Error thrown when a .summon file exists but is not trusted. */
@@ -21,6 +23,23 @@ export class SummonError extends Error {
     super(message);
     this.name = "SummonError";
   }
+}
+
+/**
+ * The trust gate refused `.summon` bytes it read and checked (`assertTrustedContent`). `content` is exactly those
+ * bytes, so trusting it from a prompt trusts what was checked, never a later read (UX-M4).
+ */
+export class UntrustedSummonError extends SummonError {
+  constructor(readonly dir: string, readonly content: string, readonly changed: boolean) {
+    super(untrustedMessage(dir, changed));
+    this.name = "UntrustedSummonError";
+  }
+}
+
+/** UX-M4: a stored hash for the directory means the file changed since it was trusted (for example after git pull). */
+function untrustedMessage(dir: string, changed: boolean): string {
+  const what = changed ? "This project's .summon file changed since you trusted it." : "This project has a .summon file.";
+  return `${what}\nRun 'summon trust ${dir}' to allow it, or use --no-project-config to skip it.`;
 }
 
 /** Mtime-based cache: avoid rehashing on every launch when the file hasn't changed. */
@@ -37,7 +56,8 @@ function loadTrustDb(): Record<string, string> {
     const raw = readFileSync(TRUST_FILE, "utf-8");
     const parsed: unknown = JSON.parse(raw);
     if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
-      return parsed as Record<string, string>;
+      // BE-L3: only string values are hashes; any other entry is dropped (never trusted, and not kept on the next save).
+      return Object.fromEntries(Object.entries(parsed).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
     }
     // Wrong shape (e.g. an array) — warn and return empty
     process.stderr.write(
@@ -53,12 +73,6 @@ function loadTrustDb(): Record<string, string> {
     );
     return {};
   }
-}
-
-/** Save the trust database atomically (BE-M3). */
-function saveTrustDb(db: Record<string, string>): void {
-  mkdirSync(CONFIG_DIR, { recursive: true, mode: 0o700 });
-  atomicWrite(TRUST_FILE, JSON.stringify(db, null, 2) + "\n", { encoding: "utf-8", mode: 0o600 });
 }
 
 /**
@@ -87,7 +101,7 @@ export function hashSummonFile(dir: string): string | null {
  * so repeated launches do not rehash an unchanged file.
  */
 export function isTrusted(dir: string): boolean {
-  const normalizedDir = (() => { try { return realpathSync(dir); } catch { return resolve(dir); } })();
+  const normalizedDir = normalizeDir(dir);
   // BE-H1 (#590): use normalizedDir (realpath) for all fs operations so that symlinked
   // paths (e.g. macOS /tmp → /private/tmp) stat and read the same file that was hashed
   // and keyed when the project was trusted via trustProject().
@@ -120,12 +134,24 @@ export function isTrusted(dir: string): boolean {
  * No-op if the .summon file does not exist.
  */
 export function trustProject(dir: string): void {
-  const normalizedDir = (() => { try { return realpathSync(dir); } catch { return resolve(dir); } })();
   const hash = hashSummonFile(dir);
   if (hash === null) return;
-  const db = loadTrustDb();
-  db[normalizedDir] = hash;
-  saveTrustDb(db);
+  storeTrust(normalizeDir(dir), hash);
+}
+
+function normalizeDir(dir: string): string {
+  try { return realpathSync(dir); } catch { return resolve(dir); }
+}
+
+/** The only trust DB writer: one locked read-modify-write (SE-L5), published atomically (BE-M3), so concurrent grants all persist. */
+function storeTrust(normalizedDir: string, hash: string): void {
+  mkdirSync(CONFIG_DIR, { recursive: true, mode: 0o700 });
+  withFileLock(TRUST_FILE, () => {
+    const db = loadTrustDb();
+    db[normalizedDir] = hash;
+    atomicWrite(TRUST_FILE, JSON.stringify(db, null, 2) + "\n", { encoding: "utf-8", mode: 0o600 });
+  });
+  trustCache.delete(normalizedDir);
 }
 
 /**
@@ -146,14 +172,10 @@ export function trustProject(dir: string): void {
  * disk and is NOT safe for acting callers.
  */
 export function assertTrustedContent(targetDir: string, content: string): void {
-  const normalizedDir = (() => { try { return realpathSync(targetDir); } catch { return resolve(targetDir); } })();
-  const hash = hashContent(content);
-  const db = loadTrustDb();
-  if (db[normalizedDir] === hash) return;
-
-  throw new SummonError(
-    `This project has a .summon file.\nRun 'summon trust ${normalizedDir}' to allow it, or use --no-project-config to skip it.`,
-  );
+  const normalizedDir = normalizeDir(targetDir);
+  const stored = loadTrustDb()[normalizedDir];
+  if (stored === hashContent(content)) return;
+  throw new UntrustedSummonError(normalizedDir, content, stored !== undefined);
 }
 
 /**
@@ -172,7 +194,7 @@ export function assertTrustedContent(targetDir: string, content: string): void {
  */
 export function assertTrusted(targetDir: string, opts?: { skip?: boolean }): void {
   if (opts?.skip) return;
-  const normalizedDir = (() => { try { return realpathSync(targetDir); } catch { return resolve(targetDir); } })();
+  const normalizedDir = normalizeDir(targetDir);
   const summonPath = join(targetDir, ".summon");
   if (!existsSync(summonPath)) return;
   // If we can't determine the hash (e.g., permission error), skip the check
@@ -192,9 +214,56 @@ export function assertTrusted(targetDir: string, opts?: { skip?: boolean }): voi
   }
   if (trusted) return;
 
-  throw new SummonError(
-    `This project has a .summon file.\nRun 'summon trust ${normalizedDir}' to allow it, or use --no-project-config to skip it.`,
-  );
+  throw new SummonError(untrustedMessage(normalizedDir, loadTrustDb()[normalizedDir] !== undefined));
+}
+
+/** How `withTrustPrompt` talks to the user; injectable for tests. */
+export interface TrustPromptIO {
+  /** Both stdin and stdout are terminals. */
+  interactive: boolean;
+  confirm(question: string): Promise<boolean>;
+  write(text: string): void;
+}
+
+const terminalIO = (): TrustPromptIO => ({
+  interactive: !!process.stdin.isTTY && !!process.stdout.isTTY,
+  confirm,
+  write: (text) => { process.stdout.write(text); },
+});
+
+/**
+ * One line of a shown `.summon`: escapeControlChars, plus the invisible format characters that could hide text in a
+ * file about to be trusted (soft hyphen, zero-width marks, line and paragraph separators, word joiner and invisible
+ * operators, BOM). A tab stays a tab; it cannot spoof anything.
+ */
+function showable(line: string): string {
+  return line.split("\t").map(escapeControlChars).join("\t")
+    .replace(/[\u00ad\u200b-\u200f\u2028\u2029\u2060-\u2064\ufeff]/g, unicodeEscape);
+}
+
+/**
+ * UX-M4: run `attempt` (a direct launch, a dry run, `open` or the monitor's Enter); when the trust gate refuses
+ * `.summon` on a terminal, show the checked bytes line by line with controls, bidi and zero-width marks escaped (so
+ * the file cannot drive the terminal or hide text), ask `Trust this file and continue? [y/N]`, trust exactly those
+ * bytes and run `attempt` once more. Its own trust check then passes only for the same bytes (TOCTOU, SE-L3).
+ * Declining is a user cancel (PromptCancelled, exit 130).
+ * Off a terminal, or for an error without checked bytes, the error is rethrown unchanged. It asks at most once.
+ * Never used by `session --all`, which skips an untrusted project.
+ */
+export async function withTrustPrompt<T>(attempt: () => Promise<T>, io: TrustPromptIO = terminalIO()): Promise<T> {
+  try {
+    return await attempt();
+  } catch (error) {
+    if (!(error instanceof UntrustedSummonError) || !io.interactive) throw error;
+    const file = join(error.dir, ".summon");
+    io.write(`${file} ${error.changed ? "changed since you trusted it" : "is not trusted yet"}:\n\n`);
+    const lines = error.content.split(/\r?\n/).map((line) => `  ${showable(line)}`);
+    io.write(lines.join("\n").trimEnd() + "\n\n");
+    if (!(await io.confirm("Trust this file and continue?"))) throw new PromptCancelled("Trust declined.");
+    storeTrust(error.dir, hashContent(error.content));
+    io.write(`Trusted ${file}\n`);
+    return attempt();
+  }
 }
 
 /**

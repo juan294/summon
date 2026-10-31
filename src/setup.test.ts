@@ -114,7 +114,6 @@ const {
   // Phase 3 — arrow-key grid builder:
   createGridState,
   applyGridAction,
-  renderGridBuilderPreview,
   renderGridBuilderHints,
   runGridBuilder,
   // Issue fixes:
@@ -475,25 +474,25 @@ describe("TIPS", () => {
 
   it("all tips are under 80 characters", () => {
     for (const tip of TIPS) {
-      expect(tip.length).toBeLessThan(80);
+      expect(tip.text.length).toBeLessThan(80);
     }
   });
 
   it("no duplicate tips", () => {
-    expect(new Set(TIPS).size).toBe(TIPS.length);
+    expect(new Set(TIPS.map((tip) => tip.text)).size).toBe(TIPS.length);
   });
 
   it("no tips are empty strings", () => {
     for (const tip of TIPS) {
-      expect(tip.trim().length).toBeGreaterThan(0);
+      expect(tip.text.trim().length).toBeGreaterThan(0);
     }
   });
 });
 
 describe("getRandomTip", () => {
   it("returns a string from the TIPS array", () => {
-    const tip = getRandomTip();
-    expect(TIPS).toContain(tip);
+    const tip = getRandomTip("ghostty");
+    expect(TIPS.map((t) => t.text)).toContain(tip);
   });
 });
 
@@ -1246,6 +1245,9 @@ describe("printValidation", () => {
     expect(allOutput.some((s) => s.includes("Accessibility permission"))).toBe(false);
     expect(allOutput.some((s) => s.includes("Summon your Rex workspace."))).toBe(true);
     expect(allOutput.some((s) => s.includes("Summon your Ghostty workspace."))).toBe(false);
+    // UX-L2: the welcome tip is one that applies under Rex.
+    const tipLine = allOutput.find((s) => s.includes("Tip:"))!;
+    expect(tipLine).not.toContain("--font-size");
 
     Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, writable: true });
     logSpy.mockRestore();
@@ -1370,6 +1372,23 @@ describe("UX-H3 (#530): canonical glyph vocabulary in setup wizard", () => {
 });
 
 describe("checkAndRecoverAccessibility", () => {
+  it("continues without the recovery prompt when the probe timed out, saying it could not be checked (PE-L3)", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockExecFileSync.mockImplementation((bin: string) => {
+      if (bin === "osascript") throw Object.assign(new Error("spawnSync osascript ETIMEDOUT"), { code: "ETIMEDOUT" });
+      return "/usr/bin/stub\n";
+    });
+
+    const result = await checkAndRecoverAccessibility();
+
+    expect(result).toBe(true);
+    expect(mockQuestion).not.toHaveBeenCalled();
+    const allOutput = logSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("\n");
+    expect(allOutput).toContain("Accessibility permission could not be checked");
+    expect(allOutput).not.toContain("not granted");
+    logSpy.mockRestore();
+  });
+
   it("returns true when accessibility is already granted", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     mockExecFileSync.mockReturnValue("/usr/bin/stub\n");
@@ -1643,6 +1662,26 @@ describe("runSetup", () => {
     logSpy.mockRestore();
   });
 
+  // UX-L2: the first-run wizard before an automatic launch says the launch is coming instead of "Run summon .".
+  it("says the workspace is being summoned when a launch follows", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      if (_q.includes("[Y/n]")) cb("y");
+      else cb("1");
+    });
+    const origIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", { value: true, writable: true });
+
+    await runSetup({ launchNext: true });
+
+    const allOutput = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(allOutput).toContain("  You're all set! Summoning your workspace now\u2026");
+    expect(allOutput.some((s) => s.includes("to launch your first workspace"))).toBe(false);
+
+    Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, writable: true });
+    logSpy.mockRestore();
+  });
+
   it("prints a tip line in welcome screen", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
@@ -1660,6 +1699,9 @@ describe("runSetup", () => {
 
     const allOutput = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
     expect(allOutput.some((s) => s.includes("Tip:"))).toBe(true);
+    // UX-L2: without a launch to follow, the wizard ends by telling the user how to launch.
+    expect(allOutput.some((s) => s.includes("You're all set! Run") && s.includes("summon .") && s.includes("to launch your first workspace."))).toBe(true);
+    expect(allOutput.some((s) => s.includes("Summoning your workspace now"))).toBe(false);
 
     Object.defineProperty(process.stdin, "isTTY", {
       value: origIsTTY,
@@ -3129,31 +3171,6 @@ describe("applyGridAction", () => {
   });
 });
 
-describe("renderGridBuilderPreview", () => {
-  it("focused cell contains marker character", () => {
-    const preview = renderGridBuilderPreview([2, 1], 0, 0);
-    expect(preview).toContain("*");
-  });
-
-  it("non-focused cells contain dot marker", () => {
-    const preview = renderGridBuilderPreview([2, 1], 0, 0);
-    expect(preview).toContain("\u00b7"); // ·
-  });
-
-  it("single column renders correctly", () => {
-    const preview = renderGridBuilderPreview([1], 0, 0);
-    expect(preview).toContain("\u250c"); // ┌
-    expect(preview).toContain("\u2514"); // └
-  });
-
-  it("renders correct number of separators for multi-pane column", () => {
-    const preview = renderGridBuilderPreview([3, 1], 0, 0);
-    const lines = preview.split("\n");
-    const separatorCount = lines.filter((l: string) => l.includes("\u251c")).length; // ├
-    expect(separatorCount).toBe(2);
-  });
-});
-
 describe("runGridBuilder", () => {
   let logSpy: ReturnType<typeof vi.spyOn>;
   let stdoutSpy: ReturnType<typeof vi.spyOn>;
@@ -3259,13 +3276,13 @@ describe("runGridBuilder", () => {
     expect(mockSetRawMode).toHaveBeenCalledWith(false);
   });
 
-  it("Ctrl+C exits cleanly", async () => {
+  it("Ctrl+C exits cleanly with the cancel status 130 (UX-L3)", async () => {
     const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => undefined as never);
     const promise = runGridBuilder();
     await waitForHandler();
     simulateKey("c", true);
     expect(mockSetRawMode).toHaveBeenCalledWith(false);
-    expect(exitSpy).toHaveBeenCalledWith(0);
+    expect(exitSpy).toHaveBeenCalledWith(130);
     exitSpy.mockRestore();
     // Prevent unhandled rejection — promise never resolves after exit
     promise.catch(() => {});
@@ -3309,7 +3326,7 @@ describe("runGridBuilder", () => {
     sigintHandler?.();
 
     expect(mockSetRawMode).toHaveBeenCalledWith(false);
-    expect(exitSpy).toHaveBeenCalledWith(0);
+    expect(exitSpy).toHaveBeenCalledWith(130);
     onceSpy.mockRestore();
     exitSpy.mockRestore();
     promise.catch(() => {});

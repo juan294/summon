@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import type { LaunchContext } from "../../backend.js";
+import { needsAttention, resetAttentionForTests, watchForAttention } from "../../ui/attention.js";
 import { debugLog } from "../../utils.js";
 import { createRexCli } from "./cli.js";
 import type { RexCli } from "./cli.js";
@@ -18,15 +19,20 @@ import { asRecord, isKindId } from "./types.js";
 export interface LauncherTab {
   sessionId: string;
   windowId: string;
-  /** The session's only tab: ending the session is what closing it means. */
-  lastTab: boolean;
+  /** The caller's pane, the tab's only block. */
+  blockId: string;
 }
 
+/** BE-L5: the exit-time probes hold the user's prompt, so a slow server keeps the tab instead of delaying the exit. */
+export const EXIT_PROBE_TIMEOUT_MS = 2000;
+
 /** The caller's tab when it is a bare launcher: one pane (the caller's), not a workspace tab, Summon in the foreground. */
-export function findLauncherTab(cli: RexCli, env: NodeJS.ProcessEnv = process.env, pid: number = process.pid): LauncherTab | undefined {
+export function findLauncherTab(rexCli: RexCli, env: NodeJS.ProcessEnv = process.env, pid: number = process.pid): LauncherTab | undefined {
   const sessionId = env["REX_SESSION"];
   const blockId = env["REX_BLOCK"];
   if (!isKindId(sessionId, "session") || !isKindId(blockId, "block")) return;
+  // A probe that fails or times out keeps the tab.
+  const cli: RexCli = { ...rexCli, call: (op, argv, opts) => rexCli.call(op, argv, { ...opts, timeoutMs: EXIT_PROBE_TIMEOUT_MS }) };
   const viewed = viewSession(cli, sessionId);
   if (!viewed.ok) return;
   const window = viewed.view.windows.find((w) => w.blockIds.includes(blockId));
@@ -35,7 +41,7 @@ export function findLauncherTab(cli: RexCli, env: NodeJS.ProcessEnv = process.en
   const processInfo = cli.call("block-call", ["block", "call", "-s", sessionId, "-b", blockId, "process"]);
   const foreground = processInfo.ok ? asRecord(asRecord(processInfo.json)?.["foreground"]) : undefined;
   if (foreground?.["pid"] !== pid) return;
-  return { sessionId, windowId: window.windowId, lastTab: viewed.view.windows.length === 1 };
+  return { sessionId, windowId: window.windowId, blockId };
 }
 
 export interface LauncherTabDeps {
@@ -47,51 +53,36 @@ export interface LauncherTabDeps {
 }
 
 let armed = false;
-let watching = false;
-let attention = false;
-
-/** Routine stderr lines of a clean Rex launch or switch (nothing to act on); anything else is for the user to read. */
-const ROUTINE_STDERR = [
-  /^Workspace \[[^\]]+\] is already running in Rex; switched to it /,
-  // Housekeeping after a session ended outside Summon; its failure ("could not remove the files ...") is not routine.
-  /^summon: note: removed the files of earlier launch \S+ \(its Rex session is gone\)$/,
-];
-
-/** Every non-blank line of a write must be routine; one line to read flags the whole write. */
-function routine(text: string): boolean {
-  return text.split("\n").every((line) => line.trim() === "" || ROUTINE_STDERR.some((re) => re.test(line)));
-}
 
 /** @internal test hook */
 export function resetLauncherTabForTests(): void {
   armed = false;
-  watching = false;
-  attention = false;
-}
-
-/** Whether anything other than routine output reached stderr since the watch started. */
-export function needsAttention(): boolean {
-  return attention;
+  resetAttentionForTests();
 }
 
 /**
- * Watch stderr from the start of a Rex launch made inside Rex: a note, a warning, an error or a skipped project
- * keeps the launcher tab open, so nothing the user must read disappears with it. Unknown output keeps the tab.
+ * BE-L5: the close runs detached, 0.3 s after Summon exits (the shell must be back at its prompt first), and decides
+ * again from a fresh `session.view`: the tab must still hold only the caller's pane, and the session is ended only
+ * when that tab is still its only one, so a tab or a split added since the exit-time check survives. A failed or slow
+ * view closes nothing. Each rex call carries `--timeout`. The ids arrive as argv words, never inside the source.
  */
-export function watchForAttention(stream: NodeJS.WriteStream = process.stderr): void {
-  if (watching) return;
-  watching = true;
-  const write = stream.write.bind(stream) as (...args: unknown[]) => boolean;
-  stream.write = ((chunk: unknown, ...rest: unknown[]) => {
-    const text = typeof chunk === "string" ? chunk : Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk);
-    if (!routine(text)) attention = true;
-    return write(chunk, ...rest);
-  }) as NodeJS.WriteStream["write"];
-}
+const DETACHED_CLOSE_SOURCE = [
+  'const { execFileSync } = require("node:child_process");',
+  "const [rex, server, session, win, block] = process.argv.slice(1);",
+  'const rexCall = (args, input) => execFileSync(rex, ["--color", "never", "--timeout", "2s", "--autostart=false", "-S", server, ...args], { input, encoding: "utf8", timeout: 4000, killSignal: "SIGKILL", stdio: [input === undefined ? "ignore" : "pipe", "pipe", "ignore"] });',
+  "setTimeout(() => {",
+  "  try {",
+  '    const windows = JSON.parse(rexCall(["api", "call", "session.view", "-"], JSON.stringify({ session_id: session }))).windows;',
+  "    const blocks = windows.find((w) => w.window_id === win).layers.flatMap((l) => (l.blocks ?? []).map((b) => b.block_id));",
+  "    if (blocks.length !== 1 || blocks[0] !== block) return;",
+  '    rexCall(windows.length === 1 ? ["kill", session] : ["window", "close", "-s", session, win]);',
+  "  } catch {}",
+  "}, 300);",
+].join("\n");
 
-/** @internal exported for tests: the shell must be back at its prompt before its tab closes, so a short delay, detached. */
-export function spawnAfterExit(binary: string, args: string[], spawnFn: typeof spawn = spawn): void {
-  spawnFn("/bin/sh", ["-c", 'sleep 0.3; exec "$@"', "sh", binary, ...args], { detached: true, stdio: "ignore" }).unref();
+/** @internal exported for tests: the `node` arguments of the detached close. */
+export function detachedCloseArgs(context: { rexBinary: string; server: string }, tab: LauncherTab): string[] {
+  return ["-e", DETACHED_CLOSE_SOURCE, "--", context.rexBinary, context.server, tab.sessionId, tab.windowId, tab.blockId];
 }
 
 /**
@@ -104,7 +95,7 @@ export function closeLauncherTabOnExit(context: { rexBinary: string; server: str
   armed = true;
   const find = deps?.find ?? (() => findLauncherTab(createRexCli(context.rexBinary, context.server)));
   const onExit = deps?.onExit ?? ((handler) => { process.once("exit", handler); });
-  const spawnDetached = deps?.spawnDetached ?? ((binary, args) => spawnAfterExit(binary, args));
+  const spawnDetached = deps?.spawnDetached ?? ((binary, args) => { spawn(binary, args, { detached: true, stdio: "ignore" }).unref(); });
   const attention = deps?.needsAttention ?? needsAttention;
   const env = deps?.env ?? process.env;
   onExit((code) => {
@@ -112,8 +103,7 @@ export function closeLauncherTabOnExit(context: { rexBinary: string; server: str
     const tab = find();
     if (!tab) return;
     debugLog(`closing launcher tab ${tab.windowId}`);
-    const close = tab.lastTab ? ["kill", tab.sessionId] : ["window", "close", "-s", tab.sessionId, tab.windowId];
-    spawnDetached(context.rexBinary, ["--color", "never", "--autostart=false", "-S", context.server, ...close]);
+    spawnDetached(process.execPath, detachedCloseArgs(context, tab));
   });
 }
 

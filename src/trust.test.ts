@@ -27,8 +27,18 @@ vi.mock("node:os", () => ({
   homedir: () => "/home/testuser",
 }));
 
+// SE-L5: a pass-through lock that records when the trust DB transaction starts and ends.
+const lockEvents = vi.hoisted(() => [] as string[]);
+vi.mock("./file-lock.js", () => ({
+  withFileLock: <T>(file: string, action: () => T): T => {
+    lockEvents.push(`lock ${file}`);
+    try { return action(); } finally { lockEvents.push(`unlock ${file}`); }
+  },
+}));
+
 // Import after mocks
-const { hashSummonFile, isTrusted, trustProject, assertTrusted, assertTrustedContent, handleTrustCommand, SummonError, clearTrustCache } = await import("./trust.js");
+const { hashSummonFile, isTrusted, trustProject, assertTrusted, assertTrustedContent, handleTrustCommand, SummonError, UntrustedSummonError, withTrustPrompt, clearTrustCache } = await import("./trust.js");
+const { PromptCancelled, exitCodeFor, CANCELLED_EXIT_CODE } = await import("./utils.js");
 
 const TRUST_FILE = "/home/testuser/.config/summon/trust.json";
 
@@ -40,6 +50,7 @@ function sha256(content: string): string {
 beforeEach(() => {
   vi.clearAllMocks();
   clearTrustCache();
+  lockEvents.length = 0;
   // Default: realpathSync resolves to the same path (simulates absolute paths that exist)
   mockRealpathSync.mockImplementation((p: string) => p);
   // Default: statSync returns a fake mtime
@@ -842,4 +853,209 @@ describe("SE-L1 #556: corrupt trust.json fail-closed invariant", () => {
     // Our target dir is NOT in the DB — must be blocked
     expect(isTrusted("/our/dir")).toBe(false);
   });
+});
+
+/** The trust DB as last written through the atomic tmp+rename (null when nothing was written). */
+function writtenTrustDb(): Record<string, unknown> | null {
+  const call = mockWriteFileSync.mock.calls.at(-1) as [string, string] | undefined;
+  return call ? JSON.parse(call[1]) as Record<string, unknown> : null;
+}
+
+/** A trust DB in trust.json and `.summon` content on disk. */
+function onDisk(db: Record<string, unknown> | null, summon = "editor = vim\n"): void {
+  mockExistsSync.mockImplementation((p: string) => p.endsWith(".summon") || (p === TRUST_FILE && db !== null));
+  mockReadFileSync.mockImplementation((p: string) => (p === TRUST_FILE ? JSON.stringify(db) : summon));
+}
+
+describe("UX-M4: the trust message says when a trusted .summon changed", () => {
+  it("assertTrustedContent: a stored hash for the directory means the file changed since it was trusted", () => {
+    onDisk({ "/some/dir": sha256("editor = nvim\n") });
+    expect(() => assertTrustedContent("/some/dir", "editor = vim\n")).toThrow(/changed since you trusted it/);
+    expect(() => assertTrustedContent("/some/dir", "editor = vim\n")).toThrow(/summon trust \/some\/dir.*--no-project-config/s);
+  });
+
+  it("assertTrustedContent: never trusted keeps the original message", () => {
+    onDisk({ "/other": sha256("x") });
+    let caught: unknown;
+    try { assertTrustedContent("/some/dir", "editor = vim\n"); } catch (error) { caught = error; }
+    expect(caught).toBeInstanceOf(SummonError);
+    expect((caught as Error).message).toBe("This project has a .summon file.\nRun 'summon trust /some/dir' to allow it, or use --no-project-config to skip it.");
+  });
+
+  it("assertTrusted: a changed file says so too", () => {
+    onDisk({ "/some/dir": sha256("editor = nvim\n") });
+    expect(() => assertTrusted("/some/dir")).toThrow(/changed since you trusted it/);
+  });
+
+  it("the error carries the exact bytes that were checked, and whether they changed", () => {
+    onDisk({ "/some/dir": sha256("old\n") });
+    let caught: unknown;
+    try { assertTrustedContent("/some/dir", "editor = vim\n"); } catch (error) { caught = error; }
+    expect(caught).toBeInstanceOf(UntrustedSummonError);
+    expect(caught).toMatchObject({ dir: "/some/dir", content: "editor = vim\n", changed: true });
+  });
+});
+
+describe("BE-L3: trust values must be strings", () => {
+  it("a non-string value counts as never trusted, not as a changed file", () => {
+    onDisk({ "/some/dir": 42 });
+    expect(() => assertTrustedContent("/some/dir", "editor = vim\n")).toThrow(/^This project has a \.summon file\./);
+  });
+
+  it("trustProject keeps the string entries and drops the others", () => {
+    onDisk({ "/a": "aaaa", "/b": { nested: true }, "/c": null, "/d": 7 });
+    trustProject("/myproject");
+    expect(writtenTrustDb()).toEqual({ "/a": "aaaa", "/myproject": sha256("editor = vim\n") });
+  });
+});
+
+describe("UX-M4: withTrustPrompt offers to trust and launch on a TTY", () => {
+  const checked = "editor = vim\n";
+  /** An attempt that fails the trust gate until the checked bytes are trusted, then launches. */
+  function gatedLaunch() {
+    return vi.fn(async () => {
+      assertTrustedContent("/proj", checked);
+      return "launched" as const;
+    });
+  }
+  function io(answer: boolean | Error, interactive = true) {
+    const output: string[] = [];
+    const confirm = vi.fn(async () => { if (answer instanceof Error) throw answer; return answer; });
+    return { output, confirm, io: { interactive, confirm, write: (text: string) => { output.push(text); } } };
+  }
+  /** After a trust write, trust.json holds what was written. */
+  function persistTrustWrites(): void {
+    mockRenameSync.mockImplementation(() => {
+      const db = writtenTrustDb();
+      onDisk(db, "editor = something else on disk now\n");
+    });
+  }
+
+  it("non-TTY: rethrows the untrusted error unchanged, asks nothing and writes nothing", async () => {
+    onDisk(null);
+    const attempt = gatedLaunch();
+    const t = io(true, false);
+    await expect(withTrustPrompt(attempt, t.io)).rejects.toThrow(/^This project has a \.summon file\./);
+    expect(t.confirm).not.toHaveBeenCalled();
+    expect(t.output).toEqual([]);
+    expect(attempt).toHaveBeenCalledTimes(1);
+    expect(mockWriteFileSync).not.toHaveBeenCalled();
+  });
+
+  it("yes: shows the file, trusts exactly the bytes that were checked (not the file now on disk) and launches once more", async () => {
+    onDisk(null, "editor = something else on disk now\n");
+    persistTrustWrites();
+    const attempt = gatedLaunch();
+    const t = io(true);
+    await expect(withTrustPrompt(attempt, t.io)).resolves.toBe("launched");
+    expect(t.confirm).toHaveBeenCalledWith("Trust this file and continue?");
+    const shown = t.output.join("");
+    expect(shown).toContain("/proj/.summon is not trusted yet");
+    expect(shown).toContain("editor = vim");
+    expect(writtenTrustDb()).toEqual({ "/proj": sha256(checked) });
+    expect(attempt).toHaveBeenCalledTimes(2);
+  });
+
+  it("a changed file is introduced as changed since you trusted it", async () => {
+    onDisk({ "/proj": sha256("editor = nvim\n") });
+    persistTrustWrites();
+    const t = io(true);
+    await withTrustPrompt(gatedLaunch(), t.io);
+    expect(t.output.join("")).toContain("/proj/.summon changed since you trusted it");
+  });
+
+  it("no: a user cancel (exit 130) that trusts nothing and launches nothing more", async () => {
+    onDisk(null);
+    const attempt = gatedLaunch();
+    const t = io(false);
+    const result = withTrustPrompt(attempt, t.io);
+    await expect(result).rejects.toBeInstanceOf(PromptCancelled);
+    expect(exitCodeFor(await result.catch((error: unknown) => error))).toBe(CANCELLED_EXIT_CODE);
+    expect(mockWriteFileSync).not.toHaveBeenCalled();
+    expect(attempt).toHaveBeenCalledTimes(1);
+  });
+
+  it("Ctrl+C or Escape at the prompt is the same cancel", async () => {
+    onDisk(null);
+    const t = io(new PromptCancelled());
+    await expect(withTrustPrompt(gatedLaunch(), t.io)).rejects.toBeInstanceOf(PromptCancelled);
+    expect(mockWriteFileSync).not.toHaveBeenCalled();
+  });
+
+  it("asks once: a second trust failure (the file changed again) is rethrown", async () => {
+    onDisk(null);
+    const attempt = vi.fn(async () => { assertTrustedContent("/proj", `editor = ${attempt.mock.calls.length}\n`); });
+    const t = io(true);
+    await expect(withTrustPrompt(attempt, t.io)).rejects.toBeInstanceOf(SummonError);
+    expect(t.confirm).toHaveBeenCalledTimes(1);
+    expect(attempt).toHaveBeenCalledTimes(2);
+  });
+
+  it("session --all invariant: the untrusted error is still a SummonError, which session --all skips without asking", () => {
+    expect(new UntrustedSummonError("/proj", "x", false)).toBeInstanceOf(SummonError);
+  });
+
+  it("an error without checked bytes (assertTrusted) is rethrown without a prompt", async () => {
+    const t = io(true);
+    await expect(withTrustPrompt(async () => { throw new SummonError("plain"); }, t.io)).rejects.toThrow("plain");
+    expect(t.confirm).not.toHaveBeenCalled();
+  });
+
+  it("other errors pass through untouched", async () => {
+    const t = io(true);
+    await expect(withTrustPrompt(async () => { throw new Error("boom"); }, t.io)).rejects.toThrow("boom");
+    expect(t.confirm).not.toHaveBeenCalled();
+  });
+
+  it("invisible format characters in the shown file are escaped, so no text hides in it", async () => {
+    const hidden = "editor = vim\u2060\u2064\ufeff\u00ad\u2028\u2029x\n";
+    onDisk(null);
+    const t = io(false);
+    await expect(withTrustPrompt(async () => { assertTrustedContent("/proj", hidden); }, t.io)).rejects.toBeInstanceOf(PromptCancelled);
+    const shown = t.output.join("");
+    expect(shown).not.toMatch(/[\u2060-\u2064\ufeff\u00ad\u2028\u2029]/);
+    expect(shown).toContain("  editor = vim\\u2060\\u2064\\ufeff\\u00ad\\u2028\\u2029x");
+  });
+
+  it("control and bidi characters in the shown file are escaped, never sent to the terminal", async () => {
+    const hostile = "editor = vim\x1b]0;pwned\x07\u202e\u200b\tx\r\nsidebar = htop\n";
+    onDisk(null);
+    const t = io(false);
+    await expect(withTrustPrompt(async () => { assertTrustedContent("/proj", hostile); }, t.io)).rejects.toBeInstanceOf(PromptCancelled);
+    const shown = t.output.join("");
+    // eslint-disable-next-line no-control-regex -- the point is to find raw control characters
+    expect(shown).not.toMatch(/[\x1b\x07\u202e\u200b\r]/);
+    // Line by line: each line is escaped and indented, a tab stays a tab, and CRLF reads as one line break.
+    expect(shown).toContain("  editor = vim\\u001b]0;pwned\\u0007\\u202e\\u200b\tx\n  sidebar = htop");
+  });
+});
+
+describe("SE-L5: a trust grant is one locked read-modify-write of trust.json", () => {
+  it.each(["trustProject", "withTrustPrompt"] as const)("%s reads, merges and publishes trust.json inside withFileLock(TRUST_FILE)", async (entry) => {
+    const other = { "/other": sha256("other\n") };
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockImplementation((p: string) => {
+      if (p !== TRUST_FILE) return "editor = vim\n";
+      lockEvents.push("read db");
+      return JSON.stringify(other);
+    });
+    mockRenameSync.mockImplementation((_from: string, to: string) => { lockEvents.push(`publish ${to}`); });
+    if (entry === "trustProject") {
+      trustProject("/proj");
+    } else {
+      let attempts = 0;
+      await withTrustPrompt(async () => {
+        if (attempts++ === 0) assertTrustedContent("/proj", "editor = vim\n");
+      }, { interactive: true, confirm: async () => true, write: () => {} });
+    }
+    const start = lockEvents.indexOf(`lock ${TRUST_FILE}`);
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(lockEvents.slice(start)).toEqual([`lock ${TRUST_FILE}`, "read db", `publish ${TRUST_FILE}`, `unlock ${TRUST_FILE}`]);
+    expect(writtenTrustDbAfterLock()).toEqual({ ...other, "/proj": sha256("editor = vim\n") });
+  });
+
+  function writtenTrustDbAfterLock(): Record<string, string> {
+    const call = mockWriteFileSync.mock.calls.find((args: unknown[]) => String(args[0]).startsWith(`${TRUST_FILE}.`));
+    return JSON.parse(String(call![1])) as Record<string, string>;
+  }
 });

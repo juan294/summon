@@ -1,15 +1,16 @@
 import { describe, it, expect } from "vitest";
-import { planLayout, getPreset } from "../../layout.js";
+import { planLayout, getPreset, traditionalPaneNames } from "../../layout.js";
 import type { LayoutPlan } from "../../layout.js";
 import { parseTreeDSL, resolveTreeCommands, buildTreePlan } from "../../tree.js";
-import { traditionalPaneNames } from "../../launcher.js";
-import { traditionalInventory } from "../../pane-inventory.js";
+import { traditionalInventory } from "../ghostty/pane-inventory.js";
 import { bootstrapLine, cleanupTrapLine, paneFileLine } from "../../launch-identity.js";
 import { buildSessionCreateRequest, resolveLoginShell, TERMINAL_FLAVOR } from "./layout.js";
 import type { RexBlockNode, RexLayoutNode, SessionCreateInput } from "./layout.js";
 
 const ID = "0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f";
 const DIR = "/Users/me/code/chapa";
+// The Rex root pane's bootstrap line for project chapa and launch ID, byte for byte.
+const ROOT_BOOTSTRAP = "mkdir -p \"$HOME/.config/summon/status/chapa.launches\" && chmod 700 \"$HOME/.config/summon/status/chapa.launches\" && printf '%s\\n' \"$$\" > \"$HOME/.config/summon/status/chapa.launches/0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f.pid\" && printf '%s\\n' '0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f' > \"$HOME/.config/summon/status/chapa.launches/0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f.active\" && printf '%s\\n%s\\n' \"$REX_SESSION\" \"$REX_BLOCK\" > \"$HOME/.config/summon/status/chapa.launches/0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f.pane.editor.tmp\" && mv -f \"$HOME/.config/summon/status/chapa.launches/0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f.pane.editor.tmp\" \"$HOME/.config/summon/status/chapa.launches/0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f.pane.editor\"";
 const SHELL = "/bin/zsh";
 
 function base(partial: Partial<SessionCreateInput> = {}): Omit<SessionCreateInput, "layout"> {
@@ -192,12 +193,14 @@ describe("buildSessionCreateRequest: blocks", () => {
     const { request } = traditional(preset("minimal"), { onStop: "echo bye" });
     const root = blocks(request.initial_windows[0].layout)[0]!;
     expect(root.options.initial_input).toBe(
-      bootstrapLine("chapa", ID, "rex", "editor") + "\n"
+      `${bootstrapLine("chapa", ID)} && ${paneFileLine("chapa", ID, "editor")}\n`
       + cleanupTrapLine("chapa", ID, { onStop: "echo bye", targetDir: DIR }) + "\n"
       + `cd '${DIR}'\n`
       + "clear\n"
       + "vim\n",
     );
+    // The exact root bootstrap line (A6: the pane-file write is appended here, not by bootstrapLine).
+    expect(root.options.initial_input.split("\n")[0]).toBe(ROOT_BOOTSTRAP);
     expect(root.options.initial_input).toContain(`${ID}.pane.editor`);
     expect(root.options.initial_input).toContain('"$REX_SESSION" "$REX_BLOCK"');
     expect(root.options.initial_input).toContain(`rm -f "$HOME/.config/summon/status/chapa.launches/${ID}.pid" "$HOME/.config/summon/status/chapa.launches/${ID}.active" 2>/dev/null`);

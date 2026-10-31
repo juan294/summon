@@ -1,6 +1,6 @@
 import { rexOpTraits, isMutatingOp } from "./types.js";
 import type { RexFailure, RexFailureKind, RexOp, RexOutcome, RexRawResult } from "./types.js";
-import { escapeControlChars } from "../../pane-inventory.js";
+import { escapeControlChars } from "../../ui/sanitize.js";
 import { truncate } from "../../ui/width.js";
 
 /**
@@ -20,6 +20,11 @@ const SERVER_ERROR_LINE_RE = /^Error: .*\b(bad_request|not_found|conflict|sessio
 const AMBIGUOUS_RE = /matches more than one|ambiguous/;
 const TIMED_OUT_RE = /timed out/;
 const UNREACHABLE_RE = /connect|unreachable|server\.sock/;
+/**
+ * BE-L4: failures that prove the request never reached the server (refused connection, missing socket).
+ * Only these leave a mutation with outcome `none`; a dropped or reset connection may follow a completed request.
+ */
+const PRE_SEND_RE = /refused|no such file or directory/i;
 
 const HINTS: Partial<Record<RexFailureKind, string>> = {
   "missing-binary": "Open the Rex app once so it installs its CLI, or set REX_BIN_DIR.",
@@ -42,12 +47,18 @@ function parseServerError(text: string): string | undefined {
   if (!error || typeof error !== "object") return;
   const { code, message } = error as Record<string, unknown>;
   if (typeof code !== "string") return;
-  return typeof message === "string" ? `${code}: ${message}` : code;
+  // SE-L2: server text is displayed; escape it and cap it like the stderr line.
+  return displayReason(typeof message === "string" ? `${code}: ${message}` : code);
 }
 
 /** First stderr line, control characters escaped, capped; empty when there is none. */
 function firstStderrLine(stderr: string): string {
-  return truncate(escapeControlChars(stderr.split(/\r?\n/, 1)[0] ?? ""), MAX_REASON_LENGTH);
+  return displayReason(stderr.split(/\r?\n/, 1)[0] ?? "");
+}
+
+/** Text from rex shown to the user: control characters escaped, capped at MAX_REASON_LENGTH. */
+function displayReason(text: string): string {
+  return truncate(escapeControlChars(text), MAX_REASON_LENGTH);
 }
 
 function genericReason(raw: RexRawResult): string {
@@ -68,6 +79,7 @@ export function classifyRexFailure(op: RexOp, raw: RexRawResult): RexFailure {
   const mutating = isMutatingOp(op);
   const unknownIfMutating: RexOutcome = mutating ? "unknown" : "none";
   const stderrLine = firstStderrLine(raw.stderr);
+  const unreachableOutcome: RexOutcome = PRE_SEND_RE.test(stderrLine) ? "none" : unknownIfMutating;
   let kind: RexFailureKind;
   let outcome: RexOutcome;
   let reason = stderrLine || genericReason(raw);
@@ -88,7 +100,7 @@ export function classifyRexFailure(op: RexOp, raw: RexRawResult): RexFailure {
     outcome = unknownIfMutating;
   } else if (raw.code === 4) {
     kind = "unreachable";
-    outcome = "none";
+    outcome = unreachableOutcome;
   } else if (raw.code === 2) {
     kind = "invalid";
     outcome = "none";
@@ -106,7 +118,7 @@ export function classifyRexFailure(op: RexOp, raw: RexRawResult): RexFailure {
       outcome = unknownIfMutating;
     } else if (UNREACHABLE_RE.test(stderrLine)) {
       kind = "unreachable";
-      outcome = "none";
+      outcome = unreachableOutcome;
     } else {
       kind = "failed";
       outcome = unknownIfMutating;

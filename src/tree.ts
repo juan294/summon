@@ -4,6 +4,7 @@ import { realpathSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import { EDITOR_SIZE_DEFAULT } from "./layout.js";
 import type { LayoutPlan } from "./layout.js";
+import { warn } from "./ui/output.js";
 
 // ---------- Types ----------
 
@@ -374,7 +375,7 @@ export function resolveTreeCommands(
   // Warn about unused pane definitions
   for (const name of panes.keys()) {
     if (!usedNames.has(name)) {
-      process.stderr.write(`Warning: pane definition '${name}' is not used in the tree\n`);
+      warn(`pane definition '${name}' is not used in the tree`);
     }
   }
 

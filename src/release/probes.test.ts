@@ -16,13 +16,14 @@
  * silently skipping required check is the exact bug this whole system exists to
  * prevent.
  */
-import { describe, it, expect, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { readFileSync, existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   makeIsolatedHome,
   recordedFixtures,
   cleanupCliSnapshot,
+  prepareCli,
   PROJECT_ROOT,
   summonStatePaths,
 } from "./helpers.js";
@@ -30,6 +31,8 @@ import {
 const pkg = JSON.parse(readFileSync(join(PROJECT_ROOT, "package.json"), "utf-8")) as {
   version: string;
 };
+
+beforeAll(prepareCli, 60_000);
 
 afterAll(() => {
   cleanupCliSnapshot();

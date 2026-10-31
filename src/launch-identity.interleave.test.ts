@@ -1,10 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from "vitest";
 import { spawn, spawnSync, execFileSync } from "node:child_process";
-import { buildCliInto } from "./fixtures/build-cli.js";
+import { cliBuild } from "./fixtures/cli-builds.js";
 import type { ChildProcess } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 /**
@@ -13,10 +12,9 @@ import { tmpdir } from "node:os";
  * every call and forwards `snapshot save` to the built CLI (src/commands/runtime.ts path:
  * withOwnedRecord with { launchId }), so the generation check runs for real.
  */
-const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 const TEMP_HOME = mkdtempSync(join(tmpdir(), "summon-interleave-"));
-const CLI = join(TEMP_HOME, "cli", "index.js");
+const CLI = cliBuild("unsplit");
 const STATUS_DIR = join(TEMP_HOME, ".config", "summon", "status");
 const SNAPSHOTS_DIR = join(TEMP_HOME, ".config", "summon", "snapshots");
 const SHIM_DIR = join(TEMP_HOME, "bin");
@@ -30,10 +28,10 @@ vi.mock("./paths.js", () => ({
   CONFIG_DIR: join(TEMP_HOME, ".config", "summon"),
 }));
 
-const { bootstrapLine, cleanupTrapLine, launchArtifactPaths } = await import("./launch-identity.js");
-const { writeStatus, readStatusRecord } = await import("./status.js");
+const { bootstrapLine, cleanupTrapLine, launchArtifactPaths, registerSelfInvocation, clearSelfInvocation } = await import("./launch-identity.js");
+const { writeStatus, readStatusRecord } = await import("./status-record.js");
 const { gitSafeEnv } = await import("./utils.js");
-import type { WorkspaceStatus } from "./status.js";
+import type { WorkspaceStatus } from "./status-record.js";
 
 const GEN_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const GEN_B = "bbbbbbbb-bbbb-4bbb-9bbb-bbbbbbbbbbbb";
@@ -96,8 +94,7 @@ function legacyTrapLine(project: string, targetDir: string): string {
   return `__summon_cleanup() { ${body}; }; trap '__summon_cleanup' EXIT HUP`;
 }
 
-beforeAll(async () => {
-  await buildCliInto(PROJECT_ROOT, join(TEMP_HOME, "cli"));
+beforeAll(() => {
   mkdirSync(SHIM_DIR, { recursive: true });
   const shim = join(SHIM_DIR, "summon");
   writeFileSync(shim, [
@@ -146,7 +143,7 @@ describe("real-process ownership interleavings (plan Phase 1)", () => {
     const snapshotBefore = readFileSync(snapshotFile, "utf-8");
 
     // on-stop sleeps 2 s: wide enough that launch B's publication lands inside A's trap even under full-suite load.
-    const shellA = spawnShell(`${bootstrapLine(PROJECT, GEN_A, "ghostty")}; ${cleanupTrapLine(PROJECT, GEN_A, { onStop: "sleep 2", targetDir: REPO, layout: "default" })}`);
+    const shellA = spawnShell(`${bootstrapLine(PROJECT, GEN_A)}; ${cleanupTrapLine(PROJECT, GEN_A, { onStop: "sleep 2", targetDir: REPO, layout: "default" })}`);
     await waitFor(() => existsSync(pathsA.active), 5_000, "launch A bootstrap");
     expect(readFileSync(pathsA.active, "utf-8").trim()).toBe(GEN_A);
     expect(Number(readFileSync(pathsA.pid, "utf-8").trim())).toBe(shellA.pid);
@@ -158,7 +155,7 @@ describe("real-process ownership interleavings (plan Phase 1)", () => {
     // Launch B publishes its record and bootstrap while A's trap is still inside on-stop.
     writeStatus(record(GEN_B));
     const pathsB = launchArtifactPaths(PROJECT, GEN_B);
-    const shellB = spawnShell(bootstrapLine(PROJECT, GEN_B, "ghostty"));
+    const shellB = spawnShell(bootstrapLine(PROJECT, GEN_B));
     await waitFor(() => existsSync(pathsB.active), 5_000, "launch B bootstrap");
     // A's trap removes its liveness files first (F21), while it is still inside the slow on-stop.
     await waitFor(() => !existsSync(pathsA.active) && !existsSync(pathsA.pid), 5_000, "A's trap removes its liveness files first");
@@ -217,7 +214,7 @@ describe("real-process ownership interleavings (plan Phase 1)", () => {
   it("two traps for the same launch (EXIT and HUP): the per-launch removal is idempotent and exits 0", async () => {
     writeStatus(record(GEN_A));
     const pathsA = launchArtifactPaths(PROJECT, GEN_A);
-    const shell = spawnShell(`${bootstrapLine(PROJECT, GEN_A, "ghostty")}; ${cleanupTrapLine(PROJECT, GEN_A, { targetDir: REPO, layout: "default" })}; __summon_cleanup`);
+    const shell = spawnShell(`${bootstrapLine(PROJECT, GEN_A)}; ${cleanupTrapLine(PROJECT, GEN_A, { targetDir: REPO, layout: "default" })}; __summon_cleanup`);
     // The first run's last step is the rm of its own files; wait for that, not just the snapshot call.
     await waitFor(() => existsSync(pathsA.active) === false && shimLog().length >= 1, 10_000, "first cleanup run");
     expect(shimLog()).toHaveLength(1);
@@ -228,5 +225,44 @@ describe("real-process ownership interleavings (plan Phase 1)", () => {
     expect(existsSync(pathsA.pid)).toBe(false);
     expect(existsSync(pathsA.active)).toBe(false);
     expect(readStatusRecord(PROJECT)?.launchId).toBe(GEN_A);
+  }, 30_000);
+});
+
+// SE-L1: the bootstrap and trap are typed into an interactive login zsh, where history expansion
+// is on; /bin/sh -c above never expands `!`. Feed the generated lines to a real interactive zsh.
+const ZSH_AVAILABLE = spawnSync("zsh", ["-f", "-c", "exit 0"]).status === 0;
+
+describe.skipIf(!ZSH_AVAILABLE)("typed text in an interactive zsh with history expansion (SE-L1)", () => {
+  afterEach(() => clearSelfInvocation());
+
+  it("a project directory, node binary and script path containing ! still run the trap", async () => {
+    const targetDir = join(TEMP_HOME, "wow!proj");
+    const toolsDir = join(TEMP_HOME, "tools!bin");
+    mkdirSync(targetDir, { recursive: true });
+    mkdirSync(toolsDir, { recursive: true });
+    const shim = join(toolsDir, "summon!cli");
+    writeFileSync(shim, 'printf \'args=%s\\n\' "$*" >> "$SHIM_LOG"\n');
+    registerSelfInvocation("/bin/sh", shim);
+    const paths = launchArtifactPaths(PROJECT, GEN_A);
+
+    const zsh = spawn("zsh", ["-f", "-i"], { env: childEnv(), stdio: ["pipe", "pipe", "pipe"] });
+    let stderr = "";
+    zsh.stderr!.on("data", (chunk: Buffer) => { stderr += chunk.toString(); });
+    // The first line proves history expansion is on in this shell: it must fail with "event not found".
+    zsh.stdin!.write([
+      'print -r -- "probe!probe"',
+      bootstrapLine(PROJECT, GEN_A),
+      cleanupTrapLine(PROJECT, GEN_A, { targetDir, layout: "default" }),
+      "exit",
+      "",
+    ].join("\n"));
+    const code = await exited(zsh);
+
+    expect(stderr.match(/event not found/g), stderr).toHaveLength(1);
+    expect(code).toBe(0);
+    // The bootstrap ran and the trap removed its own files on exit.
+    expect(existsSync(paths.active)).toBe(false);
+    expect(existsSync(paths.pid)).toBe(false);
+    expect(shimLog()).toEqual([`args=snapshot save --dir ${targetDir} --project ${PROJECT} --layout default --launch ${GEN_A}`]);
   }, 30_000);
 });

@@ -1,12 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { planLayout } from "./layout.js";
-import { buildTreePlan, parseTreeDSL } from "./tree.js";
-import {
-  traditionalInventory,
-  treeInventory,
-  parseNativeCapture,
-  parseNativeMetadata,
-} from "./pane-inventory.js";
+import { planLayout } from "../../layout.js";
+import { buildTreePlan, parseTreeDSL } from "../../tree.js";
+import { traditionalInventory, treeInventory, parseNativeCapture, parseNativeMetadata } from "./pane-inventory.js";
 
 const ids = Array.from(
   { length: 6 },

@@ -38,11 +38,30 @@ describe("classifyRexFailure", () => {
     expect(classifyRexFailure("whoami", raw({ signal: "SIGTERM" }))).toMatchObject({ kind: "signal", outcome: "none" });
   });
 
-  it("exit 4 is unreachable with outcome none even for a mutation", () => {
+  it("exit 4 is unreachable; a missing socket leaves even a mutation with outcome none", () => {
     const failure = classifyRexFailure("session-create", raw({ code: 4, stderr: "Error: dial unix /tmp/server.sock: connect: no such file or directory\n" }));
     expect(failure).toMatchObject({ kind: "unreachable", outcome: "none" });
     expect(failure.hint).toContain("Open the Rex app");
     expect(classifyRexFailure("ls", raw({ code: 4, stderr: "Error: server unreachable\n" }))).toMatchObject({ kind: "unreachable", outcome: "none" });
+  });
+
+  it("BE-L4: a mutation is outcome none only for a pre-send failure; a dropped or reset connection is unknown; reads stay none", () => {
+    const preSend = [
+      "Error: dial unix /tmp/server.sock: connect: no such file or directory\n",
+      "Error: dial unix /tmp/server.sock: connect: connection refused\n",
+      "Error: connect to unix:///x/server.sock: refused\n",
+    ];
+    const afterSend = ["Error: server disconnected\n", "Error: read unix ->/tmp/server.sock: connection reset by peer\n", "Error: server unreachable\n", ""];
+    for (const code of [1, 4]) {
+      for (const stderr of preSend) expect(classifyRexFailure("session-create", raw({ code, stderr })), `${code} ${stderr}`).toMatchObject({ kind: "unreachable", outcome: "none" });
+      for (const stderr of afterSend) {
+        if (code === 1 && stderr === "") continue; // exit 1 without text is "failed", covered below
+        expect(classifyRexFailure("session-create", raw({ code, stderr })), `${code} ${stderr}`).toMatchObject({ kind: "unreachable", outcome: "unknown" });
+        expect(classifyRexFailure("kill", raw({ code, stderr })).outcome, `${code} ${stderr}`).toBe("unknown");
+        expect(classifyRexFailure("ls", raw({ code, stderr })), `${code} ${stderr}`).toMatchObject({ kind: "unreachable", outcome: "none" });
+        expect(classifyRexFailure("session-view", raw({ code, stderr })).outcome, `${code} ${stderr}`).toBe("none");
+      }
+    }
   });
 
   it("exit 2 is invalid with outcome none", () => {
@@ -76,6 +95,17 @@ describe("classifyRexFailure", () => {
       expect(failure).toMatchObject({ kind: "rejected", outcome: "rolled-back" });
       expect(failure.reason).toBe("Error: session.create: conflict: too many sessions");
       expect(classifyRexFailure("kill", raw({ code: 1, stderr: "Error: session_not_found\n" }))).toMatchObject({ kind: "rejected", outcome: "none" });
+    });
+
+    it("SE-L2: escapes control characters in a server error object and caps its length; plain text is unchanged", () => {
+      const escaped = classifyRexFailure("session-create", raw({ code: 1, stdout: JSON.stringify({ error: { code: "bad_request", message: "x\u001b]0;pwned\u0007\nnext" } }) }));
+      expect(escaped).toMatchObject({ kind: "rejected", outcome: "rolled-back" });
+      expect(escaped.reason).toBe("bad_request: x\\u001b]0;pwned\\u0007\\u000anext");
+      const code = classifyRexFailure("do-select", raw({ code: 1, stderr: JSON.stringify({ error: { code: "not_found\u001b[2J" } }) }));
+      expect(code.reason).toBe("not_found\\u001b[2J");
+      const long = classifyRexFailure("session-create", raw({ code: 1, stdout: JSON.stringify({ error: { code: "bad_request", message: "M".repeat(2000) } }) }));
+      expect(long.reason.length).toBeLessThanOrEqual(512);
+      expect(long.reason.endsWith("…")).toBe(true);
     });
 
     it("a JSON body whose error.code is not a string is not a server error", () => {
