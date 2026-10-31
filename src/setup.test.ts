@@ -475,25 +475,25 @@ describe("TIPS", () => {
 
   it("all tips are under 80 characters", () => {
     for (const tip of TIPS) {
-      expect(tip.length).toBeLessThan(80);
+      expect(tip.text.length).toBeLessThan(80);
     }
   });
 
   it("no duplicate tips", () => {
-    expect(new Set(TIPS).size).toBe(TIPS.length);
+    expect(new Set(TIPS.map((tip) => tip.text)).size).toBe(TIPS.length);
   });
 
   it("no tips are empty strings", () => {
     for (const tip of TIPS) {
-      expect(tip.trim().length).toBeGreaterThan(0);
+      expect(tip.text.trim().length).toBeGreaterThan(0);
     }
   });
 });
 
 describe("getRandomTip", () => {
   it("returns a string from the TIPS array", () => {
-    const tip = getRandomTip();
-    expect(TIPS).toContain(tip);
+    const tip = getRandomTip("ghostty");
+    expect(TIPS.map((t) => t.text)).toContain(tip);
   });
 });
 
@@ -1246,6 +1246,9 @@ describe("printValidation", () => {
     expect(allOutput.some((s) => s.includes("Accessibility permission"))).toBe(false);
     expect(allOutput.some((s) => s.includes("Summon your Rex workspace."))).toBe(true);
     expect(allOutput.some((s) => s.includes("Summon your Ghostty workspace."))).toBe(false);
+    // UX-L2: the welcome tip is one that applies under Rex.
+    const tipLine = allOutput.find((s) => s.includes("Tip:"))!;
+    expect(tipLine).not.toContain("--font-size");
 
     Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, writable: true });
     logSpy.mockRestore();
@@ -1643,6 +1646,26 @@ describe("runSetup", () => {
     logSpy.mockRestore();
   });
 
+  // UX-L2: the first-run wizard before an automatic launch says the launch is coming instead of "Run summon .".
+  it("says the workspace is being summoned when a launch follows", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
+      if (_q.includes("[Y/n]")) cb("y");
+      else cb("1");
+    });
+    const origIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", { value: true, writable: true });
+
+    await runSetup({ launchNext: true });
+
+    const allOutput = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(allOutput).toContain("  You're all set! Summoning your workspace now\u2026");
+    expect(allOutput.some((s) => s.includes("to launch your first workspace"))).toBe(false);
+
+    Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, writable: true });
+    logSpy.mockRestore();
+  });
+
   it("prints a tip line in welcome screen", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
@@ -1660,6 +1683,9 @@ describe("runSetup", () => {
 
     const allOutput = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
     expect(allOutput.some((s) => s.includes("Tip:"))).toBe(true);
+    // UX-L2: without a launch to follow, the wizard ends by telling the user how to launch.
+    expect(allOutput.some((s) => s.includes("You're all set! Run") && s.includes("summon .") && s.includes("to launch your first workspace."))).toBe(true);
+    expect(allOutput.some((s) => s.includes("Summoning your workspace now"))).toBe(false);
 
     Object.defineProperty(process.stdin, "isTTY", {
       value: origIsTTY,
