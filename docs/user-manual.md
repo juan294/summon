@@ -1093,7 +1093,14 @@ Before a project's `.summon` file is acted upon, its SHA-256 hash must be record
 Trust this file and continue? [y/N]
 ```
 
-`y` trusts exactly the content shown and continues (launches, or prints the `--dry-run` script); `n`, Enter, Escape or Ctrl+C trusts nothing and exits with 130. The same prompt appears for a launch from `summon open`, the `summon open` picker and Enter in `summon status`; the status monitor asks on the normal screen after it closes the dashboard, and a decline returns to the dashboard with `Trust declined.`. Without a terminal (scripts, CI) nothing is asked: the launch fails with exit 1, as before. `summon session --all` never asks; it skips the untrusted project and continues. You can also grant trust explicitly:
+`y` trusts exactly the content shown and continues (launches, or prints the `--dry-run` script). Any other answer trusts nothing and launches nothing:
+
+| Key | Direct launch, `--dry-run`, `summon open` and the picker | Enter in `summon status` |
+|-----|-----------------------------------------------------------|--------------------------|
+| `n` or Enter | Nothing more is printed; exit 130 | `Launch cancelled.` and `Trust declined. Nothing was trusted.`, then any key returns to the dashboard |
+| Escape or Ctrl+C | Nothing more is printed; exit 130 | `Launch cancelled.` and `Nothing was trusted.`, then any key returns to the dashboard |
+
+Other keys are ignored until you answer. The status monitor asks on the normal screen after it closes the dashboard. Without a terminal (scripts, CI) nothing is asked: the launch fails with exit 1, as before. `summon session --all` never asks; it skips the untrusted project and continues. You can also grant trust explicitly:
 
 ```bash
 summon trust .                    # trust the .summon file in current directory

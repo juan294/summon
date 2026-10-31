@@ -997,6 +997,16 @@ describe("UX-M4: withTrustPrompt offers to trust and launch on a TTY", () => {
     expect(t.confirm).not.toHaveBeenCalled();
   });
 
+  it("invisible format characters in the shown file are escaped, so no text hides in it", async () => {
+    const hidden = "editor = vim\u2060\u2064\ufeff\u00ad\u2028\u2029x\n";
+    onDisk(null);
+    const t = io(false);
+    await expect(withTrustPrompt(async () => { assertTrustedContent("/proj", hidden); }, t.io)).rejects.toBeInstanceOf(PromptCancelled);
+    const shown = t.output.join("");
+    expect(shown).not.toMatch(/[\u2060-\u2064\ufeff\u00ad\u2028\u2029]/);
+    expect(shown).toContain("  editor = vim\\u2060\\u2064\\ufeff\\u00ad\\u2028\\u2029x");
+  });
+
   it("control and bidi characters in the shown file are escaped, never sent to the terminal", async () => {
     const hostile = "editor = vim\x1b]0;pwned\x07\u202e\u200b\tx\r\nsidebar = htop\n";
     onDisk(null);

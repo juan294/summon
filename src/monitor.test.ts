@@ -19,14 +19,11 @@ vi.mock("./status.js", async (importOriginal) => {
 });
 const mockLaunch = vi.fn();
 const mockFocusWorkspace = vi.fn<(...args: unknown[]) => import("./ghostty-native.js").FocusResult>((..._args: unknown[])=>({kind:"focused",terminalId:"00000000-0000-4000-8000-000000000001"}));
+// UX-M4: the Enter handoff launches through the trust prompt (re-exported by launcher.js); by default it runs the launch once.
+const mockWithTrustPrompt = vi.fn(async (attempt: () => Promise<unknown>) => attempt());
 vi.mock("./launcher.js", () => ({
   launch: (...args: unknown[]) => mockLaunch(...args),
   focusWorkspace: (...args: unknown[]) => mockFocusWorkspace(...args),
-}));
-// UX-M4: the Enter handoff launches through the trust prompt; by default it runs the launch once.
-const mockWithTrustPrompt = vi.fn(async (attempt: () => Promise<unknown>) => attempt());
-vi.mock("./trust.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("./trust.js")>()),
   withTrustPrompt: (attempt: () => Promise<unknown>) => mockWithTrustPrompt(attempt),
 }));
 
@@ -1588,19 +1585,37 @@ describe("handoff on the four states (plan P10, Phase 4)", () => {
     expect(mockWithTrustPrompt).not.toHaveBeenCalled();
   });
 
-  it("UX-M4: a declined trust prompt returns to the dashboard with the reason and launches nothing", async () => {
-    const { PromptCancelled } = await import("./utils.js");
+  /** Enter on a stopped row whose trust prompt ends with `cancel`; returns the text written after the handoff. */
+  async function cancelAtTrustPrompt(cancel: Error): Promise<string> {
     listProjects.mockReturnValue([["myapp", "/tmp/myapp"]]);
     readAllStatuses.mockReturnValue([makeResolvedStatus({ project: "myapp", state: "stopped", uptime: null })]);
-    mockWithTrustPrompt.mockRejectedValueOnce(new PromptCancelled("Trust declined."));
+    mockWithTrustPrompt.mockRejectedValueOnce(cancel);
     const monitorPromise = runMonitor();
     process.stdin.emit("data", Buffer.from("\r"));
-    await new Promise((r) => setTimeout(r, 20));
-    expect(writeSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("")).toContain("Trust declined.");
-    expect(mockLaunch).not.toHaveBeenCalled();
+    const written = () => writeSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("");
+    await vi.waitFor(() => expect(written()).toContain("Launch cancelled."));
+    const shown = written();
+    // Any key returns to the dashboard, where q quits as usual.
     process.stdin.emit("data", Buffer.from(" "));
     process.stdin.emit("data", Buffer.from("q"));
     await monitorPromise;
+    expect(mockLaunch).not.toHaveBeenCalled();
+    return shown;
+  }
+
+  it("UX-M4: n or Enter at the trust prompt is a neutral cancel that names the decline, then the dashboard", async () => {
+    const { PromptCancelled } = await import("./utils.js");
+    const shown = await cancelAtTrustPrompt(new PromptCancelled("Trust declined."));
+    expect(shown).toContain("Trust declined.");
+    expect(shown).not.toContain("Launch failed");
+  });
+
+  it("UX-M4: Ctrl+C or Esc at the trust prompt is a neutral cancel, never a launch failure", async () => {
+    const { PromptCancelled } = await import("./utils.js");
+    const shown = await cancelAtTrustPrompt(new PromptCancelled());
+    expect(shown).toContain("Nothing was trusted.");
+    expect(shown).not.toContain("Launch failed");
+    expect(shown).not.toContain("Cancelled");
   });
 
   it("Enter on an unknown row shows the reason and neither launches nor focuses", async () => {

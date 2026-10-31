@@ -15,6 +15,8 @@ import {
 } from "./layout.js";
 import type { LayoutOptions } from "./layout.js";
 export { traditionalPaneNames } from "./layout.js";
+// UX-M4: the monitor's Enter handoff takes the trust prompt from the launcher it already loads lazily.
+export { withTrustPrompt } from "./trust.js";
 import { listConfig, listProjects, readKVFromString, readCustomLayout, isCustomLayout, LAYOUT_NAME_RE } from "./config.js";
 import { publishStatus, readStatus, readStatusRecord } from "./status.js";
 import type { WorkspaceStatus } from "./status.js";

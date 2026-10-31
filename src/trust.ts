@@ -233,12 +233,13 @@ const terminalIO = (): TrustPromptIO => ({
 });
 
 /**
- * One line of a shown `.summon`: escapeControlChars, plus the zero-width marks (U+200B to U+200F) that could hide
- * text in a file about to be trusted. A tab stays a tab; it cannot spoof anything.
+ * One line of a shown `.summon`: escapeControlChars, plus the invisible format characters that could hide text in a
+ * file about to be trusted (soft hyphen, zero-width marks, line and paragraph separators, word joiner and invisible
+ * operators, BOM). A tab stays a tab; it cannot spoof anything.
  */
 function showable(line: string): string {
   return line.split("\t").map(escapeControlChars).join("\t")
-    .replace(/[\u200b-\u200f]/g, (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`);
+    .replace(/[\u00ad\u200b-\u200f\u2028\u2029\u2060-\u2064\ufeff]/g, (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`);
 }
 
 /**
