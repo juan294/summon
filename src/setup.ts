@@ -3,7 +3,7 @@ import { setConfig, isValidLayoutName, isCustomLayout, saveCustomLayout } from "
 // Type-only re-export is cost-free (erased at compile time).
 export type { GridTemplate } from "./setup-gallery.js";
 import type { BackendId } from "./backend.js";
-import { SAFE_COMMAND_RE, resolveCommand as resolveCommandPath, promptUser, checkAccessibility, openAccessibilitySettings, isGhosttyInstalled, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT, debugLog } from "./utils.js";
+import { SAFE_COMMAND_RE, resolveCommand as resolveCommandPath, promptUser, checkAccessibility, openAccessibilitySettings, isGhosttyInstalled, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT, debugLog, CANCELLED_EXIT_CODE } from "./utils.js";
 import { isStarshipInstalled, listStarshipPresets } from "./starship.js";
 import { bold, dim, green, yellow, cyan, magenta, brightCyan, colorSwatch } from "./ui/ansi.js";
 import { renderLayoutPreview, renderTemplateGallery, getDisplayWidth } from "./ui/layout-preview.js";
@@ -346,10 +346,11 @@ export async function runGridBuilder(): Promise<number[] | null> {
       process.removeListener("uncaughtException", uncaughtHandler);
     };
 
+    // UX-L3: Ctrl+C is a user cancel (130), as in every other prompt.
     const onSigInt = (): void => {
       cleanup();
       console.log();
-      process.exit(0);
+      process.exit(CANCELLED_EXIT_CODE);
     };
     process.once("SIGINT", onSigInt);
 
@@ -359,7 +360,7 @@ export async function runGridBuilder(): Promise<number[] | null> {
       if (key.ctrl && key.name === "c") {
         cleanup();
         console.log();
-        process.exit(0);
+        process.exit(CANCELLED_EXIT_CODE);
       }
 
       if (key.name === "escape") {

@@ -73,7 +73,7 @@ vi.mock("node:readline", () => ({
 }));
 
 // Import after mocks
-const { SAFE_COMMAND_RE, GHOSTTY_PATHS, GHOSTTY_APP_NAME, SUMMON_WORKSPACE_ENV, resolveCommand, isExecutableFile, describeCommandFailure, promptUser, getErrorMessage, exitWithUsageHint, formatUserError, checkAccessibility, openAccessibilitySettings, isAccessibilityError, isGhosttyInstalled, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT, ACCESSIBILITY_REQUIRED_MSG, PromptCancelled, isDebug, debugLog, supportsColor, confirm, gitSafeEnv, resetGitSafeEnvCache, atomicWrite, resetGitOutputCache } = await import("./utils.js");
+const { SAFE_COMMAND_RE, GHOSTTY_PATHS, GHOSTTY_APP_NAME, SUMMON_WORKSPACE_ENV, resolveCommand, isExecutableFile, describeCommandFailure, promptUser, getErrorMessage, exitWithUsageHint, formatUserError, checkAccessibility, openAccessibilitySettings, isAccessibilityError, isGhosttyInstalled, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT, ACCESSIBILITY_REQUIRED_MSG, PromptCancelled, CANCELLED_EXIT_CODE, exitCodeFor, isDebug, debugLog, supportsColor, confirm, gitSafeEnv, resetGitSafeEnvCache, atomicWrite, resetGitOutputCache } = await import("./utils.js");
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -204,7 +204,8 @@ describe("resolveCommand", () => {
     expect(mockExecFileSync).toHaveBeenCalledWith(
       "/usr/bin/which",
       ["vim"],
-      { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] },
+      // PE-L3: a stuck lookup is killed instead of hanging the CLI.
+      { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"], timeout: 5000, killSignal: "SIGKILL" },
     );
   });
 
@@ -521,7 +522,7 @@ describe("openAccessibilitySettings", () => {
     openAccessibilitySettings();
     expect(mockExecFileSync).toHaveBeenCalledWith("open", [
       "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
-    ]);
+    ], { timeout: 5000, killSignal: "SIGKILL" });
   });
 
   it("does not throw when open fails", () => {
@@ -805,6 +806,16 @@ describe("PromptCancelled", () => {
   it("can be detected with instanceof", () => {
     const err = new PromptCancelled();
     expect(err instanceof PromptCancelled).toBe(true);
+  });
+});
+
+describe("exitCodeFor (UX-L3)", () => {
+  it("exits 130 for every user cancel and 1 for any other error", () => {
+    expect(CANCELLED_EXIT_CODE).toBe(130);
+    expect(exitCodeFor(new PromptCancelled())).toBe(130);
+    expect(exitCodeFor(new PromptCancelled("Launch aborted (nested workspace)."))).toBe(130);
+    expect(exitCodeFor(new Error("boom"))).toBe(1);
+    expect(exitCodeFor("not an error")).toBe(1);
   });
 });
 

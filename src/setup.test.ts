@@ -3285,13 +3285,13 @@ describe("runGridBuilder", () => {
     expect(mockSetRawMode).toHaveBeenCalledWith(false);
   });
 
-  it("Ctrl+C exits cleanly", async () => {
+  it("Ctrl+C exits cleanly with the cancel status 130 (UX-L3)", async () => {
     const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => undefined as never);
     const promise = runGridBuilder();
     await waitForHandler();
     simulateKey("c", true);
     expect(mockSetRawMode).toHaveBeenCalledWith(false);
-    expect(exitSpy).toHaveBeenCalledWith(0);
+    expect(exitSpy).toHaveBeenCalledWith(130);
     exitSpy.mockRestore();
     // Prevent unhandled rejection — promise never resolves after exit
     promise.catch(() => {});
@@ -3335,7 +3335,7 @@ describe("runGridBuilder", () => {
     sigintHandler?.();
 
     expect(mockSetRawMode).toHaveBeenCalledWith(false);
-    expect(exitSpy).toHaveBeenCalledWith(0);
+    expect(exitSpy).toHaveBeenCalledWith(130);
     onceSpy.mockRestore();
     exitSpy.mockRestore();
     promise.catch(() => {});

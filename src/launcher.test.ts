@@ -59,7 +59,8 @@ vi.mock("./backends/rex/launch.js", () => ({
 vi.mock("./backends/rex/status.js", () => ({ sessionState: (...args: unknown[]) => mockSessionState(...args) }));
 const mockCloseLauncherTab = vi.fn();
 const mockStartLauncherTabWatch = vi.fn();
-vi.mock("./backends/rex/launcher-tab.js", () => ({ closeLauncherTabAfterRexLaunch: (...args: unknown[]) => mockCloseLauncherTab(...args), startLauncherTabWatch: (...args: unknown[]) => mockStartLauncherTabWatch(...args) }));
+const mockMarkAttention = vi.fn();
+vi.mock("./backends/rex/launcher-tab.js", () => ({ closeLauncherTabAfterRexLaunch: (...args: unknown[]) => mockCloseLauncherTab(...args), startLauncherTabWatch: (...args: unknown[]) => mockStartLauncherTabWatch(...args), markAttention: () => mockMarkAttention() }));
 vi.mock("./backends/rex/cli.js", () => ({
   createRexCli: vi.fn((binary: string, server: string) => ({ binary, server, call: vi.fn() })),
   discoverRex: vi.fn(() => ({ path: "/usr/local/bin/rex", searched: ["PATH"] })),
@@ -162,6 +163,7 @@ const { existsSync } = await import("node:fs");
 const { TabOpenError } = await import("./errors.js");
 const { LAUNCH_ID_RE } = await import("./launch-identity.js");
 const { writingRoutine } = await import("./ui/output.js");
+const { PromptCancelled } = await import("./utils.js");
 
 /** resolveConfig with the `.summon` content the trusted read would hand it: whatever mockReadKVFile says about that file. */
 function resolveConfigWithMockedSummon(targetDir: string, overrides: CLIOverrides): ReturnType<typeof resolveConfig> {
@@ -218,8 +220,12 @@ afterEach(() => {
 describe("Ghostty detection", () => {
   it("exits with error if directory does not exist", async () => {
     vi.mocked(existsSync).mockReturnValue(false);
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     await expect(launch("/nonexistent")).rejects.toThrow("Directory not found");
+    // UX-L3: the caller prints the thrown error once; the launch does not print it as well.
+    expect(writeSpy).not.toHaveBeenCalled();
+    writeSpy.mockRestore();
   });
 
   it("exits with error if Ghostty.app is not found at any known path", async () => {
@@ -453,10 +459,10 @@ describe("command dependency checks", () => {
     await launch("/tmp/workspace");
 
     expect(mockExecFileSync).toHaveBeenCalledWith(
-      "/usr/bin/which", ["vim"], { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] },
+      "/usr/bin/which", ["vim"], { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"], timeout: 5000, killSignal: "SIGKILL" },
     );
     expect(mockExecFileSync).toHaveBeenCalledWith(
-      "/usr/bin/which", ["lazygit"], { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] },
+      "/usr/bin/which", ["lazygit"], { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"], timeout: 5000, killSignal: "SIGKILL" },
     );
   });
 
@@ -586,7 +592,11 @@ describe("command dependency checks", () => {
     const origIsTTY = process.stdin.isTTY;
     Object.defineProperty(process.stdin, "isTTY", { value: false, configurable: true });
 
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     await expect(launch("/tmp/workspace")).rejects.toThrow("No editor configured");
+    // UX-L3: printed once, by the caller that reports the thrown error.
+    expect(writeSpy).not.toHaveBeenCalledWith(expect.stringContaining("No editor configured"));
+    writeSpy.mockRestore();
     Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, configurable: true });
   });
 
@@ -602,8 +612,34 @@ describe("command dependency checks", () => {
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
       cb("n");
     });
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
-    await expect(launch("/tmp/workspace")).rejects.toThrow();
+    // UX-L3: `n` at a confirmation prompt is a user cancel (exit 130, no error prefix), and no installer ran.
+    await expect(launch("/tmp/workspace")).rejects.toBeInstanceOf(PromptCancelled);
+    expect(writeSpy).not.toHaveBeenCalled();
+    expect(mockMarkAttention).not.toHaveBeenCalled();
+    writeSpy.mockRestore();
+  });
+
+  it("flags the launcher-tab watch when an installer ran with inherited stdio (QA-M3)", async () => {
+    let calls = 0;
+    mockExecFileSync.mockImplementation((bin: string, args?: string[]) => {
+      if (bin === "/usr/bin/which" && Array.isArray(args) && args[0] === "claude") {
+        if (++calls <= 1) throw new Error("not found");
+        return "/usr/bin/claude\n";
+      }
+      if (bin === "/usr/bin/which") return "/usr/bin/stub\n";
+      if (bin === "npm") expect(mockMarkAttention).toHaveBeenCalledTimes(1);
+      return "";
+    });
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "claude"]]));
+    mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("y"));
+
+    await launch("/tmp/workspace");
+
+    // The installer keeps the terminal (stdio inherit); the watch cannot see its output, so it is flagged.
+    expect(mockExecFileSync).toHaveBeenCalledWith("npm", ["install", "-g", "@anthropic-ai/claude-code"], { stdio: "inherit" });
+    expect(mockMarkAttention).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -614,7 +650,7 @@ describe("secondaryEditor binary check", () => {
     await launch("/tmp/workspace", { layout: "btop" });
 
     expect(mockExecFileSync).toHaveBeenCalledWith(
-      "/usr/bin/which", ["btop"], { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] },
+      "/usr/bin/which", ["btop"], { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"], timeout: 5000, killSignal: "SIGKILL" },
     );
   });
 });
@@ -691,6 +727,8 @@ describe("lazygit install handler", () => {
 
     expect(mockQuestion).toHaveBeenCalledTimes(1);
     expect(mockQuestion.mock.calls[0]![0]).toContain("brew install lazygit");
+    // PE-L3: the brew lookup is killed after a timeout instead of hanging the launch.
+    expect(mockExecFileSync).toHaveBeenCalledWith("/bin/sh", ["-c", "command -v brew"], { stdio: "ignore", timeout: 5000, killSignal: "SIGKILL" });
     expect(mockExecFileSync).toHaveBeenCalledWith(
       "brew",
       ["install", "lazygit"],
@@ -741,7 +779,7 @@ describe("command name validation", () => {
     await launch("/tmp/workspace");
 
     expect(mockExecFileSync).toHaveBeenCalledWith(
-      "/usr/bin/which", ["my-editor.v2"], { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] },
+      "/usr/bin/which", ["my-editor.v2"], { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"], timeout: 5000, killSignal: "SIGKILL" },
     );
   });
 });
@@ -1886,6 +1924,24 @@ describe("shell metacharacter confirmation (#90)", () => {
   });
 
 describe("on-start hook (#107)", () => {
+    it("flags the launcher-tab watch for its inherited output and keeps the TTY (QA-M3); a launch without a hook flags nothing", async () => {
+      mockResolveBackendForLaunch.mockReturnValue({ ok: true, backend: "rex", placement: "inside-rex", server: "unix:///tmp/rex.sock", rexBinary: "/usr/local/bin/rex", notices: [] });
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      mockExecSync.mockImplementation((cmd: string) => {
+        if (cmd === "echo setup") expect(mockMarkAttention).toHaveBeenCalledTimes(1);
+        return "";
+      });
+
+      await launch("/tmp/workspace");
+      expect(mockMarkAttention).not.toHaveBeenCalled();
+      expect(mockCloseLauncherTab).toHaveBeenCalledTimes(1);
+
+      await launch("/tmp/workspace", { "on-start": "echo setup" });
+      expect(mockMarkAttention).toHaveBeenCalledTimes(1);
+      expect(mockExecSync).toHaveBeenCalledWith("echo setup", expect.objectContaining({ stdio: "inherit" }));
+      logSpy.mockRestore();
+    });
+
     it("executes on-start command before workspace creation", async () => {
       vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
       const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
@@ -2429,10 +2485,10 @@ describe("custom tree layout integration (Phase 4)", () => {
 
       // Both claude and lazygit should be checked via command -v
       expect(mockExecFileSync).toHaveBeenCalledWith(
-        "/usr/bin/which", ["claude"], { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] },
+        "/usr/bin/which", ["claude"], { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"], timeout: 5000, killSignal: "SIGKILL" },
       );
       expect(mockExecFileSync).toHaveBeenCalledWith(
-        "/usr/bin/which", ["lazygit"], { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] },
+        "/usr/bin/which", ["lazygit"], { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"], timeout: 5000, killSignal: "SIGKILL" },
       );
     });
 
@@ -2539,7 +2595,9 @@ describe("custom tree layout integration (Phase 4)", () => {
       // User answers "n"
       mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => cb("n"));
 
-      await expect(launch("/tmp/workspace")).rejects.toThrow();
+      // UX-L3: a quiet user cancel (exit 130 at the top level), not an error with the debug hint.
+      await expect(launch("/tmp/workspace")).rejects.toBeInstanceOf(PromptCancelled);
+      expect(warnSpy.mock.calls.map((c) => String(c[0])).join("")).not.toContain("summon: error:");
       warnSpy.mockRestore();
     });
 

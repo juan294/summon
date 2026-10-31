@@ -364,7 +364,7 @@ describe("handleOpenCommand", () => {
   });
 
   // UX-M2 (#475): selecting 0 cancels without launching
-  it("exits 0 with 'Cancelled.' message when user selects 0", async () => {
+  it("exits 130 (a user cancel, UX-L3) with 'Cancelled.' message when user selects 0", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     const exitSpy = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error(`exit:${code}`);
@@ -374,7 +374,7 @@ describe("handleOpenCommand", () => {
     ]);
     mockPromptUser.mockResolvedValueOnce("0");
 
-    await expect(handleOpenCommand(makeContext())).rejects.toThrow("exit:0");
+    await expect(handleOpenCommand(makeContext())).rejects.toThrow("exit:130");
     const allLogs = logSpy.mock.calls.map((c) => c[0] as string).join("\n");
     expect(allLogs).toContain("Cancelled.");
     logSpy.mockRestore();
@@ -392,7 +392,7 @@ describe("handleOpenCommand", () => {
     ]);
     mockPromptUser.mockResolvedValueOnce("0");
 
-    await expect(handleOpenCommand(makeContext())).rejects.toThrow("exit:0");
+    await expect(handleOpenCommand(makeContext())).rejects.toThrow("exit:130");
     // The prompt passed to promptUser must include "(0 to cancel)"
     const promptArg = mockPromptUser.mock.calls[0]?.[0] as string;
     expect(promptArg).toContain("0 to cancel");

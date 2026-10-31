@@ -58,6 +58,15 @@ export function resetLauncherTabForTests(): void {
   attention = false;
 }
 
+/**
+ * QA-M3: flag the watch for output it cannot see: a child that inherited stdio (the on-start hook, an installer) writes
+ * to the terminal directly, so the tab stays for the user to read it. Without a watch (Ghostty, Rex from another terminal)
+ * nothing changes.
+ */
+export function markAttention(): void {
+  if (watching) attention = true;
+}
+
 /** Whether anything other than output marked routine reached stderr since the watch started. */
 export function needsAttention(): boolean {
   return attention;
