@@ -24,6 +24,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { buildCliInto } from "../fixtures/build-cli.js";
 
 export const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const DIST_DIR = join(PROJECT_ROOT, "dist");
@@ -31,13 +32,24 @@ const DIST_DIR = join(PROJECT_ROOT, "dist");
 /**
  * Probes run against an immutable copy of dist/, not dist/ itself.
  *
- * src/index.test.ts rebuilds the project in its beforeAll, and tsup cleans the
- * output folder first. Under the full suite that races with these probes and
- * they fail with "Cannot find module dist/index.js" -- a flaky required probe,
- * which is precisely the failure mode this system exists to prevent. Snapshot
- * once per worker and the race disappears.
+ * A concurrent `pnpm build` cleans the output folder first, so probes reading
+ * dist/ directly fail with "Cannot find module dist/index.js" -- a flaky
+ * required probe, which is precisely the failure mode this system exists to
+ * prevent. Snapshot once per worker and the race disappears.
  */
 let snapshotDir: string | null = null;
+
+/**
+ * Call from beforeAll. The release job builds dist/ first and probes that build.
+ * An ordinary `pnpm test` has no build step (no suite rebuilds dist/ any more),
+ * so without dist/index.js the probes get a private production build instead.
+ */
+export async function prepareCli(): Promise<void> {
+  if (existsSync(join(DIST_DIR, "index.js"))) return;
+  const target = mkdtempSync(join(tmpdir(), "summon-rel-cli-"));
+  await buildCliInto(PROJECT_ROOT, target, { production: true });
+  snapshotDir = target;
+}
 
 function snapshotCli(): string {
   if (snapshotDir && existsSync(snapshotDir)) return join(snapshotDir, "index.js");
