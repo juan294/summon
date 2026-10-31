@@ -2,7 +2,7 @@ import { existsSync, readFileSync, statSync, promises as fsPromises } from "node
 import { join } from "node:path";
 import { readKVFile, listProjects } from "./config.js";
 import { readAllStatuses } from "./status.js";
-import type { WorkspaceState } from "./status.js";
+import type { WorkspaceState } from "./status-record.js";
 import { isTrusted } from "./trust.js";
 import { runPool, IO_CONCURRENCY } from "./utils.js";
 
@@ -133,7 +133,7 @@ export async function detectAllPorts(): Promise<{
 }> {
   const projects = listProjects();
   const statusMap = new Map(
-    readAllStatuses().map((status) => [status.project, status.state]),
+    readAllStatuses({ reconcile: true }).map((status) => [status.project, status.state]),
   );
 
   const entries = [...projects];

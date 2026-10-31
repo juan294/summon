@@ -29,9 +29,9 @@ vi.mock("./paths.js", () => ({
 }));
 
 const { bootstrapLine, cleanupTrapLine, launchArtifactPaths, registerSelfInvocation, clearSelfInvocation } = await import("./launch-identity.js");
-const { writeStatus, readStatusRecord } = await import("./status.js");
+const { writeStatus, readStatusRecord } = await import("./status-record.js");
 const { gitSafeEnv } = await import("./utils.js");
-import type { WorkspaceStatus } from "./status.js";
+import type { WorkspaceStatus } from "./status-record.js";
 
 const GEN_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const GEN_B = "bbbbbbbb-bbbb-4bbb-9bbb-bbbbbbbbbbbb";

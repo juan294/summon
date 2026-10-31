@@ -1,21 +1,22 @@
+/**
+ * Status reader over both backends (plan P10): the four states of every recorded workspace and the
+ * unverified-launch rows of manifests without a record. A read writes nothing unless it asks to
+ * reconcile (`{ reconcile: true }`); the writing Rex steps (adoption, pane refresh, end of a launch)
+ * live in backends/rex/reconcile.ts. The record layer is status-record.ts, imported directly.
+ */
 import { existsSync, readdirSync } from "node:fs";
 import { STATUS_DIR } from "./paths.js";
-import { gitOutput, getErrorMessage } from "./utils.js";
-import { launchArtifactFiles, launchFileList, listLaunchManifests, readLaunchManifest } from "./launch-identity.js";
-import type { LaunchFileSet } from "./launch-identity.js";
-import { collectSnapshot, writeSnapshotFile } from "./snapshot.js";
+import { gitOutput } from "./utils.js";
+import { listLaunchManifests } from "./launch-identity.js";
 import type { RexIdentity } from "./backends/rex/types.js";
 import { createRexCli, discoverRex } from "./backends/rex/cli.js";
 import type { RexCli } from "./backends/rex/cli.js";
-import { NO_LIVE_PANES, SESSION_GONE, listSessions, programStatusOf, sessionState } from "./backends/rex/status.js";
+import { NO_LIVE_PANES, listSessions, programStatusOf, sessionState } from "./backends/rex/status.js";
 import type { ProgramStatus, SessionListing } from "./backends/rex/status.js";
 import type { NativeFailure } from "./ghostty-native.js";
-import { adoptDeps, adoptOrphans, refreshPaneMapping } from "./backends/rex/launch.js";
-import { RecordWriteError, ghosttyLiveness, isLiveState, readStatusRecord, removeLaunchFileSet, rexIdentityMissing, withOwnedRecord } from "./status-record.js";
+import { adoptOnce, reconcileStoppedLaunch, refreshUnverifiedPanes } from "./backends/rex/reconcile.js";
+import { ghosttyLiveness, isLiveState, readStatusRecord, rexIdentityMissing, unverifiedPanes } from "./status-record.js";
 import type { WorkspaceState, WorkspaceStatus } from "./status-record.js";
-
-// The record layer (types, parser, locked writes) lives in status-record.ts; every consumer keeps importing it from here.
-export * from "./status-record.js";
 
 export const REX_CLI_MISSING = "rex CLI not found; open the Rex app once or set REX_BIN_DIR.";
 
@@ -45,23 +46,33 @@ export interface ResolvedStatus extends Omit<WorkspaceStatus, "pid"> {
   programStatus?: ProgramStatus;
 }
 
+export interface ReadOptions {
+  /** Read the root pane's program status for live rows (one more `rex` call per row; the monitor and `inspect` want it). */
+  programStatus?: boolean;
+  /**
+   * Run the Rex reconciliation steps (backends/rex/reconcile.ts): late adoption, the pane-file refresh
+   * and the end of a launch that ended outside Summon, each of which may write the record, save a
+   * snapshot and remove launch files. Without it a read writes nothing.
+   */
+  reconcile?: boolean;
+}
+
 /**
  * Per-read Rex context (plan P10 "grouped by server"): each server is listed once per read and
  * each project is adopted at most once; `readAllStatuses` shares one context across its rows.
  */
-export interface RexReadContext {
+interface RexReadContext extends ReadOptions {
   listings: Map<string, SessionListing>;
   adopted: Set<string>;
-  /** Read the root pane's program status for live rows (one more `rex` call per row; the monitor and `inspect` want it). */
-  programStatus?: boolean;
 }
 
-export interface ReadOptions {
-  programStatus?: boolean;
-}
-
-export function newRexReadContext(options: ReadOptions = {}): RexReadContext {
-  return { listings: new Map(), adopted: new Set(), ...(options.programStatus ? { programStatus: true } : {}) };
+function newRexReadContext(options: ReadOptions): RexReadContext {
+  return {
+    listings: new Map(),
+    adopted: new Set(),
+    ...(options.programStatus ? { programStatus: true } : {}),
+    ...(options.reconcile ? { reconcile: true } : {}),
+  };
 }
 
 let rexBinaryMemo: string | null | undefined;
@@ -90,34 +101,23 @@ export function resetRexBinaryMemo(): void {
   rexBinaryMemo = undefined;
 }
 
-/** Late adoption (P13) for a project, once per read context. */
-function adoptOnce(projectName: string, binary: string, ctx: RexReadContext): string[] {
-  if (ctx.adopted.has(projectName)) return [];
-  ctx.adopted.add(projectName);
-  return adoptOrphans(projectName, adoptDeps(binary));
-}
-
-/** A recorded pane whose block is not known yet (its pane file had not appeared when last looked). */
-function unverifiedPanes(record: WorkspaceStatus): number {
-  return record.panes.length - (record.rex?.blocks.length ?? 0);
-}
-
 function unknownRow(record: Omit<WorkspaceStatus, "pid"> & { pid: number | null }, reason: string, notices: string[] = []): ResolvedStatus {
   return { ...record, state: "unknown", uptime: null, reason, ...(notices.length > 0 ? { notices } : {}) };
 }
 
 /**
- * A Rex record's state through `sessionState` (never a sidecar): late adoption first (P13), then
- * one generation resolved at a time. A re-read that shows another launch's generation (published
- * while this one was refreshed or reconciled) resolves that generation afresh instead of pairing
- * its record with the state probed for the old one; a second supersession is `unknown`.
+ * A Rex record's state through `sessionState` (never a sidecar): late adoption first when the read
+ * reconciles (P13), then one generation resolved at a time. A re-read that shows another launch's
+ * generation (published while this one was refreshed or reconciled) resolves that generation
+ * afresh instead of pairing its record with the state probed for the old one; a second
+ * supersession is `unknown`.
  */
 function resolveRexStatus(projectName: string, record: WorkspaceStatus, ctx: RexReadContext): ResolvedStatus {
   // An identity that parseWorkspaceStatus discarded cannot be verified; adoption would read it back through this resolver.
   if (!record.rex) return unknownRow(record, rexIdentityMissing(projectName));
   const binary = rexBinaryPath();
   if (!binary) return unknownRow(record, REX_CLI_MISSING);
-  const notices = [...adoptOnce(projectName, binary, ctx)];
+  const notices = ctx.reconcile ? [...adoptOnce(projectName, binary, ctx.adopted)] : [];
   let current = notices.length > 0 ? readStatusRecord(projectName) ?? record : record;
   for (let attempt = 0; attempt < 2; attempt++) {
     // The newer generation belongs to whichever backend launched it.
@@ -146,23 +146,18 @@ function resolveGhosttyStatus(projectName: string, record: WorkspaceStatus, noti
 type GenerationResult = { kind: "resolved"; status: ResolvedStatus } | { kind: "superseded"; record: WorkspaceStatus };
 
 /**
- * One generation of a Rex record: the pane-file refresh for a record with unverified panes (P13
- * next-read recovery, whatever state the probe then finds), the state probe over the refreshed
- * identity, then reconciliation of a stopped launch. Every re-read after a generation-bound write
- * must still carry this generation; otherwise the newer record is handed back unresolved.
+ * One generation of a Rex record: when the read reconciles, the pane-file refresh for a record with
+ * unverified panes (P13 next-read recovery, whatever state the probe then finds); the state probe
+ * over that identity; then, when the read reconciles, the end of a stopped launch. Every re-read
+ * after a generation-bound write must still carry this generation; otherwise the newer record is
+ * handed back unresolved.
  */
 function resolveRexGeneration(projectName: string, record: WorkspaceStatus, binary: string, ctx: RexReadContext, notices: string[]): GenerationResult {
-  const gen = record.launchId;
   let current = record;
-  // An ended generation never gains pane files; a live or stopped one with unverified panes is refreshed before the probe.
-  if (gen && record.rex && !record.endedAt && unverifiedPanes(record) > 0) {
-    const refreshed = refreshPaneMapping(record);
-    notices.push(...refreshed.notices);
-    if (refreshed.changed) {
-      const latest = readStatusRecord(projectName) ?? record;
-      if (latest.launchId !== gen) return { kind: "superseded", record: latest };
-      current = latest;
-    }
+  if (ctx.reconcile) {
+    const refreshed = refreshUnverifiedPanes(projectName, current, notices);
+    if (refreshed.kind === "superseded") return refreshed;
+    current = refreshed.record;
   }
   const identity = current.rex;
   if (!identity) return { kind: "resolved", status: unknownRow(current, rexIdentityMissing(projectName), notices) };
@@ -176,15 +171,10 @@ function resolveRexGeneration(projectName: string, record: WorkspaceStatus, bina
   // Blocks remain and a recorded pane is unverified: one of them may be ours, so the launch is not ended here (P13 next-read recovery).
   const unverified = state.reason === NO_LIVE_PANES ? unverifiedPanes(current) : 0;
   const reason = unverified > 0 ? `${state.reason}; ${unverified} pane${unverified === 1 ? "" : "s"} unverified` : state.reason;
-  if (state.state === "stopped" && gen && unverified === 0) {
-    const confirmedGone = state.reason === SESSION_GONE;
-    if (needsReconciliation(current, () => removableLaunchFiles(projectName, current, gen, confirmedGone))) {
-      const notice = endRexLaunch(projectName, current, { confirmedGone });
-      if (notice) notices.push(notice);
-      const latest = readStatusRecord(projectName) ?? current;
-      if (latest.launchId !== gen) return { kind: "superseded", record: latest };
-      current = latest;
-    }
+  if (ctx.reconcile) {
+    const ended = reconcileStoppedLaunch(projectName, current, state, unverified, notices);
+    if (ended.kind === "superseded") return ended;
+    current = ended.record;
   }
   const started = Date.parse(current.startedAt);
   // `active` is exactly "the root block is present" (state table); the program status is read on request only.
@@ -203,18 +193,23 @@ function resolveRexGeneration(projectName: string, record: WorkspaceStatus, bina
   };
 }
 
-export function readStatus(projectName: string, ctx: RexReadContext = newRexReadContext()): ResolvedStatus | null {
+function resolveStatus(projectName: string, ctx: RexReadContext): ResolvedStatus | null {
   const status = readStatusRecord(projectName);
   if (!status) return null;
 
   return status.backend === "rex" ? resolveRexStatus(projectName, status, ctx) : resolveGhosttyStatus(projectName, status);
 }
 
+/** One project's recorded status; `{ reconcile: true }` lets the read adopt, refresh and end Rex launches. */
+export function readStatus(projectName: string, options: ReadOptions = {}): ResolvedStatus | null {
+  return resolveStatus(projectName, newRexReadContext(options));
+}
+
 const UNVERIFIED_LAUNCH = "unverified launch";
 
 /**
  * Launches that have a manifest but no record (unknown creation outcome, plan P13 §6).
- * Phase 3 resolves them through adoption; here they are surfaced so `summon status` can
+ * A reconciling read first tries adoption; either way they are surfaced so `summon status` can
  * list them and never hide a session Summon may have created.
  */
 function unverifiedLaunchRows(launchDirProjects: string[], recordedProjects: Set<string>, ctx: RexReadContext): ResolvedStatus[] {
@@ -228,11 +223,11 @@ function unverifiedLaunchRows(launchDirProjects: string[], recordedProjects: Set
       continue;
     }
     if (manifests.length === 0) continue;
-    // Late adoption (P13) may publish a record for a launch whose outcome was unknown.
+    // Late adoption (P13, reconciling reads only) may publish a record for a launch whose outcome was unknown.
     const binary = manifests.some((m) => m.backend === "rex") ? rexBinaryPath() : null;
-    const notices = binary ? adoptOnce(projectName, binary, ctx) : [];
+    const notices = binary && ctx.reconcile ? adoptOnce(projectName, binary, ctx.adopted) : [];
     if (binary && readStatusRecord(projectName)) {
-      const adopted = readStatus(projectName, ctx);
+      const adopted = resolveStatus(projectName, ctx);
       if (adopted) {
         rows.push({ ...adopted, ...(notices.length > 0 ? { notices: [...notices, ...(adopted.notices ?? [])] } : {}) });
         continue;
@@ -258,10 +253,11 @@ function unverifiedLaunchRows(launchDirProjects: string[], recordedProjects: Set
 
 /**
  * One project's status as `readAllStatuses` would list it: its record, or the unverified-launch row
- * of a manifest without a record (after one late-adoption attempt), or null when there is nothing.
+ * of a manifest without a record (after one late-adoption attempt when the read reconciles), or null when there is nothing.
  */
-export function readProjectStatus(projectName: string, ctx: RexReadContext = newRexReadContext()): ResolvedStatus | null {
-  return readStatus(projectName, ctx) ?? unverifiedLaunchRows([projectName], new Set(), ctx)[0] ?? null;
+export function readProjectStatus(projectName: string, options: ReadOptions = {}): ResolvedStatus | null {
+  const ctx = newRexReadContext(options);
+  return resolveStatus(projectName, ctx) ?? unverifiedLaunchRows([projectName], new Set(), ctx)[0] ?? null;
 }
 
 /** The projects with a record and the projects with a launches directory, from one listing of STATUS_DIR. */
@@ -295,6 +291,7 @@ export function hasRexState(): boolean {
   });
 }
 
+/** Every recorded workspace and unverified launch, live rows first; `{ reconcile: true }` as for `readStatus`. */
 export function readAllStatuses(options: ReadOptions = {}): ResolvedStatus[] {
   const { recorded, launchDirProjects } = scanStatusDir();
   const statuses: ResolvedStatus[] = [];
@@ -302,7 +299,7 @@ export function readAllStatuses(options: ReadOptions = {}): ResolvedStatus[] {
 
   const recordedProjects = new Set(recorded);
   for (const projectName of recorded) {
-    const status = readStatus(projectName, ctx);
+    const status = resolveStatus(projectName, ctx);
     if (status) statuses.push(status);
   }
   statuses.push(...unverifiedLaunchRows(launchDirProjects, recordedProjects, ctx));
@@ -345,81 +342,4 @@ export function rexCommandGate(project: string, status: ResolvedStatus): RexComm
   const binary = rexBinaryPath();
   if (!binary) return { ok: false, failure: { kind: "unavailable", code: "unavailable", reason: REX_CLI_MISSING } };
   return { ok: true, cli: createRexCli(binary, identity.server), identity, liveBlocks: status.liveBlocks ?? [] };
-}
-
-// --- Reconciliation of ended Rex launches (plan P12, phase-5.md) ---
-
-export { NO_LIVE_PANES, SESSION_GONE } from "./backends/rex/status.js";
-
-/** Step A (the snapshot) failed; the record write failure is `RecordWriteError`, anything else comes from the lock. */
-class SnapshotStepFailure extends Error {}
-
-/** The files the end-of-launch steps remove for this record: always the sidecars; the session files only once the session is confirmed gone. */
-function removableLaunchFiles(project: string, record: WorkspaceStatus, launchId: string, confirmedGone: boolean): LaunchFileSet {
-  const panes = readLaunchManifest(project, launchId)?.paneOrder ?? record.panes;
-  const files = launchArtifactFiles(project, launchId, panes);
-  return confirmedGone ? files : { liveness: files.liveness, panes: [] };
-}
-
-/** Rule 1 of the reconciliation: no `endedAt` yet, or `endedAt` with removable per-launch files left behind (the set is built only then). */
-function needsReconciliation(record: WorkspaceStatus, files: () => LaunchFileSet): boolean {
-  if (!record.launchId) return false;
-  if (!record.endedAt) return true;
-  return launchFileList(files()).some((file) => existsSync(file));
-}
-
-export interface EndLaunchOptions {
-  /** The session is confirmed gone on the record's server: the manifest and pane files may go too. */
-  confirmedGone: boolean;
-  /** How the notice names the event (default: a workspace that ended outside Summon). */
-  label?: string;
-}
-
-/**
- * Ordered, idempotent end-of-launch steps for the record's own generation: A snapshot (collected
- * before the lock, written inside it), B `endedAt` on the record, C removal of this launch's
- * files (`afterWrite`, still under the lock). The lock excludes other writers; the steps are not
- * all-or-nothing, so a later read completes whatever is left (`endedAt` present skips A and B;
- * `afterWrite` retries C). Returns the notice to show, if any. Shared by the readers (a
- * workspace that ended outside Summon) and `summon clean`.
- */
-export function endRexLaunch(project: string, record: WorkspaceStatus, options: EndLaunchOptions): string | undefined {
-  const gen = record.launchId;
-  if (!gen) return undefined;
-  const label = options.label ?? "workspace ended outside Summon";
-  const files = removableLaunchFiles(project, record, gen, options.confirmedGone);
-  const completed: string[] = [];
-  const fileFailures: string[] = [];
-  let snapshot: ReturnType<typeof collectSnapshot>;
-  try {
-    snapshot = record.endedAt ? null : collectSnapshot(project, record.directory, record.layout);
-  } catch (error) {
-    return `${label}; snapshot failed: ${getErrorMessage(error)}; will retry on the next read`;
-  }
-  try {
-    const { outcome } = withOwnedRecord(
-      project,
-      { launchId: gen },
-      (current) => {
-        if (!current || current.endedAt) return null;
-        try {
-          if (snapshot) writeSnapshotFile(snapshot);
-        } catch (error) {
-          throw new SnapshotStepFailure(getErrorMessage(error));
-        }
-        completed.push(snapshot ? `snapshot saved ${snapshot.timestamp}` : "snapshot skipped (no git repository)");
-        return { ...current, endedAt: new Date().toISOString() };
-      },
-      (_outcome, final) => {
-        if (final?.endedAt) fileFailures.push(...removeLaunchFileSet(files).failures);
-      },
-    );
-    if (outcome === "superseded") return undefined;
-    const fileNote = fileFailures.length > 0 ? `${fileFailures.length} launch ${fileFailures.length === 1 ? "file" : "files"} of [${project}] ${outcome === "unchanged" ? "still " : ""}could not be removed: ${fileFailures[0]}; will retry` : undefined;
-    if (outcome === "unchanged") return fileNote;
-    return [label, ...completed, ...(fileNote ? [fileNote] : [])].join("; ");
-  } catch (error) {
-    const step = error instanceof SnapshotStepFailure ? "snapshot" : error instanceof RecordWriteError ? "record" : "lock";
-    return [label, ...completed, `${step} failed: ${getErrorMessage(error)}`, "will retry on the next read"].join("; ");
-  }
 }

@@ -68,16 +68,12 @@ vi.mock("./backends/rex/cli.js", () => ({
   discoverRex: vi.fn(() => ({ path: "/usr/local/bin/rex", searched: ["PATH"] })),
 }));
 
-// Mock status module (write is a no-op in tests)
-const mockReadStatus = vi.fn();
+// Mock the record layer (write is a no-op in tests); the launch path never loads the status reader.
 const mockReadStatusRecord = vi.fn((_project: string): unknown => null);
-vi.mock("./status.js", () => ({
+vi.mock("./status-record.js", () => ({
   publishStatus: vi.fn(() => "published"),
-  readStatus: (...args: unknown[]) => mockReadStatus(...args),
   readStatusRecord: (project: string) => mockReadStatusRecord(project),
   isLiveState: (state: string) => state === "active" || state === "partial",
-  unverifiedMessage: (project: string, reason?: string) => `[${project}] could not be verified: ${reason ?? "no liveness information"}.`,
-  rexCommandGate: vi.fn(() => ({ ok: false, failure: { kind: "unavailable", code: "unavailable", reason: "mock gate" } })),
 }));
 
 // Mock starship
@@ -179,7 +175,6 @@ let savedSummonWorkspace: string | undefined;
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockReadStatus.mockReturnValue(null);
   mockReadStatusRecord.mockReturnValue(null);
   mockAdoptOrphansForLaunch.mockReturnValue([]);
   mockMaybeSwitch.mockReturnValue({ kind: "proceed" });
@@ -3682,31 +3677,6 @@ describe("SE-M1: every .summon read is content-pinned", () => {
     expect(mockExecSync.mock.calls.flat()).not.toContain("touch /tmp/pwned");
   });
 
-  it("readTrustedSummonFile reads once, with no existence check: a missing or unreadable file is checked as no file", async () => {
-    const fs = await import("node:fs");
-    vi.mocked(fs.existsSync).mockClear();
-    for (const code of ["ENOENT", "EISDIR"]) {
-      mockAssertTrusted.mockClear();
-      mockAssertTrustedContent.mockClear();
-      vi.mocked(fs.readFileSync).mockImplementationOnce(() => { throw Object.assign(new Error(code), { code }); });
-      expect(readTrustedSummonFile("/tmp/workspace", {})).toBe("");
-      expect(mockAssertTrusted).toHaveBeenCalledWith("/tmp/workspace");
-      expect(mockAssertTrustedContent).not.toHaveBeenCalled();
-    }
-    expect(vi.mocked(fs.existsSync)).not.toHaveBeenCalledWith(SUMMON);
-  });
-
-  it("readTrustedSummonFile returns the checked bytes, skips with --no-project-config and propagates a refusal", async () => {
-    const { SummonError } = await import("./trust.js");
-    summonContent = "editor=nvim\n";
-    expect(readTrustedSummonFile("/tmp/workspace", {})).toBe("editor=nvim\n");
-    expect(mockAssertTrustedContent).toHaveBeenCalledWith("/tmp/workspace", "editor=nvim\n");
-    mockAssertTrustedContent.mockClear();
-    expect(readTrustedSummonFile("/tmp/workspace", { "no-project-config": "true" })).toBeUndefined();
-    expect(mockAssertTrustedContent).not.toHaveBeenCalled();
-    mockAssertTrustedContent.mockImplementation(() => { throw new SummonError("untrusted"); });
-    expect(() => readTrustedSummonFile("/tmp/workspace", {})).toThrow(SummonError);
-  });
 });
 
 // --- UX-L2 (#519): single-launch spinner ---
@@ -3854,7 +3824,7 @@ describe("UX-L2 (#519): single-launch spinner", () => {
 describe("P2 capture failure isolation",()=>{
   const id="00000000-0000-4000-8000-000000000001";
   it.each(["", "SUMMON_NATIVE_UNAVAILABLE", "SUMMON_NATIVE_V1\ninvalid", "x".repeat(65537)])("launch stays successful for invalid capture",async output=>{
-    const status=await import("./status.js");
+    const status=await import("./status-record.js");
     mockExecFileSync.mockImplementation((bin:string,args:string[],opts?:{input?:string})=> bin === "/usr/bin/which" ? "/usr/bin/stub\n" : opts?.input ? output : "");
     await expect(launch("/tmp/workspace",{layout:"minimal"})).resolves.toBe("launched");
     expect(status.publishStatus).toHaveBeenCalledWith(expect.objectContaining({project:"workspace",version:1}));
@@ -3862,7 +3832,7 @@ describe("P2 capture failure isolation",()=>{
     expect(mockExecFileSync.mock.calls.filter(c=>/close (window|tab) /.test(String(c[2]?.input)))).toHaveLength(0);
   });
   it("maps successful capture and warns without throwing on status write failure",async()=>{
-    const status=await import("./status.js"); const err=vi.spyOn(process.stderr,"write").mockImplementation(()=>true);
+    const status=await import("./status-record.js"); const err=vi.spyOn(process.stderr,"write").mockImplementation(()=>true);
     mockExecFileSync.mockImplementation((bin:string,args:string[],opts?:{input?:string})=>bin === "/usr/bin/which" ? "/usr/bin/stub\n" : opts?.input ? `SUMMON_NATIVE_V1\n${id}\n00000000-0000-4000-8000-000000000002\n` : "");
     vi.mocked(status.publishStatus).mockReturnValueOnce("discarded");
     await expect(launch("/tmp/workspace",{layout:"minimal"})).resolves.toBe("launched");
@@ -3876,7 +3846,7 @@ describe("P2 capture failure isolation",()=>{
   });
 });
 
-const statusModule = await import("./status.js");
+const statusModule = await import("./status-record.js");
 
 describe("backend seam (plan P15, Phase 1)", () => {
   const status = statusModule;

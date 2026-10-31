@@ -39,9 +39,10 @@ vi.mock("../snapshot.js", async (original) => ({
 }));
 
 const { handleCleanCommand } = await import("./clean.js");
-const { writeStatus, readStatusRecord, resetRexBinaryMemo } = await import("../status.js");
+const { writeStatus, readStatusRecord } = await import("../status-record.js");
+const { resetRexBinaryMemo } = await import("../status.js");
 const { writeLaunchManifest, launchArtifactPaths } = await import("../launch-identity.js");
-type WorkspaceStatus = import("../status.js").WorkspaceStatus;
+type WorkspaceStatus = import("../status-record.js").WorkspaceStatus;
 type LaunchManifest = import("../launch-identity.js").LaunchManifest;
 
 const GEN = "0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f";

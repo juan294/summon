@@ -38,7 +38,7 @@ const mockCollectSnapshot = vi.fn();
 const mockWriteSnapshotFile = vi.fn();
 const mockWithOwnedRecord = vi.fn();
 
-vi.mock("../status.js", () => ({
+vi.mock("../status-record.js", () => ({
   isLiveState: (state: string) => state === "active" || state === "partial",
   withOwnedRecord: (...args: unknown[]) => mockWithOwnedRecord(...args),
 }));

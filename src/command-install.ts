@@ -8,11 +8,6 @@ import { resolveCommand as resolveCommandPath, describeCommandFailure, promptUse
 import type { CommandFailureKind } from "./utils.js";
 import { fail, err } from "./ui/output.js";
 
-async function prompt(question: string): Promise<string> {
-  const answer = await promptUser(question);
-  return answer.toLowerCase();
-}
-
 const KNOWN_INSTALL_COMMANDS: Record<string, () => [string, string[]] | null> = {
   claude: () => ["npm", ["install", "-g", "@anthropic-ai/claude-code"]],
   lazygit: () => {
@@ -99,7 +94,7 @@ export async function ensureCommand(cmd: string, hint: string): Promise<string> 
   const installDisplay = [installBin, ...installArgs].join(" ");
 
   console.log(`\`${cmd}\` is not installed on this machine.`);
-  const answer = await prompt(`Install it now with \`${installDisplay}\`? [y/N] `);
+  const answer = (await promptUser(`Install it now with \`${installDisplay}\`? [y/N] `)).toLowerCase();
 
   if (answer !== "y" && answer !== "yes") {
     console.log(`Exiting — \`${cmd}\` is needed for this workspace layout. To use another command, ${hint}`);

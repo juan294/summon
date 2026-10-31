@@ -12,7 +12,7 @@ import { PROJECT_NAME_RE } from "./validation.js";
 /** Resolve a recorded exact UUID without activating or querying the application. */
 export function resolveWorkspaceTerminal(projectName: string, paneName?: string, status?: ResolvedStatus | null): { kind: "target"; terminalId: string } | NativeFailure {
   if (!PROJECT_NAME_RE.test(projectName)) return { kind: "unavailable", code: "missing", reason: "Invalid project name. Run summon inspect <project>." };
-  if (status === undefined) status = readStatus(projectName);
+  if (status === undefined) status = readStatus(projectName, { reconcile: true });
   if (status?.backend === "rex") return { kind: "unavailable", code: "missing", reason: `[${projectName}] runs in Rex; its panes are Rex blocks, not Ghostty terminals. Run summon inspect ${projectName}.` };
   if (!status?.native) return { kind: "unavailable", code: "missing", reason: "Exact native identity is unavailable. Select in Ghostty or explicitly relaunch when ready to capture identity; run summon inspect <project>." };
   const terminalId = paneName === undefined ? status.native.rootTerminalId : status.native.panes.find(p => p.name === paneName)?.terminalId;
@@ -26,7 +26,7 @@ export function resolveWorkspaceTerminal(projectName: string, paneName?: string,
  * caller's session is preferred (P7).
  */
 export function focusWorkspace(projectName: string, paneName?: string): FocusResult {
-  const status = PROJECT_NAME_RE.test(projectName) ? readStatus(projectName) : null;
+  const status = PROJECT_NAME_RE.test(projectName) ? readStatus(projectName, { reconcile: true }) : null;
   if (status?.backend === "rex") {
     const gate = rexCommandGate(projectName, status);
     if (!gate.ok) return gate.failure;

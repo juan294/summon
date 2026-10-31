@@ -14,15 +14,15 @@ Technical reference for contributors.
 | `commands/layout.ts` | `handleLayoutCommand` — create/save/list/show/delete/edit | yes | config, layout, utils, ui/layout-preview |
 | `commands/layout-support.ts` | Shared layout validation helpers — `validateLayoutOrExit`, `validateLayoutNameOrExit`, `layoutNotFoundOrExit` | yes | config, layout, utils |
 | `commands/project.ts` | `handleAddCommand`, `handleListCommand`, `handleOpenCommand`, `handleRemoveCommand` | yes | config, workspace-focus, launcher (dynamic, only to launch), trust, utils, validation, status |
-| `commands/runtime.ts` | `handleStatusCommand`, `handleSnapshotCommand`, `handleBriefingCommand`, `handlePortsCommand` | yes | monitor, snapshot, briefing, ports, utils |
+| `commands/runtime.ts` | `handleStatusCommand`, `handleSnapshotCommand`, `handleBriefingCommand`, `handlePortsCommand` | yes | monitor, snapshot, briefing, ports, status-record, utils |
 | `commands/setup.ts` | `handleCompletionsCommand`, `handleKeybindingsCommand`, `handleSetupCommand` | yes | config-resolve, layout, completions, keybindings, setup |
 | `commands/types.ts` | `CommandHandler` and `CommandContext` interfaces | **pure** | none |
 | `cli/resolve-target.ts` | Resolves the launch target directory from a project name, path, or `.` — `resolveTargetDirectory`, `expandHome`; "Did you mean" hint on a mistyped name | yes | config, status-record, cli/suggest, node:path, node:os |
 | `ui/symbols.ts` | Canonical glyph vocabulary — `sym.ok`, `sym.warn`, `sym.fail`, `sym.info`, `sym.bullet` | **pure** | none |
-| `launcher.ts` | Orchestrator `launch()`: trust and config (through config-resolve), backend resolution (seam), Rex adoption and switch, wizard, nested-workspace and pane-count checks, on-start, dispatch to a backend or the dry run, status publication | yes | config, config-resolve, command-install, dry-run, layout, tree, utils, validation, starship, status, launch-guards, trust, command-spec, launch-identity, ui/output, backend, backends/* |
+| `launcher.ts` | Orchestrator `launch()`: trust and config (through config-resolve), backend resolution (seam), Rex adoption and switch, wizard, nested-workspace and pane-count checks, on-start, dispatch to a backend or the dry run, status publication | yes | config, config-resolve, command-install, dry-run, layout, tree, utils, validation, starship, status-record, launch-guards, trust, command-spec, launch-identity, ui/output, backend, backends/* |
 | `config-resolve.ts` | Config layering (CLI > project > global > preset > defaults) — `resolveConfig`, `readTrustedSummonFile` (one trusted `.summon` read), `optsToConfigMap`, `pickConfigValue`, `CLIOverrides`, env-var collection and the env-key denylist | yes | config, layout, tree, trust, validation, ui/output |
-| `command-install.ts` | Command checks for a launch — `checkCommand` (no side effects), `ensureCommand` (stop or install prompt), `commandFixHint`, `KNOWN_INSTALL_COMMANDS` | yes | utils, backends/rex/launcher-tab, ui/output |
-| `dry-run.ts` | Dry-run output for both backends — `printTraditionalDryRun`, `printTreeDryRun`: header, AppleScript or Rex `session.create` request, Ghostty command notes | yes | script, status, backend, backends/ghostty, backends/rex/layout, starship, command-spec, command-install, ui/output |
+| `command-install.ts` | Command checks for a launch — `checkCommand` (no side effects), `ensureCommand` (stop, or offer the install method of a known tool), `commandFixHint` | yes | utils, backends/rex/launcher-tab, ui/output |
+| `dry-run.ts` | Dry-run output for both backends — `printTraditionalDryRun`, `printTreeDryRun`: header, AppleScript or Rex `session.create` request, Ghostty command notes | yes | script, status-record, backends/ghostty, backends/rex/layout, starship, command-spec, command-install, ui/output |
 | `workspace-focus.ts` | `focusWorkspace`, `resolveWorkspaceTerminal` — focus a recorded workspace on either backend without the launch path | yes | status, backends/rex/status, ghostty-native, validation |
 | `backend.ts` | `BackendId`, `isBackendId`, `LaunchContext`, `resolveBackendForLaunch` (one `rex` lookup per detection), `callerRexSession`, `REX_UNHONORED_FLAGS`, `GHOSTTY_ONLY_CONFIG_KEYS` | yes | backend-detect, backends/rex/cli, utils |
 | `backend-detect.ts` | Pure backend detection table over an env snapshot plus injected probes (`detectBackend`, `snapshotEnv`) | **pure** | none |
@@ -34,13 +34,14 @@ Technical reference for contributors.
 | `backends/rex/app.ts` | App client listing and choice, `selectInApp`, `waitForAppClient`, `openRexApp` | yes | cli |
 | `backends/rex/launch.ts` | `createWorkspace`, `adoptOrphans`, `showWorkspace`, `maybeSwitchToExisting`, pane mapping | yes | cli, app, status, types, status-record, launch-identity, shell-escape, ui/output |
 | `backends/rex/status.ts` | `sessionState` (four-state table), `focusRex`, `inspectRex`, `titleRex`, program status | yes | cli, errors, app, types |
+| `backends/rex/reconcile.ts` | The writing steps of a reconciling status read: `adoptOnce` (late adoption, once per read), `refreshUnverifiedPanes`, `reconcileStoppedLaunch`, `endRexLaunch` (snapshot, `endedAt`, file removal under the lock; also called by `summon clean`) | yes | launch, status, status-record, launch-identity, snapshot, utils |
 | `backends/rex/backend.ts` | `createRexBackend` — the Rex `Backend` adapter | yes | layout, launch, cli, app, ui/output, ui/symbols |
 | `status-record.ts` | Record layer — `WorkspaceStatus`, `readStatusRecord`, `withOwnedRecord` (locked, ownership-checked writes), `writeStatus`, `publishStatus`, artifact removal, Ghostty liveness | yes | paths, file-lock, launch-identity, backend, backends/rex/types, pane-inventory, utils |
 | `launch-identity.ts` | Per-launch ids and artifact paths, bootstrap/trap shell fragments, launch manifests | yes | paths, shell-escape, self, backend, tree, utils |
 | `file-lock.ts` | `withFileLock`: cross-process lock (directory rename, dead-owner recovery) for config and status records | yes | Node stdlib only |
 | `self.ts` | How this process was started (node binary, resolved script), registered by `index.ts` so the cleanup trap runs the same Summon (`registerSelfInvocation`, `selfInvocation`) | yes | none |
-| `commands/workspace.ts` | `handleFocusCommand`, `handleInspectCommand`, `handleTitleCommand` — per-backend | yes | workspace-focus, status, backends/rex/status, ghostty-native |
-| `commands/clean.ts` | `handleCleanCommand` — close an empty Rex session, review earlier launches | yes | status, status-record, launch-identity, backends/rex/*, validation, shell-escape, ui/output |
+| `commands/workspace.ts` | `handleFocusCommand`, `handleInspectCommand`, `handleTitleCommand` — per-backend | yes | workspace-focus, status, status-record, backends/rex/status, ghostty-native |
+| `commands/clean.ts` | `handleCleanCommand` — close an empty Rex session, review earlier launches | yes | status, status-record, launch-identity, backends/rex/* (reconcile for `endRexLaunch`), validation, shell-escape, ui/output |
 | `cli/suggest.ts` | `suggestProjects` — "did you mean" ranking (prefix, subsequence, edit distance, lazy recency lookup) | **pure** | edit-distance |
 | `edit-distance.ts` | `editDistance` — optimal string alignment distance shared by `setup.ts` and `cli/suggest.ts` | **pure** | none |
 | `launch-guards.ts` | Pre-launch safety checks — `ensureGhostty`, `ensureAccessibility`, `confirmDangerousCommands` (extracted from launcher.ts) | yes | utils, command-spec, ui/output |
@@ -63,10 +64,10 @@ Technical reference for contributors.
 | `completions.ts` | Shell completion script generator (zsh, bash, fish) | **pure** | config, layout |
 | `starship.ts` | Starship detection, preset listing, TOML config caching | yes | paths, utils |
 | `tree.ts` | Tree data model, DSL parser, plan builder (pure — no side effects) | **pure** | layout |
-| `status.ts` | Status reader over both backends: `readStatus`/`readAllStatuses` (`active`/`partial`/`stopped`/`unknown`), Rex adoption and reconciliation, `endRexLaunch`, git branch lookup; re-exports `status-record.ts` | yes | status-record, launch-identity, snapshot, backends/rex/cli, backends/rex/status, backends/rex/launch, paths, utils |
-| `briefing.ts` | Morning project briefing — overnight commits, dirty files, recommendations | yes | config, status, ui/ansi |
-| `monitor.ts` | Interactive TUI dashboard — real-time workspace status with keyboard navigation | yes | status, config, ui/ansi, workspace-focus and launcher (dynamic, on Enter) |
-| `ports.ts` | Port detection — scans `.summon` env vars, `package.json`, framework configs for port assignments | yes | config, status, trust, utils |
+| `status.ts` | Status reader over both backends: `readStatus`/`readProjectStatus`/`readAllStatuses` (`active`/`partial`/`stopped`/`unknown`), `hasRexState`, `rexCommandGate`, git branch lookup. A read writes nothing unless it passes `{ reconcile: true }`, which runs the steps of `backends/rex/reconcile.ts`; every status command passes it. No re-export of `status-record.ts` | yes | status-record, launch-identity, backends/rex/cli, backends/rex/status, backends/rex/reconcile, paths, utils |
+| `briefing.ts` | Morning project briefing — overnight commits, dirty files, recommendations | yes | config, status, status-record, ui/ansi |
+| `monitor.ts` | Interactive TUI dashboard — real-time workspace status with keyboard navigation | yes | status, status-record, config, ui/ansi, workspace-focus, launcher and trust (dynamic, on Enter) |
+| `ports.ts` | Port detection — scans `.summon` env vars, `package.json`, framework configs for port assignments | yes | config, status, status-record, trust, utils |
 | `snapshot.ts` | Context snapshot save/restore — git branch, dirty files, recent commits, layout | yes | paths |
 | `keybindings.ts` | Ghostty key table config generator (pure function) | **pure** | none |
 | `validation.ts` | Input validation helpers (`ENV_KEY_RE`, `parseIntInRange`, `parsePositiveFloat`, `validateProjectNameOrExit`) | **pure** | utils |
@@ -108,6 +109,7 @@ graph TD
     cmds --> utils
     cmds --> validation
     cmds --> status[status.ts]
+    cmds --> statusrecord
     cmds --> resolvetarget
     cmds --> uisymbols[ui/symbols.ts]
     cmds --> uioutput
@@ -147,7 +149,7 @@ graph TD
     launcher --> utils
     launcher --> validation
     launcher --> starship[starship.ts]
-    launcher --> status
+    launcher --> statusrecord
     launcher --> launchguards[launch-guards.ts]
     launcher --> trust
     launcher --> commandspec[command-spec.ts]
@@ -170,8 +172,7 @@ graph TD
     commandinstall --> uioutput
 
     dryrun --> script[script.ts]
-    dryrun --> status
-    dryrun --> backend
+    dryrun --> statusrecord
     dryrun --> ghosttybk
     dryrun --> rex
     dryrun --> starship
@@ -181,6 +182,7 @@ graph TD
 
     workspacefocus --> status
     workspacefocus --> rex
+    workspacefocus --> ghosttynative[ghostty-native.ts]
     workspacefocus --> validation
 
     backend --> backenddetect[backend-detect.ts]
@@ -196,6 +198,7 @@ graph TD
 
     rex --> launchidentity
     rex --> statusrecord
+    rex --> snapshot
     rex --> layout
     rex --> shellescape
     rex --> uioutput
@@ -206,7 +209,6 @@ graph TD
     status --> statusrecord
     status --> launchidentity
     status --> rex
-    status --> snapshot
     status --> paths[paths.ts]
     status --> utils
 
@@ -250,10 +252,13 @@ graph TD
 
     briefing --> config
     briefing --> status
+    briefing --> statusrecord
     briefing --> uiansi
     briefing --> uisymbols
 
     monitor --> status
+    monitor --> statusrecord
+    monitor -.->|dynamic| trust
     monitor --> config
     monitor --> uiansi
     monitor --> uisymbols
@@ -268,6 +273,7 @@ graph TD
     snapshot --> paths
     ports --> config
     ports --> status
+    ports --> statusrecord
     ports --> trust
 
     config -.- cfg_fns["addProject, removeProject,
@@ -343,9 +349,10 @@ graph TD
     parseIntInRange,
     parsePositiveFloat,
     validateProjectNameOrExit"]
-    status -.- status_fns["readStatus, readAllStatuses,
+    status -.- status_fns["readStatus, readProjectStatus,
+    readAllStatuses, hasRexState,
     getGitBranch, rexCommandGate,
-    endRexLaunch, ResolvedStatus"]
+    ResolvedStatus, ReadOptions"]
     statusrecord -.- sr_fns["writeStatus, publishStatus,
     readStatusRecord, withOwnedRecord,
     WorkspaceStatus"]
@@ -404,7 +411,7 @@ Summon drives two terminals behind one seam. `launcher.ts` resolves the backend 
 The table is a pure function (`backend-detect.ts`) over an env snapshot and injected probes, so each row is a unit test. `backend.ts` looks the `rex` CLI up at most once per detection; `status.ts` caches the binary path per process.
 
 - **Ghostty** (`backends/ghostty.ts`): the AppleScript path described below; liveness from the per-launch `.pid`/`.active` markers.
-- **Rex** (`backends/rex/`): the launch writes a manifest first, sends `session.create` (one block per pane, each an interactive login shell started under `/usr/bin/env` with the workspace variables), records the session, window and block ids from the server's answer (on a lost answer it waits for the root pane's token file instead), and selects the session in a connected Rex app (the one attached to the caller's Rex session when there is one, else the newest; the same choice when a later `summon <project>` switches to the running workspace). Liveness is read from the server (`ls`, `session.view`) into four states (`active`, `partial`, `stopped`, `unknown`); a lost creation answer is adopted from the manifest and pane files on the next status read; a record with unverified panes is refreshed from the pane files before the state probe; a workspace that ended outside Summon is reconciled (snapshot, `endedAt`, file removal) under the status lock, and a read whose record is replaced by another launch meanwhile resolves the new generation on its own.
+- **Rex** (`backends/rex/`): the launch writes a manifest first, sends `session.create` (one block per pane, each an interactive login shell started under `/usr/bin/env` with the workspace variables), records the session, window and block ids from the server's answer (on a lost answer it waits for the root pane's token file instead), and selects the session in a connected Rex app (the one attached to the caller's Rex session when there is one, else the newest; the same choice when a later `summon <project>` switches to the running workspace). Liveness is read from the server (`ls`, `session.view`) into four states (`active`, `partial`, `stopped`, `unknown`); a lost creation answer is adopted from the manifest and pane files on the next status read; a record with unverified panes is refreshed from the pane files before the state probe; a workspace that ended outside Summon is reconciled (snapshot, `endedAt`, file removal) under the status lock, and a read whose record is replaced by another launch meanwhile resolves the new generation on its own. Adoption, the refresh and the end of a launch are the writing steps of `backends/rex/reconcile.ts`; the reader in `status.ts` runs them only for a read that passes `{ reconcile: true }`, which every status command (`status`, the monitor, `open`, `focus`, `inspect`, `title`, `briefing`, `ports`) does. A read without it writes nothing; the launch path and the dry run read the record only.
 
 The status record is shared by both backends and written only through `withOwnedRecord` (`status-record.ts`), which takes the file lock and checks that the record still belongs to the launch the writer expects. The user-facing contract is in `docs/rex.md`.
 

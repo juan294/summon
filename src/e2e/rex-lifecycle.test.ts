@@ -13,7 +13,8 @@ import { join } from "node:path";
 
 const { destroySessions, removeStatusFiles, rexGate, sleep, until, withRexEnv } = await import("./rex-harness.js");
 const { discoverRex, createRexCli, defaultRexServer } = await import("../backends/rex/cli.js");
-const { readStatusRecord, readStatus } = await import("../status.js");
+const { readStatusRecord } = await import("../status-record.js");
+const { readStatus } = await import("../status.js");
 const { launchArtifactPaths, launchesDir } = await import("../launch-identity.js");
 const { clearSnapshot } = await import("../snapshot.js");
 const { launch } = await import("../launcher.js");
@@ -73,7 +74,7 @@ describe("rex lifecycle observations (plan D6, Phase 5 step 0)", () => {
         }
       };
       const stateOf = (project: string) => {
-        const status = readStatus(project)!;
+        const status = readStatus(project, { reconcile: true })!;
         return { state: status.state, reason: status.reason };
       };
 

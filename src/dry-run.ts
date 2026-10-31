@@ -5,7 +5,7 @@
 import { generateAppleScript, generateTreeAppleScript } from "./script.js";
 import type { LayoutPlan } from "./layout.js";
 import type { PlannedLayout, TreeLayoutPlan } from "./tree.js";
-import { readStatusRecord } from "./status.js";
+import { readStatusRecord } from "./status-record.js";
 import type { BackendId, LaunchContext } from "./backend.js";
 import { ghosttyCommandEntries } from "./backends/ghostty.js";
 import type { BackendLaunchContext } from "./backends/ghostty.js";
