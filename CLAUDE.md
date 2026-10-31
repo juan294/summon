@@ -68,9 +68,11 @@ src/
   globals.d.ts          Build-time constants (__VERSION__)
   backends/
     port.ts             The two backend ports, types only: TerminalBackend (launch side), WorkspaceBackend (record side), and the shared result types (FocusResult, NativeFailure, TitleOperation, TitleScope, TitleResult)
+    read.ts             recordReaderFor: the read side of the record port (resolve, late adoption); loads only ghostty/read.ts and rex/read.ts, never the workspace commands
     select.ts           createTerminalBackend (async): the launch-side backend for a detected context; Rex loaded only when detected
     workspace.ts        workspaceBackendFor, allWorkspaceBackends: the record-side backend for a stored backend field
     ghostty/
+      read.ts           The Ghostty half of a status read: per-launch sidecar liveness (P12); no native scripting
       backend.ts        GhosttyBackend adapter: AppleScript launch, executeScript, spinner, rollback, probePaneCount, decideCleanRestoredPanes, dry-run body
       workspace.ts      GhosttyWorkspace record port: sidecar liveness, focus, inspect, title through the native identity, sweepDeadGhosttyLaunches
       script.ts         AppleScript generator (pure function — builds script string)
@@ -124,6 +126,7 @@ src/
     rex-lifecycle.test.ts Observed Rex lifecycle table (which actions fire the cleanup trap)
     rex-cli.test.ts     Rex CLI E2E: the built CLI as a child process under a sandbox home (docs/release/rex-e2e-guide.md)
   fixtures/
+    fake-rex.ts         writeFakeRex: writes an executable fake `rex` (a Node script; each suite supplies its body)
     build-cli.ts        Bundles the CLI into a private directory for subprocess suites (never races the shared dist/)
     cli-builds.setup.ts Vitest globalSetup: bundles each CLI flavor once per run into private temp dirs
     cli-builds.ts       cliBuild(flavor): the entry of a bundled CLI flavor (unsplit, production)
@@ -155,7 +158,7 @@ Summon drives two terminals through two ports (`backends/port.ts`): the launch-s
 
 - **AppleScript is generated as a string** by a pure function (`backends/ghostty/script.ts`). This makes it testable without actually running osascript. The Rex request is built the same way (`backends/rex/layout.ts`).
 - **Layout planning is separated from script generation.** `layout.ts`/`tree.ts` compute the abstract plan; `backends/ghostty/script.ts` turns it into AppleScript and `backends/rex/layout.ts` into a Rex request.
-- **Status records are owned per launch.** `status-record.ts` writes the shared record only under a file lock with an ownership expectation; Rex liveness is resolved from the server on read (`status.ts`), never from stale markers. A read writes only when it passes `{ reconcile: true }` (adoption, pane refresh and the end of a launch, in `backends/rex/reconcile.ts`); consumers of record-layer symbols import `status-record.ts` directly.
+- **Status records are owned per launch.** `status-record.ts` writes the shared record only under a file lock with an ownership expectation; Rex liveness is resolved from the server on read (`status.ts`), never from stale markers. A status read reconciles by default and writes nothing with `{ reconcile: false }` (reconciliation is adoption, pane refresh and the end of a launch, in `backends/rex/reconcile.ts`); consumers of record-layer symbols import `status-record.ts` directly.
 - **Config system is identical to termplex.** Same key=value files, same layering (CLI > project > global > preset > defaults), same project registry.
 - **macOS only.** The `os` field in package.json enforces this. No cross-platform abstraction.
 
