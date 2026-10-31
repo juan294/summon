@@ -17,7 +17,7 @@ import { PANE_NAME_RE } from "./tree.js";
  * Every launch owns a UUID v4. Its liveness sidecars, manifest and pane files live under
  * `STATUS_DIR/<project>.launches/<launchId>.*`, so a cleanup trap from one launch can never
  * remove another launch's files, and the shared record `<project>.json` is written only by
- * Node code under the status lock (see `withOwnedRecord` in status.ts).
+ * Node code under the status lock (see `withOwnedRecord` in status-record.ts).
  */
 
 export const LAUNCH_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;

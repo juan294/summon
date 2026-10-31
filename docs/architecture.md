@@ -1051,4 +1051,4 @@ A `.summon` file in the project root uses the same `key=value` format.
 4. **Code splitting**: `setup.ts` and `completions.ts` are auto-split into separate chunks via dynamic `import()`
 5. **prepublishOnly**: runs `pnpm run build` before any `npm publish`
 
-The `files` field in package.json limits the published package to `dist/` only. Total bundle size is about 279 KB of JavaScript across 83 files (entry plus chunks, source maps excluded; measured 2026-10-31 at b7879cf).
+The `files` field in package.json limits the published package to `dist/` only. Total bundle size is about 286 KB (285,822 bytes) of JavaScript across 83 files (entry plus chunks, source maps excluded; measured 2026-10-31 at b7879cf).
