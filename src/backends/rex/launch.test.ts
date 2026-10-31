@@ -20,6 +20,7 @@ const { readStatusRecord, withOwnedRecord, statusTestHooks } = await import("../
 const { STATUS_DIR } = await import("../../paths.js");
 const { createWorkspace, readPaneFile, readPaneMapping, waitForToken, adoptOrphans, adoptOrphansForLaunch, refreshPaneMapping, maybeSwitchToExisting, keptSession, showWorkspace, showRecordedWorkspace, strandedTokenNotice } = await import("./launch.js");
 const { selectInApp } = await import("./app.js");
+const { sessionListings, sessionState } = await import("./status.js");
 const { writingRoutine } = await import("../../ui/output.js");
 type LaunchModule = typeof import("./launch.js");
 type CreateContext = Parameters<LaunchModule["createWorkspace"]>[2];
@@ -950,5 +951,60 @@ describe("maybeSwitchToExisting (plan P2) and showWorkspace", () => {
     withOwnedRecord("chapa", "replace", liveRecord);
     // A missing binary surfaces as "no app connected": nothing is spawned beyond the ENOENT attempt.
     expect(showRecordedWorkspace("chapa", "/nonexistent/rex")).toEqual({ shown: false, reason: "no Rex app is connected; open Rex and pick [chapa]" });
+  });
+});
+
+describe("PE-L1: one session listing per server per launch", () => {
+  let errSpy: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => { errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true); });
+  afterEach(() => { errSpy.mockRestore(); });
+
+  function relaunchCli() {
+    return fakeCli({
+      // The record's session (cccc) is gone; the orphan's session is listed.
+      "ls": () => ok("ls", { sessions: [{ session_id: SESSION, label: "chapa" }] }),
+      "session-view": () => ok("session-view", viewJson([blockId(1)])),
+      "client-ls": () => ok("client-ls", { clients: [CLIENT] }),
+      "do-select": () => ok("do-select", {}),
+      "session-create": () => ok("session-create", createdJson),
+    });
+  }
+
+  function seedRelaunch(): void {
+    withOwnedRecord("chapa", "replace", () => recordFor(ID2));
+    writeLaunchManifest(manifestFor());
+    writePane(ID, "editor", SESSION, blockId(1));
+  }
+
+  it("adoption lists each server once for the current record and every earlier launch", () => {
+    seedRelaunch();
+    const cli = relaunchCli();
+    expect(adoptOrphans("chapa", depsFor({ [SERVER]: cli }))).toEqual([`adopted earlier launch ${ID} of chapa (Rex session ${SESSION})`]);
+    expect(cli.calls.filter((c) => c.op === "ls")).toHaveLength(1);
+  });
+
+  it("adoption, the P2 switch and the kept-session check share one listing; the switch still views the session itself", () => {
+    seedRelaunch();
+    const cli = relaunchCli();
+    const listings = sessionListings();
+    const notices = adoptOrphansForLaunch("chapa", { ...depsFor({ [SERVER]: cli }), listings });
+    expect(notices.map((n) => n.text)).toEqual([`adopted earlier launch ${ID} of chapa (Rex session ${SESSION})`]);
+    expect(maybeSwitchToExisting("chapa", false, { cliFor: () => cli, listings })).toEqual({ kind: "switched" });
+    expect(keptSession("chapa", () => cli, listings)?.keeps).toEqual([ID]);
+    expect(cli.calls.map((c) => c.op)).toEqual(["ls", "session-view", "session-view", "client-ls", "do-select", "session-view"]);
+    // Without a shared listing each probe lists again (the earlier behavior stays available to other callers).
+    expect(sessionState(cli, readStatusRecord("chapa")!.rex!, "chapa").state).toBe("active");
+    expect(cli.calls.filter((c) => c.op === "ls")).toHaveLength(2);
+  });
+
+  it("P13: createWorkspace never reuses the launch's listing; its `before` snapshot is listed right before session.create", async () => {
+    seedRelaunch();
+    const cli = relaunchCli();
+    const listings = sessionListings();
+    adoptOrphansForLaunch("chapa", { ...depsFor({ [SERVER]: cli }), listings });
+    keptSession("chapa", () => cli, listings);
+    const before = cli.calls.length;
+    await createWorkspace(manifestFor(ID2), fullBuild().request, ctxFor(cli));
+    expect(cli.calls.slice(before).map((c) => c.op).slice(0, 2)).toEqual(["ls", "session-create"]);
   });
 });

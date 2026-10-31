@@ -102,7 +102,7 @@ describe("createRexBackend", () => {
 
   it("--new-window says once, after the launch, that the earlier session stays open and records what it keeps; a plain launch never asks (F12)", async () => {
     const notice = "the earlier [x] session session:old stays open; summon x now switches to this one, and rex kill session:old closes the earlier one";
-    const keptSession = vi.fn((_project: string, _cliFor: (server: string) => unknown) => ({ notice, keeps: [ID] }));
+    const keptSession = vi.fn((_project: string, _cliFor: (server: string) => unknown, _listings?: unknown) => ({ notice, keeps: [ID] }));
     const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const outSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     const stderr = () => errSpy.mock.calls.map((c) => String(c[0])).join("");
@@ -112,8 +112,11 @@ describe("createRexBackend", () => {
     expect(keptSession).not.toHaveBeenCalled();
     expect(create.mock.calls[0]![0]).not.toHaveProperty("keeps");
     plan.newWindow = true;
-    await createRexBackend(CONTEXT, { ...d, newWindow: true }).launchTraditional(plan, ctx());
-    expect(keptSession).toHaveBeenCalledWith("x", expect.any(Function));
+    // PE-L1: the launch's shared listing reaches the kept-session check (createWorkspace still lists for itself, P13).
+    const listings = { of: vi.fn() };
+    await createRexBackend(CONTEXT, { ...d, newWindow: true, listings }).launchTraditional(plan, ctx());
+    expect(keptSession).toHaveBeenCalledWith("x", expect.any(Function), listings);
+    expect(create.mock.calls[1]![2]).not.toHaveProperty("listings");
     expect(keptSession.mock.calls[0]![1]("unix:///other.sock")).toBe(cli);
     expect(d.cliFor).toHaveBeenLastCalledWith("/usr/local/bin/rex", "unix:///other.sock");
     expect(create.mock.calls[1]![0]).toMatchObject({ keeps: [ID] });

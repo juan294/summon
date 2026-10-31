@@ -125,6 +125,27 @@ export function viewBlockIds(view: SessionView): Set<string> {
 
 export type SessionListing = ReturnType<typeof listSessions>;
 
+/** One `rex ls` answer per server, shared by the liveness probes of one launch (PE-L1). */
+export interface SessionListings {
+  of(cli: RexCli): SessionListing;
+}
+
+/**
+ * A listing only goes stale one way (a session ends; ids are never reused) and every probe still views the session itself,
+ * so the probes of one launch can share it. It never stands in for `createWorkspace`'s `before` snapshot, which is listed
+ * just before `session.create` (P13): nothing reuses a listing across that mutation.
+ */
+export function sessionListings(): SessionListings {
+  const byServer = new Map<string, SessionListing>();
+  return {
+    of(cli) {
+      let listed = byServer.get(cli.server);
+      if (!listed) { listed = listSessions(cli); byServer.set(cli.server, listed); }
+      return listed;
+    },
+  };
+}
+
 /**
  * The P10 state table over `ls` and `session.view`; `cli` must be bound to `identity.server`.
  * A caller that resolves several records on one server passes its own `listSessions` answer.
