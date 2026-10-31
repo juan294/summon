@@ -100,7 +100,7 @@ function env(): NodeJS.ProcessEnv {
   for (const [key, value] of Object.entries(process.env)) if (!/^(REX_|SUMMON_|GIT_)/.test(key)) result[key] = value;
   return {
     ...result,
-    HOME: home, PATH: `${binDir}:${process.env["PATH"] ?? ""}`, SHELL: "/bin/zsh", NO_COLOR: "1", SUMMON_NO_CACHE: "1",
+    HOME: home, PATH: `${binDir}:${process.env["PATH"] ?? ""}`, SHELL: "/bin/zsh", NO_COLOR: "1",
     TERM_PROGRAM: "rex", REX_SERVER: SERVER, REX_BIN_DIR: binDir, REX_SESSION: LAUNCHER.session_id, REX_BLOCK: LAUNCHER.windows[0]!.blocks[0]!,
     FAKE_REX_STATE: stateFile, FAKE_REX_LOG: logFile,
   };

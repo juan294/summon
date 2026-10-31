@@ -1967,14 +1967,14 @@ describe("PE-H1: readStatusesInChild", () => {
     return file;
   }
 
-  it("resolves the child's statuses while the event loop keeps running, with the cache off in the child", async () => {
-    const file = await script(`setTimeout(() => process.stdout.write(JSON.stringify([{ project: "a", args: process.argv.slice(2), noCache: process.env.SUMMON_NO_CACHE }])), 300);`);
+  it("resolves the child's statuses while the event loop keeps running", async () => {
+    const file = await script(`setTimeout(() => process.stdout.write(JSON.stringify([{ project: "a", args: process.argv.slice(2) }])), 300);`);
     const order: string[] = [];
     setTimeout(() => order.push("timer"), 20);
     const statuses = await monitorModule.readStatusesInChild(process.execPath, [file, "--flag"]);
     order.push("read");
     expect(order).toEqual(["timer", "read"]);
-    expect(statuses).toEqual([{ project: "a", args: ["--flag"], noCache: "1" }]);
+    expect(statuses).toEqual([{ project: "a", args: ["--flag"] }]);
   });
 
   it("rejects a child that fails or prints something other than JSON", async () => {

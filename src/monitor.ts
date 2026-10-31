@@ -391,8 +391,7 @@ export class ChildReadError extends Error {
  */
 export function readStatusesInChild(execPath: string, args: readonly string[], signal?: AbortSignal, env: NodeJS.ProcessEnv = {}): Promise<ResolvedStatus[]> {
   return new Promise((resolve, reject) => {
-    // With the config cache off, the child never rewrites cache.json at exit (one child per tick).
-    const childEnv: NodeJS.ProcessEnv = { ...process.env, ...env, SUMMON_NO_CACHE: "1" };
+    const childEnv: NodeJS.ProcessEnv = { ...process.env, ...env };
     // A key set to undefined in `env` is removed, never inherited from this process.
     for (const [key, value] of Object.entries(env)) if (value === undefined) delete childEnv[key];
     const child = spawn(execPath, args, { detached: true, stdio: ["ignore", "pipe", "ignore"], env: childEnv });

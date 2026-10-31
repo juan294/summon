@@ -182,7 +182,7 @@ await runMonitor();
 process.stdin.setRawMode(true);process.stdin.resume();state.finalMode=await mode();state.done=true;save();process.stdin.setRawMode(false);process.stdin.pause();
 `);
   const state = (): { reports: number[]; events: Array<{tag:string;status?:number;at:number}>; frames: number; ready: boolean; done: boolean; childPid: number; fallback: boolean; initialMode: number; finalMode: number } => JSON.parse(readFileSync(statePath, "utf8"));
-  const command = ["env", `HOME=${shellQuote(home)}`, "SUMMON_NO_CACHE=1", shellQuote(process.execPath), shellQuote(childPath)].join(" ") + " 2>" + shellQuote(join(dir,"visibility-child.stderr"));
+  const command = ["env", `HOME=${shellQuote(home)}`, shellQuote(process.execPath), shellQuote(childPath)].join(" ") + " 2>" + shellQuote(join(dir,"visibility-child.stderr"));
   run(`tell application "Ghostty"
 input text "${escapeAppleScript(command)}" to ${exactTerminal(root)}
 send key "enter" to ${exactTerminal(root)}

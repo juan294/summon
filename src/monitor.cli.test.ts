@@ -29,7 +29,7 @@ describe("summon --internal-monitor-read (bundled CLI)", () => {
     writeFileSync(join(statusDir, "ghost.pid"), String(process.pid));
     const stdout = execFileSync(process.execPath, [cli, MONITOR_READ_ARG], {
       encoding: "utf-8",
-      env: { ...process.env, HOME: home, SUMMON_NO_CACHE: "1" },
+      env: { ...process.env, HOME: home },
       timeout: 30_000,
     });
     const statuses = JSON.parse(stdout) as Array<{ project: string; state: string; uptime: number | null }>;

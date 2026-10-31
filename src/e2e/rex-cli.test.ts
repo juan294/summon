@@ -62,7 +62,7 @@ function childEnv(extra: Record<string, string | undefined> = {}): NodeJS.Proces
   const env: NodeJS.ProcessEnv = {};
   // GIT_* is stripped so a run under the pre-commit hook never points the projects' git at the repository.
   for (const [key, value] of Object.entries(process.env)) if (!/^(REX_|SUMMON_|GIT_)/.test(key)) env[key] = value;
-  Object.assign(env, { HOME: home, TERM_PROGRAM: "rex", REX_SERVER: server, REX_BIN_DIR: dirname(binary), SUMMON_NO_CACHE: "1", SHELL: "/bin/zsh", NO_COLOR: "1" });
+  Object.assign(env, { HOME: home, TERM_PROGRAM: "rex", REX_SERVER: server, REX_BIN_DIR: dirname(binary), SHELL: "/bin/zsh", NO_COLOR: "1" });
   for (const [key, value] of Object.entries(extra)) {
     if (value === undefined) delete env[key];
     else env[key] = value;
@@ -77,8 +77,6 @@ function summon(args: string[], opts: { env?: Record<string, string | undefined>
 }
 /** The environment of a run whose `rex` is the shim that withholds the `session.create` answer (C21). */
 const withheldAnswer = () => ({ PATH: `${rexShimDir()}:${process.env.PATH ?? ""}` });
-/** The environment of a run without SUMMON_NO_CACHE (C22); the variable is a no-op since PE-M1. */
-const warmCache = () => ({ SUMMON_NO_CACHE: undefined });
 
 /** The record a launch just wrote; its session joins the teardown list. */
 function launched(project: string): Record_ {
@@ -681,22 +679,22 @@ describe("rex cli e2e", () => {
     expect(new Set(lines)).toEqual(new Set([`${SPELL}|${dir}`, `${SPELL}|${join(dir, "api")}`]));
     expect(blockLabels(record.rex!.sessionId).has("editor · sleep 300")).toBe(true);
 
-    // Without SUMMON_NO_CACHE (a no-op since PE-M1, which removed the persistent cache): nothing writes cache.json,
-    // and a config change and a registry change are seen by the next read.
+    // No persistent cache since PE-M1: nothing writes cache.json, and a config change and a registry change are
+    // seen by the next read.
     const cacheFile = join(home, ".config", "summon", "cache.json");
-    expect(summon(["list"], { env: warmCache() }).status).toBe(0);
-    expect(summon([five, "--dry-run"], { env: warmCache() }).status).toBe(0);
+    expect(summon(["list"]).status).toBe(0);
+    expect(summon([five, "--dry-run"]).status).toBe(0);
     expect(existsSync(cacheFile)).toBe(false);
-    expect(summon(["set", "editor", "sleep 301"], { env: warmCache() }).status).toBe(0);
-    const dry = summon([name("one"), "--dry-run"], { env: warmCache() });
+    expect(summon(["set", "editor", "sleep 301"]).status).toBe(0);
+    const dry = summon([name("one"), "--dry-run"]);
     expect(dry.status, dry.out).toBe(0);
     contains(dry.stdout, "editor · sleep 301");
     expect(dry.stdout).not.toContain("editor · sleep 300");
-    expect(summon(["set", "editor", "sleep 300"], { env: warmCache() }).status).toBe(0);
+    expect(summon(["set", "editor", "sleep 300"]).status).toBe(0);
     const nine = name("nine");
     mkdirSync(join(home, "projects", nine));
-    expect(summon(["add", nine, join(home, "projects", nine)], { env: warmCache() }).status).toBe(0);
-    contains(summon(["list"], { env: warmCache() }).stdout, nine);
+    expect(summon(["add", nine, join(home, "projects", nine)]).status).toBe(0);
+    contains(summon(["list"]).stdout, nine);
   });
 
   it("C19: summon open <project> focuses a live workspace, launches a stopped or never-launched one, refuses an unknown one and names a mistyped project", { timeout: 180_000 }, async (ctx) => {

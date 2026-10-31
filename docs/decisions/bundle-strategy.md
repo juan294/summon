@@ -109,5 +109,9 @@ that justify switching. Retained.
   `files` field must continue to include `"dist/**/*.js"`.
 - Any new large feature module should be placed behind a dynamic `import()` in
   `src/index.ts` or in the command handler that first uses it.
-- PE-S1 (#329) and PE-S2 (#330) remain open. Neither is blocking; both are
-  incremental improvements to cold-start cost beyond what splitting already provides.
+- PE-S1 (#329) remains open. It is not blocking; it is an incremental improvement to
+  cold-start cost beyond what splitting already provides.
+- PE-S2 (#330) is closed. The persistent cross-invocation cache (`cache.json`, #516)
+  was measured, gave no gain (median `summon list` 45.05 ms with it, 44.34 ms without)
+  and wrote the file on every exit, so PE-M1 removed it. `SUMMON_NO_CACHE` is a
+  documented no-op.
