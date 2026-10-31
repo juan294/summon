@@ -114,6 +114,8 @@ export interface CreateContext {
   /** `--new-window`: a fresh session (the P2 switch is skipped) shown in the current window, with a notice (P9 fallback). */
   newWindow: boolean;
   app: { discover: () => string | null; open: (bundlePath: string) => boolean };
+  /** Replaces the transient progress line (UX-M1); never a notice. */
+  progress?: (label: string) => void;
   clock?: PollOptions["clock"];
   tokenTimeoutMs?: number;
   clientTimeoutMs?: number;
@@ -167,6 +169,19 @@ function unverifiedNotice(unverified: string[]): string {
     : `${unverified.length} panes are unverified (${unverified.join(", ")}); their files had not appeared yet`;
 }
 
+/** Remove the files of a launch whose `session.create` definitely created nothing, under the status lock; a failure is returned as a notice. */
+function removeFailedLaunch(manifest: LaunchManifest): string | undefined {
+  let failures: string[] = [];
+  try {
+    withOwnedRecord(manifest.project, "replace", () => null, () => {
+      failures = removeLaunchFileSet(launchArtifactFiles(manifest.project, manifest.launchId, manifest.paneOrder)).failures;
+    });
+  } catch (error) {
+    failures = [error instanceof Error ? error.message : String(error)];
+  }
+  return failures.length > 0 ? `could not remove the files of failed launch ${manifest.launchId}: ${failures[0]}; summon clean --orphans names it` : undefined;
+}
+
 export async function createWorkspace(manifest: LaunchManifest, request: SessionCreateRequest, ctx: CreateContext): Promise<LaunchOutcome> {
   const clock = ctx.clock ?? realClock;
   const intervalMs = ctx.intervalMs ?? 250;
@@ -200,6 +215,9 @@ export async function createWorkspace(manifest: LaunchManifest, request: Session
       ? `session.create answered with ${answer.blockIds.length} blocks for ${manifest.paneOrder.length} panes`
       : "session.create answered with an unexpected shape";
   } else if (created.outcome !== "unknown") {
+    // BE-M1: no session exists (`none`, `rolled-back`), so the manifest would only report this launch forever.
+    const leftover = removeFailedLaunch(manifest);
+    if (leftover) notices.push(leftover);
     return { kind: "failed", reason: created.reason, failure: created, notices };
   } else {
     unknownReason = created.reason;
@@ -237,6 +255,7 @@ export async function createWorkspace(manifest: LaunchManifest, request: Session
   let choice: AppClientChoice | undefined = pickAppClient(cli, ctx.callerSession);
   if (!choice) {
     const bundle = ctx.app.discover();
+    if (bundle) ctx.progress?.(`Summoning ${project}… opening the Rex app`);
     if (bundle && ctx.app.open(bundle)) {
       await clock.sleep(intervalMs);
       choice = await waitForAppClient(cli, ctx.callerSession, { timeoutMs: clientTimeoutMs, intervalMs, clock });

@@ -57,6 +57,32 @@ export function isStaticLaunchSpinner(): boolean {
   return !supportsColor();
 }
 
+/** One transient stdout line: `show` replaces it, `clear` erases it. */
+export interface TransientLine {
+  show(label: string): void;
+  clear(): void;
+}
+
+/**
+ * A transient status line on stdout, shown only where the launch spinner animates (see
+ * `isStaticLaunchSpinner`); elsewhere both calls write nothing. Never written to stderr.
+ */
+export function transientLine(): TransientLine {
+  let shown = false;
+  return {
+    show(label) {
+      if (isStaticLaunchSpinner()) return;
+      process.stdout.write(`${shown ? "\r\x1b[K" : ""}${LAUNCH_SPINNER_FRAMES[0]} ${label}`);
+      shown = true;
+    },
+    clear() {
+      if (!shown) return;
+      process.stdout.write("\r\x1b[K");
+      shown = false;
+    },
+  };
+}
+
 /**
  * Run `fn` (a synchronous block) with a brief spinner on stdout.
  * In static mode (non-TTY or NO_COLOR), writes a single labelled line to stdout then runs fn.
@@ -72,13 +98,13 @@ export function withLaunchSpinner(label: string, fn: () => void): void {
     fn();
     return;
   }
-  // Write initial spinner frame to stdout for interactive TTY
-  process.stdout.write(`${LAUNCH_SPINNER_FRAMES[0]} ${label}`);
+  // Initial spinner frame on stdout for an interactive TTY, cleared afterwards
+  const line = transientLine();
+  line.show(label);
   try {
     fn();
   } finally {
-    // Clear the spinner line
-    process.stdout.write("\r\x1b[K");
+    line.clear();
   }
 }
 

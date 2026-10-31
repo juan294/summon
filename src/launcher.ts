@@ -857,20 +857,19 @@ async function launchTraditionalLayout(
 
 type LaunchedLayout = { paneNames: string[] } & BackendLaunchResult;
 
-/** Plan P8: flags Rex cannot honor are deliberate limitations, one stderr line each. */
-export function rexLimitationNotices(opts: Partial<LayoutOptions>, overrides: CLIOverrides): string[] {
-  const notices: string[] = [];
+/**
+ * Plan P8: flags Rex cannot honor are deliberate limitations, one stderr line each. Only flags given on the
+ * command line are named (UX-H1): the same keys in config are Ghostty preferences, silent under Rex like `clean=true`.
+ */
+export function rexLimitationNotices(overrides: CLIOverrides): string[] {
   const limited: Array<[string, boolean]> = [
-    ["maximize", opts.maximize === true],
-    ["float", opts.float === true],
-    ["fullscreen", opts.fullscreen === true],
-    ["font-size", opts.fontSize !== undefined && opts.fontSize !== null],
-    ["clean", opts.cleanRestoredPanes === true || overrides["clean"] === "true"],
+    ["maximize", overrides.maximize === "true"],
+    ["float", overrides.float === "true"],
+    ["fullscreen", overrides.fullscreen === "true"],
+    ["font-size", overrides["font-size"] !== undefined],
+    ["clean", overrides.clean === "true"],
   ];
-  for (const [flag, set] of limited) {
-    if (set) notices.push(`Rex cannot honor ${flag}; ignored`);
-  }
-  return notices;
+  return limited.filter(([, set]) => set).map(([flag]) => `Rex cannot honor ${flag}; ignored`);
 }
 
 /** A Ghostty launch over a live Rex session of the same project replaces the record; the session stays (plan §6). */
@@ -897,6 +896,27 @@ function resolveLaunchBackend(dryRun: boolean | undefined): LaunchContext {
   return { ok: true, backend: "ghostty", placement: "outside", notices: [...detection.notices, `${detection.reason} Dry run continues with the Ghostty script.`] };
 }
 
+/**
+ * Read `.summon` once and verify that exact content is trusted (BE-B1, BE-B2 #357, SE-H1, SE-M1), so the bytes
+ * hashed are the bytes parsed: pass the result to `resolveConfig`. Returns undefined with `--no-project-config`
+ * (nothing is read) or when there is no file. Throws SummonError for an untrusted file.
+ */
+export function readTrustedSummonFile(targetDir: string, cliOverrides: CLIOverrides): string | undefined {
+  if (cliOverrides["no-project-config"] === "true") return undefined;
+  const summonFilePath = join(targetDir, ".summon");
+  let content: string | undefined;
+  if (existsSync(summonFilePath)) {
+    try {
+      content = readFileSync(summonFilePath, "utf-8");
+    } catch {
+      content = undefined;
+    }
+  }
+  if (content !== undefined) assertTrustedContent(targetDir, content);
+  else assertTrusted(targetDir);
+  return content;
+}
+
 /** What a launch did: created a workspace, switched to a live Rex one (P2), or printed a dry run. */
 export type LaunchOutcome = "launched" | "switched" | "dry-run";
 
@@ -907,34 +927,12 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
     throw new Error(msg);
   }
 
-  // Read .summon once for both trust verification and config parsing (BE-B2 #357).
-  // This eliminates the TOCTOU window between hashing and re-reading.
-  const summonFilePath = join(targetDir, ".summon");
-  let summonFileContent: string | undefined;
-  if (existsSync(summonFilePath)) {
-    try {
-      summonFileContent = readFileSync(summonFilePath, "utf-8");
-    } catch {
-      summonFileContent = undefined;
-    }
-  }
-
-  // Trust gate: verify the .summon file (if present) is explicitly trusted before
-  // reading or acting on any of its values (BE-B1, BE-B2, SE-H1).
+  // Trust gate before any .summon value is used: one read, hashed and parsed from the same bytes.
   // SummonError is rethrown so callers (e.g. `session --all`) can choose to skip
   // an untrusted project and continue with the rest, instead of terminating the
   // whole process. The top-level direct-launch entry catches SummonError and
   // converts it to a clean exit 1 with the user-facing message.
-  if (cliOverrides?.["no-project-config"] === "true") {
-    // skip trust check
-  } else if (summonFileContent !== undefined) {
-    assertTrustedContent(targetDir, summonFileContent);
-  } else {
-    assertTrusted(targetDir);
-  }
-
-  let config: ReturnType<typeof resolveConfig>;
-  config = resolveConfig(targetDir, cliOverrides ?? {}, summonFileContent);
+  let config = resolveConfig(targetDir, cliOverrides ?? {}, readTrustedSummonFile(targetDir, cliOverrides ?? {}));
 
   // Backend seam (plan P15): resolve the backend right after config, before the wizard
   // redirect, the pane-count probe and on-start. The launch id is the generation every
@@ -945,8 +943,9 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
   const projectName = resolveProjectName(targetDir);
   const dryRun = cliOverrides?.dryRun === true;
   const callerSession = callerRexSession(launchContext);
+  const newWindowFlag = cliOverrides?.["new-window"] === "true";
   const backend: TerminalBackend = launchContext.backend === "rex"
-    ? createRexBackend(launchContext, { callerSession })
+    ? createRexBackend(launchContext, { callerSession, newWindow: newWindowFlag })
     : GhosttyBackend;
   if (launchContext.backend === "rex" && !dryRun) {
     // D1: anything printed from here that the user must read keeps the launcher tab open.
@@ -955,7 +954,7 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
     // and on-start, so a switch never reruns them. A dry run skips both (P2) and runs no Rex command.
     // A session the record's --new-window launch announced is not repeated on every launch (F12); status still names it.
     for (const line of adoptOrphans(projectName, adoptDeps(launchContext.rexBinary), { forLaunch: true })) note(line);
-    const decision = maybeSwitchToExisting(projectName, cliOverrides?.["new-window"] === "true", { cliFor: (server) => createRexCli(launchContext.rexBinary, server), callerSession });
+    const decision = maybeSwitchToExisting(projectName, newWindowFlag, { cliFor: (server) => createRexCli(launchContext.rexBinary, server), callerSession });
     if (decision.kind === "switched") {
       closeLauncherTabAfterRexLaunch(launchContext);
       return "switched";
@@ -974,8 +973,9 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
       console.log("No editor configured. Let's set up your workspace.\n");
       const { runSetup } = await import("./setup.js");
       await runSetup({ backend: launchContext.backend });
-      // Re-resolve config after setup saved new values
-      config = resolveConfig(targetDir, cliOverrides ?? {});
+      // Re-resolve config after setup saved new values. `.summon` is read and checked again (SE-M1):
+      // the wizard can wait for minutes, and only bytes that pass the trust check are acted on.
+      config = resolveConfig(targetDir, cliOverrides ?? {}, readTrustedSummonFile(targetDir, cliOverrides ?? {}));
     } else {
       const msg = "No editor configured. Run `summon setup` interactively or use: summon set editor <command>";
       fail(msg);
@@ -991,7 +991,7 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
   if (launchContext.backend === "ghostty") {
     decideCleanRestoredPanes(opts, cliOverrides ?? {}, config.projectOverrides, machineConfig, cliOverrides?.dryRun, projectName);
   } else if (!dryRun) {
-    for (const line of rexLimitationNotices(opts, cliOverrides ?? {})) note(line);
+    for (const line of rexLimitationNotices(cliOverrides ?? {})) note(line);
   }
 
   let effectiveOnStart = onStart;

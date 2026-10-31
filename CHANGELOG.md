@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Under Rex, `maximize`, `float`, `fullscreen`, `font-size` and `new-window` set in config are Ghostty preferences and are ignored silently, as `clean=true` already was. The flags (`--maximize`, `--float`, `--fullscreen`, `--font-size`, `--clean`, `--new-window`) still print their notice. The `on-stop will run on workspace exit` note is still printed, and no longer keeps the launcher tab open. With these, the tab now closes after a daily launch for users who share one config between Ghostty and Rex. Ghostty output does not change.
+- A Rex launch on an interactive terminal shows a transient `Summoning <project>…` line on stdout while the session is created, and says when it opens the Rex app; the line is cleared before the result. Piped output does not change.
+
+### Fixed
+
+- After the setup wizard, a launch reads `.summon` again and checks that content against the trust store before it uses it. A `.summon` changed while the wizard waited is refused. `summon freeze` and `summon keybindings` refuse an untrusted `.summon` with the same message as a launch (`freeze` accepts `--no-project-config`), so `freeze` can no longer copy untrusted commands into a layout.
+- A Rex launch that the server rejected or never received no longer leaves its manifest behind, so later launches and `summon status` stop reporting it as an earlier launch that never confirmed its session. A launch whose connection dropped or reset after it was sent is now treated as an unknown outcome (its manifest stays, so the session can still be adopted), not as one that created nothing.
+- Error text from a Rex server error object is shown with control characters escaped and capped in length, like the rest of the Rex error text.
+
 ## [2.0.1] - 2026-10-31
 
 ### Changed
