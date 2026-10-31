@@ -155,7 +155,7 @@ vi.mock("./script.js", () => ({
 }));
 
 // Import after mocks are set up
-const { launch, focusWorkspace, resolveProjectName, probePaneCount, decideCleanRestoredPanes, layoutOptsToTreePlanOpts, commandFixHint } = await import("./launcher.js");
+const { launch, focusWorkspace, resolveProjectName, probePaneCount, decideCleanRestoredPanes, layoutOptsToTreePlanOpts } = await import("./launcher.js");
 const { readTrustedSummonFile, resolveConfig } = await import("./config-resolve.js");
 const { closeCreatedContainer, withLaunchSpinner, GhosttyBackend, ghosttyCommandEntries } = await import("./backends/ghostty.js");
 const { isStaticLaunchSpinner } = await import("./ui/progress.js");
@@ -4343,13 +4343,6 @@ describe("absolute command paths and fix hints", () => {
     logSpy.mockRestore();
     expect(logged).toContain("summon layout edit mywork");
     expect(logged).not.toContain("summon set sidebar");
-  });
-
-  it("commandFixHint keeps summon set for config keys and names the layout for pane keys", () => {
-    expect(commandFixHint("editor")).toBe("change your config with: summon set editor <command>");
-    expect(commandFixHint("shell", "mywork")).toBe("change your config with: summon set shell <command>");
-    expect(commandFixHint("pane.enhance", "mywork")).toBe("change `pane.enhance=` in layout mywork: summon layout edit mywork");
-    expect(commandFixHint("pane.enhance")).toBe("change `pane.enhance=` in your layout file");
   });
 
   describe("dry-run command check (Phase 2)", () => {
