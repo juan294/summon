@@ -28,6 +28,7 @@ import { createRexBackend } from "./backends/rex/backend.js";
 import { adoptOrphans, adoptDeps, maybeSwitchToExisting } from "./backends/rex/launch.js";
 import { createRexCli, discoverRex } from "./backends/rex/cli.js";
 import { focusRex, sessionState } from "./backends/rex/status.js";
+import { closeLauncherTabAfterRexLaunch, startLauncherTabWatch } from "./backends/rex/launcher-tab.js";
 import type { ResolvedStatus } from "./status.js";
 import { isLiveState, rexCommandGate } from "./status.js";
 import { buildSessionCreateRequest } from "./backends/rex/layout.js";
@@ -948,12 +949,17 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
     ? createRexBackend(launchContext, { callerSession })
     : GhosttyBackend;
   if (launchContext.backend === "rex" && !dryRun) {
+    // D1: anything printed from here that the user must read keeps the launcher tab open.
+    startLauncherTabWatch(launchContext);
     // P13 late adoption, then the P2 reuse decision: both before the wizard, the pane probe
     // and on-start, so a switch never reruns them. A dry run skips both (P2) and runs no Rex command.
     // A session the record's --new-window launch announced is not repeated on every launch (F12); status still names it.
-    for (const line of adoptOrphans(projectName, adoptDeps(launchContext.rexBinary), { repeatAnnounced: false })) note(line);
+    for (const line of adoptOrphans(projectName, adoptDeps(launchContext.rexBinary), { forLaunch: true })) note(line);
     const decision = maybeSwitchToExisting(projectName, cliOverrides?.["new-window"] === "true", { cliFor: (server) => createRexCli(launchContext.rexBinary, server), callerSession });
-    if (decision.kind === "switched") return "switched";
+    if (decision.kind === "switched") {
+      closeLauncherTabAfterRexLaunch(launchContext);
+      return "switched";
+    }
     if (decision.kind === "refused") {
       fail(decision.reason);
       process.exit(2);
@@ -1130,5 +1136,6 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
       err("summon: warning: workspace launched, but status could not be saved or invalidated. Previous metadata may remain and target an older workspace; select manually in Ghostty, repair config directory permissions and run summon doctor before using exact commands.");
     }
   }
+  if (!dryRun) closeLauncherTabAfterRexLaunch(launchContext);
   return dryRun ? "dry-run" : "launched";
 }

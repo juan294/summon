@@ -605,8 +605,17 @@ describe("rex cli e2e", () => {
     // root pane's file (token) and maps the panes from their files; a pane whose file was late is filled in
     // by the next read. One session, the launch of the one manifest.
     const prompt = summon([six], { env: withheldAnswer() });
-    expect(prompt.status, prompt.out).toBe(0);
-    contains(prompt.stdout, `Workspace [${six}] ready in Rex.`);
+    if (prompt.status === 0) {
+      contains(prompt.stdout, `Workspace [${six}] ready in Rex.`);
+    } else {
+      // A loaded server can answer the confirming session.view after Summon's 8 s read timeout (observed at a
+      // 15-minute load of 34, 2026-10-31). The launch then takes the documented unknown path: nothing recorded,
+      // the session named; the next launch adopts it. Only that cause is accepted here.
+      contains(prompt.stderr, /session\.view failed: .*timed out/);
+      expect(readRecord(six)).toBeNull();
+      const adopted = summon([six]);
+      expect(adopted.status, adopted.out).toBe(0);
+    }
     expect(readFileSync(rexShimLog(), "utf8").trim().split("\n")).toHaveLength(1);
     const six1 = launched(six);
     expect(sessionsLabelled(six)).toEqual([six1.rex!.sessionId]);

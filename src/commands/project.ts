@@ -72,6 +72,21 @@ export async function handleListCommand(): Promise<void> {
   }
 }
 
+/**
+ * D1: switching to a running Rex workspace from inside Rex closes the launcher tab, as a launch does. Returns the
+ * close to arm after a successful switch (the stderr watch starts now, before the switch prints anything).
+ */
+async function watchRexSwitch(project: string): Promise<() => void> {
+  const { readStatusRecord } = await import("../status-record.js");
+  if (readStatusRecord(project)?.backend !== "rex") return () => {};
+  const { resolveBackendForLaunch } = await import("../backend.js");
+  const detection = resolveBackendForLaunch();
+  if (!detection.ok) return () => {};
+  const { closeLauncherTabAfterRexLaunch, startLauncherTabWatch } = await import("../backends/rex/launcher-tab.js");
+  startLauncherTabWatch(detection);
+  return () => closeLauncherTabAfterRexLaunch(detection);
+}
+
 /** Focus a live workspace, launch a stopped one, refuse an unknown one: the picker and `open <project>` agree. */
 async function openRow(row: ProjectRow, overrides: CommandContext["overrides"]): Promise<void> {
   const { isLiveState } = await import("../monitor.js");
@@ -81,9 +96,11 @@ async function openRow(row: ProjectRow, overrides: CommandContext["overrides"]):
     process.exit(2);
   }
   if (isLiveState(row.state)) {
+    const armClose = await watchRexSwitch(row.name);
     const result = focusWorkspace(row.name);
     if (result.kind !== "focused") { fail(result.reason); process.exit(2); }
     console.log(`Switched to [${row.name}]`);
+    armClose();
     return;
   }
   await launch(row.directory, overrides);

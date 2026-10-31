@@ -34,7 +34,7 @@ vi.mock("./backend.js", async (original) => ({
 
 // Rex launch path (Phase 3): the adapter, adoption and switch decision are mocked; their own
 // suites cover them. The fake backend records what the launcher hands it.
-const mockAdoptOrphans = vi.fn((_project: string, _options?: { repeatAnnounced?: boolean }): string[] => []);
+const mockAdoptOrphans = vi.fn((_project: string, _options?: { forLaunch?: boolean }): string[] => []);
 const mockMaybeSwitch = vi.fn((..._args: unknown[]): unknown => ({ kind: "proceed" }));
 const mockSessionState = vi.fn((..._args: unknown[]): unknown => ({ state: "stopped", liveBlocks: [] }));
 const rexLaunches: Array<{ kind: string; plan: unknown; ctx: Record<string, unknown> }> = [];
@@ -50,11 +50,14 @@ const mockCreateRexBackend = vi.fn((_context: unknown, _deps: unknown) => ({
 }));
 vi.mock("./backends/rex/backend.js", () => ({ createRexBackend: (context: unknown, deps: unknown) => mockCreateRexBackend(context, deps) }));
 vi.mock("./backends/rex/launch.js", () => ({
-  adoptOrphans: (project: string, _deps: unknown, options?: { repeatAnnounced?: boolean }) => mockAdoptOrphans(project, options),
+  adoptOrphans: (project: string, _deps: unknown, options?: { forLaunch?: boolean }) => mockAdoptOrphans(project, options),
   adoptDeps: vi.fn(() => ({})),
   maybeSwitchToExisting: (...args: unknown[]) => mockMaybeSwitch(...args),
 }));
 vi.mock("./backends/rex/status.js", () => ({ sessionState: (...args: unknown[]) => mockSessionState(...args) }));
+const mockCloseLauncherTab = vi.fn();
+const mockStartLauncherTabWatch = vi.fn();
+vi.mock("./backends/rex/launcher-tab.js", () => ({ closeLauncherTabAfterRexLaunch: (...args: unknown[]) => mockCloseLauncherTab(...args), startLauncherTabWatch: (...args: unknown[]) => mockStartLauncherTabWatch(...args) }));
 vi.mock("./backends/rex/cli.js", () => ({
   createRexCli: vi.fn((binary: string, server: string) => ({ binary, server, call: vi.fn() })),
   discoverRex: vi.fn(() => ({ path: "/usr/local/bin/rex", searched: ["PATH"] })),
@@ -4718,7 +4721,7 @@ describe("Rex launch (plan P2, P8, P13, P15; Phase 3)", () => {
     }
     expect(order).toEqual(["adopt", "switch", "setup", "on-start"]);
     expect(mockRunSetup).toHaveBeenCalledWith({ backend: "rex" });
-    expect(mockAdoptOrphans).toHaveBeenCalledWith("workspace", { repeatAnnounced: false });
+    expect(mockAdoptOrphans).toHaveBeenCalledWith("workspace", { forLaunch: true });
     expect(mockMaybeSwitch).toHaveBeenCalledWith("workspace", false, expect.objectContaining({ cliFor: expect.any(Function) }));
     expect(stderrText).toContain("summon: note: adopted earlier launch x");
     expect(stderrText).toContain("summon: note: Rex cannot honor clean; ignored");
@@ -4734,6 +4737,26 @@ describe("Rex launch (plan P2, P8, P13, P15; Phase 3)", () => {
     expect(mockRunSetup).not.toHaveBeenCalled();
     expect(statusModule.publishStatus).not.toHaveBeenCalled();
     expect(mockExecSync).not.toHaveBeenCalled();
+  });
+
+  it("arranges for the launcher tab to close after a launch or a switch from inside Rex (D1)", async () => {
+    mockCloseLauncherTab.mockClear();
+    mockStartLauncherTabWatch.mockClear();
+    await launch("/tmp/workspace");
+    expect(mockStartLauncherTabWatch).toHaveBeenCalledWith(REX_CONTEXT);
+    expect(mockCloseLauncherTab).toHaveBeenCalledWith(REX_CONTEXT);
+    mockCloseLauncherTab.mockClear();
+    mockMaybeSwitch.mockReturnValue({ kind: "switched" });
+    await expect(launch("/tmp/workspace")).resolves.toBe("switched");
+    expect(mockCloseLauncherTab).toHaveBeenCalledTimes(1);
+  });
+
+  it("never arms a tab close for a dry run (D1)", async () => {
+    mockCloseLauncherTab.mockClear();
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    await launch("/tmp/workspace", { dryRun: true });
+    logSpy.mockRestore();
+    expect(mockCloseLauncherTab).not.toHaveBeenCalled();
   });
 
   it("refuses with exit 2 when the recorded workspace cannot be verified", async () => {
@@ -4806,7 +4829,7 @@ describe("Rex launch (plan P2, P8, P13, P15; Phase 3)", () => {
       Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, configurable: true });
     }
     expect(stderrText).toContain("interactive confirmation");
-    expect(mockAdoptOrphans).toHaveBeenCalledWith("workspace", { repeatAnnounced: false });
+    expect(mockAdoptOrphans).toHaveBeenCalledWith("workspace", { forLaunch: true });
     expect(rexLaunches).toEqual([]);
     expect(statusModule.publishStatus).not.toHaveBeenCalled();
   });

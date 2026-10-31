@@ -737,29 +737,46 @@ describe("printStatusOnce", () => {
     vi.spyOn(console, "log").mockImplementation(() => {});
   });
 
-  it("prints empty message when no projects", () => {
-    printStatusOnce();
+  it("prints empty message when no projects", async () => {
+    await printStatusOnce();
     const output = vi.mocked(console.log).mock.calls.flat().join("\n");
     expect(output).toContain("No projects registered.");
     expect(output).toContain("summon add <name> <path>");
     expect(output).toContain("summon setup");
   });
 
-  it("prints status rows when projects exist", () => {
+  it("--once waits for the git branch of live rows instead of printing the placeholder (D3)", async () => {
+    resetGitBranchCache();
+    listProjects.mockReturnValue([["ghost", "/tmp/ghost"], ["rexy", "/tmp/rexy"], ["off", "/tmp/off"]]);
+    readAllStatuses.mockReturnValue([
+      makeResolvedStatus({ project: "ghost", state: "active", uptime: 60_000 }),
+      makeResolvedStatus({ project: "rexy", state: "active", uptime: 60_000, backend: "rex" }),
+      makeResolvedStatus({ project: "off", state: "stopped", uptime: null }),
+    ]);
+    getGitBranch.mockImplementation(async (dir: string) => (dir === "/tmp/off" ? "never-asked" : dir === "/tmp/rexy" ? null : "main"));
+    await printStatusOnce();
+    const lines = vi.mocked(console.log).mock.calls.map((c) => String(c[0]));
+    expect(lines.find((l) => l.includes("ghost"))).toContain("main");
+    expect(lines.find((l) => l.includes("rexy"))).toContain("\u2014");
+    expect(lines.join("\n")).not.toContain("\u2026");
+    expect(getGitBranch).not.toHaveBeenCalledWith("/tmp/off");
+  });
+
+  it("prints status rows when projects exist", async () => {
     listProjects.mockReturnValue([["myapp", "/tmp/myapp"]]);
     readAllStatuses.mockReturnValue([
       makeResolvedStatus({ project: "myapp", state: "active", uptime: 60_000 }),
     ]);
     getGitBranch.mockReturnValue("main");
 
-    printStatusOnce();
+    await printStatusOnce();
     // First call: header line with active count
     expect(console.log).toHaveBeenCalledWith(
       expect.stringContaining("1 active / 1 total"),
     );
   });
 
-  it("prints a reason the column cuts off in full below the row, so its command stays visible (F16)", () => {
+  it("prints a reason the column cuts off in full below the row, so its command stays visible (F16)", async () => {
     const columns = process.stdout.columns;
     Object.defineProperty(process.stdout, "columns", { value: 80, configurable: true });
     listProjects.mockReturnValue([["rc-pair", "/tmp/rc-pair"], ["short", "/tmp/short"]]);
@@ -768,7 +785,7 @@ describe("printStatusOnce", () => {
       makeResolvedStatus({ project: "short", directory: "/tmp/short", state: "stopped", uptime: null, reason: "Rex session no longer exists" }),
     ]);
     try {
-      printStatusOnce();
+      await printStatusOnce();
     } finally {
       Object.defineProperty(process.stdout, "columns", { value: columns, configurable: true });
     }
@@ -777,7 +794,7 @@ describe("printStatusOnce", () => {
     expect(lines.some((l) => l.includes("reason: Rex session no longer exists"))).toBe(false);
   });
 
-  it("prints each row for multiple projects", () => {
+  it("prints each row for multiple projects", async () => {
     listProjects.mockReturnValue([
       ["alpha", "/tmp/alpha"],
       ["beta", "/tmp/beta"],
@@ -788,7 +805,7 @@ describe("printStatusOnce", () => {
     ]);
     getGitBranch.mockReturnValue("main");
 
-    printStatusOnce();
+    await printStatusOnce();
     const calls = vi.mocked(console.log).mock.calls.flat().join("\n");
     expect(calls).toContain("alpha");
     expect(calls).toContain("beta");
@@ -1243,8 +1260,8 @@ describe("UX-M4 (#558): printStatusOnce uses standard empty-state message", () =
     vi.spyOn(console, "log").mockImplementation(() => {});
   });
 
-  it("shows the standard empty-state message including 'summon add' and 'summon setup'", () => {
-    printStatusOnce();
+  it("shows the standard empty-state message including 'summon add' and 'summon setup'", async () => {
+    await printStatusOnce();
     const output = vi.mocked(console.log).mock.calls.flat().join("\n");
     expect(output).toContain("No projects registered.");
     expect(output).toContain("summon add <name> <path>");
@@ -1509,7 +1526,7 @@ describe("four-state rows (plan P10, Phase 4)", () => {
     expect(stoppedWithReason).not.toContain("/tmp/myapp");
   });
 
-  it("loadProjectRows carries reason and notices, counts partial as active and sorts live rows first", () => {
+  it("loadProjectRows carries reason and notices, counts partial as active and sorts live rows first", async () => {
     listProjects.mockReturnValue([["a", "/tmp/a"], ["b", "/tmp/b"], ["c", "/tmp/c"]]);
     readAllStatuses.mockReturnValue([
       makeResolvedStatus({ project: "a", state: "unknown", uptime: null, reason: "server unreachable", notices: ["earlier launch x could not be verified"] }),
@@ -1522,7 +1539,7 @@ describe("four-state rows (plan P10, Phase 4)", () => {
     expect(rows.find((r) => r.name === "a")!.notices).toEqual(["earlier launch x could not be verified"]);
 
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-    monitorModule.printStatusOnce();
+    await monitorModule.printStatusOnce();
     const output = logSpy.mock.calls.flat().join("\n");
     logSpy.mockRestore();
     expect(output).toContain("2 active / 3 total");

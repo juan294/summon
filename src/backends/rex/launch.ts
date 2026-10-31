@@ -381,18 +381,19 @@ function extraSessionNotice(project: string, sessionId: string, launchId: string
  * Verify every orphan (no mutation), then adopt at most one and remove confirmed-gone launches, under the lock.
  * `reportLeftovers: false` leaves out the notes that `summon clean --orphans` repeats in its review of each
  * launch right after (F12); a fact the review does not check (foreign pane files) is still reported.
- * `repeatAnnounced: false` (the launch path, F12) leaves out a live session beside a live record when the
- * record's own `--new-window` launch already announced it (`keeps` in its manifest, see `keptSession`); any other
- * extra session is still reported, and status always says it.
+ * `forLaunch: true` (the launch path) leaves out what the launch itself makes moot: a live session beside a live
+ * record that the record's own `--new-window` launch already announced (`keeps` in its manifest, see `keptSession`;
+ * F12), and the note about a record from an older Summon, which the launch replaces (D2). Any other extra session is
+ * still reported, and status always says both.
  */
-export function adoptOrphans(project: string, deps: AdoptDeps, options: { reportLeftovers?: boolean; repeatAnnounced?: boolean } = {}): string[] {
+export function adoptOrphans(project: string, deps: AdoptDeps, options: { reportLeftovers?: boolean; forLaunch?: boolean } = {}): string[] {
   const reportLeftovers = options.reportLeftovers ?? true;
   const current = readStatusRecord(project);
-  if (current && !current.launchId) return [`${project} has a record from an older Summon; run summon ${project} to replace it`];
+  if (current && !current.launchId) return options.forLaunch ? [] : [`${project} has a record from an older Summon; run summon ${project} to replace it`];
   const gen = current?.launchId ?? null;
   const manifests = listLaunchManifests(project).filter((m): m is LaunchManifest & { server: string } => m.launchId !== gen && m.backend === "rex" && m.server !== undefined);
   if (manifests.length === 0) return [];
-  const announced = new Set(options.repeatAnnounced === false && gen ? readLaunchManifest(project, gen)?.keeps ?? [] : []);
+  const announced = new Set(options.forLaunch && gen ? readLaunchManifest(project, gen)?.keeps ?? [] : []);
 
   // PASS 1: the current record.
   let live = false;
