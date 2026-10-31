@@ -35,7 +35,7 @@ export function adoptOnce(projectName: string, binary: string, adopted: Set<stri
  */
 export function refreshUnverifiedPanes(projectName: string, record: WorkspaceStatus, notices: string[]): ReconcileStep {
   const gen = record.launchId;
-  if (!gen || !record.rex || record.endedAt || unverifiedPanes(record) === 0) return { kind: "current", record };
+  if (!gen || !record.rex || record.endedAt || unverifiedPanes(record) <= 0) return { kind: "current", record };
   const refreshed = refreshPaneMapping(record);
   notices.push(...refreshed.notices);
   if (!refreshed.changed) return { kind: "current", record };

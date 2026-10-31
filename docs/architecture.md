@@ -66,7 +66,7 @@ Technical reference for contributors.
 | `tree.ts` | Tree data model, DSL parser, plan builder (pure — no side effects) | **pure** | layout |
 | `status.ts` | Status reader over both backends: `readStatus`/`readProjectStatus`/`readAllStatuses` (`active`/`partial`/`stopped`/`unknown`), `hasRexState`, `rexCommandGate`, git branch lookup. A read writes nothing unless it passes `{ reconcile: true }`, which runs the steps of `backends/rex/reconcile.ts`; every status command passes it. No re-export of `status-record.ts` | yes | status-record, launch-identity, backends/rex/cli, backends/rex/status, backends/rex/reconcile, paths, utils |
 | `briefing.ts` | Morning project briefing — overnight commits, dirty files, recommendations | yes | config, status, status-record, ui/ansi |
-| `monitor.ts` | Interactive TUI dashboard — real-time workspace status with keyboard navigation | yes | status, status-record, config, trust, ui/ansi, workspace-focus and launcher (dynamic, on Enter) |
+| `monitor.ts` | Interactive TUI dashboard — real-time workspace status with keyboard navigation | yes | status, status-record, config, ui/ansi, workspace-focus, launcher and trust (dynamic, on Enter) |
 | `ports.ts` | Port detection — scans `.summon` env vars, `package.json`, framework configs for port assignments | yes | config, status, status-record, trust, utils |
 | `snapshot.ts` | Context snapshot save/restore — git branch, dirty files, recent commits, layout | yes | paths |
 | `keybindings.ts` | Ghostty key table config generator (pure function) | **pure** | none |
@@ -258,7 +258,7 @@ graph TD
 
     monitor --> status
     monitor --> statusrecord
-    monitor --> trust
+    monitor -.->|dynamic| trust
     monitor --> config
     monitor --> uiansi
     monitor --> uisymbols

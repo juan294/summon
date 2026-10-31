@@ -44,6 +44,12 @@ vi.mock("node:child_process", async (original) => ({
   ...(await original<typeof import("node:child_process")>()),
   execFileSync: fixture.exec,
 }));
+// AR-M3: the real reader runs; the spy only records how each command reads.
+const readStatusSpy = vi.hoisted(() => ({ calls: [] as unknown[][] }));
+vi.mock("../status.js", async (original) => {
+  const actual = await original<typeof import("../status.js")>();
+  return { ...actual, readStatus: (...args: Parameters<typeof actual.readStatus>) => { readStatusSpy.calls.push(args); return actual.readStatus(...args); } };
+});
 // The Rex binary is pinned; every rex call goes through fixture.exec like osascript does.
 vi.mock("../backends/rex/cli.js", async (original) => ({
   ...(await original<typeof import("../backends/rex/cli.js")>()),
@@ -128,7 +134,10 @@ describe("workspace commands with real status fixtures", () => {
       ]),
     );
     const out = vi.spyOn(console, "log").mockImplementation(() => {});
+    readStatusSpy.calls.length = 0;
     await handleInspectCommand(context(["demo"], { json: true }));
+    // AR-M3: inspect reads with reconciliation, as every status read did before the reader split.
+    expect(readStatusSpy.calls).toEqual([["demo", { reconcile: true }]]);
     const result = JSON.parse(String(out.mock.calls[0]![0]));
     expect(result.state).toBe("active");
     expect(result.panes[0]).toMatchObject({
@@ -277,7 +286,10 @@ describe("P4 title handler real status fixtures", () => {
         override: "existing\n\u202e🦊",
       }),
     );
+    readStatusSpy.calls.length = 0;
     await handleTitleCommand(context(["demo"]));
+    // AR-M3: title reads with reconciliation, as every status read did before the reader split.
+    expect(readStatusSpy.calls).toEqual([["demo", { reconcile: true }]]);
     expect(fixture.exec.mock.calls[0]![2].input).not.toMatch(
       /\bactivate\b|set name override/,
     );
