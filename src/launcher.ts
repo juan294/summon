@@ -8,7 +8,7 @@ export { withTrustPrompt } from "./trust.js";
 import { listProjects } from "./config.js";
 import { pickConfigValue, readTrustedSummonFile, resolveConfig } from "./config-resolve.js";
 import type { CLIOverrides, ResolvedConfig } from "./config-resolve.js";
-import { publishStatus, readStatus, readStatusRecord } from "./status.js";
+import { publishStatus, readStatusRecord } from "./status.js";
 import type { WorkspaceStatus } from "./status.js";
 import { newLaunchId } from "./launch-identity.js";
 import { REX_UNHONORED_FLAGS, callerRexSession, resolveBackendForLaunch } from "./backend.js";
@@ -18,10 +18,9 @@ import type { BackendLaunchResult, TerminalBackend } from "./backends/ghostty.js
 import { createRexBackend } from "./backends/rex/backend.js";
 import { adoptOrphansForLaunch, adoptDeps, maybeSwitchToExisting } from "./backends/rex/launch.js";
 import { createRexCli, discoverRex } from "./backends/rex/cli.js";
-import { focusRex, sessionState, sessionListings } from "./backends/rex/status.js";
+import { sessionState, sessionListings } from "./backends/rex/status.js";
 import { closeLauncherTabAfterRexLaunch, markAttention, startLauncherTabWatch } from "./backends/rex/launcher-tab.js";
-import type { ResolvedStatus } from "./status.js";
-import { isLiveState, rexCommandGate } from "./status.js";
+import { isLiveState } from "./status.js";
 import { resolveTreeCommands as resolveTreeCmds, buildTreePlan, collectLeaves, findPaneByName } from "./tree.js";
 import type { TreePlanOptions } from "./tree.js";
 import { getErrorMessage, SUMMON_WORKSPACE_ENV, promptUser, isDebug, PromptCancelled } from "./utils.js";
@@ -35,8 +34,6 @@ import { isStarshipInstalled, ensurePresetConfig } from "./starship.js";
 // command-spec is a pure utility module with no imports from this file.
 // Dependency direction: launcher -> command-spec (one-way, no circular risk).
 import { commandExecutable, replaceCommandExecutable } from "./command-spec.js";
-import { focusTerminal } from "./ghostty-native.js";
-import type { FocusResult, NativeFailure } from "./ghostty-native.js";
 
 /** Resolve a human-readable project name from a target directory. */
 export function resolveProjectName(targetDir: string): string {
@@ -52,34 +49,6 @@ export function resolveProjectName(targetDir: string): string {
     `Project name "${derived}" contains unsupported characters; using "${sanitized}" for tab title and status tracking.`,
   );
   return sanitized;
-}
-
-/** Resolve a recorded exact UUID without activating or querying the application. */
-export function resolveWorkspaceTerminal(projectName: string, paneName?: string, status?: ResolvedStatus | null): { kind: "target"; terminalId: string } | NativeFailure {
-  if (!PROJECT_NAME_RE.test(projectName)) return { kind: "unavailable", code: "missing", reason: "Invalid project name. Run summon inspect <project>." };
-  if (status === undefined) status = readStatus(projectName);
-  if (status?.backend === "rex") return { kind: "unavailable", code: "missing", reason: `[${projectName}] runs in Rex; its panes are Rex blocks, not Ghostty terminals. Run summon inspect ${projectName}.` };
-  if (!status?.native) return { kind: "unavailable", code: "missing", reason: "Exact native identity is unavailable. Select in Ghostty or explicitly relaunch when ready to capture identity; run summon inspect <project>." };
-  const terminalId = paneName === undefined ? status.native.rootTerminalId : status.native.panes.find(p => p.name === paneName)?.terminalId;
-  if (!terminalId) return { kind: "unavailable", code: "missing", reason: `Unknown pane. Valid panes: ${status.native.panes.map(p => p.name).join(", ")}. Run summon inspect ${projectName}.` };
-  return { kind: "target", terminalId };
-}
-
-/**
- * Focus only a recorded exact identity. Legacy/stale records never launch implicitly. Under Rex
- * the shared gate refuses `unknown` and `stopped` (plan P10) and the app attached to the
- * caller's session is preferred (P7).
- */
-export function focusWorkspace(projectName: string, paneName?: string): FocusResult {
-  const status = PROJECT_NAME_RE.test(projectName) ? readStatus(projectName) : null;
-  if (status?.backend === "rex") {
-    const gate = rexCommandGate(projectName, status);
-    if (!gate.ok) return gate.failure;
-    // No detection row here (focus does not launch): REX_SESSION is set by Rex terminals only, so it is the caller's session when present.
-    return focusRex(gate.cli, gate.identity, status.panes, projectName, gate.liveBlocks, paneName, process.env["REX_SESSION"]);
-  }
-  const target = resolveWorkspaceTerminal(projectName, paneName, status);
-  return target.kind === "target" ? focusTerminal(target.terminalId) : target;
 }
 
 /**

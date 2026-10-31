@@ -4,7 +4,7 @@ import {
   removeProject,
   listProjects,
 } from "../config.js";
-import { focusWorkspace, launch } from "../launcher.js";
+import { focusWorkspace } from "../workspace-focus.js";
 import { withTrustPrompt } from "../trust.js";
 import { promptUser, exitWithUsageHint, PromptCancelled, CANCELLED_EXIT_CODE } from "../utils.js";
 import { fail, warn } from "../ui/output.js";
@@ -108,6 +108,8 @@ async function openRow(row: ProjectRow, overrides: CommandContext["overrides"]):
     armClose();
     return;
   }
+  // AR-M2: only a launch loads the launcher; `list`, `add`, `remove` and a focus do not.
+  const { launch } = await import("../launcher.js");
   await withTrustPrompt(() => launch(row.directory, overrides));
 }
 

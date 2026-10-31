@@ -1,7 +1,7 @@
 import type { CommandContext } from "./types.js";
 import { readStatus } from "../status.js";
 import { readStatusRecord } from "../status-record.js";
-import { focusWorkspace, resolveWorkspaceTerminal } from "../launcher.js";
+import { focusWorkspace, resolveWorkspaceTerminal } from "../workspace-focus.js";
 import { readNativeInventory, titleTerminal, validateTitleText } from "../ghostty-native.js";
 import { projectArgOrExit } from "../validation.js";
 import { escapeControlChars } from "../pane-inventory.js";

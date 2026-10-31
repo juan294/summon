@@ -738,11 +738,12 @@ export async function runMonitor(options: MonitorOptions = {}): Promise<void> {
     try {
       // Plan P10: an unknown workspace is never launched over or focused; the reason is shown.
       if (selected.state === "unknown") throw new Error(unverifiedMessage(selected.name, selected.reason));
-      const { launch, focusWorkspace, withTrustPrompt } = await import("./launcher.js");
       if (isActive) {
+        const { focusWorkspace } = await import("./workspace-focus.js");
         const result = focusWorkspace(selected.name);
         if (result.kind !== "focused") throw new Error(result.reason);
       } else {
+        const { launch, withTrustPrompt } = await import("./launcher.js");
         // UX-M4: a new or changed `.summon` is shown and offered for trust here, on the normal screen.
         await withTrustPrompt(() => launch(selected.directory));
       }

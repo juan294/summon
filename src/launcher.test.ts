@@ -155,7 +155,7 @@ vi.mock("./script.js", () => ({
 }));
 
 // Import after mocks are set up
-const { launch, focusWorkspace, resolveProjectName, probePaneCount, decideCleanRestoredPanes, layoutOptsToTreePlanOpts } = await import("./launcher.js");
+const { launch, resolveProjectName, probePaneCount, decideCleanRestoredPanes, layoutOptsToTreePlanOpts } = await import("./launcher.js");
 const { readTrustedSummonFile, resolveConfig } = await import("./config-resolve.js");
 const { closeCreatedContainer, withLaunchSpinner, GhosttyBackend, ghosttyCommandEntries } = await import("./backends/ghostty.js");
 const { isStaticLaunchSpinner } = await import("./ui/progress.js");
@@ -326,21 +326,6 @@ describe("script execution", () => {
       undefined,
       ANY_LAUNCH_ID,
     );
-  });
-});
-
-describe("focusWorkspace", () => {
-  const id="00000000-0000-4000-8000-000000000001";
-  it("returns focused only for confirmed UUID readback", () => {
-    mockReadStatus.mockReturnValue({native:{rootTerminalId:id,panes:[{name:"editor",terminalId:id}]}});
-    mockExecFileSync.mockReturnValue(JSON.stringify({focused:true,terminalId:id}));
-    expect(focusWorkspace("api")).toEqual({kind:"focused",terminalId:id});
-  });
-  it("returns unavailable when native identity or permission fails", () => {
-    expect(focusWorkspace("api").kind).toBe("unavailable");
-    mockReadStatus.mockReturnValue({native:{rootTerminalId:id,panes:[{name:"editor",terminalId:id}]}});
-    mockExecFileSync.mockImplementation(()=>{throw new Error("-1743");});
-    expect(focusWorkspace("api")).toMatchObject({kind:"unavailable",code:"permission"});
   });
 });
 
