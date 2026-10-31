@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A failed Ghostty launch no longer closes your own window. Before, any failure that was not about Accessibility ran `close front window`, which in the default mode (no `--new-window`) closed the window you launched into, with all its tabs. Now Summon closes only what the launch created: the window opened by `--new-window` or the tab opened by `--new-tab`, found by its id. A launch into an existing window closes nothing. That close is limited to 5 seconds, so a Ghostty that does not answer can no longer hang Summon after a failure. A successful launch runs the same script as before.
 - The cleanup trap now works for a project directory, or a Node or Summon install path, that contains `!`. These paths are typed into an interactive zsh, where `!` inside double quotes is history expansion, so the trap failed with `event not found` and the snapshot never ran. They are now single-quoted. A path with a control character (for example an escape or newline) is refused with a clear error instead of being typed into the terminal.
 - `summon status` rows no longer run one column past the terminal when the branch, path or reason is cut off, so the monitor no longer scrolls at narrow widths.
 - The monitor keeps the selection on the same project when a refresh reorders the rows, so Enter opens the highlighted project.

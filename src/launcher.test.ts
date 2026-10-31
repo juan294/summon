@@ -153,7 +153,7 @@ vi.mock("./script.js", () => ({
 
 // Import after mocks are set up
 const { launch, readTrustedSummonFile, resolveConfig, optsToConfigMap, focusWorkspace, resolveProjectName, probePaneCount, decideCleanRestoredPanes, layoutOptsToTreePlanOpts, commandFixHint } = await import("./launcher.js");
-const { closeWorkspaceWindow, withLaunchSpinner, GhosttyBackend, ghosttyCommandEntries } = await import("./backends/ghostty.js");
+const { closeCreatedContainer, withLaunchSpinner, GhosttyBackend, ghosttyCommandEntries } = await import("./backends/ghostty.js");
 const { isStaticLaunchSpinner } = await import("./ui/progress.js");
 const { planLayout } = await import("./layout.js");
 const { buildTreePlan, findPaneByName, parseTreeDSL, resolveTreeCommands } = await import("./tree.js");
@@ -3778,8 +3778,8 @@ describe("UX-M3: success message after launch (#312)", () => {
 
 // ─── BE-S26 (#322): Rollback on partial launch failure ───────────────────────
 
-describe("rollback on executeScript failure (BE-S26 #322)", () => {
-  it("attempts to close the workspace window when executeScript throws ETIMEDOUT", async () => {
+describe("rollback on executeScript failure (BE-S26 #322, BE-M2)", () => {
+  it("closes nothing when a default-mode launch into the user's own window fails (BE-M2)", async () => {
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
 
     // Track whether the rollback (close window) script was attempted
@@ -3789,7 +3789,7 @@ describe("rollback on executeScript failure (BE-S26 #322)", () => {
     mockExecFileSync.mockImplementation((bin: string, args?: string[], callOpts?: Record<string, unknown>) => {
       if (bin === "osascript") {
         const inputScript = callOpts?.input as string | undefined;
-        if (inputScript?.includes("close front window")) {
+        if (inputScript && /close (window|tab) /.test(inputScript)) {
           // Rollback call
           rollbackAttempted = true;
           return "";
@@ -3812,21 +3812,21 @@ describe("rollback on executeScript failure (BE-S26 #322)", () => {
 
     await expect(launch("/tmp/workspace")).rejects.toThrow("Failed to execute workspace script");
 
-    // Rollback must have been attempted after the main script failed
+    // The script reused the front window and recorded no container: the user's window stays.
     expect(mainScriptExecuted).toBe(true);
-    expect(rollbackAttempted).toBe(true);
+    expect(rollbackAttempted).toBe(false);
 
     errorSpy.mockRestore();
     warnSpy.mockRestore();
   });
 
-  it("closeWorkspaceWindow is a no-op when osascript is not available", () => {
+  it("closeCreatedContainer is a no-op when osascript is not available", () => {
     mockExecFileSync.mockImplementation(() => {
       throw new Error("osascript not found");
     });
 
     // Should not throw
-    expect(() => closeWorkspaceWindow()).not.toThrow();
+    expect(() => closeCreatedContainer({ kind: "window", id: "W-1" })).not.toThrow();
   });
 });
 
@@ -3839,7 +3839,7 @@ describe("keystroke-failure detection in executeScript", () => {
     const impl = (bin: string, _args?: string[], opts?: Record<string, unknown>) => {
       if (bin === "osascript") {
         const input = opts?.input as string | undefined;
-        if (input?.includes("close front window")) {
+        if (input && /close (window|tab) /.test(input)) {
           rollbackAttempted = true;
           return "";
         }
@@ -4672,7 +4672,7 @@ describe("P2 capture failure isolation",()=>{
     await expect(launch("/tmp/workspace",{layout:"minimal"})).resolves.toBe("launched");
     expect(status.publishStatus).toHaveBeenCalledWith(expect.objectContaining({project:"workspace",version:1}));
     expect(vi.mocked(status.publishStatus).mock.calls[0]?.[0].native).toBeUndefined();
-    expect(mockExecFileSync.mock.calls.filter(c=>String(c[2]?.input).includes("close front window"))).toHaveLength(0);
+    expect(mockExecFileSync.mock.calls.filter(c=>/close (window|tab) /.test(String(c[2]?.input)))).toHaveLength(0);
   });
   it("maps successful capture and warns without throwing on status write failure",async()=>{
     const status=await import("./status.js"); const err=vi.spyOn(process.stderr,"write").mockImplementation(()=>true);
