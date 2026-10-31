@@ -392,6 +392,33 @@ describe("session launch — skip tab-open failures and continue", () => {
     writeSpy.mockRestore();
     logSpy.mockRestore();
   });
+
+  it("a user cancel during a launch exits 130 without an error line, like everywhere else (UX-L3)", async () => {
+    const { PromptCancelled } = await import("../utils.js");
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const mockExit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error("process.exit:" + code);
+    }) as never);
+    mockListProjects.mockReturnValue(new Map([["api", "/tmp/api"], ["web", "/tmp/web"], ["worker", "/tmp/worker"]]));
+    mockGetProject.mockImplementation((name: string) => ({ api: "/tmp/api", web: "/tmp/web", worker: "/tmp/worker" } as Record<string, string>)[name]);
+    mockLaunch
+      .mockResolvedValueOnce("launched")
+      .mockRejectedValueOnce(new PromptCancelled("Launch aborted by user (nested workspace)."));
+
+    await expect(
+      handleSessionCommand(makeContext({ values: { all: true }, args: [] })),
+    ).rejects.toThrow("process.exit:130");
+
+    // The cancel stops the run: the remaining project is not launched, and no error is printed for it.
+    expect(mockLaunch).toHaveBeenCalledTimes(2);
+    const stderr = writeSpy.mock.calls.map((c) => String(c[0])).join("");
+    expect(stderr).not.toContain("summon: error:");
+    expect(stderr).toContain("Already launched: api");
+    mockExit.mockRestore();
+    writeSpy.mockRestore();
+    logSpy.mockRestore();
+  });
 });
 
 describe("session launch --new-window <name>", () => {

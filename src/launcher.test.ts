@@ -987,6 +987,30 @@ describe("pre-flight accessibility check", () => {
     writeSpy.mockRestore();
   });
 
+  it("proceeds when the probe timed out (unknown, PE-L3); the workspace script then reports a real denial", async () => {
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+    let mainScript: "ok" | "denied" = "ok";
+    mockExecFileSync.mockImplementation((bin: string, args?: string[]) => {
+      if (bin === "osascript" && args?.[0] === "-e" && String(args[1]).includes("System Events")) {
+        throw Object.assign(new Error("spawnSync osascript ETIMEDOUT"), { code: "ETIMEDOUT", signal: "SIGKILL" });
+      }
+      if (bin === "osascript" && mainScript === "denied") throw new Error("execution error: System Events got an error: osascript is not allowed assistive access. (-1719)");
+      if (bin === "/usr/bin/which") return "/usr/bin/stub\n";
+      return "";
+    });
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+
+    await launch("/tmp/workspace");
+    expect(writeSpy.mock.calls.map((c) => String(c[0])).join(" ")).not.toContain("Accessibility permission is required");
+    expect(mockGenerateAppleScript).toHaveBeenCalled();
+
+    writeSpy.mockClear();
+    mainScript = "denied";
+    await expect(launch("/tmp/workspace")).rejects.toThrow("Failed to execute workspace script");
+    expect(writeSpy.mock.calls.map((c) => String(c[0])).join(" ")).toContain("Ghostty needs Accessibility permission");
+    writeSpy.mockRestore();
+  });
+
   it("skips accessibility check for --dry-run", async () => {
     vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
     mockAccessibilityDenied();

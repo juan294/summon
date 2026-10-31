@@ -73,7 +73,7 @@ vi.mock("node:readline", () => ({
 }));
 
 // Import after mocks
-const { SAFE_COMMAND_RE, GHOSTTY_PATHS, GHOSTTY_APP_NAME, SUMMON_WORKSPACE_ENV, resolveCommand, isExecutableFile, describeCommandFailure, promptUser, getErrorMessage, exitWithUsageHint, formatUserError, checkAccessibility, openAccessibilitySettings, isAccessibilityError, isGhosttyInstalled, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT, ACCESSIBILITY_REQUIRED_MSG, PromptCancelled, CANCELLED_EXIT_CODE, exitCodeFor, isDebug, debugLog, supportsColor, confirm, gitSafeEnv, resetGitSafeEnvCache, atomicWrite, resetGitOutputCache } = await import("./utils.js");
+const { SAFE_COMMAND_RE, GHOSTTY_PATHS, GHOSTTY_APP_NAME, SUMMON_WORKSPACE_ENV, resolveCommand, isExecutableFile, describeCommandFailure, promptUser, getErrorMessage, exitWithUsageHint, formatUserError, checkAccessibility, probeAccessibility, openAccessibilitySettings, isAccessibilityError, isGhosttyInstalled, ACCESSIBILITY_SETTINGS_PATH, ACCESSIBILITY_ENABLE_HINT, ACCESSIBILITY_REQUIRED_MSG, PromptCancelled, CANCELLED_EXIT_CODE, exitCodeFor, isDebug, debugLog, supportsColor, confirm, gitSafeEnv, resetGitSafeEnvCache, atomicWrite, resetGitOutputCache } = await import("./utils.js");
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -496,8 +496,20 @@ describe("checkAccessibility", () => {
     expect(mockExecFileSync).toHaveBeenCalledWith(
       "osascript",
       ["-e", 'tell application "System Events" to get name of first process'],
-      expect.objectContaining({ encoding: "utf-8", timeout: 2000 }),
+      // PE-L3: a probe that ignores SIGTERM is killed at the timeout.
+      expect.objectContaining({ encoding: "utf-8", timeout: 2000, killSignal: "SIGKILL" }),
     );
+    expect(probeAccessibility()).toBe("granted");
+  });
+
+  it("reports a probe that timed out as unknown, not denied, so a launch proceeds (PE-L3)", () => {
+    const timedOut = () => {
+      throw Object.assign(new Error("spawnSync osascript ETIMEDOUT"), { code: "ETIMEDOUT", signal: "SIGKILL" });
+    };
+    mockExecFileSync.mockImplementationOnce(timedOut);
+    expect(probeAccessibility()).toBe("unknown");
+    mockExecFileSync.mockImplementationOnce(timedOut);
+    expect(checkAccessibility()).toBe(true);
   });
 
   it("returns false when osascript throws (accessibility denied)", () => {
@@ -506,6 +518,10 @@ describe("checkAccessibility", () => {
     });
     const result = checkAccessibility();
     expect(result).toBe(false);
+    mockExecFileSync.mockImplementationOnce(() => {
+      throw new Error("osascript is not allowed assistive access. (-1719)");
+    });
+    expect(probeAccessibility()).toBe("denied");
   });
 
   it("returns false for any osascript error", () => {

@@ -219,22 +219,28 @@ export function isAccessibilityError(message: string): boolean {
 }
 
 /**
- * Check whether the current terminal has macOS Accessibility permission.
+ * Probe whether the current terminal has macOS Accessibility permission.
  * Summon uses System Events (for auto-resize and new-window) which requires
  * the calling terminal app to be granted Accessibility access.
- * Returns true if System Events responds, false otherwise.
+ * "granted" when System Events answers, "denied" when osascript fails, and "unknown" when it did not
+ * answer within 2 s (PE-L3: a slow System Events is not a denial; the workspace script reports a real one).
  */
-export function checkAccessibility(): boolean {
+export function probeAccessibility(): "granted" | "denied" | "unknown" {
   try {
     execFileSync(
       "osascript",
       ["-e", 'tell application "System Events" to get name of first process'],
-      { encoding: "utf-8", timeout: 2000 },
+      { encoding: "utf-8", timeout: 2000, killSignal: "SIGKILL" },
     );
-    return true;
-  } catch {
-    return false;
+    return "granted";
+  } catch (caught) {
+    return (caught as NodeJS.ErrnoException).code === "ETIMEDOUT" ? "unknown" : "denied";
   }
+}
+
+/** False only for a probe that answered "denied": a launch proceeds when the probe timed out. */
+export function checkAccessibility(): boolean {
+  return probeAccessibility() !== "denied";
 }
 
 /**
