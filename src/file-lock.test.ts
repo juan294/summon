@@ -1,11 +1,27 @@
-import { afterEach, describe, expect, it } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { build } from "tsup";
-import { withFileLock } from "./file-lock.js";
+
+// In-process fault injection for the contention, error and recovery branches (QA-L1): each wrapper
+// delegates to the real function unless a test installs a hook. The subprocess suites below bundle
+// the real module and are unaffected.
+type FsHook = (real: (...args: never[]) => unknown, ...args: never[]) => unknown;
+const hooks = vi.hoisted(() => ({} as Partial<Record<"readdirSync" | "renameSync" | "unlinkSync" | "rmdirSync" | "lstatSync", FsHook>>));
+vi.mock("node:fs", async (original) => {
+  const fs = await original<typeof import("node:fs")>();
+  const wrap = <K extends keyof typeof hooks>(name: K) => (...args: never[]) => {
+    const real = fs[name] as unknown as (...args: never[]) => unknown;
+    const hook = hooks[name];
+    return hook ? hook(real, ...args) : real(...args);
+  };
+  return { ...fs, readdirSync: wrap("readdirSync"), renameSync: wrap("renameSync"), unlinkSync: wrap("unlinkSync"), rmdirSync: wrap("rmdirSync"), lstatSync: wrap("lstatSync") };
+});
+
+import { inspectLock, recoverStaleLock, STALE_LOCK_MS, withFileLock } from "./file-lock.js";
 
 const dirs: string[] = [];
 function fixture(): string {
@@ -13,7 +29,11 @@ function fixture(): string {
   dirs.push(dir);
   return dir;
 }
-afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
+afterEach(() => {
+  for (const key of Object.keys(hooks)) delete hooks[key as keyof typeof hooks];
+  vi.restoreAllMocks();
+  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
 function owner(file: string, pid: number): string {
   mkdirSync(`${file}.lock`);
   const token = `${pid}-${randomUUID()}.owner`;
@@ -165,5 +185,222 @@ describe("per-file transaction lock", () => {
       for (const { child } of workers) if (child.exitCode === null) child.kill();
       await Promise.allSettled(workers.map(({ done }) => done));
     }
+  });
+});
+
+/** Set a path's mtime `ms` in the past. */
+function age(path: string, ms: number): void {
+  const seconds = (Date.now() - ms) / 1000;
+  utimesSync(path, seconds, seconds);
+}
+const errno = (code: string): Error => Object.assign(new Error(code), { code });
+function deadPid(): number {
+  const dead = spawnSync(process.execPath, ["-e", ""], { timeout: 5000 });
+  expect(dead.status).toBe(0);
+  return dead.pid!;
+}
+
+describe("stale-lock recovery (BE-L2)", () => {
+  it("recovers a lock whose owner PID answers but whose token is past the bound (a reused PID)", () => {
+    const dir = fixture(), file = join(dir, "config");
+    const token = owner(file, process.pid);
+    age(join(`${file}.lock`, token), STALE_LOCK_MS + 5000);
+    expect(inspectLock(`${file}.lock`)).toMatchObject({ kind: "expired", pid: process.pid, token });
+    expect(withFileLock(file, () => 7, 200)).toBe(7);
+    expect(readdirSync(dir)).toEqual([]);
+  });
+
+  it("never steals a live owner's lock within the bound", () => {
+    const dir = fixture(), file = join(dir, "config");
+    const token = owner(file, process.pid);
+    age(join(`${file}.lock`, token), STALE_LOCK_MS - 5000);
+    expect(inspectLock(`${file}.lock`)).toMatchObject({ kind: "live", pid: process.pid, token });
+    expect(() => withFileLock(file, () => { throw new Error("must not enter"); }, 20)).toThrow("Timed out waiting for config lock");
+    expect(readdirSync(`${file}.lock`)).toEqual([token]);
+  });
+
+  it("treats an EPERM probe as live while fresh and recovers it once past the bound", () => {
+    const dir = fixture(), file = join(dir, "config");
+    const kill = vi.spyOn(process, "kill").mockImplementation(() => { throw errno("EPERM"); });
+    const token = owner(file, 4242);
+    expect(() => withFileLock(file, () => 1, 20)).toThrow("Timed out");
+    expect(readdirSync(`${file}.lock`)).toEqual([token]);
+    age(join(`${file}.lock`, token), STALE_LOCK_MS + 1000);
+    expect(withFileLock(file, () => 2, 200)).toBe(2);
+    expect(kill).toHaveBeenCalledWith(4242, 0);
+    expect(readdirSync(dir)).toEqual([]);
+  });
+
+  it("recovers a fresh lock whose owner is proven gone (ESRCH)", () => {
+    const dir = fixture(), file = join(dir, "config");
+    const pid = deadPid();
+    const token = owner(file, pid);
+    expect(inspectLock(`${file}.lock`)).toMatchObject({ kind: "dead", pid, token });
+    expect(withFileLock(file, () => 3, 200)).toBe(3);
+    expect(readdirSync(dir)).toEqual([]);
+  });
+
+  it("fails closed for several tokens or an unparsable PID, however old", () => {
+    const dir = fixture(), file = join(dir, "config");
+    const first = owner(file, deadPid());
+    const second = `${deadPid()}-${randomUUID()}.owner`;
+    writeFileSync(join(`${file}.lock`, second), "");
+    age(join(`${file}.lock`, first), STALE_LOCK_MS * 10);
+    expect(inspectLock(`${file}.lock`)).toEqual({ kind: "unrecognized", entries: [first, second].sort() });
+    expect(() => withFileLock(file, () => 1, 20)).toThrow("Timed out");
+    expect(readdirSync(`${file}.lock`).sort()).toEqual([first, second].sort());
+    rmSync(`${file}.lock`, { recursive: true });
+    mkdirSync(`${file}.lock`);
+    const huge = `99999999999999999999-${randomUUID()}.owner`;
+    writeFileSync(join(`${file}.lock`, huge), "");
+    age(join(`${file}.lock`, huge), STALE_LOCK_MS * 10);
+    expect(recoverStaleLock(`${file}.lock`)).toEqual({ kind: "unrecognized", entries: [huge] });
+    expect(readdirSync(`${file}.lock`)).toEqual([huge]);
+  });
+
+  it("classifies a missing and an empty lock, and recovery removes only the empty one", () => {
+    const dir = fixture(), file = join(dir, "config");
+    expect(inspectLock(`${file}.lock`)).toEqual({ kind: "absent" });
+    mkdirSync(`${file}.lock`);
+    expect(inspectLock(`${file}.lock`)).toEqual({ kind: "released" });
+    expect(recoverStaleLock(`${file}.lock`)).toEqual({ kind: "released" });
+    expect(existsSync(`${file}.lock`)).toBe(false);
+  });
+
+  it("reports absent when the owner releases between listing and stat", () => {
+    const dir = fixture(), file = join(dir, "config");
+    const token = owner(file, process.pid);
+    hooks.lstatSync = (real, ...args) => {
+      rmSync(`${file}.lock`, { recursive: true });
+      return real(...args);
+    };
+    expect(inspectLock(`${file}.lock`)).toEqual({ kind: "absent" });
+    expect(token).toMatch(/\.owner$/);
+  });
+
+  it("rethrows an unexpected stat error of the owner token", () => {
+    const dir = fixture(), file = join(dir, "config");
+    owner(file, process.pid);
+    hooks.lstatSync = () => { throw errno("EACCES"); };
+    expect(() => inspectLock(`${file}.lock`)).toThrow("EACCES");
+  });
+});
+
+describe("contention and error branches in process (QA-L1)", () => {
+  it("retries when the lock vanishes between the existence check and the listing", () => {
+    const dir = fixture(), file = join(dir, "config");
+    owner(file, process.pid);
+    let vanished = false;
+    hooks.readdirSync = (real, ...args) => {
+      if (!vanished && String(args[0]) === `${file}.lock`) {
+        vanished = true;
+        rmSync(`${file}.lock`, { recursive: true });
+      }
+      return real(...args);
+    };
+    expect(withFileLock(file, () => 4, 200)).toBe(4);
+    expect(vanished).toBe(true);
+    expect(readdirSync(dir)).toEqual([]);
+  });
+
+  it("rethrows an unexpected listing error and leaves the lock in place", () => {
+    const dir = fixture(), file = join(dir, "config");
+    const token = owner(file, process.pid);
+    hooks.readdirSync = (real, ...args) => {
+      if (String(args[0]) === `${file}.lock`) throw errno("EACCES");
+      return real(...args);
+    };
+    expect(() => withFileLock(file, () => 1, 200)).toThrow("EACCES");
+    delete hooks.readdirSync;
+    expect(readdirSync(`${file}.lock`)).toEqual([token]);
+  });
+
+  it("loses a publication race: disposes its own staging and never enters while the winner lives", () => {
+    const dir = fixture(), file = join(dir, "config");
+    const winner = `${process.pid}-${randomUUID()}.owner`;
+    hooks.renameSync = (real, ...args) => {
+      const to = String(args[1]);
+      if (to === `${file}.lock` && !existsSync(to)) {
+        mkdirSync(to);
+        writeFileSync(join(to, winner), "");
+      }
+      return real(...args);
+    };
+    expect(() => withFileLock(file, () => { throw new Error("must not enter"); }, 20)).toThrow("Timed out");
+    expect(readdirSync(dir)).toEqual(["config.lock"]);
+    expect(readdirSync(`${file}.lock`)).toEqual([winner]);
+  });
+
+  it("rethrows a publication error that is not a race and removes its staging", () => {
+    const dir = fixture(), file = join(dir, "config");
+    hooks.renameSync = (real, ...args) => {
+      if (String(args[1]) === `${file}.lock`) throw errno("EACCES");
+      return real(...args);
+    };
+    expect(() => withFileLock(file, () => 1)).toThrow("EACCES");
+    expect(readdirSync(dir)).toEqual([]);
+    hooks.renameSync = () => { throw new Error("no errno"); };
+    expect(() => withFileLock(file, () => 1)).toThrow("no errno");
+    expect(readdirSync(dir)).toEqual([]);
+  });
+
+  it("surfaces an unexpected release error from the token or the directory", () => {
+    const dir = fixture(), file = join(dir, "config");
+    hooks.unlinkSync = (real, ...args) => {
+      if (String(args[0]).startsWith(`${file}.lock/`)) throw errno("EACCES");
+      return real(...args);
+    };
+    expect(() => withFileLock(file, () => 1)).toThrow("EACCES");
+    delete hooks.unlinkSync;
+    rmSync(`${file}.lock`, { recursive: true });
+    hooks.rmdirSync = (real, ...args) => {
+      if (String(args[0]) === `${file}.lock`) throw errno("EBUSY");
+      return real(...args);
+    };
+    expect(() => withFileLock(file, () => 1)).toThrow("EBUSY");
+    rmSync(`${file}.lock`, { recursive: true });
+    hooks.rmdirSync = () => { throw new Error("no errno"); };
+    expect(() => withFileLock(file, () => 1)).toThrow("no errno");
+  });
+});
+
+describe("staging sweep (BE-L2)", () => {
+  function staging(dir: string, base: string, ageMs: number, withToken = true): string {
+    const token = `${deadPid()}-${randomUUID()}.owner`;
+    const path = join(dir, `${base}.lock-${token}.tmp`);
+    mkdirSync(path);
+    if (withToken) writeFileSync(join(path, token), "");
+    age(path, ageMs);
+    return `${base}.lock-${token}.tmp`;
+  }
+
+  it("removes this file's staging directories past the bound and keeps fresh, foreign and unrecognized ones", () => {
+    const dir = fixture(), file = join(dir, "config");
+    staging(dir, "config", STALE_LOCK_MS + 5000);
+    staging(dir, "config", STALE_LOCK_MS + 5000, false);
+    const fresh = staging(dir, "config", 1000);
+    const foreign = staging(dir, "projects", STALE_LOCK_MS + 5000);
+    mkdirSync(join(dir, "config.lock-junk.tmp"));
+    age(join(dir, "config.lock-junk.tmp"), STALE_LOCK_MS + 5000);
+    expect(withFileLock(file, () => 5)).toBe(5);
+    expect(readdirSync(dir).sort()).toEqual([fresh, "config.lock-junk.tmp", foreign].sort());
+  });
+
+  it("never fails the transaction when the sweep cannot list or stat", () => {
+    const dir = fixture(), file = join(dir, "config");
+    const kept = staging(dir, "config", STALE_LOCK_MS + 5000);
+    hooks.lstatSync = (real, ...args) => {
+      if (String(args[0]).endsWith(".tmp")) throw errno("EACCES");
+      return real(...args);
+    };
+    expect(withFileLock(file, () => 6)).toBe(6);
+    delete hooks.lstatSync;
+    hooks.readdirSync = (real, ...args) => {
+      if (String(args[0]) === dir) throw errno("EACCES");
+      return real(...args);
+    };
+    expect(withFileLock(file, () => 7)).toBe(7);
+    delete hooks.readdirSync;
+    expect(readdirSync(dir)).toEqual([kept]);
   });
 });
