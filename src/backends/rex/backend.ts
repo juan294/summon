@@ -15,6 +15,7 @@ import { buildSessionCreateRequest } from "./layout.js";
 import type { SessionCreateInput } from "./layout.js";
 import { createWorkspace, keptSession } from "./launch.js";
 import type { CreateContext, LaunchOutcome } from "./launch.js";
+import type { SessionListings } from "./status.js";
 import type { RexIdentity } from "./types.js";
 
 /** Detection row the Rex backend is built from (plan P5: server and binary come from detection). */
@@ -33,6 +34,8 @@ export interface RexBackendDeps {
    * preference with no meaning under Rex (`GHOSTTY_ONLY_CONFIG_KEYS`), where the P2 switch already follows the flag only (UX-H1).
    */
   newWindow?: boolean;
+  /** The launch's shared session listings (PE-L1), for the kept-session check; `createWorkspace` lists for itself (P13). */
+  listings?: SessionListings | undefined;
 }
 
 export function unreachableMessage(server: string, reason: string): string {
@@ -72,7 +75,7 @@ export function createRexBackend(context: RexLaunchContext, deps: RexBackendDeps
       layoutLabel: ctx.layoutLabel,
     });
     // Read before the new record replaces the earlier one (F12).
-    const kept = newWindow ? (deps.keptSession ?? keptSession)(ctx.projectName, (server) => cliFor(context.rexBinary, server)) : undefined;
+    const kept = newWindow ? (deps.keptSession ?? keptSession)(ctx.projectName, (server) => cliFor(context.rexBinary, server), deps.listings) : undefined;
     const manifest: LaunchManifest = {
       version: 1,
       launchId: ctx.launchId,

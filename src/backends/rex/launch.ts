@@ -12,8 +12,8 @@ import { createRexCli, whoamiOf } from "./cli.js";
 import type { RexCli } from "./cli.js";
 import { pickAppClient, pollUntil, realClock, selectInApp, waitForAppClient } from "./app.js";
 import type { AppClientChoice, PollOptions } from "./app.js";
-import { listSessions, sessionState, viewSession } from "./status.js";
-import type { SessionView } from "./status.js";
+import { listSessions, sessionListings, sessionState, viewSession } from "./status.js";
+import type { SessionListings, SessionView } from "./status.js";
 import { isKindId } from "./types.js";
 import type { RexBlockIdentity, RexFailure } from "./types.js";
 import type { SessionCreateRequest } from "./layout.js";
@@ -337,10 +337,13 @@ export interface AdoptDeps {
   cliFor: (server: string) => RexCli;
   /** Liveness of a Ghostty record of the project. */
   ghosttyState: (project: string) => WorkspaceState;
+  /** The launch's shared listings (PE-L1); without it the call lists each server once for itself. */
+  listings?: SessionListings;
 }
 
-export function adoptDeps(binary: string): AdoptDeps {
+export function adoptDeps(binary: string, listings?: SessionListings): AdoptDeps {
   return {
+    ...(listings ? { listings } : {}),
     cliFor: (server) => createRexCli(binary, server),
     ghosttyState: (project) => {
       const record = readStatusRecord(project);
@@ -433,6 +436,8 @@ function adoptNotices(project: string, deps: AdoptDeps, options: { reportLeftove
   const current = readStatusRecord(project);
   if (current && !current.launchId) return options.forLaunch ? [] : [`${project} has a record from an older Summon; run summon ${project} to replace it`];
   const gen = current?.launchId ?? null;
+  // One `ls` per server for the whole call, the current record included (PE-L1).
+  const listings = deps.listings ?? sessionListings();
   const manifests = listLaunchManifests(project).filter((m): m is LaunchManifest & { server: string } => m.launchId !== gen && m.backend === "rex" && m.server !== undefined);
   if (manifests.length === 0) return [];
   const announced = new Set(options.forLaunch && gen ? readLaunchManifest(project, gen)?.keeps ?? [] : []);
@@ -443,7 +448,8 @@ function adoptNotices(project: string, deps: AdoptDeps, options: { reportLeftove
     if (current.backend === "rex") {
       // A Rex record whose identity was discarded cannot be verified (and must never reach the Ghostty resolver, which reads Rex records through this function).
       if (!current.rex) return [`${project} record has no Rex identity; nothing adopted or removed`];
-      const state = sessionState(deps.cliFor(current.rex.server), current.rex, project);
+      const cli = deps.cliFor(current.rex.server);
+      const state = sessionState(cli, current.rex, project, listings.of(cli));
       if (state.state === "unknown") return [`${project} could not be verified on ${current.rex.server}: ${state.reason ?? "unknown"}; nothing adopted or removed`];
       live = isLiveState(state.state);
     } else {
@@ -453,18 +459,12 @@ function adoptNotices(project: string, deps: AdoptDeps, options: { reportLeftove
     }
   }
 
-  // PASS 1: every other launch. One `ls` per server for the whole call.
+  // PASS 1: every other launch.
   const decisions: Decision[] = [];
   const unknowns: string[] = [];
   const cleanHint = "summon clean --orphans names it";
   // `repeated`: the `clean --orphans` review says the same about this launch, so `reportLeftovers: false` drops it.
   const report = (notice: string, repeated = true): void => { if (reportLeftovers || !repeated) decisions.push({ kind: "report", notice }); };
-  const sessionLists = new Map<string, ReturnType<typeof listSessions>>();
-  const sessionsOn = (server: string, cli: RexCli) => {
-    let listed = sessionLists.get(server);
-    if (!listed) { listed = listSessions(cli); sessionLists.set(server, listed); }
-    return listed;
-  };
   for (const manifest of manifests) {
     const id = manifest.launchId;
     const rootName = manifest.paneOrder[0];
@@ -475,7 +475,7 @@ function adoptNotices(project: string, deps: AdoptDeps, options: { reportLeftove
     const mapping = readPaneMapping(manifest, root.sessionId);
     if (mapping.malformed.length > 0) { report(`earlier launch ${id} of ${project} left an unreadable pane file (${mapping.malformed.join(", ")}); ${cleanHint}`); continue; }
     const cli = deps.cliFor(manifest.server);
-    const listed = sessionsOn(manifest.server, cli);
+    const listed = listings.of(cli);
     if (!listed.ok) { unknowns.push(`earlier launch ${id} could not be verified on ${manifest.server}: ${listed.reason}; nothing adopted or removed`); continue; }
     if (!listed.sessions.some((s) => s.sessionId === root.sessionId)) { decisions.push({ kind: "remove", manifest }); continue; }
     const viewed = viewSession(cli, root.sessionId);
@@ -571,6 +571,8 @@ export interface SwitchDeps {
   cliFor: (server: string) => RexCli;
   /** `REX_SESSION` of the shell running Summon, when inside Rex (P7). */
   callerSession?: string | undefined;
+  /** The launch's shared listings (PE-L1). */
+  listings?: SessionListings | undefined;
 }
 
 /**
@@ -589,7 +591,7 @@ export function maybeSwitchToExisting(project: string, newWindow: boolean, deps:
   const current = refreshed.changed ? readStatusRecord(project) ?? record : record;
   const identity = current.rex ?? record.rex;
   const cli = deps.cliFor(identity.server);
-  const state = sessionState(cli, identity, project);
+  const state = sessionState(cli, identity, project, deps.listings?.of(cli));
   if (state.state === "unknown") return { kind: "refused", reason: `${project} is recorded in Rex but could not be verified on ${identity.server}: ${state.reason ?? "unknown"}. Open the Rex app and retry, or run summon doctor.` };
   if (state.state === "stopped") return { kind: "proceed" };
   const shown = showWorkspace(cli, { ...current, rex: identity }, state.liveBlocks, deps.callerSession);
@@ -604,10 +606,11 @@ export function maybeSwitchToExisting(project: string, newWindow: boolean, deps:
  * switch to the new one. Said once, after that launch; `keeps` (the earlier launch and those it had
  * announced) goes into the new manifest so a later launch does not repeat it.
  */
-export function keptSession(project: string, cliFor: (server: string) => RexCli): { notice: string; keeps: string[] } | undefined {
+export function keptSession(project: string, cliFor: (server: string) => RexCli, listings?: SessionListings): { notice: string; keeps: string[] } | undefined {
   const record = readStatusRecord(project);
   if (record?.backend !== "rex" || !record.rex) return;
-  if (!isLiveState(sessionState(cliFor(record.rex.server), record.rex, project).state)) return;
+  const cli = cliFor(record.rex.server);
+  if (!isLiveState(sessionState(cli, record.rex, project, listings?.of(cli)).state)) return;
   const id = record.rex.sessionId;
   const keeps = record.launchId ? [record.launchId, ...(readLaunchManifest(project, record.launchId)?.keeps ?? [])] : [];
   return { notice: `the earlier [${project}] session ${id} stays open; summon ${project} now switches to this one, and rex kill ${id} closes the earlier one`, keeps };
