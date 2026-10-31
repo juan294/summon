@@ -10,11 +10,13 @@ import {
   ACCESSIBILITY_REQUIRED_MSG,
   ACCESSIBILITY_SETTINGS_PATH,
   ACCESSIBILITY_ENABLE_HINT,
+  getErrorMessage,
 } from "../utils.js";
 import { commandExecutable } from "../command-spec.js";
 import { green, red, yellow, bold, dim } from "../ui/ansi.js";
 import { sym } from "../ui/symbols.js";
-import { CONFIG_DIR, TRUST_FILE } from "../paths.js";
+import { CONFIG_DIR, STATUS_DIR, TRUST_FILE } from "../paths.js";
+import { inspectLock, recoverStaleLock, type LockState } from "../file-lock.js";
 import { GHOSTTY_ONLY_CONFIG_KEYS, resolveBackendForLaunch } from "../backend.js";
 import { createRexCli, defaultRexServer, discoverRex, whoamiOf } from "../backends/rex/cli.js";
 import { listAppClients } from "../backends/rex/app.js";
@@ -43,6 +45,7 @@ export async function handleDoctorCommand({
     accessSync,
     constants,
     lstatSync,
+    readdirSync,
   } = await import("node:fs");
 
   const fixFlag = values.fix;
@@ -353,6 +356,55 @@ export async function handleDoctorCommand({
         console.error();
       }
     }
+  }
+
+  // BE-L2, QA-L1: a lock whose owner is gone or unrecognized makes every config and status write
+  // time out. Read-only by default; --fix applies the same recovery rule as the lock itself.
+  console.error();
+  console.error("Checking lock files...\n");
+  const lockDirs = [CONFIG_DIR, STATUS_DIR].flatMap((dir) => {
+    try {
+      return readdirSync(dir, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory() && entry.name.endsWith(".lock"))
+        .map((entry) => join(dir, entry.name));
+    } catch {
+      return [];
+    }
+  });
+  let lockFindings = 0;
+  for (const lock of lockDirs) {
+    const shown = escapeControlChars(lock);
+    let state: LockState;
+    try {
+      state = fixFlag ? recoverStaleLock(lock) : inspectLock(lock);
+    } catch (error) {
+      lockFindings++;
+      record(false);
+      console.error(`  ${FAIL}  Could not ${fixFlag ? "recover" : "inspect"} lock ${shown}: ${escapeControlChars(getErrorMessage(error))}`);
+      continue;
+    }
+    if (state.kind === "absent" || state.kind === "live") continue;
+    lockFindings++;
+    if (state.kind === "unrecognized") {
+      record(false);
+      console.error(`  ${FAIL}  Unrecognized lock ${shown} (${state.entries.map(escapeControlChars).join(", ")})`);
+      console.error("    Make sure no summon process is running, then remove it by hand.");
+      continue;
+    }
+    const why = state.kind === "released" ? "interrupted release"
+      : state.kind === "dead" ? `owner process ${state.pid} is gone`
+      : `owner token is ${Math.round(state.ageMs / 1000)} s old`;
+    record(!!fixFlag);
+    if (fixFlag) {
+      console.error(`  ${PASS}  Removed stale lock ${shown} (${why})`);
+    } else {
+      autoFixable++;
+      console.error(`  ${FAIL}  Stale lock ${shown} (${why})`);
+    }
+  }
+  if (lockFindings === 0) {
+    record(true);
+    console.error(`  ${PASS}  No stale lock files`);
   }
 
   console.error();

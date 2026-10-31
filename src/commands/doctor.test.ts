@@ -15,6 +15,8 @@ import {
   readdirSync,
   rmSync,
   chmodSync,
+  existsSync,
+  utimesSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -440,5 +442,67 @@ describe("doctor configured commands", () => {
 
     expect(output()).toContain(`editor command "${editor}" found at ${editor}`);
     expect(exec).not.toHaveBeenCalledWith("/usr/bin/which", [editor], expect.anything());
+  });
+});
+
+describe("doctor lock files (BE-L2, QA-L1)", () => {
+  const summonDir = () => join(home, ".config/summon");
+  const DEAD = 424242;
+  function lock(path: string, entries: Array<{ name: string; ageMs?: number }>): string {
+    mkdirSync(path, { recursive: true });
+    for (const { name, ageMs = 0 } of entries) {
+      writeFileSync(join(path, name), "");
+      const seconds = (Date.now() - ageMs) / 1000;
+      utimesSync(join(path, name), seconds, seconds);
+    }
+    return path;
+  }
+  const uuid = "0f8fad5b-d9cb-469f-a165-70867728950e";
+  beforeEach(() => {
+    const kill = process.kill.bind(process);
+    vi.spyOn(process, "kill").mockImplementation(((pid: number, signal?: string | number) => {
+      if (pid === DEAD) throw Object.assign(new Error("ESRCH"), { code: "ESRCH" });
+      return kill(pid, signal);
+    }) as typeof process.kill);
+  });
+
+  it("passes when no lock is stale, and a live owner's lock is not a finding", async () => {
+    lock(join(summonDir(), "trust.json.lock"), [{ name: `${process.pid}-${uuid}.owner` }]);
+    await handleDoctorCommand(context({ fix: true }));
+    expect(output()).toContain("No stale lock files");
+    expect(output()).not.toContain("trust.json.lock");
+    expect(existsSync(join(summonDir(), "trust.json.lock"))).toBe(true);
+  });
+
+  it("reports stale and unrecognized locks without changing them, and --fix removes only the stale ones", async () => {
+    const dead = lock(join(summonDir(), "config.lock"), [{ name: `${DEAD}-${uuid}.owner` }]);
+    const expired = lock(join(summonDir(), "status/p.json.lock"), [{ name: `${process.pid}-${uuid}.owner`, ageMs: 65_000 }]);
+    const released = lock(join(summonDir(), "status/q.json.lock"), []);
+    const unknown = lock(join(summonDir(), "projects.lock"), [{ name: "junk\u001b[31m" }]);
+    const live = lock(join(summonDir(), "trust.json.lock"), [{ name: `${process.pid}-${uuid}.owner` }]);
+
+    await expect(handleDoctorCommand(context())).rejects.toThrow("exit:2");
+    const report = output();
+    expect(report).toContain(`Stale lock ${dead} (owner process ${DEAD} is gone)`);
+    expect(report).toContain(`Stale lock ${expired} (owner token is 65 s old)`);
+    expect(report).toContain(`Stale lock ${released} (interrupted release)`);
+    expect(report).toContain(`Unrecognized lock ${unknown} (junk\\u001b[31m)`);
+    expect(report).not.toContain("\u001b[31m");
+    expect(report).toContain("(3 auto-fixable with --fix)");
+    for (const path of [dead, expired, released, unknown, live]) expect(existsSync(path)).toBe(true);
+
+    errors.mockClear();
+    await expect(handleDoctorCommand(context({ fix: true }))).rejects.toThrow("exit:2");
+    expect(output()).toContain(`Removed stale lock ${dead}`);
+    expect(output()).toContain(`Removed stale lock ${expired}`);
+    expect(output()).toContain(`Removed stale lock ${released}`);
+    for (const path of [dead, expired, released]) expect(existsSync(path)).toBe(false);
+    expect(readdirSync(unknown)).toEqual(["junk\u001b[31m"]);
+    expect(existsSync(live)).toBe(true);
+
+    rmSync(unknown, { recursive: true });
+    errors.mockClear();
+    await handleDoctorCommand(context());
+    expect(output()).toContain("No stale lock files");
   });
 });
