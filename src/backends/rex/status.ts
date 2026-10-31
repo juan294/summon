@@ -5,6 +5,8 @@ import { pickAppClient, selectInApp } from "./app.js";
 import { asRecord } from "./types.js";
 import { isDisplaySafe } from "../../ui/sanitize.js";
 import type { RexFailure, RexIdentity, RexResult } from "./types.js";
+// The workspace commands print one way for both backends (the port's result types).
+import type { FocusResult, NativeFailure, TitleOperation, TitleResult, TitleScope } from "../port.js";
 
 /**
  * Rex workspace state (plan P10, §3 state table). Every read targets the recorded server
@@ -170,14 +172,7 @@ export function sessionState(cli: RexCli, identity: RexIdentity, project: string
 
 // --- Phase 4: workspace commands under Rex (focus, inspect, title) ---
 
-/** Same shape as the Ghostty native failures so the commands print one way. */
-export interface RexCommandFailure {
-  kind: "unavailable" | "failed";
-  code: "missing" | "unavailable";
-  reason: string;
-}
-
-type BlockTarget = { ok: true; blockId: string; name: string } | { ok: false; failure: RexCommandFailure };
+type BlockTarget = { ok: true; blockId: string; name: string } | { ok: false; failure: NativeFailure };
 
 /** A named pane's block: unknown names and panes without a block (unverified after recovery) are refused. */
 function blockOfPane(identity: RexIdentity, panes: readonly string[], project: string, paneName: string): BlockTarget {
@@ -187,17 +182,15 @@ function blockOfPane(identity: RexIdentity, panes: readonly string[], project: s
   return { ok: true, blockId: block.blockId, name: block.name };
 }
 
-function failed(result: RexFailure): RexCommandFailure {
+function failed(result: RexFailure): NativeFailure {
   return { kind: "failed", code: "unavailable", reason: result.reason };
 }
-
-export type RexFocusResult = { kind: "focused"; terminalId: string } | RexCommandFailure;
 
 /**
  * Focus a pane (the named block, else the root, else the first live pane of a partial session)
  * with `rex focus`, then show the session in the newest app. The caller resolved `state`.
  */
-export function focusRex(cli: RexCli, identity: RexIdentity, panes: readonly string[], project: string, liveBlocks: readonly string[], paneName?: string, preferSession?: string): RexFocusResult {
+export function focusRex(cli: RexCli, identity: RexIdentity, panes: readonly string[], project: string, liveBlocks: readonly string[], paneName?: string, preferSession?: string): FocusResult {
   let target: { blockId: string; name: string } | undefined;
   if (paneName !== undefined) {
     const resolved = blockOfPane(identity, panes, project, paneName);
@@ -294,14 +287,11 @@ export function inspectRex(cli: RexCli, identity: RexIdentity, panes: readonly s
   return { availability: closed.length > 0 ? "unavailable" : "available", ...(problems.length > 0 ? { reason: problems.join("; ") } : {}), panes: rows, ...(programStatus ? { programStatus } : {}) };
 }
 
-export type RexTitleOperation = { kind: "read" } | { kind: "set"; text: string } | { kind: "reset" };
-export type RexTitleResult = { kind: "title"; terminalId: string; scope: "tab" | "pane"; override: string } | RexCommandFailure;
-
 /**
  * Pane labels through `session.set_block_label` (reset restores the recorded label); the tab is
  * the session's window through `session.set_window_label` (reset restores `[project]`).
  */
-export function titleRex(cli: RexCli, identity: RexIdentity, panes: readonly string[], project: string, scope: "tab" | "pane", operation: RexTitleOperation, paneName?: string): RexTitleResult {
+export function titleRex(cli: RexCli, identity: RexIdentity, panes: readonly string[], project: string, scope: TitleScope, operation: TitleOperation, paneName?: string): TitleResult {
   if (scope === "pane") {
     const resolved = blockOfPane(identity, panes, project, paneName ?? panes[0] ?? "");
     if (!resolved.ok) return resolved.failure;

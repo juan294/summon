@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import type { LaunchContext } from "../../backend.js";
-import { markAttention, needsAttention, resetAttentionForTests, watchForAttention } from "../../ui/attention.js";
+import { needsAttention, resetAttentionForTests, watchForAttention } from "../../ui/attention.js";
 import { debugLog } from "../../utils.js";
 import { createRexCli } from "./cli.js";
 import type { RexCli } from "./cli.js";
@@ -59,9 +59,6 @@ export function resetLauncherTabForTests(): void {
   armed = false;
   resetAttentionForTests();
 }
-
-// The D1 stderr watch is generic (ui/attention.ts); re-exported for the launcher-tab callers and tests.
-export { markAttention, needsAttention, watchForAttention };
 
 /**
  * BE-L5: the close runs detached, 0.3 s after Summon exits (the shell must be back at its prompt first), and decides

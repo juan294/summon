@@ -55,7 +55,7 @@ describe("createRexBackend", () => {
     const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const outSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     const plan = planLayout({ editor: "vim", ...getPreset("minimal") });
-    const result = await createRexBackend(CONTEXT, d).launchTraditional(plan, ctx());
+    const result = await createRexBackend(CONTEXT, d).launch({ kind: "traditional", plan }, ctx());
     expect(d.probeWhoami).toHaveBeenCalledWith("/usr/local/bin/rex", "unix:///tmp/rex.sock");
     expect(d.cliFor).toHaveBeenCalledWith("/usr/local/bin/rex", "unix:///tmp/rex.sock");
     const [manifest, request, context] = create.mock.calls[0]! as unknown as [Record<string, unknown>, Record<string, unknown>, Record<string, unknown>];
@@ -65,7 +65,7 @@ describe("createRexBackend", () => {
     expect(JSON.stringify(request)).toContain('--layout \\"minimal\\"');
     expect(JSON.stringify(request)).toContain("STARSHIP_CONFIG=/cfg/starship.toml");
     expect(context).toMatchObject({ cli, hostId: "host-1", callerSession: "session:caller", newWindow: false, app: d.app });
-    expect(result).toEqual({ rex: { server: "unix:///tmp/rex.sock", hostId: "host-1", sessionId: IDS.sessionId, windowId: IDS.windowId, rootBlockId: IDS.rootBlockId, blocks: IDS.blocks } });
+    expect(result).toEqual({ backend: "rex", rex: { server: "unix:///tmp/rex.sock", hostId: "host-1", sessionId: IDS.sessionId, windowId: IDS.windowId, rootBlockId: IDS.rootBlockId, blocks: IDS.blocks } });
     expect(errSpy.mock.calls.map((c) => String(c[0])).join("")).toContain("summon: note: Several Rex apps are connected");
     expect(outSpy.mock.calls.map((c) => String(c[0])).join("")).toContain("Workspace [x] ready in Rex.");
     errSpy.mockRestore();
@@ -77,7 +77,7 @@ describe("createRexBackend", () => {
     const plan = planLayout({ editor: "vim", ...getPreset("minimal") });
     plan.newWindow = true;
     const outSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
-    await createRexBackend(CONTEXT, d).launchTraditional(plan, ctx());
+    await createRexBackend(CONTEXT, d).launch({ kind: "traditional", plan }, ctx());
     outSpy.mockRestore();
     expect((create.mock.calls[0]! as unknown as [unknown, unknown, Record<string, unknown>])[2]["newWindow"]).toBe(false);
     expect(d.keptSession).not.toHaveBeenCalled();
@@ -90,10 +90,10 @@ describe("createRexBackend", () => {
     plan.sidebarCommand = "";
     plan.newWindow = true;
     const outSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
-    const result = await createRexBackend(CONTEXT, d).launchTraditional(plan, ctx());
+    const result = await createRexBackend(CONTEXT, d).launch({ kind: "traditional", plan }, ctx());
     outSpy.mockRestore();
     // createWorkspace applies the display-pane policy to the ids; the adapter records them as given.
-    expect(result?.rex?.blocks.map((b) => b.name)).toEqual(["editor"]);
+    expect(result.backend === "rex" ? result.rex?.blocks.map((b) => b.name) : undefined).toEqual(["editor"]);
     const [manifest, , context] = create.mock.calls[0]! as unknown as [Record<string, unknown>, unknown, Record<string, unknown>];
     expect(manifest["panes"]).toEqual(["editor"]);
     expect(manifest["paneOrder"]).toEqual(["editor", "sidebar"]);
@@ -108,13 +108,13 @@ describe("createRexBackend", () => {
     const stderr = () => errSpy.mock.calls.map((c) => String(c[0])).join("");
     const plan = planLayout({ editor: "vim", ...getPreset("minimal") });
     const { d, cli, create } = deps({ kind: "created", ids: IDS, clientId: "client:app", notices: [] }, { keptSession });
-    await createRexBackend(CONTEXT, d).launchTraditional(plan, ctx());
+    await createRexBackend(CONTEXT, d).launch({ kind: "traditional", plan }, ctx());
     expect(keptSession).not.toHaveBeenCalled();
     expect(create.mock.calls[0]![0]).not.toHaveProperty("keeps");
     plan.newWindow = true;
     // PE-L1: the launch's shared listing reaches the kept-session check (createWorkspace still lists for itself, P13).
     const listings = { of: vi.fn(), forget: vi.fn() };
-    await createRexBackend(CONTEXT, { ...d, newWindow: true, listings }).launchTraditional(plan, ctx());
+    await createRexBackend(CONTEXT, { ...d, newWindow: true, listings }).launch({ kind: "traditional", plan }, ctx());
     expect(keptSession).toHaveBeenCalledWith("x", expect.any(Function), listings);
     expect(create.mock.calls[1]![2]).not.toHaveProperty("listings");
     expect(keptSession.mock.calls[0]![1]("unix:///other.sock")).toBe(cli);
@@ -124,13 +124,13 @@ describe("createRexBackend", () => {
     // Created but not shown is still a new session: the note stays.
     errSpy.mockClear();
     const unselected = deps({ kind: "created-unselected", ids: IDS, notices: [] }, { keptSession, newWindow: true });
-    await createRexBackend(CONTEXT, unselected.d).launchTraditional(plan, ctx());
+    await createRexBackend(CONTEXT, unselected.d).launch({ kind: "traditional", plan }, ctx());
     expect(stderr()).toContain(notice);
     // A launch that fails or is unconfirmed says nothing about the earlier session.
     const failure = { ok: false as const, op: "session-create" as const, kind: "rejected" as const, outcome: "rolled-back" as const, reason: "boom", raw: { code: 1, signal: null, timedOut: false, enoent: false, stdout: "", stderr: "" } };
     for (const outcome of [{ kind: "failed" as const, reason: "boom", failure, notices: [] }, { kind: "unknown" as const, reason: "timeout", candidates: [], notices: [] }]) {
       errSpy.mockClear();
-      await expect(createRexBackend(CONTEXT, deps(outcome, { keptSession, newWindow: true }).d).launchTraditional(plan, ctx())).rejects.toThrow();
+      await expect(createRexBackend(CONTEXT, deps(outcome, { keptSession, newWindow: true }).d).launch({ kind: "traditional", plan }, ctx())).rejects.toThrow();
       expect(stderr()).not.toContain("stays open");
     }
     errSpy.mockRestore();
@@ -167,7 +167,7 @@ describe("createRexBackend", () => {
       const { d } = deps({ kind: "created", ids: IDS, clientId: "client:app", notices: [] }, { createWorkspace: create as never });
       const io = capture();
       try {
-        await createRexBackend(CONTEXT, d).launchTraditional(planLayout({ editor: "vim", ...getPreset("minimal") }), ctx());
+        await createRexBackend(CONTEXT, d).launch({ kind: "traditional", plan: planLayout({ editor: "vim", ...getPreset("minimal") }) }, ctx());
       } finally {
         io.restore();
       }
@@ -182,7 +182,7 @@ describe("createRexBackend", () => {
       const { d } = deps({ kind: "failed", reason: "boom", failure, notices: [] });
       const io = capture();
       try {
-        await expect(createRexBackend(CONTEXT, d).launchTraditional(planLayout({ editor: "vim" }), ctx())).rejects.toThrow("boom");
+        await expect(createRexBackend(CONTEXT, d).launch({ kind: "traditional", plan: planLayout({ editor: "vim" }) }, ctx())).rejects.toThrow("boom");
       } finally {
         io.restore();
       }
@@ -194,7 +194,7 @@ describe("createRexBackend", () => {
       const { d } = deps({ kind: "created", ids: IDS, clientId: "client:app", notices: [] });
       const io = capture();
       try {
-        await createRexBackend(CONTEXT, d).launchTraditional(planLayout({ editor: "vim", ...getPreset("minimal") }), ctx());
+        await createRexBackend(CONTEXT, d).launch({ kind: "traditional", plan: planLayout({ editor: "vim", ...getPreset("minimal") }) }, ctx());
       } finally {
         io.restore();
       }
@@ -207,24 +207,24 @@ describe("createRexBackend", () => {
     const { d, create } = deps({ kind: "created", ids: IDS, clientId: "client:app", notices: [] });
     const resolved = resolveTreeCommands(parseTreeDSL("a | b"), new Map([["a", "vim"], ["b", "htop"]]), undefined, "/tmp/x");
     const outSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
-    await createRexBackend(CONTEXT, d).launchTree(buildTreePlan(resolved), ctx({ layoutLabel: "custom" }));
+    await createRexBackend(CONTEXT, d).launch({ kind: "tree", plan: buildTreePlan(resolved) }, ctx({ layoutLabel: "custom" }));
     outSpy.mockRestore();
     expect((create.mock.calls[0]![0] as Record<string, unknown>)).toMatchObject({ layout: "custom", panes: ["a", "b"], paneOrder: ["a", "b"] });
   });
 
   it("fails before creating anything when the server does not answer", async () => {
     const { d, create } = deps({ kind: "created", ids: IDS, clientId: "c", notices: [] }, { probeWhoami: vi.fn(() => ({ answers: false as const, reason: "dial unix: no such file" })) });
-    await expect(createRexBackend(CONTEXT, d).launchTraditional(planLayout({ editor: "vim" }), ctx())).rejects.toThrow(unreachableMessage("unix:///tmp/rex.sock", "dial unix: no such file"));
+    await expect(createRexBackend(CONTEXT, d).launch({ kind: "traditional", plan: planLayout({ editor: "vim" }) }, ctx())).rejects.toThrow(unreachableMessage("unix:///tmp/rex.sock", "dial unix: no such file"));
     expect(create).not.toHaveBeenCalled();
   });
 
   it("throws the server's reason plus the hint on failed, and the unknown message with candidates on unknown", async () => {
     const failure = { ok: false as const, op: "session-create" as const, kind: "rejected" as const, outcome: "rolled-back" as const, reason: "bad_request: nope", hint: "fix it", raw: { code: 1, signal: null, timedOut: false, enoent: false, stdout: "", stderr: "" } };
     const { d } = deps({ kind: "failed", reason: "bad_request: nope", failure, notices: [] });
-    await expect(createRexBackend(CONTEXT, d).launchTraditional(planLayout({ editor: "vim" }), ctx())).rejects.toThrow("bad_request: nope. fix it");
+    await expect(createRexBackend(CONTEXT, d).launch({ kind: "traditional", plan: planLayout({ editor: "vim" }) }, ctx())).rejects.toThrow("bad_request: nope. fix it");
 
     const { d: d2 } = deps({ kind: "unknown", reason: "rex did not answer in time; no pane file", candidates: ["session:1"], notices: [] });
-    await expect(createRexBackend(CONTEXT, d2).launchTraditional(planLayout({ editor: "vim" }), ctx())).rejects.toThrow(unknownOutcomeMessage("x", ["session:1"], "rex did not answer in time; no pane file"));
+    await expect(createRexBackend(CONTEXT, d2).launch({ kind: "traditional", plan: planLayout({ editor: "vim" }) }, ctx())).rejects.toThrow(unknownOutcomeMessage("x", ["session:1"], "rex did not answer in time; no pane file"));
     expect(unknownOutcomeMessage("x", "unlisted", "r")).toContain("unknown (the session list could not be read)");
     expect(unknownOutcomeMessage("x", [], "r")).toContain("Sessions that appeared meanwhile: none.");
   });

@@ -9,7 +9,7 @@ import { existsSync, readdirSync } from "node:fs";
 import { STATUS_DIR } from "./paths.js";
 import { gitOutput } from "./utils.js";
 import { listLaunchManifests } from "./launch-identity.js";
-import type { BackendId } from "./backend.js";
+import type { BackendId } from "./backend-detect.js";
 import type { ProgramStatus } from "./backends/rex/status.js";
 import type { StatusRead } from "./backends/port.js";
 import { recordReaderFor } from "./backends/read.js";

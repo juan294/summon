@@ -3,7 +3,7 @@
  * `WorkspaceBackend`. The status reader, `focus`, `inspect`, `title`, `clean` and the launcher's note about another
  * backend's live workspace dispatch through it. A record without the field is Ghostty.
  */
-import type { BackendId } from "../backend.js";
+import type { BackendId } from "../backend-detect.js";
 import { GhosttyWorkspace } from "./ghostty/workspace.js";
 import type { WorkspaceBackend } from "./port.js";
 import { RexWorkspace } from "./rex/workspace.js";

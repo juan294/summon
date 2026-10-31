@@ -4,13 +4,11 @@
  */
 import type { Detection, RexDiscovery } from "../../backend-detect.js";
 import { escapeControlChars } from "../../ui/sanitize.js";
-import { createRexCli, defaultRexServer, discoverRex, whoamiOf } from "./cli.js";
+import { createRexCli, defaultRexServer, whoamiOf } from "./cli.js";
 import { listAppClients } from "./app.js";
 
-/** Where the `rex` CLI is; doctor shares the one lookup with backend detection. */
-export function discoverRexForDoctor(): RexDiscovery {
-  return discoverRex();
-}
+/** Where the `rex` CLI is (doctor shares the one lookup with backend detection); commands/doctor.ts reaches Rex only through this module. */
+export { discoverRex } from "./cli.js";
 
 export interface RexDoctorInput {
   discovery: RexDiscovery;

@@ -11,7 +11,8 @@ const mockCreateRexCli = vi.hoisted(() => vi.fn());
 vi.mock("node:child_process", async (importOriginal) => ({ ...(await importOriginal<typeof import("node:child_process")>()), spawn: mockSpawn }));
 vi.mock("./cli.js", async (importOriginal) => ({ ...(await importOriginal<typeof import("./cli.js")>()), createRexCli: (...args: unknown[]) => mockCreateRexCli(...args) }));
 
-import { findLauncherTab, closeLauncherTabOnExit, closeLauncherTabAfterRexLaunch, resetLauncherTabForTests, detachedCloseArgs, EXIT_PROBE_TIMEOUT_MS, watchForAttention, needsAttention, startLauncherTabWatch, markAttention } from "./launcher-tab.js";
+import { findLauncherTab, closeLauncherTabOnExit, closeLauncherTabAfterRexLaunch, resetLauncherTabForTests, detachedCloseArgs, EXIT_PROBE_TIMEOUT_MS, startLauncherTabWatch } from "./launcher-tab.js";
+import { markAttention, needsAttention, watchForAttention } from "../../ui/attention.js";
 import type { RexCli } from "./cli.js";
 import type { LaunchContext } from "../../backend.js";
 import { err, note, warn, writingRoutine } from "../../ui/output.js";

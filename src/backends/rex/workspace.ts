@@ -172,7 +172,7 @@ export const RexWorkspace: WorkspaceBackend = {
 
   title(project, status, scope, operation, pane) {
     const gate = gateOf(project, status);
-    if (!gate.ok) return { kind: "unavailable", reason: gate.failure.reason };
+    if (!gate.ok) return gate.failure;
     return titleRex(gate.cli, gate.identity, status?.panes ?? [], project, scope, operation, pane);
   },
 

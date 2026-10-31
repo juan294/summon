@@ -15,7 +15,7 @@ import { out } from "../../ui/output.js";
 import type { WorkspaceBackend } from "../port.js";
 
 /** Resolve a recorded exact UUID without activating or querying the application. */
-export function resolveWorkspaceTerminal(projectName: string, paneName: string | undefined, status: ResolvedStatus | null): { kind: "target"; terminalId: string } | NativeFailure {
+function resolveWorkspaceTerminal(projectName: string, paneName: string | undefined, status: ResolvedStatus | null): { kind: "target"; terminalId: string } | NativeFailure {
   if (!PROJECT_NAME_RE.test(projectName)) return { kind: "unavailable", code: "missing", reason: "Invalid project name. Run summon inspect <project>." };
   if (status?.backend === "rex") return { kind: "unavailable", code: "missing", reason: `[${projectName}] runs in Rex; its panes are Rex blocks, not Ghostty terminals. Run summon inspect ${projectName}.` };
   if (!status?.native) return { kind: "unavailable", code: "missing", reason: "Exact native identity is unavailable. Select in Ghostty or explicitly relaunch when ready to capture identity; run summon inspect <project>." };
@@ -25,7 +25,7 @@ export function resolveWorkspaceTerminal(projectName: string, paneName: string |
 }
 
 /** Ghostty per-launch files of launches other than the current one whose shell is proven dead (its pid, not its marker). */
-export function sweepDeadGhosttyLaunches(project: string, currentLaunchId: string | undefined): number {
+function sweepDeadGhosttyLaunches(project: string, currentLaunchId: string | undefined): number {
   let names: string[];
   try {
     names = readdirSync(launchesDir(project));
@@ -111,8 +111,7 @@ export const GhosttyWorkspace: WorkspaceBackend = {
     const target = resolveWorkspaceTerminal(project, pane, status);
     return target.kind === "target" ? titleTerminal(target.terminalId, scope, operation) : target;
   },
-  // A Ghostty window is not tracked once another launch replaces its record; there is nothing more to say.
-  stillRunningNotice: () => undefined,
+  // No stillRunningNotice: a Ghostty window is not tracked once another launch replaces its record.
   close(project, _record, sweptNote) {
     out(`[${project}] is a Ghostty workspace; nothing to close.${sweptNote}`);
   },

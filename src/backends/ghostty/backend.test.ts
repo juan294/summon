@@ -61,14 +61,14 @@ function stderrText(): string {
 describe("Ghostty failure rollback (BE-M2)", () => {
   it("never closes anything when the launch reused the user's window (default mode)", async () => {
     failLaunchWith("execution error: Ghostty got an error: Can't get terminal 1. (-1728)");
-    await expect(GhosttyBackend.launchTraditional(planLayout(), ctx)).rejects.toThrow("Failed to execute workspace script");
+    await expect(GhosttyBackend.launch({ kind: "traditional", plan: planLayout() }, ctx)).rejects.toThrow("Failed to execute workspace script");
     expect(rollbackCalls()).toEqual([]);
     expect(mockExecFileSync.mock.calls.some((call) => String(call[2]?.input).includes("close front window"))).toBe(false);
   });
 
   it("closes exactly the window a --new-window launch created, with a bounded osascript", async () => {
     failLaunchWith("execution error: Ghostty got an error: Can't split. [summon-rollback window:W-1234] (-1728)");
-    const rejection = GhosttyBackend.launchTraditional(planLayout({ newWindow: true }), ctx);
+    const rejection = GhosttyBackend.launch({ kind: "traditional", plan: planLayout({ newWindow: true }) }, ctx);
     await expect(rejection).rejects.toThrow("Failed to execute workspace script: Command failed: osascript\nexecution error: Ghostty got an error: Can't split. (-1728)");
     const calls = rollbackCalls();
     expect(calls).toHaveLength(1);
@@ -86,7 +86,7 @@ describe("Ghostty failure rollback (BE-M2)", () => {
 
   it("closes only the tab a --new-tab launch created, never its window", async () => {
     failLaunchWith("execution error: Ghostty got an error: Can't split. [summon-rollback tab:T-99] (-1728)");
-    await expect(GhosttyBackend.launchTraditional(planLayout({ newTab: true }), ctx)).rejects.toThrow("Failed to execute workspace script");
+    await expect(GhosttyBackend.launch({ kind: "traditional", plan: planLayout({ newTab: true }) }, ctx)).rejects.toThrow("Failed to execute workspace script");
     const calls = rollbackCalls();
     expect(calls).toHaveLength(1);
     expect(calls[0]![2].input).toContain('if (id of t as text) is "T-99" then');
@@ -101,7 +101,7 @@ describe("Ghostty failure rollback (BE-M2)", () => {
     ["the error carries no mark (failure before the container opened)", "execution error: System Events got an error: boom (-2700)"],
   ])("skips the rollback when %s", async (_label, stderr) => {
     failLaunchWith(stderr);
-    await expect(GhosttyBackend.launchTraditional(planLayout({ newWindow: true }), ctx)).rejects.toThrow("Failed to execute workspace script");
+    await expect(GhosttyBackend.launch({ kind: "traditional", plan: planLayout({ newWindow: true }) }, ctx)).rejects.toThrow("Failed to execute workspace script");
     expect(rollbackCalls()).toEqual([]);
   });
 
@@ -109,7 +109,7 @@ describe("Ghostty failure rollback (BE-M2)", () => {
     failLaunchWith("execution error: x [summon-rollback window:W-7] (-1728)");
     const { buildTreePlan } = await import("../../tree.js");
     const plan = buildTreePlan({ type: "pane", name: "editor", command: "nvim" }, { newWindow: true });
-    await expect(GhosttyBackend.launchTree(plan, ctx)).rejects.toThrow("Failed to execute workspace script");
+    await expect(GhosttyBackend.launch({ kind: "tree", plan }, ctx)).rejects.toThrow("Failed to execute workspace script");
     expect(rollbackCalls()).toHaveLength(1);
   });
 

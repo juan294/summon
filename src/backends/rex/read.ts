@@ -15,7 +15,7 @@ import type { ResolvedStatus } from "../../status.js";
 import type { NativeFailure } from "../port.js";
 import type { StatusRead } from "../port.js";
 
-export const REX_CLI_MISSING = "rex CLI not found; open the Rex app once or set REX_BIN_DIR.";
+const REX_CLI_MISSING = "rex CLI not found; open the Rex app once or set REX_BIN_DIR.";
 
 function noLongerExistsMessage(project: string, reason: string | undefined): string {
   return `[${project}] no longer exists in Rex (${reason ?? "session gone"}); launch it again with summon ${project}.`;

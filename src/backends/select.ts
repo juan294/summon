@@ -10,7 +10,7 @@ import type { LaunchContext } from "../backend.js";
 import { GhosttyBackend } from "./ghostty/backend.js";
 import type { TerminalBackend } from "./port.js";
 
-export interface TerminalBackendOptions {
+interface TerminalBackendOptions {
   /** `--new-window` given on the command line (Rex: a fresh session, the P2 switch is skipped). */
   newWindow?: boolean;
 }

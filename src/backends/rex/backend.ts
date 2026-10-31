@@ -1,7 +1,6 @@
 import { resolve } from "node:path";
-import type { LayoutPlan } from "../../layout.js";
 import { traditionalPaneNames } from "../../layout.js";
-import type { TreeLayoutPlan } from "../../tree.js";
+import type { PlannedLayout } from "../../tree.js";
 import { transientLine } from "../../ui/progress.js";
 import type { BackendLaunchContext, BackendLaunchResult, LaunchDecision, TerminalBackend } from "../port.js";
 import { REX_UNHONORED_FLAGS } from "../../backend.js";
@@ -16,7 +15,6 @@ import { createRexCli, probeWhoami } from "./cli.js";
 import type { RexCli } from "./cli.js";
 import { discoverRexApp, openRexApp } from "./app.js";
 import { buildSessionCreateRequest } from "./layout.js";
-import type { SessionCreateInput } from "./layout.js";
 import { adoptDeps, adoptOrphansForLaunch, createWorkspace, keptSession, maybeSwitchToExisting, showRecordedWorkspace } from "./launch.js";
 import type { CreateContext, LaunchOutcome } from "./launch.js";
 import { sessionListings } from "./status.js";
@@ -25,7 +23,7 @@ import { closeLauncherTabAfterRexLaunch, startLauncherTabWatch } from "./launche
 import type { RexIdentity } from "./types.js";
 
 /** Detection row the Rex backend is built from (plan P5: server and binary come from detection). */
-export type RexLaunchContext = Extract<LaunchContext, { backend: "rex" }>;
+type RexLaunchContext = Extract<LaunchContext, { backend: "rex" }>;
 
 export interface RexBackendDeps {
   cliFor?: (binary: string, server: string) => RexCli;
@@ -50,14 +48,14 @@ export interface RexBackendDeps {
  * BE-L1: a waiter gives up after this long. It exceeds the launch lock's stale bound (LAUNCH_LOCK_STALE_MS, above the
  * longest launch), so the lock of a launcher that hangs or is suspended (Ctrl-Z) is taken over before a waiter gives up.
  */
-export const LAUNCH_LOCK_TIMEOUT_MS = LAUNCH_LOCK_STALE_MS + 30_000;
+const LAUNCH_LOCK_TIMEOUT_MS = LAUNCH_LOCK_STALE_MS + 30_000;
 
 /**
  * The per-project launch lock (BE-L1): held from the decision under the lock through `session.create` to the record's
  * publication, never across a prompt or on-start. A second launcher of the same project waits here, with a transient
  * progress line on stdout (never stderr, so the D1 watch does not count it).
  */
-export async function rexLaunchLock<T>(project: string, action: () => Promise<T>): Promise<T> {
+async function rexLaunchLock<T>(project: string, action: () => Promise<T>): Promise<T> {
   const line = transientLine();
   try {
     return await withFileLockAsync(launchLockFile(project), async () => {
@@ -78,7 +76,7 @@ export async function rexLaunchLock<T>(project: string, action: () => Promise<T>
  * Plan P8: flags Rex cannot honor are deliberate limitations, one stderr line each. Only flags given on the
  * command line are named (UX-H1): the same keys in config are Ghostty preferences, silent under Rex like `clean=true`.
  */
-export function rexLimitationNotices(overrides: CLIOverrides): string[] {
+function rexLimitationNotices(overrides: CLIOverrides): string[] {
   return REX_UNHONORED_FLAGS
     .filter((flag) => (flag === "font-size" ? overrides[flag] !== undefined : overrides[flag] === "true"))
     .map((flag) => `Rex cannot honor ${flag}; ignored`);
@@ -106,22 +104,28 @@ export function createRexBackend(context: RexLaunchContext, deps: RexBackendDeps
   /** The record generation `beforeLaunch` decided on (BE-L1); `undefined` until it ran. */
   let decidedOn: string | null | undefined;
 
-  async function launchRex(layout: SessionCreateInput["layout"], panes: string[], ctx: BackendLaunchContext): Promise<BackendLaunchResult> {
-    const cli = serverCli(context.server);
-    const create = deps.createWorkspace ?? createWorkspace;
-    const app = deps.app ?? { discover: discoverRexApp, open: openRexApp };
-    const who = (deps.probeWhoami ?? probeWhoami)(context.rexBinary, context.server);
-    if (!who.answers) throw new Error(unreachableMessage(context.server, who.reason));
-    const build = buildSessionCreateRequest({
+  /** The `session.create` input for a planned layout (a real launch and the dry run build it the same way). */
+  function requestInput(layout: PlannedLayout, ctx: BackendLaunchContext, starshipConfigPath: string | null) {
+    return {
       layout,
       targetDir: ctx.targetDir,
       project: ctx.projectName,
       launchId: ctx.launchId,
       envVars: ctx.envVars,
-      starshipConfigPath: ctx.resolveStarship(),
+      starshipConfigPath,
       onStop: ctx.onStop,
       layoutLabel: ctx.layoutLabel,
-    });
+    };
+  }
+
+  async function launchRex(layout: PlannedLayout, ctx: BackendLaunchContext): Promise<BackendLaunchResult> {
+    const panes = layout.kind === "tree" ? [...layout.plan.leaves] : traditionalPaneNames(layout.plan);
+    const cli = serverCli(context.server);
+    const create = deps.createWorkspace ?? createWorkspace;
+    const app = deps.app ?? { discover: discoverRexApp, open: openRexApp };
+    const who = (deps.probeWhoami ?? probeWhoami)(context.rexBinary, context.server);
+    if (!who.answers) throw new Error(unreachableMessage(context.server, who.reason));
+    const build = buildSessionCreateRequest(requestInput(layout, ctx, ctx.resolveStarship()));
     // Read before the new record replaces the earlier one (F12).
     const kept = newWindow ? (deps.keptSession ?? keptSession)(ctx.projectName, serverCli, deps.listings) : undefined;
     const manifest: LaunchManifest = {
@@ -169,7 +173,7 @@ export function createRexBackend(context: RexLaunchContext, deps: RexBackendDeps
       rootBlockId: outcome.ids.rootBlockId,
       blocks: outcome.ids.blocks,
     };
-    return { rex: identity };
+    return { backend: "rex", rex: identity };
   }
 
   return {
@@ -214,12 +218,7 @@ export function createRexBackend(context: RexLaunchContext, deps: RexBackendDeps
       for (const line of rexLimitationNotices(overrides)) note(line);
     },
 
-    launchTraditional(plan: LayoutPlan, ctx) {
-      return launchRex({ kind: "traditional", plan }, traditionalPaneNames(plan), ctx);
-    },
-    launchTree(plan: TreeLayoutPlan, ctx) {
-      return launchRex({ kind: "tree", plan }, [...plan.leaves], ctx);
-    },
+    launch: launchRex,
 
     /**
      * Plan P2, Phase 2: the `session.create` request a real run would send, with the pane order its `block_ids` arrive
@@ -233,16 +232,7 @@ export function createRexBackend(context: RexLaunchContext, deps: RexBackendDeps
         const session = record.rex?.sessionId ?? "session id unknown";
         headerLines.push(`-- Note: ${project} is recorded as a Rex workspace (${session}); while it is running, a real run switches to it instead of creating this one`);
       }
-      const { request, paneOrder } = buildSessionCreateRequest({
-        layout,
-        targetDir: ctx.targetDir,
-        project,
-        launchId: ctx.launchId,
-        envVars: ctx.envVars,
-        starshipConfigPath,
-        onStop: ctx.onStop,
-        layoutLabel: ctx.layoutLabel,
-      });
+      const { request, paneOrder } = buildSessionCreateRequest(requestInput(layout, ctx, starshipConfigPath));
       headerLines.push(`-- Server: ${context.server}`);
       headerLines.push(`-- Pane order (block_ids): ${paneOrder.join(", ")}`);
       return { body: JSON.stringify(request, null, 2), notes: [] };
