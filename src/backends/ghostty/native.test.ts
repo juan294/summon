@@ -1,13 +1,8 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 const exec = vi.hoisted(() => vi.fn());
 vi.mock("node:child_process", () => ({ execFileSync: exec }));
-import {
-  readNativeInventory,
-  focusTerminal,
-  generateInventoryScript,
-  generateNativeFocusScript,
-  generateTitleScript, titleTerminal, validateTitleText,
-} from "./ghostty-native.js";
+import { readNativeInventory, focusTerminal, generateInventoryScript, generateNativeFocusScript, generateTitleScript, titleTerminal } from "./native.js";
+import { validateTitleText } from "../../ui/sanitize.js";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

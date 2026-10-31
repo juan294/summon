@@ -1,4 +1,4 @@
-import { isPlainText } from "../../pane-inventory.js";
+import { isPlainText } from "../../ui/sanitize.js";
 
 /** Rex resource identifiers as the CLI prints them: `<kind>:<36-char id>`. */
 const REX_ID_RE = /^(session|window|block):[0-9a-f-]{36}$/;

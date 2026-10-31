@@ -54,8 +54,8 @@ const { writeStatus, readStatusRecord, statusTestHooks } = await import("../../s
 const { writeLaunchManifest } = await import("../../launch-identity.js");
 import type { WorkspaceStatus } from "../../status-record.js";
 import type { BackendId } from "../../backend-detect.js";
-import type { NativeMetadata } from "../../pane-inventory.js";
-import type { RexIdentity } from "../../backends/rex/types.js";
+import type { NativeMetadata } from "../ghostty/pane-inventory.js";
+import type { RexIdentity } from "./types.js";
 import type { LaunchManifest } from "../../launch-identity.js";
 
 const RECONCILE = { reconcile: true } as const;

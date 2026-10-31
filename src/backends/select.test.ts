@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createTerminalBackend } from "./select.js";
-import { GhosttyBackend } from "./ghostty.js";
+import { GhosttyBackend } from "./ghostty/backend.js";
 import { allWorkspaceBackends, workspaceBackendFor } from "./workspace.js";
 import type { LaunchContext } from "../backend.js";
 
@@ -44,7 +44,7 @@ describe("backend ports (AR-M1)", () => {
 
   it("a launch loads no record-side module statically, and no Rex module beyond those it loaded before the port", () => {
     const closure = staticImportClosure("launcher.ts");
-    for (const recordSide of ["status.ts", "backends/workspace.ts", "backends/ghostty-workspace.ts", "backends/rex/workspace.ts", "backends/rex/read.ts", "backends/rex/reconcile.ts", "backends/rex/doctor.ts"]) {
+    for (const recordSide of ["status.ts", "backends/workspace.ts", "backends/ghostty/workspace.ts", "backends/rex/workspace.ts", "backends/rex/read.ts", "backends/rex/reconcile.ts", "backends/rex/doctor.ts"]) {
       expect(closure.has(recordSide), recordSide).toBe(false);
     }
     // PE-L2: the Rex backend is loaded only when Rex is detected. Statically a launch keeps detection itself

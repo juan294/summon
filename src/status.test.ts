@@ -60,7 +60,7 @@ const { launchArtifactFiles } = await import("./launch-identity.js");
 const { writeLaunchManifest } = await import("./launch-identity.js");
 import type { RexWorkspaceStatus, WorkspaceStatus } from "./status-record.js";
 import type { BackendId } from "./backend-detect.js";
-import type { NativeMetadata } from "./pane-inventory.js";
+import type { NativeMetadata } from "./backends/ghostty/pane-inventory.js";
 import type { RexIdentity } from "./backends/rex/types.js";
 import type { LaunchManifest } from "./launch-identity.js";
 

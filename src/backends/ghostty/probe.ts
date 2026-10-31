@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
-import { GHOSTTY_PATHS } from "./utils.js";
+import { GHOSTTY_PATHS } from "../../utils.js";
 
 export type Capability = {
   state: "supported" | "unsupported" | "unavailable";

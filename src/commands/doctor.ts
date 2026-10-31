@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
-import { probeGhostty, type GhosttyConfigKey } from "../ghostty.js";
+import { probeGhostty, type GhosttyConfigKey } from "../backends/ghostty/probe.js";
 import { homedir } from "node:os";
 import { listConfig, listProjects } from "../config.js";
 import {
@@ -20,7 +20,7 @@ import { describeLock, inspectLock, recoverStaleLock, type LockState } from "../
 import { GHOSTTY_ONLY_CONFIG_KEYS, resolveBackendForLaunch } from "../backend.js";
 import { lockStaleBound } from "../status-record.js";
 import { discoverRexForDoctor, printRexChecks } from "../backends/rex/doctor.js";
-import { escapeControlChars } from "../pane-inventory.js";
+import { escapeControlChars } from "../ui/sanitize.js";
 import type { CommandContext } from "./types.js";
 
 const PASS = green(`${sym.ok} PASS`);

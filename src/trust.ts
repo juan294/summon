@@ -14,7 +14,7 @@ import { join, resolve } from "node:path";
 import { atomicWrite, confirm, PromptCancelled } from "./utils.js";
 import { TRUST_FILE, CONFIG_DIR } from "./paths.js";
 import { withFileLock } from "./file-lock.js";
-import { escapeControlChars } from "./pane-inventory.js";
+import { escapeControlChars } from "./ui/sanitize.js";
 import { fail } from "./ui/output.js";
 
 /** Error thrown when a .summon file exists but is not trusted. */

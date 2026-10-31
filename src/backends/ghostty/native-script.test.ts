@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { generateAppleScript, generateTreeAppleScript } from "./script.js";
-import { planLayout } from "./layout.js";
-import { parseTreeDSL, buildTreePlan } from "./tree.js";
+import { planLayout } from "../../layout.js";
+import { parseTreeDSL, buildTreePlan } from "../../tree.js";
 import { traditionalInventory, treeInventory } from "./pane-inventory.js";
 describe("native launch capture", () => {
   it("captures traditional UUIDs in shared inventory order inside nonfatal collection", () => {

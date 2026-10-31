@@ -13,11 +13,29 @@ import type { LayoutOptions, LayoutPlan } from "../layout.js";
 import type { PlannedLayout, TreeLayoutPlan } from "../tree.js";
 import type { BackendId } from "../backend.js";
 import type { CLIOverrides } from "../config-resolve.js";
-import type { NativeMetadata } from "../pane-inventory.js";
+import type { NativeMetadata } from "./ghostty/pane-inventory.js";
 import type { RexIdentity } from "./rex/types.js";
 import type { WorkspaceStatus } from "../status-record.js";
 import type { ReadOptions, ResolvedStatus } from "../status.js";
-import type { FocusResult, TitleOperation, TitleResult, TitleScope } from "../ghostty-native.js";
+
+/** Why a workspace command could not act on a recorded workspace (either backend). */
+export interface NativeFailure {
+  kind: "unavailable" | "failed";
+  code: "permission" | "timeout" | "missing" | "unavailable";
+  reason: string;
+}
+
+/** `summon focus`: the pane focused (a Ghostty terminal id or a Rex block id), or why not. */
+export type FocusResult =
+  { kind: "focused"; terminalId: string } | NativeFailure;
+
+/** `summon title`: read, set or reset a title override. */
+export type TitleOperation =
+  { kind: "read" } | { kind: "set"; text: string } | { kind: "reset" };
+export type TitleScope = "tab" | "pane";
+export type TitleResult =
+  | { kind: "title"; terminalId: string; scope: TitleScope; override: string }
+  | NativeFailure;
 
 /** Everything a backend needs after the launcher has taken the dry-run branch. */
 export interface BackendLaunchContext {

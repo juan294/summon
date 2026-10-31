@@ -1,24 +1,21 @@
 import { execFileSync } from "node:child_process";
-import type { PlannedLayout } from "../tree.js";
-import { findPaneByName } from "../tree.js";
-import { generateAppleScript, generateTreeAppleScript } from "../script.js";
-import { ensureGhostty, ensureAccessibility, printAccessibilityHint, isAccessibilityError } from "../launch-guards.js";
-import { traditionalInventory, treeInventory, parseNativeCapture } from "../pane-inventory.js";
-import type { NativeMetadata, PaneDescriptor } from "../pane-inventory.js";
-import type { BackendLaunchContext, BackendLaunchResult, BackendLayout, LaunchOptionsInput, TerminalBackend } from "./port.js";
-import type { LayoutOptions } from "../layout.js";
-import { pickConfigValue } from "../config-resolve.js";
-import type { CLIOverrides } from "../config-resolve.js";
-import { commandExecutable } from "../command-spec.js";
-import { COMMAND_FAILURE_REASONS, checkCommand } from "../command-install.js";
-import { getErrorMessage, ACCESSIBILITY_SETTINGS_PATH, QUICK_PROCESS_LIMITS, SUMMON_WORKSPACE_ENV } from "../utils.js";
-import { escapeAppleScript } from "../shell-escape.js";
-import { isStaticLaunchSpinner, transientLine } from "../ui/progress.js";
-import { fail, err } from "../ui/output.js";
-import { TabOpenError } from "../errors.js";
-
-// The port types moved to ./port.ts (AR-M1); re-exported for the modules that import them from here.
-export type { BackendLaunchContext, BackendLaunchResult, TerminalBackend } from "./port.js";
+import type { PlannedLayout } from "../../tree.js";
+import { findPaneByName } from "../../tree.js";
+import { generateAppleScript, generateTreeAppleScript } from "./script.js";
+import { ensureGhostty, ensureAccessibility, printAccessibilityHint, isAccessibilityError } from "../../launch-guards.js";
+import { traditionalInventory, treeInventory, parseNativeCapture } from "./pane-inventory.js";
+import type { NativeMetadata, PaneDescriptor } from "./pane-inventory.js";
+import type { BackendLaunchContext, BackendLaunchResult, BackendLayout, LaunchOptionsInput, TerminalBackend } from "../port.js";
+import type { LayoutOptions } from "../../layout.js";
+import { pickConfigValue } from "../../config-resolve.js";
+import type { CLIOverrides } from "../../config-resolve.js";
+import { commandExecutable } from "../../command-spec.js";
+import { COMMAND_FAILURE_REASONS, checkCommand } from "../../command-install.js";
+import { getErrorMessage, ACCESSIBILITY_SETTINGS_PATH, QUICK_PROCESS_LIMITS, SUMMON_WORKSPACE_ENV } from "../../utils.js";
+import { escapeAppleScript } from "../../shell-escape.js";
+import { isStaticLaunchSpinner, transientLine } from "../../ui/progress.js";
+import { fail, err } from "../../ui/output.js";
+import { TabOpenError } from "../../errors.js";
 
 function asResult(native: NativeMetadata | undefined): BackendLaunchResult | undefined {
   return native ? { native } : undefined;
@@ -59,7 +56,7 @@ export interface CreatedContainer {
 
 /**
  * The rollback mark the launch script appends to an error raised after it opened a window
- * (`--new-window`) or a tab (`--new-tab`); see emitRollbackMark in src/script.ts. An empty mark
+ * (`--new-window`) or a tab (`--new-tab`); see emitRollbackMark in src/backends/ghostty/script.ts. An empty mark
  * means the open was not verified. Default mode reuses the user's window and never adds one.
  */
 const ROLLBACK_MARK_RE = / \[summon-rollback ([^\]]*)\]/;

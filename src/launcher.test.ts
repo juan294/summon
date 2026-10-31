@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import type { BackendLaunchContext } from "./backends/ghostty.js";
+import type { BackendLaunchContext } from "./backends/port.js";
 import type { CLIOverrides } from "./config-resolve.js";
 
 // Mock child_process before importing launcher
@@ -161,7 +161,7 @@ vi.mock("./trust.js", () => ({
 const mockGenerateAppleScript = vi.fn((..._args: any[]) => 'tell application "Ghostty"\nend tell');
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockGenerateTreeAppleScript = vi.fn((..._args: any[]) => 'tell application "Ghostty"\n-- tree layout\nend tell');
-vi.mock("./script.js", () => ({
+vi.mock("./backends/ghostty/script.js", () => ({
   generateAppleScript: (...args: unknown[]) => mockGenerateAppleScript(...args),
   generateTreeAppleScript: (...args: unknown[]) => mockGenerateTreeAppleScript(...args),
   generateFocusScript: (title: string) => `focus ${title}`,
@@ -170,7 +170,7 @@ vi.mock("./script.js", () => ({
 // Import after mocks are set up
 const { launch, resolveProjectName, probePaneCount, decideCleanRestoredPanes, layoutOptsToTreePlanOpts } = await import("./launcher.js");
 const { readTrustedSummonFile, resolveConfig } = await import("./config-resolve.js");
-const { closeCreatedContainer, withLaunchSpinner, GhosttyBackend, ghosttyCommandEntries } = await import("./backends/ghostty.js");
+const { closeCreatedContainer, withLaunchSpinner, GhosttyBackend, ghosttyCommandEntries } = await import("./backends/ghostty/backend.js");
 const { isStaticLaunchSpinner } = await import("./ui/progress.js");
 const { planLayout } = await import("./layout.js");
 const { buildTreePlan, findPaneByName, parseTreeDSL, resolveTreeCommands } = await import("./tree.js");

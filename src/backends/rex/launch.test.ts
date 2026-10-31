@@ -9,7 +9,7 @@ import { join } from "node:path";
 const HAS_CHFLAGS = spawnSync("chflags", ["nouchg", "/nonexistent-summon-probe"], { stdio: "ignore" }).error === undefined;
 
 const tmpHome = mkdtempSync(join(tmpdir(), "summon-rex-launch-"));
-vi.mock("./../../paths.js", async (importOriginal) => {
+vi.mock("../../paths.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../paths.js")>();
   const configDir = join(tmpHome, ".config", "summon");
   return { ...actual, CONFIG_DIR: configDir, STATUS_DIR: join(configDir, "status") };

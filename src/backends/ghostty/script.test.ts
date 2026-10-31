@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { generateAppleScript, generateTreeAppleScript, generateFocusScript } from "./script.js";
 import * as scriptModule from "./script.js";
-import { planLayout, getPreset } from "./layout.js";
-import { collectLeaves, buildTreePlan } from "./tree.js";
-import type { TreeLayoutPlan, LayoutNode } from "./tree.js";
+import { planLayout, getPreset } from "../../layout.js";
+import { collectLeaves, buildTreePlan } from "../../tree.js";
+import type { TreeLayoutPlan, LayoutNode } from "../../tree.js";
 
 /** Fixed launch id for script expectations (plan P12: every per-launch path carries it). */
 const LAUNCH_ID = "0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f";
@@ -1868,14 +1868,14 @@ describe("escapeAppleScript — fuzz / property tests (SE-S1)", () => {
 
   for (const [label, input] of edgeCases) {
     it(`output never contains unescaped double-quote: ${label}`, async () => {
-      const { escapeAppleScript } = await import("./shell-escape.js");
+      const { escapeAppleScript } = await import("../../shell-escape.js");
       const result = escapeAppleScript(input);
       expect(hasUnescapedDoubleQuote(result)).toBe(false);
     });
   }
 
   it("fuzz: 1000 random strings with printable ASCII and control chars", async () => {
-    const { escapeAppleScript } = await import("./shell-escape.js");
+    const { escapeAppleScript } = await import("../../shell-escape.js");
 
     // Deterministic pseudo-random generator (LCG) — no external deps
     let seed = 0xDEADBEEF;

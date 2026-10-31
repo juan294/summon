@@ -64,8 +64,8 @@ async function warnIfNested(
   return answer !== "y";
 }
 
-// The Ghostty pane-count probe and restored-pane decision moved to backends/ghostty.ts (AR-M1); re-exported for callers.
-export { decideCleanRestoredPanes, probePaneCount } from "./backends/ghostty.js";
+// The Ghostty pane-count probe and restored-pane decision moved to backends/ghostty/backend.ts (AR-M1, AR-L1); re-exported for callers.
+export { decideCleanRestoredPanes, probePaneCount } from "./backends/ghostty/backend.js";
 
 /**
  * Execute the on-start hook command before workspace creation.

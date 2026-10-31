@@ -3,17 +3,17 @@
  * sidecars (P12); focus, inspect and title use the exact native identity the launch captured.
  */
 import { existsSync, readdirSync } from "node:fs";
-import { focusTerminal, readNativeInventory, titleTerminal } from "../ghostty-native.js";
-import type { NativeFailure } from "../ghostty-native.js";
-import { escapeControlChars } from "../pane-inventory.js";
-import { ghosttyLiveness, launchLiveness, unlinkIgnoringMissing } from "../status-record.js";
-import type { WorkspaceStatus } from "../status-record.js";
-import { isLaunchId, launchArtifactPaths, launchesDir } from "../launch-identity.js";
-import type { ResolvedStatus } from "../status.js";
-import { PROJECT_NAME_RE } from "../validation.js";
-import { printProjectSuggestions } from "../cli/resolve-target.js";
-import { out } from "../ui/output.js";
-import type { WorkspaceBackend } from "./port.js";
+import { focusTerminal, readNativeInventory, titleTerminal } from "./native.js";
+import type { NativeFailure } from "../port.js";
+import { escapeControlChars } from "../../ui/sanitize.js";
+import { ghosttyLiveness, launchLiveness, unlinkIgnoringMissing } from "../../status-record.js";
+import type { WorkspaceStatus } from "../../status-record.js";
+import { isLaunchId, launchArtifactPaths, launchesDir } from "../../launch-identity.js";
+import type { ResolvedStatus } from "../../status.js";
+import { PROJECT_NAME_RE } from "../../validation.js";
+import { printProjectSuggestions } from "../../cli/resolve-target.js";
+import { out } from "../../ui/output.js";
+import type { WorkspaceBackend } from "../port.js";
 
 /** Resolve a recorded exact UUID without activating or querying the application. */
 export function resolveWorkspaceTerminal(projectName: string, paneName: string | undefined, status: ResolvedStatus | null): { kind: "target"; terminalId: string } | NativeFailure {

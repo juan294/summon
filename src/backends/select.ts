@@ -7,7 +7,7 @@
  */
 import { callerRexSession } from "../backend.js";
 import type { LaunchContext } from "../backend.js";
-import { GhosttyBackend } from "./ghostty.js";
+import { GhosttyBackend } from "./ghostty/backend.js";
 import type { TerminalBackend } from "./port.js";
 
 export interface TerminalBackendOptions {

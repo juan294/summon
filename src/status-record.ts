@@ -8,8 +8,8 @@ import { isBackendId } from "./backend-detect.js";
 import type { BackendId } from "./backend-detect.js";
 import { parseRexIdentity } from "./backends/rex/types.js";
 import type { RexIdentity } from "./backends/rex/types.js";
-import { parseNativeMetadata } from "./pane-inventory.js";
-import type { NativeMetadata } from "./pane-inventory.js";
+import { parseNativeMetadata } from "./backends/ghostty/pane-inventory.js";
+import type { NativeMetadata } from "./backends/ghostty/pane-inventory.js";
 
 /**
  * The status record layer: the shared record `status/<project>.json`, its parser, the locked

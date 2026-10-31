@@ -3,7 +3,7 @@ import { createRexBackend, unknownOutcomeMessage, unreachableMessage } from "./b
 import type { RexBackendDeps } from "./backend.js";
 import { planLayout, getPreset } from "../../layout.js";
 import { buildTreePlan, parseTreeDSL, resolveTreeCommands } from "../../tree.js";
-import type { BackendLaunchContext } from "../ghostty.js";
+import type { BackendLaunchContext } from "../port.js";
 import type { LaunchOutcome } from "./launch.js";
 
 const CONTEXT = { ok: true as const, backend: "rex" as const, placement: "inside-rex" as const, server: "unix:///tmp/rex.sock", rexBinary: "/usr/local/bin/rex", notices: [] };

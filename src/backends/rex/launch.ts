@@ -7,7 +7,7 @@ import type { RexWorkspaceStatus, WorkspaceState, WorkspaceStatus } from "../../
 import { err, note } from "../../ui/output.js";
 import { shellQuote } from "../../shell-escape.js";
 import { getErrorMessage } from "../../utils.js";
-import { escapeControlChars } from "../../pane-inventory.js";
+import { escapeControlChars } from "../../ui/sanitize.js";
 import { createRexCli, whoamiOf } from "./cli.js";
 import type { RexCli } from "./cli.js";
 import { pickAppClient, pollUntil, realClock, selectInApp, waitForAppClient } from "./app.js";

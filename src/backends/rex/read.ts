@@ -12,7 +12,7 @@ import { adoptOnce, reconcileStoppedLaunch, refreshUnverifiedPanes } from "./rec
 import { isLiveState, readStatusRecord, rexIdentityMissing, unverifiedMessage, unverifiedPanes } from "../../status-record.js";
 import type { WorkspaceStatus } from "../../status-record.js";
 import type { ResolvedStatus } from "../../status.js";
-import type { NativeFailure } from "../../ghostty-native.js";
+import type { NativeFailure } from "../port.js";
 import type { StatusRead } from "../port.js";
 
 export const REX_CLI_MISSING = "rex CLI not found; open the Rex app once or set REX_BIN_DIR.";

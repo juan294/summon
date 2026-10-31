@@ -5,7 +5,7 @@
  */
 import { readStatus } from "./status.js";
 import { workspaceBackendFor } from "./backends/workspace.js";
-import type { FocusResult } from "./ghostty-native.js";
+import type { FocusResult } from "./backends/port.js";
 import { PROJECT_NAME_RE } from "./validation.js";
 
 /** Focus only a recorded exact identity. Legacy/stale records never launch implicitly. */
