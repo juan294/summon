@@ -57,11 +57,14 @@ const REFRESH_INTERVAL_MS = 3000;
 const NAME_WIDTH = 16;
 const STATE_WIDTH = 8;
 const UPTIME_WIDTH = 8;
-/** The columns before the detail. FIXED_COLS is measured from this same template, so they cannot drift apart. */
+/** The one-column pad before the glyph; the `summon open` picker renders rows without it. */
+const ROW_PAD = " ";
+/** The columns after the pad and before the detail. PREFIX_COLS is measured from this same template, so they cannot drift apart. */
 function rowPrefix(glyph: string, dot: string, name: string, state: string, uptime: string): string {
-  return ` ${glyph}${dot} ${name}  ${state}  ${uptime}  `;
+  return `${glyph}${dot} ${name}  ${state}  ${uptime}  `;
 }
-const FIXED_COLS = rowPrefix(" ", " ", " ".repeat(NAME_WIDTH), " ".repeat(STATE_WIDTH), " ".repeat(UPTIME_WIDTH)).length;
+const PREFIX_COLS = rowPrefix(" ", " ", " ".repeat(NAME_WIDTH), " ".repeat(STATE_WIDTH), " ".repeat(UPTIME_WIDTH)).length;
+const FIXED_COLS = ROW_PAD.length + PREFIX_COLS;
 const MIN_COLS = 60; // below this width, show the narrow-terminal guard
 
 // Terminal control sequences
@@ -125,7 +128,9 @@ function rowDetail(row: ProjectRow): string | undefined {
   return row.state !== "active" && row.state !== "active-long" && row.reason ? row.reason : undefined;
 }
 
-export function renderRow(row: ProjectRow, width: number, selected: boolean): string {
+/** `leadingPad: false` drops the pad before the glyph (the picker); the row still fills `width`. */
+export function renderRow(row: ProjectRow, width: number, selected: boolean, { leadingPad = true } = {}): string {
+  const pad = leadingPad ? ROW_PAD : "";
   const colorFn = stateColor(row.state);
   const dot = colorFn(stateDot(row.state));
   const name = displayPadEnd(truncate(row.name, NAME_WIDTH), NAME_WIDTH);
@@ -136,7 +141,7 @@ export function renderRow(row: ProjectRow, width: number, selected: boolean): st
   const statePad = " ".repeat(Math.max(0, STATE_WIDTH - stateText.length));
   const uptime = row.uptime.padEnd(UPTIME_WIDTH);
 
-  const branchWidth = Math.max(0, width - FIXED_COLS);
+  const branchWidth = Math.max(0, width - pad.length - PREFIX_COLS);
   // For stopped/unknown workspaces, show the directory path (dimmed) instead of em dash;
   // any non-active state with a reason (Rex: partial, stopped, unknown) shows the reason instead.
   const isStopped = row.state === "stopped" || row.state === "unknown";
@@ -145,7 +150,7 @@ export function renderRow(row: ProjectRow, width: number, selected: boolean): st
   const branchText = truncate(rawBranchText, branchWidth);
   const branch = isStopped || detail ? dim(branchText) : branchText;
 
-  const line = rowPrefix(programGlyph(row.programStatus), dot, name, stateLabel + statePad, uptime) + branch;
+  const line = pad + rowPrefix(programGlyph(row.programStatus), dot, name, stateLabel + statePad, uptime) + branch;
 
   if (selected) {
     return invert(line);
@@ -726,8 +731,10 @@ export async function runMonitor(options: MonitorOptions = {}): Promise<void> {
   }
 
   async function handoff(selected: ProjectRow): Promise<void> {
-    if (!session.hidden) process.stdout.write(`Opening ${selected.name}...\n`);
+    const visible = !session.hidden;
     cleanup();
+    // On the normal screen, after leaving the alternate one, so it stays visible during the handoff (FE-L2).
+    if (visible) process.stdout.write(`Opening ${selected.name}...\n`);
     const isActive = isLiveState(selected.state);
     try {
       // Plan P10: an unknown workspace is never launched over or focused; the reason is shown.

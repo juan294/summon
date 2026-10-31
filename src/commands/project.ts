@@ -138,7 +138,7 @@ export async function handleOpenCommand({ args, overrides }: CommandContext): Pr
   const prefixWidth = 2 + numWidth + 2; // "  N  "
   for (const [index, row] of rows.entries()) {
     const num = String(index + 1).padStart(numWidth);
-    console.log(`  ${num}  ${renderRow(row, width - prefixWidth, false).trimStart()}`);
+    console.log(`  ${num}  ${renderRow(row, width - prefixWidth, false, { leadingPad: false })}`);
   }
   console.log(`(↑↓/jk in 'summon status' for interactive mode)`);
 

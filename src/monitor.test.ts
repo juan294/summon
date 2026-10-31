@@ -1121,7 +1121,7 @@ describe("runMonitor", () => {
     expect(mockLaunch).toHaveBeenCalledWith("/tmp/myapp");
   });
 
-  it("FE-H4: prints launch feedback line BEFORE exiting alt-screen on Enter", async () => {
+  it("FE-L2: prints the launch feedback line AFTER leaving the alternate screen on Enter", async () => {
     listProjects.mockReturnValue([["myapp", "/tmp/myapp"]]);
     readAllStatuses.mockReturnValue([
       makeResolvedStatus({ project: "myapp", state: "stopped", uptime: null }),
@@ -1151,8 +1151,8 @@ describe("runMonitor", () => {
 
     expect(exitIdx).toBeGreaterThanOrEqual(0);
     expect(feedbackIdx).toBeGreaterThanOrEqual(0);
-    // After the fix, feedback appears BEFORE alt-screen exit
-    expect(feedbackIdx).toBeLessThan(exitIdx);
+    // Written on the normal screen, so it stays visible during the handoff.
+    expect(feedbackIdx).toBeGreaterThan(exitIdx);
   });
 
   it("UX-M5: does NOT exit on launch failure — shows in-TUI error and continues (replaces old exit test)", async () => {
@@ -1630,6 +1630,27 @@ describe("FE-H1: a row is never wider than the terminal", () => {
       }
     });
   }
+  it("FE-L1: rows with emoji, ZWJ and NFD text still fill exactly the width", () => {
+    const tricky = [
+      makeRow({ name: "caf\u0065\u0301-\u2728", gitBranch: `feat/\u2728\u{1F468}\u200D\u{1F469}\u200D\u{1F467}-${"x".repeat(80)}` }),
+      makeRow({ state: "stopped", directory: `/Users/me/Cafe\u0301/\u{20BB7}${"d".repeat(80)}`, programStatus: "done" }),
+    ];
+    for (const width of [60, 80, 120]) {
+      for (const row of tricky) expect(getDisplayWidth(visibleText(renderRow(row, width, false)))).toBe(width);
+    }
+  });
+  it("FE-L2: the picker form drops only the leading pad, so the glyph column stays aligned", () => {
+    for (const width of [60, 80, 120]) {
+      const plain = visibleText(renderRow(makeRow({ gitBranch: "b".repeat(200) }), width, false, { leadingPad: false }));
+      const glyph = visibleText(renderRow(makeRow({ gitBranch: "b".repeat(200), programStatus: "blocked" }), width, false, { leadingPad: false }));
+      expect(getDisplayWidth(plain)).toBe(width);
+      expect(getDisplayWidth(glyph)).toBe(width);
+      expect(plain.indexOf("\u25CF")).toBe(1);
+      expect(glyph.indexOf("\u25CF")).toBe(1);
+      expect(plain.indexOf("myapp")).toBe(glyph.indexOf("myapp"));
+      expect(plain.slice(1)).toBe(visibleText(renderRow(makeRow({ gitBranch: "b".repeat(200) }), width + 1, false)).slice(2));
+    }
+  });
   it("keeps the detail column at column 42", () => {
     const text = visibleText(renderRow(makeRow({ gitBranch: `feature/${"b".repeat(200)}` }), 80, false));
     expect(text.indexOf("feature/")).toBe(42);
