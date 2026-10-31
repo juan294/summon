@@ -9,6 +9,7 @@ import type { NativeMetadata, PaneDescriptor } from "../pane-inventory.js";
 import type { BackendId } from "../backend.js";
 import type { RexIdentity } from "./rex/types.js";
 import { getErrorMessage, ACCESSIBILITY_SETTINGS_PATH } from "../utils.js";
+import { escapeAppleScript } from "../shell-escape.js";
 import { isStaticLaunchSpinner, transientLine } from "../ui/progress.js";
 import { fail, err } from "../ui/output.js";
 import { TabOpenError } from "../errors.js";
@@ -73,19 +74,62 @@ export function withLaunchSpinner(label: string, fn: () => void): void {
   }
 }
 
+/** The window or tab a failed launch script opened and recorded (BE-M2). */
+export interface CreatedContainer {
+  kind: "window" | "tab";
+  id: string;
+}
+
 /**
- * Best-effort rollback: close the Ghostty front window that was opened by a
- * failed script execution (BE-S26 #322).
- * Silently ignored if Ghostty is not running or the window is already gone.
+ * The rollback mark the launch script appends to an error raised after it opened a window
+ * (`--new-window`) or a tab (`--new-tab`); see emitRollbackMark in src/script.ts. An empty mark
+ * means the open was not verified. Default mode reuses the user's window and never adds one.
  */
-export function closeWorkspaceWindow(): void {
-  const closeScript = `tell application "Ghostty"
-  if (count of windows) > 0 then
-    close front window
-  end if
+const ROLLBACK_MARK_RE = / \[summon-rollback ([^\]]*)\]/;
+/** What a mark may name; any other content (an empty mark, unexpected characters) rolls back nothing. */
+const ROLLBACK_TARGET_RE = /^(window|tab):([A-Za-z0-9._:-]{1,128})$/;
+
+/** Split a launch error into the user-facing message and the container to roll back, if any. */
+function parseRollbackMark(raw: string): { message: string; created?: CreatedContainer } {
+  const mark = ROLLBACK_MARK_RE.exec(raw);
+  if (!mark) return { message: raw };
+  const message = raw.replace(mark[0], "");
+  const target = ROLLBACK_TARGET_RE.exec(mark[1]!);
+  if (!target) return { message };
+  return { message, created: { kind: target[1] as CreatedContainer["kind"], id: target[2]! } };
+}
+
+/** Bounded so a rollback after a Ghostty failure can never hang the CLI (PE-L3). */
+const ROLLBACK_TIMEOUT_MS = 5_000;
+
+/**
+ * Best-effort rollback: close exactly the window or tab a failed launch created (BE-S26 #322,
+ * BE-M2), found by its recorded id, never the front window. Silently ignored if Ghostty is not
+ * running, does not answer in time, or the container is already gone.
+ */
+export function closeCreatedContainer(created: CreatedContainer): void {
+  const id = escapeAppleScript(created.id);
+  const closeScript = created.kind === "window"
+    ? `tell application "Ghostty"
+  repeat with w in windows
+    if (id of w as text) is "${id}" then
+      close window w
+      return
+    end if
+  end repeat
+end tell`
+    : `tell application "Ghostty"
+  repeat with w in windows
+    repeat with t in tabs of w
+      if (id of t as text) is "${id}" then
+        close tab t
+        return
+      end if
+    end repeat
+  end repeat
 end tell`;
   try {
-    execFileSync("osascript", [], { input: closeScript, encoding: "utf-8" });
+    execFileSync("osascript", [], { input: closeScript, encoding: "utf-8", timeout: ROLLBACK_TIMEOUT_MS, killSignal: "SIGKILL" });
   } catch {
     // Silently ignore — rollback is best-effort
   }
@@ -105,7 +149,7 @@ function executeScript(script: string, inventory: PaneDescriptor[], targetLabel?
         throw new Error("Ghostty did not respond within 30 seconds. Is Ghostty running?", { cause: caught });
       }
 
-      const message = getErrorMessage(caught);
+      const { message, created } = parseRollbackMark(getErrorMessage(caught));
       fail(`failed to execute workspace script: ${message}`);
 
       // A verified keystroke failure means NO new tab/window was created — the existing
@@ -120,12 +164,13 @@ function executeScript(script: string, inventory: PaneDescriptor[], targetLabel?
         throw new Error(m, { cause: caught });
       }
 
-      // Best-effort rollback: the AppleScript may have opened a window before failing.
-      // Attempt to close it so the user is not left with a stale empty window (BE-S26 #322).
-      // Skip rollback for accessibility errors — osascript couldn't run at all,
+      // Best-effort rollback of the window or tab this script opened (BE-S26 #322), so the user
+      // is not left with a stale empty one. Only a container the script recorded is closed
+      // (BE-M2): a launch into the user's own window, or a failure before the open was verified,
+      // closes nothing. Skip rollback for accessibility errors — osascript couldn't run at all,
       // so no window was created (BE-M3 #377).
-      if (!isAccessibilityError(message)) {
-        closeWorkspaceWindow();
+      if (created && !isAccessibilityError(message)) {
+        closeCreatedContainer(created);
       }
 
       if (isAccessibilityError(message)) {

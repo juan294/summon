@@ -28,7 +28,7 @@ vi.mock("./paths.js", () => ({
   CONFIG_DIR: join(TEMP_HOME, ".config", "summon"),
 }));
 
-const { bootstrapLine, cleanupTrapLine, launchArtifactPaths } = await import("./launch-identity.js");
+const { bootstrapLine, cleanupTrapLine, launchArtifactPaths, registerSelfInvocation, clearSelfInvocation } = await import("./launch-identity.js");
 const { writeStatus, readStatusRecord } = await import("./status.js");
 const { gitSafeEnv } = await import("./utils.js");
 import type { WorkspaceStatus } from "./status.js";
@@ -225,5 +225,44 @@ describe("real-process ownership interleavings (plan Phase 1)", () => {
     expect(existsSync(pathsA.pid)).toBe(false);
     expect(existsSync(pathsA.active)).toBe(false);
     expect(readStatusRecord(PROJECT)?.launchId).toBe(GEN_A);
+  }, 30_000);
+});
+
+// SE-L1: the bootstrap and trap are typed into an interactive login zsh, where history expansion
+// is on; /bin/sh -c above never expands `!`. Feed the generated lines to a real interactive zsh.
+const ZSH_AVAILABLE = spawnSync("zsh", ["-f", "-c", "exit 0"]).status === 0;
+
+describe.skipIf(!ZSH_AVAILABLE)("typed text in an interactive zsh with history expansion (SE-L1)", () => {
+  afterEach(() => clearSelfInvocation());
+
+  it("a project directory, node binary and script path containing ! still run the trap", async () => {
+    const targetDir = join(TEMP_HOME, "wow!proj");
+    const toolsDir = join(TEMP_HOME, "tools!bin");
+    mkdirSync(targetDir, { recursive: true });
+    mkdirSync(toolsDir, { recursive: true });
+    const shim = join(toolsDir, "summon!cli");
+    writeFileSync(shim, 'printf \'args=%s\\n\' "$*" >> "$SHIM_LOG"\n');
+    registerSelfInvocation("/bin/sh", shim);
+    const paths = launchArtifactPaths(PROJECT, GEN_A);
+
+    const zsh = spawn("zsh", ["-f", "-i"], { env: childEnv(), stdio: ["pipe", "pipe", "pipe"] });
+    let stderr = "";
+    zsh.stderr!.on("data", (chunk: Buffer) => { stderr += chunk.toString(); });
+    // The first line proves history expansion is on in this shell: it must fail with "event not found".
+    zsh.stdin!.write([
+      'print -r -- "probe!probe"',
+      bootstrapLine(PROJECT, GEN_A, "ghostty"),
+      cleanupTrapLine(PROJECT, GEN_A, { targetDir, layout: "default" }),
+      "exit",
+      "",
+    ].join("\n"));
+    const code = await exited(zsh);
+
+    expect(stderr.match(/event not found/g), stderr).toHaveLength(1);
+    expect(code).toBe(0);
+    // The bootstrap ran and the trap removed its own files on exit.
+    expect(existsSync(paths.active)).toBe(false);
+    expect(existsSync(paths.pid)).toBe(false);
+    expect(shimLog()).toEqual([`args=snapshot save --dir ${targetDir} --project ${PROJECT} --layout default --launch ${GEN_A}`]);
   }, 30_000);
 });

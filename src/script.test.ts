@@ -2015,3 +2015,19 @@ describe("#604 / #437 / #450: TreePlanOptions exported from tree.ts", () => {
     expect(plan.cleanRestoredPanes).toBe(false);
   });
 });
+
+describe("typed paths reject control characters (SE-L1)", () => {
+  it("rejects a control character in the project directory the root pane cds into", () => {
+    expect(() => generateAppleScript(planLayout(), "/tmp/a\u001b[201~b")).toThrow(/contains a control character/);
+  });
+
+  it("rejects a control character in a tree root pane's cwd", () => {
+    const plan = buildTreePlan({ type: "pane", name: "editor", command: "nvim", cwd: "sub\u0003dir" });
+    expect(() => generateTreeAppleScript(plan, "/tmp/project")).toThrow(/contains a control character/);
+  });
+
+  it("keeps a printable directory with ! and quotes working, single-quoted", () => {
+    const script = generateAppleScript(planLayout(), "/tmp/it's here!");
+    expect(script).toContain(`input text "cd '/tmp/it'\\\\''s here!'" to paneRoot`);
+  });
+});

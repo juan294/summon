@@ -6,7 +6,7 @@ import { GHOSTTY_APP_NAME } from "./utils.js";
 import { escapeAppleScript, shellQuote } from "./shell-escape.js";
 import { traditionalInventory, treeInventory, formatTitle } from "./pane-inventory.js";
 import type { PaneDescriptor } from "./pane-inventory.js";
-import { bootstrapLine, cleanupTrapLine, buildEnvVarsList } from "./launch-identity.js";
+import { bootstrapLine, cleanupTrapLine, buildEnvVarsList, typedPath } from "./launch-identity.js";
 import type { CleanupTrapOptions } from "./launch-identity.js";
 
 // --- AppleScript timing constants (empirically tuned for Ghostty responsiveness) ---
@@ -144,7 +144,7 @@ function emitRootPaneCommand(
   targetDir: string,
   command: string | null | undefined,
 ): void {
-  sendCommand(rootPaneVar, `cd ${shellQuote(targetDir)}`);
+  sendCommand(rootPaneVar, `cd ${shellQuote(typedPath(targetDir))}`);
   // Clear setup noise (exports, cd) so the pane starts clean
   sendCommand(rootPaneVar, "clear");
   if (command) {
@@ -302,6 +302,28 @@ function emitVerifiedKeystroke(
 }
 
 /**
+ * BE-M2: after the script has opened a window or tab, record that container's id and open an
+ * outer `try`; emitRollbackHandler ends it and re-raises any later error with
+ * ` [summon-rollback <kind>:<id>]` appended, so the backend's rollback closes only what this
+ * script created (src/backends/ghostty.ts parses the mark). The id is recorded only when the open
+ * was verified by the count check (`before` is not -1), never for a guessed front window.
+ * Default mode reuses the user's window and emits neither part, so its script is unchanged.
+ */
+function emitRollbackMark(sb: ScriptBuilder, kind: "window" | "tab", beforeVar: string, containerExpr: string): void {
+  sb.add(1, 'set summonRollback to ""');
+  sb.add(1, "try");
+  sb.add(2, `if ${beforeVar} is not -1 then set summonRollback to "${kind}:" & (id of ${containerExpr} as text)`);
+  sb.add(1, "end try");
+  sb.add(1, "try");
+}
+
+function emitRollbackHandler(sb: ScriptBuilder): void {
+  sb.add(1, "on error summonErr number summonErrNum");
+  sb.add(2, 'error summonErr & " [summon-rollback " & summonRollback & "]" number summonErrNum');
+  sb.add(1, "end try");
+}
+
+/**
  * Emit AppleScript to create or reference the front window.
  * Uses System Events keystroke (Cmd+N) for new windows in all modes.
  */
@@ -317,6 +339,7 @@ function emitNewWindow(
     );
   }
   sb.add(1, "set win to front window");
+  if (newWindow) emitRollbackMark(sb, "window", "summonWindowsBefore", "win");
 }
 
 /**
@@ -336,6 +359,7 @@ function emitNewTab(sb: ScriptBuilder): void {
     "summonTabsBefore", "summonTabOpened",
     "count of tabs of summonWin", "summon-newtab-failed",
   );
+  emitRollbackMark(sb, "tab", "summonTabsBefore", "selected tab of summonWin");
 }
 
 /** Emit right column pane splits (first right pane + additional editors + optional shell). */
@@ -553,6 +577,7 @@ export function generateAppleScript(plan: LayoutPlan, targetDir: string, starshi
   sb.add(1, "focus paneRoot");
   emitWindowState(sb, "paneRoot", plan);
   emitNativeCapture(sb, traditionalInventory(plan));
+  if (plan.newTab || plan.newWindow) emitRollbackHandler(sb);
 
   sb.add(0, "end tell");
   return lines.join("\n");
@@ -611,6 +636,7 @@ export function generateTreeAppleScript(
   sb.add(1, `focus ${rootPaneVar}`);
   emitWindowState(sb, rootPaneVar, plan);
   emitNativeCapture(sb, inventory);
+  if (plan.newTab || plan.newWindow) emitRollbackHandler(sb);
 
   sb.add(0, "end tell");
   return lines.join("\n");

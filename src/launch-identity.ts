@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { STATUS_DIR } from "./paths.js";
-import { atomicWrite, debugLog, confinedPath, SUMMON_WORKSPACE_ENV } from "./utils.js";
-import { shellDoubleQuote } from "./shell-escape.js";
+import { atomicWrite, debugLog, confinedPath, CONTROL_CHARS_RE, SUMMON_WORKSPACE_ENV } from "./utils.js";
+import { shellDoubleQuote, shellQuote } from "./shell-escape.js";
 import { selfInvocation } from "./self.js";
 
 export { clearSelfInvocation, registerSelfInvocation } from "./self.js";
@@ -126,10 +126,22 @@ export function buildEnvVarsList(
   return allEnvVars;
 }
 
+/**
+ * A path that is typed into a pane's line editor (the root pane's `cd`, the trap's snapshot save).
+ * Control characters could act as editing keys there or end a bracketed paste, so they are refused
+ * (SE-L1); the caller still quotes the path.
+ */
+export function typedPath(path: string): string {
+  if (CONTROL_CHARS_RE.test(path)) {
+    throw new Error(`Path contains a control character and cannot be typed into a terminal safely: ${JSON.stringify(path)}`);
+  }
+  return path;
+}
+
 // --- Shell fragments (typed into the root pane; `$HOME` resolves inside the shell) ---
 //
 // Every interpolating line in this section is checked by src/shell-escape.lint.test.ts
-// (shell-fragment region rule): user text goes through shellDoubleQuote, pane names are
+// (shell-fragment region rule): user text goes through shellDoubleQuote or shellQuote, pane names are
 // validated against PANE_NAME_RE, and the launch id through shellLaunchId, which asserts
 // LAUNCH_ID_RE (hex and dashes only) before it is interpolated.
 
@@ -162,11 +174,12 @@ function shellPaneFile(project: string, launchId: string, paneName: string): { f
  * The command that runs `summon snapshot save` from the trap: the node binary and script this
  * process was started with (registered by the CLI entry), so the binary that created the launch
  * is the one that saves its snapshot, whatever `summon` is on the pane's PATH at exit time.
- * Listed in SHELL_FRAGMENT_SAFE_CALL of src/shell-escape.lint.test.ts: both paths are double-quoted here.
+ * Listed in SHELL_FRAGMENT_SAFE_CALL of src/shell-escape.lint.test.ts: both paths are single-quoted
+ * here, so the interactive shell's history expansion (`!`) never applies to them (SE-L1).
  */
 function summonCommand(): string {
   const self = selfInvocation();
-  return self ? `"${shellDoubleQuote(self.execPath)}" "${shellDoubleQuote(self.script)}"` : "summon";
+  return self ? `${shellQuote(typedPath(self.execPath))} ${shellQuote(typedPath(self.script))}` : "summon";
 }
 
 /** Quoted cleanup log file of a project. */
@@ -207,8 +220,9 @@ export interface CleanupTrapOptions {
  * record and the legacy `<project>.active`/`.pid` paths are never named here (P12).
  *
  * SE-L1: the trap runs inside the root pane with the project directory as cwd and the pane's
- * login environment. `onStop` comes from a trusted `.summon` file (trust gate) and has passed
- * confirmDangerousCommands; it is inlined as a shell fragment so pipes and redirects work, and
+ * login environment. That shell is interactive, so history expansion is on: the paths in this
+ * line are single-quoted, and paths with control characters are refused (typedPath). `onStop`
+ * comes from a trusted `.summon` file (trust gate) and has passed confirmDangerousCommands; it is inlined as a shell fragment so pipes and redirects work, and
  * its output goes to the cleanup log, never to the terminal. escapeAppleScript is applied by
  * the AppleScript emitter at the outer boundary.
  *
@@ -240,7 +254,7 @@ export function cleanupTrapLine(project: string, launchId: string, options: Clea
   if (options.targetDir) {
     parts.push(
       `${summonCommand()} snapshot save`
-      + ` --dir "${shellDoubleQuote(options.targetDir)}"`
+      + ` --dir ${shellQuote(typedPath(options.targetDir))}`
       + ` --project "${shellDoubleQuote(project)}"`
       + ` --layout "${shellDoubleQuote(options.layout ?? "unknown")}"`
       + ` --launch '${shellLaunchId(launchId)}'`
