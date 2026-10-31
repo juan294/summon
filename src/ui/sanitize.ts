@@ -15,7 +15,7 @@ export function isPlainText(value: unknown, options: { allowEmpty?: boolean } = 
 export function escapeControlChars(text: string): string {
   return text.replace(
     // eslint-disable-next-line no-control-regex -- display process text without terminal control effects
-    /[\x00-\x1f\x7f-\x9f‪-‮⁦-⁩]/g,
+    /[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g,
     (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`,
   );
 }
@@ -32,7 +32,7 @@ export function validateTitleText(text: string): string | null {
   if ([...text].length > 256)
     return "Title must be at most 256 Unicode codepoints.";
   // eslint-disable-next-line no-control-regex -- user-authored titles cannot contain terminal or bidi controls
-  if (/[\x00-\x1f\x7f-\x9f‪-‮⁦-⁩]/.test(text))
+  if (/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/.test(text))
     return "Title cannot contain control or bidi override/isolate characters.";
   return null;
 }

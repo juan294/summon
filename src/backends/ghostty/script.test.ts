@@ -1856,7 +1856,7 @@ describe("escapeAppleScript — fuzz / property tests (SE-S1)", () => {
     ["DEL char (0x7F)", "\x7F"],
     ["all control chars 0-31", Array.from({ length: 32 }, (_, i) => String.fromCharCode(i)).join("")],
     ["emoji", "😀🎉🔥"],
-    ["RTL text", "‮ right-to-left override"],
+    ["RTL text", "\u202e right-to-left override"],
     ["combining chars", "é (é with combining accent)"],
     ["unicode high plane", "😀"],
     ["tab character", "\t"],
@@ -1888,7 +1888,7 @@ describe("escapeAppleScript — fuzz / property tests (SE-S1)", () => {
       ...Array.from({ length: 95 }, (_, i) => String.fromCharCode(i + 32)), // printable ASCII
       ...Array.from({ length: 32 }, (_, i) => String.fromCharCode(i)),       // control chars 0-31
       "\x7F",                                                                  // DEL
-      "😀", "🔥", "‮", "é", "😀",                             // unicode
+      "😀", "🔥", "\u202e", "é", "😀",                             // unicode
     ];
 
     for (let t = 0; t < 1000; t++) {
