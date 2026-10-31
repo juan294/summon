@@ -25,11 +25,11 @@ function staticImportClosure(entry: string): Set<string> {
 }
 
 describe("backend ports (AR-M1)", () => {
-  it("maps a launch context to its terminal backend, with the traits the generic launch reads", () => {
-    expect(createTerminalBackend({ ok: true, backend: "ghostty", placement: "outside", notices: [] })).toBe(GhosttyBackend);
+  it("maps a launch context to its terminal backend, with the traits the generic launch reads", async () => {
+    expect(await createTerminalBackend({ ok: true, backend: "ghostty", placement: "outside", notices: [] })).toBe(GhosttyBackend);
     expect(GhosttyBackend).toMatchObject({ id: "ghostty", splitsCallerWindow: true, opensSessionTabs: true });
     expect(GhosttyBackend.beforeLaunch).toBeUndefined();
-    const rex = createTerminalBackend(REX_CONTEXT);
+    const rex = await createTerminalBackend(REX_CONTEXT);
     expect(rex).toMatchObject({ id: "rex", splitsCallerWindow: false, opensSessionTabs: false });
     for (const hook of ["beforeLaunch", "watchOutput", "afterSuccess", "showAgain"] as const) expect(typeof rex[hook]).toBe("function");
   });
@@ -47,9 +47,18 @@ describe("backend ports (AR-M1)", () => {
     for (const recordSide of ["status.ts", "backends/workspace.ts", "backends/ghostty-workspace.ts", "backends/rex/workspace.ts", "backends/rex/read.ts", "backends/rex/reconcile.ts", "backends/rex/doctor.ts"]) {
       expect(closure.has(recordSide), recordSide).toBe(false);
     }
-    // The Rex modules a launch loaded statically before AR-M1 (PE-L2 may make this list shorter, never longer).
-    const before = ["app", "backend", "cli", "errors", "launch", "launcher-tab", "layout", "status", "types"].map((name) => `backends/rex/${name}.ts`);
-    expect([...closure].filter((file) => file.startsWith("backends/rex/")).every((file) => before.includes(file))).toBe(true);
+    // PE-L2: the Rex backend is loaded only when Rex is detected. Statically a launch keeps detection itself
+    // (backend.ts: the `rex` lookup and its failure classifier) and the record parser (status-record.ts).
+    expect([...closure].filter((file) => file.startsWith("backends/rex/")).sort()).toEqual(["backends/rex/cli.ts", "backends/rex/errors.ts", "backends/rex/types.ts"]);
+  });
+
+  it("record-only paths load no Rex module beyond the record parser (PE-L2)", () => {
+    // `snapshot save --launch` runs in every workspace's cleanup trap; `list`, `add` and `remove` read no status.
+    for (const entry of ["commands/runtime.ts", "commands/project.ts", "status-record.ts", "launch-identity.ts", "snapshot.ts"]) {
+      const rex = [...staticImportClosure(entry)].filter((file) => file.startsWith("backends/rex/"));
+      expect(rex.every((file) => file === "backends/rex/types.ts"), `${entry}: ${rex.join(", ")}`).toBe(true);
+      expect(staticImportClosure(entry).has("status.ts"), entry).toBe(false);
+    }
   });
 
   it("generic modules reach Rex only through the ports, with the listed exceptions", () => {

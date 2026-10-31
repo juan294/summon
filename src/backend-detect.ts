@@ -3,6 +3,14 @@
  * No filesystem or process access: every input is injected so each row is a unit test.
  */
 
+/** Terminal backend that owns a workspace. Records without the field are Ghostty. */
+export type BackendId = "ghostty" | "rex";
+
+/** Defined here, in a module with no imports, so the record layer can parse a stored field without loading the Rex CLI (PE-L2). */
+export function isBackendId(value: unknown): value is BackendId {
+  return value === "ghostty" || value === "rex";
+}
+
 export type Placement = "inside-rex" | "outside";
 
 export interface EnvSnapshot {

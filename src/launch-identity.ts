@@ -7,8 +7,8 @@ import { shellDoubleQuote, shellQuote } from "./shell-escape.js";
 import { selfInvocation } from "./self.js";
 
 export { clearSelfInvocation, registerSelfInvocation } from "./self.js";
-import { isBackendId } from "./backend.js";
-import type { BackendId } from "./backend.js";
+import { isBackendId } from "./backend-detect.js";
+import type { BackendId } from "./backend-detect.js";
 import { PANE_NAME_RE } from "./tree.js";
 
 /**

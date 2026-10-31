@@ -1,14 +1,10 @@
 import { isGhosttyInstalled } from "./utils.js";
 import { detectBackend, snapshotEnv } from "./backend-detect.js";
 import type { Detection, RexDiscovery } from "./backend-detect.js";
+// The backend id moved to backend-detect.ts (PE-L2); re-exported for the modules that import it from here.
+export { isBackendId } from "./backend-detect.js";
+export type { BackendId } from "./backend-detect.js";
 import { discoverRex, defaultRexServer, probeWhoami } from "./backends/rex/cli.js";
-
-/** Terminal backend that owns a workspace. Records without the field are Ghostty. */
-export type BackendId = "ghostty" | "rex";
-
-export function isBackendId(value: unknown): value is BackendId {
-  return value === "ghostty" || value === "rex";
-}
 
 /**
  * Ghostty-only launch keys (plan P8, UX-H1): a Rex launch honors none of them. Given on the command line, each is

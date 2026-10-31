@@ -223,7 +223,7 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
   for (const notice of launchContext.notices) err(notice);
   const projectName = resolveProjectName(targetDir);
   const dryRun = cliOverrides?.dryRun === true;
-  const backend: TerminalBackend = createTerminalBackend(launchContext, { newWindow: cliOverrides?.["new-window"] === "true" });
+  const backend: TerminalBackend = await createTerminalBackend(launchContext, { newWindow: cliOverrides?.["new-window"] === "true" });
   if (!dryRun) {
     // A dry run skips this (P2) and runs no backend command. Rex: late adoption and the P2 switch, before the wizard,
     // the pane probe and on-start, so a switch never reruns them.
