@@ -260,6 +260,48 @@ describe("createWorkspace", () => {
     expect(cli.calls.map((c) => c.op)).toEqual(["ls", "session-create"]);
   });
 
+  it("BE-M1: a definitely failed create (rolled-back or none) removes its manifest under the status lock; nothing is left to report", async () => {
+    for (const outcome of ["rolled-back", "none"] as const) {
+      const locks: string[] = [];
+      statusTestHooks.beforeLock = () => { locks.push("lock"); };
+      const cli = fakeCli({
+        "ls": () => ok("ls", { sessions: [] }),
+        "session-create": () => fail("session-create", outcome === "none" ? "unreachable" : "rejected", outcome, "boom"),
+      });
+      const result = await createWorkspace(manifestFor(), fullBuild().request, ctxFor(cli));
+      expect(result, outcome).toMatchObject({ kind: "failed", notices: [] });
+      expect(existsSync(launchArtifactPaths("chapa", ID).manifest), outcome).toBe(false);
+      expect(listLaunchManifests("chapa"), outcome).toEqual([]);
+      expect(locks, outcome).toEqual(["lock"]);
+      delete statusTestHooks.beforeLock;
+    }
+  });
+
+  it("BE-M1: a failed removal is reported as a notice, never hidden, and the launch still fails with the server's reason", async () => {
+    const rejected = () => fakeCli({ "ls": () => ok("ls", { sessions: [] }), "session-create": () => fail("session-create", "rejected", "rolled-back", "boom") });
+    // The status lock cannot be taken.
+    statusTestHooks.beforeLock = () => { throw new Error("lock busy"); };
+    const locked = await createWorkspace(manifestFor(), fullBuild().request, ctxFor(rejected()));
+    delete statusTestHooks.beforeLock;
+    expect(locked).toMatchObject({ kind: "failed", reason: "boom", notices: [`could not remove the files of failed launch ${ID}: lock busy; summon clean --orphans names it`] });
+    expect(existsSync(launchArtifactPaths("chapa", ID).manifest)).toBe(true);
+    rmSync(launchArtifactPaths("chapa", ID).dir, { recursive: true, force: true });
+
+    // The manifest cannot be removed (read-only launches directory).
+    const paths = launchArtifactPaths("chapa", ID);
+    statusTestHooks.beforeLock = () => { chmodSync(paths.dir, 0o500); };
+    try {
+      const stuck = await createWorkspace(manifestFor(), fullBuild().request, ctxFor(rejected()));
+      expect(stuck).toMatchObject({ kind: "failed", reason: "boom" });
+      expect(stuck.notices).toHaveLength(1);
+      expect(stuck.notices[0]).toMatch(new RegExp(`^could not remove the files of failed launch ${ID}: .*${ID}\\.json: .*EACCES.*; summon clean --orphans names it$`));
+      expect(existsSync(paths.manifest)).toBe(true);
+    } finally {
+      delete statusTestHooks.beforeLock;
+      chmodSync(paths.dir, 0o700);
+    }
+  });
+
   it("an unreachable server (outcome none) is failed with the hint", async () => {
     const cli = fakeCli({
       "ls": () => fail("ls", "unreachable", "none"),
@@ -411,9 +453,20 @@ describe("createWorkspace", () => {
         "client-ls": (_argv, _input, nth) => ok("client-ls", { clients: nth >= 3 ? [CLIENT] : [] }),
         "do-select": () => ok("do-select", {}),
       });
-      const outcome = await createWorkspace(manifestFor(), fullBuild().request, ctxFor(cli, { app: { discover: () => "/Applications/Rex Beta.app", open } }));
+      const progress = vi.fn();
+      const outcome = await createWorkspace(manifestFor(), fullBuild().request, ctxFor(cli, { app: { discover: () => "/Applications/Rex Beta.app", open }, progress }));
       expect(outcome.kind).toBe("created");
       expect(open).toHaveBeenCalledWith("/Applications/Rex Beta.app");
+      // UX-M1: the progress line says the app is being opened; nothing about it becomes a notice.
+      expect(progress).toHaveBeenCalledWith("Summoning chapa… opening the Rex app");
+      expect(outcome.notices).toEqual([]);
+    });
+
+    it("does not report opening the app when one is already connected (UX-M1)", async () => {
+      const progress = vi.fn();
+      const cli = fakeCli({ "ls": () => ok("ls", { sessions: [] }), "session-create": created, "client-ls": () => ok("client-ls", { clients: [CLIENT] }), "do-select": () => ok("do-select", {}) });
+      await createWorkspace(manifestFor(), fullBuild().request, ctxFor(cli, { progress }));
+      expect(progress).not.toHaveBeenCalled();
     });
 
     it("is created-unselected when no client appears in time, when the app bundle is missing, or when select fails", async () => {
@@ -749,9 +802,9 @@ describe("refreshPaneMapping", () => {
 });
 
 describe("artifacts", () => {
-  it("the manifest written by createWorkspace is readable through listLaunchManifests", async () => {
-    const cli = fakeCli({ "ls": () => ok("ls", { sessions: [] }), "session-create": () => fail("session-create", "rejected", "rolled-back", "nope") });
-    await createWorkspace(manifestFor(), fullBuild().request, ctxFor(cli));
+  it("the manifest written by createWorkspace is readable through listLaunchManifests, and survives an unknown outcome for late adoption", async () => {
+    const cli = fakeCli({ "ls": () => ok("ls", { sessions: [] }), "session-create": () => fail("session-create", "unreachable", "unknown", "server disconnected") });
+    expect((await createWorkspace(manifestFor(), fullBuild().request, ctxFor(cli))).kind).toBe("unknown");
     expect(listLaunchManifests("chapa").map((m) => m.launchId)).toEqual([ID]);
     expect(JSON.parse(readFileSync(launchArtifactPaths("chapa", ID).manifest, "utf-8")).server).toBe(SERVER);
   });

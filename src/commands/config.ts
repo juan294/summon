@@ -16,7 +16,8 @@ import {
   EDITOR_SIZE_MIN,
   EDITOR_SIZE_MAX,
 } from "../layout.js";
-import { resolveConfig, optsToConfigMap } from "../launcher.js";
+import { readTrustedSummonFile, resolveConfig, optsToConfigMap } from "../launcher.js";
+import type { CLIOverrides } from "../launcher.js";
 import { ENV_KEY_RE, validateFloatFlag, validateIntFlag } from "../validation.js";
 import { exitWithUsageHint } from "../utils.js";
 import { fail, err } from "../ui/output.js";
@@ -117,7 +118,7 @@ export async function handleConfigCommand(): Promise<void> {
   console.log(EDIT_HINT);
 }
 
-export async function handleFreezeCommand({ args }: CommandContext): Promise<void> {
+export async function handleFreezeCommand({ args, overrides }: CommandContext): Promise<void> {
   const [freezeName] = args;
   if (!freezeName) {
     console.error("Usage: summon freeze <name>");
@@ -129,7 +130,10 @@ export async function handleFreezeCommand({ args }: CommandContext): Promise<voi
     process.exit(1);
   }
 
-  const { opts } = resolveConfig(process.cwd(), {});
+  // SE-M1: an untrusted `.summon` must not be saved into a layout (layouts are not trust-gated).
+  const cwd = process.cwd();
+  const projectConfig: CLIOverrides = overrides["no-project-config"] === "true" ? { "no-project-config": "true" } : {};
+  const { opts } = resolveConfig(cwd, projectConfig, readTrustedSummonFile(cwd, projectConfig));
   const entries = optsToConfigMap(opts);
   saveCustomLayout(freezeName, entries);
   console.log(`Frozen current config as layout "${freezeName}". Launch with: summon . --layout ${freezeName}`);

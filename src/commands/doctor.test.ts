@@ -356,6 +356,30 @@ describe("doctor Rex section (plan P15, Phase 3)", () => {
     expect(output()).toContain("this shell launches in rex (placement inside-rex");
   });
 
+  it("UX-H1: names once the Ghostty-only settings in config that Rex ignores silently, and only when some are set", async () => {
+    mockDiscoverRex.mockReturnValue({ path: REX, searched: ["PATH"] });
+    exec.mockImplementation(rexAnswers(true));
+    writeFileSync(join(home, ".config/summon/config"), "editor=nvim\nmaximize=true\nfloat=false\nfont-size=14\nnew-window=true\n");
+    resetConfigCache();
+    await handleDoctorCommand(context());
+    const lines = output().split("\n").filter((line: string) => line.includes("Rex ignores"));
+    expect(lines).toEqual(["  INFO  Rex ignores these Ghostty settings from your config: maximize, font-size, new-window"]);
+
+    errors.mockClear();
+    writeFileSync(join(home, ".config/summon/config"), "editor=nvim\nfloat=false\n");
+    resetConfigCache();
+    await handleDoctorCommand(context());
+    expect(output()).not.toContain("Rex ignores");
+
+    // Without Rex there is nothing to say.
+    errors.mockClear();
+    mockDiscoverRex.mockReturnValue({ path: null, searched: ["PATH"] });
+    writeFileSync(join(home, ".config/summon/config"), "editor=nvim\nmaximize=true\n");
+    resetConfigCache();
+    await handleDoctorCommand(context());
+    expect(output()).not.toContain("Rex ignores");
+  });
+
   it("marks the Ghostty checks not applicable, uncounted, when Ghostty is absent and Rex is present", async () => {
     GHOSTTY_PATHS.splice(0, GHOSTTY_PATHS.length, join(home, "missing.app"));
     mockDiscoverRex.mockReturnValue({ path: REX, searched: ["PATH"] });

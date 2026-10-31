@@ -17,6 +17,7 @@ vi.mock("./config.js", () => ({
   listConfig: vi.fn(() => new Map<string, string>()),
   listProjects: vi.fn(() => new Map<string, string>()),
   readKVFile: (path: string) => mockReadKVFile(path),
+  readKVFromString: (text: string) => new Map(text.split("\n").filter((line) => line.includes("=")).map((line) => [line.slice(0, line.indexOf("=")), line.slice(line.indexOf("=") + 1)] as [string, string])),
   readCustomLayout: (name: string) => mockReadCustomLayout(name),
   isCustomLayout: (name: string) => mockIsCustomLayout(name),
   CONFIG_DIR: "/mock/.config/summon",
@@ -94,7 +95,12 @@ vi.mock("node:fs", () => ({
   statSync: (path: string) => mockStatSync(path),
   accessSync: () => {},
   constants: { X_OK: 1 },
-  readFileSync: vi.fn((path: string) => { if(path.endsWith("Ghostty.sdef")) return '<class name="terminal"><property name="id"/><property name="pid"/><property name="tty"/></class>'; throw new Error("fixture absent"); }),
+  readFileSync: vi.fn((path: string) => {
+    if (path.endsWith("Ghostty.sdef")) return '<class name="terminal"><property name="id"/><property name="pid"/><property name="tty"/></class>';
+    // A project's .summon is the content mockReadKVFile describes: the launcher reads it once and parses those bytes (SE-M1).
+    if (path.endsWith("/.summon")) return [...mockReadKVFile(path)].map(([key, value]) => `${key}=${value}\n`).join("");
+    throw new Error("fixture absent");
+  }),
 }));
 
 // Mock readline for prompt tests
@@ -145,7 +151,7 @@ vi.mock("./script.js", () => ({
 }));
 
 // Import after mocks are set up
-const { launch, resolveConfig, optsToConfigMap, focusWorkspace, resolveProjectName, probePaneCount, decideCleanRestoredPanes, layoutOptsToTreePlanOpts, commandFixHint } = await import("./launcher.js");
+const { launch, readTrustedSummonFile, resolveConfig, optsToConfigMap, focusWorkspace, resolveProjectName, probePaneCount, decideCleanRestoredPanes, layoutOptsToTreePlanOpts, commandFixHint } = await import("./launcher.js");
 const { closeWorkspaceWindow, isStaticLaunchSpinner, withLaunchSpinner, GhosttyBackend, ghosttyCommandEntries } = await import("./backends/ghostty.js");
 const { planLayout } = await import("./layout.js");
 const { buildTreePlan, findPaneByName, parseTreeDSL, resolveTreeCommands } = await import("./tree.js");
@@ -4351,6 +4357,108 @@ describe("SE-M1 (#595): on-stop command surfaced at launch time", () => {
   });
 });
 
+describe("SE-M1: every .summon read is content-pinned", () => {
+  const SUMMON = "/tmp/workspace/.summon";
+  let summonContent: string | undefined;
+  let fallback: ((...args: unknown[]) => unknown) | undefined;
+  beforeEach(async () => {
+    const fs = await import("node:fs");
+    fallback = vi.mocked(fs.readFileSync).getMockImplementation() as typeof fallback;
+    summonContent = undefined;
+    vi.mocked(fs.readFileSync).mockImplementation(((path: string, ...rest: unknown[]) => {
+      if (String(path) === SUMMON && summonContent !== undefined) return summonContent;
+      return fallback!(path, ...rest);
+    }) as never);
+  });
+  afterEach(async () => {
+    const fs = await import("node:fs");
+    vi.mocked(fs.readFileSync).mockImplementation(fallback as never);
+  });
+
+  function wizardThatEdits(next: string): void {
+    mockRunSetup.mockImplementation(async () => {
+      summonContent = next;
+      vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"]]));
+    });
+  }
+
+  async function withTTY<T>(fn: () => Promise<T>): Promise<T> {
+    const origIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
+    try { return await fn(); } finally { Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, configurable: true }); }
+  }
+
+  it("after the setup wizard, a .summon changed meanwhile is checked again and refused before anything runs", async () => {
+    const { SummonError } = await import("./trust.js");
+    vi.mocked(listConfig).mockReturnValue(new Map());
+    summonContent = "sidebar=lazygit\n";
+    wizardThatEdits("sidebar=lazygit\non-start=touch /tmp/pwned\n");
+    mockAssertTrustedContent.mockImplementation((_dir: string, content: string) => {
+      if (content.includes("pwned")) throw new SummonError("untrusted");
+    });
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      await expect(withTTY(() => launch("/tmp/workspace"))).rejects.toBeInstanceOf(SummonError);
+    } finally {
+      logSpy.mockRestore();
+    }
+    expect(mockAssertTrustedContent).toHaveBeenLastCalledWith("/tmp/workspace", "sidebar=lazygit\non-start=touch /tmp/pwned\n");
+    expect(mockReadKVFile).not.toHaveBeenCalledWith(SUMMON);
+    expect(mockExecSync).not.toHaveBeenCalled();
+    expect(mockGenerateAppleScript).not.toHaveBeenCalled();
+  });
+
+  it("after the setup wizard, an unchanged trusted .summon is used from the bytes that were checked", async () => {
+    vi.mocked(listConfig).mockReturnValue(new Map());
+    summonContent = "sidebar=lazygit\n";
+    wizardThatEdits("sidebar=lazygit\n");
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      await withTTY(() => launch("/tmp/workspace"));
+    } finally {
+      logSpy.mockRestore();
+    }
+    expect(mockAssertTrustedContent).toHaveBeenCalledTimes(2);
+    expect(mockReadKVFile).not.toHaveBeenCalledWith(SUMMON);
+    expect(mockGenerateAppleScript).toHaveBeenCalled();
+  });
+
+  it("a .summon that appears after the trust check found none is never parsed (launch, and the resolveConfig of freeze/keybindings)", async () => {
+    vi.mocked(existsSync).mockImplementation((path) => String(path) !== SUMMON || summonContent !== undefined);
+    // The file is created right after the check (assertTrusted sees no file and returns).
+    mockAssertTrusted.mockImplementation(() => {
+      summonContent = "on-start=touch /tmp/pwned\n";
+      mockReadKVFile.mockImplementation((path: string) => path === SUMMON ? new Map([["on-start", "touch /tmp/pwned"]]) : new Map());
+    });
+    const resolved = resolveConfig("/tmp/workspace", {}, readTrustedSummonFile("/tmp/workspace", {}));
+    expect(resolved.onStart).toBeUndefined();
+    expect(resolved.projectOverrides.size).toBe(0);
+    summonContent = undefined;
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      await launch("/tmp/workspace");
+    } finally {
+      logSpy.mockRestore();
+      mockReadKVFile.mockReset();
+      mockReadKVFile.mockReturnValue(new Map());
+    }
+    expect(mockExecSync).not.toHaveBeenCalledWith("touch /tmp/pwned", expect.anything());
+    expect(mockExecSync.mock.calls.flat()).not.toContain("touch /tmp/pwned");
+  });
+
+  it("readTrustedSummonFile returns the checked bytes, skips with --no-project-config and propagates a refusal", async () => {
+    const { SummonError } = await import("./trust.js");
+    summonContent = "editor=nvim\n";
+    expect(readTrustedSummonFile("/tmp/workspace", {})).toBe("editor=nvim\n");
+    expect(mockAssertTrustedContent).toHaveBeenCalledWith("/tmp/workspace", "editor=nvim\n");
+    mockAssertTrustedContent.mockClear();
+    expect(readTrustedSummonFile("/tmp/workspace", { "no-project-config": "true" })).toBeUndefined();
+    expect(mockAssertTrustedContent).not.toHaveBeenCalled();
+    mockAssertTrustedContent.mockImplementation(() => { throw new SummonError("untrusted"); });
+    expect(() => readTrustedSummonFile("/tmp/workspace", {})).toThrow(SummonError);
+  });
+});
+
 // --- UX-L2 (#519): single-launch spinner ---
 
 describe("UX-L2 (#519): single-launch spinner", () => {
@@ -4795,11 +4903,24 @@ describe("Rex launch (plan P2, P8, P13, P15; Phase 3)", () => {
     expect(written.panes.indexOf("editor-2")).not.toBe(written.rex!.blocks.findIndex((b) => b.name === "editor-2"));
   });
 
-  it("prints one P8 notice per flag Rex cannot honor", async () => {
-    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"], ["maximize", "true"], ["float", "true"], ["fullscreen", "true"], ["font-size", "14"]]));
+  it("UX-H1: Ghostty-only keys from config are silent under Rex, like clean=true", async () => {
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"], ["maximize", "true"], ["float", "true"], ["fullscreen", "true"], ["font-size", "14"], ["clean", "true"], ["new-window", "true"]]));
+    mockReadKVFile.mockReturnValue(new Map([["maximize", "true"], ["font-size", "16"]]));
     await launch("/tmp/workspace");
-    for (const flag of ["maximize", "float", "fullscreen", "font-size"]) expect(stderrText).toContain(`summon: note: Rex cannot honor ${flag}; ignored`);
-    expect(stderrText).not.toContain("Rex cannot honor clean");
+    expect(stderrText).not.toContain("Rex cannot honor");
+    expect(mockCreateRexBackend).toHaveBeenCalledWith(REX_CONTEXT, expect.objectContaining({ newWindow: false }));
+  });
+
+  it("prints one P8 notice per flag Rex cannot honor when the flag is given on the command line", async () => {
+    await launch("/tmp/workspace", { maximize: "true", float: "true", fullscreen: "true", "font-size": "14", clean: "true", "new-window": "true" });
+    for (const flag of ["maximize", "float", "fullscreen", "font-size", "clean"]) expect(stderrText).toContain(`summon: note: Rex cannot honor ${flag}; ignored`);
+    expect(mockCreateRexBackend).toHaveBeenCalledWith(REX_CONTEXT, expect.objectContaining({ newWindow: true }));
+  });
+
+  it("still discloses an on-stop hook under Rex (the D1 watch treats that line as routine)", async () => {
+    vi.mocked(listConfig).mockReturnValue(new Map([["editor", "vim"], ["on-stop", "echo bye"]]));
+    await launch("/tmp/workspace");
+    expect(stderrText).toContain("Note: on-stop will run on workspace exit.\n");
   });
 
   it("a dry run with an active Rex record calls neither adoptOrphans nor the switch decision nor any rex process, and prints the request plus the note", async () => {

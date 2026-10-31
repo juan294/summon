@@ -11,6 +11,7 @@ const mockSetConfig = vi.fn();
 const mockIsCustomLayout = vi.fn();
 const mockResolveConfig = vi.fn();
 const mockOptsToConfigMap = vi.fn();
+const mockReadTrustedSummonFile = vi.fn((..._args: unknown[]): string | undefined => "panes=3\n");
 const mockValidateFloatFlag = vi.fn();
 const mockValidateIntFlag = vi.fn();
 const mockExitWithUsageHint = vi.fn((message?: string) => {
@@ -63,6 +64,7 @@ vi.mock("../layout.js", () => ({
 vi.mock("../launcher.js", () => ({
   resolveConfig: (...args: unknown[]) => mockResolveConfig(...args),
   optsToConfigMap: (...args: unknown[]) => mockOptsToConfigMap(...args),
+  readTrustedSummonFile: (...args: unknown[]) => mockReadTrustedSummonFile(...args),
 }));
 
 vi.mock("../validation.js", () => ({
@@ -312,12 +314,32 @@ describe("handleFreezeCommand", () => {
     await handleFreezeCommand(makeContext({ args: ["team"] }));
 
     expect(mockValidateLayoutNameOrExit).toHaveBeenCalledWith("team");
-    expect(mockResolveConfig).toHaveBeenCalledWith(process.cwd(), {});
+    expect(mockReadTrustedSummonFile).toHaveBeenCalledWith(process.cwd(), {});
+    expect(mockResolveConfig).toHaveBeenCalledWith(process.cwd(), {}, "panes=3\n");
     expect(mockOptsToConfigMap).toHaveBeenCalledWith({ panes: 3 });
     expect(mockSaveCustomLayout).toHaveBeenCalledWith("team", new Map([["panes", "3"]]));
     expect(logSpy).toHaveBeenCalledWith(
       'Frozen current config as layout "team". Launch with: summon . --layout team',
     );
+  });
+});
+
+describe("handleFreezeCommand trust (SE-M1)", () => {
+  it("refuses an untrusted .summon before resolving or saving anything", async () => {
+    mockIsCustomLayout.mockReturnValue(false);
+    mockReadTrustedSummonFile.mockImplementationOnce(() => { throw new Error("This project has a .summon file."); });
+    await expect(handleFreezeCommand(makeContext({ args: ["team"] }))).rejects.toThrow("This project has a .summon file.");
+    expect(mockResolveConfig).not.toHaveBeenCalled();
+    expect(mockSaveCustomLayout).not.toHaveBeenCalled();
+  });
+
+  it("honors --no-project-config", async () => {
+    mockIsCustomLayout.mockReturnValue(false);
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    await handleFreezeCommand(makeContext({ args: ["team"], overrides: { "no-project-config": "true" } }));
+    logSpy.mockRestore();
+    expect(mockReadTrustedSummonFile).toHaveBeenCalledWith(process.cwd(), { "no-project-config": "true" });
+    expect(mockResolveConfig).toHaveBeenCalledWith(process.cwd(), { "no-project-config": "true" }, "panes=3\n");
   });
 });
 

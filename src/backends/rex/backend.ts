@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 import type { LayoutPlan } from "../../layout.js";
 import { traditionalPaneNames } from "../../layout.js";
 import type { TreeLayoutPlan } from "../../tree.js";
+import { transientLine } from "../../ui/progress.js";
 import type { BackendLaunchContext, BackendLaunchResult, TerminalBackend } from "../ghostty.js";
 import type { LaunchContext } from "../../backend.js";
 import type { LaunchManifest } from "../../launch-identity.js";
@@ -27,6 +28,11 @@ export interface RexBackendDeps {
   app?: CreateContext["app"];
   /** `REX_SESSION` of the shell running Summon, when inside Rex (P7). */
   callerSession?: string | undefined;
+  /**
+   * `--new-window` given on the command line. A config `new-window=true` (the plan's `newWindow`) is a Ghostty
+   * preference with no meaning under Rex, where the P2 switch already follows the flag only (UX-H1).
+   */
+  newWindow?: boolean;
 }
 
 export function unreachableMessage(server: string, reason: string): string {
@@ -50,7 +56,9 @@ export function createRexBackend(context: RexLaunchContext, deps: RexBackendDeps
   const create = deps.createWorkspace ?? createWorkspace;
   const app = deps.app ?? { discover: discoverRexApp, open: openRexApp };
 
-  async function launchRex(layout: SessionCreateInput["layout"], panes: string[], newWindow: boolean, ctx: BackendLaunchContext): Promise<BackendLaunchResult> {
+  const newWindow = deps.newWindow === true;
+
+  async function launchRex(layout: SessionCreateInput["layout"], panes: string[], ctx: BackendLaunchContext): Promise<BackendLaunchResult> {
     const who = whoami(context.rexBinary, context.server);
     if (!who.answers) throw new Error(unreachableMessage(context.server, who.reason));
     const build = buildSessionCreateRequest({
@@ -79,13 +87,23 @@ export function createRexBackend(context: RexLaunchContext, deps: RexBackendDeps
       startedAt: new Date().toISOString(),
       ...(kept && kept.keeps.length > 0 ? { keeps: kept.keeps } : {}),
     };
-    const outcome: LaunchOutcome = await create(manifest, build.request, {
-      cli,
-      hostId: who.hostId,
-      ...(deps.callerSession ? { callerSession: deps.callerSession } : {}),
-      newWindow,
-      app,
-    });
+    // UX-M1: creation, the pane-file wait and opening the app can take many seconds. The line is on stdout,
+    // so it never counts as something to read for the launcher tab (D1), and it is cleared before any output.
+    const progress = transientLine();
+    progress.show(`Summoning ${ctx.projectName}…`);
+    let outcome: LaunchOutcome;
+    try {
+      outcome = await create(manifest, build.request, {
+        cli,
+        hostId: who.hostId,
+        ...(deps.callerSession ? { callerSession: deps.callerSession } : {}),
+        newWindow,
+        app,
+        progress: (label) => progress.show(label),
+      });
+    } finally {
+      progress.clear();
+    }
     for (const line of outcome.notices) note(line);
     if (outcome.kind === "failed") throw new Error(outcome.failure.hint ? `${outcome.reason}. ${outcome.failure.hint}` : outcome.reason);
     if (outcome.kind === "unknown") throw new Error(unknownOutcomeMessage(ctx.projectName, outcome.candidates, outcome.reason));
@@ -106,10 +124,10 @@ export function createRexBackend(context: RexLaunchContext, deps: RexBackendDeps
   return {
     id: "rex",
     launchTraditional(plan: LayoutPlan, ctx) {
-      return launchRex({ kind: "traditional", plan }, traditionalPaneNames(plan), plan.newWindow, ctx);
+      return launchRex({ kind: "traditional", plan }, traditionalPaneNames(plan), ctx);
     },
     launchTree(plan: TreeLayoutPlan, ctx) {
-      return launchRex({ kind: "tree", plan }, [...plan.leaves], plan.newWindow, ctx);
+      return launchRex({ kind: "tree", plan }, [...plan.leaves], ctx);
     },
   };
 }

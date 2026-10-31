@@ -322,7 +322,7 @@ describe("P4 detach command real generator", () => {
     const { handleKeybindingsCommand } = await import("./setup.js");
     const out = vi.spyOn(console, "log").mockImplementation(() => {});
     fixture.exec.mockReturnValue("move_tab_to_new_window\n");
-    await handleKeybindingsCommand(context([], { "detach-tab": true }));
+    await handleKeybindingsCommand({ ...context([], { "detach-tab": true }), overrides: { "no-project-config": "true" } });
     expect(out.mock.calls.flat().join("")).toContain(
       "summon-nav:n = move_tab_to_new_window",
     );
@@ -340,7 +340,7 @@ describe("P4 detach command real generator", () => {
     });
     fixture.exec.mockReturnValue("set_tab_title\n");
     await expect(
-      handleKeybindingsCommand(context([], { "detach-tab": true })),
+      handleKeybindingsCommand({ ...context([], { "detach-tab": true }), overrides: { "no-project-config": "true" } }),
     ).rejects.toThrow("exit2");
     expect(out).not.toHaveBeenCalled();
     expect(exit).toHaveBeenCalledWith(2);

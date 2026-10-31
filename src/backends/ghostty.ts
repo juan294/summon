@@ -8,7 +8,8 @@ import { traditionalInventory, treeInventory, parseNativeCapture } from "../pane
 import type { NativeMetadata, PaneDescriptor } from "../pane-inventory.js";
 import type { BackendId } from "../backend.js";
 import type { RexIdentity } from "./rex/types.js";
-import { getErrorMessage, ACCESSIBILITY_SETTINGS_PATH, supportsColor } from "../utils.js";
+import { getErrorMessage, ACCESSIBILITY_SETTINGS_PATH } from "../utils.js";
+import { isStaticLaunchSpinner, transientLine } from "../ui/progress.js";
 import { fail, err } from "../ui/output.js";
 import { TabOpenError } from "../errors.js";
 
@@ -45,17 +46,9 @@ function asResult(native: NativeMetadata | undefined): BackendLaunchResult | und
   return native ? { native } : undefined;
 }
 
-// --- Spinner helpers (UX-L2 #519) ---
+// --- Spinner helpers (UX-L2 #519; the line itself is in ui/progress.ts) ---
 
-const LAUNCH_SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
-
-/** Returns true when the spinner should run in static (non-animating) mode.
- *  Static: NO_COLOR set, SUMMON_NO_SPINNER set, or stdout is not a TTY. */
-export function isStaticLaunchSpinner(): boolean {
-  if (!process.stdout.isTTY) return true;
-  if (process.env["SUMMON_NO_SPINNER"] !== undefined) return true;
-  return !supportsColor();
-}
+export { isStaticLaunchSpinner };
 
 /**
  * Run `fn` (a synchronous block) with a brief spinner on stdout.
@@ -72,13 +65,13 @@ export function withLaunchSpinner(label: string, fn: () => void): void {
     fn();
     return;
   }
-  // Write initial spinner frame to stdout for interactive TTY
-  process.stdout.write(`${LAUNCH_SPINNER_FRAMES[0]} ${label}`);
+  // Initial spinner frame on stdout for an interactive TTY, cleared afterwards
+  const line = transientLine();
+  line.show(label);
   try {
     fn();
   } finally {
-    // Clear the spinner line
-    process.stdout.write("\r\x1b[K");
+    line.clear();
   }
 }
 

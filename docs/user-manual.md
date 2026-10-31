@@ -852,7 +852,7 @@ float=true
 
 If both `--fullscreen` and `--maximize` are set, fullscreen takes priority.
 
-Under Rex, `maximize`, `float`, `fullscreen`, `font-size` and `clean` have no equivalent. Each one that is set prints one notice (`Rex cannot honor <key>; ignored`) and the launch continues. For `clean`, only the `--clean` flag prints the notice; a `clean=true` config value is ignored silently.
+Under Rex, `maximize`, `float`, `fullscreen`, `font-size` and `clean` have no equivalent. Each one given as a flag (`--maximize`, `--float`, `--fullscreen`, `--font-size`, `--clean`) prints one notice (`Rex cannot honor <key>; ignored`) and the launch continues. The same keys in config (machine config, `.summon` or a layout) are Ghostty preferences: Rex ignores them silently, so one config works in both terminals. `new-window=true` in config is ignored the same way under Rex. `summon doctor` names the ones set in your machine config.
 
 Under Rex, `--new-window` creates a fresh session instead of switching to the running one. Rex opens new windows with their own session and does not let a client move a session into another window, so Summon shows the new session in the current window with a notice. When the earlier session is still alive, the launch says once that it stays open and that `rex kill <id>` closes it. `--new-tab` has no separate meaning under Rex: a workspace is always one session in the current window.
 
@@ -875,7 +875,7 @@ summon set font-size 14
 font-size=24
 ```
 
-Useful for presentations, pairing sessions, or projects where you want a different density than your global Ghostty setting. Under Rex, `font-size` is ignored with a notice.
+Useful for presentations, pairing sessions, or projects where you want a different density than your global Ghostty setting. Under Rex, `font-size` is ignored: the `--font-size` flag prints a notice, and a config value is ignored silently.
 
 ## Per-project Config
 

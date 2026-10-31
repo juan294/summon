@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Under Rex, `maximize`, `float`, `fullscreen`, `font-size` and `new-window` set in config are Ghostty preferences and are ignored silently, as `clean=true` already was. The flags (`--maximize`, `--float`, `--fullscreen`, `--font-size`, `--clean`, `--new-window`) still print their notice. The `on-stop will run on workspace exit` note is still printed, and no longer keeps the launcher tab open. `summon doctor` names the ignored settings found in the machine config once. With these, the tab now closes after a daily launch for users who share one config between Ghostty and Rex. Ghostty output does not change.
+- A Rex launch on an interactive terminal shows a transient `Summoning <project>…` line on stdout while the session is created, and says when it opens the Rex app; the line is cleared before the result. Piped output does not change.
+
 ### Fixed
 
 - `summon status` rows no longer run one column past the terminal when the branch, path or reason is cut off, so the monitor no longer scrolls at narrow widths.
@@ -16,6 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - zsh and bash completion now offer the built-in layout presets (`minimal`, `full`, `pair`, `cli`, `btop`) as well as custom layouts for `--layout` and `summon set layout`; fish now also completes `summon set layout`. `summon layout show|delete|edit` and `summon freeze` complete custom layouts only, because those commands reject the presets. Bash completion of subcommand arguments (for example `summon set layout`) now also works without the bash-completion package.
 - `summon completions --help` gives the working fish setup line, `summon completions fish | source` (the earlier `eval (summon completions fish | psub)` passed a file path to `eval`).
 - The README and the user manual no longer say that `SUMMON_DEBUG` output is also written to `~/.config/summon/logs/`: it goes to stderr only. That folder holds the cleanup trap's `cleanup-<project>.log` (the `on-stop` command output).
+- After the setup wizard, a launch reads `.summon` again and checks that content against the trust store before it uses it. A `.summon` changed while the wizard waited is refused. `summon freeze` and `summon keybindings` refuse an untrusted `.summon` with the same message as a launch (`freeze` accepts `--no-project-config`), so `freeze` can no longer copy untrusted commands into a layout.
+- A Rex launch that the server rejected or never received no longer leaves its manifest behind, so later launches and `summon status` stop reporting it as an earlier launch that never confirmed its session. A launch whose connection dropped or reset after it was sent is now treated as an unknown outcome (its manifest stays, so the session can still be adopted), not as one that created nothing.
+- Error text from a Rex server error object is shown with control characters escaped and capped in length, like the rest of the Rex error text.
 
 ## [2.0.1] - 2026-10-31
 
