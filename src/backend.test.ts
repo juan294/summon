@@ -5,7 +5,7 @@ vi.mock("./backends/rex/cli.js", async (original) => ({
   ...(await original<typeof import("./backends/rex/cli.js")>()),
   probeWhoami: (binary: string, server: string) => mockProbeWhoami(binary, server),
 }));
-const { resolveBackendForLaunch, resolveBackendForRecord, isBackendId } = await import("./backend.js");
+const { resolveBackendForLaunch, resolveBackendForRecord, isBackendId, REX_UNHONORED_FLAGS, GHOSTTY_ONLY_CONFIG_KEYS } = await import("./backend.js");
 
 const REX_BIN = "/fake/rex";
 const SERVER = "unix:///tmp/rex.sock";
@@ -115,5 +115,12 @@ describe("isBackendId", () => {
     expect(isBackendId("rex")).toBe(true);
     expect(isBackendId("zsh")).toBe(false);
     expect(isBackendId(undefined)).toBe(false);
+  });
+});
+
+describe("Ghostty-only keys (P8, UX-H1)", () => {
+  it("one list: the flags Rex cannot honor, and the config keys it ignores (those plus new-window)", () => {
+    expect(REX_UNHONORED_FLAGS).toEqual(["maximize", "float", "fullscreen", "font-size", "clean"]);
+    expect(GHOSTTY_ONLY_CONFIG_KEYS).toEqual(["maximize", "float", "fullscreen", "font-size", "clean", "new-window"]);
   });
 });

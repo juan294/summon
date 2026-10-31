@@ -15,12 +15,12 @@ import {
 } from "./layout.js";
 import type { LayoutOptions } from "./layout.js";
 export { traditionalPaneNames } from "./layout.js";
-import { listConfig, listProjects, readKVFile, readKVFromString, readCustomLayout, isCustomLayout, LAYOUT_NAME_RE } from "./config.js";
+import { listConfig, listProjects, readKVFromString, readCustomLayout, isCustomLayout, LAYOUT_NAME_RE } from "./config.js";
 import { publishStatus, readStatus, readStatusRecord } from "./status.js";
 import type { WorkspaceStatus } from "./status.js";
 import { generateAppleScript, generateTreeAppleScript } from "./script.js";
 import { newLaunchId } from "./launch-identity.js";
-import { callerRexSession, resolveBackendForLaunch } from "./backend.js";
+import { REX_UNHONORED_FLAGS, callerRexSession, resolveBackendForLaunch } from "./backend.js";
 import type { BackendId, LaunchContext } from "./backend.js";
 import { GhosttyBackend, ghosttyCommandEntries } from "./backends/ghostty.js";
 import type { BackendLaunchContext, BackendLaunchResult, TerminalBackend } from "./backends/ghostty.js";
@@ -520,16 +520,16 @@ function layerConfigValues(
   return result;
 }
 
-export function resolveConfig(targetDir: string, cliOverrides: CLIOverrides, summonFileContent?: string): ResolvedConfig {
+/**
+ * `summonFileContent` is `readTrustedSummonFile`'s result: the `.summon` content that passed the trust check, read once
+ * (TOCTOU prevention, BE-B2 #357; SE-M1). The file is never read here, so an untrusted `.summon` is never parsed.
+ */
+export function resolveConfig(targetDir: string, cliOverrides: CLIOverrides, summonFileContent: string | undefined): ResolvedConfig {
   const projectConfigPath = join(targetDir, ".summon");
   const skipProjectConfig = cliOverrides["no-project-config"] === "true";
-  // Use pre-read content if provided (TOCTOU prevention, BE-B2 #357). Every launch-path caller passes
-  // readTrustedSummonFile's result (SE-M1); the disk read below serves only callers that pass nothing.
-  const project = skipProjectConfig
+  const project = skipProjectConfig || summonFileContent === undefined
     ? new Map<string, string>()
-    : summonFileContent !== undefined
-      ? readKVFromString(summonFileContent)
-      : readKVFile(projectConfigPath);
+    : readKVFromString(summonFileContent);
   if (project.size > 0) {
     console.log(`Using project config: ${projectConfigPath}`);
   }
@@ -860,14 +860,9 @@ type LaunchedLayout = { paneNames: string[] } & BackendLaunchResult;
  * command line are named (UX-H1): the same keys in config are Ghostty preferences, silent under Rex like `clean=true`.
  */
 export function rexLimitationNotices(overrides: CLIOverrides): string[] {
-  const limited: Array<[string, boolean]> = [
-    ["maximize", overrides.maximize === "true"],
-    ["float", overrides.float === "true"],
-    ["fullscreen", overrides.fullscreen === "true"],
-    ["font-size", overrides["font-size"] !== undefined],
-    ["clean", overrides.clean === "true"],
-  ];
-  return limited.filter(([, set]) => set).map(([flag]) => `Rex cannot honor ${flag}; ignored`);
+  return REX_UNHONORED_FLAGS
+    .filter((flag) => (flag === "font-size" ? overrides[flag] !== undefined : overrides[flag] === "true"))
+    .map((flag) => `Rex cannot honor ${flag}; ignored`);
 }
 
 /** A Ghostty launch over a live Rex session of the same project replaces the record; the session stays (plan §6). */

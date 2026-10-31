@@ -15,7 +15,7 @@ import { commandExecutable } from "../command-spec.js";
 import { green, red, yellow, bold, dim } from "../ui/ansi.js";
 import { sym } from "../ui/symbols.js";
 import { CONFIG_DIR, TRUST_FILE } from "../paths.js";
-import { resolveBackendForLaunch } from "../backend.js";
+import { GHOSTTY_ONLY_CONFIG_KEYS, resolveBackendForLaunch } from "../backend.js";
 import { createRexCli, defaultRexServer, discoverRex, whoamiOf } from "../backends/rex/cli.js";
 import { listAppClients } from "../backends/rex/app.js";
 import { escapeControlChars } from "../pane-inventory.js";
@@ -25,10 +25,8 @@ const PASS = green(`${sym.ok} PASS`);
 const FAIL = red(`${sym.fail} FAIL`);
 
 /** UX-H1: Ghostty-only preferences a Rex launch ignores silently when they come from config; doctor names them once. */
-const REX_IGNORED_CONFIG_KEYS = ["maximize", "float", "fullscreen", "font-size", "clean", "new-window"] as const;
-
 function rexIgnoredConfigKeys(config: Map<string, string>): string[] {
-  return REX_IGNORED_CONFIG_KEYS.filter((key) => {
+  return GHOSTTY_ONLY_CONFIG_KEYS.filter((key) => {
     const value = config.get(key);
     return key === "font-size" ? value !== undefined && value !== "" : value === "true";
   });
