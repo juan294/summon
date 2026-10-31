@@ -1,8 +1,9 @@
 // UX-L2: every wizard tip is correct for the backend it is shown under, and every command it names parses.
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { registryNames } from "./fixtures/registry-names.js";
 
 // Layout validation may list custom layouts: never from the real ~/.config/summon.
 const home = mkdtempSync(join(tmpdir(), "summon-tips-test-"));
@@ -12,10 +13,8 @@ const { TIPS, tipsFor, getRandomTip } = await import("./setup.js");
 const { parseCli } = await import("./cli/parse.js");
 const { CLI_FLAGS } = await import("./config.js");
 
-/** The dispatch registry's subcommands, read from the entry point (importing it would run the CLI). */
-const SUBCOMMANDS = new Set(
-  [...readFileSync(new URL("./index.ts", import.meta.url), "utf8").matchAll(/^\s+(\w+):\s+\(\) => import\(/gm)].map((m) => m[1]!),
-);
+/** The dispatch registry's subcommands (src/index.ts). */
+const SUBCOMMANDS = new Set(registryNames());
 const PLACEHOLDERS: Record<string, string> = { "<name>": "demo", "<path>": "/tmp/demo", "<cmd>": "vim", "<project>": "demo", "<project>...": "demo" };
 
 afterEach(() => vi.restoreAllMocks());
