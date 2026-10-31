@@ -359,6 +359,7 @@ describe("handleOpenCommand", () => {
       expect.objectContaining({ name: "web" }),
       75,
       false,
+      { leadingPad: false },
     );
     expect(logSpy).toHaveBeenCalled();
   });
@@ -411,6 +412,23 @@ describe("handleOpenCommand", () => {
 
     const allLogs = logSpy.mock.calls.map((c) => c[0] as string).join("\n");
     expect(allLogs).toMatch(/summon status.*interactive/i);
+  });
+
+  it("FE-L2: prints each row as rendered, never trimmed, with or without a program glyph", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockLoadProjectRows.mockReturnValue([
+      { name: "api", directory: "/tmp/api", state: "active", uptime: "1h", gitBranch: "main", programStatus: "blocked" },
+      { name: "web", directory: "/tmp/web", state: "stopped", uptime: null, gitBranch: "develop" },
+    ]);
+    mockRenderRow.mockImplementation((row: { name: string; programStatus?: string }) =>
+      `${row.programStatus ? "!" : " "}\u25CF ${row.name}`);
+    mockPromptUser.mockResolvedValueOnce("2");
+
+    await handleOpenCommand(makeContext({ overrides: { dryRun: true } }));
+
+    const lines = logSpy.mock.calls.map((c) => String(c[0]));
+    expect(lines).toContain("  1  !\u25CF api");
+    expect(lines).toContain("  2   \u25CF web");
   });
 
   it("passes dynamic row width based on longest project name", async () => {

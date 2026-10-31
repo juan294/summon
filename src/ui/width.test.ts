@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { isWideCodePoint, getDisplayWidth, truncate } from "./width.js";
 
 describe("isWideCodePoint", () => {
@@ -115,6 +115,96 @@ describe("truncate — shared canonical implementation (#578 UX-L3)", () => {
     for (const [str, len] of testCases) {
       expect(monitorTruncate(str, len)).toBe(truncate(str, len));
       expect(truncateLine(str, len)).toBe(truncate(str, len));
+    }
+  });
+});
+
+describe("FE-L1: emoji, zero-width code points and graphemes", () => {
+  it("counts emoji-presentation symbols in U+2300–2BFF as 2 columns", () => {
+    for (const s of ["✨", "✅", "❌", "⚡", "⭐", "⌚", "⌛"]) {
+      expect(getDisplayWidth(s)).toBe(2);
+    }
+  });
+
+  it("keeps text-presentation symbols narrow (the status glyphs and dots)", () => {
+    for (const s of ["⚠", "✓", "✗", "⋯", "●", "○", "❤"]) {
+      expect(getDisplayWidth(s)).toBe(1);
+    }
+  });
+
+  it("counts CJK Extension B and later as 2 columns", () => {
+    expect(isWideCodePoint(0x20000)).toBe(true);
+    expect(isWideCodePoint(0x3fffd)).toBe(true);
+    expect(getDisplayWidth("\u{20BB7}\u{2A6D6}")).toBe(4);
+  });
+
+  it("counts a NFD accent as 0 columns", () => {
+    expect(getDisplayWidth("café")).toBe(4);
+    expect(getDisplayWidth("café")).toBe(4);
+  });
+
+  it("counts a ZWJ sequence as one wide character", () => {
+    expect(getDisplayWidth("\u{1F468}‍\u{1F469}‍\u{1F467}")).toBe(2);
+    expect(getDisplayWidth("a‍b")).toBe(2);
+  });
+
+  it("counts a VS16 emoji as 2 columns and the selector itself as 0", () => {
+    expect(getDisplayWidth("❤️")).toBe(2);
+    expect(getDisplayWidth("✅️")).toBe(2);
+    expect(getDisplayWidth("️")).toBe(0);
+  });
+
+  it("counts a flag (two regional indicators) as 2 columns", () => {
+    expect(getDisplayWidth("\u{1F1FA}\u{1F1F8}")).toBe(2);
+  });
+
+  it("CJK still counts 2 per character", () => {
+    expect(getDisplayWidth("日本語")).toBe(6);
+  });
+
+  it("never truncates inside a grapheme", () => {
+    // "cafe" + U+0301: the accent stays with its "e" or both go
+    expect(truncate("café-bar", 5)).toBe("café…");
+    expect(truncate("café-bar", 4)).toBe("caf…");
+    const family = "\u{1F468}‍\u{1F469}‍\u{1F467}";
+    expect(truncate(`${family}${family}x`, 4)).toBe(`${family}…`);
+    expect(truncate(`ab${family}cd`, 4)).toBe("ab…");
+    expect(truncate("❤️❤️xx", 4)).toBe("❤️…");
+  });
+
+  it("truncated output always fits the requested width", () => {
+    const samples = ["✨feat/sparkle-branch", "é".repeat(30), "\u{20BB7}".repeat(20), "\u{1F1FA}\u{1F1F8}".repeat(10)];
+    for (const s of samples) {
+      for (let max = 1; max <= 12; max++) {
+        expect(getDisplayWidth(truncate(s, max))).toBeLessThanOrEqual(max);
+      }
+    }
+  });
+});
+
+describe("Intl.Segmenter is created lazily (cold start)", () => {
+  it("is never constructed on import or for pure-ASCII text, and once for other text", async () => {
+    vi.resetModules();
+    const Real = Intl.Segmenter;
+    const constructed = vi.fn();
+    const setSegmenter = (value: typeof Real) => Object.defineProperty(Intl, "Segmenter", { value, configurable: true, writable: true });
+    setSegmenter(class extends Real {
+      constructor(...args: ConstructorParameters<typeof Real>) {
+        super(...args);
+        constructed();
+      }
+    });
+    try {
+      const fresh = await import("./width.js");
+      expect(fresh.getDisplayWidth("hello world")).toBe(11);
+      expect(fresh.truncate("abcdefghij", 5)).toBe("abcd…");
+      expect(fresh.truncate("short", 20)).toBe("short");
+      expect(constructed).not.toHaveBeenCalled();
+      expect(fresh.getDisplayWidth("日本語")).toBe(6);
+      expect(fresh.truncate("café-bar", 5)).toBe("café…");
+      expect(constructed).toHaveBeenCalledTimes(1);
+    } finally {
+      setSegmenter(Real);
     }
   });
 });
