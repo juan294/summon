@@ -28,14 +28,14 @@ import { createRexBackend } from "./backends/rex/backend.js";
 import { adoptOrphansForLaunch, adoptDeps, maybeSwitchToExisting } from "./backends/rex/launch.js";
 import { createRexCli, discoverRex } from "./backends/rex/cli.js";
 import { focusRex, sessionState } from "./backends/rex/status.js";
-import { closeLauncherTabAfterRexLaunch, startLauncherTabWatch } from "./backends/rex/launcher-tab.js";
+import { closeLauncherTabAfterRexLaunch, markAttention, startLauncherTabWatch } from "./backends/rex/launcher-tab.js";
 import type { ResolvedStatus } from "./status.js";
 import { isLiveState, rexCommandGate } from "./status.js";
 import { buildSessionCreateRequest } from "./backends/rex/layout.js";
 import type { SessionCreateInput } from "./backends/rex/layout.js";
 import { parseTreeDSL, extractPaneDefinitions, extractPaneCwds, resolveTreeCommands as resolveTreeCmds, buildTreePlan, collectLeaves, findPaneByName, assertPaneCwdContained } from "./tree.js";
 import type { LayoutNode, PlannedLayout, TreePlanOptions } from "./tree.js";
-import { resolveCommand as resolveCommandPath, describeCommandFailure, getErrorMessage, SUMMON_WORKSPACE_ENV, promptUser, isDebug } from "./utils.js";
+import { resolveCommand as resolveCommandPath, describeCommandFailure, getErrorMessage, SUMMON_WORKSPACE_ENV, promptUser, isDebug, PromptCancelled, QUICK_PROCESS_LIMITS } from "./utils.js";
 import type { CommandFailureKind } from "./utils.js";
 import { fail, err, note, warn } from "./ui/output.js";
 import { confirmDangerousCommands } from "./launch-guards.js";
@@ -142,7 +142,7 @@ const KNOWN_INSTALL_COMMANDS: Record<string, () => [string, string[]] | null> = 
   claude: () => ["npm", ["install", "-g", "@anthropic-ai/claude-code"]],
   lazygit: () => {
     try {
-      execFileSync("/bin/sh", ["-c", "command -v brew"], { stdio: "ignore" });
+      execFileSync("/bin/sh", ["-c", "command -v brew"], { stdio: "ignore", ...QUICK_PROCESS_LIMITS });
       return ["brew", ["install", "lazygit"]];
     } catch {
       return null;
@@ -228,10 +228,13 @@ async function ensureCommand(cmd: string, hint: string): Promise<string> {
 
   if (answer !== "y" && answer !== "yes") {
     console.log(`Exiting — \`${cmd}\` is needed for this workspace layout. To use another command, ${hint}`);
-    throw new Error(`\`${cmd}\` is needed for this workspace layout.`);
+    // UX-L3: declining is a user cancel (exit 130); the line above already says why, so no error follows it.
+    throw new PromptCancelled(`\`${cmd}\` is needed for this workspace layout.`);
   }
 
   console.log(`Running: ${installDisplay}`);
+  // QA-M3: the installer writes to the terminal directly, so the D1 launcher tab stays for its output.
+  markAttention();
   try {
     execFileSync(installBin, installArgs, { stdio: "inherit" });
   } catch {
@@ -674,6 +677,9 @@ function executeOnStart(onStart: string, targetDir: string): void {
   if (isDebug()) {
     process.stderr.write(`[debug] Running on-start: ${onStart}\n`);
   }
+  // QA-M3: the hook keeps the terminal (an interactive hook needs its TTY), so the D1 watch cannot see what it prints:
+  // the launcher tab stays for its output.
+  markAttention();
   try {
     execSync(onStart, { cwd: targetDir, encoding: "utf-8", stdio: "inherit" });
   } catch (error) {
@@ -914,11 +920,8 @@ export function readTrustedSummonFile(targetDir: string, cliOverrides: CLIOverri
 export type LaunchOutcome = "launched" | "switched" | "dry-run";
 
 export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Promise<LaunchOutcome> {
-  if (!existsSync(targetDir)) {
-    const msg = `Directory not found: ${targetDir}`;
-    fail(msg);
-    throw new Error(msg);
-  }
+  // UX-L3: thrown errors are printed once, by the caller (reportError, `session --all`, the monitor).
+  if (!existsSync(targetDir)) throw new Error(`Directory not found: ${targetDir}`);
 
   // Trust gate before any .summon value is used: one read, hashed and parsed from the same bytes.
   // SummonError is rethrown so callers (e.g. `session --all`) can choose to skip
@@ -970,16 +973,15 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
       // the wizard can wait for minutes, and only bytes that pass the trust check are acted on.
       config = resolveConfig(targetDir, cliOverrides ?? {}, readTrustedSummonFile(targetDir, cliOverrides ?? {}));
     } else {
-      const msg = "No editor configured. Run `summon setup` interactively or use: summon set editor <command>";
-      fail(msg);
-      throw new Error(msg);
+      throw new Error("No editor configured. Run `summon setup` interactively or use: summon set editor <command>");
     }
   }
 
   const { opts, machineConfig, starshipPreset, onStart, onStop, envVars, treeLayout } = config;
 
   if (await warnIfNested(opts, cliOverrides?.dryRun, launchContext.backend)) {
-    throw new Error("Launch aborted by user (nested workspace).");
+    // UX-L3: declining is a user cancel: exit 130, without an error line or the debug hint.
+    throw new PromptCancelled("Launch aborted by user (nested workspace).");
   }
   if (launchContext.backend === "ghostty") {
     decideCleanRestoredPanes(opts, cliOverrides ?? {}, config.projectOverrides, machineConfig, cliOverrides?.dryRun, projectName);

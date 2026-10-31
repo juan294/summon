@@ -5,7 +5,7 @@ import {
   listProjects,
 } from "../config.js";
 import { focusWorkspace, launch } from "../launcher.js";
-import { promptUser, exitWithUsageHint, PromptCancelled } from "../utils.js";
+import { promptUser, exitWithUsageHint, PromptCancelled, CANCELLED_EXIT_CODE } from "../utils.js";
 import { fail, warn } from "../ui/output.js";
 import { unverifiedMessage } from "../status.js";
 import { projectArgOrExit } from "../validation.js";
@@ -150,7 +150,7 @@ export async function handleOpenCommand({ args, overrides }: CommandContext): Pr
       answer = await promptUser(`Select [1-${rows.length}] (0 to cancel): `);
     } catch (err) {
       if (err instanceof PromptCancelled) {
-        process.exit(130);
+        process.exit(CANCELLED_EXIT_CODE);
       }
       throw err;
     }
@@ -158,7 +158,7 @@ export async function handleOpenCommand({ args, overrides }: CommandContext): Pr
     // UX-M2 (#475): 0 cancels immediately.
     if (num === 0) {
       console.log("Cancelled.");
-      process.exit(0);
+      process.exit(CANCELLED_EXIT_CODE);
     }
     const index = num - 1;
     if (Number.isNaN(index) || index < 0 || index >= rows.length) {

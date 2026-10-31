@@ -1373,6 +1373,23 @@ describe("UX-H3 (#530): canonical glyph vocabulary in setup wizard", () => {
 });
 
 describe("checkAndRecoverAccessibility", () => {
+  it("continues without the recovery prompt when the probe timed out, saying it could not be checked (PE-L3)", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockExecFileSync.mockImplementation((bin: string) => {
+      if (bin === "osascript") throw Object.assign(new Error("spawnSync osascript ETIMEDOUT"), { code: "ETIMEDOUT" });
+      return "/usr/bin/stub\n";
+    });
+
+    const result = await checkAndRecoverAccessibility();
+
+    expect(result).toBe(true);
+    expect(mockQuestion).not.toHaveBeenCalled();
+    const allOutput = logSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("\n");
+    expect(allOutput).toContain("Accessibility permission could not be checked");
+    expect(allOutput).not.toContain("not granted");
+    logSpy.mockRestore();
+  });
+
   it("returns true when accessibility is already granted", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     mockExecFileSync.mockReturnValue("/usr/bin/stub\n");
@@ -3285,13 +3302,13 @@ describe("runGridBuilder", () => {
     expect(mockSetRawMode).toHaveBeenCalledWith(false);
   });
 
-  it("Ctrl+C exits cleanly", async () => {
+  it("Ctrl+C exits cleanly with the cancel status 130 (UX-L3)", async () => {
     const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => undefined as never);
     const promise = runGridBuilder();
     await waitForHandler();
     simulateKey("c", true);
     expect(mockSetRawMode).toHaveBeenCalledWith(false);
-    expect(exitSpy).toHaveBeenCalledWith(0);
+    expect(exitSpy).toHaveBeenCalledWith(130);
     exitSpy.mockRestore();
     // Prevent unhandled rejection — promise never resolves after exit
     promise.catch(() => {});
@@ -3335,7 +3352,7 @@ describe("runGridBuilder", () => {
     sigintHandler?.();
 
     expect(mockSetRawMode).toHaveBeenCalledWith(false);
-    expect(exitSpy).toHaveBeenCalledWith(0);
+    expect(exitSpy).toHaveBeenCalledWith(130);
     onceSpy.mockRestore();
     exitSpy.mockRestore();
     promise.catch(() => {});

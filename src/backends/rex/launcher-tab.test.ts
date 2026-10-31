@@ -1,6 +1,14 @@
-import { describe, it, expect, vi } from "vitest";
-import { findLauncherTab, closeLauncherTabOnExit, closeLauncherTabAfterRexLaunch, resetLauncherTabForTests, spawnAfterExit, watchForAttention, needsAttention, startLauncherTabWatch } from "./launcher-tab.js";
+import { describe, it, expect, vi, afterEach } from "vitest";
+
+// QA-M3: the default wiring (the real find, process.once("exit") and spawnAfterExit) runs against these two seams.
+const mockSpawn = vi.hoisted(() => vi.fn((..._args: unknown[]) => ({ unref: () => {} })));
+const mockCreateRexCli = vi.hoisted(() => vi.fn());
+vi.mock("node:child_process", async (importOriginal) => ({ ...(await importOriginal<typeof import("node:child_process")>()), spawn: mockSpawn }));
+vi.mock("./cli.js", async (importOriginal) => ({ ...(await importOriginal<typeof import("./cli.js")>()), createRexCli: (...args: unknown[]) => mockCreateRexCli(...args) }));
+
+import { findLauncherTab, closeLauncherTabOnExit, closeLauncherTabAfterRexLaunch, resetLauncherTabForTests, spawnAfterExit, watchForAttention, needsAttention, startLauncherTabWatch, markAttention } from "./launcher-tab.js";
 import type { RexCli } from "./cli.js";
+import type { LaunchContext } from "../../backend.js";
 import { err, note, warn, writingRoutine } from "../../ui/output.js";
 import type { RexResult } from "./types.js";
 
@@ -141,6 +149,54 @@ describe("closeLauncherTabAfterRexLaunch (D1)", () => {
   });
 });
 
+describe("closeLauncherTabAfterRexLaunch default wiring (QA-M3)", () => {
+  const INSIDE_REX: LaunchContext = { ok: true, backend: "rex", placement: "inside-rex", server: "unix:///s", rexBinary: "/r", notices: [] };
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+    mockSpawn.mockClear();
+    mockCreateRexCli.mockReset();
+  });
+
+  /** Arm with no injected deps; return the handler the real wiring gave process.once("exit"). */
+  function armDefault(): (code: number) => void {
+    vi.stubEnv("REX_SESSION", SESSION);
+    vi.stubEnv("REX_BLOCK", BLOCK);
+    vi.stubEnv("SUMMON_WORKSPACE", "");
+    const foreground = (): RexResult => ({ ok: true, op: "block-call", stdout: "", json: { foreground: { pid: process.pid, name: "node" } } });
+    mockCreateRexCli.mockReturnValue(cliAnswering(() => view([{ id: WORKSPACE_WINDOW, label: "[api]", blocks: [OTHER] }, { id: WINDOW, label: "zsh ~", blocks: [BLOCK] }]), foreground));
+    const once = vi.spyOn(process, "once").mockImplementation((() => process) as never);
+    closeLauncherTabAfterRexLaunch(INSIDE_REX);
+    const exit = once.mock.calls.find(([event]) => event === "exit");
+    expect(exit, "an exit handler is registered").toBeDefined();
+    return exit![1] as (code: number) => void;
+  }
+
+  it("looks the tab up through the rex CLI at exit and closes it through a detached, delayed /bin/sh", () => {
+    resetLauncherTabForTests();
+    const onExit = armDefault();
+    expect(mockCreateRexCli).not.toHaveBeenCalled();
+    onExit(0);
+    expect(mockCreateRexCli).toHaveBeenCalledWith("/r", "unix:///s");
+    expect(mockSpawn).toHaveBeenCalledWith(
+      "/bin/sh",
+      ["-c", 'sleep 0.3; exec "$@"', "sh", "/r", "--color", "never", "--autostart=false", "-S", "unix:///s", "window", "close", "-s", SESSION, WINDOW],
+      { detached: true, stdio: "ignore" },
+    );
+  });
+
+  it("keeps the tab when an on-start hook or an installer ran with inherited stdio during the watch", () => {
+    resetLauncherTabForTests();
+    watchForAttention({ write: () => true } as unknown as NodeJS.WriteStream);
+    markAttention();
+    const onExit = armDefault();
+    onExit(0);
+    expect(mockCreateRexCli).not.toHaveBeenCalled();
+    expect(mockSpawn).not.toHaveBeenCalled();
+  });
+});
+
 describe("watchForAttention (D1)", () => {
   function fakeStream() {
     const written: string[] = [];
@@ -182,6 +238,18 @@ describe("watchForAttention (D1)", () => {
       }
     }
     expect(writingRoutine()).toBe(false);
+  });
+
+  it("markAttention flags the watch for output it cannot see (a child with inherited stdio), and does nothing without a watch (Ghostty)", () => {
+    resetLauncherTabForTests();
+    markAttention();
+    expect(needsAttention()).toBe(false);
+    const { stream, written } = fakeStream();
+    watchForAttention(stream);
+    expect(needsAttention()).toBe(false);
+    markAttention();
+    expect(needsAttention()).toBe(true);
+    expect(written).toEqual([]);
   });
 
   it("is installed once, and only for a Rex launch from inside Rex", () => {

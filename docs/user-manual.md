@@ -208,7 +208,7 @@ Machine config:
 
 With a project name: focus its workspace when it is running, launch it when it is stopped. A workspace whose liveness cannot be read (the Rex server is not answering) is refused with the reason and exit code 2, so nothing is launched over it. A name that is not registered exits 1 with the closest registered names. `summon switch` is an alias.
 
-Without a name: lists all projects with their state and prompts you to pick one by number; the pick is handled the same way. Any CLI flags passed are forwarded to a launch. Enter `0` to cancel and exit without launching.
+Without a name: lists all projects with their state and prompts you to pick one by number; the pick is handled the same way. Any CLI flags passed are forwarded to a launch. Enter `0` to cancel and exit without launching (exit code 130).
 
 ```bash
 summon open myapp
@@ -1020,7 +1020,7 @@ All files use `key=value` format, one entry per line.
 | `0` | Success |
 | `1` | Usage error or configuration error (bad flag, invalid value, unknown project, etc.), or a launch failure (no supported terminal found, Accessibility permission denied, etc.) |
 | `2` | A guard failure or refusal, for example: commands with shell metacharacters that cannot be confirmed without a TTY, `summon doctor` found issues, a Rex workspace that cannot be verified (Rex server not answering, or a record whose Rex identity cannot be read), the `rex` CLI missing for a command that needs it, or `summon clean` refusing a session that still has panes |
-| `130` | User cancelled — Ctrl+C or `n` at a confirmation prompt (128 + SIGINT) |
+| `130` | User cancelled — Ctrl+C or EOF at a prompt, `n` at a confirmation prompt, or `0` in the `summon open` picker (128 + SIGINT) |
 
 If you see an unexpected error, re-run with `SUMMON_DEBUG=1` for full diagnostics:
 

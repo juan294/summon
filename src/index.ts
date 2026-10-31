@@ -228,7 +228,9 @@ async function launchOrExit(targetDir: string, overrides: CLIOverrides): Promise
 async function reportError(error: unknown): Promise<void> {
   process.exitCode = 1;
   // Error-only imports preserve the true lazy --version and --help paths.
-  const { PromptCancelled, getErrorMessage, isDebug } = await import("./utils.js");
+  const { PromptCancelled, exitCodeFor, getErrorMessage, isDebug } = await import("./utils.js");
+  // UX-L3: a user cancel (a wizard prompt, a declined confirmation) is quiet and exits 130, like the picker.
+  process.exitCode = exitCodeFor(error);
   if (error instanceof PromptCancelled) return;
   const { SummonError } = await import("./trust.js");
   const { fail, err } = await import("./ui/output.js");
