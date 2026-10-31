@@ -3,7 +3,7 @@
  * effects for the dry-run notes; ensureCommand stops the launch or offers the known install method.
  */
 import { execFileSync } from "node:child_process";
-import { markAttention } from "./backends/rex/launcher-tab.js";
+import { markAttention } from "./ui/attention.js";
 import { resolveCommand as resolveCommandPath, describeCommandFailure, promptUser, PromptCancelled, QUICK_PROCESS_LIMITS } from "./utils.js";
 import type { CommandFailureKind } from "./utils.js";
 import { fail, err } from "./ui/output.js";

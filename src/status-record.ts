@@ -56,6 +56,11 @@ export function rexIdentityMissing(project: string): string {
   return `the record has no Rex identity; run summon ${project} --new-window to relaunch`;
 }
 
+/** The one wording every consumer prints for an `unknown` workspace (plan P10). */
+export function unverifiedMessage(project: string, reason: string | undefined): string {
+  return `[${project}] could not be verified: ${reason ?? "no liveness information"}. Open the Rex app and retry, or run summon doctor.`;
+}
+
 /** Rex: recorded panes whose block is not known yet (the pane file had not appeared when last looked). */
 export function unverifiedPanes(record: WorkspaceStatus): number {
   return record.panes.length - (record.rex?.blocks.length ?? 0);

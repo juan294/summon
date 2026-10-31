@@ -16,7 +16,6 @@ vi.mock("node:fs", () => ({
 const mockReadStatus = vi.fn();
 vi.mock("./status.js", () => ({
   readStatus: (...args: unknown[]) => mockReadStatus(...args),
-  rexCommandGate: vi.fn(() => ({ ok: false, failure: { kind: "unavailable", code: "unavailable", reason: "mock gate" } })),
 }));
 
 const { focusWorkspace } = await import("./workspace-focus.js");

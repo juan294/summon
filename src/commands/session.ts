@@ -1,7 +1,6 @@
 import { launch } from "../launcher.js";
-import { callerRexSession, resolveBackendForLaunch } from "../backend.js";
-import { showRecordedWorkspace } from "../backends/rex/launch.js";
-import { startLauncherTabWatch } from "../backends/rex/launcher-tab.js";
+import { resolveBackendForLaunch } from "../backend.js";
+import { createTerminalBackend } from "../backends/select.js";
 import { listProjects, getProject } from "../config.js";
 import {
   listSessions,
@@ -14,7 +13,7 @@ import { SummonError } from "../trust.js";
 import { TabOpenError } from "../errors.js";
 import { exitWithUsageHint, getErrorMessage, supportsColor, PromptCancelled, CANCELLED_EXIT_CODE } from "../utils.js";
 import { sym } from "../ui/symbols.js";
-import { fail, err, note } from "../ui/output.js";
+import { fail, err } from "../ui/output.js";
 import { printProjectSuggestions } from "../cli/resolve-target.js";
 import type { CommandContext } from "./types.js";
 
@@ -139,18 +138,18 @@ async function cmdLaunch(ctx: CommandContext, name: string | undefined): Promise
   // every subsequent one opens a new tab.
   let openedFirst = false;
   const baseOverrides = { ...ctx.overrides };
-  // Plan P11: under Rex every project is its own session; tabs do not apply and the first
-  // launched session is shown again at the end.
+  // Plan P11: the backend decides whether later projects open as tabs of the first one's window (Ghostty) or each
+  // as its own session, with the first one shown again at the end (Rex).
   const detection = resolveBackendForLaunch();
-  const rex = detection.ok && detection.backend === "rex" ? detection : null;
-  const underRex = rex !== null;
+  const backend = detection.ok ? createTerminalBackend(detection) : null;
+  const opensTabs = backend?.opensSessionTabs ?? true;
   // D1: a skipped project is printed before its launch starts; watch from here so it keeps the launcher tab.
-  if (rex && !ctx.overrides.dryRun) startLauncherTabWatch(rex);
+  if (backend && !ctx.overrides.dryRun) backend.watchOutput?.();
 
   for (let i = 0; i < total; i++) {
     const proj = projects[i]!;
     const dir = getProject(proj)!;
-    const overrides = { ...baseOverrides, "new-tab": openedFirst && !underRex ? "true" : undefined };
+    const overrides = { ...baseOverrides, "new-tab": openedFirst && opensTabs ? "true" : undefined };
     if (openedFirst) {
       delete overrides["new-window"];
     }
@@ -190,10 +189,7 @@ async function cmdLaunch(ctx: CommandContext, name: string | undefined): Promise
   }
 
   // A dry run never switches (P2): the per-project dry runs printed their requests and nothing was launched.
-  if (rex && launched.length > 1 && !ctx.overrides.dryRun) {
-    const shown = showRecordedWorkspace(launched[0]!, rex.rexBinary, callerRexSession(rex));
-    if (!shown.shown) note(`could not show [${launched[0]}] in Rex: ${shown.reason}`);
-  }
+  if (backend?.showAgain && launched.length > 1 && !ctx.overrides.dryRun) backend.showAgain(launched[0]!);
 
   const parts: string[] = [];
   if (counts.launched > 0 || launched.length === 0) parts.push(`${counts.launched} launched`);

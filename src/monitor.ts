@@ -1,8 +1,8 @@
 import { spawn } from "node:child_process";
 import type { Socket } from "node:net";
 import { sym } from "./ui/symbols.js";
-import { hasRexState, readAllStatuses, rexBinaryPath, readProjectStatus, getGitBranch, unverifiedMessage } from "./status.js";
-import { isLiveState as isLiveWorkspaceState } from "./status-record.js";
+import { hasRexState, readAllStatuses, rexBinaryPath, readProjectStatus, getGitBranch } from "./status.js";
+import { isLiveState as isLiveWorkspaceState, unverifiedMessage } from "./status-record.js";
 import type { ProgramState } from "./backends/rex/status.js";
 import type { ResolvedStatus } from "./status.js";
 import { listProjects } from "./config.js";

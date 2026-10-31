@@ -1,0 +1,125 @@
+/**
+ * The two backend ports (AR-M1). Generic modules dispatch through them; what differs between Ghostty and Rex lives
+ * under src/backends/.
+ *
+ * - `TerminalBackend` (launch side): chosen once per launch from the detected `LaunchContext`
+ *   (`createTerminalBackend`, backends/select.ts).
+ * - `WorkspaceBackend` (record side): chosen from a status record's stored `backend` field
+ *   (`workspaceBackendFor`, backends/workspace.ts); absent means Ghostty.
+ *
+ * Types only: importing this module loads no backend.
+ */
+import type { LayoutOptions, LayoutPlan } from "../layout.js";
+import type { PlannedLayout, TreeLayoutPlan } from "../tree.js";
+import type { BackendId } from "../backend.js";
+import type { CLIOverrides } from "../config-resolve.js";
+import type { NativeMetadata } from "../pane-inventory.js";
+import type { RexIdentity } from "./rex/types.js";
+import type { WorkspaceStatus } from "../status-record.js";
+import type { ReadOptions, ResolvedStatus } from "../status.js";
+import type { FocusResult, TitleOperation, TitleResult, TitleScope } from "../ghostty-native.js";
+
+/** Everything a backend needs after the launcher has taken the dry-run branch. */
+export interface BackendLaunchContext {
+  targetDir: string;
+  /** User env vars (already filtered); undefined when there are none. */
+  envVars: Record<string, string> | undefined;
+  projectName: string;
+  onStop: string | undefined;
+  launchId: string;
+  /** Preset name or "custom"; recorded in the status record and the Rex manifest. */
+  layoutLabel: string;
+  /** Resolve a configured command to its binary, installing on request. */
+  ensureAndResolve: (cmd: string, key: string) => Promise<string>;
+  /** Starship preset config path, or null when none applies. */
+  resolveStarship: () => string | null;
+}
+
+/** Exact identity a backend captured: Ghostty's native metadata or the Rex identity. */
+export interface BackendLaunchResult {
+  native?: NativeMetadata;
+  rex?: RexIdentity;
+}
+
+/** A planned layout of either kind, as the backends receive it. */
+export type BackendLayout = PlannedLayout;
+
+/** What a backend decides before a launch creates anything: go on, show the running workspace instead (P2), or refuse (exit 2). */
+export type LaunchDecision = { kind: "proceed" } | { kind: "switched" } | { kind: "refused"; reason: string };
+
+/** The launch options a backend may adjust or comment on, after the nested-workspace check. */
+export interface LaunchOptionsInput {
+  opts: Partial<LayoutOptions>;
+  overrides: CLIOverrides;
+  projectConfig: Map<string, string>;
+  machineConfig: Map<string, string>;
+  dryRun: boolean;
+  projectName: string;
+}
+
+/** What a backend's dry run prints: the body after the headers, and notes for stderr. */
+export interface DryRunRender {
+  body: string;
+  notes: string[];
+}
+
+/** Launch side: a backend launches a planned layout and returns the exact identity it captured, if any. */
+export interface TerminalBackend {
+  readonly id: BackendId;
+  /** A launch splits the caller's window, so one made inside a workspace nests (Ghostty); otherwise it never touches the caller's pane. */
+  readonly splitsCallerWindow: boolean;
+  /** `summon session`: each project after the first opens as a new tab of the first one's window (Ghostty). */
+  readonly opensSessionTabs: boolean;
+  /** Real launches only, after detection and before the wizard, the pane probe and on-start: may switch or refuse (Rex P13, P2). */
+  beforeLaunch?(project: string): LaunchDecision;
+  /** After the nested-workspace check: adjust or comment on the launch options. */
+  applyLaunchOptions(input: LaunchOptionsInput): void;
+  launchTraditional(plan: LayoutPlan, ctx: BackendLaunchContext): Promise<BackendLaunchResult | undefined>;
+  launchTree(plan: TreeLayoutPlan, ctx: BackendLaunchContext): Promise<BackendLaunchResult | undefined>;
+  /** What a dry run prints for this backend (no terminal command runs). */
+  dryRun(layout: BackendLayout, ctx: BackendLaunchContext, starshipConfigPath: string | null, headerLines: string[]): DryRunRender;
+  /** D1: start watching for output the user must read (Rex inside Rex); a later `afterSuccess` reads it. */
+  watchOutput?(): void;
+  /** D1: after a successful launch or switch (Rex inside Rex: close the launcher tab on a clean exit). */
+  afterSuccess?(): void;
+  /** `summon session` with several projects: show the first one again at the end (Rex P11). */
+  showAgain?(project: string): void;
+}
+
+/** Per-read state a record backend may keep (Rex: one listing per server, one adoption per project). */
+export interface StatusRead {
+  readonly options: ReadOptions;
+  /** This backend's per-read state, created on first use. */
+  scratch<T>(id: BackendId, create: () => T): T;
+  /** Resolve a record that another launch published meanwhile, through its own backend. */
+  resolveRecord(project: string, record: WorkspaceStatus, notices: string[]): ResolvedStatus;
+}
+
+export type WorkspaceTitleResult = TitleResult | { kind: "unavailable"; reason: string };
+
+/** Record side: what Summon does with a recorded workspace of this backend. */
+export interface WorkspaceBackend {
+  readonly id: BackendId;
+  /** The record's state (P10). `notices` are carried from an earlier step of the same read. */
+  resolve(project: string, record: WorkspaceStatus, read: StatusRead, notices?: string[]): ResolvedStatus;
+  /** Launches with a manifest but no record (P13): one adoption attempt when the read reconciles; `attempted` is false when it could not run. */
+  adoptUnrecorded?(project: string, read: StatusRead): { attempted: boolean; notices: string[] };
+  /** Focus a recorded workspace or one of its panes; `status` is null when nothing is recorded. */
+  focus(project: string, status: ResolvedStatus | null, pane?: string): FocusResult;
+  /** `summon inspect`: print the workspace (JSON or text) and exit 2 when it is unavailable. */
+  inspect(project: string, status: ResolvedStatus | null, json: boolean): void;
+  /** `summon title`: read, set or reset a tab or pane title. */
+  title(project: string, status: ResolvedStatus | null, scope: TitleScope, operation: TitleOperation, pane?: string): WorkspaceTitleResult;
+  /** A launch on another backend replaces this record: the line to print when this workspace keeps running (plan §6). */
+  stillRunningNotice(project: string, record: WorkspaceStatus): string | undefined;
+  /** `summon clean <project>` (P17): close the recorded workspace when it is empty; `sweptNote` reports the stale launch files already removed. */
+  close(project: string, record: WorkspaceStatus, sweptNote: string): void;
+  /** `summon clean`: remove this backend's stale files of launches other than `current`; returns how many launches it cleared. */
+  sweepLaunches?(project: string, current: string | undefined): number;
+  /** `summon clean --orphans`, first: what the review needs (Rex: its CLI, else exit 2). */
+  prepareReview?(): void;
+  /** `--orphans`, after the older-record check: late adoption before the review (Rex P13). */
+  adoptBeforeReview?(project: string): void;
+  /** `--orphans`: review every earlier launch of this backend except `current`, one printed line each; returns how many it reported. */
+  reviewLaunches?(project: string, current: string | null): number;
+}

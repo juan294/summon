@@ -32,8 +32,8 @@ vi.mock("../config.js", () => ({
 const mockReadStatusRecord = vi.fn((_project: string): unknown => null);
 const mockDetection = vi.fn((): unknown => ({ ok: true, backend: "rex", placement: "inside-rex", server: "unix:///s", rexBinary: "/r", notices: [] }));
 const mockCloseLauncherTab = vi.fn();
-vi.mock("../status-record.js", () => ({ readStatusRecord: (project: string) => mockReadStatusRecord(project) }));
-vi.mock("../backend.js", () => ({ resolveBackendForLaunch: () => mockDetection() }));
+vi.mock("../status-record.js", async (original) => ({ ...(await original<typeof import("../status-record.js")>()), readStatusRecord: (project: string) => mockReadStatusRecord(project) }));
+vi.mock("../backend.js", async (original) => ({ ...(await original<typeof import("../backend.js")>()), resolveBackendForLaunch: () => mockDetection() }));
 const mockStartWatch = vi.fn();
 vi.mock("../backends/rex/launcher-tab.js", () => ({ closeLauncherTabAfterRexLaunch: (...args: unknown[]) => mockCloseLauncherTab(...args), startLauncherTabWatch: (...args: unknown[]) => mockStartWatch(...args) }));
 // UX-M4: the trust prompt wraps launches; by default it runs the launch once, as the real one does on success.

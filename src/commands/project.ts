@@ -8,7 +8,7 @@ import { focusWorkspace } from "../workspace-focus.js";
 import { withTrustPrompt } from "../trust.js";
 import { promptUser, exitWithUsageHint, PromptCancelled, CANCELLED_EXIT_CODE } from "../utils.js";
 import { fail, warn } from "../ui/output.js";
-import { unverifiedMessage } from "../status.js";
+import { unverifiedMessage } from "../status-record.js";
 import { projectArgOrExit } from "../validation.js";
 import type { ProjectRow } from "../monitor.js";
 import { validateProjectNameOrExit } from "../validation.js";
@@ -75,18 +75,21 @@ export async function handleListCommand(): Promise<void> {
 }
 
 /**
- * D1: switching to a running Rex workspace from inside Rex closes the launcher tab, as a launch does. Returns the
- * close to arm after a successful switch (the stderr watch starts now, before the switch prints anything).
+ * D1: switching to a running workspace of the backend this shell launches in behaves as a launch's switch does (Rex
+ * inside Rex closes the launcher tab). Returns the step to run after a successful switch (the backend's output watch
+ * starts now, before the switch prints anything).
  */
-async function watchRexSwitch(project: string): Promise<() => void> {
+async function watchSwitch(project: string): Promise<() => void> {
   const { readStatusRecord } = await import("../status-record.js");
-  if (readStatusRecord(project)?.backend !== "rex") return () => {};
+  const record = readStatusRecord(project);
+  if (!record) return () => {};
   const { resolveBackendForLaunch } = await import("../backend.js");
   const detection = resolveBackendForLaunch();
-  if (!detection.ok) return () => {};
-  const { closeLauncherTabAfterRexLaunch, startLauncherTabWatch } = await import("../backends/rex/launcher-tab.js");
-  startLauncherTabWatch(detection);
-  return () => closeLauncherTabAfterRexLaunch(detection);
+  if (!detection.ok || detection.backend !== (record.backend ?? "ghostty")) return () => {};
+  const { createTerminalBackend } = await import("../backends/select.js");
+  const backend = createTerminalBackend(detection);
+  backend.watchOutput?.();
+  return () => backend.afterSuccess?.();
 }
 
 /**
@@ -101,7 +104,7 @@ async function openRow(row: ProjectRow, overrides: CommandContext["overrides"]):
     process.exit(2);
   }
   if (isLiveState(row.state)) {
-    const armClose = await watchRexSwitch(row.name);
+    const armClose = await watchSwitch(row.name);
     const result = focusWorkspace(row.name);
     if (result.kind !== "focused") { fail(result.reason); process.exit(2); }
     console.log(`Switched to [${row.name}]`);
