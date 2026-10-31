@@ -10,18 +10,12 @@ import { join } from "node:path";
  * It creates sessions labelled `summon-e2e-<suffix>` on the local server and destroys only those.
  */
 
-const { destroySessions, rexGate, rexWindowCount, until } = await import("./rex-harness.js");
+const { destroySessions, removeStatusFiles, rexGate, rexWindowCount, until } = await import("./rex-harness.js");
 const { discoverRex, createRexCli, defaultRexServer } = await import("../backends/rex/cli.js");
 const { listSessions, viewSession } = await import("../backends/rex/status.js");
 const { readStatusRecord } = await import("../status.js");
-const { STATUS_DIR } = await import("../paths.js");
 const { launchArtifactPaths, launchesDir } = await import("../launch-identity.js");
 const { launch } = await import("../launcher.js");
-
-/** Best-effort removal of this suite's status record and legacy liveness files. */
-function removeStatusFiles(project: string): void {
-  for (const ext of ["json", "active", "pid"]) rmSync(join(STATUS_DIR, `${project}.${ext}`), { force: true });
-}
 
 const harness = rexGate(process.env, "rex-native e2e", { window: true });
 const { prereq } = harness;
