@@ -329,6 +329,20 @@ describe("doctor Rex section (plan P15, Phase 3)", () => {
     expect(rexCalls.every((args) => args.includes("--autostart=false"))).toBe(true);
   });
 
+  it("escapes control characters in the rex version lines and the app client fields (Strix CWE-150)", async () => {
+    mockDiscoverRex.mockReturnValue({ path: REX, searched: ["PATH"] });
+    const answers = rexAnswers(true);
+    exec.mockImplementation((binary: string, args: string[]) => {
+      if (binary === REX && args.includes("version")) return "rex 1\u001b]52;c;aGk=\u0007\napi: revision 7\u001b[2K\n";
+      if (binary === REX && args.includes("client.list")) return JSON.stringify({ clients: [{ client_id: "client:a", connected_at: "2026-10-29T08:00:00Z", connection_state: "connected", info: { kind: "app", label: "Stu\u001b[2Kdio" } }] });
+      return answers(binary, args);
+    });
+    await handleDoctorCommand(context());
+    expect(output()).not.toContain("\u001b");
+    expect(output()).toContain("rex 1\\u001b]52;c;aGk=\\u0007 (api: revision 7\\u001b[2K)");
+    expect(output()).toContain("app client client:a (Stu\\u001b[2Kdio) connected");
+  });
+
   it("an unreachable server is informational under Ghostty and a failure when Rex is this shell's backend", async () => {
     mockDiscoverRex.mockReturnValue({ path: REX, searched: ["PATH"] });
     exec.mockImplementation(rexAnswers(false));

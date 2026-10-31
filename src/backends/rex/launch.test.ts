@@ -357,10 +357,10 @@ describe("createWorkspace", () => {
       const cli = fakeCli({
         "ls": () => ok("ls", { sessions: [] }),
         "session-create": timeoutCreate,
-        "session-view": () => ok("session-view", viewJson([blockId(1)], { label: "someone-else" })),
+        "session-view": () => ok("session-view", viewJson([blockId(1)], { label: "someone\u202e-else" })),
       });
       const outcome = await createWorkspace(manifestFor(), fullBuild().request, ctxFor(cli));
-      expect(outcome).toMatchObject({ kind: "unknown", reason: expect.stringContaining("token named an unexpected session") });
+      expect(outcome).toMatchObject({ kind: "unknown", reason: expect.stringContaining(`token named an unexpected session (${SESSION}, label "someone\\u202e-else")`) });
     });
 
     it("a foreign or malformed pane file beside the token is unknown", async () => {

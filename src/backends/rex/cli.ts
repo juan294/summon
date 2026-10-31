@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { resolveCommand } from "../../utils.js";
+import { isDisplaySafe } from "../../pane-inventory.js";
 import type { RexDiscovery } from "../../backend-detect.js";
 import { classifyRexFailure } from "./errors.js";
 import { rexOpTraits } from "./types.js";
@@ -170,8 +171,9 @@ export function whoamiOf(cli: RexCli): WhoamiProbe {
   const json = result.json as Record<string, unknown> | null;
   const hostId = json && typeof json === "object" ? json["host_id"] : undefined;
   if (typeof hostId !== "string" || hostId === "") return { answers: false, reason: "rex whoami returned no host id" };
+  if (!isDisplaySafe(hostId)) return { answers: false, reason: "rex whoami returned an unusable host id" };
   const sessionId = json!["session_id"];
-  return { answers: true, hostId, ...(typeof sessionId === "string" ? { sessionId } : {}) };
+  return { answers: true, hostId, ...(isDisplaySafe(sessionId) ? { sessionId } : {}) };
 }
 
 /**

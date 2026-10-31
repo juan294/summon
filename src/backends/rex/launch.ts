@@ -6,6 +6,7 @@ import type { LaunchRemoval } from "../../status-record.js";
 import type { WorkspaceState, WorkspaceStatus } from "../../status-record.js";
 import { err, note } from "../../ui/output.js";
 import { shellQuote } from "../../shell-escape.js";
+import { escapeControlChars } from "../../pane-inventory.js";
 import { createRexCli, whoamiOf } from "./cli.js";
 import type { RexCli } from "./cli.js";
 import { pickAppClient, pollUntil, realClock, selectInApp, waitForAppClient } from "./app.js";
@@ -220,7 +221,7 @@ export async function createWorkspace(manifest: LaunchManifest, request: Session
     const view = viewed.view;
     const window = windowFor(view, project, token.blockId);
     if (view.label !== project || !window || !view.windows.some((w) => w.label === `[${project}]`)) {
-      return unknown(`token named an unexpected session (${token.sessionId}, label ${JSON.stringify(view.label)})`);
+      return unknown(`token named an unexpected session (${token.sessionId}, label "${escapeControlChars(view.label)}")`);
     }
     const mapping = readPaneMapping(manifest, token.sessionId);
     if (mapping.foreign.length > 0 || mapping.malformed.length > 0) {

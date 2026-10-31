@@ -3,6 +3,7 @@ import type { RexCli } from "./cli.js";
 import { classifyRexFailure } from "./errors.js";
 import { pickAppClient, selectInApp } from "./app.js";
 import { asRecord } from "./types.js";
+import { isDisplaySafe } from "../../pane-inventory.js";
 import type { RexFailure, RexIdentity, RexResult } from "./types.js";
 
 /**
@@ -62,6 +63,8 @@ export function listSessions(cli: RexCli): { ok: true; sessions: RexSessionSumma
     if (!item || typeof item !== "object") return malformed(result);
     const { session_id, label } = item as Record<string, unknown>;
     if (typeof session_id !== "string") return malformed(result);
+    // A session id that would not print as plain text is no session Summon created: skip it.
+    if (!isDisplaySafe(session_id)) continue;
     sessions.push({ sessionId: session_id, label: typeof label === "string" ? label : "" });
   }
   return { ok: true, sessions };

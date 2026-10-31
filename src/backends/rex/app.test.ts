@@ -44,6 +44,18 @@ describe("parseAppClients", () => {
     expect(parsed.map((c) => [c.clientId, c.connectionState])).toEqual([["client:b", "connected"], ["client:a", "connected"], ["client:lost", "lost"]]);
   });
 
+  it("neutralizes server text: control characters in label and state are escaped, an unusable client id is dropped (Strix CWE-150)", () => {
+    const parsed = parseAppClients({ clients: [
+      { client_id: "client:ok", connected_at: "2026-10-29T08:00:00Z", connection_state: "conn\u001b[2Kected", info: { kind: "app", label: "Stu\u001b]52;c;aGk=\u0007dio" } },
+      { client_id: "client:\u001b[31mred", connected_at: "2026-10-29T08:00:00Z", info: { kind: "app" } },
+      { client_id: "--autostart", connected_at: "2026-10-29T08:00:00Z", info: { kind: "app" } },
+      { client_id: "client:\u202eevil", connected_at: "2026-10-29T08:00:00Z", info: { kind: "app" } },
+    ] }, { includeLost: true });
+    expect(parsed.map((c) => c.clientId)).toEqual(["client:ok"]);
+    expect(parsed[0]!.label).toBe("Stu\\u001b]52;c;aGk=\\u0007dio");
+    expect(parsed[0]!.connectionState).toBe("conn\\u001b[2Kected");
+  });
+
   it("returns nothing for shapes that are not a client list", () => {
     expect(parseAppClients(null)).toEqual([]);
     expect(parseAppClients({ clients: null })).toEqual([]);

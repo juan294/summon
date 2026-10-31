@@ -53,6 +53,11 @@ describe("listSessions", () => {
     expect(cli.calls).toEqual([{ op: "ls", argv: ["ls", "--json"] }]);
   });
 
+  it("skips a session id that would not print as plain text (Strix CWE-150)", () => {
+    const cli = fakeCli({ ls: () => ({ ok: true, op: "ls", stdout: "", json: { sessions: [{ session_id: "session:\u001b[2K", label: "chapa" }, { session_id: "session:\u202e2", label: "chapa" }, { session_id: "session:1", label: "chapa" }] } }) });
+    expect(listSessions(cli)).toEqual({ ok: true, sessions: [{ sessionId: "session:1", label: "chapa" }] });
+  });
+
   it("returns the failure, and a malformed answer as malformed", () => {
     const f = failure("ls");
     expect(listSessions(fakeCli({ ls: () => f }))).toBe(f);

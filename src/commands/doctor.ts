@@ -18,6 +18,7 @@ import { CONFIG_DIR, TRUST_FILE } from "../paths.js";
 import { resolveBackendForLaunch } from "../backend.js";
 import { createRexCli, defaultRexServer, discoverRex, whoamiOf } from "../backends/rex/cli.js";
 import { listAppClients } from "../backends/rex/app.js";
+import { escapeControlChars } from "../pane-inventory.js";
 import type { CommandContext } from "./types.js";
 
 const PASS = green(`${sym.ok} PASS`);
@@ -276,7 +277,7 @@ export async function handleDoctorCommand({
     const cli = createRexCli(rexDiscovery.path, server);
     console.error(`  ${PASS}  Rex CLI found at ${rexDiscovery.path}`);
     const version = cli.call("version", ["version"]);
-    const versionLines = version.ok ? version.stdout.split("\n") : [];
+    const versionLines = version.ok ? version.stdout.split("\n").map(escapeControlChars) : [];
     record(version.ok);
     console.error(version.ok
       ? `  ${PASS}  ${versionLines[0] ?? ""} (${versionLines.find((line) => line.startsWith("api:")) ?? "api revision unknown"})`

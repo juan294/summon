@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { escapeControlChars, isDisplaySafe } from "../../pane-inventory.js";
 import { BUNDLE_NAMES } from "./cli.js";
 import type { RexCli } from "./cli.js";
 import type { RexFailure, RexResult } from "./types.js";
@@ -68,9 +69,12 @@ export function parseAppClients(json: unknown, options: { includeLost?: boolean 
     const connectionState = typeof raw["connection_state"] === "string" ? raw["connection_state"] : "connected";
     if (kind !== "app" || (connectionState === "lost" && !options.includeLost)) continue;
     if (typeof raw["client_id"] !== "string" || typeof raw["connected_at"] !== "string") continue;
+    // Server text: an id Summon could not pass back as one argv element is dropped, and display
+    // text is escaped before it reaches the terminal (like errors, pane titles, program status).
+    if (!isDisplaySafe(raw["client_id"]) || raw["client_id"].startsWith("-")) continue;
     const label = (info as Record<string, unknown>)["label"];
     const sessionIds = Array.isArray(raw["session_ids"]) ? (raw["session_ids"] as unknown[]).filter((id): id is string => typeof id === "string") : [];
-    result.push({ clientId: raw["client_id"], connectedAt: raw["connected_at"], connectionState, ...(typeof label === "string" ? { label } : {}), sessionIds });
+    result.push({ clientId: raw["client_id"], connectedAt: raw["connected_at"], connectionState: escapeControlChars(connectionState), ...(typeof label === "string" ? { label: escapeControlChars(label) } : {}), sessionIds });
   }
   return result;
 }

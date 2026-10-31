@@ -193,6 +193,13 @@ describe("createRexCli / probeWhoami (Phase 3)", () => {
     expect(exec).toHaveBeenCalledWith("/mock/rex", ["--color", "never", "--timeout", "1s", "--autostart=false", "-S", "unix:///x", "whoami", "--json"], expect.objectContaining({ timeout: 3000 }));
   });
 
+  it("probeWhoami does not answer when the host id carries control characters, and drops such a session id (Strix CWE-150)", async () => {
+    const { probeWhoami } = await import("./cli.js");
+    expect(probeWhoami("/mock/rex", "unix:///x", vi.fn(() => JSON.stringify({ host_id: "host\u001b]52;c;aGk=\u0007" })))).toEqual({ answers: false, reason: "rex whoami returned an unusable host id" });
+    expect(probeWhoami("/mock/rex", "unix:///x", vi.fn(() => JSON.stringify({ host_id: "host\u202e1" })))).toEqual({ answers: false, reason: "rex whoami returned an unusable host id" });
+    expect(probeWhoami("/mock/rex", "unix:///x", vi.fn(() => JSON.stringify({ host_id: "host-1", session_id: "session:\u001b[2K" })))).toEqual({ answers: true, hostId: "host-1" });
+  });
+
   it("probeWhoami does not answer on failure or when the host id is missing", async () => {
     const { probeWhoami } = await import("./cli.js");
     const failing = vi.fn(() => { throw Object.assign(new Error("exit 4"), { status: 4, stderr: "Error: dial unix: connect: no such file\n" }); });

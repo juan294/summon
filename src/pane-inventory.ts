@@ -26,6 +26,11 @@ export function escapeControlChars(text: string): string {
   );
 }
 
+/** Plain text that also prints unchanged (no controls, no bidi overrides): server ids Summon shows. */
+export function isDisplaySafe(value: unknown): value is string {
+  return isPlainText(value) && escapeControlChars(value) === value;
+}
+
 /** Format a pane title: "role · cmd" or just "role" when cmd is falsy. */
 export function formatTitle(role: string, cmd: string | null | undefined): string {
   return cmd ? `${role} \u00B7 ${cmd}` : role;
