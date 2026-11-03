@@ -1062,9 +1062,45 @@
       ],
       "scope": "project",
       "selection": "default",
-      "dependencies": [],
+      "dependencies": [
+        "rule:resource-lifecycle"
+      ],
       "mapping": {
         "mode": "universal"
+      },
+      "ownership": {
+        "direct": "cc-rpi",
+        "plugin": "cc-rpi"
+      }
+    },
+    {
+      "id": "rule:resource-lifecycle",
+      "kind": "rule",
+      "source": "templates/rules/resource-lifecycle.md",
+      "harnesses": [
+        "claude",
+        "codex"
+      ],
+      "scope": "project",
+      "selection": "default",
+      "dependencies": [],
+      "mapping": {
+        "mode": "conditional",
+        "paths": [
+          "**/Dockerfile*",
+          "**/compose*.yml",
+          "**/compose*.yaml",
+          "**/docker-compose*",
+          "**/supabase/**"
+        ],
+        "tasks": [
+          "Docker",
+          "local stack",
+          "database",
+          "task service",
+          "resource cleanup",
+          "Supabase"
+        ]
       },
       "ownership": {
         "direct": "cc-rpi",
@@ -1081,7 +1117,9 @@
       ],
       "scope": "project",
       "selection": "default",
-      "dependencies": [],
+      "dependencies": [
+        "rule:resource-lifecycle"
+      ],
       "mapping": {
         "mode": "conditional",
         "paths": [
@@ -1179,7 +1217,8 @@
         "rule:deployment-safety",
         "rule:supabase",
         "rule:testing",
-        "rule:webmcp"
+        "rule:webmcp",
+        "rule:resource-lifecycle"
       ],
       "ownership": {
         "direct": "cc-rpi",

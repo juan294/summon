@@ -17,6 +17,7 @@ Record the information needed by a fresh session or the other harness:
   evidence invalidated by later changes and distinguish local from native checks.
 - Deviations from the plan, their reasons, risks and unsupported integrations.
 - The next phase or action and its remaining prerequisites or acceptance gate.
+- For allocated local resources: ownership record and actual identities, removed/retained/cleanup-failed disposition, and each retained resource's reason, owner and review/finish action. Preserve required workdirs and recovery data before task cleanup; omit credentials.
 
 On resume, inspect the actual branch, worktree status, commit and relevant files.
 Compare them with the recorded state before reusing checks or claiming completion.

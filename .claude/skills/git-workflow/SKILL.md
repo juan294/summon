@@ -90,6 +90,8 @@ worktree and branch, all source changes are integrated, and plans, handoffs,
 ignored evidence and untracked files are preserved outside the disposable tree.
 A clean `git status` alone cannot prove ignored artifacts are preserved.
 
+Before removing the worktree, follow `.rpi/rules/resource-lifecycle.md`: finish its authorized disposable services or preserve their ownership records, required workdir and explicit retained-resource handoff. Never restore a task's database identity to the primary identity while its stack remains allocated without a verified handoff.
+
 ```bash
 git worktree list --porcelain
 git -C /absolute/path/to/worktree status --short --untracked-files=all

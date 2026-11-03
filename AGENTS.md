@@ -171,6 +171,7 @@ A new remote action needs authorization after the complete local gates pass.
   owned files, evidence/output, resource budget and terminal condition for each
   assignment. Missing required results remain coverage gaps until resolved.
 - Never write documents with placeholder values.
+- Before allocating local task services or reporting their cleanup, read `.rpi/rules/resource-lifecycle.md`. Release owned disposable resources within authorization or record a retained-resource handoff before task/worktree completion; report cleanup failures explicitly. A worktree or name prefix does not prove database ownership.
 - Exhaust all tools before suggesting manual steps --
   check CLI tools, shell commands, MCP servers, and file tools
   before escalating to the user.
@@ -226,6 +227,7 @@ root-to-current-directory instruction chain. Preserve project-specific overrides
 
 | Task or path | Required resource | Essential constraint |
 | --- | --- | --- |
+| Docker, local stacks, database tests, task services or resource cleanup (even without a Dockerfile) | `.rpi/rules/resource-lifecycle.md` | Prove ownership; finish disposable lifecycles; preserve shared/recovery data and report retained resources. |
 | Deployment, CI, release or infrastructure configuration | `.rpi/rules/deployment-safety.md` | Local gates first; no Vercel Preview; production needs authorization. |
 | SQL, Supabase migrations, schema, data access or database tests | `.rpi/rules/supabase.md` | Reset/test locally; privileges and RLS are distinct; remote targets need authorization. |
 | Behavioral changes, tests, fixtures and validation | `.rpi/rules/testing.md` | TDD for behavioral code; every required check must run and pass. |
