@@ -142,9 +142,10 @@ function statusFilePath(projectName: string): string {
 /**
  * BE-L1: the stale bound of a launch lock. Its owner runs `rex` subprocesses synchronously (execFileSync), so its
  * token is not refreshed while it works. The worst case under the lock, summed from the call timeouts (each read 8 s
- * plus a 2 s grace, `session.create` 10 s, the token and app waits 8 s each), is about 2 minutes; 5 minutes keeps a
- * slow live launch its lock, and a hung or suspended (Ctrl-Z) owner is still taken over after that. A dead owner is
- * recovered at once.
+ * plus a 2 s grace, `session.create` 10 s, the token and app waits 8 s each), is about 2 minutes, plus the Rex
+ * background-pane pass (`MINIMIZE_WORST_CASE_MS`, about 80 s; `minimize.test.ts` keeps the sum below this bound);
+ * 5 minutes keeps a slow live launch its lock, and a hung or suspended (Ctrl-Z) owner is still taken over after that.
+ * A dead owner is recovered at once.
  */
 export const LAUNCH_LOCK_STALE_MS = 5 * 60_000;
 

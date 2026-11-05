@@ -86,7 +86,8 @@ export async function handleLayoutCommand({ args }: CommandContext): Promise<voi
           for (const [key, value] of data) {
             if (key === "tree") {
               tree = value;
-            } else if (key.startsWith("pane.") && !key.endsWith(".cwd")) {
+            } else if (key.startsWith("pane.") && !key.slice(5).includes(".")) {
+              // A `pane.<name>.<sub>` key (cwd, background) configures a pane; it is not a pane definition.
               paneMap.set(key.slice(5), value);
             } else {
               other.push(`${key}=${value}`);

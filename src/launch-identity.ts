@@ -281,6 +281,11 @@ export interface LaunchManifest {
   startedAt: string;
   /** Earlier launches whose live session this `--new-window` launch announced it leaves open (F12); later launches do not repeat them. */
   keeps?: string[];
+  /**
+   * Panes this launch minimizes after `session.create` (Rex background panes). Written before the create so that a
+   * launch adopted later can finish the job. Advisory like `keeps`: names outside `paneOrder` are dropped.
+   */
+  minimize?: string[];
 }
 
 function isStringArray(value: unknown): value is string[] {
@@ -290,6 +295,13 @@ function isStringArray(value: unknown): value is string[] {
 /** BE-L3: a list of pane identifiers (PANE_NAME_RE), so no stored name can turn a pane file path into another file. */
 export function isPaneNameList(value: unknown): value is string[] {
   return isStringArray(value) && value.every((name) => PANE_NAME_RE.test(name));
+}
+
+/** The `minimize` field of a parsed manifest: pane names that are in `paneOrder`, or nothing (advisory, never a reason to reject the manifest). */
+function minimizeOf(value: unknown, paneOrder: string[]): { minimize?: string[] } {
+  if (!isPaneNameList(value)) return {};
+  const names = value.filter((name) => paneOrder.includes(name));
+  return names.length > 0 ? { minimize: names } : {};
 }
 
 export function parseLaunchManifest(raw: unknown): LaunchManifest | null {
@@ -319,6 +331,7 @@ export function parseLaunchManifest(raw: unknown): LaunchManifest | null {
     startedAt: d["startedAt"],
     // Advisory only: a malformed list is dropped, never the manifest.
     ...(isStringArray(d["keeps"]) ? { keeps: d["keeps"].filter((id) => isLaunchId(id)) } : {}),
+    ...minimizeOf(d["minimize"], d["paneOrder"]),
   };
 }
 

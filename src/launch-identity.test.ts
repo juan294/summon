@@ -234,6 +234,23 @@ describe("launch manifests", () => {
     expect(parseLaunchManifest({ ...manifest(), keeps: "nope" })).toEqual(manifest());
   });
 
+  it("parseLaunchManifest keeps minimize (the panes a launch minimizes) and drops anything unreadable, never the manifest", () => {
+    expect(parseLaunchManifest({ ...manifest(), minimize: ["sidebar"] })).toEqual({ ...manifest(), minimize: ["sidebar"] });
+    // A name outside paneOrder cannot name a pane of this launch.
+    expect(parseLaunchManifest({ ...manifest(), minimize: ["sidebar", "ghost"] })).toEqual({ ...manifest(), minimize: ["sidebar"] });
+    expect(parseLaunchManifest({ ...manifest(), minimize: ["ghost"] })).toEqual(manifest());
+    expect(parseLaunchManifest({ ...manifest(), minimize: [] })).toEqual(manifest());
+    expect(parseLaunchManifest({ ...manifest(), minimize: "sidebar" })).toEqual(manifest());
+    expect(parseLaunchManifest({ ...manifest(), minimize: ["sidebar", 3] })).toEqual(manifest());
+    // BE-L3: a pane name is an identifier, never a path.
+    expect(parseLaunchManifest({ ...manifest(), minimize: [`x/../${OTHER}`] })).toEqual(manifest());
+  });
+
+  it("minimize round-trips through write and read", () => {
+    writeLaunchManifest(manifest({ minimize: ["sidebar"] }));
+    expect(readLaunchManifest("chapa", ID)).toEqual(manifest({ minimize: ["sidebar"] }));
+  });
+
   it("parseLaunchManifest accepts a manifest without server and drops unknown keys", () => {
     const { server: _server, ...withoutServer } = manifest();
     expect(parseLaunchManifest({ ...withoutServer, extra: true })).toEqual(withoutServer);

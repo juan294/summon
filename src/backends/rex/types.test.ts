@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseRexIdentity } from "./types.js";
+import { isKindId, parseRexIdentity } from "./types.js";
 
 const ID = "01a1b2c3-d4e5-4f60-8a7b-8c9d0e1f2a3b";
 const valid = () => ({
@@ -52,5 +52,14 @@ describe("parseRexIdentity", () => {
     expect(parseRexIdentity({ ...valid(), server: "tcp://127.0.0.1:7000" }, PANES)?.server).toBe("tcp://127.0.0.1:7000");
     expect(parseRexIdentity({ ...valid(), server: "https://rex.example" }, PANES)?.server).toBe("https://rex.example");
     expect(parseRexIdentity({ ...valid(), blocks: [{ name: "editor", blockId: `block:${ID}`, label: "" }] }, PANES)?.blocks[0]?.label).toBe("");
+  });
+});
+
+describe("isKindId", () => {
+  it("accepts a layer id for the layer kind only", () => {
+    expect(isKindId(`layer:${ID}`, "layer")).toBe(true);
+    expect(isKindId(`block:${ID}`, "layer")).toBe(false);
+    expect(isKindId(`layer:${ID}`, "block")).toBe(false);
+    expect(isKindId("layer:not-an-id", "layer")).toBe(false);
   });
 });

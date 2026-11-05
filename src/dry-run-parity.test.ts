@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { spawnSync } from "node:child_process";
 import { cliBuild } from "./fixtures/cli-builds.js";
 import { LAUNCH_ID_RE } from "./launch-identity.js";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
@@ -65,5 +65,35 @@ describe("dry-run parity with develop (plan D8)", () => {
     expect(current.headers[0]).toBe("-- Backend: ghostty");
     expect(current.headers[1]?.slice("-- Launch: ".length)).toMatch(LAUNCH_ID_RE);
     expect(current.lines).toEqual(pinned.lines);
+  });
+});
+
+describe("Ghostty ignores pane.<name>.background (plan D12)", () => {
+  const LAUNCH_ID = /[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/g;
+
+  /** `--dry-run` of a custom tree layout under the Ghostty backend, with `extra` lines appended to the layout file. */
+  function ghosttyDryRun(name: string, extra: string[]): string {
+    const home = join(tempRoot, `home-${name}`);
+    const layouts = join(home, ".config", "summon", "layouts");
+    mkdirSync(layouts, { recursive: true });
+    writeFileSync(join(layouts, "bgtest"), ["tree=editor | server", "pane.editor=vim", "pane.server=npm run dev", ...extra, ""].join("\n"));
+    const target = join(tempRoot, "summon-dryrun-fixture");
+    const result = spawnSync("node", [cli, target, "--dry-run", "--layout", "bgtest"], {
+      encoding: "utf-8",
+      env: { ...process.env, HOME: home, TERM_PROGRAM: "ghostty" },
+      timeout: 30_000,
+    });
+    expect(result.status, result.stderr).toBe(0);
+    return result.stdout.replaceAll(LAUNCH_ID, "<LAUNCH>");
+  }
+
+  it("prints the same Ghostty script with the key as without it", () => {
+    const without = ghosttyDryRun("plain", []);
+    const forced = ghosttyDryRun("true", ["pane.server.background=true"]);
+    const refused = ghosttyDryRun("false", ["pane.server.background=false"]);
+    expect(without).toContain("-- Backend: ghostty");
+    expect(without).toContain("npm run dev");
+    expect(forced).toBe(without);
+    expect(refused).toBe(without);
   });
 });

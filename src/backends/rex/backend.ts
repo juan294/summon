@@ -115,6 +115,7 @@ export function createRexBackend(context: RexLaunchContext, deps: RexBackendDeps
       starshipConfigPath,
       onStop: ctx.onStop,
       layoutLabel: ctx.layoutLabel,
+      background: ctx.paneBackground,
     };
   }
 
@@ -141,7 +142,12 @@ export function createRexBackend(context: RexLaunchContext, deps: RexBackendDeps
       server: context.server,
       startedAt: new Date().toISOString(),
       ...(kept && kept.keeps.length > 0 ? { keeps: kept.keeps } : {}),
+      ...(build.minimize.length > 0 ? { minimize: build.minimize } : {}),
     };
+    // A background=true the layout cannot honor is said before anything is created (the launch goes on).
+    for (const name of build.ignoredBackground) {
+      note(`pane ${name} cannot be minimized (the first pane and a pane without a command stay in the layout); pane.${name}.background ignored`);
+    }
     // UX-M1: creation, the pane-file wait and opening the app can take many seconds. The line is on stdout,
     // so it never counts as something to read for the launcher tab (D1), and it is cleared before any output.
     const progress = transientLine();
@@ -163,7 +169,10 @@ export function createRexBackend(context: RexLaunchContext, deps: RexBackendDeps
     if (outcome.kind === "failed") throw new Error(outcome.failure.hint ? `${outcome.reason}. ${outcome.failure.hint}` : outcome.reason);
     if (outcome.kind === "unknown") throw new Error(unknownOutcomeMessage(ctx.projectName, outcome.candidates, outcome.reason));
     if (kept) note(kept.notice);
-    out(`${sym.ok} Workspace [${ctx.projectName}] ready in Rex.`);
+    const minimized = outcome.ids.minimized ?? [];
+    out(minimized.length > 0
+      ? `${sym.ok} Workspace [${ctx.projectName}] ready in Rex (minimized: ${minimized.join(", ")}; summon focus ${ctx.projectName} ${minimized[0]} shows one).`
+      : `${sym.ok} Workspace [${ctx.projectName}] ready in Rex.`);
     // `ids.blocks` names only the panes Summon shows (createWorkspace applies the display-pane policy).
     const identity: RexIdentity = {
       server: context.server,
@@ -232,9 +241,10 @@ export function createRexBackend(context: RexLaunchContext, deps: RexBackendDeps
         const session = record.rex?.sessionId ?? "session id unknown";
         headerLines.push(`-- Note: ${project} is recorded as a Rex workspace (${session}); while it is running, a real run switches to it instead of creating this one`);
       }
-      const { request, paneOrder } = buildSessionCreateRequest(requestInput(layout, ctx, starshipConfigPath));
+      const { request, paneOrder, minimize } = buildSessionCreateRequest(requestInput(layout, ctx, starshipConfigPath));
       headerLines.push(`-- Server: ${context.server}`);
       headerLines.push(`-- Pane order (block_ids): ${paneOrder.join(", ")}`);
+      if (minimize.length > 0) headerLines.push(`-- Minimized after create (float_block, set_layer_state): ${minimize.join(", ")}`);
       return { body: JSON.stringify(request, null, 2), notes: [] };
     },
 

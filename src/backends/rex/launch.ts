@@ -17,6 +17,12 @@ import type { SessionListings, SessionView } from "./status.js";
 import { isKindId } from "./types.js";
 import type { RexBlockIdentity, RexFailure } from "./types.js";
 import type { SessionCreateRequest } from "./layout.js";
+import { minimizePanes } from "./minimize.js";
+import type { MinimizeTarget } from "./minimize.js";
+
+// The background-pane pass lives in minimize.ts; its entry points are part of this module's surface (the launch and adoption call it).
+export { floatBounds, minimizePanes } from "./minimize.js";
+export type { MinimizeResult, MinimizeTarget } from "./minimize.js";
 
 /**
  * Rex workspace creation and recovery (plan D4, P7, P9, P13).
@@ -97,6 +103,8 @@ export interface CreatedIds {
   blocks: RexBlockIdentity[];
   /** Panes whose file had not appeared when the session was adopted (filled in later by `refreshPaneMapping`). */
   unverified: string[];
+  /** Background panes now floating minimized (absent when none), from `manifest.minimize`. */
+  minimized?: string[];
 }
 
 export type LaunchOutcome =
@@ -211,11 +219,14 @@ export async function createWorkspace(manifest: LaunchManifest, request: Session
   // 2. CREATE.
   const created = cli.call("session-create", ["api", "call", "session.create", "-"], { input: JSON.stringify(request), timeoutMs: 10_000, autostart: true });
   let ids: CreatedIds | undefined;
+  /** Block id per pane name, from the create answer or else the panes' own files and the fresh layout's block order (for the background panes). */
+  let paneBlocks: ReadonlyMap<string, string> | undefined;
   let unknownReason: string;
   if (created.ok) {
     const answer = parseCreateAnswer(created.json);
     if (answer && answer.blockIds.length === manifest.paneOrder.length) {
       const blocks = new Map(manifest.paneOrder.map((name, i) => [name, answer.blockIds[i]!]));
+      paneBlocks = blocks;
       ids = { sessionId: answer.sessionId, windowId: answer.windowId, rootBlockId: answer.blockIds[0]!, hostId: ctx.hostId, blocks: blockIdentities(manifest, blocks), unverified: [] };
     }
     unknownReason = answer
@@ -253,9 +264,30 @@ export async function createWorkspace(manifest: LaunchManifest, request: Session
       return unknown(`pane files do not belong to the confirmed session or are unreadable (${[...mapping.foreign, ...mapping.malformed].join(", ")})`);
     }
     ids = { sessionId: token.sessionId, windowId: window.windowId, rootBlockId: token.blockId, hostId: ctx.hostId, blocks: blockIdentities(manifest, mapping.blocks), unverified: mapping.missing };
+    // A pane whose file has not appeared is found by its place in the fresh layout: a new session lists its blocks in the build's order (verified on a nested layout, plan E10), trusted only while the count and the root agree.
+    const positional = window.blockIds.length === manifest.paneOrder.length && window.blockIds[0] === token.blockId ? window.blockIds : undefined;
+    paneBlocks = new Map(manifest.paneOrder.flatMap((name, i): Array<[string, string]> => {
+      const blockId = mapping.blocks.get(name) ?? positional?.[i];
+      return blockId ? [[name, blockId]] : [];
+    }));
     // A command-less sidebar block has no display pane; it is not worth a notice.
     const shown = mapping.missing.filter((name) => manifest.panes.includes(name));
     if (shown.length > 0) notices.push(unverifiedNotice(shown));
+  }
+
+  // 5b. BACKGROUND PANES (D1, D2): float and minimize them now, before any app draws the session. Presentation only (D5).
+  const targets: MinimizeTarget[] = [];
+  for (const name of manifest.minimize ?? []) {
+    const blockId = paneBlocks?.get(name);
+    if (blockId) targets.push({ name, blockId });
+    else notices.push(`pane ${name} stays in the layout as a normal split (its block was not confirmed)`);
+  }
+  if (targets.length > 0) {
+    // Up to about 80 s under the launch lock when Rex is slow: the transient line says what the wait is for.
+    ctx.progress?.(`Summoning ${project}… minimizing background panes`);
+    const minimized = minimizePanes(cli, ids.sessionId, targets);
+    notices.push(...minimized.notices);
+    if (minimized.minimized.length > 0) ids = { ...ids, minimized: minimized.minimized };
   }
 
   // 6. CLIENT (P7): one listing; apps attached to the caller's session are preferred, else every app.

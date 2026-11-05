@@ -1,7 +1,7 @@
 import { isPlainText } from "../../ui/sanitize.js";
 
 /** Rex resource identifiers as the CLI prints them: `<kind>:<36-char id>`. */
-const REX_ID_RE = /^(session|window|block):[0-9a-f-]{36}$/;
+const REX_ID_RE = /^(session|window|block|layer):[0-9a-f-]{36}$/;
 /** Server endpoints Summon records and passes back through `-S`. */
 const REX_SERVER_RE = /^(unix|tcp|https):\/\/\S+$/;
 
@@ -28,7 +28,7 @@ export function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
 }
 
-export function isKindId(value: unknown, kind: "session" | "window" | "block"): value is string {
+export function isKindId(value: unknown, kind: "session" | "window" | "block" | "layer"): value is string {
   return typeof value === "string" && REX_ID_RE.test(value) && value.startsWith(`${kind}:`);
 }
 
@@ -97,6 +97,12 @@ export const REX_OPS = {
   "kill": { mutating: true },
   "window-rename": { mutating: true, json: true },
   "block-label": { mutating: true, json: true },
+  /** `rex api describe <method>`: asks the server whether it has the method (exit 3 when it does not). */
+  "api-describe": { mutating: false },
+  /** `session.float_block`: moves a tiled block into a new floating layer. */
+  "block-float": { mutating: true, json: true },
+  /** `session.set_layer_state`: minimizes a floating layer or returns it to normal. */
+  "layer-state": { mutating: true, json: true },
 } as const satisfies Record<string, RexOpTraits>;
 
 export type RexOp = keyof typeof REX_OPS;

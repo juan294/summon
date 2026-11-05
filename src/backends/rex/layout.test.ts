@@ -255,6 +255,74 @@ describe("buildSessionCreateRequest: request envelope", () => {
   });
 });
 
+describe("buildSessionCreateRequest: background panes (plan D1, D4, D11)", () => {
+  const PANES = { editor: "vim", sidebar: "lazygit", shell: "zsh", server: "npm run dev" };
+  const DSL = "(editor | (sidebar / shell)) | server";
+  const bg = (entries: Array<[string, boolean]>) => ({ background: new Map(entries) });
+
+  it("without a key the build has nothing to minimize and the request is the one it always was", () => {
+    const plain = tree(DSL, PANES, { editorSize: 73, autoResize: true });
+    expect(plain.minimize).toEqual([]);
+    expect(plain.ignoredBackground).toEqual([]);
+    const withEmptyMap = tree(DSL, PANES, { editorSize: 73, autoResize: true }, undefined, bg([]));
+    expect(withEmptyMap.request).toEqual(plain.request);
+    expect(traditional(preset("full")).minimize).toEqual([]);
+  });
+
+  it("a background pane stays in the create request (one atomic create) and is listed in paneOrder order", () => {
+    const built = tree(DSL, PANES, { editorSize: 73, autoResize: true }, undefined, bg([["server", true]]));
+    expect(built.minimize).toEqual(["server"]);
+    expect(built.paneOrder).toEqual(["editor", "sidebar", "shell", "server"]);
+    expect(blocks(built.request.initial_windows[0].layout)).toHaveLength(4);
+    expect(built.ignoredBackground).toEqual([]);
+  });
+
+  it("lists several background panes in paneOrder order, whatever the order of the map", () => {
+    const built = tree(DSL, PANES, {}, undefined, bg([["server", true], ["sidebar", true]]));
+    expect(built.minimize).toEqual(["sidebar", "server"]);
+  });
+
+  it("the editor size goes to the first right split that keeps a visible pane on both sides", () => {
+    const built = tree(DSL, PANES, { editorSize: 73, autoResize: true }, undefined, bg([["server", true]]));
+    const outer = built.request.initial_windows[0].layout as Extract<RexLayoutNode, { split: unknown }>;
+    expect(outer.split.ratio).toBe(0.5);
+    expect((outer.split.before as Extract<RexLayoutNode, { split: unknown }>).split.ratio).toBe(0.73);
+    // Nothing minimized: the outer split takes the size, as before.
+    const plain = tree(DSL, PANES, { editorSize: 73, autoResize: true });
+    expect((plain.request.initial_windows[0].layout as Extract<RexLayoutNode, { split: unknown }>).split.ratio).toBe(0.73);
+  });
+
+  it("a right split with one side entirely minimized keeps 0.5, and no other split takes the size in its place", () => {
+    const built = tree("editor | (api / worker)", { editor: "vim", api: "npm run dev", worker: "npm run watch" }, { editorSize: 70, autoResize: true }, undefined, bg([["api", true], ["worker", true]]));
+    // The right side is entirely minimized, so no split keeps a visible pane on both sides: every ratio stays 0.5.
+    expect(shape(built.request.initial_windows[0].layout)).toEqual(["H", 0.5, expect.any(String), ["V", 0.5, expect.any(String), expect.any(String)]]);
+  });
+
+  it("the first pane and a pane without a command are refused and reported, not minimized (S9)", () => {
+    const built = tree("editor | (shell / server)", { editor: "vim", shell: "", server: "npm run dev" }, {}, undefined, bg([["editor", true], ["shell", true], ["server", true]]));
+    expect(built.minimize).toEqual(["server"]);
+    expect(built.ignoredBackground).toEqual(["editor", "shell"]);
+  });
+
+  it("false keeps a pane in the layout", () => {
+    const built = tree(DSL, PANES, {}, undefined, bg([["server", false]]));
+    expect(built.minimize).toEqual([]);
+    expect(built.ignoredBackground).toEqual([]);
+  });
+
+  it("ignores a flag for a pane that is not in the layout", () => {
+    const built = tree(DSL, PANES, {}, undefined, bg([["nope", true]]));
+    expect(built.minimize).toEqual([]);
+    expect(built.ignoredBackground).toEqual([]);
+  });
+
+  it("works on a traditional plan: the shell pane with a command", () => {
+    const built = traditional(preset("cli", { shellCommand: "npm run dev" }), bg([["shell", true]]));
+    expect(built.minimize).toEqual(["shell"]);
+    expect(built.paneOrder).toEqual(["editor", "shell", "sidebar"]);
+  });
+});
+
 describe("resolveLoginShell", () => {
   it("uses $SHELL when it is an absolute existing path", () => {
     expect(resolveLoginShell({ SHELL: "/opt/homebrew/bin/fish" }, (p) => p === "/opt/homebrew/bin/fish")).toBe("/opt/homebrew/bin/fish");

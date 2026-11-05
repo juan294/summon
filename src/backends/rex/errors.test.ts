@@ -7,8 +7,8 @@ function raw(partial: Partial<RexRawResult>): RexRawResult {
   return { code: null, signal: null, timedOut: false, enoent: false, stdout: "", stderr: "", ...partial };
 }
 
-const MUTATING: RexOp[] = ["session-create", "focus", "do-select", "kill", "window-rename", "block-label"];
-const READ_ONLY: RexOp[] = ["whoami", "ls", "client-ls", "session-view", "session-inspect", "block-ls", "block-call"];
+const MUTATING: RexOp[] = ["session-create", "focus", "do-select", "kill", "window-rename", "block-label", "block-float", "layer-state"];
+const READ_ONLY: RexOp[] = ["whoami", "ls", "client-ls", "session-view", "session-inspect", "block-ls", "block-call", "api-describe"];
 
 describe("isMutatingOp", () => {
   it("separates the ops that change server state from the read-only ones", () => {
@@ -164,5 +164,21 @@ describe("classifyRexFailure", () => {
   it("keeps the raw result for diagnostics", () => {
     const input = raw({ code: 1, stdout: "out", stderr: "err" });
     expect(classifyRexFailure("ls", input).raw).toEqual(input);
+  });
+});
+
+describe("classifyRexFailure for the minimize operations (plan E4, E9)", () => {
+  it("a float of a block that already floats is rejected with nothing changed", () => {
+    const stderr = 'Error: stream response "control-2" failed: block block:01a1aa6a-9df5-7dee-9d21-41345a156c83 is already in floating layer layer:01a1aa6a-f0f6-7c1d-a355-5bb5bd524405 (status=400 code=bad_request)\n';
+    expect(classifyRexFailure("block-float", raw({ code: 1, stderr }))).toMatchObject({ kind: "rejected", outcome: "none" });
+  });
+
+  it("describing a method the server does not have is not-found with nothing changed", () => {
+    const failure = classifyRexFailure("api-describe", raw({ code: 3, stderr: 'Error: API method "session.set_layer_state" not found. Run rex api list\n' }));
+    expect(failure).toMatchObject({ kind: "not-found", outcome: "none" });
+  });
+
+  it("a timeout of the layer-state call leaves the outcome unknown", () => {
+    expect(classifyRexFailure("layer-state", raw({ timedOut: true, signal: "SIGKILL" }))).toMatchObject({ kind: "timeout", outcome: "unknown" });
   });
 });
