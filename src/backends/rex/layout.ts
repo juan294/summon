@@ -4,6 +4,7 @@ import type { LayoutPlan } from "../../layout.js";
 import type { LayoutNode, PlannedLayout } from "../../tree.js";
 import { formatTitle } from "../../layout.js";
 import { shellQuote } from "../../shell-escape.js";
+import { isBackgroundCommand } from "../../background-command.js";
 import { bootstrapLine, buildEnvVarsList, cleanupTrapLine, paneFileLine } from "../../launch-identity.js";
 
 /**
@@ -74,6 +75,8 @@ export interface SessionCreateBuild {
   minimize: string[];
   /** Panes whose `background=true` was refused: the first pane (it holds the cleanup trap and keeps the window visible) and a pane without a command. */
   ignoredBackground: string[];
+  /** The panes of `minimize` that no `pane.<name>.background` key asked for: their command is in the background-command table. */
+  autodetected: string[];
 }
 
 /** `$SHELL` when it is an absolute existing path, else `/bin/zsh`. */
@@ -184,12 +187,21 @@ export function buildSessionCreateRequest(input: SessionCreateInput): SessionCre
   const { autoResize, editorSize } = input.layout.plan;
 
   // Which panes end up minimized. The first pane is the root: it holds the cleanup trap and a window must keep a visible pane.
+  // A key decides (`false` keeps the pane, `true` minimizes it); without one the command table decides.
   const minimizing = new Set<string>();
   const ignoredBackground: string[] = [];
+  const autodetected: string[] = [];
   leavesOf(root).forEach((pane, index) => {
-    if (input.background?.get(pane.name) !== true) return;
-    if (index === 0 || pane.command === "") ignoredBackground.push(pane.name);
-    else minimizing.add(pane.name);
+    const asked = input.background?.get(pane.name);
+    if (asked === false) return;
+    const cannot = index === 0 || pane.command === "";
+    if (asked === true) {
+      if (cannot) ignoredBackground.push(pane.name);
+      else minimizing.add(pane.name);
+    } else if (!cannot && isBackgroundCommand(pane.command)) {
+      minimizing.add(pane.name);
+      autodetected.push(pane.name);
+    }
   });
   const hasVisiblePane = (node: Node): boolean => (node.type === "leaf" ? !minimizing.has(node.name) : hasVisiblePane(node.first) || hasVisiblePane(node.second));
 
@@ -232,5 +244,6 @@ export function buildSessionCreateRequest(input: SessionCreateInput): SessionCre
     labels,
     minimize: paneOrder.filter((name) => minimizing.has(name)),
     ignoredBackground,
+    autodetected,
   };
 }

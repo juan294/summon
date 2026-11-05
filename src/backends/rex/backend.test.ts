@@ -244,7 +244,7 @@ describe("createRexBackend", () => {
       const { d, create } = deps({ kind: "created", ids: IDS, clientId: "client:app", notices: [] });
       const io = spies();
       try {
-        await createRexBackend(CONTEXT, d).launch(treePlan("a | b", { a: "vim", b: "npm run dev" }), withBackground([["b", true]]));
+        await createRexBackend(CONTEXT, d).launch(treePlan("a | b", { a: "vim", b: "make serve" }), withBackground([["b", true]]));
       } finally {
         io.restore();
       }
@@ -253,7 +253,7 @@ describe("createRexBackend", () => {
       expect(manifest["paneOrder"]).toEqual(["a", "b"]);
       // Both panes are still blocks of the one create request (the program starts once).
       expect(JSON.stringify(request).match(/"block":/g)).toHaveLength(2);
-      expect(JSON.stringify(request)).toContain("npm run dev");
+      expect(JSON.stringify(request)).toContain("make serve");
     });
 
     it("writes no minimize field without a flag, or when the flag is false", async () => {
@@ -261,7 +261,7 @@ describe("createRexBackend", () => {
         const { d, create } = deps({ kind: "created", ids: IDS, clientId: "client:app", notices: [] });
         const io = spies();
         try {
-          await createRexBackend(CONTEXT, d).launch(treePlan("a | b", { a: "vim", b: "npm run dev" }), context);
+          await createRexBackend(CONTEXT, d).launch(treePlan("a | b", { a: "vim", b: "make serve" }), context);
         } finally {
           io.restore();
         }
@@ -273,7 +273,7 @@ describe("createRexBackend", () => {
       const minimized = deps({ kind: "created", ids: { ...IDS, minimized: ["b", "c"] }, clientId: "client:app", notices: [] });
       let io = spies();
       try {
-        await createRexBackend(CONTEXT, minimized.d).launch(treePlan("a | b", { a: "vim", b: "npm run dev" }), withBackground([["b", true]]));
+        await createRexBackend(CONTEXT, minimized.d).launch(treePlan("a | b", { a: "vim", b: "make serve" }), withBackground([["b", true]]));
       } finally {
         io.restore();
       }
@@ -281,7 +281,7 @@ describe("createRexBackend", () => {
       const plain = deps({ kind: "created", ids: IDS, clientId: "client:app", notices: [] });
       io = spies();
       try {
-        await createRexBackend(CONTEXT, plain.d).launch(treePlan("a | b", { a: "vim", b: "npm run dev" }), ctx());
+        await createRexBackend(CONTEXT, plain.d).launch(treePlan("a | b", { a: "vim", b: "make serve" }), ctx());
       } finally {
         io.restore();
       }
@@ -305,7 +305,7 @@ describe("createRexBackend", () => {
       // `c` sits in a nested split, so minimizing it leaves every ratio as it is and the request body can be compared as it is.
       const dry = (context: BackendLaunchContext) => {
         const headers: string[] = [];
-        const { body } = createRexBackend(CONTEXT, deps({ kind: "created", ids: IDS, clientId: "c", notices: [] }).d).dryRun(treePlan("a | (b / c)", { a: "vim", b: "htop", c: "npm run dev" }), context, null, headers);
+        const { body } = createRexBackend(CONTEXT, deps({ kind: "created", ids: IDS, clientId: "c", notices: [] }).d).dryRun(treePlan("a | (b / c)", { a: "vim", b: "htop", c: "make serve" }), context, null, headers);
         return { headers, body };
       };
 
@@ -315,6 +315,18 @@ describe("createRexBackend", () => {
         expect(plain.headers.some((line) => line.includes("Minimized after create"))).toBe(false);
         expect(flagged.headers).toContain("-- Minimized after create (float_block, set_layer_state): c");
         expect(flagged.body).toBe(plain.body);
+      });
+
+      it("S10: says how to keep an autodetected pane in the layout, and not for a pane that was asked for", () => {
+        const autodetected = createRexBackend(CONTEXT, deps({ kind: "created", ids: IDS, clientId: "c", notices: [] }).d);
+        const headers: string[] = [];
+        autodetected.dryRun(treePlan("a | b", { a: "vim", b: "npm run dev" }), ctx(), null, headers);
+        expect(headers).toContain("-- Minimized after create (float_block, set_layer_state): b");
+        expect(headers).toContain("-- Keep one in the layout with pane.<name>.background=false");
+        const forced: string[] = [];
+        autodetected.dryRun(treePlan("a | b", { a: "vim", b: "make watch" }), withBackground([["b", true]]), null, forced);
+        expect(forced).toContain("-- Minimized after create (float_block, set_layer_state): b");
+        expect(forced.some((line) => line.includes("Keep one in the layout"))).toBe(false);
       });
 
       it("does not list a refused pane", () => {

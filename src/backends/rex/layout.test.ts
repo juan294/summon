@@ -256,7 +256,7 @@ describe("buildSessionCreateRequest: request envelope", () => {
 });
 
 describe("buildSessionCreateRequest: background panes (plan D1, D4, D11)", () => {
-  const PANES = { editor: "vim", sidebar: "lazygit", shell: "zsh", server: "npm run dev" };
+  const PANES = { editor: "vim", sidebar: "lazygit", shell: "zsh", server: "make serve" };
   const DSL = "(editor | (sidebar / shell)) | server";
   const bg = (entries: Array<[string, boolean]>) => ({ background: new Map(entries) });
 
@@ -293,13 +293,13 @@ describe("buildSessionCreateRequest: background panes (plan D1, D4, D11)", () =>
   });
 
   it("a right split with one side entirely minimized keeps 0.5, and no other split takes the size in its place", () => {
-    const built = tree("editor | (api / worker)", { editor: "vim", api: "npm run dev", worker: "npm run watch" }, { editorSize: 70, autoResize: true }, undefined, bg([["api", true], ["worker", true]]));
+    const built = tree("editor | (api / worker)", { editor: "vim", api: "make serve", worker: "npm run watch" }, { editorSize: 70, autoResize: true }, undefined, bg([["api", true], ["worker", true]]));
     // The right side is entirely minimized, so no split keeps a visible pane on both sides: every ratio stays 0.5.
     expect(shape(built.request.initial_windows[0].layout)).toEqual(["H", 0.5, expect.any(String), ["V", 0.5, expect.any(String), expect.any(String)]]);
   });
 
   it("the first pane and a pane without a command are refused and reported, not minimized (S9)", () => {
-    const built = tree("editor | (shell / server)", { editor: "vim", shell: "", server: "npm run dev" }, {}, undefined, bg([["editor", true], ["shell", true], ["server", true]]));
+    const built = tree("editor | (shell / server)", { editor: "vim", shell: "", server: "make serve" }, {}, undefined, bg([["editor", true], ["shell", true], ["server", true]]));
     expect(built.minimize).toEqual(["server"]);
     expect(built.ignoredBackground).toEqual(["editor", "shell"]);
   });
@@ -317,9 +317,60 @@ describe("buildSessionCreateRequest: background panes (plan D1, D4, D11)", () =>
   });
 
   it("works on a traditional plan: the shell pane with a command", () => {
-    const built = traditional(preset("cli", { shellCommand: "npm run dev" }), bg([["shell", true]]));
+    const built = traditional(preset("cli", { shellCommand: "make serve" }), bg([["shell", true]]));
     expect(built.minimize).toEqual(["shell"]);
     expect(built.paneOrder).toEqual(["editor", "shell", "sidebar"]);
+  });
+});
+
+describe("buildSessionCreateRequest: autodetected background panes (plan D3, D4)", () => {
+  const bg = (entries: Array<[string, boolean]>) => ({ background: new Map(entries) });
+
+  it("a pane whose command is a known background program is minimized without any key", () => {
+    const built = tree("editor | server", { editor: "vim", server: "npm run dev" });
+    expect(built.minimize).toEqual(["server"]);
+    expect(built.autodetected).toEqual(["server"]);
+    expect(built.ignoredBackground).toEqual([]);
+    expect(built.paneOrder).toEqual(["editor", "server"]);
+  });
+
+  it("an inline quoted command is detected too, whatever the pane is called", () => {
+    const built = tree('editor | "tail -f log/development.log"', { editor: "vim" });
+    expect(built.minimize).toEqual(["tail"]);
+  });
+
+  it("background=false keeps it in the layout; background=true on a pane the table does not know minimizes it and is not 'autodetected'", () => {
+    expect(tree("editor | server", { editor: "vim", server: "npm run dev" }, {}, undefined, bg([["server", false]])).minimize).toEqual([]);
+    const forced = tree("editor | build", { editor: "vim", build: "make watch" }, {}, undefined, bg([["build", true]]));
+    expect(forced.minimize).toEqual(["build"]);
+    expect(forced.autodetected).toEqual([]);
+  });
+
+  it("the first pane is never minimized, and is not reported when nothing asked for it", () => {
+    const built = tree("server | editor", { server: "npm run dev", editor: "vim" });
+    expect(built.minimize).toEqual([]);
+    expect(built.autodetected).toEqual([]);
+    expect(built.ignoredBackground).toEqual([]);
+    // Asking for it is reported (S9), as before.
+    expect(tree("server | editor", { server: "npm run dev", editor: "vim" }, {}, undefined, bg([["server", true]])).ignoredBackground).toEqual(["server"]);
+  });
+
+  it("the traditional shell pane with a dev command is minimized; the presets and a plain shell are not", () => {
+    const built = traditional(preset("cli", { shellCommand: "npm run dev" }));
+    expect(built.minimize).toEqual(["shell"]);
+    expect(built.autodetected).toEqual(["shell"]);
+    for (const name of ["minimal", "full", "pair", "cli", "btop"] as const) {
+      const plain = traditional(preset(name));
+      expect(plain.minimize, name).toEqual([]);
+      expect(plain.autodetected, name).toEqual([]);
+    }
+  });
+
+  it("the editor size follows the visible layout when an autodetected pane collapses a split (D11)", () => {
+    const built = tree("(editor | (sidebar / shell)) | server", { editor: "vim", sidebar: "lazygit", shell: "zsh", server: "npm run dev" }, { editorSize: 73, autoResize: true });
+    expect(built.minimize).toEqual(["server"]);
+    const outer = built.request.initial_windows[0].layout as Extract<RexLayoutNode, { split: unknown }>;
+    expect((outer.split.before as Extract<RexLayoutNode, { split: unknown }>).split.ratio).toBe(0.73);
   });
 });
 

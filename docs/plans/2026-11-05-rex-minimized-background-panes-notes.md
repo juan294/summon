@@ -156,3 +156,44 @@ Accepted limitations (second review of Phase 2, none changes a plan decision):
 | 7 | Reconcile fake answered layer calls for every test | Resolved (deviation 3) |
 | 8 | `server` field, `plain()` reuse, long union line | Resolved (deviation 2) |
 
+### Phase 3
+
+1. Phase 1 tests that used `npm run dev` as the unremarkable pane
+   - Plan said: the Phase 1 and 2 tests stay green without edits, because their layouts use commands outside the table or the key.
+   - Found: six Phase 1 tests (`layout.test.ts`, `backend.test.ts`) used `npm run dev` with no key, or with `false`, to assert "nothing is minimized"; the table now minimizes it.
+   - Chose: those tests use `make serve` (outside the table), so they still prove what the key alone does; the table's own cases are in `background-command.test.ts` and the "autodetected background panes" describes. Tests that set `true` explicitly are unchanged in meaning.
+2. C23 was not run through vitest
+   - Plan said: `SUMMON_REX_E2E=1 pnpm vitest run src/e2e/rex-cli.test.ts` passes with C23.
+   - Found (2026-11-05 09:37): the Rex app process (`Rex`) had no window open (`System Events` counts 0), which the suite's gate requires; the file skips all 13 scenarios without its opt-in and was not run with it. I did not send keystrokes into the owner's app to open a window.
+   - Chose: the same checks by hand against the real preview.25 server in a sandbox HOME with the built candidate: dry run (both header lines, no session created); real launch (exit 0, `Workspace [<p>] ready in Rex (minimized: logs; summon focus <p> logs shows one).`); `session.view` (tiled layer holding only `editor`, one floating layer with `state: minimized` holding `logs`); a line appended to the followed file reached the minimized block on the first try; `status` active, `inspect` both panes available; `summon focus` exit 0 and the layer lost its `state`; `--layout bgkeep --new-window` kept both blocks tiled with no floating layer and no `minimized:` text. Both sessions were removed by id; the server listed the same 13 sessions as before. This is a manual run, not the suite: the suite's C23 itself is unrun and its selection and focus steps in a real window are unobserved.
+   - Owner action to close the gap: with an app window open, `SUMMON_REX_E2E_REQUIRED=1 pnpm exec vitest run src/e2e/rex-cli.test.ts` (alone, load below about 15), then the manual step 2.9 of the E2E guide.
+3. The table is stricter than the plan's list in a few places (second review of Phase 3, finding 2)
+   - Chose: a program asked for `--help`, `--version` or `-h` is never a background program; `vite -v` and `nodemon -v` neither; `ngrok` only with `http`, `tcp`, `tls` or `start`; `rails s -d` and `rails server --daemon`, and `docker compose up` with `-d` (also inside a short option group), `--detach`, `--wait` or `--no-start`, return and are not background; `-F` counts as follow for `tail` only (`journalctl -F` is `--field`).
+   - Why: each of those would have hidden a pane that prints a result or an error the owner needs to read. The plan's table and its must-be-true and must-be-false cases are unchanged.
+4. Accepted limits of the table (listed in `docs/rex.md`)
+   - The plan's script rule accepts any suffix, so `npm run dev:lint` or `npm run start-db` are minimized. `ngrok http` and `stripe listen` are in the plan's table although they print a URL or a secret; `docs/rex.md` says to use `background=false` or `summon focus`. Option forms the table does not look through (`vite --port 3000`, `pnpm -F web dev`, `flask --app x run`, `docker compose -f f.yml up`) are not detected and stay visible, which is the safe direction.
+5. Documentation beyond the plan's list
+   - `docs/architecture.md` gets rows for `background-command.ts` and `minimize.ts` and the new dependency of `backends/rex/layout.ts`. The user manual says that the existing `pane.backend=npm run dev` example is minimized under Rex.
+6. `CLAUDE.md` has a `minimize.ts` row (deviation 10 of Phase 1) and a `background-command.ts` row.
+
+### Phase 3 review dispositions
+
+| # | Finding | Disposition |
+| --- | --- | --- |
+| 1 | Step 2.9 used a project and a layout that the guide's setup never creates | Resolved: the step carries its own setup and teardown |
+| 2 | Finite or informational commands hidden (`vite --help`, `ngrok version`, `rails s -d`, `docker compose up --wait`, `journalctl -F`) | Resolved (deviation 3), tests added |
+| 3 | `ngrok http` and `stripe listen` hide output the owner must read | Accepted: in the plan's table; documented, opt-out and `summon focus` |
+| 4 | Script suffix rule hides `dev:lint`-style scripts | Accepted: the plan's regex; documented |
+| 5 | Inconsistent option parsing (false negatives only) | Accepted: safe direction; documented |
+| 6 | Doc claims wider or narrower than the code | Resolved: `docs/rex.md` matches the code |
+| 7 | Weak C23 assertions | Resolved: `rowOf` for status, `availability` for inspect |
+| 8 | `docs/architecture.md` rows missing | Resolved (deviation 5) |
+| 9 | Manual example now minimized without a word | Resolved |
+| 10 | Python rule hidden in `default:` | Resolved: commented |
+
+## Final state of the work
+
+- Branch `feat/rex-minimized-panes`, three phases, base `develop` at `6e3001d`. Nothing pushed, nothing published, no release.
+- Resources: the Rex probe sessions of this work were removed by their ids; the server listed the same 13 sessions before and after each run. No Docker resources were used. The worktree `/Users/juan/code/summon-minimized-panes` is retained until the branch is integrated.
+- Open owner items: the C23 suite run and the manual capsule check (deviation 2 of Phase 3); the interpretation of a warning under Ghostty for an invalid value (deviation 14 of Phase 1); release, push and version are separate authorizations.
+

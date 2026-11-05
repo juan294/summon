@@ -249,10 +249,11 @@ export function createRexBackend(context: RexLaunchContext, deps: RexBackendDeps
         const session = record.rex?.sessionId ?? "session id unknown";
         headerLines.push(`-- Note: ${project} is recorded as a Rex workspace (${session}); while it is running, a real run switches to it instead of creating this one`);
       }
-      const { request, paneOrder, minimize } = buildSessionCreateRequest(requestInput(layout, ctx, starshipConfigPath));
+      const { request, paneOrder, minimize, autodetected } = buildSessionCreateRequest(requestInput(layout, ctx, starshipConfigPath));
       headerLines.push(`-- Server: ${context.server}`);
       headerLines.push(`-- Pane order (block_ids): ${paneOrder.join(", ")}`);
       if (minimize.length > 0) headerLines.push(`-- Minimized after create (float_block, set_layer_state): ${minimize.join(", ")}`);
+      if (autodetected.length > 0) headerLines.push("-- Keep one in the layout with pane.<name>.background=false");
       return { body: JSON.stringify(request, null, 2), notes: [] };
     },
 

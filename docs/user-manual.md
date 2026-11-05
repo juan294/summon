@@ -622,6 +622,19 @@ pane.backend.cwd=./api
 
 Panes without a `cwd` key default to the target directory.
 
+#### Background Panes (Rex)
+
+Under Rex, a pane that only runs a background program opens minimized, as a capsule over the workspace, and keeps running. Summon picks these panes by their command (`npm run dev`, `pnpm dev`, `tail -f ...`, `docker compose up`, `vite`, `nodemon` and similar); `pane.<name>.background` overrides the choice either way:
+
+```ini
+tree=editor | server
+pane.editor=nvim
+pane.server=make serve
+pane.server.background=true
+```
+
+`pane.server.background=false` keeps a pane that the command table would minimize. A pane such as `pane.backend=npm run dev` in the per-pane directory example above opens minimized under Rex for the same reason. The first pane and a pane without a command are never minimized. Click the capsule or run `summon focus <project> <pane>` to show a minimized pane. Ghostty ignores the key and keeps a normal split. The commands, the notes Summon prints when a pane cannot be minimized, and the limits are in [Summon under Rex](rex.md#background-panes).
+
 ### Inline Commands
 
 Instead of named panes, you can embed commands directly in the tree expression using quoted strings. The pane is auto-named from the first word of the command.

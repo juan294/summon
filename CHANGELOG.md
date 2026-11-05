@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Under Rex, a pane that only runs a background program (`npm run dev`, `pnpm dev`, `tail -f`, `docker compose up`, `vite`, `nodemon` and similar) opens minimized: it is floated and minimized after the session is created, shows as a capsule, and keeps running. `pane.<name>.background=true` or `=false` in a layout or `.summon` overrides the choice; the first pane and a pane without a command are never minimized. `summon focus <project> <pane>` shows a minimized pane. A Rex without `session.set_layer_state` (before preview.25) keeps normal splits and says so. A launch whose create answer was lost has its background panes minimized when it is adopted. Ghostty keeps a normal split and does not change; an invalid `background` value warns under both. `docs/rex.md` has the details.
+
 ## [2.1.0] - 2026-10-31
 
 ### Changed

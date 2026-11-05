@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { execFileSync, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -117,6 +117,21 @@ function rawView(sessionId: string): Record<string, unknown> {
   if (!raw.ok) throw new Error(`session.view of ${sessionId} failed: ${raw.reason}`);
   return (raw as { json: Record<string, unknown> }).json;
 }
+/** The layers of the session's first window as the server reports them: kind, state (absent when normal) and block ids. */
+function layersOf(sessionId: string): Array<{ kind: string; state?: string; blocks: string[] }> {
+  const windows = rawView(sessionId)["windows"] as Array<Record<string, unknown>>;
+  const layers = (windows[0]?.["layers"] ?? []) as Array<Record<string, unknown>>;
+  return layers.map((layer) => ({
+    kind: String(layer["kind"]),
+    ...(typeof layer["state"] === "string" ? { state: layer["state"] } : {}),
+    blocks: ((layer["blocks"] ?? []) as Array<Record<string, unknown>>).map((b) => String(b["block_id"])),
+  }));
+}
+/** What a block shows now (the terminal's screen and scrollback as text). */
+function blockText(sessionId: string, blockId: string): string {
+  const shown = cli.call("block-call", ["block", "call", "-s", sessionId, "-b", blockId, "format"]);
+  return shown.ok && shown.json && typeof (shown.json as Record<string, unknown>)["content"] === "string" ? String((shown.json as Record<string, unknown>)["content"]) : "";
+}
 function blockLabels(sessionId: string): Set<string> {
   const windows = rawView(sessionId)["windows"] as Array<Record<string, unknown>>;
   const layers = windows.flatMap((w) => w["layers"] as Array<Record<string, unknown>>);
@@ -174,7 +189,7 @@ describe("rex cli e2e", () => {
     // The candidate under test is the built CLI: build it so a stale dist/ never passes for the sources.
     execFileSync("pnpm", ["build"], { cwd: root, encoding: "utf8", timeout: 60_000, stdio: ["ignore", "pipe", "pipe"] });
     // `eight` is registered and never launched (C19). `five` lives under a directory with a space and a quote (C22).
-    for (const topic of ["one", "two", "three", "four", "five", "six", "seven", "eight"]) {
+    for (const topic of ["one", "two", "three", "four", "five", "six", "seven", "eight", "ten"]) {
       const dir = projectDir(topic);
       mkdirSync(dir, { recursive: true });
       // A git repository with a commit (the snapshot reads HEAD), so a trap or a reconciliation writes a real snapshot.
@@ -209,6 +224,11 @@ describe("rex cli e2e", () => {
     // A custom tree layout with a per-pane working directory (C22).
     mkdirSync(join(projectDir("five"), "api"));
     writeFileSync(join(home, ".config", "summon", "layouts", "cwdtree"), "tree=editor | worker\npane.editor=sleep 300\npane.worker=sleep 300\npane.worker.cwd=./api\n");
+    // Background panes (C23): the log follower is in the command table, so no key is needed; `bgkeep` opts out.
+    writeFileSync(join(home, "bg.log"), "first line\n");
+    const bgTree = `tree=editor | logs\npane.editor=sleep 300\npane.logs=tail -f ${join(home, "bg.log")}\n`;
+    writeFileSync(join(home, ".config", "summon", "layouts", "bgtree"), bgTree);
+    writeFileSync(join(home, ".config", "summon", "layouts", "bgkeep"), `${bgTree}pane.logs.background=false\n`);
     for (const [key, value] of [["editor", "sleep 300"], ["sidebar", "sleep 300"], ["shell", "true"], ["layout", "pair"], ["env.HOME", home], ["env.PATH", `${badbin}:${process.env.PATH ?? ""}`], ["env.SPELL", SPELL]]) {
       const set = summon(["set", key!, value!]);
       expect(set.status, set.out).toBe(0);
@@ -695,6 +715,54 @@ describe("rex cli e2e", () => {
     mkdirSync(join(home, "projects", nine));
     expect(summon(["add", nine, join(home, "projects", nine)]).status).toBe(0);
     contains(summon(["list"]).stdout, nine);
+  });
+
+  it("C23: a background pane opens minimized with no key, keeps running, shows again on focus; background=false keeps it in the layout", { timeout: 240_000 }, async (ctx) => {
+    if (!harness.gate(ctx)) return;
+    const ten = name("ten");
+
+    // The dry run says what a launch would do and creates nothing.
+    const dry = summon([ten, "--layout", "bgtree", "--dry-run"]);
+    expect(dry.status, dry.out).toBe(0);
+    contains(dry.stdout, "-- Minimized after create (float_block, set_layer_state): logs");
+    contains(dry.stdout, "-- Keep one in the layout with pane.<name>.background=false");
+    expect(sessionsLabelled(ten)).toEqual([]);
+
+    // The log follower is in the command table: it opens minimized, and the launch says so.
+    const launch = summon([ten, "--layout", "bgtree"]);
+    expect(launch.status, launch.out).toBe(0);
+    contains(launch.stdout, `Workspace [${ten}] ready in Rex (minimized: logs; summon focus ${ten} logs shows one).`);
+    const record = launched(ten);
+    const sessionId = record.rex!.sessionId;
+    const logs = record.rex!.blocks.find((b) => b.name === "logs")!.blockId;
+    const layers = layersOf(sessionId);
+    expect(layers.filter((l) => l.kind === "tiled").map((l) => l.blocks)).toEqual([[record.rex!.rootBlockId]]);
+    expect(layers.filter((l) => l.kind === "floating")).toEqual([{ kind: "floating", state: "minimized", blocks: [logs] }]);
+
+    // It keeps running while minimized: a line appended to the file reaches the block (the shell may need a while to start).
+    const marker = `e2e-marker-${suffix}`;
+    await until(() => {
+      appendFileSync(join(home, "bg.log"), `${marker}\n`);
+      return blockText(sessionId, logs).includes(marker) ? true : undefined;
+    }, 60_000, "the followed line in the minimized block");
+    contains(rowOf(summon(["status", "--once"]).stdout, ten), /active/);
+    const inspected = JSON.parse(summon(["inspect", ten, "--json"]).stdout) as { panes: Array<{ name: string; availability?: string }> };
+    expect(inspected.panes.map((p) => [p.name, p.availability])).toEqual([["editor", "available"], ["logs", "available"]]);
+
+    // summon focus shows it again: the layer is back to normal.
+    const focus = summon(["focus", ten, "logs"]);
+    expect(focus.status, focus.out).toBe(0);
+    expect(layersOf(sessionId).filter((l) => l.kind === "floating")).toEqual([{ kind: "floating", blocks: [logs] }]);
+
+    // background=false keeps the same command in the layout (--new-window: the first session stays open for the teardown).
+    const kept = summon([ten, "--layout", "bgkeep", "--new-window"]);
+    expect(kept.status, kept.out).toBe(0);
+    expect(kept.stdout).not.toContain("minimized:");
+    const keptRecord = launched(ten);
+    expect(keptRecord.rex!.sessionId).not.toBe(sessionId);
+    const keptLayers = layersOf(keptRecord.rex!.sessionId);
+    expect(keptLayers.filter((l) => l.kind === "floating")).toEqual([]);
+    expect(keptLayers.find((l) => l.kind === "tiled")!.blocks).toHaveLength(2);
   });
 
   it("C19: summon open <project> focuses a live workspace, launches a stopped or never-launched one, refuses an unknown one and names a mistyped project", { timeout: 180_000 }, async (ctx) => {
