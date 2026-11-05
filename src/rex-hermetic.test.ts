@@ -180,7 +180,7 @@ async function settle(until: () => boolean, ms = 5000): Promise<boolean> {
 beforeAll(() => {
   mkdirSync(binDir, { recursive: true });
   mkdirSync(home, { recursive: true });
-  for (const name of ["alpha", "beta", "gamma", "delta", "epsilon", "zeta"]) mkdirSync(projectDir(name), { recursive: true });
+  for (const name of ["alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta"]) mkdirSync(projectDir(name), { recursive: true });
   writeFakeRex(rex, FAKE_REX);
 });
 
@@ -352,5 +352,35 @@ describe("Rex background panes through the built CLI and the fake rex (plan Phas
     const window = readState().sessions.find((s) => s.label === "zeta")!.windows[0]!;
     expect(window.floating ?? []).toEqual([]);
     expect(opsOf(rexCalls())).not.toContain("api call session.float_block");
+  });
+
+  it("S6: a lost create answer leaves the background pane tiled; the next launch adopts the session and minimizes it, without a second create", { timeout: 60_000 }, async () => {
+    writeLayout();
+    writeState({ ...readState(), createMode: "lost" });
+    const lost = summon("eta", "--layout", "bgtree");
+    expect(lost.status).not.toBe(0);
+    expect(lost.stderr).toContain("Rex did not confirm the workspace");
+    const session = readState().sessions.find((s) => s.label === "eta")!;
+    expect(session.windows[0]!.floating ?? []).toEqual([]);
+    // The manifest, written before the create, carries the intent; the pane shells write their files late.
+    const launches = join(statusDir, "eta.launches");
+    const manifestName = readdirSync(launches).find((f) => f.endsWith(".json"))!;
+    const manifest = JSON.parse(readFileSync(join(launches, manifestName), "utf8")) as { launchId: string; paneOrder: string[]; minimize?: string[] };
+    expect(manifest.minimize).toEqual(["server"]);
+    manifest.paneOrder.forEach((pane, i) => writeFileSync(join(launches, `${manifest.launchId}.pane.${pane}`), `${session.session_id}\n${session.windows[0]!.blocks[i]}\n`));
+
+    writeState({ ...readState(), createMode: undefined } as FakeState);
+    const firstLaunch = rexCalls();
+    writeFileSync(logFile, "");
+    const next = summon("eta", "--layout", "bgtree");
+    expect(next.status, next.stderr).toBe(0);
+    expect(next.stderr).toContain(`summon: note: adopted earlier launch ${manifest.launchId} of eta (Rex session ${session.session_id})`);
+    expect(next.stderr).toContain("Workspace [eta] is already running in Rex; switched to it");
+    const adopted = readState().sessions.find((s) => s.label === "eta")!.windows[0]!;
+    expect(adopted.floating).toEqual([expect.objectContaining({ block: adopted.blocks[1], state: "minimized" })]);
+    expect(record("eta")).toMatchObject({ launchId: manifest.launchId });
+    expect(readState().sessions.filter((s) => s.label === "eta")).toHaveLength(1);
+    // One create in total: the first launch sent it, the second never did.
+    expect(opsOf([...firstLaunch, ...rexCalls()]).filter((op) => op === "api call session.create")).toHaveLength(1);
   });
 });

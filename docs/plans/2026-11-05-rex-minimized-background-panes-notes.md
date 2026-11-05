@@ -123,3 +123,36 @@ Also noted, not changed: `resolveConfig` runs twice after the setup wizard, so a
 ## Phase 3 follow-ups: addition
 
 - Docs: a pane that could not be minimized keeps the layout D11 gave it (deviation 17).
+
+### Phase 2
+
+1. Progress on the launch path (not in the plan)
+   - Plan said: the adoption minimizes background panes after the record is written; no progress text.
+   - Chose (review finding 2): `AdoptDeps.progress`; the Rex backend's `beforeLaunch` shows the transient line `Summoning <p>… minimizing background panes` while an adoption minimizes, and clears it before any notice. Status reads and `clean --orphans` stay silent (the monitor already shows "updating…").
+   - Why: the pass can take up to about 81 s when Rex is slow, and `summon <p>` would otherwise print nothing for that time.
+2. The decision type carries the pass inputs
+   - `Decision` of kind `adopt` gains `PendingMinimize` (`server`, `minimize`, `unconfirmed`). `server` exists only to narrow the optional `LaunchManifest.server`; the comment says so.
+3. Test fixtures
+   - `src/status.reconcile.test.ts`: the shared fake `rex` logs every call and answers `describe`, `session.float_block` and `session.set_layer_state` only when the fixture sets `layers: true`; every other test still fails on an unexpected call.
+   - The hermetic scenario counts `session.create` across both launches (one in total) and asserts the switch line.
+
+Accepted limitations (second review of Phase 2, none changes a plan decision):
+
+- Interrupted adoption (finding 1, medium): the adoption record is written before the pass and the pass runs once. If the process is killed mid-pass (monitor quit, Ctrl-C of `summon status`), the panes stay normal splits and nothing retries (D10). The user sees the layout they would have had without the feature; the notices of that pass are lost.
+- A pane whose file arrives after the adoption (finding 3) gets the "its block was not confirmed" notice and is not minimized later (D10). S5's "the next launch tries again" holds on the create path, not on the adoption path.
+- A pane the user docked back into the tiled layout is minimized again when an older, still-live orphan is adopted later (finding 4); D9 protects blocks that already float.
+- Phase 3 docs: say all three.
+
+### Phase 2 review dispositions
+
+| # | Finding | Disposition |
+| --- | --- | --- |
+| 1 | Interrupted pass never retries | Accepted limitation |
+| 2 | Pass silent for up to about 81 s on the launch path | Resolved (deviation 1) |
+| 3 | Late pane file, no retry | Accepted limitation |
+| 4 | Docked-back pane re-minimized by an older orphan | Accepted limitation |
+| 5 | Test gaps (server, second orphan, `clean --orphans`, notice order, exact call lists) | Resolved: tests added, live and superseded tests assert the exact call list |
+| 6 | Hermetic "one create" only covered the second launch | Resolved (deviation 3) |
+| 7 | Reconcile fake answered layer calls for every test | Resolved (deviation 3) |
+| 8 | `server` field, `plain()` reuse, long union line | Resolved (deviation 2) |
+

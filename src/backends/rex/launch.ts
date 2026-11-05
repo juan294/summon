@@ -371,6 +371,8 @@ export interface AdoptDeps {
   ghosttyState: (project: string) => WorkspaceState;
   /** The launch's shared listings (PE-L1); without it the call lists each server once for itself. */
   listings?: SessionListings;
+  /** Replaces the launch's transient line while the adoption minimizes background panes (up to about 80 s when Rex is slow); never a notice. */
+  progress?: (label: string) => void;
 }
 
 export function adoptDeps(binary: string, listings?: SessionListings): AdoptDeps {
@@ -384,10 +386,18 @@ export function adoptDeps(binary: string, listings?: SessionListings): AdoptDeps
   };
 }
 
+/** What the adoption does with an earlier launch's background panes (D9): the ones its pane files name, and the ones they do not name yet. */
+interface PendingMinimize {
+  /** The manifest's server, narrowed to a string (`LaunchManifest.server` is optional; an orphan always has one). */
+  server: string;
+  minimize: MinimizeTarget[];
+  unconfirmed: string[];
+}
+
 type Decision =
   | { kind: "report"; notice: string }
   | { kind: "remove"; manifest: LaunchManifest }
-  | { kind: "adopt"; manifest: LaunchManifest; record: WorkspaceStatus; sessionId: string };
+  | ({ kind: "adopt"; manifest: LaunchManifest; record: WorkspaceStatus; sessionId: string } & PendingMinimize);
 
 export type OrphanRemoval = { outcome: "superseded" } | ({ outcome: "removed" } & LaunchRemoval);
 
@@ -539,7 +549,15 @@ function adoptNotices(project: string, deps: AdoptDeps, options: { reportLeftove
       backend: "rex",
       rex: { server: manifest.server, hostId, sessionId: root.sessionId, windowId: window.windowId, rootBlockId: root.blockId, blocks: blockIdentities(manifest, mapping.blocks) },
     };
-    decisions.push({ kind: "adopt", manifest, record, sessionId: root.sessionId });
+    // The background panes the launch meant to minimize (D9): the ones whose block its own files prove, and the ones it cannot name yet.
+    const minimize: MinimizeTarget[] = [];
+    const unconfirmed: string[] = [];
+    for (const name of manifest.minimize ?? []) {
+      const pane = mapping.blocks.get(name);
+      if (pane) minimize.push({ name, blockId: pane });
+      else unconfirmed.push(name);
+    }
+    decisions.push({ kind: "adopt", manifest, record, sessionId: root.sessionId, server: manifest.server, minimize, unconfirmed });
   }
 
   const reports = decisions.filter((d): d is Extract<Decision, { kind: "report" }> => d.kind === "report").map((d) => d.notice);
@@ -570,6 +588,12 @@ function adoptNotices(project: string, deps: AdoptDeps, options: { reportLeftove
     if (outcome === "superseded") { notices.push({ text: superseded }); return notices; }
     adopted = true;
     notices.push({ text: `adopted earlier launch ${decision.manifest.launchId} of ${project} (Rex session ${decision.sessionId})` });
+    // A launch whose answer was lost left its background panes tiled: finish the job once. A pane that floats already is left alone (D9).
+    notices.push(...plain(decision.unconfirmed.map((name) => `pane ${name} stays in the layout as a normal split (its block was not confirmed)`)));
+    if (decision.minimize.length > 0) {
+      deps.progress?.(`Summoning ${project}… minimizing background panes`);
+      notices.push(...plain(minimizePanes(deps.cliFor(decision.server), decision.sessionId, decision.minimize, { onlyTiled: true }).notices));
+    }
   }
   return notices;
 }

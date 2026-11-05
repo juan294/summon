@@ -803,6 +803,175 @@ describe("adoptOrphans (plan P13 late adoption)", () => {
   });
 });
 
+describe("adoptOrphans: background panes (plan D9, S6)", () => {
+  const LAYER = "layer:0000aaaa-0000-0000-0000-0000000000b1";
+  const ALL = [1, 2, 3, 4, 5].map(blockId);
+  const ops = (cli: { calls: Recorded[] }) => cli.calls.map((c) => c.op);
+
+  /** An orphan of the `full` layout (shell is block 4) whose manifest asks to minimize `minimize`; `except` panes have no pane file yet. */
+  function orphan(minimize: string[] = ["shell"], except: string[] = []): void {
+    writeLaunchManifest(manifestFor(ID, { minimize }));
+    fullBuild().paneOrder.forEach((name, i) => { if (!except.includes(name)) writePane(ID, name, SESSION, blockId(i + 1)); });
+  }
+
+  /** A server where the session exists and shows `view`; `extra` replaces one answer. */
+  function server(view: unknown, extra: Partial<Record<RexResult["op"], Answer>> = {}) {
+    return fakeCli({
+      "ls": () => ok("ls", { sessions: [{ session_id: SESSION, label: "chapa" }] }),
+      "session-view": () => ok("session-view", view),
+      "api-describe": () => ok("api-describe", {}),
+      "block-float": () => ok("block-float", { layer_id: LAYER, revision: 2 }),
+      "layer-state": () => ok("layer-state", { revision: 3 }),
+      ...extra,
+    });
+  }
+
+  it("minimizes a background pane that is still tiled, once, after the adoption line", () => {
+    orphan();
+    const cli = server(layersView(ALL));
+    const notices = adoptOrphans("chapa", depsFor({ [SERVER]: cli }));
+    expect(notices).toEqual([`adopted earlier launch ${ID} of chapa (Rex session ${SESSION})`]);
+    // The adoption's own reads first, then the capability check, the tiled check and the two calls.
+    expect(ops(cli)).toEqual(["ls", "session-view", "api-describe", "session-view", "block-float", "layer-state"]);
+    expect(JSON.parse(cli.calls.find((c) => c.op === "block-float")!.input!)).toEqual({ session_id: SESSION, block_id: blockId(4), bounds: floatBounds(0) });
+    expect(JSON.parse(cli.calls.find((c) => c.op === "layer-state")!.input!)).toEqual({ session_id: SESSION, layer_id: LAYER, state: "minimized" });
+    expect(readStatusRecord("chapa")).toMatchObject({ launchId: ID, backend: "rex" });
+  });
+
+  it.each([
+    ["floating (the user or the launch before it floated it)", { blocks: [blockId(4)] }],
+    ["minimized already", { blocks: [blockId(4)], state: "minimized" }],
+  ])("leaves a pane alone when it is %s, with no call and no notice", (_label, floating) => {
+    orphan();
+    const cli = server(layersView([1, 2, 3, 5].map(blockId), [floating]));
+    const notices = adoptOrphans("chapa", depsFor({ [SERVER]: cli }));
+    expect(notices).toEqual([`adopted earlier launch ${ID} of chapa (Rex session ${SESSION})`]);
+    expect(ops(cli)).toEqual(["ls", "session-view", "api-describe", "session-view"]);
+  });
+
+  it("names a background pane whose pane file has not appeared and makes no call for it", () => {
+    orphan(["shell"], ["shell"]);
+    const cli = server(layersView([1, 2, 3, 5].map(blockId)));
+    const notices = adoptOrphans("chapa", depsFor({ [SERVER]: cli }));
+    expect(notices).toEqual([
+      `adopted earlier launch ${ID} of chapa (Rex session ${SESSION})`,
+      "pane shell stays in the layout as a normal split (its block was not confirmed)",
+    ]);
+    expect(ops(cli)).toEqual(["ls", "session-view"]);
+  });
+
+  it("says why when the minimize cannot be done, after the adoption line, and never as routine housekeeping", () => {
+    orphan();
+    const cli = server(layersView(ALL), { "api-describe": () => fail("api-describe", "not-found", "none", "API method not found") });
+    const notices = adoptOrphansForLaunch("chapa", depsFor({ [SERVER]: cli }));
+    expect(notices).toEqual([
+      { text: `adopted earlier launch ${ID} of chapa (Rex session ${SESSION})` },
+      { text: "this Rex build cannot minimize floating panes (session.set_layer_state is missing); shell stays in the layout. Update Rex to use background panes." },
+    ]);
+    expect(notices.every((n) => n.routine === undefined)).toBe(true);
+    expect(readStatusRecord("chapa")).toMatchObject({ launchId: ID });
+  });
+
+  it("does nothing to an orphan that is only reported as an extra session while another record is live", () => {
+    withOwnedRecord("chapa", "replace", () => ghosttyOf(recordFor(ID2)));
+    orphan();
+    const cli = server(layersView(ALL));
+    const notices = adoptOrphans("chapa", depsFor({ [SERVER]: cli }, { ghosttyState: () => "active" }));
+    expect(notices[0]).toContain("extra Rex session");
+    // Only the orphan's own verification: no capability check, no layer read, no float, no minimize.
+    expect(ops(cli)).toEqual(["ls", "session-view"]);
+  });
+
+  it("does nothing when another launch published meanwhile (superseded)", () => {
+    orphan();
+    const cli = server(layersView(ALL));
+    statusTestHooks.beforeLock = () => { writeFileSync(join(STATUS_DIR, "chapa.json"), JSON.stringify(recordFor(ID2))); };
+    const notices = adoptOrphans("chapa", depsFor({ [SERVER]: cli }));
+    expect(notices).toEqual(["another launch of chapa published meanwhile; nothing adopted or removed"]);
+    expect(ops(cli)).toEqual(["ls", "session-view"]);
+  });
+
+  it("an orphan without a minimize list makes exactly the calls it always made", () => {
+    writeLaunchManifest(manifestFor());
+    fullBuild().paneOrder.forEach((name, i) => writePane(ID, name, SESSION, blockId(i + 1)));
+    const cli = server(layersView(ALL));
+    adoptOrphans("chapa", depsFor({ [SERVER]: cli }));
+    expect(ops(cli)).toEqual(["ls", "session-view"]);
+  });
+
+  it("uses the adopted orphan's own server, not another one in play", () => {
+    const OTHER_SERVER = "unix:///mock/other.sock";
+    writeLaunchManifest(manifestFor(ID, { server: OTHER_SERVER, minimize: ["shell"] }));
+    fullBuild().paneOrder.forEach((name, i) => writePane(ID, name, SESSION, blockId(i + 1)));
+    const decoy = fakeCli({}, SERVER); // any call to it throws
+    const cli = fakeCli({
+      "ls": () => ok("ls", { sessions: [{ session_id: SESSION, label: "chapa" }] }),
+      "session-view": () => ok("session-view", layersView(ALL)),
+      "api-describe": () => ok("api-describe", {}),
+      "block-float": () => ok("block-float", { layer_id: LAYER, revision: 2 }),
+      "layer-state": () => ok("layer-state", { revision: 3 }),
+    }, OTHER_SERVER);
+    adoptOrphans("chapa", depsFor({ [SERVER]: decoy, [OTHER_SERVER]: cli }));
+    expect(decoy.calls).toEqual([]);
+    expect(cli.calls.every((c) => c.server === OTHER_SERVER)).toBe(true);
+    expect(ops(cli)).toContain("layer-state");
+  });
+
+  it("minimizes only the orphan it adopts: a second adoptable orphan is reported as an extra session and left alone", () => {
+    const session2 = "session:0000eeee-0000-0000-0000-000000000001";
+    orphan();
+    writeLaunchManifest(manifestFor(ID2, { startedAt: "2026-10-29T11:00:00.000Z", minimize: ["shell"] }));
+    fullBuild().paneOrder.forEach((name, i) => writePane(ID2, name, session2, blockId(i + 1)));
+    const cli = fakeCli({
+      "ls": () => ok("ls", { sessions: [{ session_id: SESSION, label: "chapa" }, { session_id: session2, label: "chapa" }] }),
+      "session-view": (_argv, input) => ok("session-view", { ...layersView(ALL), session_id: JSON.parse(input!).session_id }),
+      "api-describe": () => ok("api-describe", {}),
+      "block-float": () => ok("block-float", { layer_id: LAYER, revision: 2 }),
+      "layer-state": () => ok("layer-state", { revision: 3 }),
+    });
+    const notices = adoptOrphans("chapa", depsFor({ [SERVER]: cli }));
+    expect(notices).toEqual([
+      `adopted earlier launch ${ID} of chapa (Rex session ${SESSION})`,
+      `extra Rex session [chapa] ${session2} from earlier launch ${ID2}; rex kill ${session2} closes it`,
+    ]);
+    const floated = cli.calls.filter((c) => c.op === "block-float").map((c) => JSON.parse(c.input!).session_id);
+    expect(floated).toEqual([SESSION]);
+  });
+
+  it("clean --orphans (reportLeftovers: false) finishes the adoption the same way", () => {
+    orphan();
+    const cli = server(layersView(ALL));
+    const notices = adoptOrphans("chapa", depsFor({ [SERVER]: cli }), { reportLeftovers: false });
+    expect(notices).toEqual([`adopted earlier launch ${ID} of chapa (Rex session ${SESSION})`]);
+    expect(ops(cli)).toContain("layer-state");
+  });
+
+  it("with a pane that has no file yet and one that has, minimizes the one and names the other, in that order after the adoption line", () => {
+    orphan(["editor-2", "shell"], ["shell"]);
+    const cli = server(layersView(ALL));
+    const notices = adoptOrphansForLaunch("chapa", depsFor({ [SERVER]: cli }));
+    expect(notices).toEqual([
+      { text: `adopted earlier launch ${ID} of chapa (Rex session ${SESSION})` },
+      { text: "pane shell stays in the layout as a normal split (its block was not confirmed)" },
+    ]);
+    expect(JSON.parse(cli.calls.find((c) => c.op === "block-float")!.input!).block_id).toBe(blockId(2));
+  });
+
+  it("tells a launch's transient line what the wait is for, only when there is something to minimize", () => {
+    const progress = vi.fn();
+    orphan();
+    adoptOrphans("chapa", depsFor({ [SERVER]: server(layersView(ALL)) }, { progress }));
+    expect(progress).toHaveBeenCalledWith("Summoning chapa… minimizing background panes");
+    rmSync(join(STATUS_DIR, "chapa.json"), { force: true });
+    rmSync(launchArtifactPaths("chapa", ID).dir, { recursive: true, force: true });
+    const quiet = vi.fn();
+    writeLaunchManifest(manifestFor());
+    fullBuild().paneOrder.forEach((name, i) => writePane(ID, name, SESSION, blockId(i + 1)));
+    adoptOrphans("chapa", depsFor({ [SERVER]: server(layersView(ALL)) }, { progress: quiet }));
+    expect(quiet).not.toHaveBeenCalled();
+  });
+});
+
 describe("refreshPaneMapping", () => {
   it("fills in delayed pane files for the current generation under the lock and ignores a changed generation", () => {
     writeLaunchManifest(manifestFor());

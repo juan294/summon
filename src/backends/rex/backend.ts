@@ -201,7 +201,15 @@ export function createRexBackend(context: RexLaunchContext, deps: RexBackendDeps
     beforeLaunch(project: string): LaunchDecision {
       startLauncherTabWatch(context);
       const listings = sessionListings();
-      for (const notice of adoptOrphansForLaunch(project, adoptDeps(context.rexBinary, listings))) note(notice.text, { routine: notice.routine === true });
+      // An adoption that minimizes background panes can take a while when Rex is slow: the transient line says so, and is gone before any notice.
+      const progress = transientLine();
+      let adopted: ReturnType<typeof adoptOrphansForLaunch>;
+      try {
+        adopted = adoptOrphansForLaunch(project, { ...adoptDeps(context.rexBinary, listings), progress: progress.show });
+      } finally {
+        progress.clear();
+      }
+      for (const notice of adopted) note(notice.text, { routine: notice.routine === true });
       decidedOn = readStatusRecord(project)?.launchId ?? null;
       return maybeSwitchToExisting(project, newWindow, { cliFor: serverCli, callerSession: deps.callerSession, listings });
     },
