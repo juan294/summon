@@ -113,11 +113,12 @@ export function parseSessionView(json: unknown): SessionView | undefined {
   return { sessionId: raw["session_id"], label: typeof raw["label"] === "string" ? raw["label"] : "", revision: raw["revision"], windows };
 }
 
-/** `api call session.view -` for one session (non-mutating; read defaults). */
+/** The `session.view` call for one session (non-mutating; read defaults); the readers differ only in what they parse. */
 function callSessionView(cli: RexCli, sessionId: string): RexResult {
   return cli.call("session-view", ["api", "call", "session.view", "-"], { input: JSON.stringify({ session_id: sessionId }) });
 }
 
+/** `api call session.view -` for one session, parsed into windows and their blocks. */
 export function viewSession(cli: RexCli, sessionId: string): { ok: true; view: SessionView } | RexFailure {
   const result = callSessionView(cli, sessionId);
   if (!result.ok) return result;

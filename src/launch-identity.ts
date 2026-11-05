@@ -297,10 +297,13 @@ export function isPaneNameList(value: unknown): value is string[] {
   return isStringArray(value) && value.every((name) => PANE_NAME_RE.test(name));
 }
 
-/** The `minimize` field of a parsed manifest: pane names that are in `paneOrder`, or nothing (advisory, never a reason to reject the manifest). */
+/**
+ * The `minimize` field of a parsed manifest: pane names that are in `paneOrder` and are not its first pane (which holds the
+ * cleanup trap and is never minimized), or nothing (advisory, never a reason to reject the manifest).
+ */
 function minimizeOf(value: unknown, paneOrder: string[]): { minimize?: string[] } {
   if (!isPaneNameList(value)) return {};
-  const names = value.filter((name) => paneOrder.includes(name));
+  const names = value.filter((name) => paneOrder.includes(name) && name !== paneOrder[0]);
   return names.length > 0 ? { minimize: names } : {};
 }
 

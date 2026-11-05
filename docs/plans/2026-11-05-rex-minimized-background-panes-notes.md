@@ -52,7 +52,7 @@ Plan: `docs/plans/2026-11-05-rex-minimized-background-panes.md`
     - Why: `launch.ts` is about 800 lines and Phase 2 adds the adoption caller there. Phase 3 docs must add `minimize.ts` to the module table in `CLAUDE.md`.
 11. Containment and progress
     - Plan said: the pass never throws (S5 to S7), no progress text.
-    - Chose: `minimizePanes` catches a defect and turns it into the notice `could not minimize background panes (<message>); <n> stays in the layout as a normal split`, keeping the panes already minimized; the transient line reads `Summoning <p>… minimizing background panes` while the pass runs.
+    - Chose: `minimizePanes` catches a defect and turns it into the notice `could not minimize background panes (<message>); check <n>[, <n>] in Rex` (it claims no state: a pane may float or already have its own notice), keeping the panes already minimized; the transient line reads `Summoning <p>… minimizing background panes` while the pass runs.
     - Why: review findings 6 and 7. A defect must not fail a launch whose session and manifest already exist, and the pass can take up to about 80 s under the lock.
 12. A recovery read that fails while Rex is still answering does not end the pass
     - Plan said (phase 1): only `timeout`, `unreachable` and `signal` failures whose recovery read also fails end the pass.
@@ -61,7 +61,7 @@ Plan: `docs/plans/2026-11-05-rex-minimized-background-panes.md`
     - Why: matches the phase text; tests `S7: a rejected float whose recovery read fails with an answer Rex gave` and the unreachable variant.
 13. `parseBlockLayers` accepts any string layer id
     - Plan said: layer ids are validated with `isKindId(..., "layer")`.
-    - Chose: validated only on the id the float call returns (it is sent back to Rex); the view's ids are not format-checked (review finding 3).
+    - Chose: the parser keeps every block whatever its layer id looks like (review finding 3); the id is checked with `isKindId` at the point where it is sent back to Rex, both when the float call returns it and when it comes from the recovery view (second review finding 5). An unreadable id from the view gives `pane <n> floats over the layout but could not be minimized (Rex returned an unreadable layer id); minimize it in Rex`.
     - Why: a layer id format change must not silently turn every tiled block into "not in the session".
 14. An invalid `pane.<name>.background` value warns under Ghostty too
     - Plan said: D12 "Ghostty ignores the key silently" and S11 "invalid value: warning naming the key".
@@ -70,6 +70,14 @@ Plan: `docs/plans/2026-11-05-rex-minimized-background-panes.md`
     - The Ghostty-unchanged test is in `src/dry-run-parity.test.ts` (built CLI, fresh HOME, `TERM_PROGRAM=ghostty`), not `src/launcher.test.ts`. The lock bound has its own `src/backends/rex/minimize.test.ts`.
 16. Derived lock bound
     - `MINIMIZE_WORST_CASE_MS` (81 s, from the call timeouts and the budget) replaces the hand-written numbers in the `LAUNCH_LOCK_STALE_MS` comment; `minimize.test.ts` asserts it plus 2 minutes stays below the 5 minute bound.
+
+17. D11 changes the layout of a launch where minimizing does not happen
+    - Plan said: D11, the editor size goes to the first right split that keeps a visible pane on both sides.
+    - Found (second review, finding 6): the builder decides the ratios before the capability check. With `a | b` and `b` marked background, the only right split keeps 0.5. If minimizing then does not happen (Rex without `set_layer_state`, a rejected float), `b` stays a normal split in a 50/50 layout instead of the configured `editor-size`.
+    - Chose: keep D11 as accepted. The notices already say the pane stays in the layout; Phase 3 docs must say that a pane that could not be minimized keeps the layout D11 gave it.
+    - Why: choosing the ratio after the capability check would put a Rex call into the pure request builder.
+18. The manifest parser drops the first pane from `minimize`
+    - Chose (second review, finding 7): `parseLaunchManifest` removes `paneOrder[0]` from `minimize`, so Phase 2's adoption cannot try to float the root pane (D4).
 
 ## Review and simplify dispositions (Phase 1)
 
@@ -97,3 +105,21 @@ Simplify pass (reuse, simplification, efficiency, altitude agents):
 - `docs/rex.md`: the launch lock paragraph says "about 2 minutes"; add the background-pane pass (`MINIMIZE_WORST_CASE_MS`).
 - `CLAUDE.md` module table: add `backends/rex/minimize.ts` (and `background-command.ts` when it exists).
 - Docs: an invalid `pane.<name>.background` value warns under both backends; `false` and `true` are silent under Ghostty.
+
+## Second review (fresh context, on commit `d163595`): 7 low findings
+
+| # | Finding | Disposition |
+| --- | --- | --- |
+| 1 | Containment notice could say "stays in the layout" for a floating pane | Resolved (deviation 11): the notice claims no state |
+| 2 | "Pane file names the block" test could not tell file from position | Resolved: the view now starts with the root block and lists the rest in another order |
+| 3 | Three untested branches in `minimize.ts` | Resolved: three tests added |
+| 4 | `viewSession` lost its doc comment | Resolved |
+| 5 | Layer id from the recovery view reused unvalidated | Resolved (deviation 13) |
+| 6 | D11 ratio on the fallback path | Recorded (deviation 17), no code change |
+| 7 | Manifest `minimize` could list the root pane | Resolved (deviation 18) |
+
+Also noted, not changed: `resolveConfig` runs twice after the setup wizard, so an invalid `pane.<n>.background` value could warn twice on that rare path.
+
+## Phase 3 follow-ups: addition
+
+- Docs: a pane that could not be minimized keeps the layout D11 gave it (deviation 17).

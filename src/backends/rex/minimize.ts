@@ -53,6 +53,7 @@ export function floatBounds(index: number): [number, number, number, number] {
 const stay = (names: readonly string[]): string => (names.length === 1 ? `${names[0]} stays` : `${names.join(", ")} stay`);
 const staysInLayout = (names: readonly string[]): string => `${stay(names)} in the layout as ${names.length === 1 ? "a normal split" : "normal splits"}`;
 const paneStays = (name: string, why: string): string => `pane ${name} stays in the layout as a normal split (${why})`;
+const floatsOnly = (name: string, why: string): string => `pane ${name} floats over the layout but could not be minimized (${why}); minimize it in Rex`;
 const paneMayFloat = (name: string): string => `pane ${name} may float over the layout (Rex stopped answering); check it in Rex`;
 
 /** A failure that says Rex did not answer, as opposed to Rex answering with an error. */
@@ -93,6 +94,8 @@ function minimizeOne(cli: RexCli, sessionId: string, target: MinimizeTarget, ind
     if (!info) return { kind: "left", notice: paneStays(name, "its block is not in the session") };
     if (info.tiled) return { kind: "left", notice: paneStays(name, reason) };
     if (info.minimized) return { kind: "minimized" };
+    // The id comes from the view (not from the float answer), so it is checked before it is sent back to Rex.
+    if (!isKindId(info.layerId, "layer")) return { kind: "left", notice: floatsOnly(name, "Rex returned an unreadable layer id") };
     layerId = info.layerId;
   }
   const set = cli.call("layer-state", ["api", "call", "session.set_layer_state", "-"], {
@@ -101,9 +104,9 @@ function minimizeOne(cli: RexCli, sessionId: string, target: MinimizeTarget, ind
   });
   if (set.ok) return { kind: "minimized" };
   const seen = blockLayers(cli, sessionId);
-  const floatsOnly: MinimizeStep = { kind: "left", notice: `pane ${name} floats over the layout but could not be minimized (${set.reason}); minimize it in Rex` };
-  if (!seen.ok) return set.outcome === "unknown" || unanswered(seen) ? { kind: "stopped", inDoubt: true } : floatsOnly;
-  return seen.layers.get(target.blockId)?.minimized ? { kind: "minimized" } : floatsOnly;
+  const left: MinimizeStep = { kind: "left", notice: floatsOnly(name, set.reason) };
+  if (!seen.ok) return set.outcome === "unknown" || unanswered(seen) ? { kind: "stopped", inDoubt: true } : left;
+  return seen.layers.get(target.blockId)?.minimized ? { kind: "minimized" } : left;
 }
 
 function minimizePass(cli: RexCli, sessionId: string, targets: readonly MinimizeTarget[], options: MinimizeOptions, result: MinimizeResult): void {
@@ -162,8 +165,9 @@ export function minimizePanes(cli: RexCli, sessionId: string, targets: readonly 
   try {
     minimizePass(cli, sessionId, targets, options, result);
   } catch (error) {
-    // Presentation only (D5): a defect here must not fail a launch whose session and manifest already exist.
-    result.notices.push(`could not minimize background panes (${getErrorMessage(error)}); ${staysInLayout(targets.map((t) => t.name).filter((name) => !result.minimized.includes(name)))}`);
+    // Presentation only (D5): a defect here must not fail a launch whose session and manifest already exist. The state of
+    // the panes not yet minimized is not known (one may float, one may already have a notice), so the notice claims none.
+    result.notices.push(`could not minimize background panes (${getErrorMessage(error)}); check ${targets.map((t) => t.name).filter((name) => !result.minimized.includes(name)).join(", ")} in Rex`);
   }
   return result;
 }

@@ -244,6 +244,9 @@ describe("launch manifests", () => {
     expect(parseLaunchManifest({ ...manifest(), minimize: ["sidebar", 3] })).toEqual(manifest());
     // BE-L3: a pane name is an identifier, never a path.
     expect(parseLaunchManifest({ ...manifest(), minimize: [`x/../${OTHER}`] })).toEqual(manifest());
+    // The first pane (it holds the cleanup trap and keeps the window visible) is never minimized, so a manifest cannot ask for it.
+    expect(parseLaunchManifest({ ...manifest(), minimize: ["editor", "sidebar"] })).toEqual({ ...manifest(), minimize: ["sidebar"] });
+    expect(parseLaunchManifest({ ...manifest(), minimize: ["editor"] })).toEqual(manifest());
   });
 
   it("minimize round-trips through write and read", () => {
