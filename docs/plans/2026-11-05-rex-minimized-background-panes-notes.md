@@ -63,9 +63,9 @@ Plan: `docs/plans/2026-11-05-rex-minimized-background-panes.md`
     - Plan said: layer ids are validated with `isKindId(..., "layer")`.
     - Chose: the parser keeps every block whatever its layer id looks like (review finding 3); the id is checked with `isKindId` at the point where it is sent back to Rex, both when the float call returns it and when it comes from the recovery view (second review finding 5). An unreadable id from the view gives `pane <n> floats over the layout but could not be minimized (Rex returned an unreadable layer id); minimize it in Rex`.
     - Why: a layer id format change must not silently turn every tiled block into "not in the session".
-14. An invalid `pane.<name>.background` value warns under Ghostty too
+14. An invalid `pane.<name>.background` value warns under Rex only (changed 2026-11-05 on the owner's decision; first it warned under Ghostty too)
     - Plan said: D12 "Ghostty ignores the key silently" and S11 "invalid value: warning naming the key".
-    - Chose: S11 (config validation is backend-independent, review finding 4). A valid value is silent under Ghostty; the Ghostty dry-run script is identical for `true`, `false` and no key. Phase 3 docs must say so. The key did not exist before, so no existing configuration gains a warning.
+    - First chose: S11 (config validation is backend-independent, review finding 4). Then, 2026-11-05, the owner chose silent under Ghostty: the parser collects the messages and only the Rex backend prints them. A valid value is silent under Ghostty; the Ghostty dry-run script is identical for `true`, `false` and no key. Phase 3 docs must say so. The key did not exist before, so no existing configuration gains a warning.
 15. Test locations
     - The Ghostty-unchanged test is in `src/dry-run-parity.test.ts` (built CLI, fresh HOME, `TERM_PROGRAM=ghostty`), not `src/launcher.test.ts`. The lock bound has its own `src/backends/rex/minimize.test.ts`.
 16. Derived lock bound
@@ -104,7 +104,7 @@ Simplify pass (reuse, simplification, efficiency, altitude agents):
 
 - `docs/rex.md`: the launch lock paragraph says "about 2 minutes"; add the background-pane pass (`MINIMIZE_WORST_CASE_MS`).
 - `CLAUDE.md` module table: add `backends/rex/minimize.ts` (and `background-command.ts` when it exists).
-- Docs: an invalid `pane.<name>.background` value warns under both backends; `false` and `true` are silent under Ghostty.
+- Docs: an invalid `pane.<name>.background` value warns under Rex only (owner decision 2026-11-05: silent under Ghostty); `false` and `true` are silent under Ghostty.
 
 ## Second review (fresh context, on commit `d163595`): 7 low findings
 
@@ -118,7 +118,7 @@ Simplify pass (reuse, simplification, efficiency, altitude agents):
 | 6 | D11 ratio on the fallback path | Recorded (deviation 17), no code change |
 | 7 | Manifest `minimize` could list the root pane | Resolved (deviation 18) |
 
-Also noted, not changed: `resolveConfig` runs twice after the setup wizard, so an invalid `pane.<n>.background` value could warn twice on that rare path.
+Resolved 2026-11-05: the parser no longer writes; the Rex backend prints the collected messages, so the double resolve after the wizard cannot warn twice.
 
 ## Phase 3 follow-ups: addition
 

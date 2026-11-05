@@ -222,7 +222,7 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
     }
   }
 
-  const { opts, machineConfig, starshipPreset, onStart, onStop, envVars, treeLayout, paneBackground } = config;
+  const { opts, machineConfig, starshipPreset, onStart, onStop, envVars, treeLayout, paneBackground, paneBackgroundWarnings } = config;
 
   if (await warnIfNested(opts, dryRun, backend)) {
     // UX-L3: declining is a user cancel: exit 130, without an error line or the debug hint.
@@ -336,6 +336,7 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
       ensureAndResolve,
       resolveStarship,
       ...(paneBackground ? { paneBackground } : {}),
+      ...(paneBackgroundWarnings ? { paneBackgroundWarnings } : {}),
     },
     backend,
     starshipPreset,

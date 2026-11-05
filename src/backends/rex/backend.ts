@@ -9,7 +9,7 @@ import type { CLIOverrides } from "../../config-resolve.js";
 import type { LaunchManifest } from "../../launch-identity.js";
 import { LAUNCH_LOCK_STALE_MS, launchLockFile, readStatusRecord } from "../../status-record.js";
 import { withFileLockAsync } from "../../file-lock.js";
-import { note, out } from "../../ui/output.js";
+import { note, out, warn } from "../../ui/output.js";
 import { sym } from "../../ui/symbols.js";
 import { createRexCli, probeWhoami } from "./cli.js";
 import type { RexCli } from "./cli.js";
@@ -144,6 +144,7 @@ export function createRexBackend(context: RexLaunchContext, deps: RexBackendDeps
       ...(kept && kept.keeps.length > 0 ? { keeps: kept.keeps } : {}),
       ...(build.minimize.length > 0 ? { minimize: build.minimize } : {}),
     };
+    for (const message of ctx.paneBackgroundWarnings ?? []) warn(message);
     // A background=true the layout cannot honor is said before anything is created (the launch goes on).
     for (const name of build.ignoredBackground) {
       note(`pane ${name} cannot be minimized (the first pane and a pane without a command stay in the layout); pane.${name}.background ignored`);

@@ -337,12 +337,13 @@ export function extractPaneCwds(config: Map<string, string>): Map<string, string
 /**
  * Extract per-pane background flags (keys matching `pane.<name>.background`, value `true` or `false`).
  * Only the Rex backend reads them (a background pane opens minimized); Ghostty ignores them. An invalid
- * value warns once and leaves that pane to autodetection. `source` names where the config came from.
+ * value leaves that pane to autodetection and adds one message to `invalid`; the parser writes nothing,
+ * because the backend is not known yet (the Rex backend prints the messages). `source` names where the config came from.
  */
-export function extractPaneBackground(config: Map<string, string>, source: string): Map<string, boolean> {
+export function extractPaneBackground(config: Map<string, string>, source: string, invalid: string[]): Map<string, boolean> {
   return extractPaneOption(config, PANE_BACKGROUND_RE, (value, key) => {
     if (value === "true" || value === "false") return value === "true";
-    warn(`Invalid ${key} value in ${source}: "${value}". Use true or false. Ignoring.`);
+    invalid.push(`Invalid ${key} value in ${source}: "${value}". Use true or false. Ignoring.`);
     return undefined;
   });
 }

@@ -240,6 +240,18 @@ describe("createRexBackend", () => {
       return { out: () => out.join(""), errs: () => errs.join(""), restore: () => { outSpy.mockRestore(); errSpy.mockRestore(); } };
     };
 
+    it("prints the invalid pane.<name>.background messages as warnings before the create, and still launches", async () => {
+      const { d, create } = deps({ kind: "created", ids: IDS, clientId: "client:app", notices: [] });
+      const io = spies();
+      try {
+        await createRexBackend(CONTEXT, d).launch(treePlan("a | b", { a: "vim", b: "make serve" }), ctx({ paneBackgroundWarnings: ['Invalid pane.b.background value in .summon: "yes". Use true or false. Ignoring.'] }));
+      } finally {
+        io.restore();
+      }
+      expect(io.errs()).toContain('summon: warning: Invalid pane.b.background value in .summon: "yes". Use true or false. Ignoring.');
+      expect(create).toHaveBeenCalledTimes(1);
+    });
+
     it("writes the pane names to minimize into the manifest, before the create, and keeps every pane in the request", async () => {
       const { d, create } = deps({ kind: "created", ids: IDS, clientId: "client:app", notices: [] });
       const io = spies();

@@ -69,6 +69,8 @@ export interface ResolvedConfig {
   envVars: Record<string, string>;
   /** `pane.<name>.background` flags from the layout and the project file (project wins); only the Rex backend reads them. */
   paneBackground?: Map<string, boolean>;
+  /** Messages for invalid `pane.<name>.background` values; only the Rex backend prints them. */
+  paneBackgroundWarnings?: string[];
   treeLayout?: {
     tree: LayoutNode;
     panes: Map<string, string>;
@@ -209,7 +211,7 @@ export function pickConfigValue(
  */
 function resolveLayoutBase(
   layoutKey: string | undefined,
-): { base: Partial<LayoutOptions>; treeLayout?: ResolvedConfig["treeLayout"]; paneBackground?: Map<string, boolean> } {
+): { base: Partial<LayoutOptions>; treeLayout?: ResolvedConfig["treeLayout"]; paneBackground?: Map<string, boolean>; backgroundWarnings?: string[] } {
   if (!layoutKey) return { base: {} };
 
   if (isPresetName(layoutKey)) {
@@ -248,14 +250,15 @@ function resolveLayoutBase(
     if (customData.has("maximize")) base.maximize = customData.get("maximize") === "true";
     if (customData.has("float")) base.float = customData.get("float") === "true";
 
-    const paneBackground = extractPaneBackground(customData, `custom layout "${layoutKey}"`);
+    const backgroundWarnings: string[] = [];
+    const paneBackground = extractPaneBackground(customData, `custom layout "${layoutKey}"`, backgroundWarnings);
 
     const treeExpr = customData.get("tree");
     if (treeExpr) {
       const tree = parseTreeDSL(treeExpr);
       const panes = extractPaneDefinitions(customData);
       const paneCwds = extractPaneCwds(customData);
-      return { base, paneBackground, treeLayout: { tree, panes, paneCwds: paneCwds.size > 0 ? paneCwds : undefined, layoutName: layoutKey } };
+      return { base, paneBackground, backgroundWarnings, treeLayout: { tree, panes, paneCwds: paneCwds.size > 0 ? paneCwds : undefined, layoutName: layoutKey } };
     }
 
     // Traditional custom layout (no tree= key)
@@ -273,7 +276,7 @@ function resolveLayoutBase(
       }
     }
     if (customData.has("shell")) base.shell = customData.get("shell");
-    return { base, paneBackground };
+    return { base, paneBackground, backgroundWarnings };
   }
 
   warn(
@@ -370,7 +373,7 @@ export function resolveConfig(targetDir: string, cliOverrides: CLIOverrides, sum
   const machineConfig = listConfig();
 
   const layoutKey = cliOverrides.layout ?? project.get("layout") ?? machineConfig.get("layout");
-  const { base, treeLayout, paneBackground: layoutBackground } = resolveLayoutBase(layoutKey);
+  const { base, treeLayout, paneBackground: layoutBackground, backgroundWarnings: layoutWarnings = [] } = resolveLayoutBase(layoutKey);
   const opts = layerConfigValues(base, cliOverrides, project, machineConfig);
 
   const starshipPreset = pickConfigValue(cliOverrides["starship-preset"], "starship-preset", project, machineConfig);
@@ -395,9 +398,10 @@ export function resolveConfig(targetDir: string, cliOverrides: CLIOverrides, sum
   }
 
   // The project file's flags replace the layout's, pane by pane (the same order as the per-pane cwd merge above).
-  const mergedBackground = new Map([...(layoutBackground ?? []), ...extractPaneBackground(project, ".summon")]);
+  const backgroundWarnings = [...layoutWarnings];
+  const mergedBackground = new Map([...(layoutBackground ?? []), ...extractPaneBackground(project, ".summon", backgroundWarnings)]);
 
-  return { opts, projectOverrides: project, machineConfig, starshipPreset, onStart, onStop, envVars, treeLayout: mergedTreeLayout, ...(mergedBackground.size > 0 ? { paneBackground: mergedBackground } : {}) };
+  return { opts, projectOverrides: project, machineConfig, starshipPreset, onStart, onStop, envVars, treeLayout: mergedTreeLayout, ...(mergedBackground.size > 0 ? { paneBackground: mergedBackground } : {}), ...(backgroundWarnings.length > 0 ? { paneBackgroundWarnings: backgroundWarnings } : {}) };
 }
 
 /**

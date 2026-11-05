@@ -42,7 +42,7 @@ Under Ghostty, the tab you type `summon <project>` in becomes the workspace. Und
 
 ## Background panes
 
-A pane that only runs a background program (a dev server, a watcher, a log follower) opens minimized: Rex shows it as a capsule over the workspace and the program keeps running. Summon still creates the session with one `session.create`, so every program starts once; `session.create` cannot make a floating layer, so right after the create, and before any app shows the session, each background pane is floated out of the layout (`session.float_block`) and its layer minimized (`session.set_layer_state`). Ghostty keeps a normal split and ignores everything on this page, except that an invalid `background` value warns under both terminals.
+A pane that only runs a background program (a dev server, a watcher, a log follower) opens minimized: Rex shows it as a capsule over the workspace and the program keeps running. Summon still creates the session with one `session.create`, so every program starts once; `session.create` cannot make a floating layer, so right after the create, and before any app shows the session, each background pane is floated out of the layout (`session.float_block`) and its layer minimized (`session.set_layer_state`). Ghostty keeps a normal split and ignores everything on this page, including an invalid `background` value.
 
 **Which panes.** A pane is a background pane when its command is one of these (a command that is not listed stays visible):
 
@@ -54,7 +54,7 @@ A pane that only runs a background program (a dev server, a watcher, a log follo
 
 Leading `NAME=value` words and an absolute path to the program do not matter. A command with a pipe, a chain (`&&`, `;`), a redirect or a substitution is never guessed, and neither is one asked for its help or version (`--help`, `--version`, `vite -v`). The table is a convenience, not a guess about what you want to read: a script such as `npm run dev:lint` matches the script rule, and `ngrok http` and `stripe listen` print a URL or a secret you may want to see, so set `pane.<name>.background=false` for those, or run `summon focus <project> <pane>`. Option forms the table does not look through (`vite --port 3000`, `pnpm -F web dev`, `flask --app x run`, `docker compose -f file.yml up`) are not detected and stay visible; `pane.<name>.background=true` covers them.
 
-**The key.** `pane.<name>.background=true` in a layout file or a `.summon` minimizes that pane whatever its command; `=false` keeps it in the layout. The project's `.summon` wins over the layout for the same pane. There is no flag and no machine config key. A value other than `true` or `false` prints a warning (under both terminals) and is ignored.
+**The key.** `pane.<name>.background=true` in a layout file or a `.summon` minimizes that pane whatever its command; `=false` keeps it in the layout. The project's `.summon` wins over the layout for the same pane. There is no flag and no machine config key. Under Rex, a value other than `true` or `false` prints a warning and is ignored; Ghostty ignores it silently.
 
 **Never minimized.** The first pane (it holds the cleanup trap and keeps the window visible) and a pane without a command. `background=true` on one of them prints `pane <name> cannot be minimized (the first pane and a pane without a command stay in the layout); pane.<name>.background ignored` and the launch goes on; a command that is only in the table (no key) is simply left alone.
 
