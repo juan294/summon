@@ -978,3 +978,55 @@ describe("readTrustedSummonFile", () => {
     expect(() => readTrustedSummonFile("/tmp/workspace", {})).toThrow(SummonError);
   });
 });
+
+describe("pane.<name>.background resolution", () => {
+  it("reads the flags of a custom tree layout", () => {
+    mockIsCustomLayout.mockReturnValue(true);
+    mockReadCustomLayout.mockReturnValue(new Map([["tree", "editor | server"], ["pane.editor", "vim"], ["pane.server", "npm run dev"], ["pane.server.background", "true"]]));
+    const result = resolveConfigWithMockedSummon("/tmp/workspace", { layout: "mywork" });
+    expect([...result.paneBackground!]).toEqual([["server", true]]);
+  });
+
+  it("reads the flags of a traditional custom layout", () => {
+    mockIsCustomLayout.mockReturnValue(true);
+    mockReadCustomLayout.mockReturnValue(new Map([["editor", "vim"], ["shell", "npm run dev"], ["pane.shell.background", "true"]]));
+    const result = resolveConfigWithMockedSummon("/tmp/workspace", { layout: "mywork" });
+    expect([...result.paneBackground!]).toEqual([["shell", true]]);
+  });
+
+  it("lets the project file replace the layout's flag and add its own, on a preset too", () => {
+    mockIsCustomLayout.mockReturnValue(true);
+    mockReadCustomLayout.mockReturnValue(new Map([["tree", "editor | server"], ["pane.editor", "vim"], ["pane.server", "npm run dev"], ["pane.server.background", "true"]]));
+    mockReadKVFile.mockReturnValue(new Map([["pane.server.background", "false"], ["pane.editor.background", "true"]]));
+    const custom = resolveConfigWithMockedSummon("/tmp/workspace", { layout: "mywork" });
+    expect([...custom.paneBackground!].sort()).toEqual([["editor", true], ["server", false]]);
+
+    mockIsCustomLayout.mockReturnValue(false);
+    mockReadKVFile.mockReturnValue(new Map([["pane.shell.background", "true"]]));
+    const preset = resolveConfigWithMockedSummon("/tmp/workspace", { layout: "full" });
+    expect([...preset.paneBackground!]).toEqual([["shell", true]]);
+  });
+
+  it("returns undefined when no layout or project file sets a flag", () => {
+    expect(resolveConfigWithMockedSummon("/tmp/workspace", {}).paneBackground).toBeUndefined();
+  });
+
+  it("collects a message per invalid value from the layout and the project file, and writes nothing", () => {
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    mockIsCustomLayout.mockReturnValue(true);
+    mockReadCustomLayout.mockReturnValue(new Map([["tree", "editor | server"], ["pane.editor", "vim"], ["pane.server", "npm run dev"], ["pane.server.background", "maybe"]]));
+    mockReadKVFile.mockReturnValue(new Map([["pane.editor.background", "yes"]]));
+    const result = resolveConfigWithMockedSummon("/tmp/workspace", { layout: "mywork" });
+    const written = stderr.mock.calls.map((c) => String(c[0])).filter((t) => t.includes("background"));
+    stderr.mockRestore();
+    expect(result.paneBackgroundWarnings).toEqual([
+      'Invalid pane.server.background value in custom layout "mywork": "maybe". Use true or false. Ignoring.',
+      'Invalid pane.editor.background value in .summon: "yes". Use true or false. Ignoring.',
+    ]);
+    expect(written).toEqual([]);
+  });
+
+  it("has no warnings field when every value is valid", () => {
+    expect(resolveConfigWithMockedSummon("/tmp/workspace", {}).paneBackgroundWarnings).toBeUndefined();
+  });
+});

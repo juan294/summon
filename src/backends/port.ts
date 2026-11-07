@@ -52,6 +52,10 @@ export interface BackendLaunchContext {
   ensureAndResolve: (cmd: string, key: string) => Promise<string>;
   /** Starship preset config path, or null when none applies. */
   resolveStarship: () => string | null;
+  /** `pane.<name>.background` flags (true: minimize, false: keep); only the Rex backend reads them (Ghostty keeps a normal split). */
+  paneBackground?: ReadonlyMap<string, boolean>;
+  /** Messages for invalid `pane.<name>.background` values; the Rex backend warns with them, Ghostty stays silent. */
+  paneBackgroundWarnings?: readonly string[];
 }
 
 /** Exact identity a backend captured, tagged with its backend: Ghostty's native metadata or the Rex identity, if any. */

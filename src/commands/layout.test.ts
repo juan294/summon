@@ -187,6 +187,22 @@ describe("handleLayoutCommand", () => {
     expect(logSpy).toHaveBeenCalledWith("    Panes:  main=nvim  shell=zsh");
   });
 
+  it("lists pane sub-keys as config, not as panes named x.background", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockListCustomLayouts.mockReturnValue(["bg"]);
+    mockReadCustomLayout.mockReturnValue(new Map([
+      ["pane.main", "nvim"],
+      ["pane.server", "npm run dev"],
+      ["pane.server.cwd", "./api"],
+      ["pane.server.background", "true"],
+    ]));
+
+    await handleLayoutCommand(makeContext({ args: ["list"] }));
+
+    expect(logSpy).toHaveBeenCalledWith("    Panes:  main=nvim  server=npm run dev");
+    expect(logSpy).toHaveBeenCalledWith("    Config: pane.server.cwd=./api, pane.server.background=true");
+  });
+
   it("shows custom layout contents", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     mockReadCustomLayout.mockReturnValue(new Map([

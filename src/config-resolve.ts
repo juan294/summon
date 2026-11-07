@@ -12,7 +12,7 @@ import {
 } from "./layout.js";
 import type { LayoutOptions } from "./layout.js";
 import { listConfig, readKVFromString, readCustomLayout, isCustomLayout, LAYOUT_NAME_RE } from "./config.js";
-import { parseTreeDSL, extractPaneDefinitions, extractPaneCwds, assertPaneCwdContained } from "./tree.js";
+import { parseTreeDSL, extractPaneDefinitions, extractPaneCwds, extractPaneBackground, assertPaneCwdContained } from "./tree.js";
 import type { LayoutNode } from "./tree.js";
 import { warn } from "./ui/output.js";
 import { assertTrusted, assertTrustedContent } from "./trust.js";
@@ -67,6 +67,10 @@ export interface ResolvedConfig {
   onStart?: string;
   onStop?: string;
   envVars: Record<string, string>;
+  /** `pane.<name>.background` flags from the layout and the project file (project wins); only the Rex backend reads them. */
+  paneBackground?: Map<string, boolean>;
+  /** Messages for invalid `pane.<name>.background` values; only the Rex backend prints them. */
+  paneBackgroundWarnings?: string[];
   treeLayout?: {
     tree: LayoutNode;
     panes: Map<string, string>;
@@ -207,7 +211,7 @@ export function pickConfigValue(
  */
 function resolveLayoutBase(
   layoutKey: string | undefined,
-): { base: Partial<LayoutOptions>; treeLayout?: ResolvedConfig["treeLayout"] } {
+): { base: Partial<LayoutOptions>; treeLayout?: ResolvedConfig["treeLayout"]; paneBackground?: Map<string, boolean>; backgroundWarnings?: string[] } {
   if (!layoutKey) return { base: {} };
 
   if (isPresetName(layoutKey)) {
@@ -246,12 +250,15 @@ function resolveLayoutBase(
     if (customData.has("maximize")) base.maximize = customData.get("maximize") === "true";
     if (customData.has("float")) base.float = customData.get("float") === "true";
 
+    const backgroundWarnings: string[] = [];
+    const paneBackground = extractPaneBackground(customData, `custom layout "${layoutKey}"`, backgroundWarnings);
+
     const treeExpr = customData.get("tree");
     if (treeExpr) {
       const tree = parseTreeDSL(treeExpr);
       const panes = extractPaneDefinitions(customData);
       const paneCwds = extractPaneCwds(customData);
-      return { base, treeLayout: { tree, panes, paneCwds: paneCwds.size > 0 ? paneCwds : undefined, layoutName: layoutKey } };
+      return { base, paneBackground, backgroundWarnings, treeLayout: { tree, panes, paneCwds: paneCwds.size > 0 ? paneCwds : undefined, layoutName: layoutKey } };
     }
 
     // Traditional custom layout (no tree= key)
@@ -269,7 +276,7 @@ function resolveLayoutBase(
       }
     }
     if (customData.has("shell")) base.shell = customData.get("shell");
-    return { base };
+    return { base, paneBackground, backgroundWarnings };
   }
 
   warn(
@@ -366,7 +373,7 @@ export function resolveConfig(targetDir: string, cliOverrides: CLIOverrides, sum
   const machineConfig = listConfig();
 
   const layoutKey = cliOverrides.layout ?? project.get("layout") ?? machineConfig.get("layout");
-  const { base, treeLayout } = resolveLayoutBase(layoutKey);
+  const { base, treeLayout, paneBackground: layoutBackground, backgroundWarnings: layoutWarnings = [] } = resolveLayoutBase(layoutKey);
   const opts = layerConfigValues(base, cliOverrides, project, machineConfig);
 
   const starshipPreset = pickConfigValue(cliOverrides["starship-preset"], "starship-preset", project, machineConfig);
@@ -390,7 +397,11 @@ export function resolveConfig(targetDir: string, cliOverrides: CLIOverrides, sum
     }
   }
 
-  return { opts, projectOverrides: project, machineConfig, starshipPreset, onStart, onStop, envVars, treeLayout: mergedTreeLayout };
+  // The project file's flags replace the layout's, pane by pane (the same order as the per-pane cwd merge above).
+  const backgroundWarnings = [...layoutWarnings];
+  const mergedBackground = new Map([...(layoutBackground ?? []), ...extractPaneBackground(project, ".summon", backgroundWarnings)]);
+
+  return { opts, projectOverrides: project, machineConfig, starshipPreset, onStart, onStop, envVars, treeLayout: mergedTreeLayout, ...(mergedBackground.size > 0 ? { paneBackground: mergedBackground } : {}), ...(backgroundWarnings.length > 0 ? { paneBackgroundWarnings: backgroundWarnings } : {}) };
 }
 
 /**

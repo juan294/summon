@@ -29,6 +29,8 @@ paths:
 
 Test migrations on a disposable, task-owned local stack:
 
+First follow `.rpi/rules/resource-lifecycle.md` and the project's documented lifecycle command. Verify the effective Supabase project identity and Docker ownership before starting or resetting; a worktree can inherit the primary checkout's `project_id`. The sequence below describes verification steps, not permission to reset an existing database. Finish the owned lifecycle afterwards; `stop --no-backup` deletes data volumes and is never a generic cleanup fallback.
+
 1. `supabase start` (requires a local container runtime)
 2. `supabase db reset --local` (destructive to local data; preserve shared data)
 3. `supabase status` to discover the local database endpoint

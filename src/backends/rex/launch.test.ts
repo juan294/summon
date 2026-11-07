@@ -18,7 +18,7 @@ vi.mock("../../paths.js", async (importOriginal) => {
 const { launchArtifactPaths, writeLaunchManifest, listLaunchManifests } = await import("../../launch-identity.js");
 const { readStatusRecord, withOwnedRecord, statusTestHooks } = await import("../../status-record.js");
 const { STATUS_DIR } = await import("../../paths.js");
-const { createWorkspace, readPaneFile, readPaneMapping, waitForToken, adoptOrphans, adoptOrphansForLaunch, refreshPaneMapping, maybeSwitchToExisting, keptSession, showWorkspace, showRecordedWorkspace, strandedTokenNotice } = await import("./launch.js");
+const { createWorkspace, minimizePanes, floatBounds, readPaneFile, readPaneMapping, waitForToken, adoptOrphans, adoptOrphansForLaunch, refreshPaneMapping, maybeSwitchToExisting, keptSession, showWorkspace, showRecordedWorkspace, strandedTokenNotice } = await import("./launch.js");
 const { selectInApp } = await import("./app.js");
 const { sessionListings, sessionState } = await import("./status.js");
 const { writingRoutine } = await import("../../ui/output.js");
@@ -803,6 +803,175 @@ describe("adoptOrphans (plan P13 late adoption)", () => {
   });
 });
 
+describe("adoptOrphans: background panes (plan D9, S6)", () => {
+  const LAYER = "layer:0000aaaa-0000-0000-0000-0000000000b1";
+  const ALL = [1, 2, 3, 4, 5].map(blockId);
+  const ops = (cli: { calls: Recorded[] }) => cli.calls.map((c) => c.op);
+
+  /** An orphan of the `full` layout (shell is block 4) whose manifest asks to minimize `minimize`; `except` panes have no pane file yet. */
+  function orphan(minimize: string[] = ["shell"], except: string[] = []): void {
+    writeLaunchManifest(manifestFor(ID, { minimize }));
+    fullBuild().paneOrder.forEach((name, i) => { if (!except.includes(name)) writePane(ID, name, SESSION, blockId(i + 1)); });
+  }
+
+  /** A server where the session exists and shows `view`; `extra` replaces one answer. */
+  function server(view: unknown, extra: Partial<Record<RexResult["op"], Answer>> = {}) {
+    return fakeCli({
+      "ls": () => ok("ls", { sessions: [{ session_id: SESSION, label: "chapa" }] }),
+      "session-view": () => ok("session-view", view),
+      "api-describe": () => ok("api-describe", {}),
+      "block-float": () => ok("block-float", { layer_id: LAYER, revision: 2 }),
+      "layer-state": () => ok("layer-state", { revision: 3 }),
+      ...extra,
+    });
+  }
+
+  it("minimizes a background pane that is still tiled, once, after the adoption line", () => {
+    orphan();
+    const cli = server(layersView(ALL));
+    const notices = adoptOrphans("chapa", depsFor({ [SERVER]: cli }));
+    expect(notices).toEqual([`adopted earlier launch ${ID} of chapa (Rex session ${SESSION})`]);
+    // The adoption's own reads first, then the capability check, the tiled check and the two calls.
+    expect(ops(cli)).toEqual(["ls", "session-view", "api-describe", "session-view", "block-float", "layer-state"]);
+    expect(JSON.parse(cli.calls.find((c) => c.op === "block-float")!.input!)).toEqual({ session_id: SESSION, block_id: blockId(4), bounds: floatBounds(0) });
+    expect(JSON.parse(cli.calls.find((c) => c.op === "layer-state")!.input!)).toEqual({ session_id: SESSION, layer_id: LAYER, state: "minimized" });
+    expect(readStatusRecord("chapa")).toMatchObject({ launchId: ID, backend: "rex" });
+  });
+
+  it.each([
+    ["floating (the user or the launch before it floated it)", { blocks: [blockId(4)] }],
+    ["minimized already", { blocks: [blockId(4)], state: "minimized" }],
+  ])("leaves a pane alone when it is %s, with no call and no notice", (_label, floating) => {
+    orphan();
+    const cli = server(layersView([1, 2, 3, 5].map(blockId), [floating]));
+    const notices = adoptOrphans("chapa", depsFor({ [SERVER]: cli }));
+    expect(notices).toEqual([`adopted earlier launch ${ID} of chapa (Rex session ${SESSION})`]);
+    expect(ops(cli)).toEqual(["ls", "session-view", "api-describe", "session-view"]);
+  });
+
+  it("names a background pane whose pane file has not appeared and makes no call for it", () => {
+    orphan(["shell"], ["shell"]);
+    const cli = server(layersView([1, 2, 3, 5].map(blockId)));
+    const notices = adoptOrphans("chapa", depsFor({ [SERVER]: cli }));
+    expect(notices).toEqual([
+      `adopted earlier launch ${ID} of chapa (Rex session ${SESSION})`,
+      "pane shell stays in the layout as a normal split (its block was not confirmed)",
+    ]);
+    expect(ops(cli)).toEqual(["ls", "session-view"]);
+  });
+
+  it("says why when the minimize cannot be done, after the adoption line, and never as routine housekeeping", () => {
+    orphan();
+    const cli = server(layersView(ALL), { "api-describe": () => fail("api-describe", "not-found", "none", "API method not found") });
+    const notices = adoptOrphansForLaunch("chapa", depsFor({ [SERVER]: cli }));
+    expect(notices).toEqual([
+      { text: `adopted earlier launch ${ID} of chapa (Rex session ${SESSION})` },
+      { text: "this Rex build cannot minimize floating panes (session.set_layer_state is missing); shell stays in the layout. Update Rex to use background panes." },
+    ]);
+    expect(notices.every((n) => n.routine === undefined)).toBe(true);
+    expect(readStatusRecord("chapa")).toMatchObject({ launchId: ID });
+  });
+
+  it("does nothing to an orphan that is only reported as an extra session while another record is live", () => {
+    withOwnedRecord("chapa", "replace", () => ghosttyOf(recordFor(ID2)));
+    orphan();
+    const cli = server(layersView(ALL));
+    const notices = adoptOrphans("chapa", depsFor({ [SERVER]: cli }, { ghosttyState: () => "active" }));
+    expect(notices[0]).toContain("extra Rex session");
+    // Only the orphan's own verification: no capability check, no layer read, no float, no minimize.
+    expect(ops(cli)).toEqual(["ls", "session-view"]);
+  });
+
+  it("does nothing when another launch published meanwhile (superseded)", () => {
+    orphan();
+    const cli = server(layersView(ALL));
+    statusTestHooks.beforeLock = () => { writeFileSync(join(STATUS_DIR, "chapa.json"), JSON.stringify(recordFor(ID2))); };
+    const notices = adoptOrphans("chapa", depsFor({ [SERVER]: cli }));
+    expect(notices).toEqual(["another launch of chapa published meanwhile; nothing adopted or removed"]);
+    expect(ops(cli)).toEqual(["ls", "session-view"]);
+  });
+
+  it("an orphan without a minimize list makes exactly the calls it always made", () => {
+    writeLaunchManifest(manifestFor());
+    fullBuild().paneOrder.forEach((name, i) => writePane(ID, name, SESSION, blockId(i + 1)));
+    const cli = server(layersView(ALL));
+    adoptOrphans("chapa", depsFor({ [SERVER]: cli }));
+    expect(ops(cli)).toEqual(["ls", "session-view"]);
+  });
+
+  it("uses the adopted orphan's own server, not another one in play", () => {
+    const OTHER_SERVER = "unix:///mock/other.sock";
+    writeLaunchManifest(manifestFor(ID, { server: OTHER_SERVER, minimize: ["shell"] }));
+    fullBuild().paneOrder.forEach((name, i) => writePane(ID, name, SESSION, blockId(i + 1)));
+    const decoy = fakeCli({}, SERVER); // any call to it throws
+    const cli = fakeCli({
+      "ls": () => ok("ls", { sessions: [{ session_id: SESSION, label: "chapa" }] }),
+      "session-view": () => ok("session-view", layersView(ALL)),
+      "api-describe": () => ok("api-describe", {}),
+      "block-float": () => ok("block-float", { layer_id: LAYER, revision: 2 }),
+      "layer-state": () => ok("layer-state", { revision: 3 }),
+    }, OTHER_SERVER);
+    adoptOrphans("chapa", depsFor({ [SERVER]: decoy, [OTHER_SERVER]: cli }));
+    expect(decoy.calls).toEqual([]);
+    expect(cli.calls.every((c) => c.server === OTHER_SERVER)).toBe(true);
+    expect(ops(cli)).toContain("layer-state");
+  });
+
+  it("minimizes only the orphan it adopts: a second adoptable orphan is reported as an extra session and left alone", () => {
+    const session2 = "session:0000eeee-0000-0000-0000-000000000001";
+    orphan();
+    writeLaunchManifest(manifestFor(ID2, { startedAt: "2026-10-29T11:00:00.000Z", minimize: ["shell"] }));
+    fullBuild().paneOrder.forEach((name, i) => writePane(ID2, name, session2, blockId(i + 1)));
+    const cli = fakeCli({
+      "ls": () => ok("ls", { sessions: [{ session_id: SESSION, label: "chapa" }, { session_id: session2, label: "chapa" }] }),
+      "session-view": (_argv, input) => ok("session-view", { ...layersView(ALL), session_id: JSON.parse(input!).session_id }),
+      "api-describe": () => ok("api-describe", {}),
+      "block-float": () => ok("block-float", { layer_id: LAYER, revision: 2 }),
+      "layer-state": () => ok("layer-state", { revision: 3 }),
+    });
+    const notices = adoptOrphans("chapa", depsFor({ [SERVER]: cli }));
+    expect(notices).toEqual([
+      `adopted earlier launch ${ID} of chapa (Rex session ${SESSION})`,
+      `extra Rex session [chapa] ${session2} from earlier launch ${ID2}; rex kill ${session2} closes it`,
+    ]);
+    const floated = cli.calls.filter((c) => c.op === "block-float").map((c) => JSON.parse(c.input!).session_id);
+    expect(floated).toEqual([SESSION]);
+  });
+
+  it("clean --orphans (reportLeftovers: false) finishes the adoption the same way", () => {
+    orphan();
+    const cli = server(layersView(ALL));
+    const notices = adoptOrphans("chapa", depsFor({ [SERVER]: cli }), { reportLeftovers: false });
+    expect(notices).toEqual([`adopted earlier launch ${ID} of chapa (Rex session ${SESSION})`]);
+    expect(ops(cli)).toContain("layer-state");
+  });
+
+  it("with a pane that has no file yet and one that has, minimizes the one and names the other, in that order after the adoption line", () => {
+    orphan(["editor-2", "shell"], ["shell"]);
+    const cli = server(layersView(ALL));
+    const notices = adoptOrphansForLaunch("chapa", depsFor({ [SERVER]: cli }));
+    expect(notices).toEqual([
+      { text: `adopted earlier launch ${ID} of chapa (Rex session ${SESSION})` },
+      { text: "pane shell stays in the layout as a normal split (its block was not confirmed)" },
+    ]);
+    expect(JSON.parse(cli.calls.find((c) => c.op === "block-float")!.input!).block_id).toBe(blockId(2));
+  });
+
+  it("tells a launch's transient line what the wait is for, only when there is something to minimize", () => {
+    const progress = vi.fn();
+    orphan();
+    adoptOrphans("chapa", depsFor({ [SERVER]: server(layersView(ALL)) }, { progress }));
+    expect(progress).toHaveBeenCalledWith("Summoning chapa… minimizing background panes");
+    rmSync(join(STATUS_DIR, "chapa.json"), { force: true });
+    rmSync(launchArtifactPaths("chapa", ID).dir, { recursive: true, force: true });
+    const quiet = vi.fn();
+    writeLaunchManifest(manifestFor());
+    fullBuild().paneOrder.forEach((name, i) => writePane(ID, name, SESSION, blockId(i + 1)));
+    adoptOrphans("chapa", depsFor({ [SERVER]: server(layersView(ALL)) }, { progress: quiet }));
+    expect(quiet).not.toHaveBeenCalled();
+  });
+});
+
 describe("refreshPaneMapping", () => {
   it("fills in delayed pane files for the current generation under the lock and ignores a changed generation", () => {
     writeLaunchManifest(manifestFor());
@@ -1023,5 +1192,412 @@ describe("PE-L1: one session listing per server per launch", () => {
     const before = cli.calls.length;
     await createWorkspace(manifestFor(ID2), fullBuild().request, ctxFor(cli));
     expect(cli.calls.slice(before).map((c) => c.op).slice(0, 2)).toEqual(["ls", "session-create"]);
+  });
+});
+
+const TILED = "layer:0000aaaa-0000-0000-0000-0000000000a0";
+/** A `session.view` answer: one tiled layer and any number of floating layers. */
+function layersView(tiled: string[], floating: Array<{ layerId?: string; blocks: string[]; state?: string }> = []) {
+  const blocks = (ids: string[]) => ids.map((id) => ({ block_id: id, host_id: "host-1" }));
+  return {
+    session_id: SESSION, label: "chapa", revision: 4,
+    windows: [{ window_id: WINDOW, label: "[chapa]", layers: [
+      { layer_id: TILED, kind: "tiled", bounds: [0, 0, 1, 1], layout: null, blocks: blocks(tiled) },
+      ...floating.map((f, i) => ({ layer_id: f.layerId ?? `layer:0000aaaa-0000-0000-0000-0000000000c${i}`, kind: "floating", ...(f.state ? { state: f.state } : {}), bounds: [0.5, 0.5, 0.48, 0.46], layout: null, blocks: blocks(f.blocks) })),
+    ] }],
+  };
+}
+
+// --- Background panes: float and minimize after the create (plan D1, D2, D5, D6; stuck states S1 to S7) ---
+
+describe("createWorkspace: background panes", () => {
+  const LAYER = "layer:0000aaaa-0000-0000-0000-0000000000b1";
+  const FLOAT_ARGV = ["api", "call", "session.float_block", "-"];
+  const STATE_ARGV = ["api", "call", "session.set_layer_state", "-"];
+
+  /** Answers for a launch that minimizes; `over` replaces one op. */
+  function answers(over: Partial<Record<RexResult["op"], Answer>> = {}): Partial<Record<RexResult["op"], Answer>> {
+    return {
+      "ls": () => ok("ls", { sessions: [] }),
+      "session-create": () => ok("session-create", createdJson),
+      "api-describe": () => ok("api-describe", {}),
+      "block-float": () => ok("block-float", { layer_id: LAYER, revision: 2 }),
+      "layer-state": () => ok("layer-state", { revision: 3 }),
+      "client-ls": () => ok("client-ls", { clients: [CLIENT] }),
+      "do-select": () => ok("do-select", {}),
+      ...over,
+    };
+  }
+
+  const ops = (cli: { calls: Recorded[] }) => cli.calls.map((c) => c.op);
+
+  it("floats and minimizes the pane after the create and before the app shows the session", async () => {
+    const cli = fakeCli(answers());
+    const outcome = await createWorkspace(manifestFor(ID, { minimize: ["shell"] }), fullBuild().request, ctxFor(cli));
+    expect(ops(cli)).toEqual(["ls", "session-create", "api-describe", "block-float", "layer-state", "client-ls", "do-select"]);
+    expect(cli.calls[2]).toMatchObject({ argv: ["api", "describe", "session.set_layer_state"], timeoutMs: 5000 });
+    expect(cli.calls[3]).toMatchObject({ argv: FLOAT_ARGV, timeoutMs: 5000 });
+    expect(JSON.parse(cli.calls[3]!.input!)).toEqual({ session_id: SESSION, block_id: blockId(4), bounds: [0.5, 0.5, 0.48, 0.46] });
+    expect(cli.calls[4]).toMatchObject({ argv: STATE_ARGV, timeoutMs: 5000 });
+    expect(JSON.parse(cli.calls[4]!.input!)).toEqual({ session_id: SESSION, layer_id: LAYER, state: "minimized" });
+    expect(outcome.kind).toBe("created");
+    if (outcome.kind !== "created") return;
+    expect(outcome.ids.minimized).toEqual(["shell"]);
+    expect(outcome.notices).toEqual([]);
+    // The panes keep their identity: the minimized pane is still recorded with its block.
+    expect(outcome.ids.blocks.find((b) => b.name === "shell")?.blockId).toBe(blockId(4));
+  });
+
+  it("makes no extra call and reports nothing minimized without a minimize list", async () => {
+    const cli = fakeCli(answers());
+    const outcome = await createWorkspace(manifestFor(), fullBuild().request, ctxFor(cli));
+    expect(ops(cli)).toEqual(["ls", "session-create", "client-ls", "do-select"]);
+    expect(outcome.kind === "created" && outcome.ids.minimized).toBeUndefined();
+  });
+
+  it("cascades the float bounds of several panes and keeps the manifest order", async () => {
+    const cli = fakeCli(answers());
+    const outcome = await createWorkspace(manifestFor(ID, { minimize: ["editor-2", "shell"] }), fullBuild().request, ctxFor(cli));
+    const floats = cli.calls.filter((c) => c.op === "block-float").map((c) => JSON.parse(c.input!));
+    expect(floats.map((f) => f.block_id)).toEqual([blockId(2), blockId(4)]);
+    expect(floats.map((f) => f.bounds)).toEqual([floatBounds(0), floatBounds(1)]);
+    expect(outcome.kind === "created" && outcome.ids.minimized).toEqual(["editor-2", "shell"]);
+  });
+
+  it("S1: a Rex build without session.set_layer_state floats nothing and says so", async () => {
+    const cli = fakeCli(answers({ "api-describe": () => fail("api-describe", "not-found", "none", 'Error: API method "session.set_layer_state" not found. Run rex api list') }));
+    const outcome = await createWorkspace(manifestFor(ID, { minimize: ["shell"] }), fullBuild().request, ctxFor(cli));
+    expect(ops(cli)).toEqual(["ls", "session-create", "api-describe", "client-ls", "do-select"]);
+    expect(outcome.kind).toBe("created");
+    expect(outcome.notices).toEqual(["this Rex build cannot minimize floating panes (session.set_layer_state is missing); shell stays in the layout. Update Rex to use background panes."]);
+    expect(outcome.kind === "created" && outcome.ids.minimized).toBeUndefined();
+  });
+
+  it("S1: several panes are named in one notice", async () => {
+    const cli = fakeCli(answers({ "api-describe": () => fail("api-describe", "not-found", "none") }));
+    const outcome = await createWorkspace(manifestFor(ID, { minimize: ["editor-2", "shell"] }), fullBuild().request, ctxFor(cli));
+    expect(outcome.notices).toEqual(["this Rex build cannot minimize floating panes (session.set_layer_state is missing); editor-2, shell stay in the layout. Update Rex to use background panes."]);
+  });
+
+  it("S2: a capability check that fails floats nothing and names the reason", async () => {
+    const cli = fakeCli(answers({ "api-describe": () => fail("api-describe", "timeout", "none", "rex did not answer in time") }));
+    const outcome = await createWorkspace(manifestFor(ID, { minimize: ["shell"] }), fullBuild().request, ctxFor(cli));
+    expect(ops(cli)).toEqual(["ls", "session-create", "api-describe", "client-ls", "do-select"]);
+    expect(outcome.notices).toEqual(["could not check whether Rex can minimize floating panes (rex did not answer in time); shell stays in the layout as a normal split"]);
+  });
+
+  it("S3: a rejected float of a block the view shows tiled leaves it a normal split", async () => {
+    const cli = fakeCli(answers({
+      "block-float": () => fail("block-float", "rejected", "none", "bad_request: bounds"),
+      "session-view": () => ok("session-view", layersView([1, 2, 3, 4, 5].map(blockId))),
+    }));
+    const outcome = await createWorkspace(manifestFor(ID, { minimize: ["shell"] }), fullBuild().request, ctxFor(cli));
+    expect(ops(cli)).toEqual(["ls", "session-create", "api-describe", "block-float", "session-view", "client-ls", "do-select"]);
+    expect(outcome.kind).toBe("created");
+    expect(outcome.notices).toEqual(["pane shell stays in the layout as a normal split (bad_request: bounds)"]);
+    expect(outcome.kind === "created" && outcome.ids.minimized).toBeUndefined();
+  });
+
+  it("S3: a float whose answer was lost but whose block the view shows floating goes on to minimize that layer", async () => {
+    const seen = "layer:0000aaaa-0000-0000-0000-0000000000d1";
+    const cli = fakeCli(answers({
+      "block-float": () => fail("block-float", "timeout", "unknown", "rex did not answer in time"),
+      "session-view": () => ok("session-view", layersView([1, 2, 3, 5].map(blockId), [{ layerId: seen, blocks: [blockId(4)] }])),
+    }));
+    const outcome = await createWorkspace(manifestFor(ID, { minimize: ["shell"] }), fullBuild().request, ctxFor(cli));
+    expect(JSON.parse(cli.calls.find((c) => c.op === "layer-state")!.input!)).toEqual({ session_id: SESSION, layer_id: seen, state: "minimized" });
+    expect(outcome.notices).toEqual([]);
+    expect(outcome.kind === "created" && outcome.ids.minimized).toEqual(["shell"]);
+  });
+
+  it("S3: a float answer without a layer id is read from the view the same way", async () => {
+    const cli = fakeCli(answers({
+      "block-float": () => ok("block-float", { revision: 2 }),
+      "session-view": () => ok("session-view", layersView([1, 2, 3, 5].map(blockId), [{ layerId: LAYER, blocks: [blockId(4)] }])),
+    }));
+    const outcome = await createWorkspace(manifestFor(ID, { minimize: ["shell"] }), fullBuild().request, ctxFor(cli));
+    expect(JSON.parse(cli.calls.find((c) => c.op === "layer-state")!.input!).layer_id).toBe(LAYER);
+    expect(outcome.kind === "created" && outcome.ids.minimized).toEqual(["shell"]);
+  });
+
+  it("S4: a layer that floats but could not be minimized is named, with the step to finish it", async () => {
+    const cli = fakeCli(answers({
+      "layer-state": () => fail("layer-state", "rejected", "none", "bad_request: no visible pane"),
+      "session-view": () => ok("session-view", layersView([1, 2, 3, 5].map(blockId), [{ layerId: LAYER, blocks: [blockId(4)] }])),
+    }));
+    const outcome = await createWorkspace(manifestFor(ID, { minimize: ["shell"] }), fullBuild().request, ctxFor(cli));
+    expect(outcome.notices).toEqual(["pane shell floats over the layout but could not be minimized (bad_request: no visible pane); minimize it in Rex"]);
+    expect(outcome.kind === "created" && outcome.ids.minimized).toBeUndefined();
+  });
+
+  it("S4: a minimize whose answer was lost but whose layer the view shows minimized counts as done", async () => {
+    const cli = fakeCli(answers({
+      "layer-state": () => fail("layer-state", "timeout", "unknown", "rex did not answer in time"),
+      "session-view": () => ok("session-view", layersView([1, 2, 3, 5].map(blockId), [{ layerId: LAYER, blocks: [blockId(4)], state: "minimized" }])),
+    }));
+    const outcome = await createWorkspace(manifestFor(ID, { minimize: ["shell"] }), fullBuild().request, ctxFor(cli));
+    expect(outcome.notices).toEqual([]);
+    expect(outcome.kind === "created" && outcome.ids.minimized).toEqual(["shell"]);
+  });
+
+  it("S7: when Rex stops answering the pass ends after the first unanswered call, naming what may float and what stays", async () => {
+    let floats = 0;
+    const cli = fakeCli(answers({
+      "block-float": () => (++floats === 1 ? ok("block-float", { layer_id: LAYER, revision: 2 }) : fail("block-float", "timeout", "unknown", "rex did not answer in time")),
+      "session-view": () => fail("session-view", "timeout", "none", "rex did not answer in time"),
+    }));
+    const outcome = await createWorkspace(manifestFor(ID, { minimize: ["editor-2", "right-1", "shell"] }), fullBuild().request, ctxFor(cli));
+    expect(ops(cli)).toEqual(["ls", "session-create", "api-describe", "block-float", "layer-state", "block-float", "session-view", "client-ls", "do-select"]);
+    expect(outcome.kind).toBe("created");
+    expect(outcome.notices).toEqual([
+      "pane right-1 may float over the layout (Rex stopped answering); check it in Rex",
+      "Rex stopped answering; shell stays in the layout as a normal split",
+    ]);
+    expect(outcome.kind === "created" && outcome.ids.minimized).toEqual(["editor-2"]);
+  });
+
+  it("S7: a rejected float whose recovery read fails ends the pass too, and the pane is simply left in the layout", async () => {
+    const cli = fakeCli(answers({
+      "block-float": () => fail("block-float", "rejected", "none", "bad_request: x"),
+      "session-view": () => fail("session-view", "unreachable", "none", "server unreachable"),
+    }));
+    const outcome = await createWorkspace(manifestFor(ID, { minimize: ["editor-2", "shell"] }), fullBuild().request, ctxFor(cli));
+    expect(ops(cli).filter((op) => op === "block-float")).toHaveLength(1);
+    expect(outcome.notices).toEqual(["Rex stopped answering; editor-2, shell stay in the layout as normal splits"]);
+  });
+
+  it("S7: a rejected float whose recovery read fails with an answer Rex gave (malformed) does not end the pass: that pane stays, the next is handled", async () => {
+    let floats = 0;
+    let views = 0;
+    const cli = fakeCli(answers({
+      "block-float": () => (++floats === 1 ? fail("block-float", "rejected", "none", "bad_request: x") : ok("block-float", { layer_id: LAYER, revision: 2 })),
+      "session-view": () => (++views === 1 ? fail("session-view", "malformed", "none", "rex returned a response Summon could not parse") : ok("session-view", layersView([]))),
+    }));
+    const outcome = await createWorkspace(manifestFor(ID, { minimize: ["editor-2", "shell"] }), fullBuild().request, ctxFor(cli));
+    expect(ops(cli).filter((op) => op === "block-float")).toHaveLength(2);
+    expect(outcome.notices).toEqual(["pane editor-2 stays in the layout as a normal split (bad_request: x)"]);
+    expect(outcome.kind === "created" && outcome.ids.minimized).toEqual(["shell"]);
+  });
+
+  it("S4: a minimize that fails when the recovery read fails too names the pane as possibly floating and ends the pass", async () => {
+    const cli = fakeCli(answers({
+      "layer-state": () => fail("layer-state", "timeout", "unknown", "rex did not answer in time"),
+      "session-view": () => fail("session-view", "timeout", "none", "rex did not answer in time"),
+    }));
+    const outcome = await createWorkspace(manifestFor(ID, { minimize: ["editor-2", "shell"] }), fullBuild().request, ctxFor(cli));
+    expect(ops(cli).filter((op) => op === "block-float")).toHaveLength(1);
+    expect(outcome.notices).toEqual([
+      "pane editor-2 may float over the layout (Rex stopped answering); check it in Rex",
+      "Rex stopped answering; shell stays in the layout as a normal split",
+    ]);
+  });
+
+  it("S3: a block that the recovery read does not list is left in the layout with that reason", async () => {
+    const cli = fakeCli(answers({
+      "block-float": () => fail("block-float", "rejected", "none", "not_found: block"),
+      "session-view": () => ok("session-view", layersView([1, 2, 3, 5].map(blockId))),
+    }));
+    const outcome = await createWorkspace(manifestFor(ID, { minimize: ["shell"] }), fullBuild().request, ctxFor(cli));
+    expect(outcome.notices).toEqual(["pane shell stays in the layout as a normal split (its block is not in the session)"]);
+  });
+
+  it("S3: a float answered without a layer id, with the block still tiled, names that reason", async () => {
+    const cli = fakeCli(answers({
+      "block-float": () => ok("block-float", { revision: 2 }),
+      "session-view": () => ok("session-view", layersView([1, 2, 3, 4, 5].map(blockId))),
+    }));
+    const outcome = await createWorkspace(manifestFor(ID, { minimize: ["shell"] }), fullBuild().request, ctxFor(cli));
+    expect(outcome.notices).toEqual(["pane shell stays in the layout as a normal split (Rex did not return a layer id)"]);
+  });
+
+  it("D5: a failure inside the pass that is not a Rex answer (a bug) never fails the launch", async () => {
+    const cli = fakeCli(answers({ "api-describe": () => { throw new Error("boom"); } }));
+    const outcome = await createWorkspace(manifestFor(ID, { minimize: ["shell"] }), fullBuild().request, ctxFor(cli));
+    expect(outcome.kind).toBe("created");
+    expect(outcome.notices).toEqual(["could not minimize background panes (boom); check shell in Rex"]);
+  });
+
+  it("D5: the panes minimized before such a failure are still reported", async () => {
+    let floats = 0;
+    const cli = fakeCli(answers({ "block-float": () => { if (++floats === 2) throw new Error("boom"); return ok("block-float", { layer_id: LAYER, revision: 2 }); } }));
+    const outcome = await createWorkspace(manifestFor(ID, { minimize: ["editor-2", "shell"] }), fullBuild().request, ctxFor(cli));
+    expect(outcome.kind === "created" && outcome.ids.minimized).toEqual(["editor-2"]);
+    expect(outcome.notices).toEqual(["could not minimize background panes (boom); check shell in Rex"]);
+  });
+
+  it("UX-M1: the transient line says the background panes are being minimized, only when there are some", async () => {
+    const progress = vi.fn();
+    await createWorkspace(manifestFor(ID, { minimize: ["shell"] }), fullBuild().request, ctxFor(fakeCli(answers()), { progress }));
+    expect(progress).toHaveBeenCalledWith("Summoning chapa… minimizing background panes");
+    const none = vi.fn();
+    await createWorkspace(manifestFor(), fullBuild().request, ctxFor(fakeCli(answers()), { progress: none }));
+    expect(none).not.toHaveBeenCalled();
+  });
+
+  it("S3: a float whose answer was lost but whose block the view shows already minimized is done, with no further call", async () => {
+    const cli = fakeCli(answers({
+      "block-float": () => fail("block-float", "timeout", "unknown", "rex did not answer in time"),
+      "session-view": () => ok("session-view", layersView([1, 2, 3, 5].map(blockId), [{ layerId: LAYER, blocks: [blockId(4)], state: "minimized" }])),
+    }));
+    const outcome = await createWorkspace(manifestFor(ID, { minimize: ["shell"] }), fullBuild().request, ctxFor(cli));
+    expect(ops(cli)).not.toContain("layer-state");
+    expect(outcome.notices).toEqual([]);
+    expect(outcome.kind === "created" && outcome.ids.minimized).toEqual(["shell"]);
+  });
+
+  it("S4: a rejected minimize whose recovery read is unreadable leaves that pane floating and the pass goes on", async () => {
+    let sets = 0;
+    const cli = fakeCli(answers({
+      "layer-state": () => (++sets === 1 ? fail("layer-state", "rejected", "none", "bad_request: x") : ok("layer-state", { revision: 3 })),
+      "session-view": () => fail("session-view", "malformed", "none", "rex returned a response Summon could not parse"),
+    }));
+    const outcome = await createWorkspace(manifestFor(ID, { minimize: ["editor-2", "shell"] }), fullBuild().request, ctxFor(cli));
+    expect(ops(cli).filter((op) => op === "block-float")).toHaveLength(2);
+    expect(outcome.notices).toEqual(["pane editor-2 floats over the layout but could not be minimized (bad_request: x); minimize it in Rex"]);
+    expect(outcome.kind === "created" && outcome.ids.minimized).toEqual(["shell"]);
+  });
+
+  it("S7: when the pane in doubt is the last one there is nothing else to name", async () => {
+    const cli = fakeCli(answers({
+      "block-float": () => fail("block-float", "timeout", "unknown", "rex did not answer in time"),
+      "session-view": () => fail("session-view", "timeout", "none", "rex did not answer in time"),
+    }));
+    const outcome = await createWorkspace(manifestFor(ID, { minimize: ["shell"] }), fullBuild().request, ctxFor(cli));
+    expect(outcome.notices).toEqual(["pane shell may float over the layout (Rex stopped answering); check it in Rex"]);
+  });
+
+  it("security: a layer id taken from the view is checked before it is sent back to Rex", async () => {
+    const cli = fakeCli(answers({
+      "block-float": () => fail("block-float", "timeout", "unknown", "rex did not answer in time"),
+      "session-view": () => ok("session-view", layersView([1, 2, 3, 5].map(blockId), [{ layerId: "layer:1; rm -rf", blocks: [blockId(4)] }])),
+    }));
+    const outcome = await createWorkspace(manifestFor(ID, { minimize: ["shell"] }), fullBuild().request, ctxFor(cli));
+    expect(ops(cli)).not.toContain("layer-state");
+    expect(outcome.notices).toEqual(["pane shell floats over the layout but could not be minimized (Rex returned an unreadable layer id); minimize it in Rex"]);
+  });
+
+  describe("after a lost session.create answer (the panes' own files)", () => {
+    const timeoutCreate = () => fail("session-create", "timeout", "unknown", "rex did not answer in time");
+    function writeAllPanes(except: string[] = []) {
+      const order = fullBuild().paneOrder;
+      order.forEach((name, i) => { if (!except.includes(name)) writePane(ID, name, SESSION, blockId(i + 1)); });
+    }
+    const lost = (view: unknown, extra: Partial<Record<RexResult["op"], Answer>> = {}) => fakeCli(answers({ "session-create": timeoutCreate, "session-view": () => ok("session-view", view), ...extra }));
+
+    it("minimizes through the block id in the pane's own file", async () => {
+      writeAllPanes();
+      // The view starts with the root block and lists the rest in another order, so the position would name another block: the file names it.
+      const cli = lost(layersView([1, 5, 4, 3, 2].map(blockId)));
+      const outcome = await createWorkspace(manifestFor(ID, { minimize: ["shell"] }), fullBuild().request, ctxFor(cli, { clock: fakeClock() }));
+      expect(outcome.kind).toBe("created");
+      expect(JSON.parse(cli.calls.find((c) => c.op === "block-float")!.input!).block_id).toBe(blockId(4));
+      expect(outcome.kind === "created" && outcome.ids.minimized).toEqual(["shell"]);
+    });
+
+    it("S5: a pane whose file has not appeared is found by its position when the fresh layout matches the build", async () => {
+      writeAllPanes(["shell"]);
+      const cli = lost(layersView([1, 2, 3, 4, 5].map(blockId)));
+      const outcome = await createWorkspace(manifestFor(ID, { minimize: ["shell"] }), fullBuild().request, ctxFor(cli, { clock: fakeClock() }));
+      expect(JSON.parse(cli.calls.find((c) => c.op === "block-float")!.input!).block_id).toBe(blockId(4));
+      expect(outcome.kind === "created" && outcome.ids.minimized).toEqual(["shell"]);
+    });
+
+    it("S5: with a block count that differs from the build the pane is left in the layout and no float call is made", async () => {
+      writeAllPanes(["shell"]);
+      const cli = lost(layersView([1, 2, 3, 5].map(blockId)));
+      const outcome = await createWorkspace(manifestFor(ID, { minimize: ["shell"] }), fullBuild().request, ctxFor(cli, { clock: fakeClock() }));
+      expect(ops(cli)).not.toContain("block-float");
+      expect(ops(cli)).not.toContain("api-describe");
+      expect(outcome.kind).toBe("created");
+      expect(outcome.notices).toContain("pane shell stays in the layout as a normal split (its block was not confirmed)");
+    });
+
+    it("S5: a first block that is not the root also refuses the position", async () => {
+      writeAllPanes(["shell"]);
+      const cli = lost(layersView([2, 1, 3, 4, 5].map(blockId)));
+      const outcome = await createWorkspace(manifestFor(ID, { minimize: ["shell"] }), fullBuild().request, ctxFor(cli, { clock: fakeClock() }));
+      expect(ops(cli)).not.toContain("block-float");
+      expect(outcome.notices).toContain("pane shell stays in the layout as a normal split (its block was not confirmed)");
+    });
+  });
+});
+
+describe("minimizePanes: only the panes still in the tiled layout (plan D9)", () => {
+  const LAYER = "layer:0000aaaa-0000-0000-0000-0000000000b1";
+  const targets = [{ name: "shell", blockId: blockId(4) }, { name: "right-1", blockId: blockId(3) }, { name: "editor-2", blockId: blockId(2) }];
+
+  it("floats a tiled target and leaves a floating or minimized one alone, without a notice", () => {
+    const cli = fakeCli({
+      "api-describe": () => ok("api-describe", {}),
+      "session-view": () => ok("session-view", layersView([1, 2, 5].map(blockId), [{ blocks: [blockId(3)] }, { blocks: [blockId(4)], state: "minimized" }])),
+      "block-float": () => ok("block-float", { layer_id: LAYER, revision: 2 }),
+      "layer-state": () => ok("layer-state", { revision: 3 }),
+    });
+    const result = minimizePanes(cli, SESSION, targets, { onlyTiled: true });
+    expect(cli.calls.map((c) => c.op)).toEqual(["api-describe", "session-view", "block-float", "layer-state"]);
+    expect(JSON.parse(cli.calls[2]!.input!)).toEqual({ session_id: SESSION, block_id: blockId(2), bounds: floatBounds(2) });
+    expect(result).toEqual({ minimized: ["editor-2"], notices: [] });
+  });
+
+  it("a target whose block is not in the session is skipped, and with nothing tiled no float call is made", () => {
+    const cli = fakeCli({
+      "api-describe": () => ok("api-describe", {}),
+      "session-view": () => ok("session-view", layersView([1, 5].map(blockId), [])),
+    });
+    expect(minimizePanes(cli, SESSION, targets, { onlyTiled: true })).toEqual({ minimized: [], notices: [] });
+    expect(cli.calls.map((c) => c.op)).toEqual(["api-describe", "session-view"]);
+  });
+
+  it("a view that cannot be read floats nothing and says it could not check", () => {
+    const cli = fakeCli({
+      "api-describe": () => ok("api-describe", {}),
+      "session-view": () => fail("session-view", "timeout", "none", "rex did not answer in time"),
+    });
+    const result = minimizePanes(cli, SESSION, [targets[0]!], { onlyTiled: true });
+    expect(cli.calls.map((c) => c.op)).toEqual(["api-describe", "session-view"]);
+    expect(result).toEqual({ minimized: [], notices: ["could not check whether Rex can minimize floating panes (rex did not answer in time); shell stays in the layout as a normal split"] });
+  });
+
+  it("S8: a slow server cannot stretch the pass: once the budget is spent the remaining panes are left in the layout and named", () => {
+    let clock = 0;
+    const cli = fakeCli({
+      "api-describe": () => ok("api-describe", {}),
+      "block-float": () => { clock += 31_000; return ok("block-float", { layer_id: LAYER, revision: 2 }); },
+      "layer-state": () => ok("layer-state", { revision: 3 }),
+    });
+    const result = minimizePanes(cli, SESSION, targets, { now: () => clock });
+    expect(cli.calls.filter((c) => c.op === "block-float")).toHaveLength(1);
+    expect(result).toEqual({ minimized: ["shell"], notices: ["Rex is answering slowly; right-1, editor-2 stay in the layout as normal splits"] });
+  });
+
+  it("S8: within the budget every pane is handled", () => {
+    let clock = 0;
+    const cli = fakeCli({
+      "api-describe": () => ok("api-describe", {}),
+      "block-float": () => { clock += 5_000; return ok("block-float", { layer_id: LAYER, revision: 2 }); },
+      "layer-state": () => ok("layer-state", { revision: 3 }),
+    });
+    expect(minimizePanes(cli, SESSION, targets, { now: () => clock }).minimized).toEqual(["shell", "right-1", "editor-2"]);
+  });
+
+  it("makes no call at all without targets", () => {
+    const cli = fakeCli({});
+    expect(minimizePanes(cli, SESSION, [])).toEqual({ minimized: [], notices: [] });
+    expect(cli.calls).toEqual([]);
+  });
+});
+
+describe("floatBounds", () => {
+  it("starts at the lower right of the window, cascades by 0.04 and wraps every six, always inside the window", () => {
+    expect(floatBounds(0)).toEqual([0.5, 0.5, 0.48, 0.46]);
+    expect(floatBounds(1)).toEqual([0.46, 0.46, 0.48, 0.46]);
+    expect(floatBounds(6)).toEqual(floatBounds(0));
+    for (let i = 0; i < 12; i++) {
+      const [x, y, w, h] = floatBounds(i);
+      expect(x).toBeGreaterThan(0);
+      expect(y).toBeGreaterThan(0);
+      expect(x + w).toBeLessThanOrEqual(1);
+      expect(y + h).toBeLessThanOrEqual(1);
+    }
   });
 });

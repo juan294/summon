@@ -42,9 +42,10 @@ Technical reference for contributors.
 | `backends/rex/cli.ts` | `discoverRex`, `defaultRexServer`, `createRexCli` (bounded `rex` invocations), `probeWhoami` | yes | types, errors, utils |
 | `backends/rex/types.ts` | `RexIdentity`, `REX_OPS` trait table, result types | **pure** | ui/sanitize |
 | `backends/rex/errors.ts` | `classifyRexFailure` — CLI failure classifier | **pure** | types, ui/sanitize, ui/width |
-| `backends/rex/layout.ts` | `buildSessionCreateRequest` — layout plan to `session.create` request, pane order and block labels | **pure** | tree, layout, launch-identity, shell-escape |
+| `backends/rex/layout.ts` | `buildSessionCreateRequest` — layout plan to `session.create` request, pane order, block labels and the panes to minimize | **pure** | tree, layout, launch-identity, shell-escape, background-command |
 | `backends/rex/app.ts` | App client listing and choice, `selectInApp`, `waitForAppClient`, `openRexApp` | yes | cli |
 | `backends/rex/launch.ts` | `createWorkspace`, `adoptOrphans`, `showWorkspace`, `maybeSwitchToExisting`, pane mapping | yes | cli, app, status, types, status-record, launch-identity, shell-escape, ui/output |
+| `backends/rex/minimize.ts` | `minimizePanes`, `floatBounds` — the background-pane pass: float each pane out of the tiled layout and minimize its layer (the view is the truth, bounded, never fails a launch); re-exported by `launch.ts` | yes | cli, status, types, utils |
 | `backends/rex/status.ts` | `sessionState` (four-state table), `focusRex`, `inspectRex`, `titleRex`, program status | yes | cli, errors, app, types |
 | `backends/rex/read.ts` | The Rex half of a status read: `resolveRexStatus` (one generation at a time, the reconciling steps unless the read passes `{ reconcile: false }`), `adoptUnrecordedRex`, the `rex` binary memo, `requireRexBinary`, `rexCommandGate` | yes | cli, status, reconcile, status-record |
 | `backends/rex/workspace.ts` | `RexWorkspace` record port — focus, inspect, title, the note for a launch on another backend, `summon clean` (P17) and the `--orphans` review | yes | cli, status, launch, reconcile, read, status-record, launch-identity, shell-escape, ui/output |
@@ -67,6 +68,7 @@ Technical reference for contributors.
 | `errors.ts` | Named error classes — `TabOpenError` (recoverable new-tab failure surfaced by `session --all`) | **pure** | none |
 | `trust.ts` | `.summon` file trust management — SHA-256 allowlist (`assertTrusted`, `trustProject`, `isTrusted`, `hashSummonFile`) and the TTY trust prompt (`withTrustPrompt`) | yes | paths, utils, ui/sanitize, ui/output |
 | `command-spec.ts` | Command string analysis — `analyzeCommand`, `commandHasShellMeta`, `commandExecutable`, `replaceCommandExecutable` | **pure** | shell-escape |
+| `background-command.ts` | `isBackgroundCommand` — the table of dev servers, watchers and log followers whose Rex pane opens minimized | **pure** | command-spec |
 | `shell-escape.ts` | AppleScript/shell escape primitives — `escapeAppleScript`, `shellQuote`, `shellDoubleQuote` | **pure** | none |
 | `setup.ts` | Interactive setup wizard — back-navigation, numbered-select, accessibility prompt | yes | config, utils, starship, setup-gallery (dynamic), ui/ansi, ui/layout-preview, ui/output, ui/symbols, command-spec, edit-distance |
 | `setup-gallery.ts` | Template gallery data — `LAYOUT_INFO`, `GRID_TEMPLATES`, `GridTemplate` (extracted from setup.ts) | **pure** | none |

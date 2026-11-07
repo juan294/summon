@@ -83,6 +83,7 @@ const MAX_TREE_DEPTH = 32;
 /** Pane names are identifiers, never paths; shared with the per-launch shell fragments. */
 export const PANE_NAME_RE = /^[a-zA-Z_][a-zA-Z0-9_-]*$/;
 const PANE_CWD_RE = /^pane\.([a-zA-Z_][a-zA-Z0-9_-]*)\.cwd$/;
+const PANE_BACKGROUND_RE = /^pane\.([a-zA-Z_][a-zA-Z0-9_-]*)\.background$/;
 const NAME_START_RE = /[a-zA-Z_]/;
 const NAME_CHAR_RE = /[a-zA-Z0-9_-]/;
 
@@ -313,16 +314,38 @@ export function extractPaneDefinitions(config: Map<string, string>): Map<string,
   return panes;
 }
 
-/** Extract per-pane working directories (keys matching `pane.<name>.cwd`) from a config map. */
-export function extractPaneCwds(config: Map<string, string>): Map<string, string> {
-  const cwds = new Map<string, string>();
+/**
+ * The `pane.<name>.<option>` keys of one option (`re` captures the pane name), each value through `parse`; a value
+ * `parse` turns into `undefined` is left out. The one place that knows the sub-key grammar of a pane option.
+ */
+function extractPaneOption<T>(config: Map<string, string>, re: RegExp, parse: (value: string, key: string) => T | undefined): Map<string, T> {
+  const options = new Map<string, T>();
   for (const [key, value] of config) {
-    const match = PANE_CWD_RE.exec(key);
-    if (match && value) {
-      cwds.set(match[1]!, value);
-    }
+    const match = re.exec(key);
+    if (!match) continue;
+    const parsed = parse(value, key);
+    if (parsed !== undefined) options.set(match[1]!, parsed);
   }
-  return cwds;
+  return options;
+}
+
+/** Extract per-pane working directories (keys matching `pane.<name>.cwd`) from a config map; an empty value is ignored. */
+export function extractPaneCwds(config: Map<string, string>): Map<string, string> {
+  return extractPaneOption(config, PANE_CWD_RE, (value) => value || undefined);
+}
+
+/**
+ * Extract per-pane background flags (keys matching `pane.<name>.background`, value `true` or `false`).
+ * Only the Rex backend reads them (a background pane opens minimized); Ghostty ignores them. An invalid
+ * value leaves that pane to autodetection and adds one message to `invalid`; the parser writes nothing,
+ * because the backend is not known yet (the Rex backend prints the messages). `source` names where the config came from.
+ */
+export function extractPaneBackground(config: Map<string, string>, source: string, invalid: string[]): Map<string, boolean> {
+  return extractPaneOption(config, PANE_BACKGROUND_RE, (value, key) => {
+    if (value === "true" || value === "false") return value === "true";
+    invalid.push(`Invalid ${key} value in ${source}: "${value}". Use true or false. Ignoring.`);
+    return undefined;
+  });
 }
 
 /**

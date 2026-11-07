@@ -32,6 +32,7 @@ description: RPI workflow details -- phase rules, pre-release sequence, implemen
   owned files, evidence/output, resource budget and terminal condition for each
   assignment. Missing required results remain coverage gaps until resolved.
 - Never write documents with placeholder values.
+- Before allocating local task services or reporting their cleanup, read `.rpi/rules/resource-lifecycle.md`. Release owned disposable resources within authorization or record a retained-resource handoff before task/worktree completion; report cleanup failures explicitly. A worktree or name prefix does not prove database ownership.
 - Exhaust all tools before suggesting manual steps --
   check CLI tools, shell commands, MCP servers, and file tools
   before escalating to the user.

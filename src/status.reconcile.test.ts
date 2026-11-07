@@ -37,6 +37,9 @@ const fixture = join(tmpHome, "server.json");
 const repoDir = join(tmpHome, PROJECT);
 const paths = launchArtifactPaths(PROJECT, GEN);
 const snapshotFile = join(SNAPSHOTS_DIR, `${PROJECT}.json`);
+/** Every call the fake `rex` receives, one line each (reset before each test). */
+const callLog = join(tmpHome, "rex-calls.log");
+const rexCalls = (): string[] => (existsSync(callLog) ? readFileSync(callLog, "utf-8").split("\n").filter(Boolean) : []);
 const savedEnv = { PATH: process.env["PATH"], REX_BIN_DIR: process.env["REX_BIN_DIR"] };
 
 /** What the fake server answers: the listed sessions and the one view it serves. */
@@ -63,8 +66,14 @@ beforeAll(() => {
     "const fs = require('node:fs');",
     `const d = JSON.parse(fs.readFileSync(${JSON.stringify(fixture)}, 'utf8'));`,
     "const a = process.argv.slice(2);",
+    `fs.appendFileSync(${JSON.stringify(callLog)}, a.join(' ') + '\\n');`,
     "if (a.includes('ls')) console.log(JSON.stringify({ sessions: d.sessions }));",
     "else if (a.includes('session.view')) console.log(JSON.stringify(d.view));",
+    // The background-pane pass (plan Phase 2): the capability check, the float and the minimize.
+    // Only a test that opts in (`layers: true` in the fixture) gets these answers; any other test still fails on an unexpected call.
+    "else if (d.layers && a.includes('describe')) console.log('Minimize a floating layer');",
+    "else if (d.layers && a.includes('session.float_block')) console.log(JSON.stringify({ layer_id: 'layer:0000aaaa-0000-0000-0000-0000000000b1', revision: 2 }));",
+    "else if (d.layers && a.includes('session.set_layer_state')) console.log(JSON.stringify({ revision: 3 }));",
     "else { console.error('unexpected fake rex operation', a); process.exit(2); }",
   ].join("\n") + "\n");
   process.env["PATH"] = `${binDir}:${savedEnv.PATH ?? ""}`;
@@ -88,6 +97,7 @@ afterAll(() => {
 });
 
 beforeEach(() => {
+  rmSync(callLog, { force: true });
   rmSync(STATUS_DIR, { recursive: true, force: true });
   rmSync(SNAPSHOTS_DIR, { recursive: true, force: true });
   mkdirSync(paths.dir, { recursive: true });
@@ -221,5 +231,36 @@ describe("a non-reconciling read writes nothing (AR-M3)", () => {
     expect(readStatusRecord(PROJECT)!.endedAt).toBeDefined();
     expect(existsSync(snapshotFile)).toBe(true);
     expect(files()).toEqual({ pid: false, active: false, manifest: false, pane: false });
+  });
+});
+
+describe("late adoption of a launch with a background pane through a status read (plan Phase 2, D9)", () => {
+  const ORPHAN = "bgorphan";
+  const orphanPaths = launchArtifactPaths(ORPHAN, GEN);
+  const TILED = "layer:0000aaaa-0000-0000-0000-0000000000a0";
+
+  /** An earlier launch that lost its create answer: a manifest asking to minimize `server`, both pane files, the session tiled. */
+  function lostLaunch(): void {
+    mkdirSync(orphanPaths.dir, { recursive: true });
+    writeLaunchManifest({ version: 1, launchId: GEN, project: ORPHAN, directory: repoDir, layout: "custom", panes: ["editor", "server"], paneOrder: ["editor", "server"], blockLabels: { editor: "editor", server: "server" }, backend: "rex", server: SERVER, startedAt: STARTED, minimize: ["server"] });
+    writeFileSync(orphanPaths.pane("editor").file, `${SESSION}\n${EDITOR}\n`);
+    writeFileSync(orphanPaths.pane("server").file, `${SESSION}\n${SHELL}\n`);
+    const blocks = [EDITOR, SHELL].map((block_id) => ({ block_id, host_id: "host-1" }));
+    const view = { session_id: SESSION, label: ORPHAN, revision: 1, windows: [{ window_id: WINDOW, label: `[${ORPHAN}]`, layers: [{ layer_id: TILED, kind: "tiled", bounds: [0, 0, 1, 1], layout: null, blocks }] }] };
+    writeFileSync(fixture, JSON.stringify({ sessions: [{ session_id: SESSION, label: ORPHAN }], view, layers: true }));
+  }
+
+  it("a reconciling read adopts the launch and minimizes its background pane; a non-reconciling read adopts nothing and sends nothing", { timeout: 15_000 }, () => {
+    lostLaunch();
+    const before = configTree();
+    expect(readProjectStatus(ORPHAN, READ_ONLY)).toMatchObject({ state: "unknown", reason: "unverified launch" });
+    expect(configTree()).toEqual(before);
+    expect(rexCalls().filter((call) => /describe|float_block|set_layer_state/.test(call))).toEqual([]);
+
+    const row = readProjectStatus(ORPHAN)!;
+    expect(row.notices).toContain(`adopted earlier launch ${GEN} of ${ORPHAN} (Rex session ${SESSION})`);
+    expect(readStatusRecord(ORPHAN)).toMatchObject({ launchId: GEN, backend: "rex" });
+    const sent = rexCalls().map((call) => call.replace(/^.*?(api (?:describe|call) \S+).*$/, "$1")).filter((call) => /describe|float_block|set_layer_state/.test(call));
+    expect(sent).toEqual(["api describe session.set_layer_state", "api call session.float_block", "api call session.set_layer_state"]);
   });
 });

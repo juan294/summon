@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } 
 import { spawn, spawnSync, execFileSync } from "node:child_process";
 import { cliBuild } from "./fixtures/cli-builds.js";
 import type { ChildProcess } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -240,9 +240,11 @@ describe.skipIf(!ZSH_AVAILABLE)("typed text in an interactive zsh with history e
     const toolsDir = join(TEMP_HOME, "tools!bin");
     mkdirSync(targetDir, { recursive: true });
     mkdirSync(toolsDir, { recursive: true });
-    const shim = join(toolsDir, "summon!cli");
-    writeFileSync(shim, 'printf \'args=%s\\n\' "$*" >> "$SHIM_LOG"\n');
-    registerSelfInvocation("/bin/sh", shim);
+    const shim = join(toolsDir, "summon!cli.mjs");
+    const node = join(toolsDir, "node!runtime");
+    symlinkSync(process.execPath, node);
+    writeFileSync(shim, 'import { appendFileSync } from "node:fs"; appendFileSync(process.env.SHIM_LOG, "args=" + process.argv.slice(2).join(" ") + "\\n");\n');
+    registerSelfInvocation(node, shim);
     const paths = launchArtifactPaths(PROJECT, GEN_A);
 
     const zsh = spawn("zsh", ["-f", "-i"], { env: childEnv(), stdio: ["pipe", "pipe", "pipe"] });
@@ -263,6 +265,7 @@ describe.skipIf(!ZSH_AVAILABLE)("typed text in an interactive zsh with history e
     // The bootstrap ran and the trap removed its own files on exit.
     expect(existsSync(paths.active)).toBe(false);
     expect(existsSync(paths.pid)).toBe(false);
+    await waitFor(() => shimLog().length === 1, 10_000, "detached snapshot command");
     expect(shimLog()).toEqual([`args=snapshot save --dir ${targetDir} --project ${PROJECT} --layout default --launch ${GEN_A}`]);
   }, 30_000);
 });

@@ -234,6 +234,26 @@ describe("launch manifests", () => {
     expect(parseLaunchManifest({ ...manifest(), keeps: "nope" })).toEqual(manifest());
   });
 
+  it("parseLaunchManifest keeps minimize (the panes a launch minimizes) and drops anything unreadable, never the manifest", () => {
+    expect(parseLaunchManifest({ ...manifest(), minimize: ["sidebar"] })).toEqual({ ...manifest(), minimize: ["sidebar"] });
+    // A name outside paneOrder cannot name a pane of this launch.
+    expect(parseLaunchManifest({ ...manifest(), minimize: ["sidebar", "ghost"] })).toEqual({ ...manifest(), minimize: ["sidebar"] });
+    expect(parseLaunchManifest({ ...manifest(), minimize: ["ghost"] })).toEqual(manifest());
+    expect(parseLaunchManifest({ ...manifest(), minimize: [] })).toEqual(manifest());
+    expect(parseLaunchManifest({ ...manifest(), minimize: "sidebar" })).toEqual(manifest());
+    expect(parseLaunchManifest({ ...manifest(), minimize: ["sidebar", 3] })).toEqual(manifest());
+    // BE-L3: a pane name is an identifier, never a path.
+    expect(parseLaunchManifest({ ...manifest(), minimize: [`x/../${OTHER}`] })).toEqual(manifest());
+    // The first pane (it holds the cleanup trap and keeps the window visible) is never minimized, so a manifest cannot ask for it.
+    expect(parseLaunchManifest({ ...manifest(), minimize: ["editor", "sidebar"] })).toEqual({ ...manifest(), minimize: ["sidebar"] });
+    expect(parseLaunchManifest({ ...manifest(), minimize: ["editor"] })).toEqual(manifest());
+  });
+
+  it("minimize round-trips through write and read", () => {
+    writeLaunchManifest(manifest({ minimize: ["sidebar"] }));
+    expect(readLaunchManifest("chapa", ID)).toEqual(manifest({ minimize: ["sidebar"] }));
+  });
+
   it("parseLaunchManifest accepts a manifest without server and drops unknown keys", () => {
     const { server: _server, ...withoutServer } = manifest();
     expect(parseLaunchManifest({ ...withoutServer, extra: true })).toEqual(withoutServer);
@@ -258,7 +278,9 @@ describe("the trap runs the binary that created the launch (guide F4)", () => {
   it("types the registered node and script paths, single-quoted, instead of a bare summon", () => {
     registerSelfInvocation("/usr/local/bin/node", "/opt/my 'tools'/summon/dist/index.js");
     const line = cleanupTrapLine("chapa", ID, { targetDir: "/tmp/chapa", layout: "full" });
-    expect(line).toContain(`'/usr/local/bin/node' '/opt/my '\\''tools'\\''/summon/dist/index.js' snapshot save --dir '/tmp/chapa' --project "chapa" --layout "full" --launch '${ID}' </dev/null >/dev/null 2>&1`);
+    expect(line).toContain(`-- '/opt/my '\\''tools'\\''/summon/dist/index.js' snapshot save --dir '/tmp/chapa' --project "chapa" --layout "full" --launch '${ID}' </dev/null >/dev/null 2>&1`);
+    expect(line).toContain("'/usr/local/bin/node' -e ");
+    expect(line).toContain('spawn(process.execPath,process.argv.slice(1),{detached:true,stdio:"ignore"}).unref()');
     expect(line).not.toMatch(/[;{] *summon snapshot/);
   });
 
@@ -270,7 +292,7 @@ describe("the trap runs the binary that created the launch (guide F4)", () => {
   it("single-quotes paths so history expansion (!) and $ never apply in the interactive login shell (SE-L1)", () => {
     registerSelfInvocation("/opt/node!22/bin/node", "/opt/$HOME/summon!/index.js");
     const line = cleanupTrapLine("chapa", ID, { targetDir: "/tmp/wow!$x`y`" });
-    expect(line).toContain(`'/opt/node!22/bin/node' '/opt/$HOME/summon!/index.js' snapshot save --dir '/tmp/wow!$x\`y\`' --project`);
+    expect(line).toContain(`-- '/opt/$HOME/summon!/index.js' snapshot save --dir '/tmp/wow!$x\`y\`' --project`);
   });
 
   it.each([

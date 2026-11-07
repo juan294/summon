@@ -113,12 +113,68 @@ export function parseSessionView(json: unknown): SessionView | undefined {
   return { sessionId: raw["session_id"], label: typeof raw["label"] === "string" ? raw["label"] : "", revision: raw["revision"], windows };
 }
 
-/** `api call session.view -` for one session (non-mutating; read defaults). */
+/** The `session.view` call for one session (non-mutating; read defaults); the readers differ only in what they parse. */
+function callSessionView(cli: RexCli, sessionId: string): RexResult {
+  return cli.call("session-view", ["api", "call", "session.view", "-"], { input: JSON.stringify({ session_id: sessionId }) });
+}
+
+/** `api call session.view -` for one session, parsed into windows and their blocks. */
 export function viewSession(cli: RexCli, sessionId: string): { ok: true; view: SessionView } | RexFailure {
-  const result = cli.call("session-view", ["api", "call", "session.view", "-"], { input: JSON.stringify({ session_id: sessionId }) });
+  const result = callSessionView(cli, sessionId);
   if (!result.ok) return result;
   const view = parseSessionView(result.json);
   return view ? { ok: true, view } : malformed(result);
+}
+
+/** Where one block sits in its window: the layer, and whether that layer is the tiled one or minimized. */
+export interface BlockLayer {
+  layerId: string;
+  tiled: boolean;
+  minimized: boolean;
+}
+
+/**
+ * Block id to layer for every block of a `session.view` answer (separate from `parseSessionView`, whose flattened
+ * `blockIds` the state table, `clean` and the launcher-tab check read). A kind other than `tiled` is not tiled and a
+ * state other than `minimized` is normal, as the API says to draw what it does not know. A layer without a string
+ * layer id is skipped (the id's format is not checked here, so the tiled flag never depends on it); a shape that
+ * cannot be read is `undefined`, never an empty map.
+ */
+export function parseBlockLayers(json: unknown): Map<string, BlockLayer> | undefined {
+  const raw = asRecord(json);
+  if (!raw) return;
+  const windows = nullableArray(raw["windows"]);
+  if (!windows) return;
+  const result = new Map<string, BlockLayer>();
+  for (const item of windows) {
+    const window = asRecord(item);
+    if (!window) return;
+    const layers = nullableArray(window["layers"]);
+    if (!layers) return;
+    for (const entry of layers) {
+      const layer = asRecord(entry);
+      if (!layer) return;
+      const blocks = nullableArray(layer["blocks"]);
+      if (!blocks) return;
+      const layerId = layer["layer_id"];
+      const tiled = layer["kind"] === "tiled";
+      const minimized = layer["state"] === "minimized";
+      for (const blockItem of blocks) {
+        const block = asRecord(blockItem);
+        if (!block || typeof block["block_id"] !== "string") return;
+        if (typeof layerId === "string") result.set(block["block_id"], { layerId, tiled, minimized });
+      }
+    }
+  }
+  return result;
+}
+
+/** `session.view` read for the layer of each block. */
+export function blockLayers(cli: RexCli, sessionId: string): { ok: true; layers: Map<string, BlockLayer> } | RexFailure {
+  const result = callSessionView(cli, sessionId);
+  if (!result.ok) return result;
+  const layers = parseBlockLayers(result.json);
+  return layers ? { ok: true, layers } : malformed(result);
 }
 
 export function viewBlockIds(view: SessionView): Set<string> {

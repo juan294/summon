@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.1] - 2026-11-07
+
+### Added
+
+- Under Rex, a pane that only runs a background program (`npm run dev`, `pnpm dev`, `tail -f`, `docker compose up`, `vite`, `nodemon` and similar) opens minimized: it is floated and minimized after the session is created, shows as a capsule, and keeps running. `pane.<name>.background=true` or `=false` in a layout or `.summon` overrides the choice; the first pane and a pane without a command are never minimized. `summon focus <project> <pane>` shows a minimized pane. A Rex without `session.set_layer_state` (before preview.25) keeps normal splits and says so. A launch whose create answer was lost has its background panes minimized when it is adopted. Ghostty keeps a normal split and does not change, and ignores the key silently; an invalid `background` value warns under Rex only. `docs/rex.md` has the details.
+
+### Fixed
+
+- Workspace exit snapshots run with the same Summon executable as the launch and survive Rex terminal teardown, including when collecting Git state takes longer. Cleanup markers are removed before the snapshot runs. An interrupted `on-stop` command can still prevent snapshot dispatch.
+
 ## [2.1.0] - 2026-10-31
 
 ### Changed
@@ -899,7 +909,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CodeQL security scanning
 - Dependabot for npm and GitHub Actions
 
-[Unreleased]: https://github.com/juan294/summon/compare/v2.1.0...develop
+[Unreleased]: https://github.com/juan294/summon/compare/v2.1.1...develop
+[2.1.1]: https://github.com/juan294/summon/compare/v2.1.0...v2.1.1
 [2.1.0]: https://github.com/juan294/summon/compare/v2.0.1...v2.1.0
 [2.0.1]: https://github.com/juan294/summon/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/juan294/summon/compare/v1.9.0...v2.0.0

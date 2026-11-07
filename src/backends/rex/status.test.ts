@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { listSessions, viewSession, sessionState, parseSessionView } from "./status.js";
+import { listSessions, viewSession, sessionState, parseSessionView, parseBlockLayers, blockLayers } from "./status.js";
 import type { RexCli } from "./cli.js";
 import type { RexIdentity, RexResult } from "./types.js";
 
@@ -287,3 +287,59 @@ describe("program status (OSC 7501, Phase 5)", async () => {
   });
 });
 
+
+describe("parseBlockLayers / blockLayers (plan E2, E3, E7)", () => {
+  const LAYER_T = "layer:0000aaaa-0000-0000-0000-0000000000a1";
+  const LAYER_F = "layer:0000aaaa-0000-0000-0000-0000000000a2";
+  const LAYER_M = "layer:0000aaaa-0000-0000-0000-0000000000a3";
+  const layers = (extra: unknown[] = []) => ({
+    session_id: "session:1", revision: 5,
+    windows: [{ window_id: "window:1", layers: [
+      { layer_id: LAYER_T, kind: "tiled", bounds: [0, 0, 1, 1], layout: null, blocks: [{ block_id: "block:a" }] },
+      { layer_id: LAYER_F, kind: "floating", bounds: [0.5, 0.5, 0.4, 0.4], layout: null, blocks: [{ block_id: "block:b" }] },
+      { layer_id: LAYER_M, kind: "floating", state: "minimized", bounds: [0.5, 0.5, 0.4, 0.4], layout: null, blocks: [{ block_id: "block:c" }] },
+      ...extra,
+    ] }],
+  });
+
+  it("tells a tiled, a floating and a minimized block apart", () => {
+    const map = parseBlockLayers(layers())!;
+    expect(map.get("block:a")).toEqual({ layerId: LAYER_T, tiled: true, minimized: false });
+    expect(map.get("block:b")).toEqual({ layerId: LAYER_F, tiled: false, minimized: false });
+    expect(map.get("block:c")).toEqual({ layerId: LAYER_M, tiled: false, minimized: true });
+  });
+
+  it("reads an unknown kind as not tiled and an unknown state as not minimized", () => {
+    const map = parseBlockLayers(layers([{ layer_id: "layer:0000aaaa-0000-0000-0000-0000000000a4", kind: "dock", state: "folded", blocks: [{ block_id: "block:d" }] }]))!;
+    expect(map.get("block:d")).toMatchObject({ tiled: false, minimized: false });
+  });
+
+  it("skips a layer without a layer id and tolerates null layers and blocks", () => {
+    const map = parseBlockLayers(layers([{ kind: "floating", blocks: [{ block_id: "block:e" }] }]))!;
+    expect(map.has("block:e")).toBe(false);
+    expect(parseBlockLayers({ session_id: "session:1", revision: 1, windows: [{ window_id: "window:1", layers: null }] })!.size).toBe(0);
+    expect(parseBlockLayers({ session_id: "session:1", revision: 1, windows: null })!.size).toBe(0);
+  });
+
+  it("keeps the blocks of a layer whose id is not shaped like a Rex id: the tiled flag must not depend on the id format", () => {
+    const map = parseBlockLayers({ windows: [{ layers: [{ layer_id: "layer:1", kind: "tiled", blocks: [{ block_id: "block:a" }] }] }] })!;
+    expect(map.get("block:a")).toEqual({ layerId: "layer:1", tiled: true, minimized: false });
+  });
+
+  it("rejects shapes it cannot read instead of reading them as an empty session", () => {
+    expect(parseBlockLayers("x")).toBeUndefined();
+    expect(parseBlockLayers({ windows: "malformed" })).toBeUndefined();
+    expect(parseBlockLayers({ windows: [{ layers: [7] }] })).toBeUndefined();
+    expect(parseBlockLayers({ windows: [{ layers: [{ layer_id: LAYER_T, blocks: {} }] }] })).toBeUndefined();
+  });
+
+  it("blockLayers asks session.view for the session and returns a failure or a malformed answer as a failure", () => {
+    const cli = fakeCli({ "session-view": () => ({ ok: true, op: "session-view", stdout: "", json: layers() }) });
+    const result = blockLayers(cli, IDENTITY.sessionId);
+    expect(cli.calls).toEqual([{ op: "session-view", argv: ["api", "call", "session.view", "-"], input: JSON.stringify({ session_id: IDENTITY.sessionId }) }]);
+    expect(result.ok && result.layers.get("block:b")?.tiled).toBe(false);
+    const f = failure("session-view");
+    expect(blockLayers(fakeCli({ "session-view": () => f }), IDENTITY.sessionId)).toBe(f);
+    expect(blockLayers(fakeCli({ "session-view": () => ({ ok: true, op: "session-view", stdout: "", json: "x" }) }), IDENTITY.sessionId)).toMatchObject({ ok: false, kind: "malformed" });
+  });
+});

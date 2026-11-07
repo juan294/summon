@@ -48,14 +48,49 @@ const print = (value) => process.stdout.write(JSON.stringify(value) + "\n");
 const id = (kind) => kind + ":" + randomUUID();
 const find = (sessionId) => state.sessions.find((s) => s.session_id === sessionId);
 const notFound = () => { process.stderr.write("Error: session_not_found: no such session\n"); process.exit(3); };
+const block = (b) => ({ block_id: b, host_id: "host-fake" });
+// A floated block leaves the tiled layer for a floating layer of its own, like session.float_block does on a real server.
 const view = (s) => ({
   session_id: s.session_id, label: s.label, revision: 1,
-  windows: s.windows.map((w) => ({ window_id: w.window_id, label: w.label, layers: [{ layer_id: "layer:1", kind: "tiled", bounds: [0, 0, 1, 1], layout: null, blocks: w.blocks.map((b) => ({ block_id: b, host_id: "host-fake" })) }] })),
+  windows: s.windows.map((w) => {
+    const floating = w.floating || [];
+    const floated = new Set(floating.map((f) => f.block));
+    return { window_id: w.window_id, label: w.label, layers: [
+      { layer_id: "layer:0000aaaa-0000-0000-0000-00000000fff1", kind: "tiled", bounds: [0, 0, 1, 1], layout: null, blocks: w.blocks.filter((b) => !floated.has(b)).map(block) },
+      ...floating.map((f) => ({ layer_id: f.layer_id, kind: "floating", ...(f.state ? { state: f.state } : {}), bounds: f.bounds, layout: null, blocks: [block(f.block)] })),
+    ] };
+  }),
 });
 const leaves = (node) => (node.block ? [node] : [...leaves(node.split.before), ...leaves(node.split.after)]);
 const [cmd, sub, method] = rest;
 if (cmd === "whoami") print({ host_id: "host-fake", session_id: process.env.REX_SESSION, endpoint: "fake" });
 else if (cmd === "ls") print({ sessions: state.sessions.map((s) => ({ session_id: s.session_id, label: s.label })) });
+else if (cmd === "api" && sub === "describe") {
+  if (state.noLayerState && method === "session.set_layer_state") { process.stderr.write("Error: API method \"" + method + "\" not found. Run rex api list\n"); process.exit(3); }
+  process.stdout.write("Description of " + method + "\n");
+}
+else if (cmd === "api" && method === "session.float_block") {
+  const request = JSON.parse(input);
+  const s = find(request.session_id); if (!s) notFound();
+  const w = s.windows.find((x) => x.blocks.includes(request.block_id));
+  if (!w) { process.stderr.write("Error: stream response \"control-1\" failed: block " + request.block_id + " is not in any window (status=404 code=not_found)\n"); process.exit(1); }
+  w.floating = w.floating || [];
+  const already = w.floating.find((f) => f.block === request.block_id);
+  if (already) { process.stderr.write("Error: stream response \"control-2\" failed: block " + request.block_id + " is already in floating layer " + already.layer_id + " (status=400 code=bad_request)\n"); process.exit(1); }
+  const layer_id = id("layer");
+  w.floating.push({ layer_id, block: request.block_id, bounds: request.bounds });
+  save();
+  print({ layer_id, revision: 2 });
+}
+else if (cmd === "api" && method === "session.set_layer_state") {
+  const request = JSON.parse(input);
+  const s = find(request.session_id); if (!s) notFound();
+  const layer = s.windows.flatMap((w) => w.floating || []).find((f) => f.layer_id === request.layer_id);
+  if (!layer) { process.stderr.write("Error: stream response \"control-3\" failed: layer not found (status=404 code=not_found)\n"); process.exit(1); }
+  if (request.state === "minimized") layer.state = "minimized"; else delete layer.state;
+  save();
+  print({ revision: 3 });
+}
 else if (cmd === "api" && method === "session.view") { const s = find(JSON.parse(input).session_id); if (!s) notFound(); print(view(s)); }
 else if (cmd === "api" && method === "client.list") print({ clients: state.clients });
 else if (cmd === "api" && method === "session.create") {
@@ -77,8 +112,9 @@ else if (cmd === "window" && sub === "close") { const s = find(rest[rest.indexOf
 else { process.stderr.write("unexpected fake rex operation: " + argv.join(" ") + "\n"); process.exit(2); }
 `;
 
-interface FakeSession { session_id: string; label: string; windows: Array<{ window_id: string; label: string; blocks: string[] }> }
-interface FakeState { sessions: FakeSession[]; clients: unknown[]; createMode?: "lost"; foreground?: "agent"; createGate?: string }
+interface FakeFloating { layer_id: string; block: string; bounds: number[]; state?: "minimized" }
+interface FakeSession { session_id: string; label: string; windows: Array<{ window_id: string; label: string; blocks: string[]; floating?: FakeFloating[] }> }
+interface FakeState { sessions: FakeSession[]; clients: unknown[]; createMode?: "lost"; foreground?: "agent"; createGate?: string; /** A Rex build without session.set_layer_state (preview.24). */ noLayerState?: boolean }
 
 const LAUNCHER: FakeSession = {
   session_id: "session:0000aaaa-0000-0000-0000-000000000001",
@@ -144,7 +180,7 @@ async function settle(until: () => boolean, ms = 5000): Promise<boolean> {
 beforeAll(() => {
   mkdirSync(binDir, { recursive: true });
   mkdirSync(home, { recursive: true });
-  for (const name of ["alpha", "beta", "gamma", "delta"]) mkdirSync(projectDir(name), { recursive: true });
+  for (const name of ["alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta"]) mkdirSync(projectDir(name), { recursive: true });
   writeFakeRex(rex, FAKE_REX);
 });
 
@@ -277,5 +313,74 @@ describe("Rex launch composition through the built CLI and a fake rex (QA-M2)", 
     await settle(() => false, 1000);
     expect(launcherAlive()).toBe(true);
     expect(opsOf(rexCalls()).filter((op) => op === "kill" || op === "window close" || op === "block call")).toEqual([]);
+  });
+});
+
+describe("Rex background panes through the built CLI and the fake rex (plan Phase 1)", () => {
+  /** A custom layout with a background pane; the machine config is under the sandbox home. */
+  function writeLayout(): void {
+    const layouts = join(home, ".config", "summon", "layouts");
+    mkdirSync(layouts, { recursive: true });
+    writeFileSync(join(layouts, "bgtree"), ["tree=editor | server", "pane.editor=sleep 300", "pane.server=sleep 301", "pane.server.background=true", ""].join("\n"));
+  }
+
+  it("floats and minimizes the pane between the create and the app selection, then says so", async () => {
+    writeLayout();
+    const run = summon("epsilon", "--layout", "bgtree");
+    expect(run.status, run.stderr).toBe(0);
+    expect(run.stdout).toContain("Workspace [epsilon] ready in Rex (minimized: server; summon focus epsilon server shows one).");
+    expect(run.stderr).toBe("");
+    const created = readState().sessions.find((s) => s.label === "epsilon")!;
+    const window = created.windows[0]!;
+    expect(window.blocks).toHaveLength(2);
+    expect(window.floating).toEqual([expect.objectContaining({ block: window.blocks[1], state: "minimized" })]);
+    expect(record("epsilon")).toMatchObject({ rex: { sessionId: created.session_id, rootBlockId: window.blocks[0] } });
+    expect(await settle(() => !launcherAlive())).toBe(true);
+    expect(opsOf(rexCalls()).slice(0, 8)).toEqual([
+      "whoami", "ls", "api call session.create", "api describe session.set_layer_state", "api call session.float_block", "api call session.set_layer_state", "api call client.list", "do session.select",
+    ]);
+  });
+
+  it("S1: a Rex build without session.set_layer_state keeps the pane in the layout, says so and still launches", () => {
+    writeLayout();
+    writeState({ ...readState(), noLayerState: true });
+    const run = summon("zeta", "--layout", "bgtree");
+    expect(run.status, run.stderr).toBe(0);
+    expect(run.stdout).toContain("Workspace [zeta] ready in Rex.");
+    expect(run.stdout).not.toContain("minimized:");
+    expect(run.stderr).toContain("summon: note: this Rex build cannot minimize floating panes (session.set_layer_state is missing); server stays in the layout. Update Rex to use background panes.\n");
+    const window = readState().sessions.find((s) => s.label === "zeta")!.windows[0]!;
+    expect(window.floating ?? []).toEqual([]);
+    expect(opsOf(rexCalls())).not.toContain("api call session.float_block");
+  });
+
+  it("S6: a lost create answer leaves the background pane tiled; the next launch adopts the session and minimizes it, without a second create", { timeout: 60_000 }, async () => {
+    writeLayout();
+    writeState({ ...readState(), createMode: "lost" });
+    const lost = summon("eta", "--layout", "bgtree");
+    expect(lost.status).not.toBe(0);
+    expect(lost.stderr).toContain("Rex did not confirm the workspace");
+    const session = readState().sessions.find((s) => s.label === "eta")!;
+    expect(session.windows[0]!.floating ?? []).toEqual([]);
+    // The manifest, written before the create, carries the intent; the pane shells write their files late.
+    const launches = join(statusDir, "eta.launches");
+    const manifestName = readdirSync(launches).find((f) => f.endsWith(".json"))!;
+    const manifest = JSON.parse(readFileSync(join(launches, manifestName), "utf8")) as { launchId: string; paneOrder: string[]; minimize?: string[] };
+    expect(manifest.minimize).toEqual(["server"]);
+    manifest.paneOrder.forEach((pane, i) => writeFileSync(join(launches, `${manifest.launchId}.pane.${pane}`), `${session.session_id}\n${session.windows[0]!.blocks[i]}\n`));
+
+    writeState({ ...readState(), createMode: undefined } as FakeState);
+    const firstLaunch = rexCalls();
+    writeFileSync(logFile, "");
+    const next = summon("eta", "--layout", "bgtree");
+    expect(next.status, next.stderr).toBe(0);
+    expect(next.stderr).toContain(`summon: note: adopted earlier launch ${manifest.launchId} of eta (Rex session ${session.session_id})`);
+    expect(next.stderr).toContain("Workspace [eta] is already running in Rex; switched to it");
+    const adopted = readState().sessions.find((s) => s.label === "eta")!.windows[0]!;
+    expect(adopted.floating).toEqual([expect.objectContaining({ block: adopted.blocks[1], state: "minimized" })]);
+    expect(record("eta")).toMatchObject({ launchId: manifest.launchId });
+    expect(readState().sessions.filter((s) => s.label === "eta")).toHaveLength(1);
+    // One create in total: the first launch sent it, the second never did.
+    expect(opsOf([...firstLaunch, ...rexCalls()]).filter((op) => op === "api call session.create")).toHaveLength(1);
   });
 });

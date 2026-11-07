@@ -60,6 +60,7 @@ src/
   paths.ts              Canonical path constants (CONFIG_DIR, STATUS_DIR, SNAPSHOTS_DIR, LAYOUTS_DIR, SESSIONS_DIR, TRUST_FILE)
   shell-escape.ts       AppleScript/shell escape primitives (escapeAppleScript, shellQuote, shellDoubleQuote)
   command-spec.ts       Command string analysis (analyzeCommand, commandHasShellMeta, commandExecutable)
+  background-command.ts The Rex background-pane command table: isBackgroundCommand (dev servers, watchers, log followers; pure)
   errors.ts             Named error classes (TabOpenError — recoverable new-tab failure for session --all)
   edit-distance.ts      editDistance: optimal string alignment distance shared by the layout builder and the "Did you mean" hint (pure)
   trust.ts              .summon file trust management — SHA-256 allowlist (assertTrusted, trustProject, isTrusted)
@@ -83,9 +84,10 @@ src/
       cli.ts            discoverRex (PATH, REX_BIN_DIR, app bundles), defaultRexServer, createRexCli, probeWhoami
       types.ts          RexIdentity type and parser, REX_OPS trait table, result types
       errors.ts         classifyRexFailure (CLI failure classifier, P14)
-      layout.ts         buildSessionCreateRequest: LayoutPlan/TreeLayoutPlan -> session.create request, pane order, block labels (pure)
+      layout.ts         buildSessionCreateRequest: LayoutPlan/TreeLayoutPlan -> session.create request, pane order, block labels, the panes to minimize (pure)
       app.ts            App client listing and choice (P7), selectInApp, waitForAppClient, openRexApp
       launch.ts         createWorkspace (manifest first, token wait, adoption), adoptOrphans (P13), showWorkspace, maybeSwitchToExisting (P2)
+      minimize.ts       The background-pane pass: minimizePanes (float_block, set_layer_state; view as truth, bounded, never fails a launch), floatBounds; re-exported by launch.ts
       status.ts         sessionState (four-state table P10), focusRex, inspectRex, titleRex, program status (OSC 7501)
       read.ts           The Rex half of a status read: resolveRexStatus, adoptUnrecordedRex, rex binary memo, rexCommandGate
       reconcile.ts      The writing steps of a reconciling read: adoptOnce, refreshUnverifiedPanes, reconcileStoppedLaunch, endRexLaunch

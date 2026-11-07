@@ -6,6 +6,7 @@ import {
   parseTreeDSL,
   extractPaneDefinitions,
   extractPaneCwds,
+  extractPaneBackground,
   resolveTreeCommands,
   buildTreePlan,
   collectLeaves,
@@ -300,6 +301,45 @@ describe("extractPaneCwds", () => {
     const config = new Map([["pane.editor.cwd", ""]]);
     const cwds = extractPaneCwds(config);
     expect(cwds.size).toBe(0);
+  });
+});
+
+describe("extractPaneBackground", () => {
+  it("reads true and false values of pane.<name>.background", () => {
+    const config = new Map([
+      ["pane.server", "npm run dev"],
+      ["pane.server.background", "true"],
+      ["pane.logs.background", "false"],
+    ]);
+    const flags = extractPaneBackground(config, "custom layout \"x\"", []);
+    expect([...flags]).toEqual([["server", true], ["logs", false]]);
+  });
+
+  it("ignores other pane keys and names that are not identifiers", () => {
+    const config = new Map([
+      ["pane.editor", "vim"],
+      ["pane.editor.cwd", "./a"],
+      ["pane.bad name.background", "true"],
+      ["pane.a.b.background", "true"],
+      ["background", "true"],
+    ]);
+    expect(extractPaneBackground(config, ".summon", []).size).toBe(0);
+  });
+
+  it("collects a message per invalid value, leaves that pane out and writes nothing itself (S11)", () => {
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const invalid: string[] = [];
+    const flags = extractPaneBackground(new Map([["pane.x.background", "yes"], ["pane.y.background", "true"]]), ".summon", invalid);
+    const written = stderr.mock.calls;
+    stderr.mockRestore();
+    expect([...flags]).toEqual([["y", true]]);
+    expect(invalid).toEqual(['Invalid pane.x.background value in .summon: "yes". Use true or false. Ignoring.']);
+    expect(written).toEqual([]);
+  });
+
+  it("does not make pane.<name>.background a pane definition", () => {
+    const config = new Map([["pane.server", "npm run dev"], ["pane.server.background", "true"]]);
+    expect([...extractPaneDefinitions(config).keys()]).toEqual(["server"]);
   });
 });
 

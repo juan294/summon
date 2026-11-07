@@ -228,4 +228,122 @@ describe("createRexBackend", () => {
     expect(unknownOutcomeMessage("x", "unlisted", "r")).toContain("unknown (the session list could not be read)");
     expect(unknownOutcomeMessage("x", [], "r")).toContain("Sessions that appeared meanwhile: none.");
   });
+
+  describe("background panes (plan D1, D4, D5, S9, S10)", () => {
+    const treePlan = (dsl: string, panes: Record<string, string>) => ({ kind: "tree" as const, plan: buildTreePlan(resolveTreeCommands(parseTreeDSL(dsl), new Map(Object.entries(panes)), undefined, "/tmp/x"), { editorSize: 73, autoResize: true }) });
+    const withBackground = (entries: Array<[string, boolean]>) => ctx({ paneBackground: new Map(entries) });
+    const spies = () => {
+      const out: string[] = [];
+      const errs: string[] = [];
+      const outSpy = vi.spyOn(process.stdout, "write").mockImplementation((chunk: unknown) => { out.push(String(chunk)); return true; });
+      const errSpy = vi.spyOn(process.stderr, "write").mockImplementation((chunk: unknown) => { errs.push(String(chunk)); return true; });
+      return { out: () => out.join(""), errs: () => errs.join(""), restore: () => { outSpy.mockRestore(); errSpy.mockRestore(); } };
+    };
+
+    it("prints the invalid pane.<name>.background messages as warnings before the create, and still launches", async () => {
+      const { d, create } = deps({ kind: "created", ids: IDS, clientId: "client:app", notices: [] });
+      const io = spies();
+      try {
+        await createRexBackend(CONTEXT, d).launch(treePlan("a | b", { a: "vim", b: "make serve" }), ctx({ paneBackgroundWarnings: ['Invalid pane.b.background value in .summon: "yes". Use true or false. Ignoring.'] }));
+      } finally {
+        io.restore();
+      }
+      expect(io.errs()).toContain('summon: warning: Invalid pane.b.background value in .summon: "yes". Use true or false. Ignoring.');
+      expect(create).toHaveBeenCalledTimes(1);
+    });
+
+    it("writes the pane names to minimize into the manifest, before the create, and keeps every pane in the request", async () => {
+      const { d, create } = deps({ kind: "created", ids: IDS, clientId: "client:app", notices: [] });
+      const io = spies();
+      try {
+        await createRexBackend(CONTEXT, d).launch(treePlan("a | b", { a: "vim", b: "make serve" }), withBackground([["b", true]]));
+      } finally {
+        io.restore();
+      }
+      const [manifest, request] = create.mock.calls[0]! as unknown as [Record<string, unknown>, { initial_windows: [{ layout: { split: unknown } }] }];
+      expect(manifest["minimize"]).toEqual(["b"]);
+      expect(manifest["paneOrder"]).toEqual(["a", "b"]);
+      // Both panes are still blocks of the one create request (the program starts once).
+      expect(JSON.stringify(request).match(/"block":/g)).toHaveLength(2);
+      expect(JSON.stringify(request)).toContain("make serve");
+    });
+
+    it("writes no minimize field without a flag, or when the flag is false", async () => {
+      for (const context of [ctx(), withBackground([["b", false]])]) {
+        const { d, create } = deps({ kind: "created", ids: IDS, clientId: "client:app", notices: [] });
+        const io = spies();
+        try {
+          await createRexBackend(CONTEXT, d).launch(treePlan("a | b", { a: "vim", b: "make serve" }), context);
+        } finally {
+          io.restore();
+        }
+        expect(create.mock.calls[0]![0]).not.toHaveProperty("minimize");
+      }
+    });
+
+    it("S10: the success line names the minimized panes and the command that shows one; without any it is unchanged", async () => {
+      const minimized = deps({ kind: "created", ids: { ...IDS, minimized: ["b", "c"] }, clientId: "client:app", notices: [] });
+      let io = spies();
+      try {
+        await createRexBackend(CONTEXT, minimized.d).launch(treePlan("a | b", { a: "vim", b: "make serve" }), withBackground([["b", true]]));
+      } finally {
+        io.restore();
+      }
+      expect(io.out()).toBe("✓ Workspace [x] ready in Rex (minimized: b, c; summon focus x b shows one).\n");
+      const plain = deps({ kind: "created", ids: IDS, clientId: "client:app", notices: [] });
+      io = spies();
+      try {
+        await createRexBackend(CONTEXT, plain.d).launch(treePlan("a | b", { a: "vim", b: "make serve" }), ctx());
+      } finally {
+        io.restore();
+      }
+      expect(io.out()).toBe("✓ Workspace [x] ready in Rex.\n");
+    });
+
+    it("S9: a background=true that cannot apply (the first pane, a pane without a command) is said once per pane and the launch goes on", async () => {
+      const { d, create } = deps({ kind: "created", ids: IDS, clientId: "client:app", notices: [] });
+      const io = spies();
+      try {
+        await createRexBackend(CONTEXT, d).launch(treePlan("a | b", { a: "vim", b: "" }), withBackground([["a", true], ["b", true]]));
+      } finally {
+        io.restore();
+      }
+      expect(io.errs()).toContain("summon: note: pane a cannot be minimized (the first pane and a pane without a command stay in the layout); pane.a.background ignored\n");
+      expect(io.errs()).toContain("summon: note: pane b cannot be minimized (the first pane and a pane without a command stay in the layout); pane.b.background ignored\n");
+      expect(create.mock.calls[0]![0]).not.toHaveProperty("minimize");
+    });
+
+    describe("dry run", () => {
+      // `c` sits in a nested split, so minimizing it leaves every ratio as it is and the request body can be compared as it is.
+      const dry = (context: BackendLaunchContext) => {
+        const headers: string[] = [];
+        const { body } = createRexBackend(CONTEXT, deps({ kind: "created", ids: IDS, clientId: "c", notices: [] }).d).dryRun(treePlan("a | (b / c)", { a: "vim", b: "htop", c: "make serve" }), context, null, headers);
+        return { headers, body };
+      };
+
+      it("lists the panes that will be minimized and leaves the request body as it is", () => {
+        const plain = dry(ctx());
+        const flagged = dry(withBackground([["c", true]]));
+        expect(plain.headers.some((line) => line.includes("Minimized after create"))).toBe(false);
+        expect(flagged.headers).toContain("-- Minimized after create (float_block, set_layer_state): c");
+        expect(flagged.body).toBe(plain.body);
+      });
+
+      it("S10: says how to keep an autodetected pane in the layout, and not for a pane that was asked for", () => {
+        const autodetected = createRexBackend(CONTEXT, deps({ kind: "created", ids: IDS, clientId: "c", notices: [] }).d);
+        const headers: string[] = [];
+        autodetected.dryRun(treePlan("a | b", { a: "vim", b: "npm run dev" }), ctx(), null, headers);
+        expect(headers).toContain("-- Minimized after create (float_block, set_layer_state): b");
+        expect(headers).toContain("-- Keep one in the layout with pane.<name>.background=false");
+        const forced: string[] = [];
+        autodetected.dryRun(treePlan("a | b", { a: "vim", b: "make watch" }), withBackground([["b", true]]), null, forced);
+        expect(forced).toContain("-- Minimized after create (float_block, set_layer_state): b");
+        expect(forced.some((line) => line.includes("Keep one in the layout"))).toBe(false);
+      });
+
+      it("does not list a refused pane", () => {
+        expect(dry(withBackground([["a", true]])).headers.some((line) => line.includes("Minimized after create"))).toBe(false);
+      });
+    });
+  });
 });

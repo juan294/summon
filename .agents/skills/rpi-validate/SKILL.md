@@ -26,6 +26,7 @@ Process:
    is an acceptance gap, not approval.
 4. For each requested phase:
    - Verify marked-complete items are actually done.
+   - For allocated local services, inspect the resource lifecycle disposition and any required cleanup evidence. Distinguish deliberately retained resources from failed teardown; instruction installation alone does not prove runtime cleanup.
    - Confirm the plan's stuck-state recovery-or-disclosure tests and its
      consumer-sweep coverage exist and pass; a stuck state with only a safety
      test, or a swept consumer left unmarked, is an open finding.
