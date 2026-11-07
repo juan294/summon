@@ -43,6 +43,8 @@ describe("rex lifecycle observations (plan D6, Phase 5 step 0)", () => {
     const server = defaultRexServer();
     const cli = createRexCli(binary, server);
     const root = mkdtempSync(join(tmpdir(), "summon-rex-lifecycle-"));
+    const zdot = join(root, "zdot");
+    mkdirSync(zdot);
     const origLog = console.log;
     const origStderrWrite = process.stderr.write.bind(process.stderr);
     console.log = () => {};
@@ -56,7 +58,7 @@ describe("rex lifecycle observations (plan D6, Phase 5 step 0)", () => {
         const project = `summon-e2e-${name}-${Math.random().toString(16).slice(2, 8)}`;
         const dir = join(root, project);
         mkdirSync(dir, { recursive: true });
-        await launch(dir, { layout: "pair", editor, sidebar: "sleep 300", shell: "true", "no-project-config": "true" });
+        await launch(dir, { layout: "pair", editor, sidebar: "sleep 300", shell: "true", env: [`ZDOTDIR=${zdot}`], "no-project-config": "true" });
         const record = readStatusRecord(project)!;
         const identity = record.rex!;
         created.push({ project, sessionId: identity.sessionId });

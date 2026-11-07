@@ -179,7 +179,11 @@ function shellPaneFile(project: string, launchId: string, paneName: string): { f
  */
 function summonCommand(): string {
   const self = selfInvocation();
-  return self ? `${shellQuote(typedPath(self.execPath))} ${shellQuote(typedPath(self.script))}` : "summon";
+  if (!self) return "summon";
+  // Rex can terminate descendants of the pane before a slow snapshot finishes. Let the short
+  // launcher exit so the snapshot is reparented, in its own process group with no terminal IO.
+  const detach = 'require("node:child_process").spawn(process.execPath,process.argv.slice(1),{detached:true,stdio:"ignore"}).unref()';
+  return `${shellQuote(typedPath(self.execPath))} -e ${shellQuote(detach)} -- ${shellQuote(typedPath(self.script))}`;
 }
 
 /** Quoted cleanup log file of a project. */
@@ -229,7 +233,9 @@ export interface CleanupTrapOptions {
  * stdin and stdout and never inherit the terminal (observed on Rex and Node 24, guide §4 F9).
  *
  * The terminal kills the pane's processes shortly after the hangup (about 2 s on Rex), so the trap
- * can be cut short under load. The liveness files go first: they are what a stale reader would
+ * can be cut short under load. The registered CLI starts its snapshot in a detached process
+ * which survives pane teardown; the library fallback still uses summon on PATH. The liveness
+ * files go first: they are what a stale reader would
  * trust (a reused pid could look alive). The snapshot checks ownership against the record, not
  * these files, and Rex reconciliation saves one when the trap never got there (F21).
  */

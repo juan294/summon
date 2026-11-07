@@ -1,15 +1,16 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { execFileSync, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { cliBuild } from "../fixtures/cli-builds.js";
 
 /**
  * Rex CLI end-to-end suite (docs/release/rex-e2e-guide.md §2.2). Gated like rex-native:
  *   SUMMON_REX_E2E=1 runs (skips without prerequisites); SUMMON_REX_E2E_REQUIRED=1 fails instead.
- * Unlike rex-native, every step runs the built CLI (`dist/index.js`) as a child process under a
+ * Unlike rex-native, every step runs a private production CLI build as a child process under a
  * sandbox HOME with the environment a Rex terminal exports, so the dispatch, exit codes and printed
  * messages are the ones the owner sees. The pane shells resolve `$HOME` themselves (bootstrap and trap
  * are typed shell text), so the sandbox is handed to them through the `env.HOME` config key; without it
@@ -28,7 +29,7 @@ const harness = rexGate(process.env, "rex-cli e2e", { window: true });
 const { prereq } = harness;
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
-const dist = join(root, "dist", "index.js");
+let dist = "";
 const DEAD_SERVER = "unix:///tmp/summon-e2e-none.sock";
 const PANES = ["editor", "sidebar", "right-1", "shell"];
 /** A value with every character the env wrapper and the config file must carry literally. */
@@ -186,8 +187,10 @@ describe("rex cli e2e", () => {
     suffix = Math.random().toString(16).slice(2, 6);
     home = mkdtempSync(join(tmpdir(), "summon-rex-cli-"));
     mkdirSync(join(home, ".config", "summon", "layouts"), { recursive: true });
-    // The candidate under test is the built CLI: build it so a stale dist/ never passes for the sources.
-    execFileSync("pnpm", ["build"], { cwd: root, encoding: "utf8", timeout: 60_000, stdio: ["ignore", "pipe", "pipe"] });
+    // Own a copy so failed cleanup can retain both sessions/snapshot writers and their executable.
+    const candidate = join(home, "candidate");
+    cpSync(dirname(cliBuild("production")), candidate, { recursive: true });
+    dist = realpathSync(join(candidate, "index.js"));
     // `eight` is registered and never launched (C19). `five` lives under a directory with a space and a quote (C22).
     for (const topic of ["one", "two", "three", "four", "five", "six", "seven", "eight", "ten"]) {
       const dir = projectDir(topic);
@@ -245,12 +248,23 @@ describe("rex cli e2e", () => {
       failures.push(`could not list sessions (${listed.reason}); sessions labelled e2e-${suffix}-* may remain`);
     }
     failures.push(...await destroySessions(cli, [...owned]));
+    let snapshotWriters: string[] = [];
+    // Detached snapshot writers must finish before their sandbox and private CLI build go away.
+    try {
+      await until(() => {
+        const processes = execFileSync("ps", ["-axo", "command="], { encoding: "utf8", timeout: 5000, maxBuffer: 4 * 1024 * 1024 });
+        snapshotWriters = processes.split("\n").filter((line) => line.includes(" snapshot save ") && line.includes(`${home}/projects/`));
+        return snapshotWriters.length === 0 ? true : undefined;
+      }, 30_000, "this sandbox's snapshot writers to exit");
+    } catch (error) {
+      failures.push(error instanceof Error ? error.message : String(error));
+    }
     if (failures.length === 0) {
       rmSync(home, { recursive: true, force: true });
       return;
     }
     // C20: a cleanup that cannot be verified fails the suite and keeps what the owner needs to finish it.
-    writeFileSync(join(home, "RECOVERY.json"), JSON.stringify({ server, prefix: `e2e-${suffix}-`, sessions: [...owned], failures, hint: `rex -S '${server}' kill <session>` }, null, 2) + "\n");
+    writeFileSync(join(home, "RECOVERY.json"), JSON.stringify({ server, prefix: `e2e-${suffix}-`, sessions: [...owned], candidate: dist, snapshotWriters, failures, hint: `rex -S '${server}' kill <session>` }, null, 2) + "\n");
     throw new Error(`rex-cli e2e: cleanup not verified; sandbox kept at ${home} (see RECOVERY.json):\n${failures.join("\n")}`);
   }, 120_000); // a dozen kills plus the absence poll exceed vitest's 10 s hook default on a loaded machine
 
@@ -374,22 +388,24 @@ describe("rex cli e2e", () => {
     // reach the binary that created the launch (guide §4 F4), so the snapshot appears and badbin is never called.
     expect(existsSync(snapshotOf(one))).toBe(false);
     // Positive control: what the root pane's shell resolves `summon` to. It is never the candidate (the candidate
-    // is `dist/index.js`, not a `summon` on any PATH), so a trap that used the name would run another Summon or
+    // is a private build, not a `summon` on any PATH), so a trap that used the name would run another Summon or
     // the shim (a login zsh's path_helper puts /etc/paths ahead of `env.PATH`, so a global `summon` may come
     // first and the shim is a fallback). The interrupt ends the editor's `sleep`; the typed line runs at the
     // prompt that follows (the interrupt flushes pending input, so the line goes in a second write). The file
     // is read only once it has content (`>>` creates it before the write lands).
     await typeInto(sessionId, record.rex!.rootBlockId, "\u0003");
     await sleep(1000);
-    await typeInto(sessionId, record.rex!.rootBlockId, `command -v summon >> "$HOME/which.log"; printf 'done\\n' >> "$HOME/which.log"\n`);
+    await typeInto(sessionId, record.rex!.rootBlockId, `functions __summon_cleanup > "$HOME/trap-command.log"; command -v summon >> "$HOME/which.log"; printf 'done\\n' >> "$HOME/which.log"\n`);
     const which = await until(() => {
       const file = join(home, "which.log");
       if (!existsSync(file)) return undefined;
       const lines = readFileSync(file, "utf8").split("\n");
       return lines.includes("done") ? lines[0]! : undefined;
     }, 8000, "the pane's command -v summon");
+    expect(readFileSync(join(home, "trap-command.log"), "utf8")).toContain(dist);
     expect(which, "the pane resolves summon to some binary").toMatch(/^\//);
     const resolved = (() => { try { return realpathSync(which); } catch { return which; } })();
+    expect(resolved).not.toBe(realpathSync(dist));
     expect(resolved.startsWith(root), `${which} resolves to ${resolved}, inside the candidate's tree`).toBe(false);
     // ...and that Summon, given the trap's exact command line under a scratch home, writes no snapshot there:
     // so a trap that called `summon` by name could not have produced the file the assertion below finds.
@@ -398,6 +414,11 @@ describe("rex cli e2e", () => {
     const other = spawnSync(which, ["snapshot", "save", "--dir", projectDir("one"), "--project", one, "--layout", "default", "--launch", launchId], { env: { ...childEnv(), HOME: scratch }, encoding: "utf8", timeout: 30_000 });
     expect(existsSync(join(scratch, ".config", "summon", "snapshots", `${one}.json`)), `${which} wrote the snapshot (status ${other.status}): ${other.stdout}${other.stderr}`).toBe(false);
     console.log(`C10a: the root pane resolves summon to ${which}${resolved !== which ? ` (${resolved})` : ""}; with the trap's flags it exited ${other.status} and wrote nothing`);
+    // A slow Git status must outlive Rex's terminal teardown, not depend on machine load.
+    const slowMonitor = join(home, "slow-fsmonitor.sh");
+    writeFileSync(slowMonitor, "#!/bin/sh\nsleep 3\nexit 1\n");
+    chmodSync(slowMonitor, 0o755);
+    execFileSync("git", ["-C", projectDir("one"), "config", "core.fsmonitor", slowMonitor], { env: childEnv() });
     await killConfirmed(sessionId);
     await until(() => (existsSync(snapshotOf(one)) && !launchFiles(one, launchId).some((f) => f.endsWith(".pid") || f.endsWith(".active")) ? true : undefined), 8000, "the trap's snapshot and marker removal");
     const snapshot = JSON.parse(readFileSync(snapshotOf(one), "utf8")) as { project?: string; directory?: string; layout?: string };
@@ -438,8 +459,15 @@ describe("rex cli e2e", () => {
     // legitimate ends; the read must report the one that happened. This branch is disjunctive on purpose: the
     // empty-session path is pinned unconditionally below (C12b). The interrupt flushes pending input, so "exit"
     // goes in a second write.
+    const foregroundName = (blockId: string): string => {
+      const result = cli.call("block-call", ["block", "call", "-s", sessionId, "-b", blockId, "process"]);
+      const json = result.ok ? result.json as { foreground?: { name?: string } } : undefined;
+      return typeof json?.foreground?.name === "string" ? basename(json.foreground.name) : "";
+    };
+    const shellBlock = launch.rex!.blocks.find((block) => block.name === "shell")!.blockId;
+    await until(() => blocks.every((id) => foregroundName(id) === (id === shellBlock ? "zsh" : "sleep")) ? true : undefined, 8000, "the pane commands to start");
     for (const blockId of blocks) await typeInto(sessionId, blockId, "\u0003");
-    await sleep(1000);
+    await until(() => blocks.every((id) => foregroundName(id) === "zsh") ? true : undefined, 8000, "the interrupted commands to return to their shells");
     for (const blockId of blocks) await typeInto(sessionId, blockId, "exit\n");
     await until(() => noLiveBlocks(sessionId), 10_000, "every shell to exit");
     let destroyed = false;

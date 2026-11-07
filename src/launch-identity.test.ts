@@ -278,7 +278,9 @@ describe("the trap runs the binary that created the launch (guide F4)", () => {
   it("types the registered node and script paths, single-quoted, instead of a bare summon", () => {
     registerSelfInvocation("/usr/local/bin/node", "/opt/my 'tools'/summon/dist/index.js");
     const line = cleanupTrapLine("chapa", ID, { targetDir: "/tmp/chapa", layout: "full" });
-    expect(line).toContain(`'/usr/local/bin/node' '/opt/my '\\''tools'\\''/summon/dist/index.js' snapshot save --dir '/tmp/chapa' --project "chapa" --layout "full" --launch '${ID}' </dev/null >/dev/null 2>&1`);
+    expect(line).toContain(`-- '/opt/my '\\''tools'\\''/summon/dist/index.js' snapshot save --dir '/tmp/chapa' --project "chapa" --layout "full" --launch '${ID}' </dev/null >/dev/null 2>&1`);
+    expect(line).toContain("'/usr/local/bin/node' -e ");
+    expect(line).toContain('spawn(process.execPath,process.argv.slice(1),{detached:true,stdio:"ignore"}).unref()');
     expect(line).not.toMatch(/[;{] *summon snapshot/);
   });
 
@@ -290,7 +292,7 @@ describe("the trap runs the binary that created the launch (guide F4)", () => {
   it("single-quotes paths so history expansion (!) and $ never apply in the interactive login shell (SE-L1)", () => {
     registerSelfInvocation("/opt/node!22/bin/node", "/opt/$HOME/summon!/index.js");
     const line = cleanupTrapLine("chapa", ID, { targetDir: "/tmp/wow!$x`y`" });
-    expect(line).toContain(`'/opt/node!22/bin/node' '/opt/$HOME/summon!/index.js' snapshot save --dir '/tmp/wow!$x\`y\`' --project`);
+    expect(line).toContain(`-- '/opt/$HOME/summon!/index.js' snapshot save --dir '/tmp/wow!$x\`y\`' --project`);
   });
 
   it.each([
