@@ -327,7 +327,8 @@ Run `rpi-remediate` to process findings in 3 waves, driven by Section 14:
 
 - **Wave 1 (Before launch)** — all findings marked `Before launch` in
   Section 14. Typically launch-blockers + high severity. Must pass
-  before release.
+  before release, unless the owner accepts an S3 or S4 finding as a known issue
+  (see below).
 - **Wave 2 (After launch)** — all findings marked `After launch` in
   Section 14. Typically medium severity. Complete authorized actionable fixes;
   a separate run requires an explicit deferral of that scope.
@@ -340,7 +341,11 @@ Severity and time horizon order work; they do not automatically exempt a finding
 from resolution. Rule #58 requires every confirmed actionable finding within the
 authorized scope to be resolved, false positives rejected with evidence, and
 architectural exceptions or explicitly deferred scope recorded locally for owner
-review. External issues or comments require explicit authorization.
+review. A finding below the release-blocking level (S3 or S4: not data loss, a
+security boundary breach, a broken core workflow or a normal-use defect with no
+workaround) may instead become an owner-approved accepted known issue, recorded
+with its severity and reason in the release notes and fixed in a later release.
+External issues or comments require explicit authorization.
 
 ## Rules
 

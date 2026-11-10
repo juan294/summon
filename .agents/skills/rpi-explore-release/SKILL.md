@@ -1,6 +1,6 @@
 ---
 name: "rpi-explore-release"
-description: "Run independent fresh-context exploratory charters against a fixed authorized release candidate, preserving the eight-maneuver safety and evidence contract."
+description: "Run one round of independent fresh-context exploratory charters against a fixed authorized release candidate when the project's release profile selects Wave B, preserving the eight-maneuver safety and evidence contract; only S1/S2 findings block."
 ---
 
 # Exploratory Release Charters
@@ -19,6 +19,11 @@ It complements, and does not replace:
 
 Read [the release playbook](references/e2e-pro-playbook.md) Section 6 (Wave B) for the full
 decision detail. This command is the executable protocol.
+
+Run it only when the project's adapted release profile selects Wave B, for
+example for code that runs unattended or destructively on users' machines.
+Documentation-, template- and prose-only releases never need it. When selected,
+run one round on the fixed candidate.
 
 ## Input
 
@@ -108,30 +113,50 @@ Charter agents MUST:
 ## Step 5: Report and gate
 
 Each agent returns an **Exploratory Charter report** (playbook Section 9). The
-orchestrator collects them and applies the block rule.
+orchestrator collects them, gives every finding one severity and applies the
+block rule:
+
+| Severity | Meaning | Release effect |
+|---|---|---|
+| S1 | Data loss, a security boundary breach or a broken core workflow | Blocks |
+| S2 | A normal-use defect with no workaround, including a guardrail that falsely blocks ordinary work | Blocks |
+| S3 | A defect with a workaround, or a gap outside normal use | Accepted known issue |
+| S4 | A cosmetic, wording or minor quality issue | Accepted known issue |
+
+A best-effort guardrail, such as a shell-text policy hook, is not a security
+boundary. A new spelling that slips past it is S3 at most and never blocks a
+release.
 
 The release is **BLOCKED** when any of the following hold:
 
-- any charter reports a FAIL;
+- an S1 or S2 finding is not repaired and verified;
+- a finding has no severity;
 - a high-risk maneuver or area was skipped;
 - cleanup evidence is missing;
-- a finding lacks triage;
-- an accepted exception is not recorded before tagging.
+- an S3 or S4 finding is not recorded, before tagging, as an owner-approved
+  accepted known issue in the release notes with its severity and reason.
+
+After repairs, verify only the repaired findings with targeted checks. A repair
+does not trigger a new full charter round. S3 and S4 findings are fixed in a
+later release.
 
 Present a consolidated summary: per-charter decision, all findings with severity
 and reproduction, skipped high-risk areas, and fixture/cleanup evidence. Every
-finding gets a local disposition; external issue publication requires authorization — do not silently drop low-severity ones.
+finding gets a local disposition; external issue publication requires
+authorization. Do not silently drop low-severity findings.
 
 Do not tag or release from this command. Hand the evidence to `rpi-release`, which
 gates on it.
 
 ## Rules for this process
 
+- Run only when the release profile selects Wave B; one round per candidate.
 - Fixed, immutable candidate only.
 - Fresh contexts only — the implementer does not review their own change here.
 - All eight maneuver rows, every charter, or the charter is invalid.
 - Synthetic run-scoped fixtures; clean up only what you created.
 - Findings are reported, not fixed, during the charter.
+- Only S1/S2 findings block; repairs get targeted checks, not a new round.
 
 ## Execution and acceptance
 

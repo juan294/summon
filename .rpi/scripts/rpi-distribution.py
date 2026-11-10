@@ -406,6 +406,7 @@ def write_tree(tree, output):
         path.write_bytes(data)
         path.chmod((getattr(tree, "modes", None) or {}).get(name, 0o644))  # Not the umask's choice.
     receipt.write_text(json.dumps(file_inventory(tree), indent=2, sort_keys=True) + "\n")
+    receipt.chmod(0o644)  # Like every rendered file: not the umask's choice.
 
 
 def check_tree(tree, output):
@@ -635,8 +636,18 @@ def main():
     try:
         if args.command == "diagnose":
             if args.target is None:
-                raise ValueError("diagnose requires an explicit --target")
-            return diagnostics.cli(args)
+                error = ValueError("diagnose requires an explicit --target")
+                error.fix = "name the project root, for example: " + shlex.join([sys.executable, str(Path(__file__).resolve()), "diagnose", "--target", str(Path.cwd())])
+                raise error
+            try:
+                return diagnostics.cli(args)
+            except (OSError, ValueError, KeyError, TypeError) as error:
+                if getattr(error, "fix", None):
+                    raise
+                error.fix = ("pass --target an existing project directory" + (" and --cwd a directory inside it" if args.cwd else "") + "; for example: " +
+                             shlex.join([sys.executable, str(Path(__file__).resolve()), "diagnose", "--target", str(Path.cwd())]) +
+                             " (a --native-observation or --global-instruction file must be readable JSON or a readable path; the diagnosis only reads)")
+                raise
         if args.command in ("plan", "apply", "check", "rollback", "detach"):
             lifecycle = load_sibling("rpi-lifecycle")
             try:
@@ -648,6 +659,13 @@ def main():
             except lifecycle.Conflict as error:
                 print(json.dumps({"status": "conflict", "reason": str(error), "fix": lifecycle.blocked_hint(args, str(error), error.fix)}))
                 return 2
+            except (OSError, ValueError, KeyError, TypeError) as error:
+                # An adopter-side failure (a plan file, a journal, the project): never send the owner to the cc-rpi source manifest.
+                if os.environ.get("RPI_TRACEBACK"):
+                    import traceback
+                    traceback.print_exc()
+                print(f"BLOCKED / WHY: {lifecycle.operation_reason(error)} / FIX: {lifecycle.operation_fix(args, error, sys.modules[__name__])}", file=sys.stderr)
+                return 1
         source = args.source.resolve()
         manifest = load_manifest(source)
         if args.command == "counts":

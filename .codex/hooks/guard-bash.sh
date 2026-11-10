@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Portable PreToolUse adapter for the destructive-operation denylist.
+# Portable PreToolUse adapter for the best-effort destructive-operation denylist.
 # Exit 2 + stderr denies the operation; exit 0 emits no native allow decision,
-# so native permissions still decide. A missing runtime warns and passes
-# through: an absent denylist must not block every shell command. The engine
+# so native permissions still decide. A missing runtime or a bad registration
+# warns and passes through: a broken guardrail must not block every command. The engine
 # checks its own Python version, so no second interpreter starts per command.
 # Claude: bash guard-bash.sh. Codex: bash guard-bash.sh codex.
 set -uo pipefail
@@ -15,7 +15,7 @@ rpi_skip() {
 rpi_harness=${1:-claude}
 case "$rpi_harness" in
   claude|codex) ;;
-  *) printf '%s\n' 'BLOCKED / WHY: unsupported hook adapter. / FIX: invoke guard-bash.sh with claude or codex.' >&2; exit 2 ;;
+  *) rpi_skip 'unsupported hook adapter. FIX: invoke guard-bash.sh with claude or codex.' ;;
 esac
 # Prefer a supported interpreter over an older default python3 (macOS ships 3.9).
 rpi_python=

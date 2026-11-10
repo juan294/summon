@@ -28,13 +28,19 @@ to the existing commands:
   pattern as cc-rpi's contract layer (`validate-findings.py`, `verify-edit.sh`, the
   `BLOCKED/WHY/FIX` convention). Reuse that convention and its telemetry rather than inventing a
   second gate style.
-- **`/explore-release`** (blueprint command) runs Wave B charters.
+- **`/explore-release`** (blueprint command) runs Wave B charters when the project's release
+  profile selects them.
 
-### Adoption scaling: Wave A is the floor, C–H are by risk
+### Adoption scaling: Wave A is the floor, B–H are by risk
 
 Do not cargo-cult the full program into a small project. The mandatory floor for **every** project
 is **Wave A** — a release gate that cannot lie (zero-pass fails, required skip/fail blocks,
 candidate identity is fixed, tag is last). It is cheap and mechanical.
+
+Wave B (fresh-context exploratory charters) is proportional. The project's adapted release
+profile selects it, for example for code that runs unattended or destructively on users'
+machines. Documentation-, template- and prose-only releases never need it. When selected, it runs
+one round on the candidate, and only S1/S2 findings block the release (see B4).
 
 Waves C–H (capability registry, combination engine, plan compiler, staging fidelity, model-based
 tests, TTL automation) are structural and expensive. Adopt them **by project risk**, not by
@@ -159,7 +165,7 @@ These decisions are the agreed baseline for all adaptations.
 | D04 | A release-required check that fails or skips MUST block the release. Quarantine does not excuse a required miss. |
 | D05 | Requiredness is machine-readable, not inferred from prose or test names. |
 | D06 | The candidate artifact or commit is fixed before release evidence is collected. Evidence MUST identify the exact candidate. |
-| D07 | The release tag is created only after every mechanically required obligation has passed and all other automated probes, exploratory findings, manual arcs, evidence checks, and production checks have passed or received an authorized, recorded exception. Required misses are not excepted at report time. |
+| D07 | The release tag is created only after every mechanically required obligation has passed and all other automated probes, manual arcs, evidence checks, and production checks have passed or received an authorized, recorded exception. Exploratory findings block only at S1/S2; S3/S4 findings become owner-approved accepted known issues (D21). Required misses are not excepted at report time. |
 | D08 | Deterministic tests are the reproducible go/no-go foundation. Exploratory agents complement them; they do not replace them. |
 | D09 | Exploratory release charters run in fresh contexts, separate from the implementation agents, to reduce shared-assumption blindness. |
 | D10 | Every exploratory charter uses the same high-yield maneuver set and reports every maneuver as PASS, FAIL, or N/A with a reason. Silent omission is forbidden. |
@@ -173,6 +179,8 @@ These decisions are the agreed baseline for all adaptations.
 | D18 | If staging cannot exercise the real integration, the gap is explicit. A deliberately disabled staging seam MUST NOT be represented as full-integration coverage. |
 | D19 | Test data is synthetic, run-scoped, identifiable, and cleaned up with residue evidence. Agents MUST NOT touch real user data. |
 | D20 | Production-affecting or outward-facing actions—live charges, email, messages, destructive writes, hardware actions—require the repository's explicit authorization boundary. |
+| D21 | Wave B is selected by the release profile, not required for every release. When selected, it runs one round on the candidate. Only S1/S2 findings block; S3/S4 findings are recorded as owner-approved accepted known issues in the release notes and fixed in a later release. Repairs are verified with targeted checks, not a new full round. |
+| D22 | A best-effort guardrail, such as a shell-text policy hook, is not a security boundary. A new spelling that slips past it is S3 at most and never blocks a release. |
 
 ### Agreed sequencing
 
@@ -180,8 +188,8 @@ When delivery time is constrained:
 
 1. Land the immediate mechanical gates first: zero-pass failure, release-required enforcement,
    one release source of truth, fixed-candidate evidence, and tag-last ordering.
-2. Add fresh-context exploratory charters early. They are inexpensive and specifically target
-   the behavior gaps that deterministic suites commonly miss.
+2. When the release profile selects Wave B, add fresh-context exploratory charters early. They
+   specifically target the behavior gaps that deterministic suites commonly miss.
 3. Build the capability registry, plan compiler, constrained-combination engine, staging
    improvements, model-based harnesses, and TTL automation as the structural program.
 
@@ -227,6 +235,8 @@ Complete this table using repository evidence before implementing anything.
 | Observability | `<LOGS_TRACES_METRICS_ERROR_TRACKING>` |
 | Hardware/real-device surfaces | `<SURFACES_OR_NONE>` |
 | Agent command directory | `<AGENT_COMMAND_DIRECTORY>` |
+| Exploratory charters (Wave B) | `<SELECTED_OR_NOT_SELECTED_AND_REASON>` |
+| Structural waves selected (C–H) | `<SELECTED_WAVES_OR_NONE_AND_REASON>` |
 | Capability registry owner | `<TEAM_OR_ROLE>` |
 | Release approver | `<ROLE>` |
 | Rollback authority | `<ROLE>` |
@@ -253,7 +263,7 @@ prioritize a safer full-fidelity environment or cost-bounded synthetic productio
 ### Wave A — Make the Existing Release Gate Truthful
 
 This wave is mandatory before calling the system E2E Pro. In cc-rpi terms, Wave A is the floor
-every project adopts; Waves C–H are adopted by project risk.
+every project adopts and every release enforces; Waves B–H are selected by project risk.
 
 #### A1. Reconcile all release instructions
 
@@ -359,7 +369,7 @@ The release flow MUST:
 3. deploy or promote that candidate;
 4. verify the deployed identity;
 5. run environment-appropriate required probes;
-6. run exploratory and manual obligations;
+6. run the exploratory and manual obligations the profile selects;
 7. check evidence completeness;
 8. obtain any required approval;
 9. create and push the release tag.
@@ -371,6 +381,11 @@ playbook feeds it a complete, verified evidence set; it does not re-implement ta
 
 Exploratory testing targets unknown and interaction failures that scripted assertions do not yet
 encode. In cc-rpi, this wave is executed by the `/explore-release` command.
+
+This wave is proportional. Select it in the Project Adaptation Profile when the product's code
+runs unattended or destructively on users' machines, or when another recorded risk justifies it.
+Documentation-, template- and prose-only releases never need it. When selected, it runs one round
+on the fixed candidate (see B4).
 
 #### B1. Charter generation
 
@@ -460,13 +475,30 @@ Default timebox:
 Agents work in highest-yield order and report where time expired. A timebox does not turn an
 untested high-risk area into a pass.
 
+Each finding receives one severity:
+
+| Severity | Meaning | Release effect |
+|---|---|---|
+| S1 | Data loss, a security boundary breach, or a broken core workflow | Blocks the release |
+| S2 | A normal-use defect with no workaround, including a guardrail that falsely blocks ordinary work | Blocks the release |
+| S3 | A defect with a workaround, or a gap outside normal use | Owner-approved accepted known issue |
+| S4 | A cosmetic, wording, or minor quality issue | Owner-approved accepted known issue |
+
+A best-effort guardrail, such as a shell-text policy hook, is not a security boundary. A new
+spelling that slips past it is S3 at most and never blocks a release.
+
 The release is blocked when:
 
-- any charter reports a failure;
+- any charter reports an unrepaired S1 or S2 finding;
+- a finding has no severity;
 - a high-risk maneuver or area was skipped;
 - cleanup evidence is missing;
-- a finding lacks triage;
-- an accepted exception is not recorded before tagging.
+- an S3 or S4 finding is not recorded as an owner-approved accepted known issue, with its severity
+  and reason, in the release notes before tagging.
+
+Wave B runs one round per candidate. After repairs, verify only the repaired findings with
+targeted checks. A repair does not trigger a new full charter round. S3 and S4 findings are fixed
+in a later release.
 
 #### B5. Safety contract
 
@@ -991,6 +1023,8 @@ Rules:
 - exceptions expire;
 - critical exceptions require the project's named authority;
 - an expired exception is absent;
+- an S3 or S4 accepted known issue uses this format with its severity as the risk and names the
+  later release that fixes it;
 - the final report displays exceptions prominently.
 
 ---
@@ -1043,15 +1077,19 @@ Do not combine commands in a way that masks an earlier exit status.
 - Stop if deployed identity differs from the candidate.
 - Run the required environment probes.
 
-### 5. Run exploratory release charters
+### 5. Run exploratory release charters (when the profile selects Wave B)
 
 ```text
 <EXPLORE_RELEASE_COMMAND> <LAST_RELEASE_REF> <CANDIDATE_SHA_OR_DIGEST>
 ```
 
-- Use fresh independent contexts.
+- Skip this step when the profile does not select Wave B, for example for a documentation-,
+  template- or prose-only release.
+- Run one round with fresh independent contexts.
 - Complete every maneuver table.
-- Triage every finding.
+- Give every finding a severity (S1–S4, see Wave B4).
+- Repair S1/S2 findings and verify only those repairs with targeted checks.
+- Record S3/S4 findings as owner-approved accepted known issues in the release notes.
 - Resolve skipped high-risk areas.
 - Verify fixture cleanup.
 
@@ -1078,7 +1116,8 @@ The analyzer MUST fail for:
 - candidate/deployment mismatch;
 - unexplained unmapped impact;
 - overdue critical obligations;
-- untriaged exploratory failures or skipped high-risk areas.
+- when Wave B is selected: unrepaired S1/S2 exploratory findings, findings without a severity,
+  unrecorded S3/S4 findings, or skipped high-risk areas.
 
 ### 8. Authorize and tag
 
@@ -1156,6 +1195,10 @@ After rollback:
 
 <NONE_OR_EXPLICIT_EXPIRING_EXCEPTIONS>
 
+## Accepted known issues
+
+<NONE_OR_S3_S4_FINDINGS_WITH_SEVERITY_REASON_APPROVER_AND_FIX_RELEASE>
+
 ## Tag authorization
 
 - Approved by: <IDENTITY_OR_ROLE>
@@ -1195,7 +1238,7 @@ After rollback:
 
 ## Findings
 
-<FINDING_REPRO_SEVERITY_EVIDENCE_AND_ISSUE>
+<FINDING_REPRO_S1_TO_S4_SEVERITY_EVIDENCE_AND_ISSUE>
 
 ## Skipped high-risk areas
 
@@ -1359,6 +1402,10 @@ quality.
 - Using real customer data for release verification.
 - Cleaning broad shared data rather than run-owned fixtures.
 - Accepting exceptions with no owner, follow-up, or expiry.
+- Running Wave B on every release, including documentation-only ones, instead of by profile.
+- Repeating full charter rounds after targeted repairs.
+- Blocking a release on an S3/S4 finding, such as a new spelling that slips past a best-effort
+  guardrail.
 
 ---
 
@@ -1377,8 +1424,8 @@ and independent exploratory behavior.
 
 For every fixed release candidate, the repository generates an auditable execution plan from
 changed capabilities, blocks on required failures/skips or zero passes, captures multi-layer
-evidence, runs fresh-context exploratory charters, enforces cadence obligations, and tags only
-after the evidence is complete.
+evidence, runs fresh-context exploratory charters when the release profile selects them, enforces
+cadence obligations, and tags only after the evidence is complete.
 
 ## Non-negotiable decisions
 
@@ -1387,7 +1434,8 @@ after the evidence is complete.
 - [ ] Required skip/fail blocks; quarantine does not excuse it
 - [ ] Candidate identity is fixed and verified after deployment
 - [ ] Tag is the last release action after evidence and authorization
-- [ ] Fresh-context exploratory charters use all eight maneuvers
+- [ ] When selected, fresh-context exploratory charters run one round and use all eight maneuvers
+- [ ] Only S1/S2 findings block; S3/S4 become owner-approved accepted known issues
 - [ ] Synthetic fixtures and cleanup evidence are mandatory
 - [ ] Capability invariants are implementation-independent
 - [ ] Pairwise ordinary coverage plus explicit dangerous triples
@@ -1408,7 +1456,9 @@ after the evidence is complete.
 - [ ] Run one fresh context per charter
 - [ ] Require all eight maneuver rows
 - [ ] Require findings, skipped-high-risk, and cleanup sections
-- [ ] Block tagging on failures or skipped high-risk areas
+- [ ] Record in the release profile when Wave B is selected and why
+- [ ] Block tagging on unrepaired S1/S2 findings or skipped high-risk areas
+- [ ] Record S3/S4 findings as accepted known issues; verify repairs with targeted checks only
 
 ## Wave C — Capability registry
 
@@ -1529,7 +1579,8 @@ exists. It is complete when:
 - release obligations are generated for a fixed candidate;
 - changed critical behavior cannot silently remain unmapped;
 - combination selection covers ordinary pairs and declared dangerous triples;
-- independent exploratory charters produce complete maneuver evidence;
+- when the profile selects Wave B, independent exploratory charters produce complete maneuver
+  evidence in one round, with S1–S4 severities;
 - expected datastore, storage, event, vendor, telemetry, and cleanup oracles are checked;
 - vendor seams have deterministic fault coverage and appropriately scheduled real probes;
 - manual or hardware obligations have enforced TTLs;
