@@ -32,7 +32,8 @@ import sys
 sys.dont_write_bytecode = True
 
 ZERO = re.compile(r'0+')
-VERSION_TAG = re.compile(r'v?\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?')
+# A version tag: an optional word prefix (release-), an optional v or V, dotted numbers, an optional suffix (-rc.1, rc1, _x, +build).
+VERSION_TAG = re.compile(r'(?:[A-Za-z][A-Za-z0-9]*[-_])?[vV]?\d+(?:\.\d+)*(?:[-+._]?[A-Za-z0-9][A-Za-z0-9.+_-]*)?')
 PYTHON = re.compile(r'python(?:3(?:\.\d+)?)?')
 POLICY_KEYS = {'schema_version', 'integration_branch', 'production_branches', 'remote',
                'require_verification_receipt', 'verification_checks', 'verification_command'}
@@ -66,15 +67,22 @@ def read_json(data):
     return json.loads(data, object_pairs_hook=unique_object, parse_constant=invalid)
 
 
+_GIT_CACHE = {}
+
+
 def git(root, *arguments, text=True):
-    """Git's stdout, or None when Git or the repository state is unavailable."""
-    try:
-        result = subprocess.run(['git', '-C', str(root), *arguments], capture_output=True, text=text)
-    except OSError:
-        return None
-    if result.returncode != 0:
-        return None
-    return result.stdout.strip() if text else result.stdout
+    """Git's stdout, or None when Git or the repository state is unavailable.
+
+    Answers are cached for this hook run: refs that name the same commit share their lookups, so the cost
+    grows with the number of distinct commits, not with the number of pushed refs."""
+    key = (str(root), arguments, text)
+    if key not in _GIT_CACHE:
+        try:
+            result = subprocess.run(['git', '-C', str(root), *arguments], capture_output=True, text=text)
+            _GIT_CACHE[key] = None if result.returncode != 0 else (result.stdout.strip() if text else result.stdout)
+        except OSError:
+            _GIT_CACHE[key] = None
+    return _GIT_CACHE[key]
 
 
 def project_policy(root):
@@ -221,15 +229,31 @@ def stale(report, environment, runner):
          'locale, timezone or Python settings require a fresh run.')
 
 
+LIST_NAMES = 20
+
+
+def printable(name):
+    """A path as one unambiguous token: plain names stay as they are, names with control characters,
+    commas or double quotes are shown JSON-quoted (so \n, \t and \" are visible and never raw)."""
+    if any(ord(char) < 32 or char == '\x7f' for char in name) or any(char in name for char in ',"\\'):
+        return json.dumps(name, ensure_ascii=False)
+    return name
+
+
 def verified_candidate(root, policy):
     """The commit that exact local evidence attests for this clean candidate."""
     import importlib.util
     expected, runner = verification_contract(policy)
-    dirty = git(root, 'status', '--porcelain', '--untracked-files=normal', '--', '.', ':(exclude).rpi/local')
+    # NUL-separated and unstripped: the first status column is a significant space, and names stay unquoted.
+    dirty = git(root, 'status', '--porcelain', '-z', '--no-renames', '--untracked-files=normal', '--', '.', ':(exclude).rpi/local', text=False)
     if dirty is None or dirty:  # Local evidence is never part of the candidate (see rpi-candidate.py).
-        listed = ', '.join(line[3:] for line in (dirty or '').splitlines()[:5]) or 'git status failed'
-        fail('Publication requires a clean completed integration candidate (' + listed + ').',
-             'Commit or remove those changes, then run ' + runner)
+        names = [entry[3:].decode('utf-8', 'replace') for entry in (dirty or b'').split(b'\0') if entry]
+        listed = ', '.join(printable(name) for name in names[:LIST_NAMES]) or 'git status failed'
+        if len(names) > LIST_NAMES:
+            listed += ', and ' + str(len(names) - LIST_NAMES) + ' more'
+        count = (str(len(names)) + (' changed path: ' if len(names) == 1 else ' changed paths: ')) if names else ''
+        fail('Publication requires a clean completed integration candidate (' + count + listed + ').',
+             'Commit or remove those changes (git status --short lists every path), then run ' + runner)
     path = root / '.rpi/local/verification.json'
     if path.is_symlink() or not path.is_file():
         fail('Exact-candidate local verification evidence is missing.', 'Run ' + runner + ' in the completed integration checkout.')

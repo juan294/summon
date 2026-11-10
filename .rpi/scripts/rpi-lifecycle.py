@@ -226,12 +226,14 @@ def desired_entries(engine, source, manifest, request, domains):
     harnesses = request['harnesses']
     tree = engine.render_tree(source, harnesses, domains, include_runtime=False)
     desired = {}
-    def add(component, harness, destination, data, block=None):
+    def add(component, harness, destination, data, block=None, mode=None):
         root_id = 'project' if request['scope'] == 'project' else harness + '-user-skills'
         validate_component_destination(root_id, destination)
         entry = {'component_id': component, 'root_id': root_id, 'destination': destination,
                  'ownership': 'cc-rpi', 'consumers': [harness],
                  'adapter': {'harness': harness, 'sha256': digest(serialized(engine.load_adapter(source, harness)))}, 'data': data}
+        if mode is not None:
+            entry['mode'] = mode  # In memory only: it never reaches the manifest.
         declaration = next((item for item in manifest['components'] if item['id'] == component), {})
         if declaration.get('capability'):
             entry['capability'] = True
@@ -258,17 +260,18 @@ def desired_entries(engine, source, manifest, request, domains):
                                if request['scope'] == 'project' else '') + component['name'] + '/'
                 for name, data in tree.items():
                     if name.startswith(prefix):
-                        add(component['id'], harness, destination + name[len(prefix):], data)
+                        add(component['id'], harness, destination + name[len(prefix):], data, mode=tree.modes.get(name))
             elif kind == 'rule':
                 name = Path(component['source']).name
-                add(component['id'], harness, '.rpi/rules/' + name, tree[harness + '/rules/' + name])
+                add(component['id'], harness, '.rpi/rules/' + name, tree[harness + '/rules/' + name], mode=tree.modes.get(harness + '/rules/' + name))
                 if harness == 'claude' and component['mapping']['mode'] == 'conditional':
-                    add(component['id'], harness, '.claude/rules/' + name, tree[harness + '/rules/' + name])
+                    add(component['id'], harness, '.claude/rules/' + name, tree[harness + '/rules/' + name], mode=tree.modes.get(harness + '/rules/' + name))
             elif kind in ('hook', 'resource'):
                 destination = component['outputs'][harness]
                 if kind == 'hook' and not destination.startswith('.'):
                     destination = '.' + harness + '/' + destination
-                add(component['id'], harness, destination, tree[harness + '/' + component['outputs'][harness]])
+                add(component['id'], harness, destination, tree[harness + '/' + component['outputs'][harness]],
+                    mode=tree.modes.get(harness + '/' + component['outputs'][harness]))
             elif kind == 'config':
                 continue  # Entry-level reconciliation owns native configuration below.
     if request['scope'] == 'project':
@@ -348,6 +351,66 @@ def legacy_source_path(manifest, proposed):
     return None
 
 
+def enabled_cc_rpi_plugins(project_root):
+    """(settings file, plugin key) for each enabled cc-rpi plugin in Claude's user and project settings.
+
+    Claude Code records plugins in the enabledPlugins object of settings.json as "name@marketplace": true or false
+    (key shape seen in a real ~/.claude/settings.json). The user file is read from CLAUDE_CONFIG_DIR or ~/.claude;
+    project scope is .claude/settings.json and .claude/settings.local.json."""
+    candidates = [Path(os.environ.get('CLAUDE_CONFIG_DIR') or Path.home() / '.claude') / 'settings.json']
+    if project_root:
+        candidates += [Path(project_root) / '.claude/settings.json', Path(project_root) / '.claude/settings.local.json']
+    found = []
+    for path in candidates:
+        try:
+            value = json.loads(path.read_text())
+        except (OSError, ValueError):
+            continue
+        plugins = value.get('enabledPlugins') if isinstance(value, dict) else None
+        if isinstance(plugins, dict):
+            found += [(str(path), key) for key, enabled in plugins.items()
+                      if enabled is True and isinstance(key, str) and key.split('@', 1)[0] == 'cc-rpi']
+    return found
+
+
+def duplicate_registration_conflict(found):
+    path, key = found[0]
+    return {'destination': path, 'reason': 'the cc-rpi Claude plugin is enabled (' + key + ' in ' + path + '), so a direct installation would register every skill twice',
+            'fix': 'disable the plugin by setting "' + key + '": false under enabledPlugins in ' + path + ' (or remove that entry), or install through the plugin '
+                   'instead by re-planning with --route plugin; then re-plan'}
+
+
+def move_aside_command(state, roots, root_id, destination):
+    """A shell line that keeps a path under local/saved-edits (a fresh time-stamped name; a directory or link moves whole)."""
+    live = bound_path(roots[root_id], destination)
+    saved = Path(state) / 'local/saved-edits/plan' / root_id / destination
+    return ('mkdir -p -- ' + shlex.quote(str(saved.parent)) + ' && mv -- ' + shlex.quote(str(live)) + ' ' +
+            shlex.quote(str(saved)) + '.$(date +%Y%m%d-%H%M%S)')
+
+
+def conflict_repair(reason, state, roots, root_id, destination, block):
+    """The concrete repair for conflict classes that otherwise only say to inspect the plan, or {}."""
+    if reason == 'destination exists without proven ownership':
+        if block:
+            return {'fix': 'the marked ' + block + ' block in ' + destination + ' is not recorded as installed here (for example a detach kept it): cut that block '
+                           'out of the file and keep it elsewhere, or delete it if it is only a copy of the template'}
+        command = move_aside_command(state, roots, root_id, destination)
+        return {'fix': 'keep your version by moving it aside with ' + command + ' (the install then writes the template; merge your changes back from the saved copy)',
+                'move_aside_command': command}
+    if reason.startswith('modified direct registration competes with requested plugin route'):
+        command = move_aside_command(state, roots, root_id, destination)
+        return {'fix': 'either keep the direct route (re-plan with --route direct), or move your modified file aside with ' + command +
+                       ' and re-plan with the plugin route (the direct copy is then removed)',
+                'move_aside_command': command}
+    if reason.startswith(('symlink parent: ', 'non-directory parent: ')):
+        link = reason.split(': ', 1)[1]
+        real = os.path.realpath(link)
+        return {'fix': 'the engine never writes through a link: ' + link + (' is a symbolic link to ' + real if os.path.islink(link) else ' is not a directory') +
+                       '; point --target at the project that really holds ' + (destination or 'the native directories') + ', or replace ' + link +
+                       ' with a real directory (move the link away and copy in what you need), then re-plan'}
+    return {}
+
+
 def reconciliation_conflict(destination, reason, base, local, upstream):
     record = {'destination': destination, 'reason': reason}
     if local is None or upstream is None:
@@ -403,6 +466,11 @@ def make_plan(engine, request):
                          ' with roots ' + ', '.join(map(str, previous.get('root_ids') or [])),
                          'rerun with --scope ' + str(previous.get('scope')) + ' and that installation\'s roots, '
                          'or inspect ' + str(Path(state) / 'manifest.json') + ' if it was edited by hand')
+    moved = moved_journals(state)
+    if moved:  # The documented rebind step would strand this transaction, so it is never offered here.
+        error = Conflict('the project was moved while a transaction was unfinished: ' + str(moved[-1][0]))
+        error.fix = move_back_fix(state, moved)
+        raise error
     # Local root binding is separate from the portable ownership manifest.
     binding_path = bound_path(state, 'local/root-binding.json')
     binding = snapshot(binding_path)
@@ -417,9 +485,10 @@ def make_plan(engine, request):
                      'the new roots; journals from the old location cannot roll back here); otherwise pass the '
                      'recorded roots shown in this message')
         raise error
-    interrupted, recovery = interrupted_recovery(state)
+    interrupted, recovery, kind = interrupted_status(state)
     if interrupted:
-        error = Conflict('interrupted transaction must be rolled back before planning: ' + str(interrupted[-1]))
+        error = Conflict(('locked by a running lifecycle operation; wait for it to finish and run again: ' if kind == 'active' else
+                          'interrupted transaction must be rolled back before planning: ') + str(interrupted[-1]))
         error.fix = recovery
         raise error
     defaults = [c['name'] for c in manifest['components'] if c.get('category') == 'domain' and c['selection'] == 'default']
@@ -466,6 +535,10 @@ def make_plan(engine, request):
     authorized = set(request.get('allow_capabilities', []))
     capability_ids = {c['id'] for c in manifest['components'] if c.get('capability')}
     conflicts, retained, operations, baselines, next_entries = [], [], [], {}, []
+    if request['scope'] == 'project' and request['action'] != 'detach' and 'claude' in request['harnesses'] and routes.get('claude') == 'direct':
+        plugins = enabled_cc_rpi_plugins(roots.get('project'))
+        if plugins:
+            conflicts.append(duplicate_registration_conflict(plugins))
     file_changes = {}
     observations = {}
     source_provenance = source_identity(source, manifest)
@@ -550,6 +623,8 @@ def make_plan(engine, request):
                     raise Conflict('destination exists without proven ownership')
                 result = upstream
             elif proposed is None:
+                if local is None:
+                    continue  # Already gone (for example moved aside by the printed repair): only the ownership record is dropped.
                 if local != base:
                     if proposed is None and prior['component_id'].startswith('skill:') and routes.get(prior['adapter']['harness']) == 'plugin' and request['action'] != 'detach':
                         raise Conflict('modified direct registration competes with requested plugin route')
@@ -580,7 +655,7 @@ def make_plan(engine, request):
             if capability and (result != local or proposed and (not prior or upstream != base)) and cid not in authorized and request['action'] != 'detach':
                 raise Conflict('native capability file addition/change/removal requires --allow-capabilities ' + cid)
             if proposed:
-                entry = {k: v for k, v in proposed.items() if k != 'data'}
+                entry = {k: v for k, v in proposed.items() if k not in ('data', 'mode')}
                 entry['consumers'] = sorted(set(entry['consumers']) | surviving_consumers)
                 harness = entry['consumers'][0]
                 entry['adapter'] = {'harness': harness, 'sha256': digest(serialized(engine.load_adapter(source, harness)))}
@@ -617,6 +692,8 @@ def make_plan(engine, request):
                 record['allow_capabilities'] = flag
             if isinstance(error, MergeConflict):
                 record.update(merge_repair(state, roots, root_id, destination, block, prior, flag))
+            else:
+                record.update(conflict_repair(str(error), state, roots, root_id, destination, block))
             conflicts.append(record)
 
     # Legacy command names are only candidates. An immutable local source commit
@@ -632,7 +709,11 @@ def make_plan(engine, request):
                     destination = ('.claude/skills/' if harness == 'claude' else '.agents/skills/') + component['name']
                     direct = bound_path(roots['project'], destination)
                     if not any(e['destination'].startswith(destination + '/') for e in old.values()) and has_direct_content(direct):
-                        conflicts.append({'destination': destination, 'reason': 'unknown direct registration competes with requested plugin route'})
+                        command = move_aside_command(state, roots, 'project', destination)
+                        conflicts.append({'destination': destination, 'reason': 'unknown direct registration competes with requested plugin route',
+                                          'fix': 'either keep a direct installation (re-plan with --route direct), or move the unmanaged skill aside with ' + command +
+                                                 ' and re-plan with the plugin route',
+                                          'move_aside_command': command})
         for component in manifest['components']:
             for destination in component.get('former_paths', []):
                 if any(e['destination'].startswith(destination + '/') for e in next_entries):
@@ -731,7 +812,11 @@ def make_plan(engine, request):
 
     for (root_id, destination), data in sorted(file_changes.items()):
         before = observations[(root_id, destination)]
-        after = file_node(data, before.get('mode', 0o644)) if data is not None else {'kind': 'missing'}
+        wanted = next((entry['mode'] for key, entry in desired.items() if key[:2] == (root_id, destination) and entry.get('mode')), 0o644)
+        mode = before.get('mode', wanted)
+        if wanted & 0o100 and not mode & 0o100:
+            mode |= 0o111  # The source is executable (a hook, a script): the installed copy keeps that, whatever the umask.
+        after = file_node(data, mode) if data is not None else {'kind': 'missing'}
         if before != after:
             operations.append({'root_id': root_id, 'destination': destination, 'before': before, 'after': after})
     for name, data in sorted(baselines.items()):
@@ -776,9 +861,33 @@ def make_plan(engine, request):
 
 GATE_DOC = 'https://github.com/juan294/cc-rpi/blob/main/docs/native-policy.md#optional-verification-receipt-gate'
 # Verbatim from docs/native-policy.md (a test keeps them identical); adopters do not have that file.
-PRE_PUSH_ENABLE = r'''hooks=$(git config --type=path --get core.hooksPath || echo "$(git rev-parse --path-format=absolute --git-common-dir)/hooks")
-mkdir -p "$hooks" && cat > "$hooks/pre-push" <<'EOF'
+PRE_PUSH_ENABLE = r'''hooks_common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)
+hooks=$(git config --type=path --get core.hooksPath || echo "$hooks_common/hooks")
+if [ -z "$hooks_common" ]; then
+  echo "BLOCKED / WHY: the current directory is not inside a Git repository, so there is no hooks directory to write. / FIX: cd to the repository root of the integration checkout, then run this command again." >&2
+  false
+elif [ -e "$hooks" ] && [ ! -d "$hooks" ]; then
+  echo "BLOCKED / WHY: the hooks path $hooks (core.hooksPath, or the clone's hooks directory) exists and is not a directory. / FIX: point core.hooksPath at a directory (git config core.hooksPath PATH) or move that file away, then run this command again." >&2
+  false
+elif [ -L "$hooks/pre-push" ]; then
+  if [ -f "$hooks/pre-push" ] && grep -Eq '^[[:space:]]*[^[:space:]#].*rpi-prepush\.py' "$hooks/pre-push"; then
+    echo "$hooks/pre-push is a symbolic link to a hook that already invokes rpi-prepush.py; left unchanged."
+  else
+    echo "BLOCKED / WHY: $hooks/pre-push is a symbolic link, and this command never writes through a link. / FIX: add this line to the hook the link points to, or replace the link with a regular file that contains it, before any command that reads standard input (replace python3.13 with any Python 3.11 or newer on PATH), then push again: python3.13 \"\$(git rev-parse --show-toplevel)/.rpi/scripts/rpi-prepush.py\" \"\$@\" || exit 1" >&2
+    false
+  fi
+elif [ -e "$hooks/pre-push" ] && ! grep -q 'cc-rpi receipt gate wrapper' "$hooks/pre-push"; then
+  if grep -Eq '^[[:space:]]*[^[:space:]#].*rpi-prepush\.py' "$hooks/pre-push"; then
+    echo "$hooks/pre-push already invokes rpi-prepush.py; left unchanged."
+  else
+    echo "BLOCKED / WHY: $hooks/pre-push already exists and does not invoke rpi-prepush.py outside a comment, and this command never overwrites an existing hook. / FIX: add this line to that hook before any command that reads standard input (replace python3.13 with any Python 3.11 or newer on PATH), then push again: python3.13 \"\$(git rev-parse --show-toplevel)/.rpi/scripts/rpi-prepush.py\" \"\$@\" || exit 1" >&2
+    false
+  fi
+else
+  tmp="$hooks/.pre-push.$$"
+  if mkdir -p "$hooks" 2>/dev/null && cat 2>/dev/null > "$tmp" <<'EOF'
 #!/bin/sh
+# cc-rpi receipt gate wrapper: written by the documented enable command; run it again to update.
 top=$(git rev-parse --show-toplevel 2>/dev/null)
 gate="$top/.rpi/scripts/rpi-prepush.py"
 case $0 in /*) hook=$0 ;; *) hook=$PWD/$0 ;; esac
@@ -796,7 +905,14 @@ if [ -z "$python" ] || ! "$python" -c 'import sys; sys.exit(sys.version_info < (
 fi
 exec "$python" "$gate" "$@"
 EOF
-chmod +x "$hooks/pre-push"'''
+  then
+    chmod +x "$tmp" 2>/dev/null && mv -f "$tmp" "$hooks/pre-push" 2>/dev/null || { rm -f "$tmp"; echo "BLOCKED / WHY: cannot write the receipt gate wrapper into $hooks. / FIX: make that directory writable by this user (ls -ld \"$hooks\"), then run this command again; an existing hook there was not changed." >&2; false; }
+  else
+    rm -f "$tmp" 2>/dev/null
+    echo "BLOCKED / WHY: cannot write the receipt gate wrapper into $hooks. / FIX: make that directory writable by this user (ls -ld \"$hooks\"), then run this command again; an existing hook there was not changed." >&2
+    false
+  fi
+fi'''
 ENABLE_HINT = ('run the one-time command in enable_command from the integration checkout\'s repository root '
                '(documented at ' + GATE_DOC + ')')
 
@@ -946,19 +1062,35 @@ def operation_path(plan, operation):
     return bound_path(root, operation['destination'])
 
 
+# Plan fields that never invalidate a saved plan: a hook edit after planning, and the identifier a plan file gets when saved.
+INFORMATIONAL_KEYS = ("notices", "plan_id")
+
+
+def plan_identity(value):
+    """The plan_id field, present only when the plan carries one (journal, receipt and plan share this shape)."""
+    return {'plan_id': value['plan_id']} if value.get('plan_id') else {}
+
+
 def validate_plan(engine, plan):
     if plan.get('schema_version') != 1 or not isinstance(plan.get('request'), dict):
         raise ValueError('invalid plan schema')
     # Reconstruct all authority from the explicitly bound request. Untrusted plan
     # operations cannot introduce ownership, permissions or arbitrary destinations.
     fresh = make_plan(engine, plan['request'])
-    informational = lambda value: {key: item for key, item in value.items() if key != 'notices'}
+    plan_id = plan.get('plan_id')
+    if plan_id is not None and not (isinstance(plan_id, str) and re.fullmatch('[0-9a-f]{32}', plan_id)):
+        raise ValueError('invalid plan identifier')
+    informational = lambda value: {key: item for key, item in value.items() if key not in INFORMATIONAL_KEYS}
     if informational(fresh) != informational(plan):  # A hook edit after planning never invalidates it.
         raise Conflict('plan changed or source/installation preimages changed; create a new plan')
     if plan.get('status') == 'conflict':
         raise Conflict('unresolved plan conflicts')
     for operation in plan['operations']:
         operation_path(plan, operation)
+
+
+LOCK_BUSY = ('installation actively locked; wait for the other lifecycle operation to finish, then run check and '
+             'create a new plan if one is still needed')
 
 
 def acquire_lock(state):
@@ -978,7 +1110,7 @@ def acquire_lock(state):
         try:
             fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as error:
-            raise Conflict('installation actively locked; wait for the other lifecycle operation, then retry') from error
+            raise Conflict(LOCK_BUSY) from error
         current = os.stat(path, follow_symlinks=False)
         if (current.st_dev, current.st_ino) != (node.st_dev, node.st_ino) or current.st_nlink != 1 or current.st_size:
             raise Conflict('installation lock changed during acquisition; preserve state and inspect concurrent writers')
@@ -990,11 +1122,101 @@ def acquire_lock(state):
         raise
 
 
+def already_applied(plan):
+    """(journal path, newer work followed) when a completed journal recorded this very plan.
+
+    The match is the plan's own identifier, written into the journal at apply time, together with
+    the operations the receipt recorded. Plans and journals without an identifier never claim it:
+    identical operations do not make a plan the same plan."""
+    try:
+        plan_id = plan.get('plan_id')
+        if not plan_id or not plan.get('operations'):
+            return None
+        wanted = digest(serialized(plan['operations']))
+        ordered = journals(plan['state_root'], bound=True)
+        for index in range(len(ordered) - 1, -1, -1):
+            _, status, path = ordered[index]
+            receipt = json.loads(path.with_name('receipt.json').read_bytes()) if status == 'complete' else {}
+            if receipt.get('plan_id') == plan_id and receipt.get('operations_sha256') == wanted:
+                return path, any(later in ('applying', 'complete') for _, later, _ in ordered[index + 1:])
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        pass
+    return None
+
+
+def healthy_now(engine, request):
+    """True when check would report this installation healthy (a detach: nothing left to remove)."""
+    try:
+        current = make_plan(engine, {**request, 'action': request['action'] if request['action'] == 'detach' else 'update'})
+    except (Conflict, OSError, ValueError):
+        return False
+    return current['status'] == 'noop' or (current['status'] == 'ready' and status_bookkeeping_only(current))
+
+
+def validate_unapplied_plan(engine, plan):
+    """validate_plan, but a plan the installation already recorded says so instead of 'create a new plan'.
+
+    Returns {'status': 'already-applied', ...} when the plan was applied and the installation is healthy now (a no-op,
+    exit 0, like a repeated detach); drift after the apply keeps the conflict."""
+    try:
+        validate_plan(engine, plan)
+    except Conflict as error:
+        applied = already_applied(plan) if str(error).startswith('plan changed') else None
+        if applied is None:
+            raise
+        journal, followed = applied
+        if healthy_now(engine, plan['request']):
+            return {'status': 'already-applied', 'journal': str(journal), 'transaction': journal.parent.name}
+        reason = ('this plan was already applied by transaction journal ' + str(journal) + ' (status complete)' +
+                  ('; later transactions have since changed the installation' if followed else '') +
+                  '; run check to see the current state of the installation')
+        conflict = Conflict(reason)
+        conflict.fix = ('this plan needs no further apply; to see whether the installation has drifted since, run ' +
+                        replan_command(plan['request'], [], None, 'check') +
+                        ', and create a new plan only if it reports action-needed')
+        raise conflict from error
+
+
+def planned_directories(plan):
+    """Directories this plan's writes will create (they do not exist yet), deepest first."""
+    found = set()
+    for operation in plan['operations']:
+        if operation['after']['kind'] == 'missing':
+            continue
+        root = Path(plan['state_root'] if operation['root_id'] == 'state' else plan['roots'][operation['root_id']])
+        parent = (root / operation['destination']).parent
+        while parent != root and root in parent.parents and not parent.exists():
+            found.add(str(parent))
+            parent = parent.parent
+    return sorted(found, key=lambda name: (-len(Path(name).parts), name))
+
+
+def remove_created_directories(roots, candidates):
+    """rmdir each engine-created directory that is empty now, deepest first; a directory with any content stays."""
+    bases = [Path(root) for root in roots]
+    for name in sorted({name for name in candidates if isinstance(name, str)}, key=lambda name: (-len(Path(name).parts), name)):
+        path = Path(name)
+        if path.is_symlink() or not any(base in path.parents for base in bases):
+            continue
+        try:
+            path.rmdir()
+        except OSError:
+            continue
+
+
 def apply_plan(engine, plan, fail_after=None, fail_after_rename=None):
-    validate_plan(engine, plan)
+    done = validate_unapplied_plan(engine, plan)
+    if done:
+        return done
     if plan['status'] == 'noop':
         return {'status': 'noop'}
-    lock = acquire_lock(plan['state_root'])
+    try:
+        lock = acquire_lock(plan['state_root'])
+    except Conflict as error:
+        if str(error) == LOCK_BUSY:
+            error.fix = ('wait for the other lifecycle operation to finish, then run ' + replan_command(plan['request'], [], None, 'check') +
+                         '; create a new plan only if it reports action-needed')
+        raise
     try:
         validate_plan(engine, plan)
         binding_path = bound_path(plan['state_root'], 'local/root-binding.json')
@@ -1010,9 +1232,13 @@ def apply_plan(engine, plan, fail_after=None, fail_after_rename=None):
         journal = {'schema_version': 1, 'transaction': transaction, 'status': 'applying',
                    'roots': plan['roots'], 'state_root': plan['state_root'],
                    'operations': plan['operations'], 'completed': 0, 'pending': None,
-                   'scope': plan['request']['scope'], 'sequence': sequence}
+                   'scope': plan['request']['scope'], 'sequence': sequence, **plan_identity(plan)}
+        created = planned_directories(plan)
+        if created:
+            journal['created_directories'] = created
         receipt = {'roots': plan['roots'], 'state_root': plan['state_root'], 'sequence': sequence,
-                   'scope': plan['request']['scope'], 'operations_sha256': digest(serialized(plan['operations']))}
+                   'scope': plan['request']['scope'], 'operations_sha256': digest(serialized(plan['operations'])),
+                   **plan_identity(plan)}
         atomic_node(journal_path.with_name('receipt.json'), file_node(serialized(receipt), 0o600))
         atomic_node(journal_path, file_node(serialized(journal), 0o600))
         try:
@@ -1024,6 +1250,13 @@ def apply_plan(engine, plan, fail_after=None, fail_after_rename=None):
             raise
         journal['status'] = 'complete'
         atomic_node(journal_path, file_node(serialized(journal), 0o600))
+        if plan['request']['action'] == 'detach':  # Directories an earlier install created and nothing uses now.
+            earlier = [name for _, _, path in journals(plan['state_root']) if path != journal_path
+                       for name in (json.loads(path.read_bytes()).get('created_directories') or [])]
+            removed = [(Path(plan['state_root'] if op['root_id'] == 'state' else plan['roots'][op['root_id']]) / op['destination']).parent
+                       for op in plan['operations'] if op['after']['kind'] == 'missing']
+            ancestors = {str(parent) for start in removed for parent in [start, *start.parents]}
+            remove_created_directories([plan['state_root'], *plan['roots'].values()], ancestors & set(earlier))
         atomic_node(bound_path(plan['state_root'], 'local/root-binding.json'), file_node(serialized(plan['roots']), 0o600))
         atomic_node(bound_path(plan['state_root'], 'local/source-receipt.json'), file_node(serialized(plan['request']), 0o600))
         return {'status': 'applied', 'journal': str(journal_path)}
@@ -1083,11 +1316,21 @@ def rollback(journal_path):
         raise ValueError('completed journal has inconsistent recovery progress')
     expected = bound_path(journal['state_root'], 'local/transactions/' + journal['transaction'] + '/journal.json')
     if expected != journal_path:
+        if journal.get('scope') == 'project' and len(journal_path.parents) > 4 and journal_path.parents[3].name == '.rpi':
+            error = Conflict('this journal was recorded for the project at ' + str(Path(journal['state_root']).parent) +
+                             ' but it is at ' + str(journal_path.parents[4]))
+            error.fix = ('move the project back to the recorded path, then undo the transaction there: ' +
+                         shlex.join(['mv', '--', str(journal_path.parents[4]), str(Path(journal['state_root']).parent)]) + ' && ' +
+                         engine_command('rollback', '--journal', expected) +
+                         ' (if the recorded path is occupied, move that out of the way first)')
+            raise error
         raise ValueError('journal does not match its bound state root')
     binding_path = bound_path(journal['state_root'], 'local/root-binding.json')
     binding_node = snapshot(binding_path)
     binding = node_bytes(binding_node)
-    if binding != serialized(journal['roots']):
+    # A project-scope journal is also checked against its own location below, so a missing binding (removed by the old
+    # rebind hint, then the project moved back) must not make the transaction impossible to undo.
+    if binding != serialized(journal['roots']) and not (binding is None and journal.get('scope') == 'project'):
         raise Conflict('journal roots differ from recorded installation bindings')
     if journal.get('scope') == 'project' and journal['roots'] != {'project': str(Path(journal['state_root']).parent)}:
         raise ValueError('project journal root must be the parent of its .rpi state')
@@ -1098,11 +1341,19 @@ def rollback(journal_path):
     receipt = json.loads(node_bytes(receipt_node))
     expected_receipt = {'roots': journal['roots'], 'state_root': journal['state_root'],
                         'scope': journal['scope'], 'operations_sha256': digest(serialized(journal['operations'])),
+                        **plan_identity(journal),
                         **({'sequence': sequence} if 'sequence' in journal else {})}
     if receipt != expected_receipt:
         raise Conflict('transaction journal changed from its recovery receipt')
     for operation in journal['operations']:
-        operation_path(journal, operation)
+        try:
+            operation_path(journal, operation)
+        except Conflict as error:
+            if error.fix is None and str(error).startswith(('symlink parent: ', 'non-directory parent: ')):
+                error.fix = ('rollback never writes through a link or into a non-directory; make ' + str(error).split(': ', 1)[1] +
+                             ' the real directory it was when the transaction ran (move whatever replaced it aside and keep your content), then run ' +
+                             engine_command('rollback', '--journal', journal_path))
+            raise
         for node in (operation['before'], operation['after']):
             if node['kind'] == 'file':
                 if digest(decoded(node['data'])) != node['sha256'] or not 0 <= node['mode'] <= 0o777:
@@ -1131,28 +1382,164 @@ def rollback(journal_path):
             error.fix = ('keep this journal; undo newer transactions first, newest first, starting with ' +
                          engine_command('rollback', '--journal', newer[-1]))
             raise error
-        completed = journal['operations'][:journal['completed']]
+        completed = list(enumerate(journal['operations'][:journal['completed']]))
         if journal.get('pending') is not None:
             pending = journal['operations'][journal['pending']]
-            actual = snapshot(operation_path(journal, pending))
+            actual = live_node(operation_path(journal, pending))
             if actual == pending['after']:
-                completed.append(pending)
+                completed.append((journal['pending'], pending))
             elif actual != pending['before']:
-                raise Conflict('interrupted operation has a newer unrecognized preimage')
-        for operation in completed:
-            if snapshot(operation_path(journal, operation)) not in (operation['before'], operation['after']):
-                raise Conflict('postimage changed; rollback would overwrite newer work: ' + operation['destination'])
-        for operation in reversed(completed):
-            if snapshot(operation_path(journal, operation)) == operation['before']:
+                raise newer_work_conflict(journal, journal_path, [(journal['pending'], pending)],
+                                          'interrupted operation has a newer unrecognized preimage: ' + pending['destination'])
+        newer_work = [(index, operation) for index, operation in completed
+                      if live_node(operation_path(journal, operation)) not in (operation['before'], operation['after'])]
+        if newer_work:
+            raise newer_work_conflict(journal, journal_path, newer_work, 'postimage changed; rollback would overwrite newer work: ' +
+                                      ', '.join(operation['destination'] for _, operation in newer_work))
+        for index, operation in reversed(completed):
+            if live_node(operation_path(journal, operation)) == operation['before']:
                 continue
-            if snapshot(operation_path(journal, operation)) != operation['after']:
-                raise Conflict('postimage changed during rollback: ' + operation['destination'])
+            if live_node(operation_path(journal, operation)) != operation['after']:
+                raise newer_work_conflict(journal, journal_path, [(index, operation)],
+                                          'postimage changed during rollback: ' + operation['destination'])
             atomic_node(operation_path(journal, operation), operation['before'])
         journal['status'] = 'rolled-back'
         atomic_node(journal_path, file_node(serialized(journal), 0o600))
+        created = journal.get('created_directories')
+        if isinstance(created, list):  # Only directories this transaction created, and only while empty.
+            remove_created_directories([journal['state_root'], *journal['roots'].values()], created)
         return {'status': 'rolled-back'}
     finally:
         os.close(lock)
+
+
+def live_node(path):
+    """snapshot(path), or an unrecognized node (never equal to a recorded one) for a directory or special file."""
+    try:
+        return snapshot(path)
+    except Conflict:
+        return {'kind': 'unrecognized'}
+
+
+# Runs outside the engine, from the printed fix. When the path already holds the recorded preimage it
+# does nothing. Otherwise it moves whatever is there (a file, a symlink or a directory, never following
+# a link) to a fresh numbered name, then writes the recorded preimage to a uniquely named temporary entry
+# in the same directory and renames it over the path; the temporary entry never survives a failure.
+def path_signature(path):
+    """One comparable token for what is at a path: missing, a link target, a file's hash and mode, or other."""
+    path = str(path)
+    if not os.path.lexists(path):
+        return 'missing'
+    if os.path.islink(path):
+        return 'symlink:' + os.readlink(path)
+    if os.path.isfile(path):
+        with open(path, 'rb') as handle:
+            return 'file:' + hashlib.sha256(handle.read()).hexdigest() + ':' + format(stat.S_IMODE(os.stat(path).st_mode), 'o')
+    return 'other'
+
+
+def node_signature(node):
+    if node['kind'] == 'file':
+        return 'file:' + node['sha256'] + ':' + format(node['mode'], 'o')
+    return 'symlink:' + node['target'] if node['kind'] == 'symlink' else 'missing'
+
+
+# Runs outside the engine, from the printed fix. It only touches a path while the path still has the state the
+# conflict reported (its signature at print time); a path that already holds the recorded preimage, or has
+# changed since, is left alone, and a journal that is already rolled back is refused. Otherwise it moves whatever
+# is there (a file, a symlink or a directory, never following a link) to a fresh numbered name, then writes the
+# recorded preimage to a uniquely named temporary entry in the same directory and renames it over the path; the
+# temporary entry never survives a failure.
+RESTORE_PREIMAGE = r"""
+import base64, hashlib, json, os, secrets, shutil, stat, sys, tempfile
+document = json.load(open(sys.argv[1]))
+operations = document['operations']
+if document.get('status') == 'rolled-back':
+    sys.exit('this journal is already rolled back, so nothing is restored; run the rollback command again only if it reports a new conflict')
+
+def signature(path):
+    if not os.path.lexists(path):
+        return 'missing'
+    if os.path.islink(path):
+        return 'symlink:' + os.readlink(path)
+    if os.path.isfile(path):
+        with open(path, 'rb') as handle:
+            return 'file:' + hashlib.sha256(handle.read()).hexdigest() + ':' + format(stat.S_IMODE(os.stat(path).st_mode), 'o')
+    return 'other'
+
+def restore(index, live, saved, expected):
+    node = operations[int(index)]['before']
+    parent = os.path.dirname(live)
+    if os.path.realpath(parent) != parent:
+        sys.exit('refusing to restore through a symlinked parent directory: ' + parent)
+    wanted = ('file:' + node['sha256'] + ':' + format(node['mode'], 'o') if node['kind'] == 'file'
+              else 'symlink:' + node['target'] if node['kind'] == 'symlink' else 'missing')
+    now = signature(live)
+    if now == wanted:
+        return
+    if now != expected:
+        print('noop: ' + live + ' changed after the conflict was reported; run the rollback command again for a fresh fix')
+        return
+    if os.path.lexists(live):
+        target, number = saved, 0
+        while os.path.lexists(target):
+            number += 1
+            target = saved + '.' + str(number)
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        shutil.move(live, target)
+        print('kept your edit of ' + live + ' as ' + target)
+    temporary = None
+    try:
+        if node['kind'] == 'file':
+            os.makedirs(parent, exist_ok=True)
+            descriptor, temporary = tempfile.mkstemp(dir=parent, prefix='.rpi-restore-')
+            with os.fdopen(descriptor, 'wb') as handle:
+                handle.write(base64.b64decode(node['data']))
+            os.chmod(temporary, node['mode'])
+        elif node['kind'] == 'symlink':
+            os.makedirs(parent, exist_ok=True)
+            while True:
+                temporary = os.path.join(parent, '.rpi-restore-' + secrets.token_hex(8))
+                try:
+                    os.symlink(node['target'], temporary)
+                    break
+                except FileExistsError:
+                    continue
+        if temporary:
+            os.replace(temporary, live)
+            temporary = None
+    finally:
+        if temporary and os.path.lexists(temporary):
+            os.unlink(temporary)
+
+# Arguments after the journal are (operation index, live path, saved path, signature at print time) groups;
+# the first failure stops everything.
+rest = sys.argv[2:]
+for position in range(0, len(rest), 4):
+    restore(*rest[position:position + 4])
+"""
+
+
+def newer_work_conflict(journal, journal_path, blocked, reason):
+    """A rollback refused because an owner changed files after the transaction wrote them.
+
+    The fix is one runnable command line. For each path it moves the owner's version (a file,
+    a link or a directory, never followed) to a fresh name under the installation's ignored
+    local state, puts the recorded preimage back without writing through anything, and
+    re-runs the rollback. Nothing is written by the refusal itself."""
+    saved = Path(journal['state_root']) / 'local/saved-edits' / journal['transaction'] / time.strftime('%Y%m%d-%H%M%S')
+    arguments = [argument for index, operation in blocked
+                 for argument in (str(index), str(operation_path(journal, operation)),
+                                  str(saved / operation['root_id'] / operation['destination']),
+                                  path_signature(operation_path(journal, operation)))]
+    steps = [shlex.join([sys.executable, '-c', RESTORE_PREIMAGE, str(journal_path), *arguments])]
+    names = ', '.join(operation['destination'] for _, operation in blocked)
+    error = Conflict(reason)
+    error.fix = ('your newer version of ' + names + ' would be overwritten and nothing was changed; the command line at the end of this message moves it to ' +
+                 str(saved) + ' (a number is added when that name is taken), restores the installed content so the rollback can proceed, then re-runs it; ' +
+                 'it only touches a path that is still as reported here, and it refuses once this journal is rolled back; run: ' +
+                 ' && '.join(steps + [engine_command('rollback', '--journal', journal_path)]))
+    return error
 
 
 def compact(value):
@@ -1232,23 +1619,84 @@ def journals(state_root, bound=False):
     return [item[:3] for item in sorted(found, key=lambda item: (item[0], item[3], str(item[2])))]
 
 
-def interrupted_recovery(state_root):
-    """Interrupted journals here, and the exact newest-first rollbacks that clear them."""
+def lock_is_held(state_root):
+    """True while a live process holds the installation lock. The lock file is only opened if it exists."""
+    try:
+        import fcntl
+        descriptor = os.open(bound_path(state_root, 'local/lock'), os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except (ImportError, OSError, ValueError, Conflict):
+        return False
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        return True
+    except OSError:
+        return False
+    finally:
+        os.close(descriptor)  # Closing releases a lock this check just took.
+    return False
+
+
+def moved_journals(state_root):
+    """(journal, recorded state root) of unfinished journals that were written for another location of this project."""
+    found = []
+    try:
+        here = str(Path(state_root).resolve())
+        directory = bound_path(state_root, 'local/transactions')
+        for path in sorted(directory.glob('*/journal.json')) if directory.is_dir() else []:
+            try:
+                value = json.loads(path.read_bytes()) if not path.is_symlink() else None
+            except (OSError, ValueError):
+                continue
+            if (isinstance(value, dict) and value.get('status') == 'applying' and isinstance(value.get('state_root'), str)
+                    and value['state_root'] != here):
+                found.append((path.resolve(), value['state_root']))
+    except (OSError, ValueError, Conflict):
+        return []
+    return found
+
+
+def move_back_fix(state_root, moved):
+    path, recorded = moved[-1]
+    here = Path(state_root).resolve()
+    recorded_journal = Path(recorded) / path.relative_to(here)
+    return ('this project was moved while a transaction recorded at ' + str(Path(recorded).parent) + ' was unfinished; '
+            'move it back to the recorded path and undo the transaction there: ' +
+            shlex.join(['mv', '--', str(here.parent), str(Path(recorded).parent)]) + ' && ' +
+            engine_command('rollback', '--journal', recorded_journal) +
+            ' (if the recorded path is occupied, move that out of the way first; removing root-binding.json to rebind would '
+            'strand the transaction, so it is not offered while one is unfinished), then create a new plan')
+
+
+def interrupted_status(state_root):
+    """(unfinished journals, how to clear them, kind) with kind 'rollback', 'active' (a live operation holds
+    the lock: wait, never roll back) or 'moved' (the project was moved: move it back first)."""
     ordered = [(status, path) for _, status, path in journals(state_root, bound=True) if status in ('applying', 'complete')]
     first = next((index for index, (status, _) in enumerate(ordered) if status == 'applying'), None)
     if first is None:
-        return [], None
+        moved = moved_journals(state_root)
+        if moved:
+            return [path for path, _ in moved], move_back_fix(state_root, moved), 'moved'
+        return [], None, None
+    paths = [path for status, path in ordered if status == 'applying']
+    if lock_is_held(state_root):
+        return paths, ('a running lifecycle operation holds the lock on this installation; wait for it to finish and run '
+                       'the command again. Do not roll back while it runs: a transaction that completes is healthy'), 'active'
     chain = ' && '.join(engine_command('rollback', '--journal', path) for _, path in reversed(ordered[first:]))
     lead = ('an apply stopped before completing; undo it exactly with ' if first == len(ordered) - 1 else
             'an apply stopped before completing and newer transactions followed it; undo them newest first with ')
-    return [path for status, path in ordered if status == 'applying'], lead + chain + ', then create a new plan'
+    return paths, lead + chain + ', then create a new plan', 'rollback'
 
 
-def replan_command(request, flags, output):
-    """The same explicit plan request with the named capability flags and a new output."""
+def replan_command(request, flags, output, command='plan'):
+    """The same explicit plan request with the named capability flags and a new output.
+
+    `command='check'` names the read-only check of that request instead (no action, no output)."""
     harnesses = request['harnesses']
-    parts = ['plan', '--source', request['source'], '--target', request['target'],
-             '--harness', harnesses[0] if len(harnesses) == 1 else 'both', '--action', request['action']]
+    parts = [command, '--source', request['source'], '--target', request['target'],
+             '--harness', harnesses[0] if len(harnesses) == 1 else 'both']
+    if command == 'plan':
+        parts += ['--action', request['action']]
     if request.get('route'):
         parts += ['--route', request['route']]
     for domain in request.get('domains') or []:
@@ -1262,7 +1710,7 @@ def replan_command(request, flags, output):
         parts += ['--legacy-base', request['legacy_base']]
     for flag in flags:
         parts += ['--allow-capabilities', flag]
-    return engine_command(*parts, '--output', output)
+    return engine_command(*parts, *(['--output', output] if command == 'plan' else []))
 
 
 def conflict_fix(request, conflicts, saved, output):
@@ -1291,6 +1739,39 @@ def journal_fix(args):
             str(state / 'local/transactions') + '/<transaction>/journal.json (none found there)')
 
 
+def recorded_detached(request):
+    """The installation manifest when it records a detach (route detached), else None."""
+    try:
+        recorded = load_state(request_roots(request)[1])
+    except (Conflict, OSError, TypeError, ValueError):
+        return None
+    return recorded if recorded and recorded.get('route') == 'detached' else None
+
+
+def detached_check(request, recorded):
+    """check of a project whose manifest records a detach.
+
+    A completed detach leaves owner files and baselines and no installed harness: that
+    is the requested end state, not drift. A manifest that says detached but still lists
+    owned entries or installations is a half-finished detach and stays action-needed."""
+    stamp = time.strftime('%Y%m%d-%H%M%S')
+    plans = Path(request_roots(request)[1]) / 'local/plans'
+    result = {'schema_version': 1, 'request': request, 'operations': [], 'conflicts': [], 'retained': []}
+    leftovers = len(recorded.get('entries') or []) + len(recorded.get('installations') or {})
+    if leftovers:
+        output = plans / ('detach-' + stamp + '.json')
+        return {**result, 'status': 'action-needed',
+                'conflicts': [{'destination': '', 'reason': 'the manifest records route detached but still lists ' + str(leftovers) +
+                               ' owned entries or installations; a detach was left half finished'}],
+                'detach_fix': ('finish the detach: create the plan with ' + replan_command({**request, 'action': 'detach'}, [], output) +
+                               ', review it, then apply it with ' + engine_command('apply', '--plan', output))}
+    output = plans / ('install-' + stamp + '.json')
+    return {**result, 'status': 'detached',
+            'note': ('this project was detached from cc-rpi: no harness is installed and nothing is owed. Owner content that detach '
+                     'retained and the portable baselines under .rpi/baselines remain. To install again, create a reviewable plan with ' +
+                     replan_command({**request, 'action': 'install'}, [], output) + ', review it, then apply it; retained owner files that differ from the template appear in that plan as conflicts to reconcile')}
+
+
 def recorded_harness(args):
     """An update or detach keeps the installation's recorded harnesses unless one is named."""
     if args.harness is not None:
@@ -1308,6 +1789,10 @@ def recorded_harness(args):
 
 
 def blocked_hint(args, reason, fix=None):
+    if fix is None and getattr(args, 'target', None) and Path(args.target).absolute().is_symlink():
+        real = Path(args.target).absolute().resolve()
+        fix = ('the target ' + str(args.target) + ' is a symbolic link to ' + str(real) + ' and the engine never writes through a link; '
+               'run the same command against the real path: ' + rerun(drop=('--target', (str(args.target),)), add=('--target', real)))
     if fix is None:
         target, source, harness = getattr(args, 'target', None), getattr(args, 'source', None), getattr(args, 'harness', None) or 'both'
         if not target:
@@ -1413,12 +1898,15 @@ def cli(engine, args):
                    'claude_skill_root': str(args.claude_skill_root.absolute()) if args.claude_skill_root else None,
                    'codex_skill_root': str(args.codex_skill_root.absolute()) if args.codex_skill_root else None}
         try:
-            result = make_plan(engine, request)
+            recorded = recorded_detached(request) if args.command == 'check' else None
+            result = detached_check(request, recorded) if recorded else make_plan(engine, request)
         except UsageError as error:
             if error.drop:
                 error.fix += '; rerun ' + rerun(drop=error.drop)
             raise
         except Conflict as error:
+            if not error.fix and str(error).startswith(('symlink parent: ', 'non-directory parent: ')):
+                error.fix = conflict_repair(str(error), None, {}, None, '', None)['fix']
             pending_fix = error.fix
             result = {'schema_version': 1, 'request': request, 'status': 'conflict', 'operations': [],
                       'conflicts': [{'destination': '', 'reason': str(error), **({'fix': error.fix} if error.fix else {})}],
@@ -1442,30 +1930,44 @@ def cli(engine, args):
                 original_ignore = node_bytes(snapshot(ignore)) or b''
                 if b'*' not in original_ignore.splitlines():
                     atomic_node(ignore, file_node(original_ignore + (b'\n' if original_ignore else b'') + b'*\n', 0o600))
+            result['plan_id'] = uuid.uuid4().hex  # Names this plan file in the journal that applies it.
             atomic_node(output, file_node(serialized(result), 0o600))
             saved = output
         else:
             if result['status'] == 'ready' and status_bookkeeping_only(result):
                 result['status'], result['operations'] = 'noop', []  # Retained customization is healthy.
-            result['status'] = 'healthy' if result['status'] == 'noop' else 'action-needed'
+            if result['status'] != 'detached':
+                result['status'] = 'healthy' if result['status'] == 'noop' else 'action-needed'
         try:
             state_root = request_roots(request)[1]
-            interrupted, recovery = interrupted_recovery(state_root)
+            interrupted, recovery, kind = interrupted_status(state_root)
         except (Conflict, OSError, ValueError):
-            state_root, interrupted, recovery = None, [], None
+            state_root, interrupted, recovery, kind = None, [], None, None
         if interrupted:
             result['interrupted_transactions'] = [str(path) for path in interrupted]
-            if result['status'] == 'healthy':
+            if kind == 'active':
+                result['active_operation'] = 'a running lifecycle operation holds the installation lock'
+            if result['status'] in ('healthy', 'detached'):
                 result['status'] = 'action-needed'
+                result.pop('note', None)
             pending_fix = recovery
+        elif result.get('detach_fix'):
+            pending_fix = result.pop('detach_fix')
         if pending_fix is None and state_root:
             stamp = time.strftime('%Y%m%d-%H%M%S')
+            fix_request = request
+            if args.command == 'check':  # Nothing installed (a fresh project, or an install that was rolled back) needs an install, not an update.
+                try:
+                    installed = load_state(state_root) is not None
+                except (Conflict, OSError, ValueError):
+                    installed = True
+                fix_request = request if installed else {**request, 'action': 'install'}
             output = (saved.with_name(saved.stem + '-' + stamp + saved.suffix) if saved else
-                      Path(state_root) / 'local/plans' / (request['action'] + '-' + stamp + '.json'))
-            pending_fix = conflict_fix(request, result.get('conflicts', []), saved, output)
+                      Path(state_root) / 'local/plans' / (fix_request['action'] + '-' + stamp + '.json'))
+            pending_fix = conflict_fix(fix_request, result.get('conflicts', []), saved, output)
             if pending_fix is None and args.command == 'check' and result['status'] == 'action-needed' and not result.get('conflicts'):
-                pending_fix = ('review the pending operations listed here; create the update plan with ' +
-                               replan_command(request, sorted(request.get('allow_capabilities') or []), output) +
+                pending_fix = ('review the pending operations listed here; create the ' + fix_request['action'] + ' plan with ' +
+                               replan_command(fix_request, sorted(request.get('allow_capabilities') or []), output) +
                                ', review it, then apply it with ' + engine_command('apply', '--plan', output))
     summary = {key: value for key, value in result.items() if key not in ('observations', 'operations', 'request', 'roots')}
     if 'conflicts' in summary:

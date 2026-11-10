@@ -545,6 +545,23 @@ def topology(root, issues):
     return result
 
 
+def duplicate_registrations(root, state, issues):
+    """Report the cc-rpi skills registered twice: a direct Claude installation while the plugin is enabled, or a plugin
+    route recorded while direct rpi-* skills are also present."""
+    lifecycle = sibling('rpi-lifecycle')
+    plugins = lifecycle.enabled_cc_rpi_plugins(root)
+    selections = (state or {}).get('installations', {}) if isinstance(state, dict) else {}
+    route = (selections.get('claude') or {}).get('route') if isinstance(selections.get('claude'), dict) else None
+    direct_skills = sorted(path.parent.name for path in (root / '.claude/skills').glob('rpi-*/SKILL.md')) if (root / '.claude/skills').is_dir() else []
+    if plugins and (route == 'direct' or (route is None and direct_skills)):
+        issues.append({'id': 'duplicate-registration', 'path': plugins[0][0], 'status': 'the cc-rpi plugin (' + plugins[0][1] +
+                       ') is enabled and the cc-rpi skills are also installed directly',
+                       'fix': 'disable the plugin in that settings file, or detach the direct installation and keep the plugin route'})
+    elif route == 'plugin' and direct_skills:
+        issues.append({'id': 'duplicate-registration', 'path': str(root / '.claude/skills'), 'status': 'the plugin route is recorded and direct skills are also present: ' +
+                       ', '.join(direct_skills), 'fix': 'move the direct skill directories aside, or re-plan with --route direct and disable the plugin'})
+
+
 def diagnose(root, cwd=None, globals_by_harness=None, native=None, model=None, source=None,
              max_instruction_bytes=None, now=None):
     if sys.version_info < (3, 11):
@@ -584,6 +601,7 @@ def diagnose(root, cwd=None, globals_by_harness=None, native=None, model=None, s
         for harness in HARNESSES:
             if isinstance(model.get(harness), dict):
                 models[harness]['requested_model_effort_source'] = model_helper.select_profile(harness, 'status', explicit=model[harness])
+    duplicate_registrations(root, state, issues)
     streams = [p for p in (root / '.rpi/local/contract-events.jsonl', root / '.claude/metrics/contract-events.jsonl') if p.is_file()]
     return {'schema_version': 1, 'read_only': True, 'harnesses': versions, 'native_evidence': evidence,
             'installation': installed, 'skills': skills(root, state, clients),
