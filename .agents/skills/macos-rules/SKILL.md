@@ -7,18 +7,15 @@ description: "macOS-specific patterns: launchd agent configuration, brew vs pip,
 
 ## pip on macOS
 
-Wrong -- system pip blocked on Python 3.12+ (PEP 668):
+Respect externally managed Python environments (PEP 668). For a required CLI,
+prefer its verified Homebrew formula or use pipx for a verified Python app.
+For project libraries, use the project's virtual environment and declared
+requirements.
 
-```bash
-pip3 install some-tool  # externally-managed-environment
-```
-
-Right -- use Homebrew or pipx:
-
-```bash
-brew install some-tool
-pipx install some-python-app
-```
+Before installing, verify the exact package name and publisher against the
+intended tool's official documentation. Never install a literal placeholder
+from an example or infer a package name from a tool's display name. Use the
+approved private registry for internal packages.
 
 ## zsh Regex and Special Characters
 
