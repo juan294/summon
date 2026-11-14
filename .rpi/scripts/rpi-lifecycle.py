@@ -124,10 +124,15 @@ def node_bytes(node):
     return decoded(node['data']) if node['kind'] == 'file' else None
 
 
+# Installation state and project-owned overlays: no component may own these directories or anything below them.
+RESERVED_PROJECT_DIRECTORIES = ('.rpi/local', '.rpi/baselines', '.rpi/project')
+
+
 def validate_component_destination(root_id, destination):
     if not isinstance(destination, str) or not destination or Path(destination).is_absolute() or Path(destination).as_posix() != destination or '..' in Path(destination).parts:
         raise ValueError('owned component destination must be canonical and relative')
-    if root_id == 'project' and (destination in ('.rpi', '.rpi/manifest.json', '.rpi/local', '.rpi/baselines') or destination.startswith(('.rpi/local/', '.rpi/baselines/'))):
+    if root_id == 'project' and (destination in ('.rpi', '.rpi/manifest.json') or any(
+            destination == directory or destination.startswith(directory + '/') for directory in RESERVED_PROJECT_DIRECTORIES)):
         raise ValueError('component destination cannot claim internal installation state')
 
 
@@ -226,7 +231,7 @@ def desired_entries(engine, source, manifest, request, domains):
     harnesses = request['harnesses']
     tree = engine.render_tree(source, harnesses, domains, include_runtime=False)
     desired = {}
-    def add(component, harness, destination, data, block=None, mode=None):
+    def add(component, harness, destination, data, block=None, mode=None, provenance=None):
         root_id = 'project' if request['scope'] == 'project' else harness + '-user-skills'
         validate_component_destination(root_id, destination)
         entry = {'component_id': component, 'root_id': root_id, 'destination': destination,
@@ -234,6 +239,8 @@ def desired_entries(engine, source, manifest, request, domains):
                  'adapter': {'harness': harness, 'sha256': digest(serialized(engine.load_adapter(source, harness)))}, 'data': data}
         if mode is not None:
             entry['mode'] = mode  # In memory only: it never reaches the manifest.
+        if provenance:
+            entry['source'] = provenance  # Merged into the recorded source provenance when the plan is built.
         declaration = next((item for item in manifest['components'] if item['id'] == component), {})
         if declaration.get('capability'):
             entry['capability'] = True
@@ -248,6 +255,9 @@ def desired_entries(engine, source, manifest, request, domains):
     for component in engine.selected_components(manifest, domains):
         if component['scope'] != request['scope'] or component.get('distribution_only'):
             continue
+        # One harness-neutral identity for the authored skill text: overlays compare against it.
+        authored = ({'authored_sha256': digest(engine.safe_path(source, component['source'] + '/SKILL.md').read_bytes())}
+                    if component['kind'] == 'skill' and request['route'] != 'plugin' else None)
         for harness in harnesses:
             if harness not in component['harnesses']:
                 continue
@@ -260,7 +270,9 @@ def desired_entries(engine, source, manifest, request, domains):
                                if request['scope'] == 'project' else '') + component['name'] + '/'
                 for name, data in tree.items():
                     if name.startswith(prefix):
-                        add(component['id'], harness, destination + name[len(prefix):], data, mode=tree.modes.get(name))
+                        relative = name[len(prefix):]
+                        add(component['id'], harness, destination + relative, data, mode=tree.modes.get(name),
+                            provenance=authored if relative == 'SKILL.md' else None)
             elif kind == 'rule':
                 name = Path(component['source']).name
                 add(component['id'], harness, '.rpi/rules/' + name, tree[harness + '/rules/' + name], mode=tree.modes.get(harness + '/rules/' + name))
@@ -761,6 +773,7 @@ def make_plan(engine, request):
                 byte_source = (prior['source'] if prior and prior.get('base_hash') == digest(upstream)
                                and prior.get('component_id') == entry['component_id'] and prior.get('source')
                                else {**identity, 'rendered_sha256': digest(upstream)})
+                byte_source = {**byte_source, **proposed.get('source', {})}  # Current authored provenance, if any.
                 entry.update({'base_hash': digest(upstream), 'source': byte_source,
                               'status': 'clean' if result == upstream else 'local-only'})
                 baselines[digest(upstream)] = upstream
@@ -1157,10 +1170,12 @@ def receipt_gate_notices(request, roots, operations, previous=None, version=None
 
 
 def status_bookkeeping_only(plan):
-    """True when the only pending write relabels owned entries clean/local-only.
+    """True when the only pending write relabels owned entries or refreshes their source provenance.
 
     A deliberate owner customization is retained and reported, not action-needed;
-    the next real update records the label with its other changes."""
+    the next real update records the label with its other changes. Source provenance
+    (version, revision, hashes such as authored_sha256) describes bytes that the
+    unchanged base_hash already pins, so a difference there alone is bookkeeping too."""
     operations = plan.get('operations') or []
     if plan.get('conflicts') or [(op['root_id'], op['destination']) for op in operations] != [('state', 'manifest.json')]:
         return False
@@ -1168,6 +1183,7 @@ def status_bookkeeping_only(plan):
         value = json.loads(node_bytes(node) or b'null')
         for entry in (value or {}).get('entries', []):
             entry.pop('status', None)
+            entry.pop('source', None)
         return value
     before, after = unlabeled(operations[0]['before']), unlabeled(operations[0]['after'])
     return before is not None and before == after

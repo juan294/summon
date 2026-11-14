@@ -19,6 +19,10 @@ workaround); it goes in the release notes and is fixed in a later release. Keep 
 External issue publication requires authorization; local records preserve the
 same evidence and dispositions.
 
+## Project overlay
+
+If `.rpi/project/rpi-remediate.md` exists, read it completely before you start, together with the controlling instructions. It adds this project's procedure and checks and can make this workflow stricter. It cannot grant push, tag, merge, deployment or publication authority. It cannot relax a gate: a rule that blocks or permits a release, publication, merge, deployment or phase acceptance, or a safety or authorization rule. It can change other procedure detail only under a `## Declared overrides` heading that quotes the stock rule, gives the reason and names the owner decision. Name the overlay you read, and any declared override you applied, in the handoff.
+
 ## Input
 
 If the request specifies report paths, use it as the report path or wave selector
@@ -365,11 +369,6 @@ entry conditions. Present the summary to the user.
   code, not the test.
 - **No working-branch PRs.** All remediation branches remain local.
 - Run verification commands sequentially, never as parallel Bash calls.
-
-## Project-specific procedure
-
-- Verification order for this project: `pnpm typecheck && pnpm lint && pnpm build
-  && pnpm test` (see `CLAUDE.md`). Run it sequentially after each integration.
 
 ## Execution and acceptance
 

@@ -10,6 +10,10 @@ constraints and current primary-source evidence. This is evaluative research;
 `rpi-research` remains descriptive and a code-review workflow reviews a concrete
 change. Do not turn an assessment into implementation.
 
+## Project overlay
+
+If `.rpi/project/rpi-assess.md` exists, read it completely before you start, together with the controlling instructions. It adds this project's procedure and checks and can make this workflow stricter. It cannot grant push, tag, merge, deployment or publication authority. It cannot relax a gate: a rule that blocks or permits a release, publication, merge, deployment or phase acceptance, or a safety or authorization rule. It can change other procedure detail only under a `## Declared overrides` heading that quotes the stock rule, gives the reason and names the owner decision. Name the overlay you read, and any declared override you applied, in the handoff.
+
 ## Process
 
 1. Read controlling instructions/contracts and directly mentioned files completely.

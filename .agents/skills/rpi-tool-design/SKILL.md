@@ -11,6 +11,10 @@ plus seed evals. It sits between `rpi-brainstorm` and `rpi-plan`:
 turns a vague idea into a goal; `rpi-tool-design` turns a goal into a tool
 contract plus evals; `rpi-plan` turns that into phases.
 
+## Project overlay
+
+If `.rpi/project/rpi-tool-design.md` exists, read it completely before you start, together with the controlling instructions. It adds this project's procedure and checks and can make this workflow stricter. It cannot grant push, tag, merge, deployment or publication authority. It cannot relax a gate: a rule that blocks or permits a release, publication, merge, deployment or phase acceptance, or a safety or authorization rule. It can change other procedure detail only under a `## Declared overrides` heading that quotes the stock rule, gives the reason and names the owner decision. Name the overlay you read, and any declared override you applied, in the handoff.
+
 ## When to use
 
 - A project exposes, or plans to expose, an agent-facing surface (WebMCP

@@ -602,6 +602,78 @@ def duplicate_registrations(root, state, issues, source=None):
         issues.append({'id': 'plugin-settings-unreadable', 'path': notice['path'], 'status': notice['reason'], 'fix': notice['fix']})
 
 
+OVERLAY_HEADER = re.compile(r'<!-- rpi-overlay: skill=([a-z0-9-]+); written-against=([0-9a-f]{12}) -->')
+SKILL_COPIES = (('claude', '.claude/skills'), ('codex', '.agents/skills'))
+OVERLAY_SECTION = re.compile(rb'(?m)^## Project overlay\r?$')
+
+
+def overlay_header(skill, written_against):
+    return '<!-- rpi-overlay: skill=' + skill + '; written-against=' + written_against + ' -->'
+
+
+def declared_overrides(text):
+    """Count entries under the "## Declared overrides" heading; text elsewhere is never counted."""
+    count, inside = 0, False
+    for line in text.splitlines():
+        if line.startswith('## '):
+            inside = line.strip() == '## Declared overrides'
+        elif inside and line.startswith('- Stock rule:'):
+            count += 1
+    return count
+
+
+def project_overlays(root, state):
+    """Status of each .rpi/project file: invalid, inert, stale or present. Never reports overlay text."""
+    directory = root / '.rpi/project'
+    if not directory.is_dir():
+        return []
+    authored = {}  # skill -> {harness: first 12 hex of its recorded authored_sha256}
+    for entry in records((state or {}).get('entries')):
+        value = entry.get('source', {}).get('authored_sha256') if isinstance(entry.get('source'), dict) else None
+        if isinstance(value, str) and str(entry.get('component_id', '')).startswith('skill:'):
+            authored.setdefault(entry['component_id'][len('skill:'):], {})[entry.get('adapter', {}).get('harness')] = value[:12]
+    try:
+        paths = sorted(path for path in directory.iterdir() if not path.name.startswith('.'))  # Finder and editor files.
+    except OSError as error:
+        return [{'file': '.rpi/project', 'skill': None, 'status': 'invalid', 'reason': 'unreadable: ' + type(error).__name__}]
+    results = []
+    for path in paths:
+        skill = path.stem if path.suffix == '.md' and path.stem.startswith('rpi-') and path.is_file() else None
+        copies = {harness: data for harness, base in SKILL_COPIES
+                  if skill and (data := read(root / base / skill / 'SKILL.md')) is not None}
+        current = authored.get(skill, {}) if copies else {}
+        hashes = set(current.values())
+        item = {'file': '.rpi/project/' + path.name, 'skill': skill if copies else None, 'status': 'present',
+                'harnesses': [], 'written_against': None, 'current': current, 'overrides': 0,
+                'header_line': overlay_header(skill, hashes.pop()) if len(hashes) == 1 else None}
+        results.append(item)
+
+        def invalid(reason):
+            item.update(status='invalid', reason=reason)
+
+        if not copies:
+            invalid('not an installed workflow skill; rename or remove the file')
+            continue
+        try:
+            text = path.read_text(encoding='utf-8-sig')
+        except (OSError, UnicodeError) as error:
+            invalid('unreadable: ' + type(error).__name__)
+            continue
+        header = OVERLAY_HEADER.fullmatch(text.partition('\n')[0].strip())
+        if not header or header[1] != skill:
+            invalid('first line must be the rpi-overlay header for ' + skill)
+            continue
+        item.update(written_against=header[2], overrides=declared_overrides(text))
+        inert = [harness for harness, data in copies.items() if not OVERLAY_SECTION.search(data)]
+        stale = [harness for harness, value in current.items() if value != header[2]]
+        if inert:
+            item.update(status='inert', harnesses=inert, fix='run rpi-update so the installed skill reads the overlay')
+        elif stale:
+            item.update(status='stale', harnesses=stale,
+                        fix='review the overlay against the changed stock skill, then use header_line')
+    return results
+
+
 def diagnose(root, cwd=None, globals_by_harness=None, native=None, model=None, source=None,
              max_instruction_bytes=None, now=None):
     if sys.version_info < (3, 11):
@@ -644,7 +716,7 @@ def diagnose(root, cwd=None, globals_by_harness=None, native=None, model=None, s
     duplicate_registrations(root, state, issues, source)
     streams = [p for p in (root / '.rpi/local/contract-events.jsonl', root / '.claude/metrics/contract-events.jsonl') if p.is_file()]
     return {'schema_version': 1, 'read_only': True, 'harnesses': versions, 'native_evidence': evidence,
-            'installation': installed, 'skills': skills(root, state, clients),
+            'installation': installed, 'skills': skills(root, state, clients), 'project_overlays': project_overlays(root, state),
             'instructions': instructions(root, cwd, globals_by_harness, max_instruction_bytes, issues),
             'hooks': hooks(root, clients, issues), 'model': models, 'topology': topology(root, issues),
             'python_runtime': {'version': '.'.join(map(str, sys.version_info[:3])), 'supported': sys.version_info >= (3, 11)},

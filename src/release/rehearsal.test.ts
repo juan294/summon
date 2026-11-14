@@ -305,7 +305,7 @@ describe("rehearsal: release promotion preserves branch ancestry", () => {
   const releaseAuthorityMarkers = new Map([
     ["CLAUDE.md", "Release to production via a **merge-commit** PR"],
     [
-      ".claude/skills/rpi-release/SKILL.md",
+      ".rpi/project/rpi-release.md",
       "`develop` -> `main` merge commit",
     ],
     [
@@ -317,8 +317,10 @@ describe("rehearsal: release promotion preserves branch ancestry", () => {
       "| Merge strategy | merge commit for `develop` -> `main`",
     ],
   ]);
+  // The stock skill carries no project marker but is still scanned for squash.
+  const squashScannedPaths = [".claude/skills/rpi-release/SKILL.md"];
   const releaseAuthorities = new Map(
-    [...releaseAuthorityMarkers].map(([path]) => [
+    [...releaseAuthorityMarkers.keys(), ...squashScannedPaths].map((path) => [
       path,
       readFileSync(join(PROJECT_ROOT, path), "utf-8"),
     ]),
@@ -329,6 +331,10 @@ describe("rehearsal: release promotion preserves branch ancestry", () => {
     for (const [path, marker] of releaseAuthorityMarkers) {
       const source = releaseAuthorities.get(path) ?? "";
       expect(source).toContain(marker);
+      expect(source).not.toMatch(/\bgh\s+pr\s+merge\b[^\n]*\s--squash\b/);
+    }
+    for (const path of squashScannedPaths) {
+      const source = releaseAuthorities.get(path) ?? "";
       expect(source).not.toMatch(/\bgh\s+pr\s+merge\b[^\n]*\s--squash\b/);
     }
   });
