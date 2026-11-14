@@ -181,6 +181,21 @@ return exact changed files and invalidated evidence rather than claiming its pas
 - **Sequential verification.** Run verification commands sequentially, never as parallel Bash calls.
 - **Save the report.** Always write the update report to `docs/agents/update-docs-report.md`.
 
+## Project-specific procedure
+
+- summon ships no version invariant script, so the version sweep is a grep. Run
+  it fully instead of working from memory:
+
+  ```bash
+  V=$(node -p "require('./package.json').version")
+  git grep -n -F "$V"; git grep -n -F "v$V"
+  ```
+
+  The mechanical backstop for version drift is the version-vs-tag equality gate
+  in `.github/workflows/release.yml`, which fails the release when
+  `package.json` and the tag disagree. Watch for shields.io badges, which carry
+  the version up to three times on one line.
+
 ## Execution and acceptance
 
 Use the scope and authorization already supplied in the request. Resolve routine

@@ -305,8 +305,8 @@ describe("rehearsal: release promotion preserves branch ancestry", () => {
   const releaseAuthorityMarkers = new Map([
     ["CLAUDE.md", "Release to production via a **merge-commit** PR"],
     [
-      ".claude/commands/release.md",
-      "fixed: `develop` -> `main` merge\ncommit",
+      ".claude/skills/rpi-release/SKILL.md",
+      "`develop` -> `main` merge commit",
     ],
     [
       "docs/release/release-checklist.md",

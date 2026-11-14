@@ -25,9 +25,8 @@ When the user invokes an RPI workflow, use the matching v2 native package:
 - Codex direct: `$rpi-research`, `$rpi-plan`, `$rpi-implement`,
   `$rpi-validate`, or the native skill picker
 
-For a legacy alias that remains in `.claude/commands/`, read that command file
-completely and follow its explicit contract. Legacy aliases do not imply native
-forwarding.
+Project-specific RPI behavior lives in a `## Project-specific procedure`
+section inside the matching `rpi-*` skill.
 
 1. Resolve the matching native `rpi-*` skill package.
 2. Read its `SKILL.md` completely before acting.

@@ -131,6 +131,38 @@ new release authorization.
 6. Registry publication remains advisory unless separately authorized by the
    request; do not infer npm/cargo/PyPI publication from GitHub release authority.
 
+## Project-specific procedure
+
+`docs/release/release-checklist.md` is the single procedural authority for
+`summon-ws` releases (E2E Pro D01). Do not restate its steps here. Read it
+completely before touching anything. It owns preparation, the merge, fixing the
+candidate, the evidence gate, cadence arcs, tagging, post-publish verification
+and rollback. The local-first gates and publication authorization above still
+apply to every remote action it lists.
+
+- The branching strategy is fixed, not detected:
+  `develop` -> `main` merge commit, then an annotated tag on `main`. Never squash
+  the release PR. Feature PRs into `develop` may still squash.
+- The release is BLOCKED unless `pnpm analyze:release` exits 0. There is no
+  override, and an exception can never excuse a required probe.
+- The tag is the last action before the GitHub Release, never the first. Before
+  tagging, present the evidence summary and confirm that the publication
+  authorization names this exact candidate.
+- Creating the GitHub Release auto-publishes to npm through
+  `.github/workflows/release.yml`. Do not run `npm publish` afterwards. The
+  manual path in `docs/publishing.md` is an emergency fallback that loses
+  provenance.
+- Never use `--delete-branch` on a `develop` -> `main` release PR. `develop` is
+  a permanent integration branch.
+- Check for an existing PR before `gh pr create`. Verify the PR's required
+  checks with `gh pr checks <n> --required`, not `gh run list --branch develop`:
+  the latter returns the latest branch run, not what gates the merge.
+- Version sweep: `V=$(node -p "require('./package.json').version")`, then
+  `git grep -n -F "$V"` and `git grep -n -F "v$V"`. README and docs shields.io
+  badges can carry the version three times on one line (label text, the
+  `img.shields.io` URL and the `releases/tag/` href). Re-grep after the bump and
+  confirm only dated CHANGELOG history remains.
+
 ## Completion
 
 Update the durable handoff and report the version, exact commit/tag, release link,

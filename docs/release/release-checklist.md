@@ -111,7 +111,7 @@ candidate/deployment mismatch, missing oracle evidence, uncleaned fixtures, an o
 arc, or an expired/unapproved exception. A required probe can never be excused by an exception.
 
 - [ ] Analyzer exits 0
-- [ ] Exploratory charters, if the diff warrants them: `/explore-release <baseline> $CANDIDATE`
+- [ ] Exploratory charters, if the diff warrants them: `/rpi-explore-release <baseline> $CANDIDATE`
 
 ## 6. Cadence arcs
 

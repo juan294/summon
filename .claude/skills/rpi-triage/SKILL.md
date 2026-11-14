@@ -398,6 +398,11 @@ checkpoint. A stale-scan rejection requires a fresh scan, never overwriting stat
 - **Branch verification before every commit.** Run `git branch --show-current` first (Error #33).
 - Run verification commands sequentially, never as parallel Bash calls.
 
+## Project-specific procedure
+
+- Verification order for this project: `pnpm typecheck && pnpm lint && pnpm build
+  && pnpm test` (see `CLAUDE.md`). Run it sequentially after each integration.
+
 ## Execution and acceptance
 
 Use the scope and authorization already supplied in the request. Resolve routine

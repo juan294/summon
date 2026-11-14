@@ -366,6 +366,11 @@ entry conditions. Present the summary to the user.
 - **No working-branch PRs.** All remediation branches remain local.
 - Run verification commands sequentially, never as parallel Bash calls.
 
+## Project-specific procedure
+
+- Verification order for this project: `pnpm typecheck && pnpm lint && pnpm build
+  && pnpm test` (see `CLAUDE.md`). Run it sequentially after each integration.
+
 ## Execution and acceptance
 
 Use the scope and authorization already supplied in the request. Resolve routine
