@@ -7,7 +7,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-6-blue)](https://www.typescriptlang.org)
 [![license](https://img.shields.io/npm/l/summon-ws)](./LICENSE)
 
-Summon your Ghostty or Rex workspace with one command. Native splits, no tmux.
+Summon your Ghostty or Rex workspace with one command: your editor or coding agents, a git UI, a dev server and a shell, each in its own native pane. No tmux.
 
 ---
 
@@ -43,6 +43,38 @@ Register projects for quick access:
 summon add myapp ~/code/myapp     # register a project
 summon myapp                      # launch by project name
 ```
+
+## Summon in Rex
+
+The Rex server keeps sessions alive, and Summon decides what goes in them. Run `summon <project>` in a Rex terminal and Summon creates one Rex session named after the project, with one block per pane and every pane's command already running. Nothing needs to be configured: Summon detects Rex from the terminal it runs in, and the same config launches the same workspace in Ghostty.
+
+A `.summon` file for a project worked on by two coding agents:
+
+```ini
+# ~/code/myapp/.summon
+# Two Claude Code panes, lazygit beside them, and the dev server in the shell pane
+editor=claude
+panes=2
+sidebar=lazygit
+shell=npm run dev
+```
+
+```bash
+summon add myapp ~/code/myapp
+summon myapp                      # creates the Rex session "myapp" and shows it in the app
+```
+
+| You want to | Run | What happens in Rex |
+|---|---|---|
+| Start work on a project | `summon myapp` | A new session labelled `myapp`. The one-pane tab you typed in closes once the workspace is shown |
+| Get back to it later | `summon myapp` again, or `summon open` | Summon switches to the running session instead of opening a second one |
+| Keep dev servers out of the way | `shell=npm run dev`, or `pane.<name>.background=true` | The pane floats as a minimized capsule and keeps running; `summon focus myapp shell` shows it |
+| See all projects at once | `summon status` | A live dashboard of every workspace. Enter opens one, and a glyph shows the status a program reports to Rex (working, blocked, done) |
+| Open several projects together | `summon session add work api web docs`, then `summon session work` | One Rex session per project |
+| Check a launch first | `summon myapp --dry-run` | Prints the exact `session.create` request and the panes it would minimize, without touching the server |
+| Tidy up | `summon clean myapp` | Closes the project's session, only when it has no panes left |
+
+[Summon under Rex](docs/rex.md) covers detection, the session and pane mapping, background panes and recovery in detail.
 
 ## How It Works
 
