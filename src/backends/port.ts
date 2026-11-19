@@ -129,6 +129,44 @@ export interface RecordReader {
   adoptUnrecorded?(project: string, read: StatusRead): { attempted: boolean; notices: string[] };
 }
 
+/** One TCP port a program in a workspace pane listens on (Rex `ports`, API revision 16 and later). */
+export interface LivePort {
+  port: number;
+  /** As the server gives it: an IP literal without brackets (an IPv4-mapped address as plain IPv4). */
+  address: string;
+  /** The recorded pane name, else the block's Rex label, else "unrecorded pane". */
+  pane: string;
+  /** The block is one of the record's panes. */
+  recorded: boolean;
+  /** The holder's label (the first of the script's file name, argv0 and name); null when the server cannot tell. */
+  process: string | null;
+  pid: number | null;
+}
+
+/** How complete a workspace's live ports are: every pane read, some missing, no such read on this server, or none read. */
+export type LivePortsStatus = "ok" | "partial" | "unsupported" | "unavailable";
+
+export interface LivePortsResult {
+  status: LivePortsStatus;
+  /** Sorted by port, then address. */
+  ports: LivePort[];
+  /** Why the result is not `ok`: one line, raw (callers escape it for display). */
+  reason?: string;
+}
+
+/**
+ * One command's budget for live reads across workspaces: a deadline that starts with the first read and aborts
+ * every read still running when it passes, and per-run state a backend shares across workspaces (one capability
+ * probe per server).
+ */
+export interface LiveBudget {
+  /** Aborted when the deadline passes; reads pass it to the processes they start. */
+  readonly signal: AbortSignal;
+  /** Starts the deadline on first use; then true once it has passed. */
+  expired(): boolean;
+  scratch<T>(key: string, create: () => T): T;
+}
+
 /** Record side, commands: what Summon does with a recorded workspace of this backend. */
 export interface WorkspaceBackend {
   readonly id: BackendId;
@@ -140,6 +178,8 @@ export interface WorkspaceBackend {
   title(project: string, status: ResolvedStatus | null, scope: TitleScope, operation: TitleOperation, pane?: string): TitleResult;
   /** A launch on another backend replaces this record: the line to print when this workspace keeps running (plan §6). */
   stillRunningNotice?(project: string, record: WorkspaceStatus): string | undefined;
+  /** Live ports of a running (`active` or `partial`) workspace; a backend without a native source has none (Ghostty). */
+  livePorts?(project: string, status: ResolvedStatus, budget: LiveBudget): Promise<LivePortsResult>;
   /** `summon clean <project>` (P17): close the recorded workspace when it is empty; `sweptNote` reports the stale launch files already removed. */
   close(project: string, record: WorkspaceStatus, sweptNote: string): void;
   /** `summon clean`: remove this backend's stale files of launches other than `current`; returns how many launches it cleared. */

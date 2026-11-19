@@ -170,6 +170,14 @@ export const RexWorkspace: WorkspaceBackend = {
 
   inspect: inspectRexWorkspace,
 
+  /** Live ports through the shared gate: `unknown` and `stopped` records are never read (no process starts). */
+  async livePorts(project, status, budget) {
+    const gate = rexCommandGate(project, status);
+    if (!gate.ok) return { status: "unavailable", ports: [], reason: gate.failure.reason };
+    const { readLivePorts } = await import("./ports.js");
+    return readLivePorts({ binary: gate.cli.binary, server: gate.cli.server, sessionId: gate.identity.sessionId, blocks: gate.identity.blocks }, budget);
+  },
+
   title(project, status, scope, operation, pane) {
     const gate = gateOf(project, status);
     if (!gate.ok) return gate.failure;

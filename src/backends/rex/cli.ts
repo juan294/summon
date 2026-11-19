@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { resolveCommand } from "../../utils.js";
@@ -73,16 +73,33 @@ export function rawResult(partial: Partial<RexRawResult>): RexRawResult {
   return { code: null, signal: null, timedOut: false, enoent: false, stdout: "", stderr: "", ...partial };
 }
 
+/** The global flags every call carries, then the op's own argv; whether its stdout is JSON. */
+function rexArgs(op: RexOp, argv: readonly string[], opts: RunRexOptions, runner: string): { args: string[]; expectJson: boolean } {
+  if (!Number.isFinite(opts.timeoutMs) || opts.timeoutMs < 1000) throw new Error(`${runner}: timeoutMs must be at least 1000 (got ${opts.timeoutMs})`);
+  const seconds = Math.ceil(opts.timeoutMs / 1000);
+  return {
+    args: ["--color", "never", "--timeout", `${seconds}s`, `--autostart=${opts.autostart}`, "-S", opts.server, ...argv],
+    expectJson: rexOpTraits(op).json === true || argv.includes("--json"),
+  };
+}
+
+/** A completed call: its stdout, parsed when the op prints JSON (unparseable JSON is `malformed`). */
+function completed(op: RexOp, stdout: string, expectJson: boolean): RexResult {
+  if (!expectJson) return { ok: true, op, stdout };
+  try {
+    return { ok: true, op, stdout, json: JSON.parse(stdout) as unknown };
+  } catch {
+    return classifyRexFailure(op, rawResult({ code: 0, stdout, malformed: true }));
+  }
+}
+
 /**
  * Run one Rex CLI operation through an argv array (never a shell). The global flags are
  * always `--color never --timeout <s>s --autostart=<bool> -S <server>`; JSON is parsed when
  * argv carries `--json` or the op always prints JSON. Every failure is classified.
  */
 export function runRex(op: RexOp, argv: readonly string[], opts: RunRexOptions, exec: RexExec = execFileSync): RexResult {
-  if (!Number.isFinite(opts.timeoutMs) || opts.timeoutMs < 1000) throw new Error(`runRex: timeoutMs must be at least 1000 (got ${opts.timeoutMs})`);
-  const seconds = Math.ceil(opts.timeoutMs / 1000);
-  const args = ["--color", "never", "--timeout", `${seconds}s`, `--autostart=${opts.autostart}`, "-S", opts.server, ...argv];
-  const expectJson = rexOpTraits(op).json === true || argv.includes("--json");
+  const { args, expectJson } = rexArgs(op, argv, opts, "runRex");
   const hasInput = opts.input !== undefined;
 
   let stdout: string;
@@ -107,13 +124,61 @@ export function runRex(op: RexOp, argv: readonly string[], opts: RunRexOptions, 
       ...(error.code === "ENOBUFS" ? { malformed: true } : {}),
     }));
   }
+  return completed(op, stdout, expectJson);
+}
 
-  if (!expectJson) return { ok: true, op, stdout };
+/** Options of an asynchronous call: `runRex`'s, plus a signal that ends the call early (a shared deadline). */
+export interface RunRexAsyncOptions extends RunRexOptions {
+  signal?: AbortSignal;
+}
+
+/** `execFile`'s callback shape as a promise, injectable for tests. A rejection carries `execFile`'s error fields. */
+export type RexExecAsync = (file: string, args: string[], options: { timeoutMs: number; signal?: AbortSignal; input?: string }) => Promise<string>;
+
+/** The process boundary of `runRexAsync`: argv only, stdin closed (or the input written), killed with SIGKILL. */
+export const execRexAsync: RexExecAsync = (file, args, options) => new Promise((resolve, reject) => {
+  const child = execFile(file, args, {
+    encoding: "utf-8",
+    maxBuffer: MAX_OUTPUT_BYTES,
+    timeout: options.timeoutMs + REX_PROCESS_GRACE_MS,
+    killSignal: "SIGKILL",
+    ...(options.signal ? { signal: options.signal } : {}),
+  }, (error, stdout, stderr) => {
+    if (error) reject(Object.assign(error, { stdout, stderr }));
+    else resolve(stdout);
+  });
+  child.stdin?.on("error", () => { /* the child exited before reading stdin */ });
+  child.stdin?.end(options.input);
+});
+
+/**
+ * `runRex` without blocking the event loop, so independent reads run side by side (live ports). Same argv,
+ * same classification; a call ended by `signal` is a timeout. `execFile` reports the exit status in `code`
+ * and a timeout as a kill, where `execFileSync` uses `status` and `ETIMEDOUT`.
+ */
+export async function runRexAsync(op: RexOp, argv: readonly string[], opts: RunRexAsyncOptions, exec: RexExecAsync = execRexAsync): Promise<RexResult> {
+  const { args, expectJson } = rexArgs(op, argv, opts, "runRexAsync");
+  let stdout: string;
   try {
-    return { ok: true, op, stdout, json: JSON.parse(stdout) as unknown };
-  } catch {
-    return classifyRexFailure(op, rawResult({ code: 0, stdout, malformed: true }));
+    stdout = await exec(opts.binary, args, {
+      timeoutMs: opts.timeoutMs,
+      ...(opts.signal ? { signal: opts.signal } : {}),
+      ...(opts.input !== undefined ? { input: opts.input } : {}),
+    });
+  } catch (caught) {
+    const error = caught as Error & { code?: unknown; killed?: boolean; signal?: string | null; stdout?: unknown; stderr?: unknown };
+    const aborted = error.name === "AbortError" || error.code === "ABORT_ERR";
+    return classifyRexFailure(op, rawResult({
+      code: typeof error.code === "number" ? error.code : null,
+      signal: aborted ? null : error.signal ?? null,
+      timedOut: aborted || (error.killed === true && error.code !== "ERR_CHILD_PROCESS_STDIO_MAXBUFFER"),
+      enoent: error.code === "ENOENT",
+      stdout: text(error.stdout),
+      stderr: text(error.stderr),
+      ...(error.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER" ? { malformed: true } : {}),
+    }));
   }
+  return completed(op, stdout, expectJson);
 }
 
 // --- Bound CLI handle and probes (Phase 3) ---
