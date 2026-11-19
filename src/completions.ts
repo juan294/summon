@@ -53,7 +53,7 @@ const SUBCOMMAND_SPECS: SubcommandSpec[] = [
   { name: "ports",        desc: "Show port assignments across projects" },
   { name: "export",       desc: "Export config as .summon file" },
   { name: "freeze",       desc: "Save current config as a reusable layout" },
-  { name: "keybindings",  desc: "Generate Ghostty key table for navigation" },
+  { name: "keybindings",  desc: "Generate Ghostty key table or Rex palette action" },
   { name: "layout",       desc: "Manage custom layouts" },
   { name: "session",      desc: "Launch a saved multi-project session" },
   { name: "trust",        desc: "Trust the .summon file in a directory" },
@@ -263,7 +263,7 @@ ${argLines}
           ;;
         keybindings)
           if (( CURRENT == 2 )); then
-            compadd -- --vim --detach-tab
+            compadd -- rex --vim --detach-tab
           fi
           ;;
         freeze)
@@ -412,7 +412,7 @@ export function generateBashCompletion(): string {
       COMPREPLY=($(compgen -W "--fix" -- "$cur"))
       ;;
     keybindings)
-      COMPREPLY=($(compgen -W "--vim --detach-tab" -- "$cur"))
+      COMPREPLY=($(compgen -W "rex --vim --detach-tab" -- "$cur"))
       ;;
     freeze)
       COMPREPLY=($(compgen -W "$custom_layouts" -- "$cur"))
@@ -479,6 +479,7 @@ complete -c summon -n '__fish_seen_subcommand_from inspect focus title open swit
 complete -c summon -n '__fish_seen_subcommand_from title' -l set -r -d 'Set title override'
 complete -c summon -n '__fish_seen_subcommand_from title' -l reset -d 'Clear title override'
 complete -c summon -n '__fish_seen_subcommand_from keybindings' -l detach-tab -d 'Include detach-tab binding'
+complete -c summon -n '__fish_seen_subcommand_from keybindings' -n '__fish_is_nth_token 2' -a 'rex' -d 'Rex palette action'
 complete -c summon -n '__fish_seen_subcommand_from status' -l once -d 'Print status table once and exit'
 complete -c summon -n '__fish_seen_subcommand_from clean' -l orphans -d 'Review earlier launches'
 complete -c summon -n '__fish_seen_subcommand_from set' -n '__fish_is_nth_token 2' -a '${configKeys}' -d 'Config key'

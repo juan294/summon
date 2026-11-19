@@ -110,6 +110,7 @@ async function buildHelp(): Promise<string> {
     wrap(`  ${cmd("summon layout <action>")}      Manage custom layouts (create, save, list, show, delete, edit)`),
     wrap(`  ${cmd("summon keybindings")}          Generate Ghostty key table for workspace navigation`),
     wrap(`  ${cmd("summon keybindings --vim")}    Use vim-style keys (hjkl) instead of arrows`),
+    wrap(`  ${cmd("summon keybindings rex")}      Print the Rex palette action that opens a workspace`),
     "",
     h("MONITORING"),
     wrap(`  ${cmd("summon status")}               Interactive workspace status dashboard`),
@@ -335,10 +336,15 @@ Examples:
   summon export .summon            Same, using path argument`,
 
   keybindings: `Usage: summon keybindings [--vim] [--detach-tab]
+       summon keybindings rex
 
 Generate Ghostty key table configuration for workspace pane navigation.
 Output can be appended to ~/.config/ghostty/config.
-Rex key bindings are not generated: they live in ~/.config/rex/init.lua (see docs/rex.md).
+Rex pane navigation is not generated: it lives in ~/.config/rex/init.lua (see docs/rex.md).
+
+rex  Print the Rex palette action "Summon: Open workspace…" (a Lua file).
+     Save it as ~/.config/rex/summon-workspace.lua, add require("summon-workspace")
+     to ~/.config/rex/init.lua, then run: rex config reload
 
 Options:
   --vim  Use vim-style keys (hjkl) instead of arrow keys

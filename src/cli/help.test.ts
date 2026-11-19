@@ -102,6 +102,20 @@ describe("help module exports", () => {
     expect(overview).toMatch(/summon list\S*\s+List all registered projects \(--json\)/);
   });
 
+  it("keybindings help and the overview document the rex form", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    showSubcommandHelp("keybindings");
+    const text = String(logSpy.mock.calls[0]?.[0]);
+    await showHelp();
+    const overview = logSpy.mock.calls.slice(1).flat().join("\n");
+    logSpy.mockRestore();
+    expect(text).toContain("summon keybindings rex");
+    expect(text).toContain('require("summon-workspace")');
+    expect(text).toContain("rex config reload");
+    expect(overview).toMatch(/summon keybindings rex\S*\s+Print the Rex palette action that opens a workspace/);
+  });
+
   it("showSubcommandHelp does not throw for unknown subcommand (graceful no-op)", () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     expect(() => showSubcommandHelp("not-a-real-subcommand")).not.toThrow();

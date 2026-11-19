@@ -157,7 +157,7 @@ describe("subcommand-specific flag completions", () => {
 
   test("zsh keybindings completion includes --vim flag", () => {
     const result = generateZshCompletion();
-    expect(result).toMatch(/keybindings\)[\s\S]*?compadd\s+--\s+--vim/);
+    expect(result).toMatch(/keybindings\)[\s\S]*?compadd\s+--\s+rex --vim --detach-tab/);
   });
 
   test("bash doctor completion includes --fix flag", () => {
@@ -167,7 +167,13 @@ describe("subcommand-specific flag completions", () => {
 
   test("bash keybindings completion includes --vim flag", () => {
     const result = generateBashCompletion();
-    expect(result).toMatch(/keybindings\)[\s\S]*?compgen\s+-W\s+"--vim --detach-tab"/);
+    expect(result).toMatch(/keybindings\)[\s\S]*?compgen\s+-W\s+"rex --vim --detach-tab"/);
+  });
+
+  test("fish keybindings completion offers rex as the first argument", () => {
+    expect(generateFishCompletion()).toContain(
+      "complete -c summon -n '__fish_seen_subcommand_from keybindings' -n '__fish_is_nth_token 2' -a 'rex' -d 'Rex palette action'",
+    );
   });
 });
 

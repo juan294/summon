@@ -28,7 +28,7 @@ When neither Ghostty.app nor the `rex` CLI is found a real launch fails with one
 | Tab title | The window label, `[<project>]` (the session label is the project name and never changes) |
 | Background pane (a dev server, a watcher, a log follower) | The pane is created in the layout with the others, then floated and minimized once the session exists (see Background panes) |
 
-`maximize`, `float`, `fullscreen`, `font-size` and `clean` have no Rex equivalent. Each one given as a flag (`--maximize`, `--float`, `--fullscreen`, `--font-size`, `--clean`) prints one notice (`Rex cannot honor <key>; ignored`) and the launch continues. The same keys in config (machine config, `.summon` or a layout) are Ghostty preferences and are ignored silently, so one config serves both terminals; `new-window=true` in config is ignored the same way, and only the `--new-window` flag creates a fresh session (see below). `summon doctor` names the ones set in your machine config. `pane.<name>.background` is read only by Rex (see Background panes). `--new-tab` has no separate meaning under Rex: a workspace is always one session in the current window. The `on-start` and `on-stop` hooks, `.summon` trust and snapshots behave as under Ghostty; the `summon: note: on-stop will run on workspace exit.` line is printed as under Ghostty and does not keep the launcher tab open. Rex key bindings are not generated: `summon keybindings` keeps producing Ghostty configuration, and Rex's own pane navigation is configured in `~/.config/rex/init.lua`.
+`maximize`, `float`, `fullscreen`, `font-size` and `clean` have no Rex equivalent. Each one given as a flag (`--maximize`, `--float`, `--fullscreen`, `--font-size`, `--clean`) prints one notice (`Rex cannot honor <key>; ignored`) and the launch continues. The same keys in config (machine config, `.summon` or a layout) are Ghostty preferences and are ignored silently, so one config serves both terminals; `new-window=true` in config is ignored the same way, and only the `--new-window` flag creates a fresh session (see below). `summon doctor` names the ones set in your machine config. `pane.<name>.background` is read only by Rex (see Background panes). `--new-tab` has no separate meaning under Rex: a workspace is always one session in the current window. The `on-start` and `on-stop` hooks, `.summon` trust and snapshots behave as under Ghostty; the `summon: note: on-stop will run on workspace exit.` line is printed as under Ghostty and does not keep the launcher tab open. Rex pane navigation is not generated: `summon keybindings` keeps producing Ghostty configuration, and Rex's own pane navigation is configured in `~/.config/rex/init.lua`. `summon keybindings rex` prints the palette action described in Open a workspace from the Rex palette.
 
 ## Seeing a workspace in the app
 
@@ -87,6 +87,51 @@ Running `summon <project>` while the project's recorded session is alive switche
 `--new-window` skips the switch and creates a fresh session. Rex opens new windows with their own, server-chosen session and does not let a client move a session into another window, so the new session is shown in the current window with a notice. This is the behavior asserted by the Rex end-to-end suite, not a workaround that can be removed later. When the earlier session is still alive, that launch also says once that it stays open (`the earlier [<project>] session <id> stays open; summon <project> now switches to this one, and rex kill <id> closes the earlier one`). The new launch records the earlier one in its manifest (`keeps`), so later launches switch to the new session without repeating it; an extra session no launch announced (a launch whose answer was lost, or one left behind by a Ghostty launch in between) is still noted on every launch, and `summon status` and `summon clean --orphans` name every earlier session.
 
 `--dry-run` never switches, never creates and never changes anything on the server: it prints the `session.create` request a real launch would send (one block per pane, the environment wrapper, the pane order the block ids arrive in), the server it would target, the panes it would minimize afterwards (see Background panes), and a note when a Rex workspace is already recorded. Backend detection runs before the dry-run guard, so the one read-only probe of the detection table (`rex whoami` on an inherited `REX_SERVER`, see above) can still run; no other Rex command does.
+
+## Open a workspace from the Rex palette
+
+Summon ships one Rex action, "Summon: Open workspace…". It lists the projects you registered with `summon add`, lets you filter them, and opens the chosen one in a new tab of the session you ran it from. That tab runs `summon open <name>`, so it does what `summon open <name>` does in a terminal: a live workspace is focused, a stopped one is launched, and a `.summon` that is new or changed asks for trust in that tab. Cancelling the picker opens nothing.
+
+It needs macOS, a Rex server with API revision 17 or later, and a connected Rex app that can show pickers (check with `rex version` and `rex whoami --json`). When several Rex apps are connected, each one shows the picker and the first answer counts. The new tab opens in the session you ran the action from, and Summon then shows the workspace in an app as a normal launch does (see Seeing a workspace in the app).
+
+**Install.** The action is one Lua file, `integrations/rex/summon-workspace.lua` in this repository. The installed CLI prints the same bytes:
+
+```bash
+mkdir -p ~/.config/rex
+summon keybindings rex > ~/.config/rex/summon-workspace.lua.new
+diff ~/.config/rex/summon-workspace.lua ~/.config/rex/summon-workspace.lua.new  # when updating an earlier copy
+mv ~/.config/rex/summon-workspace.lua.new ~/.config/rex/summon-workspace.lua
+```
+
+Then load it from `~/.config/rex/init.lua` (create the file if you have none) and reload the configuration:
+
+```lua
+-- ~/.config/rex/init.lua
+local summon = require("summon-workspace")
+-- Optional key binding:
+-- rex.bind("shift+cmd+o", "summon_open_workspace")
+```
+
+```bash
+rex config reload
+rex actions | grep summon_open_workspace
+```
+
+After a Summon upgrade, print the file again and compare it before you replace it. Settings stay in `init.lua`, so a new copy keeps them. To remove the action, delete the `require` line (and the binding), run `rex config reload`, and delete the file.
+
+**Settings.** The action runs with the Rex server's environment, and a server started at login has a bare `PATH` (`/usr/bin:/bin:/usr/sbin:/sbin`). Summon's entry point needs `node` through `/usr/bin/env`, so the action lists projects through your login shell: `<shell> -lc 'exec "$0" "$@"' <executable> list --json`. Set these in `init.lua` after the `require` only when the defaults do not work (a value of the wrong type is reported when the action runs):
+
+| Setting | Default | Set it when |
+|---|---|---|
+| `summon.settings.executable` | `summon` | Summon is not on your login `PATH`. An absolute path is allowed, spaces too. It is used for the listing and for the new tab. |
+| `summon.settings.shell` | the server's `SHELL`, else `/bin/zsh` | Your login shell is not POSIX-style: a fish user sets `/bin/zsh`. |
+| `summon.settings.path_prepend` | empty | Node or Summon is set up only in interactive startup files such as `~/.zshrc`. List the directories that hold them, for example `{ "/opt/homebrew/bin" }`. They go at the front of `PATH` for the listing and the new tab (a login shell's startup files can still reorder `PATH`). |
+
+An absolute `executable` alone does not help when `node` is not on the login `PATH`: the error says so, and `path_prepend` is the fix.
+
+**The launcher tab.** The tab is labelled `Summon · <name>` and starts in your home directory. A clean launch or switch to a Rex workspace closes it about 0.3 s after Summon exits, as for any launcher tab (see Seeing a workspace in the app): only that tab closes, unless it has become the session's only tab (you closed the others meanwhile), in which case the session ends with it. It stays open, with its output, when Summon exits with an error, printed a note, warning or error, switched to a workspace recorded under Ghostty, when you split the tab, or when Rex took longer than 2 s to answer the exit check. The full list, including a launch that ran an `on-start` hook or installed a missing tool, is in Seeing a workspace in the app. Close it when you have read it, and run the action again (or `summon open <name>` in a terminal) after fixing the cause.
+
+**When it does not work.** The action reports a problem as an action error with the fix. It explains: running it outside an open Rex session, a Rex app or server that cannot show pickers, another open Rex question, a picker that timed out, a shell, Summon or `node` that cannot be found, a Summon too old for `list --json`, a registry with no projects or with names Summon cannot open, more than 2,000 projects, and a tab Rex did not confirm. A registered name Summon cannot open (a hand-edited `~/.config/summon/projects`) is left out of the list, and the picker's filter field says how many were skipped. In every case `summon open` in a terminal still works.
 
 ## Status, open, focus, inspect, title
 

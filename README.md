@@ -73,6 +73,7 @@ summon myapp                      # creates the Rex session "myapp" and shows it
 | Open several projects together | `summon session add work api web docs`, then `summon session work` | One Rex session per project |
 | Check a launch first | `summon myapp --dry-run` | Prints the exact `session.create` request and the panes it would minimize, without touching the server |
 | Tidy up | `summon clean myapp` | Closes the project's session, only when it has no panes left |
+| Open a project from the Rex palette | `summon keybindings rex`, saved beside `~/.config/rex/init.lua` | "Summon: Open workspace…" lists your projects and opens the one you pick in a new tab ([setup](docs/rex.md#open-a-workspace-from-the-rex-palette)) |
 
 [Summon under Rex](docs/rex.md) covers detection, the session and pane mapping, background panes and recovery in detail.
 
@@ -150,7 +151,7 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 | `summon setup` | Interactive setup wizard — choose editor, sidebar, layout, shell, Starship theme |
 | `summon add <name> <path>` | Register a project name to a directory |
 | `summon remove <name>` | Remove a registered project |
-| `summon list` | List all registered projects |
+| `summon list [--json]` | List all registered projects (`--json`: one JSON array of `name` and `directory`) |
 | `summon set <key> [value]` | Set a machine-level config value |
 | `summon config` | Show current machine configuration |
 | `summon open [project]` | Focus a running workspace or launch a stopped one; without a name, pick one interactively |
@@ -158,6 +159,7 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 | `summon doctor [--fix] [--verbose]` | Check version, capabilities and effective settings (--fix appends eligible missing settings to an unambiguous existing file and removes stale locks; --verbose adds diagnostic info) |
 | `summon freeze <name>` | Save current resolved config as a reusable custom layout |
 | `summon keybindings [--vim] [--detach-tab]` | Print pane navigation config, optionally including whole-tab detachment |
+| `summon keybindings rex` | Print the Rex palette action that opens a registered project (see [docs/rex.md](docs/rex.md#open-a-workspace-from-the-rex-palette)) |
 | `summon layout <action>` | Manage custom layouts (create, save, list, show, delete, edit) |
 | `summon status [--once]` | Interactive workspace status dashboard across all projects |
 | `summon switch [project]` | Alias for `summon open` |
