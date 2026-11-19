@@ -282,6 +282,40 @@ describe("handleListCommand", () => {
   });
 });
 
+describe("handleListCommand --json", () => {
+  const values = { json: true };
+
+  it("writes the registry as one JSON array with a final newline, in registry order", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    mockListProjects.mockReturnValue(new Map([
+      ["web", "/tmp/web = one"],
+      ["api", "/tmp/café ☕"],
+    ]));
+
+    await handleListCommand({ values });
+
+    expect(writeSpy.mock.calls).toEqual([
+      ['[{"name":"web","directory":"/tmp/web = one"},{"name":"api","directory":"/tmp/café ☕"}]\n'],
+    ]);
+    expect(logSpy).not.toHaveBeenCalled();
+    expect(mockListProjects).toHaveBeenCalledTimes(1);
+    writeSpy.mockRestore();
+  });
+
+  it("writes [] for an empty registry, without the human empty-state hint", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    mockListProjects.mockReturnValue(new Map());
+
+    await handleListCommand({ values });
+
+    expect(writeSpy.mock.calls).toEqual([["[]\n"]]);
+    expect(logSpy).not.toHaveBeenCalled();
+    writeSpy.mockRestore();
+  });
+});
+
 describe("handleOpenCommand", () => {
   it("exits when there are no projects", async () => {
     const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);

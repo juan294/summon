@@ -92,7 +92,7 @@ const FLAG_SPECS: FlagSpec[] = [
   { long: "set",                           desc: "Set native title override", arg: "value" },
   { long: "reset",                         desc: "Clear native title override" },
   { long: "detach-tab",                    desc: "Add opt-in detach-tab navigation binding" },
-  { long: "json",                          desc: "Print native inspection as JSON" },
+  { long: "json",                          desc: "Print JSON (inspect, list)" },
   { long: "verbose",                       desc: "Show verbose output (e.g. resolved config paths)" },
   // --once is a subcommand flag (status), included in CLI_FLAGS for bash completion
   { long: "once",                          desc: "Print status table once and exit" },

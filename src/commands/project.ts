@@ -60,8 +60,17 @@ export async function handleRemoveCommand({ args }: CommandContext): Promise<voi
   process.exit(1);
 }
 
-export async function handleListCommand(): Promise<void> {
+/**
+ * `summon list`, or `summon list --json` for the Rex workspace picker: one JSON array of `{ name, directory }` in
+ * registry order, names as read (the picker validates them before offering).
+ */
+export async function handleListCommand({ values }: Pick<CommandContext, "values"> = { values: {} }): Promise<void> {
   const projects = listProjects();
+  if (values.json === true) {
+    const rows = [...projects].map(([name, directory]) => ({ name, directory }));
+    process.stdout.write(`${JSON.stringify(rows)}\n`);
+    return;
+  }
   if (projects.size === 0) {
     console.log("No projects registered. Run `summon add <name> <path>` or `summon setup` to get started.");
     return;

@@ -97,7 +97,7 @@ async function buildHelp(): Promise<string> {
     h("PROJECTS"),
     wrap(`  ${cmd("summon add <name> <path>")}    Register a project name -> path mapping`),
     wrap(`  ${cmd("summon remove <name>")}        Remove a registered project`),
-    wrap(`  ${cmd("summon list")}                 List all registered projects`),
+    wrap(`  ${cmd("summon list")}                 List all registered projects (--json)`),
     "",
     h("CONFIG"),
     wrap(`  ${cmd("summon set <key> [value]")}    Set a machine-level config value`),
@@ -216,9 +216,11 @@ Set a machine-level config value. Omit value to remove the key (resets to defaul
 
 Valid keys: ${VALID_KEYS.join(", ")}`,
 
-  list: `Usage: summon list
+  list: `Usage: summon list [--json]
 
-List all registered projects and their paths.`,
+List all registered projects and their paths.
+
+  --json    Print one JSON array of {"name", "directory"} objects, in registry order`,
 
   config: `Usage: summon config
 
