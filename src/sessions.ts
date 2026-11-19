@@ -3,14 +3,18 @@ import {
   closeSync,
   existsSync,
   fchmodSync,
+  lstatSync,
   mkdirSync,
   openSync,
   readFileSync,
   readdirSync,
+  renameSync,
+  rmSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { O_CREAT, O_NOFOLLOW, O_TRUNC, O_WRONLY } from "node:constants";
+import { O_CREAT, O_EXCL, O_NOFOLLOW, O_WRONLY } from "node:constants";
+import { randomUUID } from "node:crypto";
 import { join, resolve, sep } from "node:path";
 import { SESSIONS_DIR } from "./paths.js";
 import { LAYOUT_NAME_RE } from "./config.js";
@@ -67,16 +71,23 @@ export function writeSession(name: string, projects: string[]): void {
   mkdirSync(SESSIONS_DIR, { recursive: true, mode: 0o700 });
   chmodSync(SESSIONS_DIR, 0o700);
   const body = projects.join("\n") + "\n";
-  const fd = openSync(
-    sessionPath(name),
-    O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW,
-    0o600,
-  );
+  const destination = sessionPath(name);
+  const staging = join(SESSIONS_DIR, `.session-${randomUUID()}.tmp`);
+  const fd = openSync(staging, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o600);
   try {
-    fchmodSync(fd, 0o600);
-    writeFileSync(fd, body, "utf-8");
-  } finally {
-    closeSync(fd);
+    try {
+      fchmodSync(fd, 0o600);
+      writeFileSync(fd, body, "utf-8");
+    } finally {
+      closeSync(fd);
+    }
+    if (lstatSync(destination, { throwIfNoEntry: false })?.isSymbolicLink()) {
+      throw new Error(`Refusing to replace a session symlink: ${name}`);
+    }
+    renameSync(staging, destination);
+  } catch (error) {
+    rmSync(staging, { force: true });
+    throw error;
   }
 }
 

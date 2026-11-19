@@ -6,7 +6,9 @@ import { asRecord } from "./types.js";
 import { isDisplaySafe } from "../../ui/sanitize.js";
 import type { RexFailure, RexIdentity, RexResult } from "./types.js";
 // The workspace commands print one way for both backends (the port's result types).
-import type { FocusResult, NativeFailure, TitleOperation, TitleResult, TitleScope } from "../port.js";
+import type { FocusResult, LivePortsStatus, NativeFailure, TitleOperation, TitleResult, TitleScope } from "../port.js";
+import { NO_PORTS_METHOD_RE, PORTS_CALL_TIMEOUT_MS, PORTS_UNSUPPORTED, parsePortsReply } from "./ports-reply.js";
+import type { ReplyPort } from "./ports-reply.js";
 
 /**
  * Rex workspace state (plan P10, §3 state table). Every read targets the recorded server
@@ -276,6 +278,8 @@ export interface RexInspectPane {
   title: string | null;
   directory: string | null;
   availability: "available" | "closed" | "unverified";
+  /** Live ports of an available pane (every one, the ephemeral range included); absent when not read. */
+  ports?: ReplyPort[];
 }
 
 export interface RexInspectResult {
@@ -284,6 +288,9 @@ export interface RexInspectResult {
   panes: RexInspectPane[];
   /** The root pane's most severe program status, when its programs report one. */
   programStatus?: ProgramStatus;
+  /** Set when the live ports are not complete: some missing, or no such read on this server. */
+  portsStatus?: Exclude<LivePortsStatus, "ok" | "unavailable">;
+  portsReason?: string;
 }
 
 /** Current labels from `block ls` for the session. */
@@ -311,6 +318,7 @@ function blockCall(cli: RexCli, sessionId: string, blockId: string, method: stri
  */
 export function inspectRex(cli: RexCli, identity: RexIdentity, panes: readonly string[], project: string, liveBlocks: readonly string[]): RexInspectResult {
   const rows: RexInspectPane[] = [];
+  const portsRead: PortsRead = { unsupported: false, stopped: false, reasons: new Set() };
   const closed: string[] = [];
   const unverified: string[] = [];
   for (const name of panes) {
@@ -332,7 +340,8 @@ export function inspectRex(cli: RexCli, identity: RexIdentity, panes: readonly s
     const directory = typeof foreground?.["cwd"] === "string" ? foreground["cwd"] : null;
     const titled = blockCall(cli, identity.sessionId, block.blockId, "title");
     const title = typeof titled?.["title"] === "string" ? titled["title"] : null;
-    rows.push({ name, blockId: block.blockId, pid, tty: null, title, directory, availability: "available" });
+    const ports = portsRead.unsupported || portsRead.stopped ? undefined : panePorts(cli, identity.sessionId, block.blockId, name, portsRead);
+    rows.push({ name, blockId: block.blockId, pid, tty: null, title, directory, availability: "available", ...(ports ? { ports } : {}) });
   }
   // Availability follows the recorded blocks (all present = available); unverified panes are reported, not counted.
   const problems: string[] = [];
@@ -340,7 +349,36 @@ export function inspectRex(cli: RexCli, identity: RexIdentity, panes: readonly s
   if (unverified.length > 0) problems.push(`${unverified.length} ${unverified.length === 1 ? "pane" : "panes"} could not be verified after recovery (${unverified.join(", ")}); run summon ${project} --new-window to relaunch`);
   const root = rows.find((row) => row.blockId === identity.rootBlockId && row.availability === "available");
   const programStatus = root ? programStatusOf(cli, identity.sessionId, identity.rootBlockId) : undefined;
-  return { availability: closed.length > 0 ? "unavailable" : "available", ...(problems.length > 0 ? { reason: problems.join("; ") } : {}), panes: rows, ...(programStatus ? { programStatus } : {}) };
+  const portsNote = portsRead.unsupported
+    ? { portsStatus: "unsupported" as const, portsReason: PORTS_UNSUPPORTED }
+    : portsRead.reasons.size > 0 ? { portsStatus: "partial" as const, portsReason: [...portsRead.reasons].join("; ") } : {};
+  return { availability: closed.length > 0 ? "unavailable" : "available", ...(problems.length > 0 ? { reason: problems.join("; ") } : {}), panes: rows, ...(programStatus ? { programStatus } : {}), ...portsNote };
+}
+
+interface PortsRead {
+  unsupported: boolean;
+  /** A ports call timed out: later panes are not asked. */
+  stopped: boolean;
+  reasons: Set<string>;
+}
+
+/** One pane's `ports` (one workspace: a plain sync call per pane); a server without the method stops the reads. */
+function panePorts(cli: RexCli, sessionId: string, blockId: string, name: string, read: PortsRead): ReplyPort[] | undefined {
+  const answer = cli.call("block-call", ["block", "call", "-s", sessionId, "-b", blockId, "ports"], { timeoutMs: PORTS_CALL_TIMEOUT_MS });
+  if (!answer.ok) {
+    if (NO_PORTS_METHOD_RE.test(answer.reason)) read.unsupported = true;
+    else read.reasons.add(`pane ${name} did not answer (${answer.reason})`);
+    // A server too slow for one pane is too slow for the next: inspect stops asking instead of waiting per pane.
+    if (answer.kind === "timeout") read.stopped = true;
+    return undefined;
+  }
+  const parsed = parsePortsReply(answer.json);
+  if (parsed.status === "unsupported") {
+    read.unsupported = true;
+    return undefined;
+  }
+  if (parsed.reason) read.reasons.add(parsed.reason);
+  return parsed.ports;
 }
 
 /**

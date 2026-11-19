@@ -295,26 +295,27 @@ describe("renderRow", () => {
     expect(result).not.toContain("/tmp/myapp");
   });
 
-  it("selected row rendering is controlled by the invert helper (not raw escape)", () => {
-    // The key invariant: renderRow must use an invert() helper (which checks useColor),
-    // not a raw \x1b[7m constant. In TTY mode the helper produces invert; in non-TTY it's a no-op.
-    // We verify: selected differs from non-selected (selected has extra decoration when color is on).
-    const row = makeRow();
-    const selected = renderRow(row, 80, true);
-    const notSelected = renderRow(row, 80, false);
-    // Selected row must be different from non-selected (extra wrapper chars or same if no color)
-    // This holds in both color and no-color environments.
-    // In TTY (color) env: selected should contain invert escape
-    // In non-TTY (no-color) env: both are identical plain text — that is acceptable
-    if (selected.includes("\x1b[")) {
-      // Color mode: invert MUST appear on selected row, NOT on non-selected
-      expect(selected).toContain("\x1b[7m");
-      expect(notSelected).not.toContain("\x1b[7m");
-    } else {
-      // No-color mode: neither should have raw escapes
-      expect(selected).not.toContain("\x1b[7m");
-      expect(notSelected).not.toContain("\x1b[7m");
-    }
+  it.each(["NO_COLOR", "FORCE_COLOR"])("shows the selected project when %s disables styling", (setting) => {
+    vi.stubEnv("NO_COLOR", setting === "NO_COLOR" ? "1" : undefined);
+    vi.stubEnv("FORCE_COLOR", setting === "FORCE_COLOR" ? "0" : undefined);
+    try {
+      const rows = [makeRow({ name: "one" }), makeRow({ name: "two" })];
+      for (const index of [0, 1]) {
+        const frame = renderScreen(rows, index, 80, 12);
+        const marked = frame.split("\n").filter(line => line.startsWith(">"));
+        expect(marked).toHaveLength(1);
+        expect(marked[0]).toContain(rows[index]!.name);
+        expect(frame).not.toContain("\x1b[7m");
+      }
+    } finally { vi.unstubAllEnvs(); }
+  });
+
+  it("keeps reverse video for the selected row in color mode", () => {
+    vi.stubEnv("NO_COLOR", undefined);
+    vi.stubEnv("FORCE_COLOR", "1");
+    try {
+      expect(renderRow(makeRow(), 80, true)).toContain("\x1b[7m");
+    } finally { vi.unstubAllEnvs(); }
   });
 
   it("non-selected row does not have inverted colors", () => {
@@ -1098,7 +1099,7 @@ describe("runMonitor", () => {
     readAllStatuses.mockReturnValue([makeResolvedStatus({ project: "myapp", state: "active", uptime: 60_000 })]);
     const monitorPromise = runMonitor(); process.stdin.emit("data", Buffer.from("\r"));
     await monitorPromise; await vi.dynamicImportSettled();
-    expect(mockFocusWorkspace).toHaveBeenCalledWith("myapp");
+    expect(mockFocusWorkspace).toHaveBeenCalledWith("myapp", undefined, "/tmp/myapp");
     expect(mockLaunch).not.toHaveBeenCalled();
   });
 
@@ -1559,7 +1560,7 @@ describe("handoff on the four states (plan P10, Phase 4)", () => {
     process.stdin.emit("data", Buffer.from("\r"));
     await monitorPromise;
     await vi.dynamicImportSettled();
-    expect(mockFocusWorkspace).toHaveBeenCalledWith("myapp");
+    expect(mockFocusWorkspace).toHaveBeenCalledWith("myapp", undefined, "/tmp/myapp");
     expect(mockLaunch).not.toHaveBeenCalled();
   });
 
@@ -1586,7 +1587,7 @@ describe("handoff on the four states (plan P10, Phase 4)", () => {
     process.stdin.emit("data", Buffer.from("\r"));
     await second;
     await vi.dynamicImportSettled();
-    expect(mockFocusWorkspace).toHaveBeenCalledWith("myapp");
+    expect(mockFocusWorkspace).toHaveBeenCalledWith("myapp", undefined, "/tmp/myapp");
     expect(mockWithTrustPrompt).not.toHaveBeenCalled();
   });
 
@@ -1771,7 +1772,7 @@ describe("monitor interaction (FE-M1, FE-M2, UX-L1)", () => {
     process.stdin.emit("data", Buffer.from("\r"));
     await monitorPromise;
     await vi.dynamicImportSettled();
-    expect(mockFocusWorkspace).toHaveBeenCalledWith("beta");
+    expect(mockFocusWorkspace).toHaveBeenCalledWith("beta", undefined, "/tmp/beta");
     expect(mockLaunch).not.toHaveBeenCalled();
   });
 

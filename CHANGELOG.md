@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-11-19
+
+### Added
+
+- A Rex palette action, "Summon: Open workspace…", lists the projects you registered with `summon add`, lets you filter them, and opens the chosen one in a new tab that runs `summon open <name>` and that the app brings forward. `summon keybindings rex` prints the action (one Lua file, also at `integrations/rex/summon-workspace.lua`); `docs/rex.md` has the install steps and settings. It needs a Rex server with API revision 17 or later and a Rex app that can show pickers. When it fails, it shows the problem and its fix in a `Summon · error` tab, or raises it as an app notice when no tab can be opened or the new tab was not confirmed. `summon keybindings rex` rejects `--vim`, `--detach-tab` and extra arguments with a usage error, and shell completions offer `rex`.
+- `summon list --json` prints the registered projects as one JSON array of `{name, directory}` objects, in registry order. The human list does not change.
+- Under Rex, `summon ports`, `summon ports --json`, `summon doctor` and `summon inspect` read the TCP ports that a running workspace's panes listen on (Rex API revision 16 or later). `summon ports` gets a `DETAIL` column that shows what holds each claimed port now (`listening: <pane> (<process>)`), shows a port that another workspace holds as a conflict (`held by <project>/<pane> (<process>)`), and adds a `live` row for a port that no claim of its own project covers. Unclaimed ports from 49152 up (agents and helpers) are hidden from the table, with one line that counts them. `summon ports --json` prints every claim, live port, conflict and note. `summon doctor` has a new `Checking live ports...` section: a failure for each held conflict, and `INFO` for a live read that could not complete or when no Rex workspace runs. `summon inspect` lists each recorded pane's ports (`ports:` lines, and `live ports: <reason>` when the read failed); `inspect --json` adds per-pane `ports` and top-level `portsStatus` and `portsReason`. The live read stops after 4 seconds (2 seconds per pane in `inspect`); an incomplete or timed-out read never changes an exit code. An older Rex server, or a Ghostty workspace, shows only the claims; under Rex a note says why the live part is missing. Help and completions describe `--json` for `list` and `ports`.
+
+### Changed
+
+- When a live or unverified workspace with the same project name belongs to a different checkout, a launch (also with `--new-window`, under Rex), `summon open`, `summon switch`, the picker and Enter in `summon status` refuse to switch to it or replace it, and say so. Register the second checkout under a distinct name with `summon add <name> <path>`. Under Rex, recovery of a lost launch picks the manifest of the requested checkout when two checkouts share a name. `summon focus <project>` does not check the directory.
+- The `on-start` documentation now says that under Rex two concurrent launches of one new workspace can both run the hook, so a hook should be safe to repeat. One workspace is still created.
+- The `summon open --dry-run` picker without a project also lists recorded workspaces that are not registered, and a dry run of an `unknown` workspace prints the preview instead of exiting 2.
+- Development dependencies: tsup 9.0.0 (builds the published bundle), eslint 10.15.0, typescript-eslint 8.73.0 (moves minimatch to 11.0.9, which clears its advisory in the development tree) and vite 8.3.8. The published package still has no runtime dependencies.
+
+### Fixed
+
+- `summon open <project> --dry-run`, `summon switch <project> --dry-run` and the picker with `--dry-run` now print the preview without focusing a live workspace, touching the calling Rex tab or changing the saved status.
+- Interactive `summon status` no longer exits silently when its first read goes through Rex.
+- `summon session` reports a workspace that is already running but that Rex could not show as `Already running, could not show`, instead of counting it as a switch.
+- `summon session add` writes the session file through a temporary file in the same directory and renames it into place, so a failed save keeps the earlier one. A save refuses to replace a session file that is a symlink (`Refusing to replace a session symlink: <name>`).
+- Static port discovery accepts only whole port numbers from 1 to 65535 and ignores impossible claims.
+- A port scan where some panes answered and others did not keeps the ports that were read and reports the inventory as partial. All live port reads in one scan share a limit of at most eight concurrent Rex calls.
+- `summon doctor` names a lock directory it could not inspect, still checks the other one, and exits 2 for the incomplete diagnosis. A failed static port scan is a failure line instead of a crash.
+- `summon briefing` says `Commit history unavailable` or `Working tree status unavailable` when Git cannot read a project, instead of reporting it as clean, and keeps what it could read from the other projects. The summary then counts `known overnight commits`.
+- A project registered under a name such as `constructor` is dispatched and gets help like any other name.
+- The selected row of the status dashboard is now marked with `>`, so it stays visible with color disabled.
+- Numbered menus in `summon open` and the setup wizard accept only a whole decimal number; input such as `1.5` or `2x` asks again.
+
 ## [2.1.1] - 2026-11-07
 
 ### Added
@@ -909,7 +938,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CodeQL security scanning
 - Dependabot for npm and GitHub Actions
 
-[Unreleased]: https://github.com/juan294/summon/compare/v2.1.1...develop
+[Unreleased]: https://github.com/juan294/summon/compare/v2.2.0...develop
+[2.2.0]: https://github.com/juan294/summon/compare/v2.1.1...v2.2.0
 [2.1.1]: https://github.com/juan294/summon/compare/v2.1.0...v2.1.1
 [2.1.0]: https://github.com/juan294/summon/compare/v2.0.1...v2.1.0
 [2.0.1]: https://github.com/juan294/summon/compare/v2.0.0...v2.0.1

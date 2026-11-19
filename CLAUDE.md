@@ -21,6 +21,7 @@ pnpm lint             # check linting
 pnpm test             # run tests once
 pnpm test:watch       # run tests in watch mode
 pnpm test:coverage    # run tests with v8 coverage
+pnpm test:lua         # Lua tests of the Rex palette action (needs a Lua 5.1 interpreter, e.g. luajit; run after pnpm build)
 ```
 
 ## Project Structure
@@ -95,6 +96,7 @@ src/
       launcher-tab.ts   D1: close the launcher tab after a launch or switch made inside Rex
       doctor.ts         The Rex section of summon doctor (CLI, version, server, app clients)
       backend.ts        createRexBackend: the Rex TerminalBackend (beforeLaunch, exclusiveLaunch launch lock BE-L1, P8 notices, launch, dry run, D1 hooks)
+      action-snippet.ts printRexAction: `summon keybindings rex`, the embedded integrations/rex/summon-workspace.lua
   cli/
     parse.ts            CLI argument parsing extracted from index.ts (parseCli, buildOverrides)
     help.ts             Help text, lazily imported on --help path (showHelp, hasSubcommandHelp, showSubcommandHelp)
@@ -136,6 +138,9 @@ src/
   release/
     helpers.ts          Release-probe harness: the built CLI against a throwaway HOME
   *.test.ts             Co-located unit tests
+integrations/rex/
+  summon-workspace.lua  Rex palette action "Summon: Open workspace..." (embedded at build time as __REX_ACTION_LUA__)
+  test/                 Plain Lua 5.1 tests for it: `pnpm test:lua` (scripts/test-lua.mjs; needs a system Lua, not in `pnpm test`)
 ```
 
 ## Code Style

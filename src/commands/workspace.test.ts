@@ -415,7 +415,7 @@ describe("workspace commands under Rex (plan P10, Phase 4)", () => {
   function seedRex(blocks = BLOCKS) {
     writeStatus({ ...base, panes: PANES, launchId: "0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f", backend: "rex", rex: { ...rex, blocks } });
   }
-  type RexAnswers = { present?: boolean; live?: string[]; unreachable?: boolean; windowLabel?: string; program?: Array<Record<string, unknown>> };
+  type RexAnswers = { present?: boolean; live?: string[]; unreachable?: boolean; windowLabel?: string; program?: Array<Record<string, unknown>>; ports?: (blockId: string) => unknown };
   function rexExec(answers: RexAnswers = {}) {
     const live = (answers.live ?? BLOCKS.map((b) => b.name)).map((name) => BLOCKS.find((b) => b.name === name)!.blockId);
     const calls: string[][] = [];
@@ -431,6 +431,7 @@ describe("workspace commands under Rex (plan P10, Phase 4)", () => {
       if (sub.includes("session.select")) return "{}";
       if (sub[0] === "block" && sub[1] === "ls") return JSON.stringify({ blocks: live.map((id) => ({ block_id: id, label: BLOCKS.find((b) => b.blockId === id)!.label, window_id: WINDOW })) });
       if (sub[0] === "block" && sub[1] === "call" && sub.at(-1) === "program_status") return JSON.stringify({ records: answers.program ?? [] });
+      if (sub[0] === "block" && sub[1] === "call" && sub.at(-1) === "ports") return JSON.stringify(answers.ports?.(sub[5]!) ?? { status: "ok", ports: [], processes: [] });
       if (sub[0] === "block" && sub[1] === "call") return sub.at(-1) === "title" ? JSON.stringify({ title: "vim ~/x" }) : JSON.stringify({ foreground: { pid: 4242, cwd: "/tmp/demo" }, child: { pid: 4000 } });
       if (sub.includes("session.set_block_label") || sub.includes("session.set_window_label")) return JSON.stringify({ revision: 4 });
       throw new Error(`unexpected rex call ${args.join(" ")}`);
@@ -503,6 +504,25 @@ describe("workspace commands under Rex (plan P10, Phase 4)", () => {
     const text = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
     expect(text).toContain("demo: active (available, Rex)");
     expect(text).toContain(`  shell  ${block(4)}  PID 4242  UNAVAILABLE  vim ~/x`);
+    logSpy.mockRestore();
+  });
+
+  it("inspect lists each pane's live ports in text and JSON, escaped, and says when they are incomplete (plan 2026-11-19-rex-live-ports)", async () => {
+    seedRex();
+    const ports = { status: "ok", ports: [{ port: 3000, address: "127.0.0.1", protocol: "tcp", first_seen_at: "x", pid: 7 }, { port: 52206, address: "::1", protocol: "tcp", first_seen_at: "x", pid: 8 }], processes: [{ pid: 7, user_id: 501, name: "node", argv0: "node" }, { pid: 8, user_id: 501, name: "x", argv0: "evil\u001b[2J" }] };
+    rexExec({ ports: (id) => (id === block(1) ? ports : id === block(4) ? { ...ports, status: "partial", ports: [] } : undefined) });
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    await handleInspectCommand(context(["demo"], { json: true }));
+    const result = JSON.parse(String(logSpy.mock.calls[0]![0]));
+    expect(result.panes[0].ports).toEqual([{ port: 3000, address: "127.0.0.1", process: "node", pid: 7 }, { port: 52206, address: "::1", process: "evil\u001b[2J", pid: 8 }]);
+    expect(result).toMatchObject({ availability: "available", portsStatus: "partial", portsReason: expect.stringContaining("a port may be missing") });
+    logSpy.mockClear();
+    await handleInspectCommand(context(["demo"]));
+    const text = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(text).toContain(`  editor  ${block(1)}  PID 4242  UNAVAILABLE  vim ~/x\n    ports: 3000 127.0.0.1 (node), 52206 ::1 (evil\\u001b[2J)`);
+    expect(text).not.toContain("\u001b");
+    expect(text).toContain("live ports: some processes could not be read; a port may be missing");
+    expect(text.split("\n").filter((l) => l.startsWith("    ports:"))).toHaveLength(1);
     logSpy.mockRestore();
   });
 

@@ -36,7 +36,7 @@ description: RPI workflow details -- phase rules, pre-release sequence, implemen
   that the plan-compliance reviewer does not check.
 - Check for `[batch-eligible]` phases --
   use `/batch` to execute independent phases in parallel.
-  `[batch-eligible]` is decided during `/plan` by identifying phases
+  `[batch-eligible]` is decided during `/rpi-plan` by identifying phases
   with no file overlap; `/batch` then runs them in parallel, one
   worktree per phase, each opening a PR.
 - Use `/batch` for bulk changes outside RPI too --
@@ -48,24 +48,24 @@ description: RPI workflow details -- phase rules, pre-release sequence, implemen
 
 ## Pre-Release Workflow
 
-`/pre-launch` -> `/remediate` -> `/update-docs` -> `/explore-release` -> `/release`
+`/rpi-pre-launch` -> `/rpi-remediate` -> `/rpi-update-docs` -> `/rpi-explore-release` -> `/rpi-release`
 
-After `/pre-launch`, run `/simplify` first -- it fixes dead code,
+After `/rpi-pre-launch`, run `/simplify` first -- it fixes dead code,
 duplicates, and inefficiencies in one pass. Then address security
 and infrastructure findings manually.
 
-`/explore-release` runs Wave B exploratory charters against the fixed
+`/rpi-explore-release` runs Wave B exploratory charters against the fixed
 candidate. It is not optional decoration: its charter reports become
-`charter.*` rows in the release evidence manifest, and `/release`
+`charter.*` rows in the release evidence manifest, and `/rpi-release`
 blocks on a failed or incomplete charter via `pnpm analyze:release`.
-`/pre-launch` audits the code as written; charters exercise the
+`/rpi-pre-launch` audits the code as written; charters exercise the
 candidate's actual behavior. They are complements, not duplicates.
 
 `docs/release/release-checklist.md` is the procedural authority for
 everything from the release PR onward.
 
 Fix everything, always: categorize findings by severity, but fix
-100%. With AI agents, fix cost is near-zero. Exception: `/remediate`
+100%. With AI agents, fix cost is near-zero. Exception: `/rpi-remediate`
 Wave 3 (Later/strategic) items get issues filed but no fix agents --
 those require human architectural judgment.
 

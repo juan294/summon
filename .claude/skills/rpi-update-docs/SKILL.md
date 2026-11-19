@@ -14,6 +14,10 @@ to update affected documents, diagrams, version references and existing inline
 documentation. Read controlling project instructions/contracts completely and
 revalidate the actual worktree before reusing a prior update plan.
 
+## Project overlay
+
+If `.rpi/project/rpi-update-docs.md` exists, read it completely before you start, together with the controlling instructions. It adds this project's procedure and checks and can make this workflow stricter. It cannot grant push, tag, merge, deployment or publication authority. It cannot relax a gate: a rule that blocks or permits a release, publication, merge, deployment or phase acceptance, or a safety or authorization rule. It can change other procedure detail only under a `## Declared overrides` heading that quotes the stock rule, gives the reason and names the owner decision. Name the overlay you read, and any declared override you applied, in the handoff.
+
 ## Step 1: Discovery
 
 Cover the applicable discovery lenses below, recording when a lens has no

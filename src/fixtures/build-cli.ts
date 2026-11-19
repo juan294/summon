@@ -29,6 +29,7 @@ export async function buildCliInto(projectRoot: string, outDir: string, options:
     return join(outDir, "index.js");
   }
   const { version } = JSON.parse(readFileSync(join(projectRoot, "package.json"), "utf-8")) as { version: string };
+  const rexAction = readFileSync(join(projectRoot, "integrations", "rex", "summon-workspace.lua"), "utf-8");
   await build({
     config: false,
     entry,
@@ -37,7 +38,7 @@ export async function buildCliInto(projectRoot: string, outDir: string, options:
     format: ["esm"],
     target: "node22",
     splitting: false,
-    define: { __VERSION__: JSON.stringify(version) },
+    define: { __VERSION__: JSON.stringify(version), __REX_ACTION_LUA__: JSON.stringify(rexAction) },
     silent: true,
   });
   return join(outDir, "index.js");

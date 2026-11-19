@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "version": "2.1.0",
+  "version": "2.2.0",
   "managed_root_budget_bytes": 8192,
   "components": [
     {

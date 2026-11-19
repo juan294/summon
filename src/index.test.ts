@@ -34,6 +34,18 @@ function run(...args: string[]) {
 }
 
 describe("CLI integration", () => {
+  it("launches a registered project named constructor and treats its help as an unknown command", () => {
+    expect(run("add", "constructor", TEMP_HOME).status).toBe(0);
+    try {
+      const preview = run("constructor", "--dry-run", "--layout", "minimal");
+      expect(preview.status, preview.stderr).toBe(0);
+      expect(preview.stdout).toContain("-- summon dry-run");
+      expect(run("constructor", "--help").status).toBe(1);
+    } finally {
+      run("remove", "constructor");
+    }
+  });
+
   // QA-M1: a concurrent `pnpm build` (tsup clean) empties the shared dist/, so the builds the
   // globalSetup hands to the subprocess suites must resolve outside it, symlinks included.
   it("spawns a private CLI build, never the shared dist/", () => {

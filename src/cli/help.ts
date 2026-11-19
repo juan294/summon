@@ -97,7 +97,7 @@ async function buildHelp(): Promise<string> {
     h("PROJECTS"),
     wrap(`  ${cmd("summon add <name> <path>")}    Register a project name -> path mapping`),
     wrap(`  ${cmd("summon remove <name>")}        Remove a registered project`),
-    wrap(`  ${cmd("summon list")}                 List all registered projects`),
+    wrap(`  ${cmd("summon list")}                 List all registered projects (--json)`),
     "",
     h("CONFIG"),
     wrap(`  ${cmd("summon set <key> [value]")}    Set a machine-level config value`),
@@ -110,12 +110,13 @@ async function buildHelp(): Promise<string> {
     wrap(`  ${cmd("summon layout <action>")}      Manage custom layouts (create, save, list, show, delete, edit)`),
     wrap(`  ${cmd("summon keybindings")}          Generate Ghostty key table for workspace navigation`),
     wrap(`  ${cmd("summon keybindings --vim")}    Use vim-style keys (hjkl) instead of arrows`),
+    wrap(`  ${cmd("summon keybindings rex")}      Print the Rex palette action that opens a workspace`),
     "",
     h("MONITORING"),
     wrap(`  ${cmd("summon status")}               Interactive workspace status dashboard`),
     wrap(`  ${cmd("summon status --once")}        Print status table once and exit`),
     wrap(`  ${cmd("summon briefing")}             Morning briefing across all projects`),
-    wrap(`  ${cmd("summon ports")}                Show port assignments and detect conflicts`),
+    wrap(`  ${cmd("summon ports")}                Show port assignments and detect conflicts (--json)`),
     wrap(`  ${cmd("summon snapshot <action>")}    Manage context snapshots (save, show, clear)`),
     "",
     h("TOOLS"),
@@ -216,9 +217,11 @@ Set a machine-level config value. Omit value to remove the key (resets to defaul
 
 Valid keys: ${VALID_KEYS.join(", ")}`,
 
-  list: `Usage: summon list
+  list: `Usage: summon list [--json]
 
-List all registered projects and their paths.`,
+List all registered projects and their paths.
+
+  --json    Print one JSON array of {"name", "directory"} objects, in registry order`,
 
   config: `Usage: summon config
 
@@ -302,11 +305,18 @@ Actions:
   show <project>    Display a saved snapshot
   clear <project>   Remove a saved snapshot`,
 
-  ports: `Usage: summon ports
+  ports: `Usage: summon ports [--json]
 
 Show port assignments across all registered projects.
 Detects ports from .summon env vars, package.json scripts, and framework defaults.
-Highlights port conflicts when multiple projects use the same port.`,
+Highlights port conflicts when multiple projects use the same port.
+
+Under Rex, the ports that running workspaces listen on are read live, with the
+pane and the process that holds each one. A port that another project claims is
+a conflict. Live ports from 49152 up (agents and helpers) are hidden unless a
+project claims them; summon inspect <project> lists them.
+
+  --json    Print the claims, every live port, the conflicts and the notes as one JSON object`,
 
   briefing: `Usage: summon briefing
 
@@ -333,10 +343,15 @@ Examples:
   summon export .summon            Same, using path argument`,
 
   keybindings: `Usage: summon keybindings [--vim] [--detach-tab]
+       summon keybindings rex
 
 Generate Ghostty key table configuration for workspace pane navigation.
 Output can be appended to ~/.config/ghostty/config.
-Rex key bindings are not generated: they live in ~/.config/rex/init.lua (see docs/rex.md).
+Rex pane navigation is not generated: it lives in ~/.config/rex/init.lua (see docs/rex.md).
+
+rex  Print the Rex palette action "Summon: Open workspace…" (a Lua file).
+     Save it as ~/.config/rex/summon-workspace.lua, add require("summon-workspace")
+     to ~/.config/rex/init.lua, then run: rex config reload
 
 Options:
   --vim  Use vim-style keys (hjkl) instead of arrow keys
@@ -408,7 +423,7 @@ export async function showHelp(): Promise<void> {
 }
 
 export function hasSubcommandHelp(subcommand: string): boolean {
-  return subcommand in SUBCOMMAND_HELP;
+  return Object.hasOwn(SUBCOMMAND_HELP, subcommand);
 }
 
 export function showSubcommandHelp(subcommand: string): void {

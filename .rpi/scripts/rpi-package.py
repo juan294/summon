@@ -2,9 +2,14 @@
 from pathlib import Path
 
 
+class Bundle(dict):
+    """name -> bytes with the deterministic mode (0o755 for an executable source, else 0o644) of each file."""
+    modes = None
+
+
 def bundle_sources(root, manifest):
     root = Path(root).resolve()
-    tree = {}
+    tree, modes = {}, {}
 
     def validate(relative):
         if not isinstance(relative, str) or not relative:
@@ -27,6 +32,7 @@ def bundle_sources(root, manifest):
         if relative in tree and tree[relative] != data:
             raise ValueError("runtime source collision: " + relative)
         tree[relative] = data
+        modes[relative] = 0o755 if source.stat().st_mode & 0o111 else 0o644
 
     for relative in manifest.get("runtime_sources", []):
         include(relative)
@@ -47,6 +53,9 @@ def bundle_sources(root, manifest):
                     if alias in tree and tree[alias] != data:
                         raise ValueError("runtime resource alias collision: " + alias)
                     tree[alias] = data
+                    modes[alias] = modes[resource["source"]]
         else:
             include(source)
-    return dict(sorted(tree.items()))
+    bundle = Bundle(sorted(tree.items()))
+    bundle.modes = {name: modes[name] for name in bundle}
+    return bundle

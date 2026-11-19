@@ -56,16 +56,20 @@ vi.mock("../briefing.js", () => ({
   runBriefing: (...args: unknown[]) => mockRunBriefing(...args),
 }));
 
-vi.mock("../ports.js", () => ({
-  detectAllPorts: (...args: unknown[]) => mockDetectAllPorts(...args),
+// Pure formatting helpers stay real; the report gets the live fields a static-only read returns.
+vi.mock("../ports.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../ports.js")>()),
+  detectAllPorts: async (...args: unknown[]) => ({ live: [], held: [], notes: [], liveWorkspaces: 0, readWorkspaces: 0, ...(await mockDetectAllPorts(...args)) }),
 }));
 
 vi.mock("../ui/ansi.js", () => ({
   green: (value: string) => mockGreen(value),
   dim: (value: string) => mockDim(value),
   yellow: (value: string) => mockYellow(value),
-  truncateLine: (value: string, _width: number) => value,
+  // Marks what was passed through truncation, so a test can tell a cut line from a whole one.
+  truncateLine: (value: string, _width: number) => (truncateMarks.on ? `[cut:${value}]` : value),
 }));
+const truncateMarks = vi.hoisted(() => ({ on: false }));
 
 vi.mock("../ui/symbols.js", () => ({
   sym: { ok: "✓", dotFilled: "●", dotEmpty: "○" },
@@ -347,6 +351,156 @@ describe("handlePortsCommand", () => {
     await handlePortsCommand();
 
     expect(logSpy).toHaveBeenCalledWith("[green:✓] No port conflicts");
+  });
+});
+
+describe("handlePortsCommand with live ports (plan 2026-11-19-rex-live-ports)", () => {
+  const live = (port: number, project: string, pane: string, process: string | null = "node") => ({ port, address: "127.0.0.1", project, pane, recorded: true, process, pid: 7, state: "active", ephemeral: port >= 49152 });
+
+  function lines(spy: ReturnType<typeof vi.spyOn>): string[] {
+    return spy.mock.calls.map((call: unknown[]) => String(call[0]));
+  }
+
+  it("adds a DETAIL column: listening for a claim its own workspace holds, held by for one another workspace holds", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockDetectAllPorts.mockReturnValue({
+      assignments: [
+        { port: 3000, project: "web", source: "package.json", state: "stopped" },
+        { port: 4000, project: "api", source: "config", state: "active" },
+      ],
+      conflicts: new Map(),
+      projectCount: 2,
+      live: [live(3000, "api", "server"), live(4000, "api", "worker")],
+      held: [{ port: 3000, holder: "api", pane: "server", process: "node", claimants: [{ project: "web", source: "package.json" }] }],
+      liveWorkspaces: 1, readWorkspaces: 1,
+    });
+    await handlePortsCommand();
+    const out = lines(logSpy);
+    expect(out).toContain("  PORT   PROJECT          SOURCE             STATE      DETAIL");
+    expect(out.find((l) => l.includes("web") && l.includes("3000"))).toContain("held by api/server (node)");
+    expect(out.find((l) => l.includes("web") && l.includes("3000"))).toContain("conflict");
+    expect(out.find((l) => l.includes("api") && l.includes("live") && l.includes("3000"))).toContain("server (node)");
+    expect(out.find((l) => l.includes("4000"))).toContain("listening: worker (node)");
+    expect(out.filter((l) => l.includes("4000"))).toHaveLength(1);
+    expect(out).toContain("[yellow:  ⚠ Port 3000 is held by api/server (node); web (package.json) claims it]");
+    expect(out).not.toContain("[green:✓] No port conflicts");
+  });
+
+  it("never cuts a held-conflict line to the terminal width (the claimant is the part to act on)", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    truncateMarks.on = true;
+    try {
+      mockDetectAllPorts.mockReturnValue({
+        assignments: [{ port: 3000, project: "web", source: "package.json", state: "stopped" }], conflicts: new Map(), projectCount: 1,
+        live: [live(3000, "api", "server")],
+        held: [{ port: 3000, holder: "api", pane: "server", process: "node", claimants: [{ project: "web", source: "package.json" }] }],
+        liveWorkspaces: 1, readWorkspaces: 1,
+      });
+      await handlePortsCommand();
+    } finally {
+      truncateMarks.on = false;
+    }
+    expect(lines(logSpy)).toContain("[yellow:  ⚠ Port 3000 is held by api/server (node); web (package.json) claims it]");
+  });
+
+  it("hides an unclaimed ephemeral live port and says how many it hid; a claimed one is shown", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockDetectAllPorts.mockReturnValue({
+      assignments: [{ port: 50000, project: "api", source: "config", state: "active" }],
+      conflicts: new Map(),
+      projectCount: 1,
+      live: [live(50000, "api", "server"), live(52206, "api", "agent", "claude"), live(52300, "api", "agent2", "codex")],
+      liveWorkspaces: 1, readWorkspaces: 1,
+    });
+    await handlePortsCommand();
+    const out = lines(logSpy);
+    expect(out.join("\n")).not.toContain("52206");
+    expect(out.find((l) => l.includes("50000"))).toContain("listening: server (node)");
+    expect(out).toContain("[dim:2 ephemeral live ports hidden; summon inspect api lists them.]");
+    expect(out).toContain("[green:✓] No port conflicts");
+  });
+
+  it("names the projects of hidden ports when there are several and points at --json", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockDetectAllPorts.mockReturnValue({ assignments: [], conflicts: new Map(), projectCount: 2, live: [live(52206, "api", "agent"), live(52207, "web", "agent")], liveWorkspaces: 2, readWorkspaces: 2 });
+    await handlePortsCommand();
+    const out = lines(logSpy);
+    expect(out).toContain("No port assignments detected in 2 registered projects.");
+    expect(out).toContain("[dim:2 ephemeral live ports hidden (api, web); summon ports --json lists them.]");
+  });
+
+  it("a hidden port in a pane split by hand points at --json (inspect lists recorded panes only); two addresses count once", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const split = { ...live(52206, "api", "zsh"), recorded: false };
+    mockDetectAllPorts.mockReturnValue({ assignments: [], conflicts: new Map(), projectCount: 1, live: [split, { ...split, address: "::1" }], liveWorkspaces: 1, readWorkspaces: 1 });
+    await handlePortsCommand();
+    expect(lines(logSpy)).toContain("[dim:1 ephemeral live port hidden (api); summon ports --json lists them.]");
+  });
+
+  it("counts the workspaces instead of naming them past three", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const projects = ["a", "b", "c", "d"];
+    mockDetectAllPorts.mockReturnValue({ assignments: [], conflicts: new Map(), projectCount: 4, live: projects.map((p, i) => live(52000 + i, p, "agent")), liveWorkspaces: 4, readWorkspaces: 4 });
+    await handlePortsCommand();
+    expect(lines(logSpy)).toContain("[dim:4 ephemeral live ports hidden in 4 workspaces; summon ports --json lists them.]");
+  });
+
+  it("prints a table of live rows alone when nothing is claimed", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockDetectAllPorts.mockReturnValue({ assignments: [], conflicts: new Map(), projectCount: 1, live: [live(5173, "web", "vite")], liveWorkspaces: 1, readWorkspaces: 1 });
+    await handlePortsCommand();
+    const out = lines(logSpy);
+    expect(out.find((l) => l.includes("5173"))).toContain("vite (node)");
+    expect(out).toContain("[green:✓] No port conflicts");
+  });
+
+  it("escapes control characters from a process label and prints the live notes", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockDetectAllPorts.mockReturnValue({
+      assignments: [], conflicts: new Map(), projectCount: 1,
+      live: [live(3000, "api", "server", "evil\u001b[2J")],
+      notes: [{ project: "web", status: "unavailable", reason: "timed out" }],
+      liveWorkspaces: 2, readWorkspaces: 1,
+    });
+    await handlePortsCommand();
+    const out = lines(logSpy).join("\n");
+    expect(out).toContain("evil\\u001b[2J");
+    expect(out).not.toContain("\u001b");
+    expect(out).toContain("[dim:note: live ports incomplete for web (timed out)]");
+  });
+
+  it("--json prints claims, every live port with its ephemeral flag, both conflict kinds and the notes", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockDetectAllPorts.mockReturnValue({
+      assignments: [{ port: 3000, project: "web", source: "package.json", state: "stopped" }, { port: 3000, project: "docs", source: "framework-default", state: "stopped" }],
+      conflicts: new Map([[3000, ["web", "docs"]]]),
+      projectCount: 2,
+      live: [live(3000, "api", "server"), live(52206, "api", "agent", "claude")],
+      held: [{ port: 3000, holder: "api", pane: "server", process: "node", claimants: [{ project: "web", source: "package.json" }, { project: "docs", source: "framework-default" }] }],
+      notes: [{ project: "jobs", status: "partial", reason: "x" }],
+      liveWorkspaces: 2, readWorkspaces: 2,
+    });
+    await handlePortsCommand({ values: { json: true } });
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(String(logSpy.mock.calls[0]![0]))).toEqual({
+      claims: [{ port: 3000, project: "web", source: "package.json", state: "stopped" }, { port: 3000, project: "docs", source: "framework-default", state: "stopped" }],
+      live: [
+        { port: 3000, address: "127.0.0.1", project: "api", pane: "server", recorded: true, process: "node", pid: 7, state: "active", ephemeral: false },
+        { port: 52206, address: "127.0.0.1", project: "api", pane: "agent", recorded: true, process: "claude", pid: 7, state: "active", ephemeral: true },
+      ],
+      conflicts: [
+        { port: 3000, kind: "claimed", projects: ["web", "docs"] },
+        { port: 3000, kind: "held", holder: "api", pane: "server", process: "node", claimants: [{ project: "web", source: "package.json" }, { project: "docs", source: "framework-default" }] },
+      ],
+      notes: [{ project: "jobs", status: "partial", reason: "x" }],
+    });
+  });
+
+  it("--json with nothing to report prints empty arrays", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockDetectAllPorts.mockReturnValue({ assignments: [], conflicts: new Map(), projectCount: 0 });
+    await handlePortsCommand({ values: { json: true } });
+    expect(JSON.parse(String(logSpy.mock.calls[0]![0]))).toEqual({ claims: [], live: [], conflicts: [], notes: [] });
   });
 });
 

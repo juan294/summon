@@ -1,10 +1,11 @@
 import { readFileSync } from "node:fs";
 import { launchArtifactFiles, launchArtifactPaths, listLaunchManifests, readLaunchManifest, writeLaunchManifest } from "../../launch-identity.js";
 import type { LaunchArtifactPaths, LaunchManifest } from "../../launch-identity.js";
-import { ghosttyLiveness, isLiveState, readStatusRecord, removeLaunchFileSet, rexIdentityMissing, withOwnedRecord } from "../../status-record.js";
+import { ghosttyLiveness, isLiveState, readStatusRecord, removeLaunchFileSet, rexIdentityMissing, unverifiedPanes, withOwnedRecord } from "../../status-record.js";
 import type { LaunchRemoval } from "../../status-record.js";
 import type { RexWorkspaceStatus, WorkspaceState, WorkspaceStatus } from "../../status-record.js";
 import { err, note } from "../../ui/output.js";
+import { sameProjectDirectory, workspaceDirectoryConflict } from "../../project-directory.js";
 import { shellQuote } from "../../shell-escape.js";
 import { getErrorMessage } from "../../utils.js";
 import { escapeControlChars } from "../../ui/sanitize.js";
@@ -12,7 +13,7 @@ import { createRexCli, whoamiOf } from "./cli.js";
 import type { RexCli } from "./cli.js";
 import { pickAppClient, pollUntil, realClock, selectInApp, waitForAppClient } from "./app.js";
 import type { AppClientChoice, PollOptions } from "./app.js";
-import { listSessions, sessionListings, sessionState, viewSession } from "./status.js";
+import { NO_LIVE_PANES, listSessions, sessionListings, sessionState, viewSession } from "./status.js";
 import type { SessionListings, SessionView } from "./status.js";
 import { isKindId } from "./types.js";
 import type { RexBlockIdentity, RexFailure } from "./types.js";
@@ -468,8 +469,8 @@ export interface LaunchNotice {
 }
 
 /** `adoptOrphans` with `forLaunch: true`, each notice marked routine at its source (D1): a gone session's files removed. */
-export function adoptOrphansForLaunch(project: string, deps: AdoptDeps): LaunchNotice[] {
-  return adoptNotices(project, deps, { forLaunch: true });
+export function adoptOrphansForLaunch(project: string, deps: AdoptDeps, targetDir: string): LaunchNotice[] {
+  return adoptNotices(project, deps, { forLaunch: true, targetDir });
 }
 
 /** Notices that are not routine. */
@@ -477,7 +478,7 @@ function plain(texts: string[]): LaunchNotice[] {
   return texts.map((text) => ({ text }));
 }
 
-function adoptNotices(project: string, deps: AdoptDeps, options: { reportLeftovers?: boolean; forLaunch?: boolean }): LaunchNotice[] {
+function adoptNotices(project: string, deps: AdoptDeps, options: { reportLeftovers?: boolean; forLaunch?: boolean; targetDir?: string }): LaunchNotice[] {
   const reportLeftovers = options.reportLeftovers ?? true;
   const current = readStatusRecord(project);
   if (current && !current.launchId) return options.forLaunch ? [] : plain([`${project} has a record from an older Summon; run summon ${project} to replace it`]);
@@ -497,7 +498,8 @@ function adoptNotices(project: string, deps: AdoptDeps, options: { reportLeftove
       const cli = deps.cliFor(current.rex.server);
       const state = sessionState(cli, current.rex, project, listings.of(cli));
       if (state.state === "unknown") return plain([`${project} could not be verified on ${current.rex.server}: ${state.reason ?? "unknown"}; nothing adopted or removed`]);
-      live = isLiveState(state.state);
+      // A remaining block may belong to an unmapped pane. No adoption path can replace this record yet.
+      live = isLiveState(state.state) || hasUnverifiedLiveBlocks(current, state.reason);
     } else {
       const state = deps.ghosttyState(project);
       if (state === "unknown") return plain([`${project} could not be verified; nothing adopted or removed`]);
@@ -566,6 +568,9 @@ function adoptNotices(project: string, deps: AdoptDeps, options: { reportLeftove
   // PASS 2: mutations in startedAt order, each under the lock with the generation read above.
   const notices: LaunchNotice[] = [];
   const superseded = `another launch of ${project} published meanwhile; nothing adopted or removed`;
+  // Preserve oldest-first recovery within a checkout. An explicit launch prefers a confirmed live orphan of that checkout.
+  const requested = options.targetDir;
+  const preferred = requested && decisions.find(d => d.kind === "adopt" && sameProjectDirectory(d.manifest.directory, requested));
   let adopted = false;
   for (const decision of decisions) {
     if (decision.kind === "report") { notices.push({ text: decision.notice }); continue; }
@@ -580,7 +585,7 @@ function adoptNotices(project: string, deps: AdoptDeps, options: { reportLeftove
       }
       continue;
     }
-    if (adopted) {
+    if (adopted || (preferred && preferred !== decision)) {
       if (reportLeftovers) notices.push({ text: extraSessionNotice(project, decision.sessionId, decision.manifest.launchId) });
       continue;
     }
@@ -622,9 +627,14 @@ export function showWorkspace(cli: RexCli, record: RexWorkspaceStatus, liveBlock
   return { shown: true, clientId: choice.chosen.clientId };
 }
 
-export type SwitchDecision = { kind: "switched" } | { kind: "proceed" } | { kind: "refused"; reason: string };
+function hasUnverifiedLiveBlocks(record: WorkspaceStatus, reason: string | undefined): boolean {
+  return reason === NO_LIVE_PANES && unverifiedPanes(record) > 0;
+}
+
+export type SwitchDecision = import("../port.js").LaunchDecision;
 
 export interface SwitchDeps {
+  targetDir: string;
   cliFor: (server: string) => RexCli;
   /** `REX_SESSION` of the shell running Summon, when inside Rex (P7). */
   callerSession?: string | undefined;
@@ -641,20 +651,34 @@ export interface SwitchDeps {
 export function maybeSwitchToExisting(project: string, newWindow: boolean, deps: SwitchDeps): SwitchDecision {
   const record = readStatusRecord(project);
   if (!record || record.backend !== "rex") return { kind: "proceed" };
-  if (newWindow) return { kind: "proceed" };
-  if (!record.rex) return { kind: "refused", reason: `${project} is recorded in Rex but ${rexIdentityMissing(project)}` };
-  const refreshed = refreshPaneMapping(record);
-  for (const line of refreshed.notices) note(line);
-  const current = refreshed.changed ? readStatusRecord(project) ?? record : record;
-  const identity = current.rex ?? record.rex;
+  const sameDirectory = sameProjectDirectory(record.directory, deps.targetDir);
+  if (sameDirectory && newWindow) return { kind: "proceed" };
+  const conflict = () => workspaceDirectoryConflict(project, record.directory, deps.targetDir);
+  if (!record.rex) {
+    return { kind: "refused", reason: sameDirectory ? `${project} is recorded in Rex but ${rexIdentityMissing(project)}` : conflict() };
+  }
+  let identity = record.rex;
+  if (sameDirectory) {
+    const refreshed = refreshPaneMapping(record);
+    for (const line of refreshed.notices) note(line);
+    if (refreshed.changed) {
+      const latest = readStatusRecord(project);
+      if (!latest?.rex || latest.launchId !== record.launchId) return { kind: "refused", reason: `Workspace [${project}] changed while its panes were read. Retry the launch.` };
+      identity = latest.rex;
+    }
+  }
   const cli = deps.cliFor(identity.server);
   const state = sessionState(cli, identity, project, deps.listings?.of(cli));
   if (state.state === "unknown") return { kind: "refused", reason: `${project} is recorded in Rex but could not be verified on ${identity.server}: ${state.reason ?? "unknown"}. Open the Rex app and retry, or run summon doctor.` };
-  if (state.state === "stopped") return { kind: "proceed" };
+  if (state.state === "stopped" && (sameDirectory || !hasUnverifiedLiveBlocks(record, state.reason))) return { kind: "proceed" };
+  if (!sameDirectory) return { kind: "refused", reason: conflict() };
   const shown = showWorkspace(cli, { ...record, rex: identity }, state.liveBlocks, deps.callerSession);
   // D1: the switch line is routine (the launcher tab may close); the failure below is for the user to read.
-  if (shown.shown) err(`Workspace [${project}] is already running in Rex; switched to it (use --new-window for a fresh one)`, { routine: true });
-  else err(`Workspace [${project}] is already running in Rex but could not be shown (${shown.reason}); run summon open ${project}`);
+  if (!shown.shown) {
+    err(`Workspace [${project}] is already running in Rex but could not be shown (${shown.reason}); run summon open ${project}`);
+    return { kind: "unshown" };
+  }
+  err(`Workspace [${project}] is already running in Rex; switched to it (use --new-window for a fresh one)`, { routine: true });
   return { kind: "switched" };
 }
 

@@ -72,8 +72,9 @@ publishing, and then validates the published tarball across Node 22.12 and 24.
 > `npm trust github summon-ws --repo juan294/summon --file release.yml --allow-publish`
 > is re-run. No environment is pinned in the binding, so the `npm-publish`
 > environment name is not load-bearing today. Trusted publishing also requires
-> npm >= 11.5.1, which the workflow installs explicitly because Node 22 still
-> bundles npm 10.9.
+> npm >= 11.5.1, which the workflow installs explicitly so the result does not
+> depend on the npm bundled with the Node release in `.nvmrc` (Node 22 bundles
+> npm 10.9).
 
 Steps:
 

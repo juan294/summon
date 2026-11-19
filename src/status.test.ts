@@ -58,7 +58,7 @@ vi.mock("./snapshot.js", async (original) => ({
   writeSnapshotFile: (snapshot: unknown) => snapshotMocks.writeSnapshotFile(snapshot),
 }));
 
-const { readMaySpawn, statusesMaySpawn, readStatus, readAllStatuses, readProjectStatus, getGitBranch, resetRexBinaryMemo } = await import("./status.js");
+const { recordedProjectDirectories, readMaySpawn, statusesMaySpawn, readStatus, readAllStatuses, readProjectStatus, getGitBranch, resetRexBinaryMemo } = await import("./status.js");
 const { writeStatus, publishStatus, parseWorkspaceStatus, readStatusRecord, withOwnedRecord, statusTestHooks, removeLaunchFileSet } = await import("./status-record.js");
 const { NO_LIVE_PANES } = await import("./backends/rex/status.js");
 const { launchArtifactFiles } = await import("./launch-identity.js");
@@ -1376,6 +1376,14 @@ describe("readAllStatuses discovery of unverified launches (plan P13 §6)", () =
       backend: "rex", server: "unix:///tmp/rex.sock", startedAt: "2026-10-29T10:00:00.000Z",
     };
   }
+
+  it("keeps distinct manifest-only directories with the same name available for preview", () => {
+    writeLaunchManifest({ ...manifest("demo", GEN_A), directory: "/first/demo" });
+    writeLaunchManifest({ ...manifest("demo", GEN_B), directory: "/second/demo" });
+    expect([...recordedProjectDirectories()]).toEqual(expect.arrayContaining([
+      ["demo", "/first/demo"], ["demo", "/second/demo"],
+    ]));
+  });
 
   it("readProjectStatus resolves one project the same way: the unverified row for a manifest without a record, null for nothing", () => {
     mkdirSync(TEST_STATUS_DIR, { recursive: true });

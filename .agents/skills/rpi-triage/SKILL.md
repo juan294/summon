@@ -7,6 +7,10 @@ description: "Discover every relevant operational report and existing GitHub sec
 
 Process all overnight agent reports, GitHub Security & Quality Alerts, and the Dependabot PR queue. Discovers every report using timestamp-based discovery, checks for agent failures, scans open Dependabot PRs (Rule #84), synthesizes findings, proposes an action plan, implements all fixes, and integrates applicable dependency updates locally. Report commit policy depends on repo visibility: public repos keep reports local, private repos commit them as historical artifacts (Rule #70).
 
+## Project overlay
+
+If `.rpi/project/rpi-triage.md` exists, read it completely before you start, together with the controlling instructions. It adds this project's procedure and checks and can make this workflow stricter. It cannot grant push, tag, merge, deployment or publication authority. It cannot relax a gate: a rule that blocks or permits a release, publication, merge, deployment or phase acceptance, or a safety or authorization rule. It can change other procedure detail only under a `## Declared overrides` heading that quotes the stock rule, gives the reason and names the owner decision. Name the overlay you read, and any declared override you applied, in the handoff.
+
 ## Input
 
 If the request specifies report paths, process only the specified report path(s). Otherwise, auto-discover all new/modified reports in `docs/agents/`. Do not report all clear until report, failure, alert-query and dependency-PR
@@ -29,6 +33,10 @@ Find EVERY report, agent failure, and GitHub security/quality alert. No assumpti
    entry. Unknown backdated reports and old failed/unprocessed reports remain
    eligible. An unchanged report is skipped only with a matching processed
    record. Explicit partial scans never advance the global marker.
+
+   Compare each selected report's date header with today, or with the run date
+   its schedule expects. A failed run can leave an older report in place; that
+   report is an agent failure, not a processed report.
 
    Cross-reference other Markdown files in `docs/agents/` and the prior
    [durable handoff](references/handoff.md); `shared-context.md` is context,
@@ -380,6 +388,7 @@ checkpoint. A stale-scan rejection requires a fresh scan, never overwriting stat
 - **Exhaustive discovery.** Use timestamp-based scan (Rule #71). Never assume how many reports exist. Present the full count before processing.
 - **Report commit policy is visibility-conditional (Rule #70).** Public repos: reports stay local, only code fixes are committed (`docs/agents/`, `logs/`, `scripts/agents/` gitignored). Private repos: reports are committed alongside code fixes as historical artifacts.
 - **GitHub alert coverage is mandatory.** Every triage run must query and report GitHub code scanning alerts (including CodeQL and quality warnings), Dependabot security alerts, and secret scanning alerts. Do not rely only on local agent reports. If a query fails or alerts appear disabled unexpectedly, report that as a YELLOW/RED triage finding and action item.
+- **An observability gap is not all clear.** When an error-tracker, log or audit query is not configured or fails, report the gap and set the status to at least YELLOW. Never report "all clear" or "no vulnerabilities" from a query that did not run.
 - **Process Dependabot PRs (Rule #84).** Triage reads open PRs, batches applicable dependency updates locally, and verifies the combined result before the single authorized integration push. No remote rebase, auto-merge, or dependency-branch push loop.
 - **Checkpoint at the scan-start boundary.** Only after completed reporting and
   successful discovery, advance `.last-triage` no later than the captured

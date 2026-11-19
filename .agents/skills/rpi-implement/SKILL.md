@@ -16,6 +16,10 @@ When a parent uses a machine-readable assignment/acceptance record, follow the
 complete coverage. The record is optional for a small parent-only task; required
 review, TDD and phase acceptance still apply.
 
+## Project overlay
+
+If `.rpi/project/rpi-implement.md` exists, read it completely before you start, together with the controlling instructions. It adds this project's procedure and checks and can make this workflow stricter. It cannot grant push, tag, merge, deployment or publication authority. It cannot relax a gate: a rule that blocks or permits a release, publication, merge, deployment or phase acceptance, or a safety or authorization rule. It can change other procedure detail only under a `## Declared overrides` heading that quotes the stock rule, gives the reason and names the owner decision. Name the overlay you read, and any declared override you applied, in the handoff.
+
 ## Process
 
 1. Gather the relevant code, tests and project rules. Use bounded independent
@@ -57,8 +61,11 @@ review, TDD and phase acceptance still apply.
    contract in the phase notes, including every finding's disposition and exact
    candidate/check identity. Include pending work and next-phase entry conditions.
    Record deviations in `docs/plans/<plan-name>-notes.md` under `## Deviations`:
-   plan said / found / chose / why. Preserve approved plans, phase files and notes
-   as curated history; raw operational evidence follows visibility policy.
+   plan said / found / chose / why. Commit the notes file with the phase, and cite
+   a plan by file name rather than a Markdown link: an untracked plan fails link
+   checks, and removing a worktree loses untracked notes. Preserve approved plans,
+   phase files and notes as curated history; raw operational evidence follows
+   visibility policy.
 10. Integrate completed work locally and verify the combined result. Inspect
     hosted triggers before any single authorized integration push. Never create
     Vercel Previews, publish working branches/PRs or debug through hosted CI.

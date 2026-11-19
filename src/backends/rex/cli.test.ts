@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync, chmodSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { discoverRex, rexCandidatePaths, defaultRexServer, runRex, REX_PROCESS_GRACE_MS } from "./cli.js";
-import type { RexExec } from "./cli.js";
+import { discoverRex, rexCandidatePaths, defaultRexServer, runRex, runRexAsync, execRexAsync, REX_PROCESS_GRACE_MS } from "./cli.js";
+import type { RexExec, RexExecAsync } from "./cli.js";
 
 let root: string;
 let savedPath: string | undefined;
@@ -172,6 +172,79 @@ describe("runRex", () => {
 
   it("rejects a timeout below one second so the Rex --timeout flag is never 0s", () => {
     expect(() => runRex("ls", ["ls"], { ...opts, timeoutMs: 0 }, fakeExec(() => "").exec)).toThrow("timeoutMs");
+  });
+});
+
+describe("runRexAsync", () => {
+  const opts = { binary: "/opt/rex", server: "unix:///tmp/server.sock", timeoutMs: 2000, autostart: false };
+
+  function syncFailure(partial: Record<string, unknown>): Error {
+    return Object.assign(new Error("spawn failed"), { status: null, signal: null, stdout: "", stderr: "", ...partial });
+  }
+
+  function asyncFailure(partial: Record<string, unknown>): Error {
+    return Object.assign(new Error("Command failed"), { code: null, killed: false, signal: null, stdout: "", stderr: "", ...partial });
+  }
+
+  it("passes the same argv as runRex and the timeout and signal to the process boundary", async () => {
+    const seen: Array<{ file: string; args: string[]; options: Parameters<RexExecAsync>[2] }> = [];
+    const exec: RexExecAsync = async (file, args, options) => { seen.push({ file, args, options }); return '{"blocks":[]}'; };
+    const signal = new AbortController().signal;
+    const result = await runRexAsync("block-ls", ["block", "ls", "-s", "session:1", "--json"], { ...opts, signal }, exec);
+    expect(result).toEqual({ ok: true, op: "block-ls", stdout: '{"blocks":[]}', json: { blocks: [] } });
+    const syncArgs: string[][] = [];
+    runRex("block-ls", ["block", "ls", "-s", "session:1", "--json"], opts, (_f, args) => { syncArgs.push(args); return "{}"; });
+    expect(seen[0]!.file).toBe("/opt/rex");
+    expect(seen[0]!.args).toEqual(syncArgs[0]);
+    expect(seen[0]!.options).toEqual({ timeoutMs: 2000, signal });
+  });
+
+  it("classifies each failure exactly as runRex does", async () => {
+    const cases: Array<{ name: string; sync: Record<string, unknown>; async: Record<string, unknown> }> = [
+      { name: "missing binary", sync: { code: "ENOENT" }, async: { code: "ENOENT" } },
+      { name: "process timeout", sync: { code: "ETIMEDOUT", signal: "SIGKILL" }, async: { killed: true, signal: "SIGKILL" } },
+      { name: "exit 3 not found", sync: { status: 3, stderr: 'Error: method "x" not found\n' }, async: { code: 3, stderr: 'Error: method "x" not found\n' } },
+      { name: "exit 4 unreachable", sync: { status: 4, stderr: "Error: could not connect\n" }, async: { code: 4, stderr: "Error: could not connect\n" } },
+      { name: "exit 1 failed", sync: { status: 1, stderr: "Error: boom\n" }, async: { code: 1, stderr: "Error: boom\n" } },
+      { name: "output too large", sync: { code: "ENOBUFS", signal: "SIGKILL" }, async: { code: "ERR_CHILD_PROCESS_STDIO_MAXBUFFER", killed: true, signal: "SIGKILL" } },
+      { name: "killed by a signal", sync: { signal: "SIGTERM" }, async: { signal: "SIGTERM" } },
+    ];
+    for (const c of cases) {
+      const sync = runRex("block-call", ["block", "call", "ports"], opts, () => { throw syncFailure(c.sync); });
+      const asyncResult = await runRexAsync("block-call", ["block", "call", "ports"], opts, async () => { throw asyncFailure(c.async); });
+      expect(asyncResult, c.name).toEqual(sync);
+    }
+  });
+
+  it("a call ended by its signal is a timeout", async () => {
+    const aborted = Object.assign(new Error("The operation was aborted"), { name: "AbortError", code: "ABORT_ERR" });
+    expect(await runRexAsync("block-call", ["block", "call", "ports"], opts, async () => { throw aborted; })).toMatchObject({ ok: false, kind: "timeout", raw: { timedOut: true, signal: null } });
+  });
+
+  it("invalid JSON is malformed and a too short timeout is refused", async () => {
+    expect(await runRexAsync("block-call", ["block", "call", "ports"], opts, async () => "nope")).toMatchObject({ ok: false, kind: "malformed" });
+    await expect(runRexAsync("ls", ["ls"], { ...opts, timeoutMs: 10 }, async () => "")).rejects.toThrow("runRexAsync: timeoutMs");
+  });
+
+  it("execRexAsync runs a real binary without a shell, closes stdin and reports the exit status in code", async () => {
+    const bin = join(root, "fake-rex");
+    writeFileSync(bin, '#!/bin/sh\nif [ "$1" = fail ]; then echo "Error: nope" >&2; exit 3; fi\ncat >/dev/null\nprintf "%s|" "$@"\n');
+    chmodSync(bin, 0o755);
+    expect(await execRexAsync(bin, ["a b", "$HOME"], { timeoutMs: 2000 })).toBe("a b|$HOME|");
+    expect(await execRexAsync(bin, ["x"], { timeoutMs: 2000, input: "ignored" })).toBe("x|");
+    await expect(execRexAsync(bin, ["fail"], { timeoutMs: 2000 })).rejects.toMatchObject({ code: 3, stderr: "Error: nope\n" });
+  });
+
+  it("execRexAsync stops a running child when its signal aborts", async () => {
+    const bin = join(root, "slow-rex");
+    writeFileSync(bin, "#!/bin/sh\nexec /bin/sleep 30\n");
+    chmodSync(bin, 0o755);
+    const controller = new AbortController();
+    const started = Date.now();
+    const pending = runRexAsync("block-call", ["block", "call", "ports"], { ...opts, binary: bin, signal: controller.signal });
+    setTimeout(() => controller.abort(), 50);
+    expect(await pending).toMatchObject({ ok: false, kind: "timeout" });
+    expect(Date.now() - started).toBeLessThan(5000);
   });
 });
 

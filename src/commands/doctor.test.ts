@@ -45,6 +45,12 @@ vi.mock("../backends/rex/cli.js", async (original) => ({
   ...(await original<typeof import("../backends/rex/cli.js")>()),
   discoverRex: () => mockDiscoverRex(),
 }));
+// The live-ports counting test hands doctor a report; every other test reads ports for real.
+const portsReport = vi.hoisted(() => ({ value: null as unknown }));
+vi.mock("../ports.js", async (original) => {
+  const actual = await original<typeof import("../ports.js")>();
+  return { ...actual, detectAllPorts: async () => (portsReport.value as Awaited<ReturnType<typeof actual.detectAllPorts>> | null) ?? actual.detectAllPorts() };
+});
 home = mkdtempSync(join(tmpdir(), "summon-doctor-"));
 const { handleDoctorCommand } = await import("./doctor.js");
 const { resetConfigCache } = await import("../config.js");
@@ -478,6 +484,19 @@ describe("doctor lock files (BE-L2, QA-L1)", () => {
     }) as typeof process.kill);
   });
 
+  it("reports a lock directory it cannot list and still inspects the other directory", async () => {
+    const statusDir = join(summonDir(), "status");
+    mkdirSync(summonDir(), { recursive: true });
+    writeFileSync(statusDir, "not a directory");
+    const dead = lock(join(summonDir(), "config.lock"), [{ name: `${DEAD}-${uuid}.owner` }]);
+    await expect(handleDoctorCommand(context())).rejects.toThrow("exit:2");
+    expect(output()).toContain("Could not check port conflicts");
+    expect(output()).toContain("checks passed");
+    expect(output()).toContain(`Could not inspect lock directory ${statusDir}`);
+    expect(output()).toContain(`Stale lock ${dead}`);
+    expect(output()).not.toContain("No stale lock files");
+  });
+
   it("--fix reports a stale lock it could not remove instead of claiming it removed it", async () => {
     const dead = lock(join(summonDir(), "config.lock"), [{ name: `${DEAD}-${uuid}.owner` }]);
     rmdirFault.path = dead;
@@ -544,5 +563,82 @@ describe("doctor lock files (BE-L2, QA-L1)", () => {
     errors.mockClear();
     await handleDoctorCommand(context());
     expect(output()).toContain("No stale lock files");
+  });
+});
+
+describe("doctor live ports (plan 2026-11-19-rex-live-ports)", () => {
+  const report = (fields: Partial<import("../ports.js").PortsReport>): import("../ports.js").PortsReport => ({
+    assignments: [], conflicts: new Map(), projectCount: 0, live: [], held: [], notes: [], liveWorkspaces: 0, readWorkspaces: 0, ...fields,
+  });
+  const live = (port: number) => ({ port, address: "127.0.0.1", project: "api", pane: "server", recorded: true, process: "node", pid: 7, state: "active" as const, ephemeral: false });
+
+  it("fails once per held conflict, naming the holder and the claimant", async () => {
+    const { livePortsCheck } = await import("./doctor.js");
+    const held = [
+      { port: 3000, holder: "api", pane: "server", process: "node", claimants: [{ project: "web", source: "package.json" as const }] },
+      { port: 4000, holder: "api", pane: "worker", process: null, claimants: [{ project: "jobs", source: "config" as const }] },
+    ];
+    expect(livePortsCheck(report({ live: [live(3000), live(4000)], held, liveWorkspaces: 1, readWorkspaces: 1 }))).toEqual({
+      counted: true,
+      issues: 2,
+      lines: [
+        { level: "FAIL", text: "Port 3000 is held by api/server (node); web (package.json) claims it" },
+        { level: "FAIL", text: "Port 4000 is held by api/worker; jobs (config) claims it" },
+      ],
+    });
+  });
+
+  it("passes with the count of live ports read when nothing is held", async () => {
+    const { livePortsCheck } = await import("./doctor.js");
+    expect(livePortsCheck(report({ live: [live(3000)], liveWorkspaces: 2, readWorkspaces: 2 }))).toEqual({
+      counted: true, issues: 0, lines: [{ level: "PASS", text: "No running workspace holds a port another project claims (1 live port read)" }],
+    });
+  });
+
+  it("reports an incomplete read as INFO, and with nothing read the check is not counted", async () => {
+    const { livePortsCheck } = await import("./doctor.js");
+    const partial = livePortsCheck(report({ live: [live(3000), live(3001)], notes: [{ project: "web", status: "unavailable", reason: "timed out" }], liveWorkspaces: 2, readWorkspaces: 1 }));
+    expect(partial).toEqual({ counted: true, issues: 0, lines: [
+      { level: "PASS", text: "No running workspace holds a port another project claims (2 live ports read)" },
+      { level: "INFO", text: "live ports incomplete for web (timed out)" },
+    ] });
+    const none = livePortsCheck(report({ notes: [{ project: "web", status: "unsupported", reason: "this Rex server has no live ports (needs API 16 or later)" }], liveWorkspaces: 1, readWorkspaces: 0 }));
+    expect(none).toEqual({ counted: false, issues: 0, lines: [{ level: "INFO", text: "this Rex server has no live ports (needs API 16 or later)" }] });
+  });
+
+  it("with no running Rex workspace says so and counts nothing", async () => {
+    const { livePortsCheck } = await import("./doctor.js");
+    expect(livePortsCheck(report({}))).toEqual({ counted: false, issues: 0, lines: [{ level: "INFO", text: "No running Rex workspace; live ports not checked" }] });
+  });
+
+  it("a held conflict is one failed check and one issue in the summary; none held is one more passed check", async () => {
+    const summary = (): string => String(output()).split("\n").find((line: string) => /checks passed/.test(line)) ?? "";
+    const counts = (line: string) => line.match(/(\d+)\/(\d+) checks passed/)!.slice(1).map(Number);
+    await handleDoctorCommand(context());
+    const [basePassed, baseTotal] = counts(summary());
+    errors.mockClear();
+    try {
+      portsReport.value = report({ live: [live(3000)], liveWorkspaces: 1, readWorkspaces: 1 });
+      await handleDoctorCommand(context()).catch(() => {});
+      expect(output()).toContain("No running workspace holds a port another project claims (1 live port read)");
+      expect(counts(summary())).toEqual([basePassed! + 1, baseTotal! + 1]);
+      errors.mockClear();
+      portsReport.value = report({ live: [live(3000)], held: [{ port: 3000, holder: "api", pane: "server", process: "node", claimants: [{ project: "web", source: "package.json" }] }], liveWorkspaces: 1, readWorkspaces: 1 });
+      await handleDoctorCommand(context()).catch(() => {});
+      expect(output()).toContain("Port 3000 is held by api/server (node); web (package.json) claims it");
+      expect(output()).toMatch(/FAIL\S*\s+Port 3000 is held by/);
+      expect(counts(summary())).toEqual([basePassed, baseTotal! + 1]);
+      expect(summary()).toContain(`${baseTotal! + 1 - basePassed!} failed`);
+    } finally {
+      portsReport.value = null;
+    }
+  });
+
+  it("the doctor run prints the live-ports section after the port conflicts and keeps the check count", async () => {
+    await handleDoctorCommand(context());
+    const text = output();
+    expect(text).toContain("Checking live ports...");
+    expect(text.indexOf("Checking live ports...")).toBeGreaterThan(text.indexOf("Checking port conflicts..."));
+    expect(text).toContain("  INFO  No running Rex workspace; live ports not checked");
   });
 });

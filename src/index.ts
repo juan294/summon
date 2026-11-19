@@ -50,6 +50,10 @@ const registry: Record<string, () => Promise<CommandHandler>> = {
   clean:       () => import("./commands/clean.js").then(m => m.handleCleanCommand),
 };
 
+function isCommand(name: string): boolean {
+  return Object.hasOwn(registry, name);
+}
+
 async function main(): Promise<void> {
   // PE-H1: the interactive monitor reads statuses in a child of this CLI (MONITOR_READ_ARG, internal and undocumented).
   // The flag lives in monitor-read.ts, loaded only for an `--internal-` argument (the entry keeps no static imports).
@@ -87,7 +91,7 @@ async function main(): Promise<void> {
       process.exit(0);
     }
     // FE-H2 (#255): unknown subcommand with --help
-    if (parsed.subcommand && !hasSubcommandHelp(parsed.subcommand) && !(parsed.subcommand in registry)) {
+    if (parsed.subcommand && !hasSubcommandHelp(parsed.subcommand) && !isCommand(parsed.subcommand)) {
       const { fail } = await import("./ui/output.js");
       fail(`Unknown command: ${parsed.subcommand}. Run 'summon --help' to see available commands.`);
       process.exit(1);
@@ -101,7 +105,7 @@ async function main(): Promise<void> {
 
   // UX-M8 (#314): Warn if --once is used with a non-launch subcommand that doesn't support it.
   // UX-H3 (#372): Skip warning for subcommands that legitimately consume --once.
-  if (parsed.values.once && parsed.subcommand && parsed.subcommand in registry && !ONCE_ALLOWED_SUBCOMMANDS.has(parsed.subcommand)) {
+  if (parsed.values.once && parsed.subcommand && isCommand(parsed.subcommand) && !ONCE_ALLOWED_SUBCOMMANDS.has(parsed.subcommand)) {
     warn(`--once has no effect with the '${parsed.subcommand}' command`);
   }
 
@@ -113,8 +117,8 @@ async function main(): Promise<void> {
   // FE-L1 (#621): Warn if --vim is used with a command that doesn't consume it.
   if (parsed.values.vim) {
     const sub = parsed.subcommand;
-    const isLaunchTarget = sub !== undefined && !(sub in registry);
-    if ((sub && sub in registry && !VIM_ALLOWED_SUBCOMMANDS.has(sub)) || isLaunchTarget) {
+    const isLaunchTarget = sub !== undefined && !isCommand(sub);
+    if ((sub && isCommand(sub) && !VIM_ALLOWED_SUBCOMMANDS.has(sub)) || isLaunchTarget) {
       warn(`--vim has no effect with the '${sub ?? ""}' command. --vim is only valid with 'summon keybindings'.`);
     }
   }
@@ -128,8 +132,8 @@ async function main(): Promise<void> {
   // FE-L1 (#621): Warn if --fix is used with a command that doesn't consume it.
   if (parsed.values.fix) {
     const sub = parsed.subcommand;
-    const isLaunchTarget = sub !== undefined && !(sub in registry);
-    if ((sub && sub in registry && !FIX_ALLOWED_SUBCOMMANDS.has(sub)) || isLaunchTarget) {
+    const isLaunchTarget = sub !== undefined && !isCommand(sub);
+    if ((sub && isCommand(sub) && !FIX_ALLOWED_SUBCOMMANDS.has(sub)) || isLaunchTarget) {
       warn(`--fix has no effect with the '${sub ?? ""}' command. --fix is only valid with 'summon doctor'.`);
     }
   }
@@ -146,7 +150,7 @@ async function main(): Promise<void> {
 
     // UX-H3 (#372): First-run wizard fires when no subcommand was supplied OR when targeting a directory.
     if (isFirstRun() && process.stdin.isTTY) {
-      const isDirectoryTarget = parsed.subcommand !== undefined && !(parsed.subcommand in registry);
+      const isDirectoryTarget = parsed.subcommand !== undefined && !isCommand(parsed.subcommand);
       if (parsed.subcommand === undefined || isDirectoryTarget) {
         console.log("Press Ctrl+C at any time to skip setup. Re-run later with: summon setup");
         const { runSetup } = await import("./setup.js");
@@ -187,7 +191,7 @@ async function main(): Promise<void> {
     }
 
     const overrides = buildOverrides(parsed.values);
-    const handlerFactory = registry[parsed.subcommand];
+    const handlerFactory = isCommand(parsed.subcommand) ? registry[parsed.subcommand] : undefined;
 
     if (handlerFactory) {
       const handler = await handlerFactory();

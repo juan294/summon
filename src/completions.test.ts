@@ -157,7 +157,7 @@ describe("subcommand-specific flag completions", () => {
 
   test("zsh keybindings completion includes --vim flag", () => {
     const result = generateZshCompletion();
-    expect(result).toMatch(/keybindings\)[\s\S]*?compadd\s+--\s+--vim/);
+    expect(result).toMatch(/keybindings\)[\s\S]*?compadd\s+--\s+rex --vim --detach-tab/);
   });
 
   test("bash doctor completion includes --fix flag", () => {
@@ -167,7 +167,13 @@ describe("subcommand-specific flag completions", () => {
 
   test("bash keybindings completion includes --vim flag", () => {
     const result = generateBashCompletion();
-    expect(result).toMatch(/keybindings\)[\s\S]*?compgen\s+-W\s+"--vim --detach-tab"/);
+    expect(result).toMatch(/keybindings\)[\s\S]*?compgen\s+-W\s+"rex --vim --detach-tab"/);
+  });
+
+  test("fish keybindings completion offers rex as the first argument", () => {
+    expect(generateFishCompletion()).toContain(
+      "complete -c summon -n '__fish_seen_subcommand_from keybindings' -n '__fish_is_nth_token 2' -a 'rex' -d 'Rex palette action'",
+    );
   });
 });
 
@@ -552,7 +558,7 @@ describe("P2 native command completion behavior",()=>{
     const result=spawnSync("bash",["-c",script],{encoding:"utf8",env:{...process.env,HOME:home}});
     expect(result.status).toBe(0);expect(result.stdout.trim()).toBe("demo");
    }
-   expect(generateZshCompletion()).toContain("--json");expect(generateFishCompletion()).toContain("-l json");
+   expect(generateZshCompletion()).toContain("--json");expect(generateZshCompletion()).toContain("--json[Print JSON (inspect, list, ports)]");expect(generateFishCompletion()).toContain("Print JSON (inspect, list, ports)");expect(generateFishCompletion()).toContain("-l json");
   } finally {rmSync(home,{recursive:true,force:true});}
  });
 });

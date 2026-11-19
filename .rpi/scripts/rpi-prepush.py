@@ -32,7 +32,11 @@ import sys
 sys.dont_write_bytecode = True
 
 ZERO = re.compile(r'0+')
-VERSION_TAG = re.compile(r'v?\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?')
+# A version tag, as the pre-action hook (rpi-policy.py) defines it; a test keeps the two patterns identical. Three shapes: v1, v1.0,
+# V3.0.0-rc.1 (a v and numbers); 2.0, 1.2.3 (numbers with at least one dot); release-v1, release-1.0.0 (a word and one of those).
+# A bare number or word-number (1, issue-42, fix-123, feature-2, release-1) is a branch name, not a version. Every quantifier is
+# possessive and the suffix cannot start with a digit or a dot, so matching is linear: nothing backtracks.
+VERSION_TAG = re.compile(r'(?:[A-Za-z][A-Za-z0-9]*+[-_])?(?:[vV]\d++(?:\.\d++)*+|\d++(?:\.\d++)++)(?:[-+_A-Za-z][-+._0-9A-Za-z]*+)?')
 PYTHON = re.compile(r'python(?:3(?:\.\d+)?)?')
 POLICY_KEYS = {'schema_version', 'integration_branch', 'production_branches', 'remote',
                'require_verification_receipt', 'verification_checks', 'verification_command'}
@@ -66,15 +70,22 @@ def read_json(data):
     return json.loads(data, object_pairs_hook=unique_object, parse_constant=invalid)
 
 
+_GIT_CACHE = {}
+
+
 def git(root, *arguments, text=True):
-    """Git's stdout, or None when Git or the repository state is unavailable."""
-    try:
-        result = subprocess.run(['git', '-C', str(root), *arguments], capture_output=True, text=text)
-    except OSError:
-        return None
-    if result.returncode != 0:
-        return None
-    return result.stdout.strip() if text else result.stdout
+    """Git's stdout, or None when Git or the repository state is unavailable.
+
+    Answers are cached for this hook run: refs that name the same commit share their lookups, so the cost
+    grows with the number of distinct commits, not with the number of pushed refs."""
+    key = (str(root), arguments, text)
+    if key not in _GIT_CACHE:
+        try:
+            result = subprocess.run(['git', '-C', str(root), *arguments], capture_output=True, text=text)
+            _GIT_CACHE[key] = None if result.returncode != 0 else (result.stdout.strip() if text else result.stdout)
+        except OSError:
+            _GIT_CACHE[key] = None
+    return _GIT_CACHE[key]
 
 
 def project_policy(root):
@@ -221,15 +232,75 @@ def stale(report, environment, runner):
          'locale, timezone or Python settings require a fresh run.')
 
 
+LIST_NAMES = 20
+
+
+def printable(name):
+    """A path as one unambiguous token: plain names stay as they are, names with control characters,
+    commas or double quotes are shown JSON-quoted (so \n, \t and \" are visible and never raw)."""
+    if any(ord(char) < 32 or char == '\x7f' for char in name) or any(char in name for char in ',"\\'):
+        return json.dumps(name, ensure_ascii=False)
+    return name
+
+
+def hidden_changes(root):
+    """Tracked paths whose file on disk differs from the index although git status cannot show it: those flagged
+    skip-worktree or assume-unchanged. A flagged path that is absent (a sparse checkout) or equal to the commit is fine.
+
+    Presence is checked before anything is asked of git, and one listing of the index answers for every present path (a
+    pathspec would read a[1].txt as a glob and also match a1.txt)."""
+    flagged = git(root, 'ls-files', '-v', '-z', text=False)
+    if not flagged:
+        return []
+    names = [entry[2:] for entry in flagged.split(b'\0') if entry[:1] == b'S' or entry[:1].islower() and entry[:1].isalpha()]
+    present = [name for name in names if (root / os.fsdecode(name)).is_symlink() or (root / os.fsdecode(name)).is_file()]
+    if not present:
+        return []
+    staged = git(root, 'ls-files', '-s', '-z', text=False) or b''
+    blobs = {}
+    for entry in staged.split(b'\0'):
+        fields, _, name = entry.partition(b'\t')
+        parts = fields.split()
+        if len(parts) == 3 and parts[2] == b'0':
+            blobs[name] = parts[1].decode()
+    hidden = []
+    for name in present:
+        path, blob = root / os.fsdecode(name), blobs.get(name)
+        if blob is None:
+            continue
+        if path.is_symlink():
+            matches = git(root, 'cat-file', 'blob', blob, text=False) == os.fsencode(os.readlink(path))
+        else:
+            matches = git(root, 'hash-object', '--', os.fsdecode(path)) == blob
+        if not matches:
+            hidden.append(os.fsdecode(name))
+    return hidden
+
+
 def verified_candidate(root, policy):
     """The commit that exact local evidence attests for this clean candidate."""
     import importlib.util
     expected, runner = verification_contract(policy)
-    dirty = git(root, 'status', '--porcelain', '--untracked-files=normal', '--', '.', ':(exclude).rpi/local')
+    # NUL-separated and unstripped: the first status column is a significant space, and names stay unquoted.
+    dirty = git(root, 'status', '--porcelain', '-z', '--no-renames', '--untracked-files=normal', '--', '.', ':(exclude).rpi/local', text=False)
     if dirty is None or dirty:  # Local evidence is never part of the candidate (see rpi-candidate.py).
-        listed = ', '.join(line[3:] for line in (dirty or '').splitlines()[:5]) or 'git status failed'
-        fail('Publication requires a clean completed integration candidate (' + listed + ').',
-             'Commit or remove those changes, then run ' + runner)
+        names = [entry[3:].decode('utf-8', 'replace') for entry in (dirty or b'').split(b'\0') if entry]
+        listed = ', '.join(printable(name) for name in names[:LIST_NAMES]) or 'git status failed'
+        if len(names) > LIST_NAMES:
+            listed += ', and ' + str(len(names) - LIST_NAMES) + ' more'
+        count = (str(len(names)) + (' changed path: ' if len(names) == 1 else ' changed paths: ')) if names else ''
+        fail('Publication requires a clean completed integration candidate (' + count + listed + ').',
+             'Commit or remove those changes (git status --short lists every path), then run ' + runner)
+    hidden = hidden_changes(root)
+    if hidden:
+        listed = ', '.join(printable(name) for name in hidden[:LIST_NAMES]) + (', and ' + str(len(hidden) - LIST_NAMES) + ' more' if len(hidden) > LIST_NAMES else '')
+        clear = 'git update-index --no-skip-worktree -- %s && git update-index --no-assume-unchanged -- %s'
+        fix = ('Make the changes visible, then commit or revert them and run ' + runner + ': ' +
+               (clear % ((' '.join(shlex.quote(name) for name in hidden),) * 2) if len(hidden) <= LIST_NAMES else
+                "git ls-files -v | grep '^[a-zS]' lists the flagged paths; clear each with " + clear % ('PATH', 'PATH')) +
+               '; git status --short shows them afterwards.')
+        fail('The verification receipt covers the files on disk, but ' + str(len(hidden)) + (' path differs' if len(hidden) == 1 else ' paths differ') +
+             ' from the pushed commit while marked skip-worktree or assume-unchanged, which hides the change from git status (' + listed + ').', fix)
     path = root / '.rpi/local/verification.json'
     if path.is_symlink() or not path.is_file():
         fail('Exact-candidate local verification evidence is missing.', 'Run ' + runner + ' in the completed integration checkout.')
@@ -257,6 +328,11 @@ def verified_candidate(root, policy):
     return actual['commit']
 
 
+def is_integration_ref(remote_ref, policy):
+    """Is `remote_ref` the integration branch? Compared without case: on a case-insensitive remote refs/heads/Main is main."""
+    return remote_ref.casefold() == ('refs/heads/' + policy['integration_branch']).casefold()
+
+
 def gated_updates(root, checkout, lines):
     """(remote ref, pushed commit, policy) triples that need the receipt; deleting an integration branch is refused.
 
@@ -282,10 +358,10 @@ def gated_updates(root, checkout, lines):
         policies = [policy for policy in ([] if tag else [checkout]) +
                     [committed_policy(root, sha) for sha in (commit, replaced) if sha] if policy]
         for policy in policies:
-            if remote_ref == 'refs/heads/' + policy['integration_branch'] and deleted:
+            if is_integration_ref(remote_ref, policy) and deleted:
                 fail('Deleting the integration branch (' + policy['integration_branch'] + ') removes the published history.',
                      'Delete only working branches; if it is truly intended, the owner runs the exact command without this hook.')
-        gate = next((policy for policy in policies if tag or remote_ref == 'refs/heads/' + policy['integration_branch']), None)
+        gate = next((policy for policy in policies if tag or is_integration_ref(remote_ref, policy)), None)
         if deleted or gate is None:
             continue
         if commit is None:
@@ -295,10 +371,24 @@ def gated_updates(root, checkout, lines):
     return updates
 
 
+def bare_repository(lines, cwd):
+    """A bare repository has no checkout, so no receipt can attest a push from it: a gated update is refused, the rest passes."""
+    git_dir = git(cwd, 'rev-parse', '--absolute-git-dir')
+    if git_dir is None:
+        return  # Not a repository: nothing to gate.
+    updates = gated_updates(Path(git_dir), None, lines)
+    if updates:
+        refs = ', '.join(update[0] for update in updates[:LIST_NAMES])
+        fail('The receipt gate cannot attest a push from a bare repository (' + refs + '): there is no checkout whose verification '
+             'receipt could cover the pushed commit.',
+             'Push from a working checkout of the integration branch after running its verifier there; or, when this bare '
+             'repository must publish without the gate, the owner pushes with git push --no-verify.')
+
+
 def evaluate(argv, lines, cwd):
     top = git(cwd, 'rev-parse', '--show-toplevel')
     if top is None:
-        return  # A bare repository has no candidate or policy to gate.
+        return bare_repository(lines, cwd)
     root = Path(top).resolve()
     checkout = project_policy(root)
     if checkout is not None and len(argv) != 2:

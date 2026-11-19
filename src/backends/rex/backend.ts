@@ -199,20 +199,20 @@ export function createRexBackend(context: RexLaunchContext, deps: RexBackendDeps
      * PE-L1: one `rex ls` per server serves both steps. The kept-session check in the launch runs after the wizard and
      * on-start, so it lists afresh rather than reuse a listing that may be minutes old.
      */
-    beforeLaunch(project: string): LaunchDecision {
+    beforeLaunch(project: string, targetDir: string): LaunchDecision {
       startLauncherTabWatch(context);
       const listings = sessionListings();
       // An adoption that minimizes background panes can take a while when Rex is slow: the transient line says so, and is gone before any notice.
       const progress = transientLine();
       let adopted: ReturnType<typeof adoptOrphansForLaunch>;
       try {
-        adopted = adoptOrphansForLaunch(project, { ...adoptDeps(context.rexBinary, listings), progress: progress.show });
+        adopted = adoptOrphansForLaunch(project, { ...adoptDeps(context.rexBinary, listings), progress: progress.show }, targetDir);
       } finally {
         progress.clear();
       }
       for (const notice of adopted) note(notice.text, { routine: notice.routine === true });
       decidedOn = readStatusRecord(project)?.launchId ?? null;
-      return maybeSwitchToExisting(project, newWindow, { cliFor: serverCli, callerSession: deps.callerSession, listings });
+      return maybeSwitchToExisting(project, newWindow, { targetDir, cliFor: serverCli, callerSession: deps.callerSession, listings });
     },
 
     /**
@@ -220,10 +220,10 @@ export function createRexBackend(context: RexLaunchContext, deps: RexBackendDeps
      * it is made again only when the record changed since (another launch published meanwhile, or nothing was decided),
      * so a second concurrent launch switches to the first one's workspace instead of creating a second session.
      */
-    async exclusiveLaunch(project: string, create: () => Promise<void>): Promise<LaunchDecision> {
+    async exclusiveLaunch(project: string, targetDir: string, create: () => Promise<void>): Promise<LaunchDecision> {
       return (deps.launchLock ?? rexLaunchLock)(project, async (): Promise<LaunchDecision> => {
         if (decidedOn === undefined || (readStatusRecord(project)?.launchId ?? null) !== decidedOn) {
-          const decision = maybeSwitchToExisting(project, newWindow, { cliFor: serverCli, callerSession: deps.callerSession });
+          const decision = maybeSwitchToExisting(project, newWindow, { targetDir, cliFor: serverCli, callerSession: deps.callerSession });
           if (decision.kind !== "proceed") return decision;
         }
         await create();

@@ -25,9 +25,8 @@ When the user invokes an RPI workflow, use the matching v2 native package:
 - Codex direct: `$rpi-research`, `$rpi-plan`, `$rpi-implement`,
   `$rpi-validate`, or the native skill picker
 
-For a legacy alias that remains in `.claude/commands/`, read that command file
-completely and follow its explicit contract. Legacy aliases do not imply native
-forwarding.
+Project-specific RPI behavior lives in the project overlay
+`.rpi/project/<skill>.md`, which the matching `rpi-*` skill reads.
 
 1. Resolve the matching native `rpi-*` skill package.
 2. Read its `SKILL.md` completely before acting.
@@ -201,8 +200,15 @@ efficiency. Track its findings with the other audit results; resolve security
 and infrastructure findings through the same review, repair and verification
 loop. Preserve all required audit domains regardless of staffing.
 
-Resolve every confirmed actionable finding before acceptance. Reject false
-positives with evidence. Strategic findings needing a new architectural decision
+Release verification is proportional. Wave A's truthful local gate applies to
+every release; Wave B exploratory charters and Waves C-H run only when the
+project's release profile selects them, one Wave B round per candidate.
+
+Resolve every confirmed actionable finding before acceptance. For an S3 or S4
+finding (below S1/S2: data loss, a security boundary breach, a broken core
+workflow or a normal-use defect with no workaround), an owner-approved accepted
+known issue, recorded with its severity and reason, is a valid disposition; fix
+it in a later release. Reject false positives with evidence. Strategic findings needing a new architectural decision
 receive explicit local dispositions and owner review; external issue creation
 requires authorization. Never silently discard a finding.
 

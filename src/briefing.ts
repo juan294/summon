@@ -24,8 +24,8 @@ export interface ProjectBriefing {
   /** Why the state is `unknown` or `partial` (Rex), when known. */
   reason?: string;
   gitBranch: string | null;
-  overnightCommits: CommitSummary[];
-  dirtyFiles: string[];
+  overnightCommits: CommitSummary[] | null;
+  dirtyFiles: string[] | null;
   lastSession: string | null;
 }
 
@@ -35,6 +35,7 @@ export interface BriefingSummary {
   /** Workspaces whose liveness could not be read (Rex `unknown`), listed as unverified. */
   unverifiedCount: number;
   totalOvernightCommits: number;
+  historyIncomplete: boolean;
   recommendation: string | null;
   allClean: boolean;
 }
@@ -50,7 +51,7 @@ export function isAgentCommit(author: string, message: string): boolean {
 
 // --- Git data collection ---
 
-type GitData = { branch: string | null; commits: CommitSummary[]; dirty: string[] };
+type GitData = { branch: string | null; commits: CommitSummary[] | null; dirty: string[] | null };
 type GitCacheEntry = { data: GitData; timestamp: number };
 
 const MAX_CACHE_AGE_MS = 10 * 60 * 1000; // 10 minutes
@@ -62,43 +63,51 @@ export function resetGitDataCache(): void {
 }
 
 /**
- * Run `git -C <dir> <args>` and return trimmed stdout split into lines (empty on any error).
+ * Run `git -C <dir> <args>` and return trimmed stdout split into lines (null on failure).
  * AR-M1 #603: delegates to shared gitOutput helper in utils.ts.
  */
-async function gitLines(directory: string, args: string[]): Promise<string[]> {
+async function gitLines(directory: string, args: string[]): Promise<string[] | null> {
   try {
     const raw = await gitOutput(directory, args);
     return raw ? raw.split("\n") : [];
   } catch {
-    return [];
+    return null;
   }
 }
 
-async function gitLog(directory: string): Promise<CommitSummary[]> {
+async function gitLog(directory: string): Promise<CommitSummary[] | null> {
   const lines = await gitLines(directory, ["log", "--format=%H|%s|%an", "--since=yesterday 00:00"]);
+  if (!lines) return null;
   return lines.map(line => {
     const [hash = "", subject = "", author = ""] = line.split("|");
     return { hash, subject, author, isAgent: isAgentCommit(author, subject) };
   });
 }
 
-async function gitStatus(directory: string): Promise<string[]> {
+async function gitStatus(directory: string): Promise<string[] | null> {
   const lines = await gitLines(directory, ["status", "--porcelain"]);
-  return lines.map(l => l.slice(3).trim());
+  return lines?.map(l => l.slice(3).trim()) ?? null;
 }
 
 export async function collectGitData(directory: string): Promise<GitData> {
   const cached = gitDataCache.get(directory);
   if (cached && Date.now() - cached.timestamp <= MAX_CACHE_AGE_MS) return cached.data;
 
-  const [branch, commits, dirty] = await Promise.all([
+  const [branch, log, dirty] = await Promise.all([
     getGitBranch(directory),
     gitLog(directory),
     gitStatus(directory),
   ]);
 
+  // git log fails on unborn branches as well as damaged repositories. Only Git's
+  // explicit (initial) marker establishes an empty history.
+  let commits = log;
+  if (log === null && dirty !== null) {
+    const headers = await gitLines(directory, ["status", "--porcelain=v2", "--branch", "--untracked-files=no"]);
+    if (headers?.includes("# branch.oid (initial)")) commits = [];
+  }
   const result: GitData = { branch, commits, dirty };
-  gitDataCache.set(directory, { data: result, timestamp: Date.now() });
+  if (commits && dirty) gitDataCache.set(directory, { data: result, timestamp: Date.now() });
   return result;
 }
 
@@ -108,16 +117,16 @@ export function generateRecommendation(projects: ProjectBriefing[]): string | nu
   // Priority order:
   // 1. Active + dirty + long uptime (>8h) = stale
   const stale = projects.find(
-    p => p.state === "active" && p.dirtyFiles.length > 0 && p.uptime !== null && p.uptime > 8 * 3600000,
+    p => p.state === "active" && p.dirtyFiles?.length && p.uptime !== null && p.uptime > 8 * 3600000,
   );
   if (stale) return `${stale.name} (long-running, uncommitted changes)`;
 
   // 2. Project with overnight agent commits
-  const agentWork = projects.find(p => p.overnightCommits.some(c => c.isAgent));
+  const agentWork = projects.find(p => p.overnightCommits?.some(c => c.isAgent));
   if (agentWork) return `${agentWork.name} (agent commits to review)`;
 
   // 3. Project with uncommitted changes
-  const dirty = projects.find(p => p.dirtyFiles.length > 0);
+  const dirty = projects.find(p => p.dirtyFiles?.length);
   if (dirty) return `${dirty.name} (uncommitted changes)`;
 
   return null;
@@ -150,9 +159,9 @@ export async function collectBriefingData(): Promise<{ projects: ProjectBriefing
 
   const activeCount = projects.filter(p => isLiveState(p.state)).length;
   const unverifiedCount = projects.filter(p => p.state === "unknown").length;
-  const totalOvernightCommits = projects.reduce((sum, p) => sum + p.overnightCommits.length, 0);
+  const totalOvernightCommits = projects.reduce((sum, p) => sum + (p.overnightCommits?.length ?? 0), 0);
   const allClean = projects.length > 0 && projects.every(
-    p => p.dirtyFiles.length === 0 && p.overnightCommits.length === 0,
+    p => p.dirtyFiles?.length === 0 && p.overnightCommits?.length === 0,
   );
 
   return {
@@ -162,6 +171,7 @@ export async function collectBriefingData(): Promise<{ projects: ProjectBriefing
       activeCount,
       unverifiedCount,
       totalOvernightCommits,
+      historyIncomplete: projects.some(p => p.overnightCommits === null),
       recommendation: generateRecommendation(projects),
       allClean,
     },
@@ -185,7 +195,9 @@ export function formatProjectBriefing(project: ProjectBriefing): string {
     lines.push(`  \u251C\u2500 Branch: ${cyan(project.gitBranch)}`);
   }
 
-  if (project.overnightCommits.length > 0) {
+  if (project.overnightCommits === null) {
+    lines.push("  \u251C\u2500 Commit history unavailable");
+  } else if (project.overnightCommits.length > 0) {
     const count = project.overnightCommits.length;
     lines.push(`  \u251C\u2500 ${count} commit${count !== 1 ? "s" : ""} since yesterday`);
     const shown = project.overnightCommits.slice(0, 5);
@@ -198,7 +210,9 @@ export function formatProjectBriefing(project: ProjectBriefing): string {
     lines.push(`  \u251C\u2500 No new commits`);
   }
 
-  if (project.dirtyFiles.length > 0) {
+  if (project.dirtyFiles === null) {
+    lines.push("  \u251C\u2500 Working tree status unavailable");
+  } else if (project.dirtyFiles.length > 0) {
     const count = project.dirtyFiles.length;
     lines.push(`  \u251C\u2500 ${yellow(`${sym.warn} ${count} modified file${count !== 1 ? "s" : ""} (uncommitted)`)}`);
   } else {
@@ -241,7 +255,7 @@ export function formatBriefingSummary(summary: BriefingSummary): string {
   const sep = dim("\u2500".repeat(48));
   lines.push(`  ${sep}`);
   const unverified = summary.unverifiedCount > 0 ? ` \u00B7 ${summary.unverifiedCount} unverified` : "";
-  lines.push(`  ${summary.totalProjects} projects \u00B7 ${summary.activeCount} active${unverified} \u00B7 ${summary.totalOvernightCommits} overnight commits`);
+  lines.push(`  ${summary.totalProjects} projects \u00B7 ${summary.activeCount} active${unverified} \u00B7 ${summary.totalOvernightCommits} ${summary.historyIncomplete ? "known " : ""}overnight commits`);
   if (summary.allClean) {
     lines.push(`  ${green(sym.ok)} All projects clean`);
   }

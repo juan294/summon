@@ -1,18 +1,19 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { O_NOFOLLOW } from "node:constants";
+import { describe, it, expect, vi, beforeEach, afterAll } from "vitest";
+import * as fs from "node:fs";
+import { SESSIONS_DIR as TEST_SESSIONS_DIR } from "./paths.js";
 
-// Must be a literal — vi.mock factory is hoisted before variable declarations
-const TEST_SESSIONS_DIR = "/tmp/test-summon-sessions";
+vi.mock("./paths.js", async (importOriginal) => {
+  const real = await importOriginal<typeof import("./paths.js")>();
+  const { mkdtempSync } = await vi.importActual<typeof import("node:fs")>("node:fs");
+  const { join } = await import("node:path");
+  const { tmpdir } = await import("node:os");
+  return { ...real, SESSIONS_DIR: mkdtempSync(join(tmpdir(), "summon-session-test-")) };
+});
 
-// Mock paths module so SESSIONS_DIR is controlled in tests
-vi.mock("./paths.js", () => ({
-  CONFIG_DIR: "/tmp/test-summon",
-  STATUS_DIR: "/tmp/test-summon/status",
-  SNAPSHOTS_DIR: "/tmp/test-summon/snapshots",
-  LAYOUTS_DIR: "/tmp/test-summon/layouts",
-  SESSIONS_DIR: "/tmp/test-summon-sessions",
-  TRUST_FILE: "/tmp/test-summon/trust.json",
-}));
+vi.mock("node:fs", async (importOriginal) => {
+  const fs = await importOriginal<typeof import("node:fs")>();
+  return { ...fs, readFileSync: vi.fn(fs.readFileSync), writeFileSync: vi.fn(fs.writeFileSync), renameSync: vi.fn(fs.renameSync) };
+});
 
 // Mock node:path so we can spy on resolve for the traversal-guard test
 vi.mock("node:path", async () => {
@@ -23,72 +24,6 @@ vi.mock("node:path", async () => {
     join: vi.fn((...args: string[]) => real.join(...args)),
   };
 });
-
-// Mock the filesystem
-vi.mock("node:fs", () => {
-  const store = new Map<string, string>();
-  const dirs = new Set<string>();
-  const fdPaths = new Map<number, string>();
-  let nextFd = 10;
-  return {
-    existsSync: (path: string) => store.has(path) || dirs.has(path),
-    mkdirSync: vi.fn((_path: string, _opts?: unknown) => { dirs.add(_path as string); }),
-    readFileSync: vi.fn((path: string) => {
-      if (!store.has(path)) {
-        const error = new Error("ENOENT") as NodeJS.ErrnoException;
-        error.code = "ENOENT";
-        throw error;
-      }
-      return store.get(path) ?? "";
-    }),
-    readdirSync: vi.fn((path: string) => {
-      if (!dirs.has(path as string) && !store.has(path as string)) {
-        const error = new Error("ENOENT") as NodeJS.ErrnoException;
-        error.code = "ENOENT";
-        throw error;
-      }
-      const prefix = (path as string).endsWith("/") ? path as string : (path as string) + "/";
-      const names: string[] = [];
-      for (const key of store.keys()) {
-        if (key.startsWith(prefix) && !key.slice(prefix.length).includes("/")) {
-          names.push(key.slice(prefix.length));
-        }
-      }
-      return names;
-    }),
-    chmodSync: vi.fn(),
-    openSync: vi.fn((path: string) => {
-      const fd = nextFd++;
-      fdPaths.set(fd, path);
-      return fd;
-    }),
-    fchmodSync: vi.fn(),
-    closeSync: vi.fn((fd: number) => { fdPaths.delete(fd); }),
-    writeFileSync: vi.fn((pathOrFd: string | number, data: string, _opts?: unknown) => {
-      const path = typeof pathOrFd === "number" ? fdPaths.get(pathOrFd) : pathOrFd;
-      if (path !== undefined) store.set(path, data);
-    }),
-    unlinkSync: vi.fn((path: string) => {
-      if (!store.has(path)) {
-        const error = new Error(`ENOENT: no such file '${path}'`) as NodeJS.ErrnoException;
-        error.code = "ENOENT";
-        throw error;
-      }
-      store.delete(path);
-    }),
-    __store: store,
-    __dirs: dirs,
-    __fdPaths: fdPaths,
-  };
-});
-
-// Access internal store for cleanup
-import * as fs from "node:fs";
-const { __store: store, __dirs: dirs, __fdPaths: fdPaths } = fs as unknown as {
-  __store: Map<string, string>;
-  __dirs: Set<string>;
-  __fdPaths: Map<number, string>;
-};
 
 // Import mocked path.resolve so traversal-guard tests can override it
 import { resolve as pathResolve } from "node:path";
@@ -103,10 +38,12 @@ import {
 } from "./sessions.js";
 
 beforeEach(() => {
-  store.clear();
-  dirs.clear();
-  fdPaths.clear();
+  vi.mocked(fs.renameSync).mockReset();
+  fs.rmSync(TEST_SESSIONS_DIR, { recursive: true, force: true });
+  fs.mkdirSync(TEST_SESSIONS_DIR);
 });
+
+afterAll(() => fs.rmSync(TEST_SESSIONS_DIR, { recursive: true, force: true }));
 
 describe("isValidSessionName", () => {
   it("accepts valid names", () => {
@@ -148,7 +85,6 @@ describe("sessionPath", () => {
 
 describe("writeSession + readSession round-trip", () => {
   it("preserves project order", () => {
-    dirs.add(TEST_SESSIONS_DIR);
     writeSession("mywork", ["projectA", "projectB", "projectC"]);
     const result = readSession("mywork");
     expect(result).toEqual(["projectA", "projectB", "projectC"]);
@@ -160,24 +96,21 @@ describe("writeSession + readSession round-trip", () => {
 
   it("strips # comments and blank lines", () => {
     const filePath = `${TEST_SESSIONS_DIR}/commented`;
-    store.set(filePath, "# this is a comment\nprojectA\n\nprojectB\n# another comment\nprojectC\n");
-    dirs.add(TEST_SESSIONS_DIR);
+    fs.writeFileSync(filePath, "# this is a comment\nprojectA\n\nprojectB\n# another comment\nprojectC\n");
     const result = readSession("commented");
     expect(result).toEqual(["projectA", "projectB", "projectC"]);
   });
 
   it("handles CRLF line endings and preserves order", () => {
     const filePath = `${TEST_SESSIONS_DIR}/crlf-session`;
-    store.set(filePath, "projectA\r\nprojectB\r\nprojectC\r\n");
-    dirs.add(TEST_SESSIONS_DIR);
+    fs.writeFileSync(filePath, "projectA\r\nprojectB\r\nprojectC\r\n");
     const result = readSession("crlf-session");
     expect(result).toEqual(["projectA", "projectB", "projectC"]);
   });
 
   it("handles CR-only line endings", () => {
     const filePath = `${TEST_SESSIONS_DIR}/cr-session`;
-    store.set(filePath, "projectA\rprojectB\rprojectC\r");
-    dirs.add(TEST_SESSIONS_DIR);
+    fs.writeFileSync(filePath, "projectA\rprojectB\rprojectC\r");
     const result = readSession("cr-session");
     expect(result).toEqual(["projectA", "projectB", "projectC"]);
   });
@@ -185,33 +118,31 @@ describe("writeSession + readSession round-trip", () => {
 
 describe("listSessions", () => {
   it("returns empty array when SESSIONS_DIR does not exist", () => {
+    fs.rmdirSync(TEST_SESSIONS_DIR);
     expect(listSessions()).toEqual([]);
   });
 
   it("returns sorted session names", () => {
-    dirs.add(TEST_SESSIONS_DIR);
-    store.set(`${TEST_SESSIONS_DIR}/zebra`, "projA\n");
-    store.set(`${TEST_SESSIONS_DIR}/alpha`, "projB\n");
-    store.set(`${TEST_SESSIONS_DIR}/mango`, "projC\n");
+    fs.writeFileSync(`${TEST_SESSIONS_DIR}/zebra`, "projA\n");
+    fs.writeFileSync(`${TEST_SESSIONS_DIR}/alpha`, "projB\n");
+    fs.writeFileSync(`${TEST_SESSIONS_DIR}/mango`, "projC\n");
     const result = listSessions();
     expect(result).toEqual(["alpha", "mango", "zebra"]);
   });
 
   // BE-M4 #605: orphaned .tmp and dotfiles must not appear in session list
   it("filters out .tmp files (BE-M4 #605)", () => {
-    dirs.add(TEST_SESSIONS_DIR);
-    store.set(`${TEST_SESSIONS_DIR}/mywork`, "projA\n");
-    store.set(`${TEST_SESSIONS_DIR}/mywork.12345.abc.tmp`, "projA\n");
+    fs.writeFileSync(`${TEST_SESSIONS_DIR}/mywork`, "projA\n");
+    fs.writeFileSync(`${TEST_SESSIONS_DIR}/mywork.12345.abc.tmp`, "projA\n");
     const result = listSessions();
     expect(result).toEqual(["mywork"]);
     expect(result).not.toContain("mywork.12345.abc.tmp");
   });
 
   it("filters out dotfiles (BE-M4 #605)", () => {
-    dirs.add(TEST_SESSIONS_DIR);
-    store.set(`${TEST_SESSIONS_DIR}/mywork`, "projA\n");
-    store.set(`${TEST_SESSIONS_DIR}/.DS_Store`, "");
-    store.set(`${TEST_SESSIONS_DIR}/.hidden`, "");
+    fs.writeFileSync(`${TEST_SESSIONS_DIR}/mywork`, "projA\n");
+    fs.writeFileSync(`${TEST_SESSIONS_DIR}/.DS_Store`, "");
+    fs.writeFileSync(`${TEST_SESSIONS_DIR}/.hidden`, "");
     const result = listSessions();
     expect(result).toEqual(["mywork"]);
     expect(result.some(n => n.startsWith("."))).toBe(false);
@@ -220,7 +151,6 @@ describe("listSessions", () => {
 
 describe("deleteSession", () => {
   it("returns true when session exists and deletes it", () => {
-    dirs.add(TEST_SESSIONS_DIR);
     writeSession("todelete", ["projA"]);
     expect(readSession("todelete")).not.toBeNull();
     const result = deleteSession("todelete");
@@ -247,52 +177,40 @@ describe("writeSession validation", () => {
   });
 
   it("creates SESSIONS_DIR with mode 0o700 and file with mode 0o600", () => {
-    const mkdirSpy = vi.mocked(fs.mkdirSync);
-    const chmodSpy = vi.mocked(fs.chmodSync);
-    const openSpy = vi.mocked(fs.openSync);
-    const fchmodSpy = vi.mocked(fs.fchmodSync);
-    const closeSpy = vi.mocked(fs.closeSync);
-    const writeFileSpy = vi.mocked(fs.writeFileSync);
-    mkdirSpy.mockClear();
-    chmodSpy.mockClear();
-    openSpy.mockClear();
-    fchmodSpy.mockClear();
-    closeSpy.mockClear();
-    writeFileSpy.mockClear();
-
     writeSession("newses", ["projA"]);
-
-    expect(mkdirSpy).toHaveBeenCalledWith(
-      TEST_SESSIONS_DIR,
-      expect.objectContaining({ recursive: true, mode: 0o700 })
-    );
-    expect(chmodSpy).toHaveBeenCalledWith(TEST_SESSIONS_DIR, 0o700);
-    expect(openSpy).toHaveBeenCalledWith(
-      `${TEST_SESSIONS_DIR}/newses`,
-      expect.any(Number),
-      0o600,
-    );
-    const fd = openSpy.mock.results.at(-1)?.value as number;
-    const flags = openSpy.mock.calls.at(-1)?.[1] as number;
-    expect(flags & O_NOFOLLOW).toBe(O_NOFOLLOW);
-    expect(fchmodSpy).toHaveBeenCalledWith(fd, 0o600);
-    expect(writeFileSpy).toHaveBeenCalledWith(
-      fd,
-      "projA\n",
-      "utf-8",
-    );
-    expect(closeSpy).toHaveBeenCalledWith(fd);
+    expect(fs.statSync(TEST_SESSIONS_DIR).mode & 0o777).toBe(0o700);
+    expect(fs.statSync(sessionPath("newses")).mode & 0o777).toBe(0o600);
   });
 
-  it("does not follow an existing session symlink", () => {
-    vi.mocked(fs.openSync).mockImplementationOnce(() => {
-      const error = new Error("symlink refused") as NodeJS.ErrnoException;
-      error.code = "ELOOP";
-      throw error;
-    });
+  it("refuses an existing session symlink and preserves its target", () => {
+    const target = sessionPath("other");
+    fs.writeFileSync(target, "original");
+    fs.symlinkSync(target, sessionPath("newses"));
+    expect(() => writeSession("newses", ["projA"])).toThrow();
+    expect(fs.lstatSync(sessionPath("newses")).isSymbolicLink()).toBe(true);
+    expect(fs.readFileSync(target, "utf8")).toBe("original");
+  });
 
-    expect(() => writeSession("newses", ["projA"])).toThrow("symlink refused");
-    expect(store.has(`${TEST_SESSIONS_DIR}/newses`)).toBe(false);
+  it("preserves the entire previous list during and after a failed write", () => {
+    writeSession("work", ["original", "list"]);
+    let seen: string[] | null = null;
+    vi.mocked(fs.writeFileSync).mockImplementationOnce(() => {
+      seen = readSession("work");
+      throw new Error("write failed");
+    });
+    expect(() => writeSession("work", ["next"])).toThrow("write failed");
+    expect(seen).toEqual(["original", "list"]);
+    expect(readSession("work")).toEqual(["original", "list"]);
+    expect(fs.readdirSync(TEST_SESSIONS_DIR)).toEqual(["work"]);
+  });
+
+  it("removes only its staging file when publication fails", () => {
+    writeSession("work", ["original"]);
+    fs.writeFileSync(`${TEST_SESSIONS_DIR}/other.tmp`, "other writer");
+    vi.mocked(fs.renameSync).mockImplementationOnce(() => { throw new Error("rename failed"); });
+    expect(() => writeSession("work", ["next"])).toThrow("rename failed");
+    expect(readSession("work")).toEqual(["original"]);
+    expect(fs.readdirSync(TEST_SESSIONS_DIR).sort()).toEqual(["other.tmp", "work"]);
   });
 });
 

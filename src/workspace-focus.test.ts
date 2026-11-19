@@ -28,6 +28,13 @@ beforeEach(() => {
 
 describe("focusWorkspace", () => {
   const id="00000000-0000-4000-8000-000000000001";
+  it.each(["rex", "ghostty", undefined])("refuses a different selected directory for backend %s", (backend) => {
+    mockReadStatus.mockReturnValue({ backend, state: "active", directory: "/other/api" });
+    expect(focusWorkspace("api", undefined, "/selected/api")).toMatchObject({
+      kind: "unavailable", reason: expect.stringContaining("/other/api"),
+    });
+    expect(mockExecFileSync).not.toHaveBeenCalled();
+  });
   it("returns focused only for confirmed UUID readback", () => {
     mockReadStatus.mockReturnValue({native:{rootTerminalId:id,panes:[{name:"editor",terminalId:id}]}});
     mockExecFileSync.mockReturnValue(JSON.stringify({focused:true,terminalId:id}));

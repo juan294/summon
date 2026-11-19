@@ -1,6 +1,6 @@
 ---
 name: "rpi-remediate"
-description: "Validate and resolve every actionable pre-launch finding in ordered local waves with TDD, finding disposition and preservation of strategic exceptions."
+description: "Validate and resolve every actionable pre-launch finding in ordered local waves with TDD, finding disposition, owner-approved S3/S4 accepted known issues and preservation of strategic exceptions."
 ---
 
 # Remediate Pre-Launch Findings
@@ -8,9 +8,16 @@ description: "Validate and resolve every actionable pre-launch finding in ordere
 Resolve every confirmed actionable finding within the authorized remediation
 scope. Record every finding locally, group related causes and ownership, complete
 TDD repairs and independent review, integrate sequentially per wave, and verify
-locally. Keep narrow work with the parent; delegate only useful independent work.
+locally. An owner-approved accepted known issue, recorded with its severity and
+reason, is a valid disposition for an S3 or S4 finding (below S1/S2: data loss, a
+security boundary breach, a broken core workflow or a normal-use defect with no
+workaround); it goes in the release notes and is fixed in a later release. Keep narrow work with the parent; delegate only useful independent work.
 External issue publication requires authorization; local records preserve the
 same evidence and dispositions.
+
+## Project overlay
+
+If `.rpi/project/rpi-remediate.md` exists, read it completely before you start, together with the controlling instructions. It adds this project's procedure and checks and can make this workflow stricter. It cannot grant push, tag, merge, deployment or publication authority. It cannot relax a gate: a rule that blocks or permits a release, publication, merge, deployment or phase acceptance, or a safety or authorization rule. It can change other procedure detail only under a `## Declared overrides` heading that quotes the stock rule, gives the reason and names the owner decision. Name the overlay you read, and any declared override you applied, in the handoff.
 
 ## Input
 
@@ -96,7 +103,7 @@ Gather context before making any changes.
 
 5. **Present the work plan** to the user, grouped by wave:
 
-   **Wave 1: Before launch (must fix before release)**
+   **Wave 1: Before launch (must fix before release, or S3/S4 accepted known issue)**
 
    | # | Work Unit           | Domain   | Severity | Files Owned | Agent   |
    |---|---------------------|----------|----------|-------------|---------|
@@ -319,7 +326,9 @@ entry conditions. Present the summary to the user.
 - **Complete finding coverage.** Process every finding in all five severity tiers.
   Resolve every confirmed actionable fix within authorized scope. Record evidence
   for false positives and explicit reasons/next actions for deferred waves or new
-  architectural decisions. No severity tier is an automatic exemption.
+  architectural decisions. No severity tier is an automatic exemption; an S3 or
+  S4 finding may become an owner-approved accepted known issue with its severity
+  and reason recorded. Never silently discard a finding.
 - **Wave ordering.** Process Waves in order: 1 → 2 → 3. Never
   interleave waves.
 - **Per-wave verification.** Each wave goes through the full merge →

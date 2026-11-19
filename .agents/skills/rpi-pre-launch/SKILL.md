@@ -9,6 +9,10 @@ Senior cross-functional launch-readiness audit before any public release.
 Core domain coverage plus conditional agent-surface coverage, a 16-section
 report and a three-wave remediation handoff. Staffing follows actual scope.
 
+## Project overlay
+
+If `.rpi/project/rpi-pre-launch.md` exists, read it completely before you start, together with the controlling instructions. It adds this project's procedure and checks and can make this workflow stricter. It cannot grant push, tag, merge, deployment or publication authority. It cannot relax a gate: a rule that blocks or permits a release, publication, merge, deployment or phase acceptance, or a safety or authorization rule. It can change other procedure detail only under a `## Declared overrides` heading that quotes the stock rule, gives the reason and names the owner decision. Name the overlay you read, and any declared override you applied, in the handoff.
+
 ## Mindset
 
 > Assume this product will be publicly launched soon and judged by users
@@ -324,7 +328,8 @@ Run `rpi-remediate` to process findings in 3 waves, driven by Section 14:
 
 - **Wave 1 (Before launch)** — all findings marked `Before launch` in
   Section 14. Typically launch-blockers + high severity. Must pass
-  before release.
+  before release, unless the owner accepts an S3 or S4 finding as a known issue
+  (see below).
 - **Wave 2 (After launch)** — all findings marked `After launch` in
   Section 14. Typically medium severity. Complete authorized actionable fixes;
   a separate run requires an explicit deferral of that scope.
@@ -337,7 +342,11 @@ Severity and time horizon order work; they do not automatically exempt a finding
 from resolution. Rule #58 requires every confirmed actionable finding within the
 authorized scope to be resolved, false positives rejected with evidence, and
 architectural exceptions or explicitly deferred scope recorded locally for owner
-review. External issues or comments require explicit authorization.
+review. A finding below the release-blocking level (S3 or S4: not data loss, a
+security boundary breach, a broken core workflow or a normal-use defect with no
+workaround) may instead become an owner-approved accepted known issue, recorded
+with its severity and reason in the release notes and fixed in a later release.
+External issues or comments require explicit authorization.
 
 ## Rules
 

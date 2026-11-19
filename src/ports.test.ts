@@ -22,6 +22,12 @@ vi.mock("./trust.js", () => ({
   isTrusted: vi.fn(() => true),
 }));
 
+// Record backends: Rex reads live ports through `livePorts`; Ghostty has none.
+const livePorts = vi.fn();
+vi.mock("./backends/workspace.js", () => ({
+  workspaceBackendFor: (backend: string | undefined) => (backend === "rex" ? { id: "rex", livePorts: (...args: unknown[]) => livePorts(...args) } : { id: "ghostty" }),
+}));
+
 const { detectProjectPorts, detectAllPorts } = await import("./ports.js");
 
 const { listProjects, readKVFile } = await import("./config.js") as unknown as {
@@ -49,6 +55,7 @@ beforeEach(() => {
   readAllStatuses.mockReturnValue([]);
   isTrusted.mockReturnValue(true);
   readKVFile.mockClear();
+  livePorts.mockReset();
 });
 
 afterEach(() => {
@@ -209,6 +216,20 @@ describe("detectProjectPorts", () => {
 
     const ports = await detectProjectPorts("proj-nan", dir, "active");
     expect(ports).toEqual([]);
+  });
+
+  it("accepts only complete decimal fixed ports from config and scripts", async () => {
+    const dir = projectDir("port-range");
+    writeFileSync(join(dir, ".summon"), "env.PORT=3000abc\nenv.DEV_PORT=65536\nenv.API_PORT=0001\nenv.DB_PORT=0\n");
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ scripts: {
+      dev: "vite --port 70000", api: "next --port 65535", other: "serve -p 1", auto: "serve -p 0",
+    } }));
+    writeFileSync(join(dir, "next.config.js"), "");
+    expect(await detectProjectPorts("port-range", dir, "active")).toEqual([
+      { port: 1, project: "port-range", source: "config", state: "active" },
+      { port: 65535, project: "port-range", source: "package.json", state: "active" },
+      { port: 3000, project: "port-range", source: "framework-default", state: "active" },
+    ]);
   });
 
   it("skips .summon read when isTrusted returns false (#472: trust gate in ports pipeline)", async () => {
@@ -516,3 +537,103 @@ describe("four-state rows (plan P10, Phase 4)", () => {
   });
 });
 
+
+describe("live ports (plan 2026-11-19-rex-live-ports)", async () => {
+  const { heldLine, liveNoteLines, EPHEMERAL_FROM } = await import("./ports.js");
+
+  function claim(name: string, summon: string): string {
+    const dir = projectDir(name);
+    writeFileSync(join(dir, ".summon"), summon);
+    return dir;
+  }
+
+  const port = (p: number, pane: string, process: string | null = "node", address = "127.0.0.1") => ({ port: p, address, pane, recorded: true, process, pid: process ? 7 : null });
+
+  it("a Ghostty-only registry reads no live ports and returns the static result unchanged", async () => {
+    const dir = claim("web", "env.PORT=3000\n");
+    listProjects.mockReturnValue([["web", dir]]);
+    readAllStatuses.mockReturnValue([{ project: "web", state: "active", backend: "ghostty" }]);
+    const result = await detectAllPorts();
+    expect(result.assignments).toEqual([{ port: 3000, project: "web", source: "config", state: "active" }]);
+    expect(result).toMatchObject({ live: [], held: [], notes: [], liveWorkspaces: 0, readWorkspaces: 0 });
+    expect(livePorts).not.toHaveBeenCalled();
+  });
+
+  it("reads only running Rex workspaces, with one budget for the whole command", async () => {
+    readAllStatuses.mockReturnValue([
+      { project: "api", state: "active", backend: "rex" },
+      { project: "jobs", state: "partial", backend: "rex" },
+      { project: "old", state: "stopped", backend: "rex" },
+      { project: "lost", state: "unknown", backend: "rex" },
+    ]);
+    livePorts.mockResolvedValue({ status: "ok", ports: [] });
+    const result = await detectAllPorts();
+    expect(livePorts.mock.calls.map((c) => c[0])).toEqual(["api", "jobs"]);
+    expect(livePorts.mock.calls[0]![2]).toBe(livePorts.mock.calls[1]![2]);
+    expect(result).toMatchObject({ liveWorkspaces: 2, readWorkspaces: 2 });
+  });
+
+  it("returns live rows with their project and the ephemeral flag, sorted by port", async () => {
+    readAllStatuses.mockReturnValue([{ project: "api", state: "active", backend: "rex" }]);
+    livePorts.mockResolvedValue({ status: "ok", ports: [port(52206, "agent", "claude"), port(3000, "server")] });
+    const { live } = await detectAllPorts();
+    expect(live).toEqual([
+      { ...port(3000, "server"), project: "api", state: "active", ephemeral: false },
+      { ...port(52206, "agent", "claude"), project: "api", state: "active", ephemeral: true },
+    ]);
+    expect(EPHEMERAL_FROM).toBe(49152);
+  });
+
+  it("a port held in one workspace and claimed by another project is a held conflict; one claimed by its own project is not", async () => {
+    const web = claim("web", "env.PORT=3000\n");
+    const api = claim("api", "env.API_PORT=4000\n");
+    listProjects.mockReturnValue([["web", web], ["api", api]]);
+    readAllStatuses.mockReturnValue([{ project: "api", state: "active", backend: "rex" }]);
+    livePorts.mockResolvedValue({ status: "ok", ports: [port(3000, "server"), port(3000, "server", "node", "::1"), port(4000, "worker")] });
+    const { held, conflicts } = await detectAllPorts();
+    expect(held).toEqual([{ port: 3000, holder: "api", pane: "server", process: "node", claimants: [{ project: "web", source: "config" }] }]);
+    expect(conflicts.size).toBe(0);
+    expect(heldLine(held[0]!)).toBe("Port 3000 is held by api/server (node); web (config) claims it");
+    expect(heldLine({ ...held[0]!, process: null, claimants: [{ project: "web", source: "config" }, { project: "docs", source: "framework-default" }] }))
+      .toBe("Port 3000 is held by api/server; web (config) and docs (framework-default) claim it");
+  });
+
+  it("turns results that are not ok into notes; readWorkspaces counts only ok and partial reads", async () => {
+    readAllStatuses.mockReturnValue([
+      { project: "a", state: "active", backend: "rex" },
+      { project: "b", state: "active", backend: "rex" },
+      { project: "c", state: "active", backend: "rex" },
+    ]);
+    livePorts.mockImplementation(async (project: string) => (project === "a"
+      ? { status: "partial", ports: [port(3000, "server")], reason: "pane editor did not answer (Error: boom)" }
+      : project === "b" ? { status: "unavailable", ports: [], reason: "timed out" } : { status: "unsupported", ports: [], reason: "this Rex server has no live ports (needs API 16 or later)" }));
+    const { notes, live, readWorkspaces, liveWorkspaces } = await detectAllPorts();
+    expect(notes).toEqual([
+      { project: "a", status: "partial", reason: "pane editor did not answer (Error: boom)" },
+      { project: "b", status: "unavailable", reason: "timed out" },
+      { project: "c", status: "unsupported", reason: "this Rex server has no live ports (needs API 16 or later)" },
+    ]);
+    expect(live).toHaveLength(1);
+    expect({ readWorkspaces, liveWorkspaces }).toEqual({ readWorkspaces: 1, liveWorkspaces: 3 });
+  });
+
+  it("a backend read that throws becomes a note, never a failed command", async () => {
+    readAllStatuses.mockReturnValue([{ project: "a", state: "active", backend: "rex" }]);
+    livePorts.mockRejectedValue(new Error("spawn EAGAIN"));
+    expect((await detectAllPorts()).notes).toEqual([{ project: "a", status: "unavailable", reason: "spawn EAGAIN" }]);
+  });
+
+  it("note lines group projects by reason, print the API note once and escape control characters", () => {
+    expect(liveNoteLines([
+      { project: "a", status: "unavailable", reason: "timed out" },
+      { project: "b", status: "unavailable", reason: "timed out" },
+      { project: "c", status: "unsupported", reason: "this Rex server has no live ports (needs API 16 or later)" },
+      { project: "d", status: "unsupported", reason: "this Rex server has no live ports (needs API 16 or later)" },
+      { project: "e", status: "partial", reason: "bad\u001b[2Jreason" },
+    ])).toEqual([
+      "live ports incomplete for a, b (timed out)",
+      "this Rex server has no live ports (needs API 16 or later)",
+      "live ports incomplete for e (bad\\u001b[2Jreason)",
+    ]);
+  });
+});

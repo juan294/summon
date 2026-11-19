@@ -219,6 +219,71 @@ describe("inspectRex", async () => {
   });
 });
 
+describe("inspectRex live ports (plan 2026-11-19-rex-live-ports)", async () => {
+  const { inspectRex } = await import("./status.js");
+  const SHELL_BLOCK = "block:0000aaaa-0000-0000-0000-000000000012";
+  const PORTS = { status: "ok", ports: [{ port: 3000, address: "127.0.0.1", protocol: "tcp", first_seen_at: "x", pid: 7 }, { port: 52206, address: "127.0.0.1", protocol: "tcp", first_seen_at: "x", pid: 8 }], processes: [{ pid: 7, user_id: 501, name: "node", argv0: "node" }, { pid: 8, user_id: 501, name: "x", argv0: "claude" }] };
+
+  function cliWith(ports: (blockId: string) => RexResult) {
+    const cli = fakeCli({});
+    cli.call = ((op, argv, opts) => {
+      cli.calls.push({ op, argv, ...opts });
+      if (argv.at(-1) === "ports") return ports(argv[5]!);
+      return { ok: true, op: "block-call", stdout: "", json: {} };
+    }) as typeof cli.call;
+    return cli;
+  }
+
+  it("lists each available pane's live ports, every one including the ephemeral range, and makes no call for other panes", () => {
+    const cli = cliWith((blockId) => ({ ok: true, op: "block-call", stdout: "", json: blockId === IDENTITY.rootBlockId ? PORTS : { status: "ok", ports: [], processes: [] } }));
+    const result = inspectRex(cli, IDENTITY, ["editor", "editor-2", "shell", "sidebar"], "chapa", ["editor", "shell"]);
+    expect(result.panes.find((p) => p.name === "editor")!.ports).toEqual([
+      { port: 3000, address: "127.0.0.1", process: "node", pid: 7 },
+      { port: 52206, address: "127.0.0.1", process: "claude", pid: 8 },
+    ]);
+    expect(result.panes.find((p) => p.name === "shell")!.ports).toEqual([]);
+    expect(result.panes.find((p) => p.name === "editor-2")!.ports).toBeUndefined();
+    expect(result.panes.find((p) => p.name === "sidebar")!.ports).toBeUndefined();
+    expect(result.portsStatus).toBeUndefined();
+    const portCalls = cli.calls.filter((c) => c.argv.at(-1) === "ports").map((c) => c.argv[5]);
+    expect(portCalls).toEqual([IDENTITY.rootBlockId, SHELL_BLOCK]);
+  });
+
+  it("a failing ports call keeps the workspace available and marks the ports partial", () => {
+    const cli = cliWith((blockId) => (blockId === SHELL_BLOCK ? failure("block-call", "failed", "Error: boom") : { ok: true, op: "block-call", stdout: "", json: PORTS }));
+    const result = inspectRex(cli, IDENTITY, ["editor", "shell"], "chapa", ["editor", "shell"]);
+    expect(result.availability).toBe("available");
+    expect(result.portsStatus).toBe("partial");
+    expect(result.portsReason).toBe("pane shell did not answer (Error: boom)");
+    expect(result.panes.find((p) => p.name === "shell")!.ports).toBeUndefined();
+  });
+
+  it("a partial reply says a port may be missing", () => {
+    const cli = cliWith(() => ({ ok: true, op: "block-call", stdout: "", json: { ...PORTS, status: "partial" } }));
+    const result = inspectRex(cli, IDENTITY, ["editor"], "chapa", ["editor"]);
+    expect(result.portsStatus).toBe("partial");
+    expect(result.portsReason).toContain("a port may be missing");
+  });
+
+  it("asks each pane with the 2 s ports timeout and stops after one times out", () => {
+    const timeout: RexResult = { ok: false, op: "block-call", kind: "timeout", outcome: "none", reason: "rex did not answer in time", raw: { code: null, signal: null, timedOut: true, enoent: false, stdout: "", stderr: "" } };
+    const cli = cliWith(() => timeout);
+    const result = inspectRex(cli, IDENTITY, ["editor", "shell"], "chapa", ["editor", "shell"]);
+    const portCalls = cli.calls.filter((c) => c.argv.at(-1) === "ports");
+    expect(portCalls).toHaveLength(1);
+    expect(portCalls[0]!.timeoutMs).toBe(2000);
+    expect(result).toMatchObject({ availability: "available", portsStatus: "partial", portsReason: "pane editor did not answer (rex did not answer in time)" });
+  });
+
+  it("a server without the method is unsupported and later panes are not asked", () => {
+    const cli = cliWith(() => failure("block-call", "failed", 'Error: block 622fe8 has no method "ports"; methods: process, title'));
+    const result = inspectRex(cli, IDENTITY, ["editor", "shell"], "chapa", ["editor", "shell"]);
+    expect(result).toMatchObject({ availability: "available", portsStatus: "unsupported", portsReason: "this Rex server has no live ports (needs API 16 or later)" });
+    expect(cli.calls.filter((c) => c.argv.at(-1) === "ports")).toHaveLength(1);
+    expect(result.panes.every((p) => p.ports === undefined)).toBe(true);
+  });
+});
+
 describe("titleRex", async () => {
   const { titleRex } = await import("./status.js");
   const PANES = ["editor", "sidebar", "shell"];

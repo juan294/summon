@@ -52,14 +52,14 @@ jobs:
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '22' # LTS — update in lockstep with ci.yml matrix
+          node-version-file: .nvmrc # the fleet line; the floor is proven by ci.yml and smoke-matrix
           registry-url: https://registry.npmjs.org
 
       - name: Ensure npm supports trusted publishing
-        # Node 22 bundles npm 10.9, which has no OIDC support at all and fails
-        # with a bare 401 that reads like a credentials problem. Trusted
-        # publishing needs >= 11.5.1, so upgrade before anything touches the
-        # registry and record the resolved version in the log.
+        # Trusted publishing needs npm >= 11.5.1. An older bundled npm (Node 22
+        # bundles npm 10.9) has no OIDC support at all and fails with a bare 401
+        # that reads like a credentials problem, so upgrade before anything
+        # touches the registry and record the resolved version in the log.
         run: |
           npm install -g npm@latest
           npm --version
@@ -251,7 +251,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
 
   # Validate the published tarball on Node 22.12 (minimum) and 24 (latest).
-  # Node 22 is already smoke-tested inside the publish job above.
+  # The publish job above runs on the line in .nvmrc.
   # Runs after publish so the matrix doesn't gate the release itself.
   smoke-matrix:
     needs: publish

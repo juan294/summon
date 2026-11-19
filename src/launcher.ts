@@ -169,8 +169,8 @@ function resolveLaunchBackend(dryRun: boolean | undefined): LaunchContext {
   return { ok: true, backend: "ghostty", placement: "outside", notices: [...detection.notices, `${detection.reason} Dry run continues with the Ghostty script.`] };
 }
 
-/** What a launch did: created a workspace, switched to a live Rex one (P2), or printed a dry run. */
-export type LaunchOutcome = "launched" | "switched" | "dry-run";
+/** What a launch did: created a workspace, tried to show a live Rex workspace, or printed a dry run. */
+export type LaunchOutcome = "launched" | "switched" | "unshown" | "dry-run";
 
 export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Promise<LaunchOutcome> {
   // UX-L3: thrown errors are printed once, by the caller (reportError, `session --all`, the monitor).
@@ -195,7 +195,8 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
   if (!dryRun) {
     // A dry run skips this (P2) and runs no backend command. Rex: late adoption and the P2 switch, before the wizard,
     // the pane probe and on-start, so a switch never reruns them.
-    const decision: LaunchDecision = backend.beforeLaunch?.(projectName) ?? { kind: "proceed" };
+    const decision: LaunchDecision = backend.beforeLaunch?.(projectName, targetDir) ?? { kind: "proceed" };
+    if (decision.kind === "unshown") return "unshown";
     if (decision.kind === "switched") {
       backend.afterSuccess?.();
       return "switched";
@@ -378,12 +379,13 @@ export async function launch(targetDir: string, cliOverrides?: CLIOverrides): Pr
   // BE-L1: a backend may serialize creation and publication per project (Rex), after every prompt and on-start; under
   // its lock it can find that a concurrent launch won and switch to that workspace instead.
   const decision: LaunchDecision = backend.exclusiveLaunch
-    ? await backend.exclusiveLaunch(projectName, createAndPublish)
+    ? await backend.exclusiveLaunch(projectName, targetDir, createAndPublish)
     : (await createAndPublish(), { kind: "proceed" });
   if (decision.kind === "refused") {
     fail(decision.reason);
     process.exit(2);
   }
+  if (decision.kind === "unshown") return "unshown";
   backend.afterSuccess?.();
   return decision.kind === "switched" ? "switched" : "launched";
 }

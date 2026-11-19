@@ -7,7 +7,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-6-blue)](https://www.typescriptlang.org)
 [![license](https://img.shields.io/npm/l/summon-ws)](./LICENSE)
 
-Summon your Ghostty or Rex workspace with one command. Native splits, no tmux.
+Summon your Ghostty or Rex workspace with one command: your editor or coding agents, a git UI, a dev server and a shell, each in its own native pane. No tmux.
 
 ---
 
@@ -43,6 +43,39 @@ Register projects for quick access:
 summon add myapp ~/code/myapp     # register a project
 summon myapp                      # launch by project name
 ```
+
+## Summon in Rex
+
+The Rex server keeps sessions alive, and Summon decides what goes in them. Run `summon <project>` in a Rex terminal and Summon creates one Rex session named after the project, with one block per pane and every pane's command already running. Nothing needs to be configured: Summon detects Rex from the terminal it runs in, and the same config launches the same workspace in Ghostty.
+
+A `.summon` file for a project worked on by two coding agents:
+
+```ini
+# ~/code/myapp/.summon
+# Two Claude Code panes, lazygit beside them, and the dev server in the shell pane
+editor=claude
+panes=2
+sidebar=lazygit
+shell=npm run dev
+```
+
+```bash
+summon add myapp ~/code/myapp
+summon myapp                      # creates the Rex session "myapp" and shows it in the app
+```
+
+| You want to | Run | What happens in Rex |
+|---|---|---|
+| Start work on a project | `summon myapp` | A new session labelled `myapp`. The one-pane tab you typed in closes once the workspace is shown |
+| Get back to it later | `summon myapp` again, or `summon open` | Summon switches to the running session instead of opening a second one |
+| Keep dev servers out of the way | `shell=npm run dev`, or `pane.<name>.background=true` | The pane floats as a minimized capsule and keeps running; `summon focus myapp shell` shows it |
+| See all projects at once | `summon status` | A live dashboard of every workspace. Enter opens one, and a glyph shows the status a program reports to Rex (working, blocked, done) |
+| Open several projects together | `summon session add work api web docs`, then `summon session work` | One Rex session per project |
+| Check a launch first | `summon myapp --dry-run` | Prints the exact `session.create` request and the panes it would minimize, without touching the server |
+| Tidy up | `summon clean myapp` | Closes the project's session, only when it has no panes left |
+| Open a project from the Rex palette | `summon keybindings rex`, saved beside `~/.config/rex/init.lua` | "Summon: Open workspace…" lists your projects and opens the one you pick in a new tab ([setup](docs/rex.md#open-a-workspace-from-the-rex-palette)) |
+
+[Summon under Rex](docs/rex.md) covers detection, the session and pane mapping, background panes and recovery in detail.
 
 ## How It Works
 
@@ -118,7 +151,7 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 | `summon setup` | Interactive setup wizard — choose editor, sidebar, layout, shell, Starship theme |
 | `summon add <name> <path>` | Register a project name to a directory |
 | `summon remove <name>` | Remove a registered project |
-| `summon list` | List all registered projects |
+| `summon list [--json]` | List all registered projects (`--json`: one JSON array of `name` and `directory`) |
 | `summon set <key> [value]` | Set a machine-level config value |
 | `summon config` | Show current machine configuration |
 | `summon open [project]` | Focus a running workspace or launch a stopped one; without a name, pick one interactively |
@@ -126,6 +159,7 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 | `summon doctor [--fix] [--verbose]` | Check version, capabilities and effective settings (--fix appends eligible missing settings to an unambiguous existing file and removes stale locks; --verbose adds diagnostic info) |
 | `summon freeze <name>` | Save current resolved config as a reusable custom layout |
 | `summon keybindings [--vim] [--detach-tab]` | Print pane navigation config, optionally including whole-tab detachment |
+| `summon keybindings rex` | Print the Rex palette action that opens a registered project (see [docs/rex.md](docs/rex.md#open-a-workspace-from-the-rex-palette)) |
 | `summon layout <action>` | Manage custom layouts (create, save, list, show, delete, edit) |
 | `summon status [--once]` | Interactive workspace status dashboard across all projects |
 | `summon switch [project]` | Alias for `summon open` |
@@ -134,7 +168,7 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 | `summon title <project> [pane] [--set <text> \| --reset]` | Read, set or clear a tab/pane title override |
 | `summon clean <project> [--orphans]` | Close an empty Rex session and end its record; `--orphans` reviews earlier launches (see [docs/rex.md](docs/rex.md)) |
 | `summon briefing` | Morning briefing — overnight commits, dirty files, recommendations |
-| `summon ports` | Detect port assignments across projects, highlight conflicts |
+| `summon ports [--json]` | Detect port assignments across projects and highlight conflicts; under Rex, also the ports running panes listen on and which pane holds each |
 | `summon snapshot <action>` | Manage context snapshots (save, show, clear) |
 | `summon session <name>` | Launch a saved multi-project session — one terminal tab (or Rex session) per project |
 | `summon session add <name> <p>...` | Save a session (named list of registered projects) |
@@ -189,7 +223,7 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 | `clean` | `false` | Auto-close stale panes from a prior restored Ghostty session |
 | `starship-preset` | | Starship prompt theme preset (per-workspace) |
 | `font-size` | | Font size for workspace panes (points) |
-| `on-start` | | Command to run before workspace creation |
+| `on-start` | | Command to run before workspace creation. Under Rex, two concurrent invocations can both run this hook for one new workspace. Make the hook safe to repeat. |
 | `on-stop` | | Command to run after workspace closes |
 | `new-window` | `false` | Open workspace in a new Ghostty window (under Rex, a new session in the current window; only the `--new-window` flag skips the switch to a running session) |
 | `fullscreen` | `false` | Start workspace in fullscreen mode |

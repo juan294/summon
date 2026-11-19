@@ -1,7 +1,7 @@
 # Exploratory charter reports
 
 One file per charter, named `<candidate>-<charterId>.md`, produced by
-`/explore-release` and validated by `scripts/release/validate-charter.mjs`.
+`/rpi-explore-release` and validated by `scripts/release/validate-charter.mjs`.
 
 Each report must carry all six sections and all eight maneuver rows — a missing
 row invalidates the charter (playbook D10). Validate before adding the charter's

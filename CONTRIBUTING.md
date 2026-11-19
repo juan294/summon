@@ -38,21 +38,17 @@ pnpm --version      # must be 10.29.2
 
 ### Staying current with Node
 
-Use a version manager (nvm, fnm, or Volta). The project targets Node 22.12 as the
-minimum; CI also runs on Node 24. To match the minimum locally:
+Use a version manager (nvm, fnm, or Volta). The committed `.nvmrc` holds the
+development and CI line, the bare major `24`; `nvm use` in the clone root selects
+it. The published support floor stays `>=22.12` (`engines.node`), and CI proves it
+with a Node 22 test leg and a Node 22.12.0 smoke test of the published tarball.
+To check the floor locally:
 
 ```bash
 # with nvm:
 nvm install 22.12
 nvm use 22.12
-
-# .nvmrc snippet (place in your local clone root if desired):
-# lts/jod
 ```
-
-> Note: a `.nvmrc` file is intentionally not committed to the repository — it would
-> pin contributors to the minimum and prevent easy testing on newer Node versions.
-> Pick the LTS release that matches `>=22.12` for your workflow.
 
 ### pnpm
 

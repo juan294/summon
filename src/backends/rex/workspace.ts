@@ -45,18 +45,24 @@ function inspectRexWorkspace(project: string, status: ResolvedStatus | null, jso
     ...(reason ? { reason } : {}),
     panes: inspected.panes,
     ...(inspected.programStatus ? { programStatus: inspected.programStatus } : {}),
+    ...(inspected.portsStatus ? { portsStatus: inspected.portsStatus, portsReason: inspected.portsReason } : {}),
   };
   if (json) console.log(JSON.stringify(result, null, 2));
   else {
     console.log(`${project}: ${result.state} (${result.availability}, Rex)`);
-    for (const pane of inspected.panes)
+    for (const pane of inspected.panes) {
       console.log(`  ${pane.name}  ${pane.blockId ?? "UNVERIFIED"}  PID ${pane.pid ?? "UNAVAILABLE"}  UNAVAILABLE  ${escapeControlChars(pane.title ?? "UNAVAILABLE")}`);
+      // Addresses and labels come from the pane's programs and the server: escaped.
+      if (pane.ports && pane.ports.length > 0)
+        console.log(`    ports: ${pane.ports.map((p) => escapeControlChars(`${p.port} ${p.address}${p.process ? ` (${p.process})` : ""}`)).join(", ")}`);
+    }
     const program = inspected.programStatus;
     // Every program-status text comes from the pane's programs (OSC 7501): all of it is escaped.
     if (program) {
       const fields = [program.kind && `(${program.kind})`, program.app, program.title, program.msg].filter((f): f is string => Boolean(f));
       console.log(`  program: ${[program.state, ...fields.map(escapeControlChars)].join(" ")}`);
     }
+    if (inspected.portsReason) console.log(`  live ports: ${escapeControlChars(inspected.portsReason)}`);
     if (reason) console.log(reason);
   }
   if (!available) process.exit(2);
@@ -169,6 +175,14 @@ export const RexWorkspace: WorkspaceBackend = {
   },
 
   inspect: inspectRexWorkspace,
+
+  /** Live ports through the shared gate: `unknown` and `stopped` records are never read (no process starts). */
+  async livePorts(project, status, budget) {
+    const gate = rexCommandGate(project, status);
+    if (!gate.ok) return { status: "unavailable", ports: [], reason: gate.failure.reason };
+    const { readLivePorts } = await import("./ports.js");
+    return readLivePorts({ binary: gate.cli.binary, server: gate.cli.server, sessionId: gate.identity.sessionId, blocks: gate.identity.blocks }, budget);
+  },
 
   title(project, status, scope, operation, pane) {
     const gate = gateOf(project, status);

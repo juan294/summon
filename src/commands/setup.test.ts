@@ -53,6 +53,9 @@ vi.mock("../setup.js", () => ({
   runSetup: (...args: unknown[]) => mockRunSetup(...args),
 }));
 
+// The build embeds integrations/rex/summon-workspace.lua; source tests define a stand-in.
+Object.defineProperty(globalThis, "__REX_ACTION_LUA__", { value: "-- rex action\n", configurable: true });
+
 const {
   handleCompletionsCommand,
   handleKeybindingsCommand,
@@ -220,6 +223,48 @@ describe("handleKeybindingsCommand", () => {
       "default",
       "arrows",
     );
+    expect(logSpy).toHaveBeenCalledWith("key table");
+  });
+});
+
+describe("handleKeybindingsCommand rex", () => {
+  it("prints the embedded Rex action exactly, before any project config read", async () => {
+    const writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await handleKeybindingsCommand(makeContext({ args: ["rex"] }));
+
+    expect(writeSpy.mock.calls).toEqual([["-- rex action\n"]]);
+    expect(logSpy).not.toHaveBeenCalled();
+    expect(mockReadTrustedSummonFile).not.toHaveBeenCalled();
+    expect(mockResolveConfig).not.toHaveBeenCalled();
+    expect(mockGenerateKeyTableConfig).not.toHaveBeenCalled();
+    writeSpy.mockRestore();
+  });
+
+  it.each([
+    ["an extra argument", { args: ["rex", "demo"] }],
+    ["--vim", { args: ["rex"], values: { vim: true } }],
+    ["--detach-tab", { args: ["rex"], values: { "detach-tab": true } }],
+  ])("refuses %s with usage", async (_label, context) => {
+    const writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await expect(handleKeybindingsCommand(makeContext(context))).rejects.toThrow("usage:Usage: summon keybindings rex");
+
+    expect(writeSpy).not.toHaveBeenCalled();
+    expect(mockReadTrustedSummonFile).not.toHaveBeenCalled();
+    writeSpy.mockRestore();
+  });
+
+  it("keeps an unrelated positional on the Ghostty path, as before", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockResolveConfig.mockReturnValue({ opts: { panes: 1 }, treeLayout: null });
+    mockPlanLayout.mockReturnValue({ layout: "plan" });
+    mockTraditionalPaneNames.mockReturnValue(["editor"]);
+
+    await handleKeybindingsCommand(makeContext({ args: ["ghostty"] }));
+
+    expect(mockGenerateKeyTableConfig).toHaveBeenCalledWith(["editor"], "default", "arrows");
     expect(logSpy).toHaveBeenCalledWith("key table");
   });
 });

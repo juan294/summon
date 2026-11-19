@@ -94,6 +94,21 @@ def local_indent(local):
     return '\t' if unit.startswith(b'\t') else len(unit)
 
 
+def prune_emptied(document, pointer, removable):
+    """After an owned entry is removed, drop the empty array and the empty objects that held it, from the leaf upward, but only
+    those the install created (`removable`: pointer prefixes recorded when it added them). Any other container, even an empty
+    one, is the owner's and stays."""
+    for depth in range(len(pointer), 0, -1):
+        parent, key = leaf(document, pointer[:depth])
+        if parent is None or key not in parent:
+            if depth == len(pointer):
+                continue  # A removed scalar is already gone; its parents may be empty now.
+            break
+        if tuple(pointer[:depth]) not in removable or parent[key] not in ([], {}):
+            break
+        del parent[key]
+
+
 def conflict(identity, reason, old=None, new=None):
     """Carry the public template values so the repair can name them."""
     item = {'id': identity, 'reason': reason}
@@ -119,7 +134,28 @@ def edited_value(value, record, known):
     return value[scored[0][1]]
 
 
-def reconcile(local, previous_records, desired_records, allow_capabilities=False, allow_removal=False):
+def missing_containers(document, pointer, array):
+    """Pointer prefixes (lists) that do not exist yet and that adding the owned record will create: every object on the way,
+    and the array itself for an entry. A scalar leaf is the owned value, not a container."""
+    last = len(pointer) if array else len(pointer) - 1
+    found, current = [], document
+    for depth in range(1, last + 1):
+        if isinstance(current, dict) and pointer[depth - 1] in current:
+            current = current[pointer[depth - 1]]
+        else:
+            found.extend(list(pointer[:index]) for index in range(depth, last + 1))
+            break
+    return found
+
+
+def reconcile(local, previous_records, desired_records, allow_capabilities=False, allow_removal=False,
+              created=None, file_created=False):
+    """Reconcile owned records with the native document.
+
+    `created` maps a record id to the pointer prefixes the install created for it, and `file_created` says the install created
+    the file itself. Only those are ever pruned, and only while empty: an empty container or a `{}` file the owner already had
+    is never removed. Without that record (an older installation) nothing is pruned. The result's `created` maps each record
+    that was added now to the containers its addition created."""
     if not isinstance(allow_capabilities, bool) or not isinstance(allow_removal, bool):
         raise ValueError('capability setup scope must be an explicit boolean')
     previous, desired = validate_records(previous_records), validate_records(desired_records)
@@ -129,6 +165,9 @@ def reconcile(local, previous_records, desired_records, allow_capabilities=False
         raise ValueError('native settings must be a JSON object')
     original = copy.deepcopy(document)
     entries, conflicts, retained = [], [], []
+    created = created or {}
+    removable = {tuple(prefix) for prefixes in created.values() for prefix in prefixes}
+    made, removed = {}, False
     for identity in sorted(set(previous) | set(desired)):
         old, new = previous.get(identity), desired.get(identity)
         record = new or old
@@ -156,6 +195,8 @@ def reconcile(local, previous_records, desired_records, allow_capabilities=False
                 del parent[key][old_indices[0]]
             else:
                 del parent[key]
+            prune_emptied(document, old['pointer'], removable)
+            removed = True
             continue
         if not old and new_present:
             retained.append({'id': identity, 'value': new['value'], 'reason': 'matching existing entry is project-owned'})
@@ -188,6 +229,8 @@ def reconcile(local, previous_records, desired_records, allow_capabilities=False
             if not array and value is not MISSING and not old:
                 conflicts.append(conflict(identity, 'unowned scalar would be overwritten', old, new))
                 continue
+            if not old:
+                made[identity] = missing_containers(document, new['pointer'], array)
             parent, key = leaf(document, new['pointer'], create=True)
             if array:
                 if key not in parent:
@@ -200,6 +243,10 @@ def reconcile(local, previous_records, desired_records, allow_capabilities=False
                 parent[key] = copy.deepcopy(new['value'])
         entries.append(copy.deepcopy(new))
     if conflicts:
-        return {'content': local, 'entries': copy.deepcopy(previous_records), 'conflicts': conflicts, 'retained': retained}
+        return {'content': local, 'entries': copy.deepcopy(previous_records), 'conflicts': conflicts, 'retained': retained, 'created': {}}
+    if removed and file_created and document == {} and local is not None:
+        # The install created this file and nothing is left in it: it goes away. A file the owner had is never deleted.
+        return {'content': None, 'entries': entries, 'conflicts': [], 'retained': retained, 'created': {}}
     content = local if same(document, original) else (json.dumps(document, indent=local_indent(local), ensure_ascii=False, allow_nan=False) + '\n').encode()
-    return {'content': content, 'entries': entries, 'conflicts': [], 'retained': retained}
+    return {'content': content, 'entries': entries, 'conflicts': [], 'retained': retained,
+            'created': {identity: prefixes for identity, prefixes in made.items() if prefixes}}

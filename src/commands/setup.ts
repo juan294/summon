@@ -33,7 +33,16 @@ export async function handleCompletionsCommand({ args }: CommandContext): Promis
   console.log(shell === "zsh" ? generateZshCompletion() : shell === "bash" ? generateBashCompletion() : generateFishCompletion());
 }
 
-export async function handleKeybindingsCommand({ values, overrides }: CommandContext): Promise<void> {
+export async function handleKeybindingsCommand({ args, values, overrides }: CommandContext): Promise<void> {
+  // `summon keybindings rex` prints the Rex palette action: no Ghostty probe, no project config read.
+  if (args[0] === "rex") {
+    if (args.length > 1 || values.vim || values["detach-tab"]) {
+      exitWithUsageHint("Usage: summon keybindings rex\n--vim, --detach-tab and further arguments apply only to the Ghostty key table.");
+    }
+    const { printRexAction } = await import("../backends/rex/action-snippet.js");
+    printRexAction();
+    return;
+  }
   if (values["detach-tab"]) {
     const support = probeGhosttyDetach();
     if (support.state !== "supported") {

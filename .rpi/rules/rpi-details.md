@@ -62,8 +62,15 @@ efficiency. Track its findings with the other audit results; resolve security
 and infrastructure findings through the same review, repair and verification
 loop. Preserve all required audit domains regardless of staffing.
 
-Resolve every confirmed actionable finding before acceptance. Reject false
-positives with evidence. Strategic findings needing a new architectural decision
+Release verification is proportional. Wave A's truthful local gate applies to
+every release; Wave B exploratory charters and Waves C-H run only when the
+project's release profile selects them, one Wave B round per candidate.
+
+Resolve every confirmed actionable finding before acceptance. For an S3 or S4
+finding (below S1/S2: data loss, a security boundary breach, a broken core
+workflow or a normal-use defect with no workaround), an owner-approved accepted
+known issue, recorded with its severity and reason, is a valid disposition; fix
+it in a later release. Reject false positives with evidence. Strategic findings needing a new architectural decision
 receive explicit local dispositions and owner review; external issue creation
 requires authorization. Never silently discard a finding.
 
