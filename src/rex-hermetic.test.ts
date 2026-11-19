@@ -324,6 +324,8 @@ describe("Rex launch composition through the built CLI and a fake rex (QA-M2)", 
     // An earlier launch whose session is gone: each launcher's early P2 decision then lists the server (`ls`) and proceeds.
     const first = summon("delta");
     expect(first.status, first.stderr).toBe(0);
+    // Its detached launcher-tab close must land in this test: a late one would end the next test's launcher tab.
+    expect(await settle(() => !launcherAlive())).toBe(true);
     writeState({ ...readState(), sessions: readState().sessions.filter((s) => s.label !== "delta") });
     // session.create is held until both launchers are past their early decision; the launcher tab is an agent's,
     // so no exit-time close touches the fake state meanwhile.
