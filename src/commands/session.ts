@@ -130,7 +130,7 @@ async function cmdLaunch(ctx: CommandContext, name: string | undefined): Promise
   const total = projects.length;
   // Every project that succeeded (launched, switched to, or printed as a dry run), in order: under Rex the first is shown again at the end.
   const launched: string[] = [];
-  const counts = { launched: 0, switched: 0, "dry-run": 0 };
+  const counts = { launched: 0, switched: 0, unshown: 0, "dry-run": 0 };
   const skippedUntrusted: string[] = [];
   const failedTab: string[] = [];
   // Treat first-launch placement the same regardless of whether earlier
@@ -156,10 +156,13 @@ async function cmdLaunch(ctx: CommandContext, name: string | undefined): Promise
     try {
       const outcome = (await runWithSpinner(`[${i + 1}/${total}] Summoning ${proj}...`, () => launch(dir, overrides)));
       const step = `[${i + 1}/${total}]`;
-      console.log(outcome === "switched" ? `${step} Switched to ${proj}` : outcome === "dry-run" ? `${step} Dry run printed for ${proj}` : `${step} Launched ${proj}`);
+      const labels = { launched: "Launched", switched: "Switched to", unshown: "Already running, could not show", "dry-run": "Dry run printed for" };
+      console.log(`${step} ${labels[outcome]} ${proj}`);
       counts[outcome]++;
-      launched.push(proj);
-      openedFirst = true;
+      if (outcome !== "unshown") {
+        launched.push(proj);
+        openedFirst = true;
+      }
     } catch (caught) {
       // Trust failures are recoverable: warn, tell user how to fix, continue.
       if (caught instanceof SummonError) {
@@ -193,6 +196,7 @@ async function cmdLaunch(ctx: CommandContext, name: string | undefined): Promise
   const parts: string[] = [];
   if (counts.launched > 0 || launched.length === 0) parts.push(`${counts.launched} launched`);
   if (counts.switched > 0) parts.push(`${counts.switched} switched`);
+  if (counts.unshown > 0) parts.push(`${counts.unshown} already running but not shown`);
   if (counts["dry-run"] > 0) parts.push(`${counts["dry-run"]} dry run${counts["dry-run"] === 1 ? "" : "s"} printed`);
   if (failedTab.length > 0) {
     parts.push(`${failedTab.length} failed (tab did not open): ${failedTab.join(", ")}`);

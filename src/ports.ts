@@ -55,6 +55,12 @@ const PORT_FLAG_RE = /(?:-p|--port)[=\s]+(\S+)/g;
 // Extensions to probe when detecting framework config files.
 const EXTENSIONS = [".js", ".mjs", ".ts", ".cjs"];
 
+function fixedPort(raw: string | undefined): number | undefined {
+  if (!raw || !/^\d+$/.test(raw)) return undefined;
+  const port = Number(raw);
+  return port >= 1 && port <= 65535 ? port : undefined;
+}
+
 export async function detectProjectPorts(
   projectName: string,
   projectDir: string,
@@ -68,13 +74,10 @@ export async function detectProjectPorts(
   if (existsSync(summonFile) && isTrusted(projectDir)) {
     const config = readKVFile(summonFile);
     for (const envKey of PORT_ENV_KEYS) {
-      const val = config.get(`env.${envKey}`);
-      if (val) {
-        const port = parseInt(val, 10);
-        if (!isNaN(port) && port > 0 && !seenPorts.has(port)) {
-          seenPorts.add(port);
-          assignments.push({ port, project: projectName, source: "config", state });
-        }
+      const port = fixedPort(config.get(`env.${envKey}`));
+      if (port !== undefined && !seenPorts.has(port)) {
+        seenPorts.add(port);
+        assignments.push({ port, project: projectName, source: "config", state });
       }
     }
   }
@@ -95,10 +98,8 @@ export async function detectProjectPorts(
           PORT_FLAG_RE.lastIndex = 0; // reset stateful /g regex before each reuse
           let match;
           while ((match = PORT_FLAG_RE.exec(script)) !== null) {
-            // BE-H2 (#591): strict all-digit check — parseInt("3000abc") === 3000 (wrong)
-            if (!/^\d+$/.test(match[1]!)) continue;
-            const port = parseInt(match[1]!, 10);
-            if (port > 0 && !seenPorts.has(port)) {
+            const port = fixedPort(match[1]);
+            if (port !== undefined && !seenPorts.has(port)) {
               seenPorts.add(port);
               assignments.push({ port, project: projectName, source: "package.json", state });
             }

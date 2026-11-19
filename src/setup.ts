@@ -10,6 +10,7 @@ import { renderLayoutPreview, renderTemplateGallery, getDisplayWidth } from "./u
 import { sym } from "./ui/symbols.js";
 import { commandExecutable, replaceCommandExecutable } from "./command-spec.js";
 import { fail, err } from "./ui/output.js";
+import { parseMenuNumber } from "./validation.js";
 import { editDistance } from "./edit-distance.js";
 
 // ---------------------------------------------------------------------------
@@ -598,7 +599,7 @@ export async function numberedSelect(
       return defaultIdx;
     }
 
-    const num = parseInt(trimmed, 10);
+    const num = parseMenuNumber(trimmed);
     if (Number.isNaN(num) || num < 1 || num > options.length) {
       console.log(
         yellow(
@@ -875,7 +876,7 @@ export async function selectToolFromCatalog(
     if (trimmed === "c") {
       return askCustom();
     }
-    const num = parseInt(trimmed, 10);
+    const num = parseMenuNumber(trimmed);
     if (Number.isNaN(num) || num < 1 || num > available.length) {
       console.log(
         yellow(
@@ -1444,7 +1445,7 @@ export async function selectGridTemplate(): Promise<number[]> {
     if (trimmed === "") {
       return [...GRID_TEMPLATES[0]!.columns];
     }
-    const num = parseInt(trimmed, 10);
+    const num = parseMenuNumber(trimmed);
     if (Number.isNaN(num) || num < 1 || num > customOption) {
       console.log(
         yellow(
@@ -1569,7 +1570,7 @@ export async function runLayoutBuilder(name: string): Promise<void> {
           renderer.countPrompt(); // account for the upcoming textInput prompt + answer
           cmd = (await textInput("  Enter command:")) || "shell";
         } else {
-          const num = parseInt(trimmed, 10);
+          const num = parseMenuNumber(trimmed);
           if (!isNaN(num) && num >= 1 && num <= availableTools.length) {
             cmd = availableTools[num - 1]!.cmd;
           } else {

@@ -64,7 +64,7 @@ export type BackendLaunchResult =
   | { backend: "rex"; rex?: RexIdentity };
 
 /** What a backend decides before a launch creates anything: go on, show the running workspace instead (P2), or refuse (exit 2). */
-export type LaunchDecision = { kind: "proceed" } | { kind: "switched" } | { kind: "refused"; reason: string };
+export type LaunchDecision = { kind: "proceed" } | { kind: "switched" } | { kind: "unshown" } | { kind: "refused"; reason: string };
 
 /** The launch options a backend may adjust or comment on, after the nested-workspace check. */
 export interface LaunchOptionsInput {
@@ -89,7 +89,7 @@ export interface TerminalBackend {
   /** `summon session`: each project after the first opens as a new tab of the first one's window (Ghostty). */
   readonly opensSessionTabs: boolean;
   /** Real launches only, after detection and before the wizard, the pane probe and on-start: may switch or refuse (Rex P13, P2). */
-  beforeLaunch?(project: string): LaunchDecision;
+  beforeLaunch?(project: string, targetDir: string): LaunchDecision;
   /** After the nested-workspace check: adjust or comment on the launch options. */
   applyLaunchOptions(input: LaunchOptionsInput): void;
   /**
@@ -97,7 +97,7 @@ export interface TerminalBackend {
    * exclusively per project (BE-L1). Without it `create` runs as is. Under its lock a backend may find that another
    * launch published meanwhile and switch to that workspace (or refuse) instead of calling `create`.
    */
-  exclusiveLaunch?(project: string, create: () => Promise<void>): Promise<LaunchDecision>;
+  exclusiveLaunch?(project: string, targetDir: string, create: () => Promise<void>): Promise<LaunchDecision>;
   /** Launch a planned layout of either kind. */
   launch(layout: PlannedLayout, ctx: BackendLaunchContext): Promise<BackendLaunchResult>;
   /** What a dry run prints for this backend (no terminal command runs). */
@@ -164,6 +164,8 @@ export interface LiveBudget {
   readonly signal: AbortSignal;
   /** Starts the deadline on first use; then true once it has passed. */
   expired(): boolean;
+  /** Run a deadline-aware native call in the shared FIFO pool across all workspaces. */
+  withSlot<T>(call: () => Promise<T>): Promise<T>;
   scratch<T>(key: string, create: () => T): T;
 }
 

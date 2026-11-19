@@ -131,7 +131,7 @@ function rowDetail(row: ProjectRow): string | undefined {
 
 /** `leadingPad: false` drops the pad before the glyph (the picker); the row still fills `width`. */
 export function renderRow(row: ProjectRow, width: number, selected: boolean, { leadingPad = true } = {}): string {
-  const pad = leadingPad ? ROW_PAD : "";
+  const pad = leadingPad ? (selected ? ">" : ROW_PAD) : "";
   const colorFn = stateColor(row.state);
   const dot = colorFn(stateDot(row.state));
   const name = displayPadEnd(truncate(row.name, NAME_WIDTH), NAME_WIDTH);
@@ -387,7 +387,7 @@ export class ChildReadError extends Error {
 /**
  * Run `execPath args` and parse its stdout as the statuses. The child leads its own process group:
  * an abort ends the group, so a `rex` call it is waiting on ends too (records are written atomically
- * under their lock, so an interrupted read is safe). It is unreferenced and never holds Summon open.
+ * under their lock, so an interrupted read is safe). The awaited read keeps Summon alive until it settles or is aborted.
  * `env` is laid over this process's environment; a key set to undefined there is removed.
  */
 export function readStatusesInChild(execPath: string, args: readonly string[], signal?: AbortSignal, env: NodeJS.ProcessEnv = {}): Promise<ResolvedStatus[]> {
@@ -398,6 +398,8 @@ export function readStatusesInChild(execPath: string, args: readonly string[], s
     const child = spawn(execPath, args, { detached: true, stdio: ["ignore", "pipe", "ignore"], env: childEnv });
     const stop = () => {
       try { if (child.pid) process.kill(-child.pid, "SIGTERM"); } catch { /* the group has already exited */ }
+      child.unref();
+      (child.stdout as Socket).unref();
     };
     const settle = () => signal?.removeEventListener("abort", stop);
     const chunks: Buffer[] = [];
@@ -410,8 +412,6 @@ export function readStatusesInChild(execPath: string, args: readonly string[], s
     });
     if (signal?.aborted) stop();
     else signal?.addEventListener("abort", stop, { once: true });
-    child.unref();
-    (child.stdout as Socket).unref();
   });
 }
 
@@ -737,7 +737,7 @@ export async function runMonitor(options: MonitorOptions = {}): Promise<void> {
       if (selected.state === "unknown") throw new Error(unverifiedMessage(selected.name, selected.reason));
       if (isActive) {
         const { focusWorkspace } = await import("./workspace-focus.js");
-        const result = focusWorkspace(selected.name);
+        const result = focusWorkspace(selected.name, undefined, selected.directory);
         if (result.kind !== "focused") throw new Error(result.reason);
       } else {
         const { launch } = await import("./launcher.js");

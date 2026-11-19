@@ -901,6 +901,21 @@ describe("session launch reports what each project did (F19)", () => {
     logSpy.mockRestore();
   });
 
+  it("counts an unshown workspace and continues to the next project", async () => {
+    const logSpy = setup();
+    mockLaunch.mockResolvedValueOnce("unshown").mockResolvedValueOnce("launched");
+    try {
+      await handleSessionCommand(makeContext({ args: ["myteam"] }));
+      const logs = logSpy.mock.calls.map(([line]: unknown[]) => String(line));
+      expect(logs).toContain("[1/2] Already running, could not show api");
+      expect(logs).toContain("[2/2] Launched web");
+      expect(logs.join("\n")).toContain("Session complete: 1 launched, 1 already running but not shown.");
+      expect(logs.join("\n")).not.toContain("switched");
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
   it("does not claim a launch for a dry run", async () => {
     const logSpy = setup();
     mockLaunch.mockResolvedValue("dry-run");

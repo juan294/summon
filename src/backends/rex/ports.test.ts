@@ -201,6 +201,19 @@ describe("readLivePorts", () => {
     expect(result.ports.map((p) => p.port)).toEqual([3000, 5173]);
   });
 
+  it.each(["reply", "missing method"])("reports incomplete coverage for an unsupported pane (%s) and keeps its sibling's ports", async (kind) => {
+    const { run } = runner({ ports: (id) => {
+      if (id === "block:s") return ok("block-call", SERVER_PORTS);
+      return kind === "reply"
+        ? ok("block-call", { status: "unsupported", ports: [], processes: [] })
+        : failure("block-call", 1, 'Error: block has no method "ports"');
+    } });
+    const result = await readLivePorts(TARGET, createLiveBudget(), run);
+    expect(result.status).toBe("partial");
+    expect(result.reason).toMatch(/unsupported|does not support/i);
+    expect(result.ports.map((p) => p.port)).toEqual([3000, 5173]);
+  });
+
   it("a block list that fails is unavailable with Rex's reason", async () => {
     const run: RexAsyncRunner = async (op, argv, opts) => (op === "block-ls" ? failure(op, 4, "Error: could not connect to server") : runner({}).run(op, argv, opts));
     expect(await readLivePorts(TARGET, createLiveBudget(), run)).toEqual({ status: "unavailable", ports: [], reason: "Error: could not connect to server" });
@@ -266,6 +279,38 @@ describe("readLivePorts", () => {
     expect(calls.filter((c) => c.op === "block-call")).toHaveLength(many.length);
     expect(peak()).toBeGreaterThan(1);
     expect(peak()).toBeLessThanOrEqual(IO_CONCURRENCY);
+  });
+
+  it("shares a single native call limit across workspaces while each makes progress", async () => {
+    const count = IO_CONCURRENCY * 3;
+    const blocks = { blocks: Array.from({ length: count }, (_, i) => ({ block_id: `block:${i}` })) };
+    const { run, calls, peak } = runner({ blocks });
+    const budget = createLiveBudget();
+    const sessions = ["session:a", "session:b", "session:c"];
+    const results = await Promise.all(sessions.map((sessionId) => readLivePorts({ ...TARGET, sessionId }, budget, run)));
+    expect(peak()).toBeLessThanOrEqual(IO_CONCURRENCY);
+    expect(peak()).toBeGreaterThan(1);
+    expect(results.map((r) => r.status)).toEqual(["ok", "ok", "ok"]);
+    expect(calls.filter((c) => c.op === "api-describe")).toHaveLength(1);
+    const panes = calls.filter((c) => c.op === "block-call");
+    for (const id of sessions) expect(panes.filter((c) => c.argv[3] === id)).toHaveLength(count);
+    // Each workspace gets a turn before the first one drains all its panes.
+    expect(new Set(panes.slice(0, IO_CONCURRENCY * sessions.length).map((c) => c.argv[3]))).toEqual(new Set(sessions));
+  });
+
+  it("starts no queued native call after the deadline, even when active runners ignore abort", async () => {
+    const budget = createLiveBudget(100);
+    const blocks = Array.from({ length: IO_CONCURRENCY }, (_, i) => ({ block_id: `block:${i}` }));
+    let started = 0;
+    const run: RexAsyncRunner = async (op) => {
+      if (op === "block-ls") return ok(op, { blocks });
+      if (op === "api-describe") return ok(op, undefined);
+      started++;
+      return new Promise<RexResult>(() => {});
+    };
+    const results = await Promise.all(["session:a", "session:b"].map((sessionId) => readLivePorts({ ...TARGET, sessionId }, budget, run)));
+    expect(started).toBe(IO_CONCURRENCY);
+    expect(results.map((r) => r.reason)).toEqual([PORTS_TIMED_OUT, PORTS_TIMED_OUT]);
   });
 
   it("the shared deadline ends calls that never answer and later workspaces read nothing", async () => {

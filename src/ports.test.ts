@@ -218,6 +218,20 @@ describe("detectProjectPorts", () => {
     expect(ports).toEqual([]);
   });
 
+  it("accepts only complete decimal fixed ports from config and scripts", async () => {
+    const dir = projectDir("port-range");
+    writeFileSync(join(dir, ".summon"), "env.PORT=3000abc\nenv.DEV_PORT=65536\nenv.API_PORT=0001\nenv.DB_PORT=0\n");
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ scripts: {
+      dev: "vite --port 70000", api: "next --port 65535", other: "serve -p 1", auto: "serve -p 0",
+    } }));
+    writeFileSync(join(dir, "next.config.js"), "");
+    expect(await detectProjectPorts("port-range", dir, "active")).toEqual([
+      { port: 1, project: "port-range", source: "config", state: "active" },
+      { port: 65535, project: "port-range", source: "package.json", state: "active" },
+      { port: 3000, project: "port-range", source: "framework-default", state: "active" },
+    ]);
+  });
+
   it("skips .summon read when isTrusted returns false (#472: trust gate in ports pipeline)", async () => {
     const dir = projectDir("proj-untrusted");
     writeFileSync(join(dir, ".summon"), "env.PORT=9999\n");

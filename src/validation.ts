@@ -32,6 +32,12 @@ export function sanitizeProjectName(raw: string): string {
   return s.length > 64 ? s.slice(0, 64) : s;
 }
 
+/** A menu accepts a whole decimal choice; its caller owns bounds, defaults and back navigation. */
+export function parseMenuNumber(input: string): number {
+  const choice = input.trim();
+  return /^\d+$/.test(choice) ? Number(choice) : NaN;
+}
+
 type ParseResult = {
   ok: true;
   value: number;

@@ -339,14 +339,14 @@ describe("handleOpenCommand", () => {
       { name: "web", directory: "/tmp/web", state: "stopped", uptime: null, gitBranch: "develop" },
     ]);
     mockPromptUser
-      .mockResolvedValueOnce("nope")
+      .mockResolvedValueOnce("1.5")
       .mockResolvedValueOnce("1");
 
-    await handleOpenCommand(makeContext({ overrides: { dryRun: true } }));
+    await handleOpenCommand(makeContext());
 
     const allWrites = writeSpy.mock.calls.map((c) => String(c[0])).join("\n");
     expect(allWrites).toContain("Invalid selection. Enter a number between 1 and 2.");
-    expect(mockFocusWorkspace).toHaveBeenCalledWith("api");
+    expect(mockFocusWorkspace).toHaveBeenCalledWith("api", undefined, "/tmp/api");
     expect(logSpy).toHaveBeenCalledWith("Switched to [api]");
     writeSpy.mockRestore();
   });
@@ -463,7 +463,7 @@ describe("handleOpenCommand", () => {
       `${row.programStatus ? "!" : " "}\u25CF ${row.name}`);
     mockPromptUser.mockResolvedValueOnce("2");
 
-    await handleOpenCommand(makeContext({ overrides: { dryRun: true } }));
+    await handleOpenCommand(makeContext());
 
     const lines = logSpy.mock.calls.map((c) => String(c[0]));
     expect(lines).toContain("  1  !\u25CF api");
@@ -654,7 +654,7 @@ describe("handleOpenCommand under the four-state table (plan P10, Phase 4)", () 
     mockFocusWorkspace.mockReturnValue({ kind: "focused", terminalId: "block:1" });
     mockPromptUser.mockResolvedValueOnce("1");
     await handleOpenCommand(makeContext());
-    expect(mockFocusWorkspace).toHaveBeenCalledWith("api");
+    expect(mockFocusWorkspace).toHaveBeenCalledWith("api", undefined, "/tmp/api");
     expect(logSpy).toHaveBeenCalledWith("Switched to [api]");
     expect(logSpy.mock.calls.some((c) => String(c[0]).includes("1 active / 2 total"))).toBe(true);
 
@@ -685,7 +685,7 @@ describe("summon open <project> (guide F1: the documented direct form)", () => {
     mockFocusWorkspace.mockReturnValue({ kind: "focused", terminalId: "block:1" });
     await handleOpenCommand(makeContext({ args: ["api"] }));
     expect(mockLoadProjectRow).toHaveBeenCalledWith("api");
-    expect(mockFocusWorkspace).toHaveBeenCalledWith("api");
+    expect(mockFocusWorkspace).toHaveBeenCalledWith("api", undefined, "/tmp/api");
     expect(logSpy).toHaveBeenCalledWith("Switched to [api]");
     expect(mockLoadProjectRows).not.toHaveBeenCalled();
     expect(mockPromptUser).not.toHaveBeenCalled();

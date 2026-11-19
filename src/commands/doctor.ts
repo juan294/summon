@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { probeGhostty, type GhosttyConfigKey } from "../backends/ghostty/probe.js";
 import { homedir } from "node:os";
-import { listConfig, listProjects } from "../config.js";
+import { listConfig } from "../config.js";
 import {
   probeAccessibility,
   resolveCommand,
@@ -350,16 +350,21 @@ export async function handleDoctorCommand({
   // time out. Read-only by default; --fix applies the same recovery rule as the lock itself.
   console.error();
   console.error("Checking lock files...\n");
+  let lockFindings = 0;
   const lockDirs = [CONFIG_DIR, STATUS_DIR].flatMap((dir) => {
     try {
       return readdirSync(dir, { withFileTypes: true })
         .filter((entry) => entry.isDirectory() && entry.name.endsWith(".lock"))
         .map((entry) => join(dir, entry.name));
-    } catch {
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        lockFindings++;
+        record(false);
+        console.error(`  ${FAIL}  Could not inspect lock directory ${escapeControlChars(dir)}: ${escapeControlChars(getErrorMessage(error))}`);
+      }
       return [];
     }
   });
-  let lockFindings = 0;
   for (const lock of lockDirs) {
     const shown = escapeControlChars(lock);
     let state: LockState;
@@ -400,34 +405,39 @@ export async function handleDoctorCommand({
 
   console.error();
   console.error("Checking port conflicts...\n");
-  const ports = await detectAllPorts();
-  const { conflicts } = ports;
-  totalChecks++;
-  if (conflicts.size === 0) {
-    passedChecks++;
-    console.error(
-      `  ${PASS}  No port conflicts (${listProjects().size} projects checked)`,
-    );
-  } else {
-    allGood = false;
-    for (const [port, projects] of conflicts) {
-      totalIssues++;
-      console.error(
-        `  ${FAIL}  Port conflict: port ${port} used by ${projects.join(", ")}`,
-      );
-    }
-  }
-
-  console.error();
-  console.error("Checking live ports...\n");
-  const live = livePortsCheck(ports);
-  if (live.counted) {
+  const ports = await detectAllPorts().catch((error: unknown) => {
+    record(false);
+    console.error(`  ${FAIL}  Could not check port conflicts: ${escapeControlChars(getErrorMessage(error))}`);
+  });
+  if (ports) {
+    const { conflicts } = ports;
     totalChecks++;
-    if (live.issues === 0) passedChecks++;
-    else allGood = false;
-    totalIssues += live.issues;
+    if (conflicts.size === 0) {
+      passedChecks++;
+      console.error(
+        `  ${PASS}  No port conflicts (${ports.projectCount} projects checked)`,
+      );
+    } else {
+      allGood = false;
+      for (const [port, projects] of conflicts) {
+        totalIssues++;
+        console.error(
+          `  ${FAIL}  Port conflict: port ${port} used by ${projects.join(", ")}`,
+        );
+      }
+    }
+
+    console.error();
+    console.error("Checking live ports...\n");
+    const live = livePortsCheck(ports);
+    if (live.counted) {
+      totalChecks++;
+      if (live.issues === 0) passedChecks++;
+      else allGood = false;
+      totalIssues += live.issues;
+    }
+    for (const line of live.lines) console.error(`  ${line.level === "PASS" ? PASS : line.level === "FAIL" ? FAIL : "INFO"}  ${line.text}`);
   }
-  for (const line of live.lines) console.error(`  ${line.level === "PASS" ? PASS : line.level === "FAIL" ? FAIL : "INFO"}  ${line.text}`);
 
   console.error();
 

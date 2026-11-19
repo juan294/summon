@@ -214,6 +214,35 @@ beforeEach(() => {
 });
 
 describe("Rex launch composition through the built CLI and a fake rex (QA-M2)", () => {
+  it("open and switch dry runs preview named and picker targets without inspecting or changing Rex", () => {
+    const fixture = mkdtempSync(join(root, "preview-"));
+    const dir = join(fixture, "preview");
+    mkdirSync(dir);
+    const calls = join(fixture, "calls");
+    const state = join(fixture, "state.json");
+    writeFileSync(state, JSON.stringify({ sessions: [LAUNCHER], clients: [CLIENT] }));
+    const run = (args: string[], input = "") => spawnSync(process.execPath, [cliBuild("production"), ...args], {
+      cwd: dir, env: { ...env(), HOME: fixture, FAKE_REX_STATE: state, FAKE_REX_LOG: calls, SUMMON_WORKSPACE: "1" },
+      encoding: "utf8", input, timeout: 15_000,
+    });
+    expect(run(["add", "preview", dir]).status).toBe(0);
+    expect(run([".", "--layout", "minimal", "--editor", "sleep 300"]).status).toBe(0);
+    const file = join(fixture, ".config", "summon", "status", "preview.json");
+    const original = readFileSync(file, "utf8");
+    for (const command of ["open", "switch", "picker"]) {
+      if (command === "picker") expect(run(["remove", "preview"]).status).toBe(0);
+      writeFileSync(calls, "");
+      const args = command === "picker" ? ["open"] : [command, "preview"];
+      const result = run([...args, "--dry-run", "--layout", "minimal"], "1\n");
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout).toContain("-- Backend: rex");
+      expect(result.stdout).toContain('"initial_windows":');
+      expect(result.stdout).toContain(dir);
+      expect(readFileSync(calls, "utf8")).toBe("");
+      expect(readFileSync(file, "utf8")).toBe(original);
+    }
+  });
+
   it("the fake answers in the shapes Summon's own parsers read", () => {
     const cli = createRexCli(rex, SERVER);
     const prior = process.env;
@@ -304,7 +333,9 @@ describe("Rex launch composition through the built CLI and a fake rex (QA-M2)", 
     writeFileSync(logFile, "");
     const calls = () => readFileSync(logFile, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line) as { argv: string[]; caller: number });
     const isOp = (argv: string[], op: string) => opsOf([argv])[0] === op;
-    const pending = Promise.all([summonAsync("delta"), summonAsync("delta")]);
+    // The hook runs in each caller before the per-project create lock. Record both invocations in this checkout.
+    writeFileSync(join(binDir, "record-start"), '#!/bin/sh\nprintf "%s\\n" "$$" >> hook-calls\n', { mode: 0o700 });
+    const pending = Promise.all([summonAsync("delta", "--on-start", "record-start"), summonAsync("delta", "--on-start", "record-start")]);
     // Contention, not two launches far apart: one launcher is inside session.create while the other has already
     // made its early decision (its `ls`), so the second must wait on the lock.
     const contended = await settle(() => {
@@ -315,6 +346,9 @@ describe("Rex launch composition through the built CLI and a fake rex (QA-M2)", 
     rmSync(gate, { force: true });
     const runs = await pending;
     expect(contended).toBe(true);
+    const hookCalls = readFileSync(join(projectDir("delta"), "hook-calls"), "utf8").trim().split("\n");
+    expect(hookCalls).toHaveLength(2);
+    expect(new Set(hookCalls).size).toBe(2);
     for (const run of runs) expect(run.status, run.stderr).toBe(0);
     expect(opsOf(rexCalls()).filter((op) => op === "api call session.create")).toHaveLength(1);
     const sessions = readState().sessions.filter((s) => s.label === "delta");

@@ -159,6 +159,22 @@ function scanStatusDir(): { recorded: string[]; launchDirProjects: string[] } {
   };
 }
 
+/** File-only picker targets for a dry run, including workspaces launched without registration. */
+export function recordedProjectDirectories(): Array<[name: string, directory: string]> {
+  const { recorded, launchDirProjects } = scanStatusDir();
+  const targets: Array<[string, string]> = [];
+  for (const project of new Set([...recorded, ...launchDirProjects])) {
+    const record = readStatusRecord(project);
+    if (record) {
+      targets.push([project, record.directory]);
+    } else {
+      const directories = new Set(listLaunchManifests(project).map((manifest) => manifest.directory));
+      for (const directory of directories) targets.push([project, directory]);
+    }
+  }
+  return targets;
+}
+
 /** A read of a record or manifest of this backend may run a process (the record port's `spawnsProcess`). */
 function readSpawns(backend: BackendId | undefined): boolean {
   return recordReaderFor(backend).spawnsProcess;

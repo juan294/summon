@@ -260,7 +260,7 @@ describe("numberedSelect", () => {
     let callCount = 0;
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
       callCount++;
-      if (callCount === 1) cb("abc"); // invalid
+      if (callCount === 1) cb("1.5"); // no fractional menu choices
       else cb("1");
     });
     const options = [
@@ -863,7 +863,7 @@ describe("selectToolFromCatalog", () => {
     let callCount = 0;
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
       callCount++;
-      if (callCount === 1) cb("xyz"); // invalid
+      if (callCount === 1) cb("2x"); // no trailing text in a menu choice
       else cb("1");
     });
     const result = await selectToolFromCatalog(
@@ -2694,7 +2694,7 @@ describe("selectGridTemplate", () => {
     let callCount = 0;
     mockQuestion.mockImplementation((_q: string, cb: (a: string) => void) => {
       callCount++;
-      if (callCount === 1) cb("99"); // invalid
+      if (callCount === 1) cb("1e1"); // no exponent notation in a menu choice
       else cb("1"); // valid
     });
     const result = await selectGridTemplate();

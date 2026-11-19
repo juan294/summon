@@ -223,7 +223,7 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 | `clean` | `false` | Auto-close stale panes from a prior restored Ghostty session |
 | `starship-preset` | | Starship prompt theme preset (per-workspace) |
 | `font-size` | | Font size for workspace panes (points) |
-| `on-start` | | Command to run before workspace creation |
+| `on-start` | | Command to run before workspace creation. Under Rex, two concurrent invocations can both run this hook for one new workspace. Make the hook safe to repeat. |
 | `on-stop` | | Command to run after workspace closes |
 | `new-window` | `false` | Open workspace in a new Ghostty window (under Rex, a new session in the current window; only the `--new-window` flag skips the switch to a running session) |
 | `fullscreen` | `false` | Start workspace in fullscreen mode |

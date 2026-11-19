@@ -423,7 +423,7 @@ export async function showHelp(): Promise<void> {
 }
 
 export function hasSubcommandHelp(subcommand: string): boolean {
-  return subcommand in SUBCOMMAND_HELP;
+  return Object.hasOwn(SUBCOMMAND_HELP, subcommand);
 }
 
 export function showSubcommandHelp(subcommand: string): void {

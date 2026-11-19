@@ -4073,7 +4073,7 @@ describe("Rex launch (plan P2, P8, P13, P15; Phase 3)", () => {
     expect(order).toEqual(["adopt", "switch", "setup", "on-start"]);
     expect(mockRunSetup).toHaveBeenCalledWith({ backend: "rex" });
     expect(mockAdoptOrphansForLaunch).toHaveBeenCalledWith("workspace");
-    expect(mockMaybeSwitch).toHaveBeenCalledWith("workspace", false, expect.objectContaining({ cliFor: expect.any(Function) }));
+    expect(mockMaybeSwitch).toHaveBeenCalledWith("workspace", false, expect.objectContaining({ cliFor: expect.any(Function), targetDir: "/tmp/workspace" }));
     expect(stderrText).toContain("summon: note: adopted earlier launch x");
     expect(stderrText).toContain("summon: note: Rex cannot honor clean; ignored");
     expect(rexCalls()).toEqual([]);
@@ -4323,13 +4323,26 @@ describe("BE-L1: one Rex launch at a time per project", () => {
     mockMaybeSwitch.mockReturnValueOnce({ kind: "proceed" }).mockReturnValueOnce({ kind: "switched" });
     await expect(launch("/tmp/workspace", { "on-start": "echo hi" })).resolves.toBe("switched");
     expect(mockMaybeSwitch).toHaveBeenCalledTimes(2);
-    expect(mockMaybeSwitch.mock.calls[1]).toEqual(["workspace", false, expect.objectContaining({ cliFor: expect.any(Function) })]);
+    expect(mockMaybeSwitch.mock.calls[1]).toEqual(["workspace", false, expect.objectContaining({ cliFor: expect.any(Function), targetDir: "/tmp/workspace" })]);
     // The listing of the early decision may be minutes old: the decision under the lock lists afresh.
     expect(mockMaybeSwitch.mock.calls[1]![2]).not.toHaveProperty("listings");
     expect(launchEvents).toEqual(["lock", "unlock"]);
     expect(rexLaunches).toEqual([]);
     expect(statusModule.publishStatus).not.toHaveBeenCalled();
     expect(mockCloseLauncherTab).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["early", "locked"])("keeps the launcher tab when the %s decision cannot show the existing session", async (when) => {
+    if (when === "locked") {
+      let current: unknown = null;
+      mockReadStatusRecord.mockImplementation(() => current);
+      mockExecSync.mockImplementation(() => { current = { launchId: OTHER_LAUNCH }; return ""; });
+      mockMaybeSwitch.mockReturnValueOnce({ kind: "proceed" });
+    }
+    mockMaybeSwitch.mockReturnValueOnce({ kind: "unshown" });
+    await expect(launch("/tmp/workspace", { "on-start": "echo hi" })).resolves.toBe("unshown");
+    expect(rexLaunches).toEqual([]);
+    expect(mockCloseLauncherTab).not.toHaveBeenCalled();
   });
 
   it("refuses with exit 2 when the record that appeared meanwhile cannot be verified", async () => {

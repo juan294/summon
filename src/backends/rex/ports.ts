@@ -32,13 +32,20 @@ type Capability = { kind: "yes" } | { kind: "no" } | { kind: "failed"; reason: s
 /** A call that settles by the deadline even when its runner ignores the signal (it then reads as a timeout). */
 function bounded(op: RexOp, argv: readonly string[], target: LiveTarget, budget: LiveBudget, run: RexAsyncRunner): Promise<RexResult> {
   const timedOut = (): RexResult => classifyRexFailure(op, rawResult({ timedOut: true }));
-  if (budget.signal.aborted) return Promise.resolve(timedOut());
-  let onAbort: () => void = () => {};
-  const deadline = new Promise<RexResult>((resolve) => {
-    onAbort = () => resolve(timedOut());
-    budget.signal.addEventListener("abort", onAbort, { once: true });
+  return budget.withSlot(async () => {
+    // Queue time counts against the same command deadline. Never start a process for an expired call.
+    if (budget.expired()) return timedOut();
+    let onAbort: () => void = () => {};
+    const deadline = new Promise<RexResult>((resolve) => {
+      onAbort = () => resolve(timedOut());
+      budget.signal.addEventListener("abort", onAbort, { once: true });
+    });
+    try {
+      return await Promise.race([run(op, argv, options(target, budget)), deadline]);
+    } finally {
+      budget.signal.removeEventListener("abort", onAbort);
+    }
   });
-  return Promise.race([run(op, argv, options(target, budget)), deadline]).finally(() => budget.signal.removeEventListener("abort", onAbort));
 }
 
 function capabilityOf(target: LiveTarget, budget: LiveBudget, run: RexAsyncRunner): Promise<Capability> {
@@ -130,6 +137,7 @@ export async function readLivePorts(target: LiveTarget, budget: LiveBudget, run:
   }
   ports.sort((a, b) => a.port - b.port || a.address.localeCompare(b.address));
   if (read === 0 && unsupported > 0 && reasons.size === 0) return { status: "unsupported", ports: [], reason: PORTS_UNSUPPORTED };
+  if (unsupported > 0) reasons.add(`${unsupported} terminal pane${unsupported === 1 ? " does" : "s do"} not support live ports`);
   if (read === 0 && reasons.size > 0) return unavailable([...reasons].join("; "));
   return { status: reasons.size > 0 ? "partial" : "ok", ports, ...(reasons.size > 0 ? { reason: [...reasons].join("; ") } : {}) };
 }

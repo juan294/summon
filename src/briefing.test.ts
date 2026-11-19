@@ -63,7 +63,7 @@ const execFileSync = {
     _mockExecFileQueue.length = 0;
     _mockExecFileOverride = null;
   },
-  mockReturnValueOnce(val: string) {
+  mockReturnValueOnce(val: string | Error) {
     _mockExecFileQueue.push(val);
     _mockExecFileOverride = null;
     return execFileSync; // chainable
@@ -144,6 +144,7 @@ function makeSummary(overrides?: Partial<BriefingSummary>): BriefingSummary {
     activeCount: 1,
     unverifiedCount: 0,
     totalOvernightCommits: 5,
+    historyIncomplete: false,
     recommendation: null,
     allClean: false,
     ...overrides,
@@ -290,11 +291,11 @@ describe("collectGitData", () => {
 
     const result = await collectGitData("/tmp/myapp");
     expect(result.commits).toHaveLength(2);
-    expect(result.commits[0]!.hash).toBe("abc123");
-    expect(result.commits[0]!.subject).toBe("feat: add auth");
-    expect(result.commits[0]!.author).toBe("Juan");
-    expect(result.commits[0]!.isAgent).toBe(false);
-    expect(result.commits[1]!.isAgent).toBe(true); // "Claude" matches agent pattern
+    expect(result.commits![0]!.hash).toBe("abc123");
+    expect(result.commits![0]!.subject).toBe("feat: add auth");
+    expect(result.commits![0]!.author).toBe("Juan");
+    expect(result.commits![0]!.isAgent).toBe(false);
+    expect(result.commits![1]!.isAgent).toBe(true); // "Claude" matches agent pattern
   });
 
   it("returns empty commits when git log returns empty", async () => {
@@ -305,13 +306,13 @@ describe("collectGitData", () => {
     expect(result.commits).toEqual([]);
   });
 
-  it("returns empty commits on git log error", async () => {
+  it("marks failed Git reads as unavailable", async () => {
     getGitBranch.mockReturnValue("main");
     execFileSync.mockImplementation(() => { throw new Error("not a git repo"); });
 
     const result = await collectGitData("/tmp/myapp");
-    expect(result.commits).toEqual([]);
-    expect(result.dirty).toEqual([]);
+    expect(result.commits).toBeNull();
+    expect(result.dirty).toBeNull();
   });
 
   it("parses dirty files from git status --porcelain", async () => {
@@ -393,6 +394,19 @@ describe("collectBriefingData", () => {
     readAllStatuses.mockReturnValue([]);
     getGitBranch.mockReturnValue(null);
     execFileSync.mockReturnValue("");
+  });
+
+  it.each(["history", "status"])("preserves the other read when %s is unavailable", async (failed) => {
+    listProjects.mockReturnValue([["app", "/tmp/app"]]);
+    const failure = new Error("Git read failed");
+    execFileSync.mockReturnValueOnce(failed === "history" ? failure : "abc|Reviewed commit|Juan")
+      .mockReturnValueOnce(failed === "status" ? failure : "?? local.txt");
+
+    const { projects, summary } = await collectBriefingData();
+    const output = formatFullBriefing(projects, summary);
+    expect(output).toContain(failed === "history" ? "Commit history unavailable" : "Working tree status unavailable");
+    expect(output).toContain(failed === "history" ? "1 modified file" : "Reviewed commit");
+    expect(output).not.toContain("All projects clean");
   });
 
   it("returns empty projects when none registered", async () => {
@@ -766,15 +780,14 @@ describe("execFile shim mockImplementation return value (QA-L1 #613)", () => {
     execFileSync.mockImplementation(() => "abc123|feat: test|Author");
     const result = await collectGitData("/tmp/qa-l1-test");
     // The override returns the log line format; we expect commits to be parsed
-    expect(result.commits.length).toBeGreaterThanOrEqual(1);
+    expect(result.commits?.length).toBeGreaterThanOrEqual(1);
   });
 
   it("still propagates thrown errors from mockImplementation override", async () => {
     execFileSync.mockImplementation(() => { throw new Error("simulated failure"); });
     const result = await collectGitData("/tmp/qa-l1-throw-test");
-    // Errors in gitLines are caught and return [] — the data should be empty
-    expect(result.commits).toEqual([]);
-    expect(result.dirty).toEqual([]);
+    expect(result.commits).toBeNull();
+    expect(result.dirty).toBeNull();
   });
 });
 

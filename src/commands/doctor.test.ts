@@ -484,6 +484,19 @@ describe("doctor lock files (BE-L2, QA-L1)", () => {
     }) as typeof process.kill);
   });
 
+  it("reports a lock directory it cannot list and still inspects the other directory", async () => {
+    const statusDir = join(summonDir(), "status");
+    mkdirSync(summonDir(), { recursive: true });
+    writeFileSync(statusDir, "not a directory");
+    const dead = lock(join(summonDir(), "config.lock"), [{ name: `${DEAD}-${uuid}.owner` }]);
+    await expect(handleDoctorCommand(context())).rejects.toThrow("exit:2");
+    expect(output()).toContain("Could not check port conflicts");
+    expect(output()).toContain("checks passed");
+    expect(output()).toContain(`Could not inspect lock directory ${statusDir}`);
+    expect(output()).toContain(`Stale lock ${dead}`);
+    expect(output()).not.toContain("No stale lock files");
+  });
+
   it("--fix reports a stale lock it could not remove instead of claiming it removed it", async () => {
     const dead = lock(join(summonDir(), "config.lock"), [{ name: `${DEAD}-${uuid}.owner` }]);
     rmdirFault.path = dead;
