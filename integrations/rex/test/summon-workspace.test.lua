@@ -113,7 +113,7 @@ local DEFAULT_LIST = json_rows({ { "demo", "/tmp/demo = one" }, { "api", "/tmp/a
 -- A fresh action with a fake rex. `o` scripts the answers: exec, pick, window, env, no_ui, decode.
 local function setup(o)
   o = o or {}
-  local calls = { exec = {}, pick = {}, window = {}, other = {}, printed = {} }
+  local calls = { exec = {}, pick = {}, window = {}, queue = {}, other = {}, printed = {} }
   local fake = { calls = calls }
   local session = {
     new_window = function(spec)
@@ -142,9 +142,25 @@ local function setup(o)
     layout = { block = function(spec) return { block = spec } end },
     session = session,
   }
+  if not o.no_client then
+    -- rex.client.queue: client actions that run after `run` returns; it raises without a client.
+    rex.client = { queue = function(name, args) calls.queue[#calls.queue + 1] = { name = name, args = args } end }
+  else
+    rex.client = { queue = function() error("rex.client.queue: no client") end }
+  end
+  -- Rex cannot show a prompt inside pcall: the action's pcall is tracked, and a pick inside it fails.
+  local pcall_depth = 0
+  local function tracked_pcall(f, ...)
+    pcall_depth = pcall_depth + 1
+    local results = { pcall(f, ...) }
+    pcall_depth = pcall_depth - 1
+    return unpack(results)
+  end
+  fake.pcall = tracked_pcall
   if not o.no_ui then
     rex.ui = {
       pick = function(spec)
+        if pcall_depth > 0 then error("rex.ui.pick called inside pcall: Rex returns nil, \"failed\" there") end
         calls.pick[#calls.pick + 1] = spec
         if o.pick then return o.pick(spec) end
         return spec.items[1].id
@@ -156,6 +172,7 @@ local function setup(o)
   local fake_os = { getenv = function(name) return env_vars[name] end }
   local env = setmetatable({
     rex = rex,
+    pcall = fake.pcall,
     os = (not o.no_os) and fake_os or false,
     print = function(...) calls.printed[#calls.printed + 1] = table.concat({ ... }, " ") end,
   }, { __index = _G })
@@ -195,13 +212,57 @@ local function same_list(actual, expected, what)
   eq(#actual, #expected, (what or "list") .. " length")
   for i = 1, #expected do eq(actual[i], expected[i], (what or "list") .. "[" .. i .. "]") end
 end
+local ERROR_SCRIPT = 'printf "%s\\n\\n%s\\n" "$1" "Close this tab when you have read it."; exit 1'
+
+-- Windows that open a workspace (not the error tab).
+local function opens(fake)
+  local n = 0
+  for _, spec in ipairs(fake.calls.window) do
+    if spec.window_label ~= "Summon · error" then n = n + 1 end
+  end
+  return n
+end
+
+-- The action shows `part` in one error tab, brings it forward and ends quietly. Returns the message.
 local function fails_with(fake, part, ctx)
+  local before, queued = #fake.calls.window, #fake.calls.queue
+  local ok, result = run(fake, ctx)
+  eq(ok, true, "an error shown in a tab does not raise (" .. tostring(result) .. ")")
+  eq(result, nil, "result")
+  eq(#fake.calls.window, before + 1, "error tab created")
+  local spec = fake.calls.window[#fake.calls.window]
+  eq(spec.session_id, CTX.session_id, "error tab session")
+  eq(spec.focus, true, "error tab focus")
+  eq(spec.window_label, "Summon · error", "error tab label")
+  local options = spec.layout.block.options
+  local message = options.command[5]
+  same_list(options.command, { "/bin/sh", "-c", ERROR_SCRIPT, "summon-workspace", message }, "error tab command")
+  has(message, part, "error")
+  eq(options.shell, "none", "error tab shell")
+  eq(options.exit.on_completion, false, "error tab stays")
+  eq(#fake.calls.queue, queued + 1, "one queued client action")
+  local q = fake.calls.queue[#fake.calls.queue]
+  eq(q.name, "session.select", "queued action")
+  eq(q.args.session_id, CTX.session_id, "queued session")
+  eq(q.args.window_id, "window:new", "queued window")
+  eq(opens(fake), 0, "workspace tabs")
+  return message
+end
+
+-- The action fails without any tab, because there is no session to put one in.
+local function fails_quietly(fake, part, ctx)
   local ok, err = run(fake, ctx)
   eq(ok, false, "action fails")
   has(err, part, "error")
   eq(#fake.calls.window, 0, "windows created")
   return err
 end
+
+test("the picker is never called inside pcall", function()
+  local fake = setup()
+  assert(run(fake))
+  eq(#fake.calls.pick, 1, "picked")
+end)
 
 -- Source checks ------------------------------------------------------------------------------
 
@@ -228,15 +289,15 @@ end)
 
 -- Context and capability -----------------------------------------------------------------------
 
-test("no context: explains, lists nothing", function()
+test("no context: explains, lists nothing, opens no tab", function()
   local fake = setup()
-  fails_with(fake, "Run this from an open Rex session", false)
+  fails_quietly(fake, "Run this from an open Rex session", false)
   eq(#fake.calls.exec, 0, "exec calls")
 end)
 
 test("context without a session: explains, lists nothing", function()
   local fake = setup()
-  fails_with(fake, "Run this from an open Rex session", { origin = "cli" })
+  fails_quietly(fake, "Run this from an open Rex session", { origin = "cli" })
   eq(#fake.calls.exec, 0, "exec calls")
 end)
 
@@ -348,11 +409,10 @@ test("a failed listing, then a valid retry, opens normally", function()
     if attempts == 1 then return { code = 1, stdout = "", stderr = "x", timed_out = false, ok = false } end
     return ok_list(DEFAULT_LIST)(argv, opts)
   end })
-  local ok = run(fake)
-  eq(ok, false, "first run")
+  fails_with(fake, "failed with exit 1")
   assert(run(fake))
   eq(#fake.calls.exec, 2, "a fresh list per run")
-  eq(#fake.calls.window, 1, "windows")
+  eq(opens(fake), 1, "workspace tabs")
 end)
 
 test("wrong setting types are reported, not ignored", function()
@@ -523,11 +583,13 @@ test("after each picker failure, a new run lists again and opens the choice", fu
     local n = 0
     local fake = setup({ pick = function(spec) n = n + 1; if n == 1 then return nil, reason end; return spec.items[2].id end })
     run(fake)
-    eq(#fake.calls.window, 0, reason .. ": no window after the failure")
+    eq(opens(fake), 0, reason .. ": no workspace tab after the failure")
+    eq(#fake.calls.window, reason == "cancelled" and 0 or 1, reason .. ": error tab unless cancelled")
     assert(run(fake))
     eq(#fake.calls.exec, 2, reason .. ": a fresh list")
-    eq(#fake.calls.window, 1, reason .. ": one window after the retry")
-    eq(fake.calls.window[1].layout.block.options.command[3], "api", reason .. ": the retried choice")
+    eq(opens(fake), 1, reason .. ": one workspace tab after the retry")
+    local last = fake.calls.window[#fake.calls.window]
+    eq(last.layout.block.options.command[3], "api", reason .. ": the retried choice")
   end
 end)
 
@@ -535,9 +597,48 @@ test("after a malformed list, a valid list opens normally", function()
   local outputs = { '[{"name":"demo",', DEFAULT_LIST }
   local n = 0
   local fake = setup({ exec = function(argv, opts) n = n + 1; return ok_list(outputs[n])(argv, opts) end })
-  eq((run(fake)), false, "first run fails")
+  fails_with(fake, "unexpected list")
   assert(run(fake))
-  eq(#fake.calls.window, 1, "windows")
+  eq(opens(fake), 1, "workspace tabs")
+end)
+
+test("an error tab carries the message as one argument, metacharacters included", function()
+  local fake = setup({ pick = function() return nil, "failed", "$(touch /tmp/x); `id` \"q\" 'p'" end })
+  fails_with(fake, "$(touch /tmp/x); `id`")
+  has(fake.calls.window[1].layout.block.options.command[5], "$(touch /tmp/x); `id` \"q\" 'p'", "message argument")
+end)
+
+test("without a client to bring it forward, the error is raised and points to the tab", function()
+  local fake = setup({ no_client = true, exec = ok_list("[]\n") })
+  local ok, err = run(fake)
+  eq(ok, false, "raises")
+  eq(err, 'Details are in the "Summon · error" tab. ' .. fake.module.messages.empty, "message")
+  eq(#fake.calls.window, 1, "error tab")
+end)
+
+test("an opened workspace tab is brought forward", function()
+  local fake = setup({ pick = function() return "api" end })
+  assert(run(fake))
+  eq(#fake.calls.queue, 1, "queued")
+  eq(fake.calls.queue[1].name, "session.select", "action")
+  eq(fake.calls.queue[1].args.session_id, "session:origin", "session")
+  eq(fake.calls.queue[1].args.window_id, "window:new", "window")
+end)
+
+test("an opened workspace tab without a client still succeeds", function()
+  local fake = setup({ no_client = true })
+  local ok, result = run(fake)
+  eq(ok, true, "no error")
+  eq(result, nil, "result")
+  eq(opens(fake), 1, "workspace tab")
+end)
+
+test("an error tab that cannot be created still raises the message", function()
+  local fake = setup({ pick = function() return nil, "busy" end, window = function() return nil, "conflict" end })
+  local ok, err = run(fake)
+  eq(ok, false, "fails")
+  eq(err, "Another Rex question is open. Answer or close it, then retry.", "message without a tab pointer")
+  eq(#fake.calls.window, 1, "one attempt")
 end)
 
 test("picker failed: shows the bounded detail", function()
@@ -594,6 +695,7 @@ end)
 test("a failed tab creation explains, and is not retried", function()
   local fake = setup({ window = function() return nil, "session_not_found" end })
   local ok, err = run(fake)
+  eq(fake.calls.window[1].window_label, "Summon · demo", "only the workspace tab was requested")
   eq(ok, false, "fails")
   has(err, "Rex did not confirm the new tab for demo (session_not_found)", "message")
   has(err, '"Summon · demo" tab appeared', "inspect guidance")
@@ -621,7 +723,7 @@ test("every message names a condition and is used", function()
   local fake = setup()
   local by_reason = { timeout = true, busy = true, no_client = true, unsupported = true }
   for key in pairs(fake.module.messages) do
-    if not by_reason[key] and not source:find('fail%("' .. key .. '"') then
+    if not by_reason[key] and not source:find('fail%("' .. key .. '"') and not source:find("messages%." .. key) then
       error("message " .. key .. " is never raised")
     end
   end

@@ -40,6 +40,10 @@ local M = { settings = settings }
 local MAX_ITEMS = 2000
 local LIST_TIMEOUT = 5
 local SHELL_FLAVOR = "com.superlogical.terminal.shell"
+-- The app shows a raised error as a one-line "Action failed" toast cut to about 60 characters
+-- (preview.21), so the full message, with its fix, goes in a tab that is brought forward.
+local ERROR_LABEL = "Summon · error"
+local ERROR_SCRIPT = 'printf "%s\\n\\n%s\\n" "$1" "Close this tab when you have read it."; exit 1'
 local TERMINAL_HINT = " Or run `summon open` in a terminal."
 
 -- Every message the action can show, in one place.
@@ -83,6 +87,39 @@ end
 
 local function fail(condition, ...)
   error(string.format(messages[condition], ...), 0)
+end
+
+-- Bring a new tab forward in the app that ran the action. A window's focus on the server does not
+-- change the tab an app shows, so the app is asked, after the action returns, to select it. False
+-- when no client can be asked (a `rex do` without an app).
+local function bring_forward(ctx, window)
+  if type(rex.client) ~= "table" or type(rex.client.queue) ~= "function" then return false end
+  return (pcall(rex.client.queue, "session.select", { session_id = ctx.session_id, window_id = window.window_id }))
+end
+
+-- Show `message` in a new tab of the action's session and bring it forward. The message is an
+-- argument of a fixed script, never shell text. When that is not possible, raise it instead: the
+-- app's toast, `rex do` and the server log then carry it.
+local function report(ctx, message)
+  message = tostring(message)
+  if type(ctx) == "table" and type(ctx.session_id) == "string" and ctx.session_id ~= "" then
+    local shown = rex.session.new_window{
+      session_id = ctx.session_id,
+      focus = true,
+      window_label = ERROR_LABEL,
+      layout = rex.layout.block{
+        flavor = SHELL_FLAVOR,
+        options = {
+          command = { "/bin/sh", "-c", ERROR_SCRIPT, "summon-workspace", message },
+          shell = "none",
+          exit = { on_completion = false },
+        },
+      },
+    }
+    if shown and bring_forward(ctx, shown) then return nil end
+    if shown then error(string.format("Details are in the %q tab. %s", ERROR_LABEL, message), 0) end
+  end
+  error(message, 0)
 end
 
 -- A project name Summon accepts (src/validation.ts PROJECT_NAME_RE), in ASCII classes and bytes.
@@ -199,19 +236,27 @@ local function choices(stdout)
   return names, skipped
 end
 
-local function open_workspace(ctx)
+-- Everything before the picker: checks, settings and the listing. Run under pcall, which is fine
+-- here because no prompt is shown inside it.
+local function prepare(ctx)
   if type(ctx) ~= "table" or type(ctx.session_id) ~= "string" or ctx.session_id == "" then fail("no_session") end
   if type(rex.ui) ~= "table" or type(rex.ui.pick) ~= "function" then fail("no_picker") end
-
   local config = current_settings()
   local names, skipped = choices(list_output(config))
+  return { config = config, names = names, skipped = skipped }
+end
+
+local function open_workspace(ctx)
+  local ok, prepared = pcall(prepare, ctx)
+  if not ok then return report(ctx, prepared) end
+  local config, names, skipped = prepared.config, prepared.names, prepared.skipped
   local items, offered = {}, {}
   for i, name in ipairs(names) do
     items[i] = { id = name, title = name, icon = "folder" }
     offered[name] = true
   end
 
-  -- Called directly from run: Rex cannot show a picker from inside pcall.
+  -- Called outside pcall: Rex cannot show a picker from inside pcall.
   local choice, reason, detail = rex.ui.pick{
     title = "Open Summon workspace",
     placeholder = skipped > 0 and string.format(placeholder_skipped, skipped) or placeholder,
@@ -219,10 +264,12 @@ local function open_workspace(ctx)
   }
   if choice == nil then
     if reason == "cancelled" then return nil end
-    if reason == "timeout" or reason == "busy" or reason == "no_client" or reason == "unsupported" then fail(reason) end
-    fail("pick_failed", bounded(detail or reason))
+    if reason == "timeout" or reason == "busy" or reason == "no_client" or reason == "unsupported" then
+      return report(ctx, messages[reason])
+    end
+    return report(ctx, string.format(messages.pick_failed, bounded(detail or reason)))
   end
-  if type(choice) ~= "string" or not offered[choice] then fail("unexpected_choice") end
+  if type(choice) ~= "string" or not offered[choice] then return report(ctx, messages.unexpected_choice) end
 
   local label = "Summon · " .. choice
   local window, err = rex.session.new_window{
@@ -239,6 +286,7 @@ local function open_workspace(ctx)
     },
   }
   if not window then fail("window_failed", choice, bounded(err), label) end
+  bring_forward(ctx, window)
   return nil
 end
 
