@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { appendFileSync, chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
+import { createServer } from "node:net";
 import { fileURLToPath } from "node:url";
 import { cliBuild } from "../fixtures/cli-builds.js";
 
@@ -175,6 +176,19 @@ const contains = (text: string, needle: string | RegExp) => {
   const found = typeof needle === "string" ? text.includes(needle) : needle.test(text);
   expect(found, `expected ${JSON.stringify(needle instanceof RegExp ? String(needle) : needle)} in:\n${text}`).toBe(true);
 };
+/** A TCP port below the ephemeral range (49152) that nothing on 127.0.0.1 listens on now. */
+async function freePort(): Promise<number> {
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const port = 41000 + Math.floor(Math.random() * 8000);
+    const free = await new Promise<boolean>((resolve) => {
+      const probe = createServer();
+      probe.once("error", () => resolve(false));
+      probe.listen(port, "127.0.0.1", () => probe.close(() => resolve(true)));
+    });
+    if (free) return port;
+  }
+  throw new Error("no free port below 49152 after 50 tries");
+}
 /** Wait for the launch files of `launchId` to be exactly `expected` (poll: the panes write them). */
 const launchFiles = (project: string, launchId: string): string[] => (existsSync(launchesDirOf(project)) ? readdirSync(launchesDirOf(project)).filter((f) => f.startsWith(launchId)) : []);
 
@@ -791,6 +805,52 @@ describe("rex cli e2e", () => {
     const keptLayers = layersOf(keptRecord.rex!.sessionId);
     expect(keptLayers.filter((l) => l.kind === "floating")).toEqual([]);
     expect(keptLayers.find((l) => l.kind === "tiled")!.blocks).toHaveLength(2);
+  });
+
+  it("C24: a pane's dev server is a live port with its pane and process; another project's claim on it is a held conflict in ports, ports --json, inspect and doctor", { timeout: 180_000 }, async (ctx) => {
+    if (!harness.gate(ctx)) return;
+    const holder = name("eleven");
+    const claimant = name("twelve");
+    // A free port below the ephemeral range: listen on 0 would give an ephemeral one, so probe a random one.
+    const port = await freePort();
+    for (const project of [holder, claimant]) mkdirSync(join(home, "projects", project), { recursive: true });
+    writeFileSync(join(home, "projects", claimant, "package.json"), JSON.stringify({ scripts: { dev: `vite --port ${port}` } }));
+    expect(summon(["add", holder, join(home, "projects", holder)]).status).toBe(0);
+    expect(summon(["add", claimant, join(home, "projects", claimant)]).status).toBe(0);
+    writeFileSync(join(home, ".config", "summon", "layouts", "porttree"), `tree=editor | server\npane.editor=sleep 300\npane.server=/usr/bin/python3 -m http.server ${port} --bind 127.0.0.1\n`);
+
+    // The server pane opens minimized (python -m http.server is a background command): ports are read from it all the same.
+    const launch = summon([holder, "--layout", "porttree"]);
+    expect(launch.status, launch.out).toBe(0);
+    const record = launched(holder);
+
+    type PortsJson = { live: Array<{ port: number; project: string; pane: string; process: string | null; ephemeral: boolean }>; conflicts: Array<{ kind: string; port: number; holder?: string; claimants?: Array<{ project: string }> }> };
+    // The pane's shell starts the server a moment after the launch; the server sees the port within a second of activity.
+    const json = await until(() => {
+      const read = JSON.parse(summon(["ports", "--json"]).stdout) as PortsJson;
+      return read.live.some((l) => l.port === port && l.project === holder) ? read : undefined;
+    }, 15_000, `port ${port} live in ${holder}`);
+    const row = json.live.find((l) => l.port === port && l.project === holder)!;
+    expect(row).toMatchObject({ pane: "server", ephemeral: false });
+    expect(row.process ?? "", JSON.stringify(row)).toMatch(/^(Python|python3?(\.\d+)?)$/);
+    expect(json.conflicts).toContainEqual(expect.objectContaining({ kind: "held", port, holder, claimants: [expect.objectContaining({ project: claimant })] }));
+
+    const text = summon(["ports"]);
+    expect(text.status, text.out).toBe(0);
+    // The table cuts a project name at 16 characters; e2e-<4 hex>-twelve is 15, so the whole name shows.
+    expect(claimant.length).toBeLessThanOrEqual(16);
+    contains(text.stdout, new RegExp(`${port}\\s+${claimant}\\s+package\\.json.*held by ${holder}/server`));
+    contains(text.stdout, `Port ${port} is held by ${holder}/server (${row.process}); ${claimant} (package.json) claims it`);
+
+    const inspected = JSON.parse(summon(["inspect", holder, "--json"]).stdout) as { panes: Array<{ name: string; ports?: Array<{ port: number }> }> };
+    expect(inspected.panes.find((p) => p.name === "server")!.ports!.map((p) => p.port)).toContain(port);
+    expect(record.rex!.blocks.some((b) => b.name === "server")).toBe(true);
+
+    // A held conflict is a failed check, so doctor exits 2 whatever its other checks find; the report is on stderr.
+    const doctor = summon(["doctor"]);
+    expect(doctor.status, doctor.out).toBe(2);
+    const heldFail = doctor.stderr.split("\n").find((line) => line.includes(`Port ${port} is held by ${holder}/server (${row.process}); ${claimant} (package.json) claims it`));
+    expect(heldFail, doctor.stderr).toMatch(/FAIL/);
   });
 
   it("C19: summon open <project> focuses a live workspace, launches a stopped or never-launched one, refuses an unknown one and names a mistyped project", { timeout: 180_000 }, async (ctx) => {

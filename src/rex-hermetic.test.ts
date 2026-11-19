@@ -67,6 +67,7 @@ if (cmd === "whoami") print({ host_id: "host-fake", session_id: process.env.REX_
 else if (cmd === "ls") print({ sessions: state.sessions.map((s) => ({ session_id: s.session_id, label: s.label })) });
 else if (cmd === "api" && sub === "describe") {
   if (state.noLayerState && method === "session.set_layer_state") { process.stderr.write("Error: API method \"" + method + "\" not found. Run rex api list\n"); process.exit(3); }
+  if (state.noPorts && method === "com.superlogical.terminal.ports") { process.stderr.write("Error: API method \"" + method + "\" not found. Run rex api list\n"); process.exit(3); }
   process.stdout.write("Description of " + method + "\n");
 }
 else if (cmd === "api" && method === "session.float_block") {
@@ -106,6 +107,17 @@ else if (cmd === "api" && method === "session.create") {
   print({ session_id: s.session_id, initial_windows: [{ window_id: s.windows[0].window_id, block_ids: s.windows[0].blocks, revision: 1 }] });
 }
 else if (cmd === "do" && sub === "session.select") print({});
+else if (cmd === "block" && sub === "ls") {
+  const s = find(rest[rest.indexOf("-s") + 1]); if (!s) notFound();
+  print({ blocks: s.windows.flatMap((w) => w.blocks.map((b) => ({ block_id: b, label: "zsh", flavor: "com.superlogical.terminal.shell", window_id: w.window_id }))) });
+}
+else if (cmd === "block" && sub === "call" && rest[rest.length - 1] === "ports") {
+  const target = rest[rest.indexOf("-b") + 1];
+  if (state.noPorts) { process.stderr.write("Error: block " + target.slice(-6) + " has no method \"ports\"; methods: process, title\n"); process.exit(1); }
+  // A slow server: the read must end at Summon's own deadline, not wait for this one.
+  if (state.portsDelayMs) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, state.portsDelayMs);
+  print((state.ports || {})[target] || { status: "ok", ports: [], processes: [] });
+}
 else if (cmd === "block" && rest.includes("process")) print({ foreground: { pid: state.foreground === "agent" ? 1 : process.ppid, name: "node" }, ancestors: [{ pid: 1, name: "zsh" }] });
 else if (cmd === "kill") { const s = find(rest[1]); if (!s) notFound(); state.sessions = state.sessions.filter((x) => x !== s); save(); }
 else if (cmd === "window" && sub === "close") { const s = find(rest[rest.indexOf("-s") + 1]); if (!s) notFound(); s.windows = s.windows.filter((w) => w.window_id !== rest[rest.length - 1]); save(); }
@@ -114,7 +126,13 @@ else { process.stderr.write("unexpected fake rex operation: " + argv.join(" ") +
 
 interface FakeFloating { layer_id: string; block: string; bounds: number[]; state?: "minimized" }
 interface FakeSession { session_id: string; label: string; windows: Array<{ window_id: string; label: string; blocks: string[]; floating?: FakeFloating[] }> }
-interface FakeState { sessions: FakeSession[]; clients: unknown[]; createMode?: "lost"; foreground?: "agent"; createGate?: string; /** A Rex build without session.set_layer_state (preview.24). */ noLayerState?: boolean }
+interface FakeState {
+  sessions: FakeSession[]; clients: unknown[]; createMode?: "lost"; foreground?: "agent"; createGate?: string;
+  /** A Rex build without session.set_layer_state (preview.24). */ noLayerState?: boolean;
+  /** `block call ports` answers by block id (live ports, plan 2026-11-19-rex-live-ports). */ ports?: Record<string, unknown>;
+  /** A server older than API 16: no ports method. */ noPorts?: boolean;
+  /** Every ports call waits this long. */ portsDelayMs?: number;
+}
 
 const LAUNCHER: FakeSession = {
   session_id: "session:0000aaaa-0000-0000-0000-000000000001",
@@ -382,5 +400,79 @@ describe("Rex background panes through the built CLI and the fake rex (plan Phas
     expect(readState().sessions.filter((s) => s.label === "eta")).toHaveLength(1);
     // One create in total: the first launch sent it, the second never did.
     expect(opsOf([...firstLaunch, ...rexCalls()]).filter((op) => op === "api call session.create")).toHaveLength(1);
+  });
+});
+
+describe("live ports through the built CLI and a fake rex (plan 2026-11-19-rex-live-ports)", () => {
+  const PORTS_REPLY = { status: "ok", ports: [
+    { port: 3000, address: "127.0.0.1", protocol: "tcp", first_seen_at: "2026-11-19T06:29:32Z", pid: 7 },
+    { port: 52206, address: "127.0.0.1", protocol: "tcp", first_seen_at: "2026-11-19T06:29:32Z", pid: 8 },
+  ], processes: [{ pid: 7, user_id: 501, name: "node", argv0: "node" }, { pid: 8, user_id: 501, name: "2.1.328", argv0: "claude" }] };
+
+  function cli(...args: string[]) {
+    const run = spawnSync(process.execPath, [cliBuild("production"), ...args], { cwd: home, env: env(), encoding: "utf8", input: "", timeout: 30_000 });
+    if (run.error) throw run.error;
+    return run;
+  }
+
+  let rootBlock = "";
+  beforeAll(() => {
+    // A second project claims 3000 in package.json (no trust needed); theta's root pane will hold it.
+    mkdirSync(projectDir("web"), { recursive: true });
+    writeFileSync(join(projectDir("web"), "package.json"), JSON.stringify({ scripts: { dev: "vite --port 3000" } }));
+  });
+
+  it("ports shows a held conflict and hides the agent port; --json lists both; inspect lists both on the pane", { timeout: 60_000 }, () => {
+    mkdirSync(projectDir("theta"), { recursive: true });
+    const launched = summon("theta");
+    expect(launched.status, launched.stderr).toBe(0);
+    rootBlock = record("theta").rex.rootBlockId;
+    expect(cli("add", "web", projectDir("web")).status).toBe(0);
+    writeState({ ...readState(), ports: { [rootBlock]: PORTS_REPLY } });
+
+    const text = cli("ports");
+    expect(text.status, text.stderr).toBe(0);
+    expect(text.stdout).toMatch(/3000\s+web\s+package\.json.*held by theta\/editor \(node\).*conflict/);
+    expect(text.stdout).toMatch(/3000\s+theta\s+live\s.*editor \(node\)/);
+    expect(text.stdout).toContain("Port 3000 is held by theta/editor (node); web (package.json) claims it");
+    expect(text.stdout).not.toContain("52206");
+    expect(text.stdout).toContain("1 ephemeral live port hidden; summon inspect theta lists them.");
+
+    const json = JSON.parse(cli("ports", "--json").stdout) as { live: Array<{ port: number; project: string; pane: string; ephemeral: boolean }>; conflicts: Array<{ kind: string; port: number }> };
+    expect(json.live.filter((l) => l.project === "theta").map((l) => [l.port, l.pane, l.ephemeral])).toEqual([[3000, "editor", false], [52206, "editor", true]]);
+    expect(json.conflicts).toContainEqual(expect.objectContaining({ kind: "held", port: 3000 }));
+
+    const inspected = cli("inspect", "theta");
+    expect(inspected.status, inspected.stderr).toBe(0);
+    expect(inspected.stdout).toContain("    ports: 3000 127.0.0.1 (node), 52206 127.0.0.1 (claude)");
+    expect((JSON.parse(cli("inspect", "theta", "--json").stdout) as { panes: Array<{ name: string; ports?: unknown[] }> }).panes.find((p) => p.name === "editor")!.ports).toHaveLength(2);
+
+    // doctor: the held conflict is a FAIL and the run exits 2, whatever else it checks.
+    const doctor = cli("doctor");
+    expect(doctor.status, doctor.stderr).toBe(2);
+    expect(doctor.stderr.split("\n").find((line) => line.includes("Port 3000 is held by theta/editor (node); web (package.json) claims it"))).toMatch(/FAIL/);
+  });
+
+  it("a server without the method: static table, the API 16 note, exit 0 and no ports call", () => {
+    writeState({ ...readState(), noPorts: true, ports: { [rootBlock]: PORTS_REPLY } });
+    const run = cli("ports");
+    expect(run.status, run.stderr).toBe(0);
+    expect(run.stdout).toMatch(/3000\s+web\s+package\.json/);
+    expect(run.stdout).toContain("note: this Rex server has no live ports (needs API 16 or later)");
+    expect(rexCalls().some((argv) => argv.at(-1) === "ports")).toBe(false);
+    const inspected = cli("inspect", "theta");
+    expect(inspected.status).toBe(0);
+    expect(inspected.stdout).toContain("live ports: this Rex server has no live ports (needs API 16 or later)");
+  });
+
+  it("a server that does not answer in time: the command ends at its deadline with a note and exit 0", { timeout: 30_000 }, () => {
+    writeState({ ...readState(), portsDelayMs: 15_000, ports: { [rootBlock]: PORTS_REPLY } });
+    const started = Date.now();
+    const run = cli("ports");
+    const took = Date.now() - started;
+    expect(run.status, run.stderr).toBe(0);
+    expect(took).toBeLessThan(7000);
+    // Every running workspace of this suite shares the slow server, so the note names them all.
+    expect(run.stdout).toMatch(/note: live ports incomplete for [^\n]*\btheta\b[^\n]* \(timed out\)/);
   });
 });

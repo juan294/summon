@@ -66,8 +66,10 @@ vi.mock("../ui/ansi.js", () => ({
   green: (value: string) => mockGreen(value),
   dim: (value: string) => mockDim(value),
   yellow: (value: string) => mockYellow(value),
-  truncateLine: (value: string, _width: number) => value,
+  // Marks what was passed through truncation, so a test can tell a cut line from a whole one.
+  truncateLine: (value: string, _width: number) => (truncateMarks.on ? `[cut:${value}]` : value),
 }));
+const truncateMarks = vi.hoisted(() => ({ on: false }));
 
 vi.mock("../ui/symbols.js", () => ({
   sym: { ok: "✓", dotFilled: "●", dotEmpty: "○" },
@@ -382,6 +384,23 @@ describe("handlePortsCommand with live ports (plan 2026-11-19-rex-live-ports)", 
     expect(out.filter((l) => l.includes("4000"))).toHaveLength(1);
     expect(out).toContain("[yellow:  ⚠ Port 3000 is held by api/server (node); web (package.json) claims it]");
     expect(out).not.toContain("[green:✓] No port conflicts");
+  });
+
+  it("never cuts a held-conflict line to the terminal width (the claimant is the part to act on)", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    truncateMarks.on = true;
+    try {
+      mockDetectAllPorts.mockReturnValue({
+        assignments: [{ port: 3000, project: "web", source: "package.json", state: "stopped" }], conflicts: new Map(), projectCount: 1,
+        live: [live(3000, "api", "server")],
+        held: [{ port: 3000, holder: "api", pane: "server", process: "node", claimants: [{ project: "web", source: "package.json" }] }],
+        liveWorkspaces: 1, readWorkspaces: 1,
+      });
+      await handlePortsCommand();
+    } finally {
+      truncateMarks.on = false;
+    }
+    expect(lines(logSpy)).toContain("[yellow:  ⚠ Port 3000 is held by api/server (node); web (package.json) claims it]");
   });
 
   it("hides an unclaimed ephemeral live port and says how many it hid; a claimed one is shown", async () => {

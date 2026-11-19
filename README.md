@@ -168,7 +168,7 @@ Config resolution order: **CLI flags > .summon > machine config > preset > defau
 | `summon title <project> [pane] [--set <text> \| --reset]` | Read, set or clear a tab/pane title override |
 | `summon clean <project> [--orphans]` | Close an empty Rex session and end its record; `--orphans` reviews earlier launches (see [docs/rex.md](docs/rex.md)) |
 | `summon briefing` | Morning briefing — overnight commits, dirty files, recommendations |
-| `summon ports` | Detect port assignments across projects, highlight conflicts |
+| `summon ports [--json]` | Detect port assignments across projects and highlight conflicts; under Rex, also the ports running panes listen on and which pane holds each |
 | `summon snapshot <action>` | Manage context snapshots (save, show, clear) |
 | `summon session <name>` | Launch a saved multi-project session — one terminal tab (or Rex session) per project |
 | `summon session add <name> <p>...` | Save a session (named list of registered projects) |

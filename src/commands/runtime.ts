@@ -217,7 +217,8 @@ export async function handlePortsCommand({ values }: Pick<CommandContext, "value
       const msg = `  ⚠ Port ${port} used by: ${projects.join(", ")}`;
       console.log(yellow(truncateLine(msg, termWidth)));
     }
-    for (const held of report.held) console.log(yellow(truncateLine(`  ⚠ ${heldLine(held)}`, termWidth)));
+    // Never cut: the claimant and where it claims the port are the part the user acts on (C24, 80 columns when piped).
+    for (const held of report.held) console.log(yellow(`  ⚠ ${heldLine(held)}`));
   }
   footer();
 }

@@ -100,3 +100,57 @@ One test bug was found and fixed during the repair. The abort test's fake script
 | R2-n5 | nit | `readLive` loads `backends/workspace.js` when only Ghostty workspaces run | Accepted: the phase design dispatches through `workspaceBackendFor`; filtering on `backend === "rex"` in the generic module would hard-code a backend. The cost is one module graph load on a command that already reads every status. |
 | R2-n6 | nit | No inspect exit-code test with a ports failure | Covered: the inspect output test runs a partial ports read through `handleInspectCommand` with `process.exit` stubbed to throw, so an exit 2 would fail it |
 | R2-n7 | nit | A shared static claim where one claimant also runs gives two FAIL lines | Accepted: it matches D2 as the owner chose it (the static check unchanged, plus the held check) |
+
+## Phase 3: docs, end-to-end tests, native acceptance
+
+**Delivered:**
+- `docs/rex.md`: a new section, "Live ports".
+- `README.md`: the `summon ports [--json]` row.
+- `docs/release/rex-e2e-guide.md`: the C24 row and manual step M4 4.8.
+- `src/rex-hermetic.test.ts`: the fake `rex` now answers `block ls`, `block call ports`, a server without the method and a slow server. Three cases:
+  - a held conflict through `ports`, `ports --json`, `inspect` and `doctor` (exit 2, FAIL);
+  - a server without the method (static table, the API 16 note, no ports call);
+  - a slow server (the command ends at its deadline with a note, exit 0).
+- `src/e2e/rex-cli.test.ts`: scenario C24, plus a `freePort` helper.
+- `src/commands/runtime.ts`: held-conflict footer lines are never cut to the terminal width. C24 found the claimant cut off when the output was piped (80 columns). The cause is fixed, and a test proved it fails without the fix.
+
+**Deviations from phase-3.md, with reasons:**
+- **D-P3-1:** C24 names its projects `e2e-<id>-eleven` (the holder) and `e2e-<id>-twelve` (the claimant), in the suite's naming scheme. The claimant claims the port through `package.json` (`vite --port P`), not `env.PORT` in a trusted `.summon`, so no trust step is needed. The poll is 15 s, not 10 s; the port appeared after 0.26 s in the earlier probe.
+- **D-P3-2:** M4 step 4.8 does not check the hiding of agent ports. The guide's sandbox home runs no agent, so no ephemeral port can appear there. The hiding is checked in the owner's home (native acceptance step 2).
+- **D-P3-3:** the hermetic cases share state in order. Cases 2 and 3 use case 1's workspace and registration, as the suite's existing cases do.
+
+**Independent review:** one reviewer, read-only. It ran nothing against Rex, Ghostty or osascript. Verdict: CHANGES REQUESTED.
+
+| ID | Severity | Finding | Disposition |
+| --- | --- | --- | --- |
+| R3-M1 | must-fix | Guide 4.8 expected agent ports in a sandbox that has none | Fixed: D-P3-2; the step now checks the server's own live row |
+| R3-S1 | should-fix | The docs said inspect lists every port of the workspace | Fixed: inspect asks the recorded panes; `--json` has the rest |
+| R3-S2 | should-fix | The 4 s limit applies to `ports` and `doctor`, not inspect | Fixed: the docs give inspect's 2 s per pane, its stop after one pane does not answer, and its `live ports:` line |
+| R3-S3 | should-fix | The rule for `live` rows was wrong for held ports | Fixed: "its own project does not claim it", marked as a conflict when another project claims it |
+| R3-S4 | should-fix | The hermetic case 1 lacked the doctor assertion | Fixed: `doctor` exits 2 with a FAIL line holding the held text |
+| R3-S5 | should-fix | C24's doctor check was weaker than the contract | Fixed: exit 2, and the held line carries FAIL |
+| R3-n | nits | The guide's 4.8 text; the minimized `server` pane; the claimant name `slice`; the truncated-reply reason; the "one line" wording | Fixed: 4.8 rewritten; the C24 row and a test comment say the pane is minimized; the slice is replaced by a length assert; the truncated reason is in the docs; the docs say "one line per reason". The flake risk on a loaded machine is accepted: the holder is read first (newest active), and the 4 s budget covers it. |
+
+**Evidence (Phase 3 tree, Rex server preview.21 API 18, Node v24.22.3).** The logs were copied to `/Users/juan/code/summon/logs/live-ports/`, which is gitignored.
+
+| Check | Result |
+| --- | --- |
+| typecheck, lint, build | exit 0 |
+| `pnpm test` | 105 files, 3,947 passed, 21 skipped (the gated E2E cases, C24 now among them) |
+| `pnpm test:lua` | 60 passed |
+| `pnpm test:coverage` | 97.29 / 93.25 / 98.26 / 98.59, at or above the plan baseline of 97.21 / 92.92 / 98.25 / 98.57 |
+| Hermetic built-CLI suite | 12 passed |
+| A7 Rex CLI E2E, required mode, run 1 | 13 passed; C24 failed. The held line was cut at 80 columns when piped. The cause was fixed in `runtime.ts`, with a test that fails without the fix. |
+| A7 Rex CLI E2E, required mode, run 2 (after the review fixes) | 14 of 14 passed, C24 included; cleanup verified (no `RECOVERY.json`, no `e2e-*` session, 17 sessions before and after) |
+| A9 Ghostty E2E, required mode | Run 1: 23 passed, and the 2 GUI cases stopped at `summon-not-running` because Ghostty was not running. Ghostty was started for run 2: 25 of 25, nothing skipped. Ghostty was quit afterwards, since it had not been running before. |
+| Native 1: `summon ports` time, owner's 17 workspaces | 0.97, 0.77, 0.77 s (median 0.77 s; target 1.5 s or less; baseline 0.57 s) |
+| Native 2: agent ports hidden | 42 live ports, all ephemeral (`claude`, `codex`), all hidden; the line reads `42 ephemeral live ports hidden in 17 workspaces; summon ports --json lists them.`; JSON has all 42 with `ephemeral: true` |
+| Native 3: `summon inspect summon` | `ports: 52206 127.0.0.1 (claude)` under `opus`, `52066 127.0.0.1 (codex)` under `codex`; exit 0 |
+| Native 4: `summon doctor` | `PASS  No running workspace holds a port another project claims (42 live ports read)`. Exit 2 comes from the existing static claim conflict on 3000 (seven projects), the same as installed 2.1.1. |
+
+**Not covered:**
+- A server older than API 16 was not available. The fallback is covered by unit and hermetic tests only, with the preview.19 reply shape from 2026-11-17.
+- More than one Rex server was never seen.
+- The manual guide steps (M4 4.8) were not run by hand.
+
+**Next:** Phase 3 is complete on `feat/rex-live-ports`. The merge to `develop` and any push need the owner's word.
