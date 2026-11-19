@@ -102,6 +102,20 @@ describe("help module exports", () => {
     expect(overview).toMatch(/summon list\S*\s+List all registered projects \(--json\)/);
   });
 
+  it("ports help names --json and the live ports Rex adds (plan 2026-11-19-rex-live-ports)", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    showSubcommandHelp("ports");
+    const text = String(logSpy.mock.calls[0]?.[0]);
+    await showHelp();
+    const overview = logSpy.mock.calls.slice(1).flat().join("\n");
+    logSpy.mockRestore();
+    expect(text).toContain("Usage: summon ports [--json]");
+    expect(text).toContain("Under Rex, the ports that running workspaces listen on are read live");
+    expect(text).toContain("49152");
+    expect(text).toContain("--json");
+    expect(overview).toMatch(/summon ports\S*\s+Show port assignments and detect conflicts \(--json\)/);
+  });
+
   it("keybindings help and the overview document the rex form", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 

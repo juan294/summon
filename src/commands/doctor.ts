@@ -21,6 +21,8 @@ import { GHOSTTY_ONLY_CONFIG_KEYS, resolveBackendForLaunch } from "../backend.js
 import { lockStaleBound } from "../status-record.js";
 import { discoverRex, printRexChecks } from "../backends/rex/doctor.js";
 import { escapeControlChars } from "../ui/sanitize.js";
+import { detectAllPorts, heldLine, liveNoteLines } from "../ports.js";
+import type { PortsReport } from "../ports.js";
 import type { CommandContext } from "./types.js";
 
 const PASS = green(`${sym.ok} PASS`);
@@ -32,6 +34,27 @@ function rexIgnoredConfigKeys(config: Map<string, string>): string[] {
     const value = config.get(key);
     return key === "font-size" ? value !== undefined && value !== "" : value === "true";
   });
+}
+
+export interface LivePortsCheck {
+  /** Whether the check counts toward "N/M checks passed": only when some live ports were read. */
+  counted: boolean;
+  issues: number;
+  lines: Array<{ level: "PASS" | "FAIL" | "INFO"; text: string }>;
+}
+
+/**
+ * The live half of the port check (owner decision D2): a running workspace holding a port that another project
+ * claims fails; a read that did not complete is INFO, never a failure, since a missing data source is not a problem
+ * with the projects.
+ */
+export function livePortsCheck(report: PortsReport): LivePortsCheck {
+  if (report.liveWorkspaces === 0) return { counted: false, issues: 0, lines: [{ level: "INFO", text: "No running Rex workspace; live ports not checked" }] };
+  const notes = liveNoteLines(report.notes).map((text) => ({ level: "INFO" as const, text }));
+  if (report.readWorkspaces === 0) return { counted: false, issues: 0, lines: notes };
+  if (report.held.length > 0) return { counted: true, issues: report.held.length, lines: [...report.held.map((held) => ({ level: "FAIL" as const, text: heldLine(held) })), ...notes] };
+  const read = `${report.live.length} live port${report.live.length === 1 ? "" : "s"} read`;
+  return { counted: true, issues: 0, lines: [{ level: "PASS", text: `No running workspace holds a port another project claims (${read})` }, ...notes] };
 }
 
 export async function handleDoctorCommand({
@@ -377,8 +400,8 @@ export async function handleDoctorCommand({
 
   console.error();
   console.error("Checking port conflicts...\n");
-  const { detectAllPorts } = await import("../ports.js");
-  const { conflicts } = await detectAllPorts();
+  const ports = await detectAllPorts();
+  const { conflicts } = ports;
   totalChecks++;
   if (conflicts.size === 0) {
     passedChecks++;
@@ -394,6 +417,17 @@ export async function handleDoctorCommand({
       );
     }
   }
+
+  console.error();
+  console.error("Checking live ports...\n");
+  const live = livePortsCheck(ports);
+  if (live.counted) {
+    totalChecks++;
+    if (live.issues === 0) passedChecks++;
+    else allGood = false;
+    totalIssues += live.issues;
+  }
+  for (const line of live.lines) console.error(`  ${line.level === "PASS" ? PASS : line.level === "FAIL" ? FAIL : "INFO"}  ${line.text}`);
 
   console.error();
 

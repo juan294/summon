@@ -116,7 +116,7 @@ async function buildHelp(): Promise<string> {
     wrap(`  ${cmd("summon status")}               Interactive workspace status dashboard`),
     wrap(`  ${cmd("summon status --once")}        Print status table once and exit`),
     wrap(`  ${cmd("summon briefing")}             Morning briefing across all projects`),
-    wrap(`  ${cmd("summon ports")}                Show port assignments and detect conflicts`),
+    wrap(`  ${cmd("summon ports")}                Show port assignments and detect conflicts (--json)`),
     wrap(`  ${cmd("summon snapshot <action>")}    Manage context snapshots (save, show, clear)`),
     "",
     h("TOOLS"),
@@ -305,11 +305,18 @@ Actions:
   show <project>    Display a saved snapshot
   clear <project>   Remove a saved snapshot`,
 
-  ports: `Usage: summon ports
+  ports: `Usage: summon ports [--json]
 
 Show port assignments across all registered projects.
 Detects ports from .summon env vars, package.json scripts, and framework defaults.
-Highlights port conflicts when multiple projects use the same port.`,
+Highlights port conflicts when multiple projects use the same port.
+
+Under Rex, the ports that running workspaces listen on are read live, with the
+pane and the process that holds each one. A port that another project claims is
+a conflict. Live ports from 49152 up (agents and helpers) are hidden unless a
+project claims them; summon inspect <project> lists them.
+
+  --json    Print the claims, every live port, the conflicts and the notes as one JSON object`,
 
   briefing: `Usage: summon briefing
 

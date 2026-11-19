@@ -558,7 +558,7 @@ describe("P2 native command completion behavior",()=>{
     const result=spawnSync("bash",["-c",script],{encoding:"utf8",env:{...process.env,HOME:home}});
     expect(result.status).toBe(0);expect(result.stdout.trim()).toBe("demo");
    }
-   expect(generateZshCompletion()).toContain("--json");expect(generateZshCompletion()).toContain("--json[Print JSON (inspect, list)]");expect(generateFishCompletion()).toContain("Print JSON (inspect, list)");expect(generateFishCompletion()).toContain("-l json");
+   expect(generateZshCompletion()).toContain("--json");expect(generateZshCompletion()).toContain("--json[Print JSON (inspect, list, ports)]");expect(generateFishCompletion()).toContain("Print JSON (inspect, list, ports)");expect(generateFishCompletion()).toContain("-l json");
   } finally {rmSync(home,{recursive:true,force:true});}
  });
 });

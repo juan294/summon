@@ -3,82 +3,18 @@
  * of the session, read side by side through `runRexAsync` within one command's `LiveBudget`. Read-only: nothing
  * is written or cached past the command (plan 2026-11-19-rex-live-ports).
  */
-import { basename } from "node:path";
 import { runPool, IO_CONCURRENCY } from "../../utils.js";
-import type { LiveBudget, LivePort, LivePortsResult, LivePortsStatus } from "../port.js";
+import type { LiveBudget, LivePort, LivePortsResult } from "../port.js";
 import { rawResult, runRexAsync } from "./cli.js";
 import type { RunRexAsyncOptions } from "./cli.js";
 import { classifyRexFailure } from "./errors.js";
 import { asRecord } from "./types.js";
 import type { RexBlockIdentity, RexOp, RexResult } from "./types.js";
+import { PORTS_METHOD, PORTS_CALL_TIMEOUT_MS, PORTS_UNSUPPORTED, PORTS_TIMED_OUT, NO_PORTS_METHOD_RE, parsePortsReply } from "./ports-reply.js";
+import type { ParsedPorts } from "./ports-reply.js";
 
-export const PORTS_METHOD = "com.superlogical.terminal.ports";
-/** Rex's own `--timeout` for one `ports` call; a healthy server answers in about 25 ms (measured 2026-11-19). */
-export const PORTS_CALL_TIMEOUT_MS = 2000;
-export const PORTS_UNSUPPORTED = "this Rex server has no live ports (needs API 16 or later)";
-export const PORTS_TIMED_OUT = "timed out";
-const PARTIAL_PROCESSES = "some processes could not be read; a port may be missing";
-const TRUNCATED = "more ports than one reply holds; some are not shown";
-const UNREADABLE = "unreadable ports reply";
-/** What a server without the method answers to `block call <block> ports` (preview.19, 2026-11-17). */
-export const NO_PORTS_METHOD_RE = /has no method "ports"/;
-
-/** One port as a reply gives it, before it is placed on a pane. */
-export type ReplyPort = Omit<LivePort, "pane" | "recorded">;
-
-export interface ParsedPorts {
-  status: Exclude<LivePortsStatus, "unavailable">;
-  ports: ReplyPort[];
-  reason?: string;
-}
-
-function processLabel(entry: Record<string, unknown> | undefined): string | null {
-  if (!entry) return null;
-  for (const key of ["script", "argv0", "name"]) {
-    const value = entry[key];
-    if (typeof value === "string" && value !== "") return value.includes("/") ? basename(value) || value : value;
-  }
-  return null;
-}
-
-/**
- * One `block call ports` answer. The schema's rules: an unknown `status` is `partial`; an entry with a protocol
- * other than `tcp` is skipped; a missing `pid` means the holder is unknown (and the reply partial); a truncated
- * reply lists only some ports.
- */
-export function parsePortsReply(json: unknown): ParsedPorts {
-  const reply = asRecord(json);
-  const rawPorts = reply?.["ports"];
-  if (!reply || !Array.isArray(rawPorts)) return { status: "partial", ports: [], reason: UNREADABLE };
-  const processes = new Map<number, Record<string, unknown>>();
-  if (Array.isArray(reply["processes"])) {
-    for (const item of reply["processes"] as unknown[]) {
-      const entry = asRecord(item);
-      if (entry && Number.isInteger(entry["pid"])) processes.set(entry["pid"] as number, entry);
-    }
-  }
-  const reasons = new Set<string>();
-  let status: ParsedPorts["status"] = reply["status"] === "ok" || reply["status"] === "unsupported" ? reply["status"] : "partial";
-  if (status === "partial") reasons.add(PARTIAL_PROCESSES);
-  const ports: ReplyPort[] = [];
-  for (const item of rawPorts as unknown[]) {
-    const entry = asRecord(item);
-    const port = entry?.["port"];
-    if (!entry || entry["protocol"] !== "tcp" || typeof port !== "number" || !Number.isInteger(port) || port < 0 || port > 65535 || typeof entry["address"] !== "string") continue;
-    const pid = Number.isInteger(entry["pid"]) ? (entry["pid"] as number) : null;
-    if (pid === null) {
-      status = "partial";
-      reasons.add(PARTIAL_PROCESSES);
-    }
-    ports.push({ port, address: entry["address"], process: pid === null ? null : processLabel(processes.get(pid)), pid });
-  }
-  if (reply["truncated"] === true) {
-    status = "partial";
-    reasons.add(TRUNCATED);
-  }
-  if (status === "unsupported") return { status, ports: [], reason: PORTS_UNSUPPORTED };
-  return { status, ports, ...(reasons.size > 0 ? { reason: [...reasons].join("; ") } : {}) };
-}
+export { PORTS_METHOD, PORTS_CALL_TIMEOUT_MS, PORTS_UNSUPPORTED, PORTS_TIMED_OUT, NO_PORTS_METHOD_RE, parsePortsReply } from "./ports-reply.js";
+export type { ReplyPort, ParsedPorts } from "./ports-reply.js";
 
 /** The process boundary of a live read, injectable for tests (`runRexAsync` by default). */
 export type RexAsyncRunner = (op: RexOp, argv: readonly string[], opts: RunRexAsyncOptions) => Promise<RexResult>;
