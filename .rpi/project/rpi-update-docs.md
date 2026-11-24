@@ -1,4 +1,4 @@
-<!-- rpi-overlay: skill=rpi-update-docs; written-against=c6edb810a4c8 -->
+<!-- rpi-overlay: skill=rpi-update-docs; written-against=b1bd71232ee3 -->
 # Project overlay for rpi-update-docs
 
 ## Procedure
