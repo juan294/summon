@@ -50,7 +50,10 @@ export function resolveBackendForLaunch(probes: BackendProbes = {}): Detection {
   });
 }
 
-/** The caller's own Rex session (P7 app preference): `REX_SESSION` only when Summon runs inside Rex. */
-export function callerRexSession(context: Pick<LaunchContext, "placement">): string | undefined {
-  return context.placement === "inside-rex" ? process.env["REX_SESSION"] : undefined;
+/** The caller's session selector for app preference: a legacy session ID or a block ID.
+ * Focus has no launch context and uses the terminal marker directly.
+ */
+export function callerRexSession(context?: Pick<LaunchContext, "placement">, env: NodeJS.ProcessEnv = process.env): string | undefined {
+  const inside = context ? context.placement === "inside-rex" : env["TERM_PROGRAM"] === "rex";
+  return inside ? env["REX_SESSION"] || env["REX_BLOCK"] : undefined;
 }

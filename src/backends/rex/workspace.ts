@@ -3,8 +3,9 @@
  * (`backends/rex/read.ts`, reached through backends/read.ts); focus, inspect and title pass the shared pre-flight first (plan P10); `summon clean`
  * closes an empty session (P17) and reviews earlier launches (P13 in command form).
  */
+import { callerRexSession } from "../../backend.js";
 import { existsSync } from "node:fs";
-import { createRexCli } from "./cli.js";
+import { createRexCli, resolveBlockSession } from "./cli.js";
 import { SESSION_GONE, focusRex, inspectRex, sessionListings, sessionState, titleRex, viewBlockIds, viewSession } from "./status.js";
 import type { SessionListings, SessionView } from "./status.js";
 import type { RexIdentity } from "./types.js";
@@ -134,15 +135,19 @@ function reviewOrphan(project: string, manifest: LaunchManifest, gen: string | n
   const id = manifest.launchId;
   const paths = launchArtifactPaths(project, id);
   const rootName = manifest.paneOrder[0];
-  const root = rootName === undefined ? "malformed" : readPaneFile(paths.pane(rootName).file);
+  const cli = manifest.server ? createRexCli(binary, manifest.server) : undefined;
+  const lookup = (blockId: string) => cli && resolveBlockSession(cli, blockId);
+  const root = rootName === undefined ? "malformed" : readPaneFile(paths.pane(rootName).file, lookup);
   const where = `launch ${id} of [${project}] (started ${manifest.startedAt}, server ${manifest.server ?? "none"})`;
-  if (root === "absent" || root === "malformed" || readPaneMapping(manifest, root.sessionId).malformed.length > 0) {
+  if (root === "unresolved") return `${where}: the session owning the root block could not be verified; left in place.`;
+  if (root === "absent" || root === "malformed" || root === "block-gone" || readPaneMapping(manifest, root, lookup).malformed.length > 0) {
     const files = launchArtifactFiles(project, id, manifest.paneOrder);
     const present = launchFileList(files).filter((file) => existsSync(file));
-    return withRecoveryCommand(`${where}: ${root === "absent" ? "never confirmed its session" : "has an unreadable pane file"}; left in place as evidence.`, `rm -f ${present.map(shellQuote).join(" ")}`);
+    const reason = root === "absent" ? "never confirmed its session"
+      : root === "block-gone" ? "its root block closed before its session was recorded" : "has an unreadable pane file";
+    return withRecoveryCommand(`${where}: ${reason}; left in place as evidence.`, `rm -f ${present.map(shellQuote).join(" ")}`);
   }
-  if (!manifest.server) return `${where}: manifest names no server; left in place.`;
-  const cli = createRexCli(binary, manifest.server);
+  if (!manifest.server || !cli) return `${where}: manifest names no server; left in place.`;
   const listed = listings.of(cli);
   if (!listed.ok) return `${where}: server unreachable (${listed.reason}); left in place.`;
   /** The line for a removal; `tail` (the P17 limitation) comes before a recovery command, which is always last. */
@@ -170,8 +175,7 @@ export const RexWorkspace: WorkspaceBackend = {
   focus(project, status, pane) {
     const gate = gateOf(project, status);
     if (!gate.ok) return gate.failure;
-    // No detection row here (focus does not launch): REX_SESSION is set by Rex terminals only, so it is the caller's session when present.
-    return focusRex(gate.cli, gate.identity, status?.panes ?? [], project, gate.liveBlocks, pane, process.env["REX_SESSION"]);
+    return focusRex(gate.cli, gate.identity, status?.panes ?? [], project, gate.liveBlocks, pane, callerRexSession());
   },
 
   inspect: inspectRexWorkspace,

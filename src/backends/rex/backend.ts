@@ -31,7 +31,7 @@ export interface RexBackendDeps {
   createWorkspace?: typeof createWorkspace;
   keptSession?: typeof keptSession;
   app?: CreateContext["app"];
-  /** `REX_SESSION` of the shell running Summon, when inside Rex (P7). */
+  /** Session or block selector of the calling Rex terminal (P7). */
   callerSession?: string | undefined;
   /**
    * `--new-window` given on the command line. A config `new-window=true` (the plan's `newWindow`) is a Ghostty

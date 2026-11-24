@@ -3,8 +3,9 @@ import { execFileSync } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { escapeControlChars, isDisplaySafe } from "../../ui/sanitize.js";
-import { BUNDLE_NAMES } from "./cli.js";
+import { BUNDLE_NAMES, resolveBlockSession } from "./cli.js";
 import type { RexCli } from "./cli.js";
+import { isKindId } from "./types.js";
 import type { RexFailure, RexResult } from "./types.js";
 
 /**
@@ -87,7 +88,7 @@ export function listAppClients(cli: RexCli, options: { includeLost?: boolean } =
 }
 
 /**
- * Plan P7: the apps attached to `preferSession` (the caller's `REX_SESSION`) when any, else every
+ * Plan P7: the apps attached to the caller's canonical session ID when any, else every
  * app; within the set the newest `connected_at` wins and equal timestamps resolve to the
  * lexicographically smallest client id.
  */
@@ -111,10 +112,14 @@ export function selectInApp(cli: RexCli, clientId: string, sessionId: string, wi
   return cli.call("do-select", argv);
 }
 
-/** One listing and the P7 choice; a failed listing counts as no client. */
-export function pickAppClient(cli: RexCli, preferSession?: string): AppClientChoice | undefined {
+/** Resolve a caller's block selector only when the session preference can affect the choice. */
+export function pickAppClient(cli: RexCli, callerSelector?: string): AppClientChoice | undefined {
   const listed = listAppClients(cli);
-  return listed.ok ? chooseAppClient(listed.clients, preferSession) : undefined;
+  if (!listed.ok) return;
+  const preferSession = listed.clients.length > 1 && isKindId(callerSelector, "block")
+    ? resolveBlockSession(cli, callerSelector)
+    : callerSelector;
+  return chooseAppClient(listed.clients, preferSession ?? undefined);
 }
 
 /** Poll `client.list` until an app client is connected or the deadline passes. */
