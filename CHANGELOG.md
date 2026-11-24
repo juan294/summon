@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - On Rex server/CLI preview.23, Summon uses the pane’s block ID to find its session. If Rex creates a workspace but the reply is lost, Summon can recover that workspace. Launcher tab cleanup and app selection also use the caller’s session. Older Rex terminals can still supply the session ID directly.
 - If a Rex pane cannot enter its configured directory, it shows the error and skips its command. This prevents a command from running in the user’s home directory by mistake.
+- Rex now passes pane startup instructions to the login shell without typing the full script into the terminal. This fixes launches where a longer project name cut off the root pane’s setup and prevented its command from running.
+- A Rex root pane using Fish now starts its command and runs its cleanup hook once on exit or hangup.
 
 ### Changed
 

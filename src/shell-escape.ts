@@ -17,8 +17,9 @@ export function escapeAppleScript(s: string): string {
     .replace(/\r/g, "\\r");
 }
 
-/** POSIX single-quote escaping: wrap in single quotes, escape embedded single quotes. */
-export function shellQuote(s: string): string {
+/** Single-quote a shell argument. Fish also interprets paired backslashes inside single quotes. */
+export function shellQuote(s: string, fish = false): string {
+  if (fish) s = s.replaceAll("\\", "\\\\");
   return `'${s.replace(/'/g, "'\\''")}'`;
 }
 

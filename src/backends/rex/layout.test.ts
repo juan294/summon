@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it, expect } from "vitest";
@@ -7,6 +7,8 @@ import { planLayout, getPreset, traditionalPaneNames } from "../../layout.js";
 import type { LayoutPlan } from "../../layout.js";
 import { parseTreeDSL, resolveTreeCommands, buildTreePlan } from "../../tree.js";
 import { traditionalInventory } from "../ghostty/pane-inventory.js";
+import { resolveCommand } from "../../utils.js";
+import { shellQuote } from "../../shell-escape.js";
 import { bootstrapLine, cleanupTrapLine, paneFileLine } from "../../launch-identity.js";
 import { buildSessionCreateRequest, resolveLoginShell, TERMINAL_FLAVOR } from "./layout.js";
 import type { RexBlockNode, RexLayoutNode, SessionCreateInput } from "./layout.js";
@@ -40,6 +42,12 @@ function blocks(node: RexLayoutNode): RexBlockNode["block"][] {
   return [...blocks(node.split.before), ...blocks(node.split.after)];
 }
 
+/** Read the startup script after the initial command that unsets its transport variable. */
+function script(block: RexBlockNode["block"]): string {
+  const value = block.options.command.find((arg) => arg.startsWith("SUMMON_REX_STARTUP_"))!;
+  return value.slice(value.indexOf("\n") + 1);
+}
+
 function preset(name: Parameters<typeof getPreset>[0], extra: Partial<LayoutPlan> = {}): LayoutPlan {
   return { ...planLayout({ editor: "vim", ...getPreset(name) }), ...extra };
 }
@@ -69,7 +77,7 @@ describe("buildSessionCreateRequest: traditional presets (the shape Ghostty buil
     expect(paneOrder).toEqual(["editor", "right-1", "shell", "sidebar"]);
     expect(labels).toEqual({ editor: "editor · vim", "right-1": "editor · btop", shell: "shell", sidebar: "sidebar · lazygit" });
     const right = blocks(request.initial_windows[0].layout)[1]!;
-    expect(right.options.initial_input.endsWith("clear\nbtop\n}\n")).toBe(true);
+    expect(script(right).endsWith("clear\neval 'btop'\n}")).toBe(true);
   });
 
   it("full: paneOrder is the depth-first before/after leaf order, distinct from panes and from traditionalInventory", () => {
@@ -149,9 +157,9 @@ describe("buildSessionCreateRequest: tree layouts", () => {
     const [a, b, npm, d] = blocks(request.initial_windows[0].layout);
     expect(a!.options.cwd).toBe(DIR);
     expect(b!.options.cwd).toBe(`${DIR}/packages/api`);
-    expect(b!.options.initial_input).toContain(`cd '${DIR}/packages/api' && {\n`);
-    expect(npm!.options.initial_input.endsWith("clear\nnpm test\n}\n")).toBe(true);
-    expect(d!.options.initial_input.endsWith("clear\n}\n")).toBe(true);
+    expect(script(b!)).toContain(`cd '${DIR}/packages/api' && {\n`);
+    expect(script(npm!).endsWith("clear\neval 'npm test'\n}")).toBe(true);
+    expect(script(d!).endsWith("clear\n}")).toBe(true);
   });
 
   it("rejects duplicate leaf names", () => {
@@ -161,6 +169,45 @@ describe("buildSessionCreateRequest: tree layouts", () => {
 });
 
 describe("buildSessionCreateRequest: blocks", () => {
+  const shells = ["/bin/bash", "/bin/zsh", resolveCommand("fish")].filter((path): path is string => !!path && existsSync(path));
+  it.each(shells)("preserves long startup, aliases, exit status and cleanup under %s", (shell) => {
+    const home = realpathSync(mkdtempSync(join(tmpdir(), "summon-pane-startup-")));
+    const target = join(home, "project's paired\\\\and trailing\\");
+    const project = "s".repeat(64);
+    const key = "SUMMON_REX_STARTUP_" + ID.replaceAll("-", "_");
+    const payload = "long command ".repeat(250);
+    const fish = shell.endsWith("/fish");
+    try {
+      mkdirSync(target);
+      const { request } = traditional(preset("minimal", { editor: `capture_env; pwd; printf '%s' '${payload}' > "$HOME/ran"; false` }), {
+        project, targetDir: target, loginShell: shell, onStop: "echo stopped",
+        envVars: { HOME: home, REX_SESSION: "session:test", REX_BLOCK: "block:test", [key]: "caller" },
+      });
+      const { command, initial_input } = blocks(request.initial_windows[0].layout)[0]!.options;
+      expect(Buffer.byteLength(initial_input)).toBeLessThan(1024);
+      const setupAlias = fish ? `alias capture_env 'env > "$HOME/child-env"'\n` : `alias capture_env='env > "$HOME/child-env"'\n`;
+      const bash = shell.endsWith("/bash");
+      const args = fish ? ["--no-config"] : bash ? ["--noprofile", "--norc"] : ["-f"];
+      const after = fish ? "echo status=$status\nkill -HUP $fish_pid\n" : "echo status=$?\n";
+      const result = spawnSync(command[0]!, [...command.slice(1, -1), ...args], {
+        input: (bash ? "shopt -s expand_aliases\n" : "") + setupAlias + initial_input + after,
+        encoding: "utf8", cwd: home, env: { PATH: "/usr/bin:/bin", TERM: "xterm" },
+      });
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout).toContain(target);
+      expect(result.stdout).toContain("status=1");
+      expect(readFileSync(join(home, "ran"), "utf8")).toBe(payload);
+      expect(readFileSync(join(home, "child-env"), "utf8").split("\n").filter((entry) => entry.startsWith("SUMMON_REX_STARTUP_"))).toEqual([`${key}=caller`]);
+      const generation = join(home, `.config/summon/status/${project}.launches/${ID}`);
+      expect(readFileSync(generation + ".pane.editor", "utf8")).toBe("session:test\nblock:test\n");
+      expect(existsSync(generation + ".pid")).toBe(false);
+      expect(existsSync(generation + ".active")).toBe(false);
+      expect(readFileSync(join(home, `.config/summon/logs/cleanup-${project}.log`), "utf8")).toBe("stopped\n");
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
   it("every block is a command-mode login shell wrapped in /usr/bin/env with the workspace variables, in order", () => {
     const { request } = traditional(preset("minimal"), { envVars: { FOO: "bar", BAZ: "a b" }, starshipConfigPath: "/cfg/starship.toml" });
     for (const block of blocks(request.initial_windows[0].layout)) {
@@ -175,6 +222,7 @@ describe("buildSessionCreateRequest: blocks", () => {
         "FOO=bar",
         "BAZ=a b",
         `SUMMON_LAUNCH_ID=${ID}`,
+        expect.stringMatching(/^SUMMON_REX_STARTUP_/),
         SHELL,
         "-l",
       ]);
@@ -183,7 +231,7 @@ describe("buildSessionCreateRequest: blocks", () => {
 
   it("omits STARSHIP_CONFIG and user vars when none apply", () => {
     const { request } = traditional(preset("minimal"));
-    expect(blocks(request.initial_windows[0].layout)[0]!.options.command).toEqual(["/usr/bin/env", "SUMMON_WORKSPACE=1", "SUMMON_TAB_TITLE=chapa", `SUMMON_LAUNCH_ID=${ID}`, SHELL, "-l"]);
+    expect(blocks(request.initial_windows[0].layout)[0]!.options.command).toEqual(["/usr/bin/env", "SUMMON_WORKSPACE=1", "SUMMON_TAB_TITLE=chapa", `SUMMON_LAUNCH_ID=${ID}`, expect.stringMatching(/^SUMMON_REX_STARTUP_/), SHELL, "-l"]);
   });
 
   it("never types export lines", () => {
@@ -194,15 +242,13 @@ describe("buildSessionCreateRequest: blocks", () => {
   it("root pane: bootstrap with the root pane-file write, trap, cd, clear, command; each line newline-terminated", () => {
     const { request } = traditional(preset("minimal"), { onStop: "echo bye" });
     const root = blocks(request.initial_windows[0].layout)[0]!;
-    expect(root.options.initial_input).toBe(
+    const setup = script(root);
+    expect(setup).toContain(
       `${bootstrapLine("chapa", ID)} && ${paneFileLine("chapa", ID, "editor")}\n`
-      + cleanupTrapLine("chapa", ID, { onStop: "echo bye", targetDir: DIR }) + "\n"
-      + `cd '${DIR}' && {\n`
-      + "clear\n"
-      + "vim\n}\n",
+      + "eval " + shellQuote(cleanupTrapLine("chapa", ID, { onStop: "echo bye", targetDir: DIR })),
     );
-    expect(root.options.initial_input).toContain(`rm -f "$HOME/.config/summon/status/chapa.launches/${ID}.pid" "$HOME/.config/summon/status/chapa.launches/${ID}.active" 2>/dev/null`);
-    const rm = /rm -f ([^;]*)/.exec(root.options.initial_input)![1]!;
+    expect(setup).toContain(`rm -f "$HOME/.config/summon/status/chapa.launches/${ID}.pid" "$HOME/.config/summon/status/chapa.launches/${ID}.active" 2>/dev/null`);
+    const rm = /rm -f ([^;]*)/.exec(setup)![1]!;
     expect(rm).not.toContain(".pane.");
     expect(rm).not.toContain(".json");
   });
@@ -212,13 +258,13 @@ describe("buildSessionCreateRequest: blocks", () => {
     const all = blocks(request.initial_windows[0].layout);
     for (let i = 1; i < all.length; i++) {
       const name = paneOrder[i]!;
-      const input = all[i]!.options.initial_input;
+      const input = script(all[i]!);
       expect(input.startsWith(paneFileLine("chapa", ID, name) + "\n")).toBe(true);
       expect(input).not.toContain(".pid");
       expect(input).not.toContain(".active");
       expect(input).not.toContain("trap ");
       for (const other of paneOrder) if (other !== name) expect(input).not.toMatch(new RegExp(`\\.pane\\.${other}(\\.tmp)?"`));
-      expect(input).toContain(`\ncd '${DIR}' && {\nclear\n`);
+      expect(script(all[i]!)).toContain(`cd '${DIR}' && {\nclear\n`);
     }
   });
 
@@ -231,19 +277,36 @@ describe("buildSessionCreateRequest: blocks", () => {
       mkdirSync(join(home, ".config/summon/status/chapa.launches"), { recursive: true });
       const command = "pwd; printf 'first\\n' # inline comment\nprintf 'second\\n'";
       const { request } = traditional({ ...preset("minimal"), sidebarCommand: command }, { targetDir: project });
-      const input = blocks(request.initial_windows[0].layout)[1]!.options.initial_input;
-      const run = () => spawnSync(process.platform === "darwin" ? SHELL : "/bin/sh", ["-f"], {
-        input: "clear() { echo cleared; return 1; }\n" + input + "echo ready\n",
+      const { command: argv, initial_input: input } = blocks(request.initial_windows[0].layout)[1]!.options;
+      const run = () => spawnSync(argv[0]!, [...argv.slice(1, -2), process.platform === "darwin" ? SHELL : "/bin/sh", "-f"], {
+        input: "clear() { echo cleared; return 1; }\n" + input + 'echo status=$?\nenv > "$HOME/after-env"\necho ready\n',
         encoding: "utf8", cwd: home, env: { ...process.env, HOME: home },
       });
       const valid = run();
       expect(valid.status).toBe(0);
-      expect(valid.stdout.split("\n")).toEqual(["cleared", project, "first", "second", "ready", ""]);
+      expect(valid.stdout.split("\n")).toEqual(["cleared", project, "first", "second", "status=0", "ready", ""]);
       rmSync(project, { recursive: true });
       const missing = run();
       expect(missing.status).toBe(0);
       expect(missing.stderr).toContain(project);
-      expect(missing.stdout).toBe("ready\n");
+      expect(missing.stdout).toMatch(/^status=[1-9]\d*\nready\n$/);
+      expect(readFileSync(join(home, "after-env"), "utf8")).not.toMatch(/^SUMMON_REX_STARTUP_/m);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it.each(["exec /usr/bin/env", ")"])("keeps the transport out of the pane environment for %s", (paneCommand) => {
+    const home = realpathSync(mkdtempSync(join(tmpdir(), "summon-pane-env-")));
+    try {
+      const { request } = traditional(preset("minimal", { editor: paneCommand }), { targetDir: home, envVars: { HOME: home } });
+      const { command, initial_input } = blocks(request.initial_windows[0].layout)[0]!.options;
+      const result = spawnSync(command[0]!, [...command.slice(1, -2), "/bin/sh"], {
+        input: initial_input + "env\n", encoding: "utf8", env: { PATH: "/usr/bin:/bin", TERM: "xterm" },
+      });
+      expect(result.stdout).toContain(`HOME=${home}`);
+      expect(result.stdout).not.toMatch(/^SUMMON_REX_STARTUP_/m);
+      expect(existsSync(join(home, `.config/summon/status/chapa.launches/${ID}.pane.editor`))).toBe(true);
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
@@ -252,19 +315,19 @@ describe("buildSessionCreateRequest: blocks", () => {
   it("uses a fish command group when fish is the login shell", () => {
     const { request } = traditional(preset("minimal"), { loginShell: "/opt/homebrew/bin/fish" });
     const sidebar = blocks(request.initial_windows[0].layout)[1]!;
-    expect(sidebar.options.initial_input.endsWith(`cd '${DIR}' && begin\nclear\nlazygit\nend\n`)).toBe(true);
+    expect(script(sidebar).endsWith(`cd '${DIR}' && begin\nclear\neval 'lazygit'\nend`)).toBe(true);
   });
 
   it("quotes the pane directory with shellQuote", () => {
     const { request } = traditional(preset("minimal"), { targetDir: "/tmp/it's here" });
-    expect(blocks(request.initial_windows[0].layout)[0]!.options.initial_input).toContain("cd '/tmp/it'\\''s here' && {\n");
+    expect(script(blocks(request.initial_windows[0].layout)[0]!)).toContain("cd '/tmp/it'\\''s here' && {\n");
   });
 
   it("root pane without an editor command still runs the bootstrap, trap, cd and clear", () => {
     const { request } = traditional({ ...preset("minimal"), editor: "" });
     const root = blocks(request.initial_windows[0].layout)[0]!;
     expect(root.label).toBe("editor");
-    expect(root.options.initial_input.endsWith("clear\n}\n")).toBe(true);
+    expect(script(root).endsWith("clear\n}")).toBe(true);
   });
 });
 
