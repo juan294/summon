@@ -296,14 +296,17 @@ describe("buildSessionCreateRequest: blocks", () => {
     }
   });
 
-  it.each(["exec /usr/bin/env", ")"])("keeps the transport out of the pane environment for %s", (paneCommand) => {
+  it.each(["exec /usr/bin/env", ")"])("keeps the transport out of an interactive Bash pane for %s", (paneCommand) => {
     const home = realpathSync(mkdtempSync(join(tmpdir(), "summon-pane-env-")));
     try {
-      const { request } = traditional(preset("minimal", { editor: paneCommand }), { targetDir: home, envVars: { HOME: home } });
+      const { request } = traditional(preset("minimal", { editor: paneCommand }), { targetDir: home, loginShell: "/bin/bash", envVars: { HOME: home } });
       const { command, initial_input } = blocks(request.initial_windows[0].layout)[0]!.options;
-      const result = spawnSync(command[0]!, [...command.slice(1, -2), "/bin/sh"], {
+      // A Rex pane stays interactive after a syntax error. Keep host startup files out of the fixture.
+      const result = spawnSync(command[0]!, [...command.slice(1, -1), "--noprofile", "--norc", "-i"], {
         input: initial_input + "env\n", encoding: "utf8", env: { PATH: "/usr/bin:/bin", TERM: "xterm" },
       });
+      expect(result.status).toBe(0);
+      if (paneCommand === ")") expect(result.stderr).toContain("syntax error");
       expect(result.stdout).toContain(`HOME=${home}`);
       expect(result.stdout).not.toMatch(/^SUMMON_REX_STARTUP_/m);
       expect(existsSync(join(home, `.config/summon/status/chapa.launches/${ID}.pane.editor`))).toBe(true);
