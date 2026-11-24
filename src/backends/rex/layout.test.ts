@@ -1,3 +1,7 @@
+import { spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, it, expect } from "vitest";
 import { planLayout, getPreset, traditionalPaneNames } from "../../layout.js";
 import type { LayoutPlan } from "../../layout.js";
@@ -9,8 +13,6 @@ import type { RexBlockNode, RexLayoutNode, SessionCreateInput } from "./layout.j
 
 const ID = "0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f";
 const DIR = "/Users/me/code/chapa";
-// The Rex root pane's bootstrap line for project chapa and launch ID, byte for byte.
-const ROOT_BOOTSTRAP = "mkdir -p \"$HOME/.config/summon/status/chapa.launches\" && chmod 700 \"$HOME/.config/summon/status/chapa.launches\" && printf '%s\\n' \"$$\" > \"$HOME/.config/summon/status/chapa.launches/0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f.pid\" && printf '%s\\n' '0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f' > \"$HOME/.config/summon/status/chapa.launches/0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f.active\" && printf '%s\\n%s\\n' \"$REX_SESSION\" \"$REX_BLOCK\" > \"$HOME/.config/summon/status/chapa.launches/0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f.pane.editor.tmp\" && mv -f \"$HOME/.config/summon/status/chapa.launches/0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f.pane.editor.tmp\" \"$HOME/.config/summon/status/chapa.launches/0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f.pane.editor\"";
 const SHELL = "/bin/zsh";
 
 function base(partial: Partial<SessionCreateInput> = {}): Omit<SessionCreateInput, "layout"> {
@@ -67,7 +69,7 @@ describe("buildSessionCreateRequest: traditional presets (the shape Ghostty buil
     expect(paneOrder).toEqual(["editor", "right-1", "shell", "sidebar"]);
     expect(labels).toEqual({ editor: "editor · vim", "right-1": "editor · btop", shell: "shell", sidebar: "sidebar · lazygit" });
     const right = blocks(request.initial_windows[0].layout)[1]!;
-    expect(right.options.initial_input.endsWith("clear\nbtop\n")).toBe(true);
+    expect(right.options.initial_input.endsWith("clear\nbtop\n}\n")).toBe(true);
   });
 
   it("full: paneOrder is the depth-first before/after leaf order, distinct from panes and from traditionalInventory", () => {
@@ -147,9 +149,9 @@ describe("buildSessionCreateRequest: tree layouts", () => {
     const [a, b, npm, d] = blocks(request.initial_windows[0].layout);
     expect(a!.options.cwd).toBe(DIR);
     expect(b!.options.cwd).toBe(`${DIR}/packages/api`);
-    expect(b!.options.initial_input).toContain(`cd '${DIR}/packages/api'\n`);
-    expect(npm!.options.initial_input.endsWith("clear\nnpm test\n")).toBe(true);
-    expect(d!.options.initial_input.endsWith("clear\n")).toBe(true);
+    expect(b!.options.initial_input).toContain(`cd '${DIR}/packages/api' && {\n`);
+    expect(npm!.options.initial_input.endsWith("clear\nnpm test\n}\n")).toBe(true);
+    expect(d!.options.initial_input.endsWith("clear\n}\n")).toBe(true);
   });
 
   it("rejects duplicate leaf names", () => {
@@ -195,14 +197,10 @@ describe("buildSessionCreateRequest: blocks", () => {
     expect(root.options.initial_input).toBe(
       `${bootstrapLine("chapa", ID)} && ${paneFileLine("chapa", ID, "editor")}\n`
       + cleanupTrapLine("chapa", ID, { onStop: "echo bye", targetDir: DIR }) + "\n"
-      + `cd '${DIR}'\n`
+      + `cd '${DIR}' && {\n`
       + "clear\n"
-      + "vim\n",
+      + "vim\n}\n",
     );
-    // The exact root bootstrap line (A6: the pane-file write is appended here, not by bootstrapLine).
-    expect(root.options.initial_input.split("\n")[0]).toBe(ROOT_BOOTSTRAP);
-    expect(root.options.initial_input).toContain(`${ID}.pane.editor`);
-    expect(root.options.initial_input).toContain('"$REX_SESSION" "$REX_BLOCK"');
     expect(root.options.initial_input).toContain(`rm -f "$HOME/.config/summon/status/chapa.launches/${ID}.pid" "$HOME/.config/summon/status/chapa.launches/${ID}.active" 2>/dev/null`);
     const rm = /rm -f ([^;]*)/.exec(root.options.initial_input)![1]!;
     expect(rm).not.toContain(".pane.");
@@ -220,20 +218,53 @@ describe("buildSessionCreateRequest: blocks", () => {
       expect(input).not.toContain(".active");
       expect(input).not.toContain("trap ");
       for (const other of paneOrder) if (other !== name) expect(input).not.toMatch(new RegExp(`\\.pane\\.${other}(\\.tmp)?"`));
-      expect(input).toContain(`\ncd '${DIR}'\nclear\n`);
+      expect(input).toContain(`\ncd '${DIR}' && {\nclear\n`);
     }
+  });
+
+  it("runs a compound command in the requested directory and leaves the shell usable when cd fails", () => {
+    const home = realpathSync(mkdtempSync(join(tmpdir(), "summon-pane-cwd-")));
+    const project = join(home, "project's files");
+    try {
+      mkdirSync(project);
+      // Exercise the full secondary pane input, including its pane identity write.
+      mkdirSync(join(home, ".config/summon/status/chapa.launches"), { recursive: true });
+      const command = "pwd; printf 'first\\n' # inline comment\nprintf 'second\\n'";
+      const { request } = traditional({ ...preset("minimal"), sidebarCommand: command }, { targetDir: project });
+      const input = blocks(request.initial_windows[0].layout)[1]!.options.initial_input;
+      const run = () => spawnSync(process.platform === "darwin" ? SHELL : "/bin/sh", ["-f"], {
+        input: "clear() { echo cleared; return 1; }\n" + input + "echo ready\n",
+        encoding: "utf8", cwd: home, env: { ...process.env, HOME: home },
+      });
+      const valid = run();
+      expect(valid.status).toBe(0);
+      expect(valid.stdout.split("\n")).toEqual(["cleared", project, "first", "second", "ready", ""]);
+      rmSync(project, { recursive: true });
+      const missing = run();
+      expect(missing.status).toBe(0);
+      expect(missing.stderr).toContain(project);
+      expect(missing.stdout).toBe("ready\n");
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it("uses a fish command group when fish is the login shell", () => {
+    const { request } = traditional(preset("minimal"), { loginShell: "/opt/homebrew/bin/fish" });
+    const sidebar = blocks(request.initial_windows[0].layout)[1]!;
+    expect(sidebar.options.initial_input.endsWith(`cd '${DIR}' && begin\nclear\nlazygit\nend\n`)).toBe(true);
   });
 
   it("quotes the pane directory with shellQuote", () => {
     const { request } = traditional(preset("minimal"), { targetDir: "/tmp/it's here" });
-    expect(blocks(request.initial_windows[0].layout)[0]!.options.initial_input).toContain("cd '/tmp/it'\\''s here'\n");
+    expect(blocks(request.initial_windows[0].layout)[0]!.options.initial_input).toContain("cd '/tmp/it'\\''s here' && {\n");
   });
 
   it("root pane without an editor command still runs the bootstrap, trap, cd and clear", () => {
     const { request } = traditional({ ...preset("minimal"), editor: "" });
     const root = blocks(request.initial_windows[0].layout)[0]!;
     expect(root.label).toBe("editor");
-    expect(root.options.initial_input.endsWith("clear\n")).toBe(true);
+    expect(root.options.initial_input.endsWith("clear\n}\n")).toBe(true);
   });
 });
 

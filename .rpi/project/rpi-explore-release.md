@@ -1,4 +1,4 @@
-<!-- rpi-overlay: skill=rpi-explore-release; written-against=a3c686faf4f7 -->
+<!-- rpi-overlay: skill=rpi-explore-release; written-against=3afe71f9207b -->
 # Project overlay for rpi-explore-release
 
 ## Procedure

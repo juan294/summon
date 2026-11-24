@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.1] - 2026-11-24
+
+### Fixed
+
+- On Rex server/CLI preview.23, Summon uses the pane’s block ID to find its session. If Rex creates a workspace but the reply is lost, Summon can recover that workspace. Launcher tab cleanup and app selection also use the caller’s session. Older Rex terminals can still supply the session ID directly.
+- If a Rex pane cannot enter its configured directory, it shows the error and skips its command. This prevents a command from running in the user’s home directory by mistake.
+
+### Changed
+
+- The installation guide now includes Homebrew installation and upgrades through `juan294/tap/summon`.
+
 ## [2.2.0] - 2026-11-19
 
 ### Added
@@ -938,7 +949,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CodeQL security scanning
 - Dependabot for npm and GitHub Actions
 
-[Unreleased]: https://github.com/juan294/summon/compare/v2.2.0...develop
+[Unreleased]: https://github.com/juan294/summon/compare/v2.2.1...develop
+[2.2.1]: https://github.com/juan294/summon/compare/v2.2.0...v2.2.1
 [2.2.0]: https://github.com/juan294/summon/compare/v2.1.1...v2.2.0
 [2.1.1]: https://github.com/juan294/summon/compare/v2.1.0...v2.1.1
 [2.1.0]: https://github.com/juan294/summon/compare/v2.0.1...v2.1.0

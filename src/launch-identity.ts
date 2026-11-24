@@ -50,7 +50,7 @@ export interface LaunchArtifactPaths {
   pid: string;
   /** Holds the launch id; written by the bootstrap, removed by the trap. */
   active: string;
-  /** Per-pane `<REX_SESSION>\n<REX_BLOCK>\n` file and its atomic-publication temp name. */
+  /** Per-pane `<session ID>\n<REX_BLOCK>\n` file and its atomic-publication temp name. */
   pane(name: string): { file: string; tmp: string };
 }
 
@@ -200,12 +200,18 @@ export function bootstrapLine(project: string, launchId: string): string {
 }
 
 /**
- * Every Rex pane writes `$REX_SESSION` and `$REX_BLOCK` to its own file through a temp name
- * and an atomic rename, so a reader never sees a half-written mapping (P13).
+ * Save the owning session while the block is alive, so its receipt survives a closed pane.
+ * Preview.23 supplies only the block. If the lookup fails, the reader can retry using that block.
  */
 export function paneFileLine(project: string, launchId: string, paneName: string): string {
   const { file, tmp } = shellPaneFile(project, launchId, paneName);
-  return `printf '%s\\n%s\\n' "$REX_SESSION" "$REX_BLOCK" > ${tmp} && mv -f ${tmp} ${file}`; // lint-allow-escape: both paths come from shellPaneFile
+  // Use the same receipt format for every interactive shell. plutil ships with macOS.
+  const receipt = [
+    'session=$REX_SESSION',
+    'if [ -z "$session" ]; then session=$(rex --autostart=false --timeout 2s -S "$REX_SERVER" block inspect -s "$REX_BLOCK" "$REX_BLOCK" --json 2>/dev/null | /usr/bin/plutil -extract session_id raw -o - - 2>/dev/null); fi',
+    'printf "%s\\n%s\\n" "$session" "$REX_BLOCK"',
+  ].join("; ");
+  return `/bin/sh -c ${shellQuote(receipt)} > ${tmp} && mv -f ${tmp} ${file}`; // lint-allow-escape: both paths come from shellPaneFile
 }
 
 export interface CleanupTrapOptions {

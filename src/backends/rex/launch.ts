@@ -9,7 +9,7 @@ import { sameProjectDirectory, workspaceDirectoryConflict } from "../../project-
 import { shellQuote } from "../../shell-escape.js";
 import { getErrorMessage } from "../../utils.js";
 import { escapeControlChars } from "../../ui/sanitize.js";
-import { createRexCli, whoamiOf } from "./cli.js";
+import { createRexCli, resolveBlockSession, whoamiOf } from "./cli.js";
 import type { RexCli } from "./cli.js";
 import { pickAppClient, pollUntil, realClock, selectInApp, waitForAppClient } from "./app.js";
 import type { AppClientChoice, PollOptions } from "./app.js";
@@ -41,10 +41,11 @@ export interface PaneFile {
   blockId: string;
 }
 
-export type PaneFileRead = PaneFile | "absent" | "malformed";
+export type PaneFileRead = PaneFile | "absent" | "malformed" | "unresolved" | "block-gone";
+type BlockSessionLookup = (blockId: string) => ReturnType<typeof resolveBlockSession>;
 
-/** Two validated lines (`session:…`, `block:…`); a `.tmp` beside an absent file is still absent. */
-export function readPaneFile(path: string): PaneFileRead {
+/** A blank session line is a preview.23 receipt. Resolve its block on the manifest's server. */
+export function readPaneFile(path: string, lookup?: BlockSessionLookup): PaneFileRead {
   let raw: string;
   try {
     raw = readFileSync(path, "utf-8");
@@ -52,8 +53,13 @@ export function readPaneFile(path: string): PaneFileRead {
     return (error as NodeJS.ErrnoException).code === "ENOENT" ? "absent" : "malformed";
   }
   const [sessionId, blockId] = raw.split("\n");
-  if (!isKindId(sessionId, "session") || !isKindId(blockId, "block")) return "malformed";
-  return { sessionId, blockId };
+  if (!isKindId(blockId, "block")) return "malformed";
+  if (sessionId === "") {
+    const owner = lookup?.(blockId);
+    if (owner === null) return "block-gone";
+    return owner ? { sessionId: owner, blockId } : "unresolved";
+  }
+  return isKindId(sessionId, "session") ? { sessionId, blockId } : "malformed";
 }
 
 export interface PaneMapping {
@@ -65,26 +71,27 @@ export interface PaneMapping {
   foreign: string[];
 }
 
-export function readPaneMapping(manifest: LaunchManifest, sessionId: string): PaneMapping {
+export function readPaneMapping(manifest: LaunchManifest, root: PaneFile, lookup?: BlockSessionLookup): PaneMapping {
   const paths = launchArtifactPaths(manifest.project, manifest.launchId);
   const mapping: PaneMapping = { blocks: new Map(), missing: [], malformed: [], foreign: [] };
   for (const name of manifest.paneOrder) {
-    const read = readPaneFile(paths.pane(name).file);
-    if (read === "absent") mapping.missing.push(name);
+    const read = name === manifest.paneOrder[0] ? root : readPaneFile(paths.pane(name).file, lookup);
+    if (read === "absent" || read === "unresolved" || read === "block-gone") mapping.missing.push(name);
     else if (read === "malformed") mapping.malformed.push(name);
-    else if (read.sessionId !== sessionId) mapping.foreign.push(name);
+    else if (read.sessionId !== root.sessionId) mapping.foreign.push(name);
     else mapping.blocks.set(name, read.blockId);
   }
   return mapping;
 }
 
 /** Wait for the root pane's file (the ownership token). */
-export async function waitForToken(paths: LaunchArtifactPaths, rootName: string, options: PollOptions): Promise<PaneFileRead> {
-  const read = await pollUntil(() => {
-    const value = readPaneFile(paths.pane(rootName).file);
-    return value === "absent" ? undefined : value;
+export async function waitForToken(paths: LaunchArtifactPaths, rootName: string, options: PollOptions, lookup?: BlockSessionLookup): Promise<PaneFileRead> {
+  let lastRead: PaneFileRead = "absent";
+  await pollUntil(() => {
+    lastRead = readPaneFile(paths.pane(rootName).file, lookup);
+    return lastRead === "absent" || lastRead === "unresolved" ? undefined : lastRead;
   }, options);
-  return read ?? "absent";
+  return lastRead;
 }
 
 // --- Client actions ---
@@ -119,7 +126,7 @@ export interface CreateContext {
   cli: RexCli;
   /** The server's host id (from `whoami`, probed before the call). */
   hostId: string;
-  /** `REX_SESSION` when Summon runs inside Rex: its app clients are preferred (P7). */
+  /** Session or block selector of the calling Rex terminal, for app preference (P7). */
   callerSession?: string;
   /** `--new-window`: a fresh session (the P2 switch is skipped) shown in the current window, with a notice (P9 fallback). */
   newWindow: boolean;
@@ -175,8 +182,8 @@ function windowFor(view: SessionView, project: string, rootBlockId: string): Ses
 
 function unverifiedNotice(unverified: string[]): string {
   return unverified.length === 1
-    ? `1 pane is unverified (${unverified[0]}); its file had not appeared yet`
-    : `${unverified.length} panes are unverified (${unverified.join(", ")}); their files had not appeared yet`;
+    ? `1 pane is unverified (${unverified[0]})`
+    : `${unverified.length} panes are unverified (${unverified.join(", ")})`;
 }
 
 /** Remove every file of a launch (manifest last; see `removeLaunchFileSet`); the caller holds the status lock. */
@@ -250,8 +257,11 @@ export async function createWorkspace(manifest: LaunchManifest, request: Session
       if (ids0 && after?.ok) candidates = after.sessions.filter((s) => !ids0.has(s.sessionId) && s.label === project).map((s) => s.sessionId);
       return { kind: "unknown", reason: `${unknownReason}; ${detail}`, candidates, notices };
     };
-    const token = await waitForToken(paths, rootName, { timeoutMs: tokenTimeoutMs, intervalMs, clock });
+    const lookup: BlockSessionLookup = (blockId) => resolveBlockSession(cli, blockId);
+    const token = await waitForToken(paths, rootName, { timeoutMs: tokenTimeoutMs, intervalMs, clock }, lookup);
     if (token === "absent") return unknown(`no pane file confirmed the session within ${Math.round(tokenTimeoutMs / 1000)} s`);
+    if (token === "block-gone") return unknown("the root block closed before its session could be verified");
+    if (token === "unresolved") return unknown("the session owning the root block could not be verified");
     if (token === "malformed") return unknown("the root pane file is unreadable");
     const viewed = viewSession(cli, token.sessionId);
     if (!viewed.ok) return unknown(`the token names ${token.sessionId} but session.view failed: ${viewed.reason}`);
@@ -260,7 +270,7 @@ export async function createWorkspace(manifest: LaunchManifest, request: Session
     if (view.label !== project || !window || !view.windows.some((w) => w.label === `[${project}]`)) {
       return unknown(`token named an unexpected session (${token.sessionId}, label "${escapeControlChars(view.label)}")`);
     }
-    const mapping = readPaneMapping(manifest, token.sessionId);
+    const mapping = readPaneMapping(manifest, token, lookup);
     if (mapping.foreign.length > 0 || mapping.malformed.length > 0) {
       return unknown(`pane files do not belong to the confirmed session or are unreadable (${[...mapping.foreign, ...mapping.malformed].join(", ")})`);
     }
@@ -333,7 +343,7 @@ export interface PaneRefresh {
  * Fill in the blocks of panes whose file appeared after adoption, under the lock with the
  * record's own generation. Malformed or foreign files are reported, never deleted.
  */
-export function refreshPaneMapping(record: RexWorkspaceStatus): PaneRefresh {
+export function refreshPaneMapping(record: RexWorkspaceStatus, lookup?: BlockSessionLookup): PaneRefresh {
   const identity = record.rex;
   const unchanged: PaneRefresh = { notices: [], changed: false };
   if (!record.launchId) return unchanged;
@@ -344,8 +354,8 @@ export function refreshPaneMapping(record: RexWorkspaceStatus): PaneRefresh {
   const notices: string[] = [];
   const found: Array<[name: string, blockId: string]> = [];
   for (const name of missing) {
-    const read = readPaneFile(paths.pane(name).file);
-    if (read === "absent") continue;
+    const read = readPaneFile(paths.pane(name).file, lookup);
+    if (read === "absent" || read === "unresolved" || read === "block-gone") continue;
     if (read === "malformed") notices.push(`pane ${name} of ${record.project} has an unreadable pane file; summon clean --orphans names it`);
     else if (read.sessionId !== identity.sessionId) notices.push(`pane ${name} of ${record.project} has a pane file from another session; summon clean --orphans names it`);
     else found.push([name, read.blockId]);
@@ -517,10 +527,13 @@ function adoptNotices(project: string, deps: AdoptDeps, options: { reportLeftove
     const id = manifest.launchId;
     const rootName = manifest.paneOrder[0];
     const paths = launchArtifactPaths(project, id);
-    const root = rootName === undefined ? "malformed" : readPaneFile(paths.pane(rootName).file);
+    const lookup: BlockSessionLookup = (blockId) => resolveBlockSession(deps.cliFor(manifest.server), blockId);
+    const root = rootName === undefined ? "malformed" : readPaneFile(paths.pane(rootName).file, lookup);
+    if (root === "block-gone") { report(`earlier launch ${id} of ${project} has a closed root block without a recorded session; ${cleanHint}`); continue; }
+    if (root === "unresolved") { unknowns.push(`earlier launch ${id} of ${project} could not be verified on ${manifest.server}: the root block could not be resolved; nothing adopted or removed`); continue; }
     if (root === "absent") { report(`earlier launch ${id} of ${project} never confirmed its session; ${cleanHint}`); continue; }
     if (root === "malformed") { report(`earlier launch ${id} of ${project} left an unreadable pane file (${rootName ?? "root"}); ${cleanHint}`); continue; }
-    const mapping = readPaneMapping(manifest, root.sessionId);
+    const mapping = readPaneMapping(manifest, root, lookup);
     if (mapping.malformed.length > 0) { report(`earlier launch ${id} of ${project} left an unreadable pane file (${mapping.malformed.join(", ")}); ${cleanHint}`); continue; }
     const cli = deps.cliFor(manifest.server);
     const listed = listings.of(cli);
@@ -636,7 +649,7 @@ export type SwitchDecision = import("../port.js").LaunchDecision;
 export interface SwitchDeps {
   targetDir: string;
   cliFor: (server: string) => RexCli;
-  /** `REX_SESSION` of the shell running Summon, when inside Rex (P7). */
+  /** Session or block selector of the calling Rex terminal (P7). */
   callerSession?: string | undefined;
   /** The launch's shared listings (PE-L1). */
   listings?: SessionListings | undefined;
@@ -659,7 +672,7 @@ export function maybeSwitchToExisting(project: string, newWindow: boolean, deps:
   }
   let identity = record.rex;
   if (sameDirectory) {
-    const refreshed = refreshPaneMapping(record);
+    const refreshed = refreshPaneMapping(record, (blockId) => resolveBlockSession(deps.cliFor(identity.server), blockId));
     for (const line of refreshed.notices) note(line);
     if (refreshed.changed) {
       const latest = readStatusRecord(project);

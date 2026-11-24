@@ -14,10 +14,12 @@ Summon your Ghostty or Rex workspace with one command: your editor or coding age
 ## Install
 
 ```bash
-npm i -g summon-ws
+brew install juan294/tap/summon
 ```
 
-Requires Node >= 22.12, macOS, and one of two terminals: [Ghostty](https://ghostty.org) 1.3.1+ (1.4.0 is the recommended security baseline) or Rex (beta). Summon detects the terminal that runs it; Rex needs no extra setup.
+Homebrew installs Summon with its own Node and updates it with your usual `brew upgrade`. To install with npm instead, run `npm i -g summon-ws` (Node >= 22.12). If you move from npm to Homebrew, run `npm uninstall -g summon-ws` first so only one copy is on your `PATH`.
+
+Requires macOS and one of two terminals: [Ghostty](https://ghostty.org) 1.3.1+ (1.4.0 is the recommended security baseline) or Rex (beta). Summon detects the terminal that runs it; Rex needs no extra setup.
 
 Run `summon doctor` to inspect version, capabilities and effective settings. See the [Ghostty workflow guide](docs/ghostty.md) for compatibility, exact pane focus, titles, visibility-aware monitoring and opt-in SSH recipes, and [Summon under Rex](docs/rex.md) for what differs in Rex.
 

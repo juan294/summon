@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { chooseAppClient, parseAppClients, listAppClients, waitForAppClient, pollUntil, discoverRexApp, openRexApp } from "./app.js";
+import { chooseAppClient, pickAppClient, parseAppClients, listAppClients, waitForAppClient, pollUntil, discoverRexApp, openRexApp } from "./app.js";
 import type { AppClient } from "./app.js";
 import type { RexCli } from "./cli.js";
 import type { RexResult } from "./types.js";
@@ -101,6 +101,26 @@ describe("listAppClients", () => {
   it("returns the failure as is", () => {
     const failure: RexResult = { ok: false, op: "client-ls", kind: "unreachable", outcome: "none", reason: "exit 4", raw: { code: 4, signal: null, timedOut: false, enoent: false, stdout: "", stderr: "" } };
     expect(listAppClients(fakeCli(() => failure))).toBe(failure);
+  });
+});
+
+describe("pickAppClient with a block selector", () => {
+  const block = "block:0000aaaa-0000-0000-0000-000000000010";
+  const session = "session:0000aaaa-0000-0000-0000-000000000001";
+  const attached = { ...RAW_CLIENTS.clients[0]!, session_ids: [session] };
+
+  it("selects the app attached to the caller when another connected app ranks first", () => {
+    const cli = fakeCli((argv) => argv[0] === "block"
+      ? { ok: true, op: "block-inspect", stdout: "", json: { session_id: session, block: { block_id: block } } }
+      : { ok: true, op: "client-ls", stdout: "", json: { clients: [attached, RAW_CLIENTS.clients[1]] } });
+    expect(pickAppClient(cli, block)?.chosen.clientId).toBe(attached.client_id);
+    expect(cli.calls.map((c) => c.op)).toEqual(["client-ls", "block-inspect"]);
+  });
+
+  it("skips the block lookup with one connected client", () => {
+    const cli = fakeCli(() => ({ ok: true, op: "client-ls", stdout: "", json: { clients: [attached] } }));
+    expect(pickAppClient(cli, block)?.chosen.clientId).toBe(attached.client_id);
+    expect(cli.calls.map((c) => c.op)).toEqual(["client-ls"]);
   });
 });
 

@@ -158,10 +158,10 @@ function envWrapper(input: SessionCreateInput, loginShell: string): string[] {
 /**
  * Text typed into a pane once its shell starts. The root pane publishes this launch's pid,
  * active marker and its own pane file and installs the cleanup trap; every other pane publishes
- * its own pane file. Then `cd`, `clear` and the pane command. Values are quoted with
+ * its own pane file. A successful `cd` guards both `clear` and the entire pane command. Values are quoted with
  * shellQuote; the command is a trusted shell fragment (confirmDangerousCommands) typed as is.
  */
-function buildInitialInput(input: SessionCreateInput, pane: Leaf, isRoot: boolean): string {
+function buildInitialInput(input: SessionCreateInput, pane: Leaf, isRoot: boolean, loginShell: string): string {
   const lines = isRoot
     ? [
       // The root pane's file is the ownership token (P13): written right after the pid and active marker.
@@ -169,8 +169,12 @@ function buildInitialInput(input: SessionCreateInput, pane: Leaf, isRoot: boolea
       cleanupTrapLine(input.project, input.launchId, { onStop: input.onStop, targetDir: input.targetDir, layout: input.layoutLabel }),
     ]
     : [paneFileLine(input.project, input.launchId, pane.name)];
-  lines.push(`cd ${shellQuote(pane.cwd)}`, "clear");
+  // Rex can start here in $HOME if the requested cwd is inaccessible. Group the user's whole
+  // fragment in the interactive shell, so a failed cd also leaves its diagnostic on screen.
+  const fish = loginShell.endsWith("/fish");
+  lines.push(`cd ${shellQuote(pane.cwd)} && ${fish ? "begin" : "{"}`, "clear");
   if (pane.command) lines.push(pane.command);
+  lines.push(fish ? "end" : "}");
   return lines.map((line) => `${line}\n`).join("");
 }
 
@@ -220,7 +224,7 @@ export function buildSessionCreateRequest(input: SessionCreateInput): SessionCre
         block: {
           flavor: TERMINAL_FLAVOR,
           label,
-          options: { shell: "none", command, cwd: node.cwd, initial_input: buildInitialInput(input, node, isRoot) },
+          options: { shell: "none", command, cwd: node.cwd, initial_input: buildInitialInput(input, node, isRoot, loginShell) },
         },
       };
     }

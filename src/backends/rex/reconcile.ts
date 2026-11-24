@@ -12,6 +12,7 @@ import type { LaunchFileSet } from "../../launch-identity.js";
 import { collectSnapshot, writeSnapshotFile } from "../../snapshot.js";
 import { RecordWriteError, readStatusRecord, removeLaunchFileSet, unverifiedPanes, withOwnedRecord } from "../../status-record.js";
 import type { WorkspaceStatus } from "../../status-record.js";
+import { createRexCli, resolveBlockSession } from "./cli.js";
 import { SESSION_GONE } from "./status.js";
 import type { RexSessionState } from "./status.js";
 import { adoptDeps, adoptOrphans, refreshPaneMapping } from "./launch.js";
@@ -33,10 +34,11 @@ export function adoptOnce(projectName: string, binary: string, adopted: Set<stri
  * P13 next-read recovery, before the state probe: a live or stopped generation with unverified panes
  * gets the blocks of pane files that arrived since (an ended generation never gains pane files).
  */
-export function refreshUnverifiedPanes(projectName: string, record: WorkspaceStatus, notices: string[]): ReconcileStep {
+export function refreshUnverifiedPanes(projectName: string, record: WorkspaceStatus, notices: string[], binary: string): ReconcileStep {
   const gen = record.launchId;
   if (!gen || !record.rex || record.endedAt || unverifiedPanes(record) <= 0) return { kind: "current", record };
-  const refreshed = refreshPaneMapping(record);
+  const cli = createRexCli(binary, record.rex.server);
+  const refreshed = refreshPaneMapping(record, (blockId) => resolveBlockSession(cli, blockId));
   notices.push(...refreshed.notices);
   if (!refreshed.changed) return { kind: "current", record };
   const latest = readStatusRecord(projectName) ?? record;
