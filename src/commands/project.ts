@@ -162,7 +162,7 @@ export async function handleOpenCommand({ args, overrides }: CommandContext): Pr
     for (const [i, [name, directory]] of choices.entries()) console.log(`  ${i + 1}  ${escapeControlChars(name)} → ${escapeControlChars(directory)}`);
     const [name, directory] = choices[await pickProjectIndex(choices.length)]!;
     // A preview cannot know whether it runs, and a launch from its directory uses the name that directory resolves to.
-    if (!projects.has(name)) note(`[${escapeControlChars(name)}] is recorded but not registered: while it is running, a real run switches to it. The preview is the launch from ${escapeControlChars(directory)} otherwise.`);
+    if (!projects.has(name)) note(`[${escapeControlChars(name)}] is recorded but not registered: a real run switches to it while it is running, refuses when it cannot be verified, and otherwise launches from ${escapeControlChars(directory)} as previewed.`);
     return launchProject(directory, overrides);
   }
 

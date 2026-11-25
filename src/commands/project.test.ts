@@ -781,7 +781,7 @@ describe("handleOpenCommand --dry-run picker", () => {
 
   it("explains an unregistered recorded workspace before its preview, and only that one", async () => {
     const unregistered = await run("3");
-    expect(unregistered.errText).toContain("[alpha-one] is recorded but not registered: while it is running, a real run switches to it. The preview is the launch from /src/one/alpha otherwise.");
+    expect(unregistered.errText).toContain("[alpha-one] is recorded but not registered: a real run switches to it while it is running, refuses when it cannot be verified, and otherwise launches from /src/one/alpha as previewed.");
     expect(mockLaunch).toHaveBeenLastCalledWith("/src/one/alpha", { dryRun: true });
     expect((await run("2")).errText).not.toContain("is recorded but not registered");
   });
