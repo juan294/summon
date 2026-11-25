@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { join, sep } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -117,45 +117,10 @@ describe("shell fragments", () => {
     expect(paneFileLine('my"proj', ID, "editor")).toContain(`my\\"proj.launches/${ID}.pane.editor`);
   });
 
-  it.each(["/bin/bash", "/bin/zsh"])("runs on-stop once when %s gets HUP and then exits, and again for a later launch in the same shell", async (shell) => {
-    const home = join(TEST_STATUS_DIR, "trap-home");
-    mkdirSync(home, { recursive: true });
-    const marks = join(home, "marks");
-    const other = "1f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f";
-    const first = cleanupTrapLine("chapa", ID, { onStop: `sh -c 'echo first >> "$HOME/marks"'` });
-    const second = cleanupTrapLine("chapa", other, { onStop: `sh -c 'echo second >> "$HOME/marks"'` });
-    // Interactive, as in a pane: HUP does not end such a shell, and history expansion is on. Detached: with a controlling
-    // terminal an interactive zsh reads /dev/tty instead of this input and waits there.
-    const run = (body: string): Promise<string[]> => new Promise((done, failed) => {
-      rmSync(marks, { force: true });
-      const child = spawn(shell, shell.endsWith("zsh") ? ["-f", "-i"] : ["--norc", "-i"], { env: { HOME: home, PATH: "/usr/bin:/bin" }, stdio: ["pipe", "ignore", "ignore"], detached: true, timeout: 10_000, killSignal: "SIGKILL" });
-      child.on("error", failed);
-      child.on("close", (_code, signal) => {
-        if (signal) return failed(new Error(`${shell} was killed by ${signal}`));
-        try { done(readFileSync(marks, "utf8").trim().split("\n")); } catch (error) { failed(error as Error); }
-      });
-      child.stdin!.end(`${body}\n`);
-    });
-    expect(await run(`${first}\nkill -HUP $$\nexit 0`)).toEqual(["first"]);
-    expect(await run(`${first}\nexit 0`)).toEqual(["first"]);
-    expect(await run(`${first}\nkill -HUP $$\n${second}\nexit 0`)).toEqual(["first", "second"]);
-    expect(await run(`set -u\n${first}\nkill -HUP $$\nexit 0`)).toEqual(["first"]);
-    // Rex ends the shell while its HUP cleanup still runs: the EXIT run must finish the job (measured on preview.23).
-    const cut = cleanupTrapLine("chapa", ID, { onStop: `[ -e "$HOME/cut" ] || { : > "$HOME/cut"; exit 0; }; sh -c 'echo finished >> "$HOME/marks"'` });
-    rmSync(join(home, "cut"), { force: true });
-    expect(await run(`${cut}\nkill -HUP $$\nexit 0`)).toEqual(["finished"]);
-  });
-
-  it("the once-only guard does not lengthen the typed line: Ghostty types it, and a tty in canonical mode cuts a line at 1024 bytes", () => {
-    const line = cleanupTrapLine("chapa", ID, { onStop: "docker compose down", targetDir: "/tmp/chapa", layout: "full" });
-    // 718 is the length that 2.2.1 types for these inputs.
-    expect(line.length).toBeLessThanOrEqual(718);
-  });
-
   it("cleanupTrapLine removes only its own pid and active files and passes --launch to snapshot save", () => {
     const line = cleanupTrapLine("chapa", ID, { onStop: "echo bye", targetDir: "/tmp/chapa", layout: "full" });
     expect(line.startsWith("__summon_cleanup() { ")).toBe(true);
-    expect(line.endsWith("; }; trap __summon_cleanup EXIT HUP")).toBe(true);
+    expect(line.endsWith("; }; trap '__summon_cleanup' EXIT HUP")).toBe(true);
     expect(line).toContain(`echo bye </dev/null >> "$HOME/.config/summon/logs/cleanup-chapa.log" 2>&1`);
     expect(line).toContain(`summon snapshot save --dir '/tmp/chapa' --project "chapa" --layout "full" --launch '${ID}' </dev/null >/dev/null 2>&1`);
     expect(line).toContain(`rm -f "${dir}/${ID}.pid" "${dir}/${ID}.active" 2>/dev/null`);

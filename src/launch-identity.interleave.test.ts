@@ -211,7 +211,7 @@ describe("real-process ownership interleavings (plan Phase 1)", () => {
     expect(existsSync(join(SNAPSHOTS_DIR, `${PROJECT}.json`))).toBe(true);
   }, 30_000);
 
-  it("HUP and then EXIT in the same shell: the cleanup of a launch runs once and exits 0", async () => {
+  it("two traps for the same launch (EXIT and HUP): the per-launch removal is idempotent and exits 0", async () => {
     writeStatus(record(GEN_A));
     const pathsA = launchArtifactPaths(PROJECT, GEN_A);
     const shell = spawnShell(`${bootstrapLine(PROJECT, GEN_A)}; ${cleanupTrapLine(PROJECT, GEN_A, { targetDir: REPO, layout: "default" })}; __summon_cleanup`);
@@ -221,7 +221,7 @@ describe("real-process ownership interleavings (plan Phase 1)", () => {
     expect(existsSync(pathsA.pid)).toBe(false);
     shell.stdin!.write("\n");
     expect(await exited(shell)).toBe(0);
-    expect(shimLog()).toHaveLength(1);
+    expect(shimLog()).toHaveLength(2);
     expect(existsSync(pathsA.pid)).toBe(false);
     expect(existsSync(pathsA.active)).toBe(false);
     expect(readStatusRecord(PROJECT)?.launchId).toBe(GEN_A);

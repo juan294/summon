@@ -11,11 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `summon open --dry-run` says that its list is in registration order, so its numbers can differ from `summon open`, which lists running workspaces first. Choosing a recorded workspace that is not registered prints what a real run does with it.
 - `docs/rex.md` says that `summon ports` and `summon doctor` reconcile a workspace that ended outside Summon, and the user manual says that a session file can be a symlink, which `summon session add` refuses to replace.
+- `docs/rex.md` says that in Bash and zsh the cleanup trap can run twice, so an `on-stop` hook should be safe to repeat.
 
 ### Fixed
 
 - Under Rex, a pane whose role and command are longer than 128 characters no longer prevents the workspace from opening: its label is cut with `…`, and the pane runs the whole command.
-- In Bash and zsh, a cleanup of a launch (`on-stop` and the snapshot) that reached its end no longer runs a second time when the root shell gets a hangup and exits later. If the shell exits while the cleanup is still running, the exit still runs it again.
 - A path to the same checkout typed in another letter case on a case-insensitive disk is no longer refused as a different checkout.
 - The dry-run note about a recorded Rex workspace says when a real run refuses (another checkout, no session id, or a record that cannot be verified) instead of always promising a switch, and is not printed with `--new-window`.
 - `summon inspect` names a pane that does not support live ports and still reads the others; it blamed the Rex server version.
