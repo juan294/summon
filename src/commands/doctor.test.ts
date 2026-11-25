@@ -602,6 +602,8 @@ describe("doctor live ports (plan 2026-11-19-rex-live-ports)", () => {
       { level: "PASS", text: "No running workspace holds a port another project claims (2 live ports read)" },
       { level: "INFO", text: "live ports incomplete for web (timed out)" },
     ] });
+    const unknown = livePortsCheck(report({ notes: [{ project: "lost", status: "unavailable", reason: "server did not answer" }] }));
+    expect(unknown).toEqual({ counted: false, issues: 0, lines: [{ level: "INFO", text: "live ports incomplete for lost (server did not answer)" }] });
     const none = livePortsCheck(report({ notes: [{ project: "web", status: "unsupported", reason: "this Rex server has no live ports (needs API 16 or later)" }], liveWorkspaces: 1, readWorkspaces: 0 }));
     expect(none).toEqual({ counted: false, issues: 0, lines: [{ level: "INFO", text: "this Rex server has no live ports (needs API 16 or later)" }] });
   });

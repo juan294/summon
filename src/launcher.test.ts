@@ -4026,13 +4026,32 @@ describe("Rex dry run (plan P2, Phase 2)", () => {
   });
 
   it("notes a recorded Rex workspace without probing or switching to it", async () => {
-    mockReadStatusRecord.mockReturnValue({ project: "workspace", backend: "rex", rex: { sessionId: "session:0123" } });
+    mockReadStatusRecord.mockReturnValue({ project: "workspace", backend: "rex", directory: "/tmp/workspace", rex: { sessionId: "session:0123" } });
     const output = await dryRun();
     expect(mockReadStatusRecord).toHaveBeenCalledWith("workspace");
-    expect(output).toContain("-- Note: workspace is recorded as a Rex workspace (session:0123); while it is running, a real run switches to it instead of creating this one");
+    expect(output).toContain("-- Note: workspace is recorded as a Rex workspace (session:0123); while it is running, a real run switches to it instead of creating this one, and a real run refuses when it cannot be verified");
     expect(output).toContain('"label": "workspace"');
     expect(terminalCalls()).toEqual([]);
     expect(statusModule.publishStatus).not.toHaveBeenCalled();
+  });
+
+  it("notes the refusal of a record that belongs to another checkout, and never promises a switch", async () => {
+    mockReadStatusRecord.mockReturnValue({ project: "workspace", backend: "rex", directory: "/tmp/other/workspace", rex: { sessionId: "session:0123" } });
+    const output = await dryRun();
+    expect(output).toContain("-- Note: workspace is recorded as a Rex workspace (session:0123); unless it has ended, a real run refuses: Workspace [workspace] belongs to /tmp/other/workspace.");
+    expect(output).not.toContain("switches to it");
+  });
+
+  it("notes the refusal of a record without its Rex identity", async () => {
+    mockReadStatusRecord.mockReturnValue({ project: "workspace", backend: "rex", directory: "/tmp/workspace" });
+    const output = await dryRun();
+    expect(output).toContain("-- Note: workspace is recorded as a Rex workspace without a session id; a real run refuses to launch over it (--new-window replaces it)");
+    expect(output).not.toContain("switches to it");
+  });
+
+  it("--new-window creates a session beside the recorded one", async () => {
+    mockReadStatusRecord.mockReturnValue({ project: "workspace", backend: "rex", directory: "/tmp/workspace", rex: { sessionId: "session:0123" } });
+    expect(await dryRun({ "new-window": "true" })).not.toContain("switches to it");
   });
 
   it("does not note a Ghostty record", async () => {
@@ -4137,9 +4156,14 @@ describe("Rex launch (plan P2, P8, P13, P15; Phase 3)", () => {
   });
 
   it("publishes the Rex identity with the display-order panes and the layout label", async () => {
-    await launch("/tmp/workspace", { layout: "full" });
+    vi.stubEnv("REX_SESSION", "session:caller"); // a Rex pane that runs this suite exports its own caller
+    try {
+      await launch("/tmp/workspace", { layout: "full" });
+    } finally {
+      vi.unstubAllEnvs();
+    }
     expect(rexLaunches[0]).toMatchObject({ kind: "traditional", ctx: { projectName: "workspace", layoutLabel: "full", targetDir: "/tmp/workspace" } });
-    expect(mockCreateRexBackend).toHaveBeenCalledWith(REX_CONTEXT, expect.objectContaining({ callerSession: process.env["REX_SESSION"] }));
+    expect(mockCreateRexBackend).toHaveBeenCalledWith(REX_CONTEXT, expect.objectContaining({ callerSession: "session:caller" }));
     expect(statusModule.publishStatus).toHaveBeenCalledWith(expect.objectContaining({
       project: "workspace",
       backend: "rex",
@@ -4188,7 +4212,7 @@ describe("Rex launch (plan P2, P8, P13, P15; Phase 3)", () => {
   });
 
   it("a dry run with an active Rex record calls neither adoptOrphans nor the switch decision nor any rex process, and prints the request plus the note", async () => {
-    mockReadStatusRecord.mockReturnValue({ project: "workspace", backend: "rex", rex: REX_IDENTITY });
+    mockReadStatusRecord.mockReturnValue({ project: "workspace", backend: "rex", directory: "/tmp/workspace", rex: REX_IDENTITY });
     mockSessionState.mockReturnValue({ state: "active", liveBlocks: ["editor"] });
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     await launch("/tmp/workspace", { dryRun: true });

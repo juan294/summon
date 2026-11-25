@@ -150,6 +150,15 @@ function treeTree(node: LayoutNode, targetDir: string): Node {
 
 // --- Block construction ---
 
+/** Rex refuses a whole `session.create` when one block label is longer (characters, not bytes; preview.21 and .23). */
+const BLOCK_LABEL_MAX = 128;
+
+/** The pane title as a block label. Only the label is cut: the pane runs its whole command. */
+function blockLabel(title: string): string {
+  const characters = [...title];
+  return characters.length <= BLOCK_LABEL_MAX ? title : `${characters.slice(0, BLOCK_LABEL_MAX - 1).join("")}…`;
+}
+
 /**
  * Rex can deliver initial_input before the login shell leaves canonical tty mode. A long
  * line can be truncated there. Send the script as one literal argv element and type only
@@ -222,7 +231,7 @@ export function buildSessionCreateRequest(input: SessionCreateInput): SessionCre
     if (node.type === "leaf") {
       if (node.name in labels) throw new Error(`Rex layout: pane names must be unique (duplicate "${node.name}")`);
       const isRoot = paneOrder.length === 0;
-      const label = formatTitle(node.role, node.command || null);
+      const label = blockLabel(formatTitle(node.role, node.command || null));
       paneOrder.push(node.name);
       labels[node.name] = label;
       return {

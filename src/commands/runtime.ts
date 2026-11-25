@@ -210,7 +210,8 @@ export async function handlePortsCommand({ values }: Pick<CommandContext, "value
   }
 
   if (conflicts.size === 0 && report.held.length === 0) {
-    console.log(`${green(sym.ok)} No port conflicts`);
+    // An incomplete live read (the notes below) can hide a held port: no check mark over what was not read.
+    console.log(report.notes.length === 0 ? `${green(sym.ok)} No port conflicts` : "No port conflicts in the claims and live ports that were read");
   } else {
     console.log();
     for (const [port, projects] of conflicts) {

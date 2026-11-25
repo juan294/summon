@@ -1,4 +1,5 @@
 import { resolve } from "node:path";
+import { sameProjectDirectory, workspaceDirectoryConflict } from "../../project-directory.js";
 import { traditionalPaneNames } from "../../layout.js";
 import type { PlannedLayout } from "../../tree.js";
 import { transientLine } from "../../ui/progress.js";
@@ -8,6 +9,7 @@ import type { LaunchContext } from "../../backend.js";
 import type { CLIOverrides } from "../../config-resolve.js";
 import type { LaunchManifest } from "../../launch-identity.js";
 import { LAUNCH_LOCK_STALE_MS, launchLockFile, readStatusRecord } from "../../status-record.js";
+import type { WorkspaceStatus } from "../../status-record.js";
 import { withFileLockAsync } from "../../file-lock.js";
 import { note, out, warn } from "../../ui/output.js";
 import { sym } from "../../ui/symbols.js";
@@ -21,6 +23,22 @@ import { sessionListings } from "./status.js";
 import type { SessionListings } from "./status.js";
 import { closeLauncherTabAfterRexLaunch, startLauncherTabWatch } from "./launcher-tab.js";
 import type { RexIdentity } from "./types.js";
+
+/**
+ * What a real run would do with a recorded Rex workspace, as far as the record alone says (a dry run probes nothing):
+ * the decisions of `maybeSwitchToExisting`. Undefined when a real run creates a session either way (`--new-window`).
+ */
+function recordedNote(record: WorkspaceStatus, targetDir: string, newWindow: boolean): string | undefined {
+  const sameDirectory = sameProjectDirectory(record.directory, targetDir);
+  if (sameDirectory && newWindow) return undefined;
+  const session = record.rex?.sessionId;
+  if (!sameDirectory) {
+    const refusal = workspaceDirectoryConflict(record.project, record.directory, targetDir);
+    return session ? `(${session}); unless it has ended, a real run refuses: ${refusal}` : `without a session id; a real run refuses: ${refusal}`;
+  }
+  if (!session) return "without a session id; a real run refuses to launch over it (--new-window replaces it)";
+  return `(${session}); while it is running, a real run switches to it instead of creating this one, and a real run refuses when it cannot be verified`;
+}
 
 /** Detection row the Rex backend is built from (plan P5: server and binary come from detection). */
 type RexLaunchContext = Extract<LaunchContext, { backend: "rex" }>;
@@ -247,8 +265,8 @@ export function createRexBackend(context: RexLaunchContext, deps: RexBackendDeps
       const project = ctx.projectName;
       const record = readStatusRecord(project);
       if (record?.backend === "rex") {
-        const session = record.rex?.sessionId ?? "session id unknown";
-        headerLines.push(`-- Note: ${project} is recorded as a Rex workspace (${session}); while it is running, a real run switches to it instead of creating this one`);
+        const note = recordedNote(record, ctx.targetDir, newWindow);
+        if (note) headerLines.push(`-- Note: ${project} is recorded as a Rex workspace ${note}`);
       }
       const { request, paneOrder, minimize, autodetected } = buildSessionCreateRequest(requestInput(layout, ctx, starshipConfigPath));
       headerLines.push(`-- Server: ${context.server}`);

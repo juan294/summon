@@ -7,7 +7,7 @@ import {
 } from "../config.js";
 import { withTrustPrompt } from "../trust.js";
 import { promptUser, exitWithUsageHint, PromptCancelled, CANCELLED_EXIT_CODE } from "../utils.js";
-import { fail, warn } from "../ui/output.js";
+import { fail, note, warn } from "../ui/output.js";
 import { unverifiedMessage } from "../status-record.js";
 import { parseMenuNumber, projectArgOrExit } from "../validation.js";
 import type { ProjectRow } from "../monitor.js";
@@ -157,9 +157,12 @@ export async function handleOpenCommand({ args, overrides }: CommandContext): Pr
     const projects = listProjects();
     const choices = [...projects, ...recordedProjectDirectories().filter(([name]) => !projects.has(name))];
     if (choices.length === 0) noProjects();
-    console.log("  summon — select a project to preview\n");
+    console.log("  summon — select a project to preview");
+    console.log("  (registration order; 'summon open' lists running workspaces first, so its numbers can differ)\n");
     for (const [i, [name, directory]] of choices.entries()) console.log(`  ${i + 1}  ${escapeControlChars(name)} → ${escapeControlChars(directory)}`);
-    const [, directory] = choices[await pickProjectIndex(choices.length)]!;
+    const [name, directory] = choices[await pickProjectIndex(choices.length)]!;
+    // A preview cannot know whether it runs, and a launch from its directory uses the name that directory resolves to.
+    if (!projects.has(name)) note(`[${escapeControlChars(name)}] is recorded but not registered: a real run switches to it while it is running, refuses when it cannot be verified, and otherwise launches from ${escapeControlChars(directory)} as previewed.`);
     return launchProject(directory, overrides);
   }
 

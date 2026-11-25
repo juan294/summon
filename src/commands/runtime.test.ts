@@ -467,6 +467,8 @@ describe("handlePortsCommand with live ports (plan 2026-11-19-rex-live-ports)", 
     expect(out).toContain("evil\\u001b[2J");
     expect(out).not.toContain("\u001b");
     expect(out).toContain("[dim:note: live ports incomplete for web (timed out)]");
+    expect(out).not.toContain("[green:✓] No port conflicts");
+    expect(out).toContain("No port conflicts in the claims and live ports that were read");
   });
 
   it("--json prints claims, every live port with its ephemeral flag, both conflict kinds and the notes", async () => {

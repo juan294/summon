@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.2] - 2026-11-25
+
+### Changed
+
+- `summon open --dry-run` says that its list is in registration order, so its numbers can differ from `summon open`, which lists running workspaces first. Choosing a recorded workspace that is not registered prints what a real run does with it.
+- `docs/rex.md` says that `summon ports` and `summon doctor` reconcile a workspace that ended outside Summon, and the user manual says that a session file can be a symlink, which `summon session add` refuses to replace.
+- `docs/rex.md` says that in Bash and zsh the cleanup trap can run twice, so an `on-stop` hook should be safe to repeat.
+
+### Fixed
+
+- Under Rex, a pane whose role and command are longer than 128 characters no longer prevents the workspace from opening: its label is cut with `…`, and the pane runs the whole command.
+- A path to the same checkout typed in another letter case on a case-insensitive disk is no longer refused as a different checkout.
+- The dry-run note about a recorded Rex workspace says when a real run refuses (another checkout, no session id, or a record that cannot be verified) instead of always promising a switch, and is not printed with `--new-window` for the same checkout.
+- `summon inspect` names a pane that does not support live ports and still reads the others; it blamed the Rex server version. When the server has live ports but no pane of a workspace supports them, `summon ports` and `summon doctor` say so too, and the note status in `summon ports --json` is `unavailable` instead of `unsupported`.
+- `summon ports` no longer prints the `No port conflicts` check mark when the live read is incomplete. A Rex workspace that could not be verified is now named in a note there, and as `INFO` in `summon doctor`.
+
 ## [2.2.1] - 2026-11-24
 
 ### Fixed
@@ -951,7 +967,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CodeQL security scanning
 - Dependabot for npm and GitHub Actions
 
-[Unreleased]: https://github.com/juan294/summon/compare/v2.2.1...develop
+[Unreleased]: https://github.com/juan294/summon/compare/v2.2.2...develop
+[2.2.2]: https://github.com/juan294/summon/compare/v2.2.1...v2.2.2
 [2.2.1]: https://github.com/juan294/summon/compare/v2.2.0...v2.2.1
 [2.2.0]: https://github.com/juan294/summon/compare/v2.1.1...v2.2.0
 [2.1.1]: https://github.com/juan294/summon/compare/v2.1.0...v2.1.1

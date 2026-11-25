@@ -794,15 +794,19 @@ describe("session launch under Rex (plan P11)", () => {
   const REX = { ok: true, backend: "rex", placement: "inside-rex", server: "unix:///tmp/rex.sock", rexBinary: "/usr/local/bin/rex", notices: [] };
   // Inside-rex detection is mocked; the caller's session must be controlled here too (the suite may run inside a Rex terminal).
   let inheritedRexSession: string | undefined;
+  let inheritedRexBlock: string | undefined;
   beforeEach(() => {
     inheritedRexSession = process.env["REX_SESSION"];
+    inheritedRexBlock = process.env["REX_BLOCK"];
     delete process.env["REX_SESSION"];
+    delete process.env["REX_BLOCK"];
     mockResolveBackendForLaunch.mockReturnValue(REX);
     mockShowRecordedWorkspace.mockReturnValue({ shown: true, clientId: "client:app" });
     mockGetProject.mockImplementation((name: string) => ({ api: "/tmp/api", web: "/tmp/web", worker: "/tmp/worker" } as Record<string, string>)[name]);
   });
   afterEach(() => {
     if (inheritedRexSession === undefined) delete process.env["REX_SESSION"]; else process.env["REX_SESSION"] = inheritedRexSession;
+    if (inheritedRexBlock === undefined) delete process.env["REX_BLOCK"]; else process.env["REX_BLOCK"] = inheritedRexBlock;
   });
 
   it("creates one session per project without new-tab and shows the first launched project at the end", async () => {

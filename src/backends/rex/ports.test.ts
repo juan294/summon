@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parsePortsReply, readLivePorts, PORTS_METHOD, PORTS_UNSUPPORTED, PORTS_TIMED_OUT, PORTS_CALL_TIMEOUT_MS } from "./ports.js";
+import { parsePortsReply, readLivePorts, PANE_PORTS_UNSUPPORTED, PORTS_METHOD, PORTS_UNSUPPORTED, PORTS_TIMED_OUT, PORTS_CALL_TIMEOUT_MS } from "./ports.js";
 import type { LiveTarget, RexAsyncRunner } from "./ports.js";
 import { createLiveBudget } from "../live-budget.js";
 import { rawResult } from "./cli.js";
@@ -43,7 +43,7 @@ describe("parsePortsReply", () => {
   });
 
   it("unsupported carries no ports and the API note", () => {
-    expect(parsePortsReply({ status: "unsupported", ports: [], processes: [] })).toEqual({ status: "unsupported", ports: [], reason: PORTS_UNSUPPORTED });
+    expect(parsePortsReply({ status: "unsupported", ports: [], processes: [] })).toEqual({ status: "unsupported", ports: [], reason: PANE_PORTS_UNSUPPORTED });
   });
 
   it("skips an unknown protocol, a port outside 0..65535 and an entry without an address", () => {
@@ -270,6 +270,12 @@ describe("readLivePorts", () => {
   it("a block that has no ports method (an older server past the probe) reads as unsupported", async () => {
     const { run } = runner({ ports: () => failure("block-call", 1, 'Error: block 622fe8 has no method "ports"; methods: process, title') });
     expect(await readLivePorts(TARGET, createLiveBudget(), run)).toEqual({ status: "unsupported", ports: [], reason: PORTS_UNSUPPORTED });
+  });
+
+  it("does not blame the server version when every pane answers unsupported", async () => {
+    const { run } = runner({ ports: () => ok("block-call", { status: "unsupported", ports: [], processes: [] }) });
+    const result = await readLivePorts(TARGET, createLiveBudget(), run);
+    expect(result).toEqual({ status: "unavailable", ports: [], reason: "2 terminal panes do not support live ports" });
   });
 
   it("never runs more ports calls at once than IO_CONCURRENCY", async () => {

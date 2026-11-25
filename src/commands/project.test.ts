@@ -757,3 +757,32 @@ describe("summon open <project> (guide F1: the documented direct form)", () => {
     err.mockRestore();
   });
 });
+
+describe("handleOpenCommand --dry-run picker", () => {
+  const status = { recorded: [["alpha-one", "/src/one/alpha"], ["beta", "/src/beta"]] as Array<[string, string]> };
+  vi.doMock("../status.js", () => ({ recordedProjectDirectories: () => status.recorded, rexBinaryPath: () => null }));
+  const run = async (answer: string): Promise<{ out: string; errText: string }> => {
+    mockListProjects.mockReturnValue(new Map([["beta", "/src/beta"], ["alpha", "/src/two/alpha"]]));
+    mockPromptUser.mockResolvedValue(answer);
+    const out = vi.spyOn(console, "log").mockImplementation(() => {});
+    const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    await handleOpenCommand(makeContext({ overrides: { dryRun: true } }));
+    const text = { out: out.mock.calls.map(String).join("\n"), errText: errSpy.mock.calls.map((call) => String(call[0])).join("") };
+    out.mockRestore();
+    errSpy.mockRestore();
+    return text;
+  };
+
+  it("says that its order differs from the real picker", async () => {
+    const { out } = await run("1");
+    expect(out).toContain("registration order; 'summon open' lists running workspaces first, so its numbers can differ");
+    expect(mockLaunch).toHaveBeenLastCalledWith("/src/beta", { dryRun: true });
+  });
+
+  it("explains an unregistered recorded workspace before its preview, and only that one", async () => {
+    const unregistered = await run("3");
+    expect(unregistered.errText).toContain("[alpha-one] is recorded but not registered: a real run switches to it while it is running, refuses when it cannot be verified, and otherwise launches from /src/one/alpha as previewed.");
+    expect(mockLaunch).toHaveBeenLastCalledWith("/src/one/alpha", { dryRun: true });
+    expect((await run("2")).errText).not.toContain("is recorded but not registered");
+  });
+});

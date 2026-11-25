@@ -374,7 +374,7 @@ function panePorts(cli: RexCli, sessionId: string, blockId: string, name: string
   }
   const parsed = parsePortsReply(answer.json);
   if (parsed.status === "unsupported") {
-    read.unsupported = true;
+    read.reasons.add(`pane ${name} does not support live ports`);
     return undefined;
   }
   if (parsed.reason) read.reasons.add(parsed.reason);

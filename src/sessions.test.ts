@@ -182,6 +182,22 @@ describe("writeSession validation", () => {
     expect(fs.statSync(sessionPath("newses")).mode & 0o777).toBe(0o600);
   });
 
+  it("reads a session file that is a symlink (a dotfiles checkout); only replacing it is refused", () => {
+    const target = pathResolve(TEST_SESSIONS_DIR, "..", `summon-session-link-target-${process.pid}`);
+    fs.writeFileSync(target, "api\nweb\n");
+    fs.mkdirSync(TEST_SESSIONS_DIR, { recursive: true });
+    fs.symlinkSync(target, sessionPath("linked"));
+    try {
+      expect(listSessions()).toContain("linked");
+      expect(readSession("linked")).toEqual(["api", "web"]);
+      expect(() => writeSession("linked", ["worker"])).toThrow("Refusing to replace a session symlink: linked");
+      expect(fs.readFileSync(target, "utf8")).toBe("api\nweb\n");
+    } finally {
+      fs.rmSync(sessionPath("linked"), { force: true });
+      fs.rmSync(target, { force: true });
+    }
+  });
+
   it("refuses an existing session symlink and preserves its target", () => {
     const target = sessionPath("other");
     fs.writeFileSync(target, "original");
