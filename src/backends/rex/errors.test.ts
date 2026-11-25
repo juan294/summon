@@ -8,7 +8,7 @@ function raw(partial: Partial<RexRawResult>): RexRawResult {
 }
 
 const MUTATING: RexOp[] = ["session-create", "focus", "do-select", "kill", "window-rename", "block-label", "block-float", "layer-state"];
-const READ_ONLY: RexOp[] = ["whoami", "ls", "client-ls", "session-view", "session-inspect", "block-ls", "block-call", "api-describe"];
+const READ_ONLY: RexOp[] = ["whoami", "ls", "client-ls", "session-view", "session-inspect", "block-ls", "block-inspect", "block-call", "api-describe"];
 
 describe("isMutatingOp", () => {
   it("separates the ops that change server state from the read-only ones", () => {

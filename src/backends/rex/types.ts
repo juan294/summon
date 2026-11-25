@@ -91,6 +91,7 @@ export const REX_OPS = {
   "session-view": { mutating: false, json: true },
   "session-inspect": { mutating: false },
   "block-ls": { mutating: false },
+  "block-inspect": { mutating: false },
   "block-call": { mutating: false, json: true },
   "focus": { mutating: true },
   "do-select": { mutating: true },

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync, chmodSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { discoverRex, rexCandidatePaths, defaultRexServer, runRex, runRexAsync, execRexAsync, REX_PROCESS_GRACE_MS } from "./cli.js";
+import { discoverRex, rexCandidatePaths, defaultRexServer, createRexCli, resolveBlockSession, runRex, runRexAsync, execRexAsync, REX_PROCESS_GRACE_MS } from "./cli.js";
 import type { RexExec, RexExecAsync } from "./cli.js";
 
 let root: string;
@@ -279,5 +279,30 @@ describe("createRexCli / probeWhoami (Phase 3)", () => {
     expect(probeWhoami("/mock/rex", "unix:///x", failing)).toEqual({ answers: false, reason: "Error: dial unix: connect: no such file" });
     const noHost = vi.fn(() => JSON.stringify({ endpoint: "unix:///x" }));
     expect(probeWhoami("/mock/rex", "unix:///x", noHost)).toEqual({ answers: false, reason: "rex whoami returned no host id" });
+  });
+});
+
+describe("resolveBlockSession", () => {
+  const block = "block:0000aaaa-0000-0000-0000-000000000010";
+  const other = "block:0000aaaa-0000-0000-0000-000000000011";
+  const session = "session:0000aaaa-0000-0000-0000-000000000001";
+
+  it("scopes inspection to the requested block on the bound server and returns its canonical session", () => {
+    const exec = vi.fn<RexExec>(() => JSON.stringify({ session_id: session, block: { block_id: block } }));
+    const cli = createRexCli("rex", "unix:///tmp/owned.sock", exec);
+    expect(resolveBlockSession(cli, block)).toBe(session);
+    expect(exec.mock.calls[0]![1]).toEqual(["--color", "never", "--timeout", "2s", "--autostart=false", "-S", cli.server, "block", "inspect", "-s", block, block, "--json"]);
+  });
+
+  it("refuses invalid input, a different block, a bad session ID, and an unavailable server", () => {
+    const exec = vi.fn<RexExec>(() => JSON.stringify({ session_id: session, block: { block_id: other } }));
+    const cli = createRexCli("rex", "unix:///tmp/owned.sock", exec);
+    expect(resolveBlockSession(cli, "--help")).toBeUndefined();
+    expect(exec).not.toHaveBeenCalled();
+    expect(resolveBlockSession(cli, block)).toBeUndefined();
+    for (const answer of ["{}", JSON.stringify({ session_id: other, block: { block_id: block } })]) {
+      expect(resolveBlockSession(createRexCli("rex", cli.server, () => answer), block)).toBeUndefined();
+    }
+    expect(resolveBlockSession(createRexCli("rex", cli.server, () => { throw Object.assign(new Error("unavailable"), { status: 4 }); }), block)).toBeUndefined();
   });
 });

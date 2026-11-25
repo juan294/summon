@@ -98,7 +98,7 @@ type GenerationResult = { kind: "resolved"; status: ResolvedStatus } | { kind: "
 function resolveRexGeneration(projectName: string, record: WorkspaceStatus, binary: string, read: StatusRead, state: RexReadState, notices: string[]): GenerationResult {
   let current = record;
   if (read.options.reconcile) {
-    const refreshed = refreshUnverifiedPanes(projectName, current, notices);
+    const refreshed = refreshUnverifiedPanes(projectName, current, notices, binary);
     if (refreshed.kind === "superseded") return refreshed;
     current = refreshed.record;
   }

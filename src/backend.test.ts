@@ -5,7 +5,7 @@ vi.mock("./backends/rex/cli.js", async (original) => ({
   ...(await original<typeof import("./backends/rex/cli.js")>()),
   probeWhoami: (binary: string, server: string) => mockProbeWhoami(binary, server),
 }));
-const { resolveBackendForLaunch, REX_UNHONORED_FLAGS, GHOSTTY_ONLY_CONFIG_KEYS } = await import("./backend.js");
+const { callerRexSession, resolveBackendForLaunch, REX_UNHONORED_FLAGS, GHOSTTY_ONLY_CONFIG_KEYS } = await import("./backend.js");
 const { isBackendId } = await import("./backend-detect.js");
 
 const REX_BIN = "/fake/rex";
@@ -92,6 +92,16 @@ describe("resolveBackendForLaunch", () => {
       discoverRex: () => ({ path: REX_BIN, searched: ["PATH"] }),
     });
     expect(context).toMatchObject({ ok: true, backend: "rex", server: expect.stringMatching(/^unix:\/\/.*\/rex\/server\.sock$/) });
+  });
+});
+
+describe("callerRexSession", () => {
+  it("uses the block as a session selector only inside Rex when the legacy variable is absent", () => {
+    const block = "block:0000aaaa-0000-0000-0000-000000000010";
+    const inside = { placement: "inside-rex" } as const;
+    expect(callerRexSession(inside, { REX_BLOCK: block })).toBe(block);
+    expect(callerRexSession(inside, { REX_SESSION: "session:legacy", REX_BLOCK: block })).toBe("session:legacy");
+    expect(callerRexSession({ placement: "outside" }, { REX_BLOCK: block })).toBeUndefined();
   });
 });
 
