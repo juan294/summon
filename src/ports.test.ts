@@ -620,6 +620,7 @@ describe("live ports (plan 2026-11-19-rex-live-ports)", async () => {
   it("a Rex workspace whose state is unknown is a note: its ports were not read", async () => {
     readAllStatuses.mockReturnValue([
       { project: "lost", state: "unknown", backend: "rex", reason: "server did not answer" },
+      { project: "ended", state: "unknown", backend: "rex", reason: "server did not answer", endedAt: "2026-11-20T08:00:00.000Z" },
       { project: "old", state: "unknown", backend: "ghostty", reason: "legacy" },
     ]);
     const report = await detectAllPorts();

@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A path to the same checkout typed in another letter case on a case-insensitive disk is no longer refused as a different checkout.
 - The dry-run note about a recorded Rex workspace says when a real run refuses (another checkout, no session id, or a record that cannot be verified) instead of always promising a switch, and is not printed with `--new-window`.
 - `summon inspect` names a pane that does not support live ports and still reads the others; it blamed the Rex server version.
-- `summon ports` no longer prints the `No port conflicts` check mark when the live read is incomplete.
+- `summon ports` no longer prints the `No port conflicts` check mark when the live read is incomplete. A Rex workspace that could not be verified is now named in a note there, and as `INFO` in `summon doctor`.
 
 ## [2.2.1] - 2026-11-24
 

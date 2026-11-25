@@ -175,8 +175,8 @@ export interface PortsReport {
 
 async function readLive(statuses: readonly ResolvedStatus[]): Promise<Pick<PortsReport, "live" | "notes" | "liveWorkspaces" | "readWorkspaces">> {
   const running = statuses.filter((status) => isLiveState(status.state));
-  // A Rex workspace that could not be verified may hold ports nobody read.
-  const notes: LiveNote[] = statuses.filter((status) => status.state === "unknown" && status.backend === "rex")
+  // A Rex workspace that could not be verified may hold ports nobody read; one recorded as ended holds none.
+  const notes: LiveNote[] = statuses.filter((status) => status.state === "unknown" && status.backend === "rex" && !status.endedAt)
     .map((status) => ({ project: status.project, status: "unavailable", reason: status.reason ?? "could not be verified" }));
   if (running.length === 0) return { live: [], notes, liveWorkspaces: 0, readWorkspaces: 0 };
   // Loaded only when a workspace runs: the backends are not part of a static-only read.

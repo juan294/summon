@@ -324,7 +324,7 @@ A Ghostty workspace is `active` or `stopped`. A Rex workspace has one of four st
 | `stopped` | The session no longer exists, or it exists with no live recorded pane (reason `empty Rex session remains; run summon clean <project>` or `no live panes`) |
 | `unknown` | Summon could not read the workspace's liveness: the Rex server did not answer, its answer had a shape Summon cannot read, the record's Rex identity could not be read, or the `rex` CLI is missing. Summon assumes nothing and never launches over it |
 
-A registered project that was never launched has no record and is `stopped`. For a Rex workspace, a glyph before the project name shows the program status that the root pane's program announced through OSC 7501 (`blocked`, `error`, `working`, `done`). A Rex workspace that ended outside Summon (for example, `rex kill`) is reconciled on the next status read: Summon saves a snapshot, marks the record as ended, removes the launch's files and prints one notice.
+A registered project that was never launched has no record and is `stopped`. For a Rex workspace, a glyph before the project name shows the program status that the root pane's program announced through OSC 7501 (`blocked`, `error`, `working`, `done`). A Rex workspace that ended outside Summon (for example, `rex kill`) is reconciled on the next status read: Summon saves a snapshot, marks the record as ended and removes the launch's files. `summon status --once` (and `summon status` with piped output) prints one notice for what its own read ended.
 
 ```bash
 summon status                     # interactive TUI with auto-refresh
