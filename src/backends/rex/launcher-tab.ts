@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import type { LaunchContext } from "../../backend.js";
 import { needsAttention, resetAttentionForTests, watchForAttention } from "../../ui/attention.js";
 import { debugLog } from "../../utils.js";
-import { createRexCli } from "./cli.js";
+import { createRexCli, resolveBlockSession } from "./cli.js";
 import type { RexCli } from "./cli.js";
 import { viewSession } from "./status.js";
 import { asRecord, isKindId } from "./types.js";
@@ -28,13 +28,14 @@ export const EXIT_PROBE_TIMEOUT_MS = 2000;
 
 /** The caller's tab when it is a bare launcher: one pane (the caller's), not a workspace tab, Summon in the foreground. */
 export function findLauncherTab(rexCli: RexCli, env: NodeJS.ProcessEnv = process.env, pid: number = process.pid): LauncherTab | undefined {
-  const sessionId = env["REX_SESSION"];
   const blockId = env["REX_BLOCK"];
-  if (!isKindId(sessionId, "session") || !isKindId(blockId, "block")) return;
+  if (!isKindId(blockId, "block")) return;
+  const sessionId = env["REX_SESSION"] ?? resolveBlockSession(rexCli, blockId);
+  if (!isKindId(sessionId, "session")) return;
   // A probe that fails or times out keeps the tab.
   const cli: RexCli = { ...rexCli, call: (op, argv, opts) => rexCli.call(op, argv, { ...opts, timeoutMs: EXIT_PROBE_TIMEOUT_MS }) };
   const viewed = viewSession(cli, sessionId);
-  if (!viewed.ok) return;
+  if (!viewed.ok || viewed.view.sessionId !== sessionId) return;
   const window = viewed.view.windows.find((w) => w.blockIds.includes(blockId));
   if (!window || window.blockIds.length !== 1 || /^\[.+\]$/.test(window.label)) return;
   // An agent (Claude Code, Codex) or a script running Summon is the foreground program, not Summon: its tab stays.

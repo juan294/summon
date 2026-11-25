@@ -50,7 +50,7 @@ export interface LaunchArtifactPaths {
   pid: string;
   /** Holds the launch id; written by the bootstrap, removed by the trap. */
   active: string;
-  /** Per-pane `<REX_SESSION>\n<REX_BLOCK>\n` file and its atomic-publication temp name. */
+  /** Per-pane `<session ID>\n<REX_BLOCK>\n` file and its atomic-publication temp name. */
   pane(name: string): { file: string; tmp: string };
 }
 
@@ -177,13 +177,13 @@ function shellPaneFile(project: string, launchId: string, paneName: string): { f
  * Listed in SHELL_FRAGMENT_SAFE_CALL of src/shell-escape.lint.test.ts: both paths are single-quoted
  * here, so the interactive shell's history expansion (`!`) never applies to them (SE-L1).
  */
-function summonCommand(): string {
+function summonCommand(fish = false): string {
   const self = selfInvocation();
   if (!self) return "summon";
   // Rex can terminate descendants of the pane before a slow snapshot finishes. Let the short
   // launcher exit so the snapshot is reparented, in its own process group with no terminal IO.
   const detach = 'require("node:child_process").spawn(process.execPath,process.argv.slice(1),{detached:true,stdio:"ignore"}).unref()';
-  return `${shellQuote(typedPath(self.execPath))} -e ${shellQuote(detach)} -- ${shellQuote(typedPath(self.script))}`;
+  return `${shellQuote(typedPath(self.execPath), fish)} -e ${shellQuote(detach, fish)} -- ${shellQuote(typedPath(self.script), fish)}`;
 }
 
 /** Quoted cleanup log file of a project. */
@@ -195,20 +195,27 @@ function shellLogFile(project: string): string {
  * Root-pane bootstrap: publish this launch's pid and active marker under its own directory.
  * A Rex root pane also publishes its pane file, the ownership token (P13), appended by backends/rex/layout.ts.
  */
-export function bootstrapLine(project: string, launchId: string): string {
-  return `mkdir -p ${shellLaunchDir(project)} && chmod 700 ${shellLaunchDir(project)} && printf '%s\\n' "$$" > ${shellArtifact(project, launchId, "pid")} && printf '%s\\n' '${shellLaunchId(launchId)}' > ${shellArtifact(project, launchId, "active")}`;
+export function bootstrapLine(project: string, launchId: string, fish = false): string {
+  return `mkdir -p ${shellLaunchDir(project)} && chmod 700 ${shellLaunchDir(project)} && printf '%s\\n' "${fish ? "$fish_pid" : "$$"}" > ${shellArtifact(project, launchId, "pid")} && printf '%s\\n' '${shellLaunchId(launchId)}' > ${shellArtifact(project, launchId, "active")}`;
 }
 
 /**
- * Every Rex pane writes `$REX_SESSION` and `$REX_BLOCK` to its own file through a temp name
- * and an atomic rename, so a reader never sees a half-written mapping (P13).
+ * Save the owning session while the block is alive, so its receipt survives a closed pane.
+ * Preview.23 supplies only the block. If the lookup fails, the reader can retry using that block.
  */
-export function paneFileLine(project: string, launchId: string, paneName: string): string {
+export function paneFileLine(project: string, launchId: string, paneName: string, fish = false): string {
   const { file, tmp } = shellPaneFile(project, launchId, paneName);
-  return `printf '%s\\n%s\\n' "$REX_SESSION" "$REX_BLOCK" > ${tmp} && mv -f ${tmp} ${file}`; // lint-allow-escape: both paths come from shellPaneFile
+  // Use the same receipt format for every interactive shell. plutil ships with macOS.
+  const receipt = [
+    'session=$REX_SESSION',
+    'if [ -z "$session" ]; then session=$(rex --autostart=false --timeout 2s -S "$REX_SERVER" block inspect -s "$REX_BLOCK" "$REX_BLOCK" --json 2>/dev/null | /usr/bin/plutil -extract session_id raw -o - - 2>/dev/null); fi',
+    'printf "%s\\n%s\\n" "$session" "$REX_BLOCK"',
+  ].join("; ");
+  return `/bin/sh -c ${shellQuote(receipt, fish)} > ${tmp} && mv -f ${tmp} ${file}`; // lint-allow-escape: both paths come from shellPaneFile
 }
 
 export interface CleanupTrapOptions {
+  fish?: boolean;
   /** Trusted shell fragment from validated config; inlined, never quoted. */
   onStop?: string;
   targetDir?: string;
@@ -256,8 +263,8 @@ export function cleanupTrapLine(project: string, launchId: string, options: Clea
 
   if (options.targetDir) {
     parts.push(
-      `${summonCommand()} snapshot save`
-      + ` --dir ${shellQuote(typedPath(options.targetDir))}`
+      `${summonCommand(options.fish)} snapshot save`
+      + ` --dir ${shellQuote(typedPath(options.targetDir), options.fish)}`
       + ` --project "${shellDoubleQuote(project)}"`
       + ` --layout "${shellDoubleQuote(options.layout ?? "unknown")}"`
       + ` --launch '${shellLaunchId(launchId)}'`
@@ -265,6 +272,9 @@ export function cleanupTrapLine(project: string, launchId: string, options: Clea
     );
   }
 
+  if (options.fish) {
+    return `function __summon_cleanup --on-event fish_exit --on-signal HUP; functions -e __summon_cleanup; ${parts.join("; ")}; end`; // lint-allow-escape: same checked cleanup commands in fish function syntax
+  }
   return `__summon_cleanup() { ${parts.join("; ")}; }; trap '__summon_cleanup' EXIT HUP`; // lint-allow-escape: composition of the individually checked parts above
 }
 

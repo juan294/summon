@@ -60,6 +60,20 @@ describe("findLauncherTab (D1)", () => {
     ]);
   });
 
+  it("checks the block's owning session, layout and foreground process in a block-only terminal", () => {
+    const layout = () => view([{ id: WINDOW, label: "zsh ~", blocks: [BLOCK] }]);
+    const cli = cliAnswering(layout);
+    const call = cli.call.bind(cli);
+    const bound: RexCli = { ...cli, call(op, argv, opts) {
+      if (op === "block-inspect") return { ok: true, op, stdout: "", json: { session_id: SESSION, block: { block_id: BLOCK } } };
+      return call(op, argv, opts);
+    } };
+    expect(findLauncherTab(bound, { REX_BLOCK: BLOCK }, SUMMON_PID)).toEqual({ sessionId: SESSION, windowId: WINDOW, blockId: BLOCK });
+    expect(cli.calls.map((c) => c.op)).toEqual(["session-view", "block-call"]);
+    expect(findLauncherTab(bound, { REX_BLOCK: BLOCK }, SUMMON_PID + 1)).toBeUndefined();
+    expect(findLauncherTab(cliAnswering(layout), { REX_BLOCK: BLOCK }, SUMMON_PID)).toBeUndefined();
+  });
+
   it("BE-L5: a probe that times out keeps the tab", () => {
     const timedOut = (op: "session-view" | "block-call"): RexResult => ({ ok: false, op, kind: "timeout", outcome: "none", reason: "rex did not answer in time", raw: { code: null, signal: "SIGKILL", timedOut: true, enoent: false, stdout: "", stderr: "" } });
     const tab = () => view([{ id: WINDOW, label: "zsh ~", blocks: [BLOCK] }]);

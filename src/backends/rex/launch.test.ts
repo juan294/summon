@@ -156,11 +156,19 @@ describe("readPaneFile / readPaneMapping / waitForToken", () => {
     writePane(ID, "shell", SESSION, blockId(4));
     writePane(ID, "sidebar", "session:0000bbbb-0000-0000-0000-000000000009", blockId(5));
     writePane(ID, "right-1", SESSION, blockId(3), { raw: "x" });
-    const mapping = readPaneMapping(manifest, SESSION);
+    const mapping = readPaneMapping(manifest, { sessionId: SESSION, blockId: blockId(1) });
     expect([...mapping.blocks]).toEqual([["editor", blockId(1)], ["shell", blockId(4)]]);
     expect(mapping.missing).toEqual(["editor-2"]);
     expect(mapping.malformed).toEqual(["right-1"]);
     expect(mapping.foreign).toEqual(["sidebar"]);
+  });
+
+  it("retries a block-only root inside the token wait when the first server lookup fails", async () => {
+    writePane(ID, "editor", "", blockId(1));
+    const lookup = vi.fn().mockReturnValueOnce(undefined).mockReturnValue(SESSION);
+    const token = await waitForToken(launchArtifactPaths("chapa", ID), "editor", { timeoutMs: 1000, intervalMs: 250, clock: fakeClock() }, lookup);
+    expect(token).toEqual({ sessionId: SESSION, blockId: blockId(1) });
+    expect(lookup).toHaveBeenCalledTimes(2);
   });
 
   it("waits for the root pane file with the injected clock and gives up at the deadline", async () => {
@@ -342,6 +350,23 @@ describe("createWorkspace", () => {
       expect(cli.calls.find((c) => c.op === "session-view")!.input).toBe(JSON.stringify({ session_id: SESSION }));
     });
 
+    it("recovers a lost reply from preview.23 files with only a block ID", async () => {
+      writePane(ID, "editor", "", blockId(1));
+      writePane(ID, "sidebar", "", blockId(5));
+      const cli = fakeCli({
+        "ls": () => ok("ls", { sessions: [] }),
+        "session-create": timeoutCreate,
+        "block-inspect": (argv) => ok("block-inspect", { session_id: SESSION, block: { block_id: argv.find((word) => word.startsWith("block:")) } }),
+        "session-view": () => ok("session-view", viewJson([blockId(1), blockId(5)])),
+        "client-ls": () => ok("client-ls", { clients: [CLIENT] }),
+        "do-select": () => ok("do-select", {}),
+      });
+      const outcome = await createWorkspace(manifestFor(), fullBuild().request, ctxFor(cli));
+      expect(outcome).toMatchObject({ kind: "created", ids: { sessionId: SESSION, rootBlockId: blockId(1), blocks: [
+        { name: "editor", blockId: blockId(1) }, { name: "sidebar", blockId: blockId(5) },
+      ] } });
+    });
+
     it("a missing pane file leaves that pane unverified; keeps known ids even when their block is already absent from the view", async () => {
       writePane(ID, "editor", SESSION, blockId(1));
       writePane(ID, "sidebar", SESSION, blockId(5));
@@ -358,7 +383,7 @@ describe("createWorkspace", () => {
       expect(outcome.ids.rootBlockId).toBe(blockId(1));
       expect(outcome.ids.blocks.map((b) => b.name)).toEqual(["editor", "sidebar"]);
       expect(outcome.ids.unverified).toEqual(["editor-2", "right-1", "shell"]);
-      expect(outcome.notices).toContain("3 panes are unverified (editor-2, right-1, shell); their files had not appeared yet");
+      expect(outcome.notices).toContain("3 panes are unverified (editor-2, right-1, shell)");
     });
 
     it("all pane-file blocks already absent from the view is still adopted with every known id (liveness classifies it)", async () => {
@@ -551,6 +576,42 @@ describe("adoptOrphans (plan P13 late adoption)", () => {
     expect(record).toMatchObject({ project: "chapa", launchId: ID, backend: "rex", layout: "full", panes: ["editor", "sidebar", "editor-2", "right-1", "shell"], directory: "/Users/me/code/chapa", startedAt: "2026-10-29T10:00:00.000Z" });
     expect(record!.rex).toEqual({ server: SERVER, hostId: "host-1", sessionId: SESSION, windowId: WINDOW, rootBlockId: blockId(1), blocks: [{ name: "editor", blockId: blockId(1), label: "editor · vim" }, { name: "sidebar", blockId: blockId(5), label: "sidebar · lazygit" }] });
     expect(cli.calls.every((c) => c.server === SERVER)).toBe(true);
+  });
+
+  it("keeps a block-only receipt on lookup failure and adopts it when the server can identify the block", () => {
+    writeLaunchManifest(manifestFor());
+    writePane(ID, "editor", "", blockId(1));
+    let available = false;
+    const cli = fakeCli({
+      "ls": () => ok("ls", { sessions: [{ session_id: SESSION, label: "chapa" }] }),
+      "session-view": () => liveView([blockId(1)]),
+      "block-inspect": () => available
+        ? ok("block-inspect", { session_id: SESSION, block: { block_id: blockId(1) } })
+        : fail("block-inspect", "unreachable", "none"),
+    });
+    const deps = depsFor({ [SERVER]: cli });
+    expect(adoptOrphans("chapa", deps).join(" ")).toContain("could not be verified");
+    expect(readStatusRecord("chapa")).toBeNull();
+    expect(existsSync(launchArtifactPaths("chapa", ID).manifest)).toBe(true);
+    available = true;
+    expect(adoptOrphans("chapa", deps).join(" ")).toContain("adopted earlier launch");
+    expect(readStatusRecord("chapa")?.rex?.sessionId).toBe(SESSION);
+  });
+
+  it("keeps an old block-only receipt whose block is gone while adopting another verified launch", () => {
+    writeLaunchManifest(manifestFor(ID));
+    writeLaunchManifest(manifestFor(ID2));
+    writePane(ID, "editor", "", blockId(9));
+    writePane(ID2, "editor", SESSION, blockId(1));
+    const cli = fakeCli({
+      "ls": () => ok("ls", { sessions: [{ session_id: SESSION, label: "chapa" }] }),
+      "session-view": () => liveView([blockId(1)]),
+      "block-inspect": () => fail("block-inspect", "not-found", "none", "session scope: no open block has ID"),
+    });
+    const notices = adoptOrphans("chapa", depsFor({ [SERVER]: cli }));
+    expect(notices.join(" ")).toContain("adopted earlier launch " + ID2);
+    expect(readStatusRecord("chapa")?.launchId).toBe(ID2);
+    expect(existsSync(launchArtifactPaths("chapa", ID).manifest)).toBe(true);
   });
 
   it("adopts a session whose root block already closed; liveness will show it partial", async () => {

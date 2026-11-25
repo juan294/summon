@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { join, sep } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -90,13 +91,25 @@ describe("shell fragments", () => {
 
   it("paneFileLine names only that pane's file and its .tmp and publishes atomically", () => {
     const line = paneFileLine("chapa", ID, "sidebar");
-    expect(line).toBe(
-      `printf '%s\\n%s\\n' "$REX_SESSION" "$REX_BLOCK" > "${dir}/${ID}.pane.sidebar.tmp"`
+    expect(line).toContain(
+      ` > "${dir}/${ID}.pane.sidebar.tmp"`
       + ` && mv -f "${dir}/${ID}.pane.sidebar.tmp" "${dir}/${ID}.pane.sidebar"`,
     );
     expect(line).not.toContain("pane.editor");
     expect(line).not.toContain(".pid");
     expect(line).not.toContain(".active");
+  });
+
+  it.runIf(process.platform === "darwin")("publishes a durable session ID when a new Rex terminal supplies only its block", () => {
+    const home = TEST_STATUS_DIR;
+    const paneDir = join(home, ".config/summon/status/chapa.launches");
+    mkdirSync(paneDir, { recursive: true });
+    const sessionId = "session:00000000-0000-0000-0000-000000000001";
+    const blockId = "block:00000000-0000-0000-0000-000000000002";
+    writeFileSync(join(home, "rex"), `#!/bin/sh\nprintf '%s\\n' '{"session_id":"${sessionId}"}'\n`, { mode: 0o700 });
+    const env = { HOME: home, PATH: home + ":/usr/bin:/bin", REX_BLOCK: blockId, REX_SERVER: "unix:///fixture" };
+    execFileSync("/bin/zsh", ["-fc", paneFileLine("chapa", ID, "editor")], { env });
+    expect(readFileSync(join(paneDir, ID + ".pane.editor"), "utf8")).toBe(sessionId + "\n" + blockId + "\n");
   });
 
   it("routes names through shellDoubleQuote", () => {

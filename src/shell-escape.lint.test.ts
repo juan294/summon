@@ -51,10 +51,10 @@ const FILES = walkTs(SRC_DIR).filter(
 // "toggle_fullscreen" on ${rootPaneVar}`).
 //
 // Rex (plan Phase 2): `initial_input` is text typed into a pane's shell once it starts and
-// `rex send` types into a running pane; both are shell contexts. buildInitialInput( is the
+// `rex send` types into a running pane; both are shell contexts. blockOptions( is the
 // helper that assembles the typed text, flagged for the same reason as sendCommand(.
 const DANGER_CONTEXT =
-  /(sh\s+-c|bash\s+-c|osascript|eval\s|input text|sendCommand\s*\(|setInitialInput\s*\(|buildInitialInput\s*\(|do shell script|set name override|initial_input|rex send)/;
+  /(sh\s+-c|bash\s+-c|osascript|eval\s|input text|sendCommand\s*\(|setInitialInput\s*\(|blockOptions\s*\(|do shell script|set name override|initial_input|rex send)/;
 
 // Precise combined patterns (dangerous keyword + interpolation in same position).
 // These are checked in addition to DANGER_CONTEXT + ${…} so that we catch
@@ -300,9 +300,9 @@ options: { shell: "none", cwd, initial_input: \`cd \${cmd}\\n\` },
       expect(violations.length).toBeGreaterThan(0);
     });
 
-    it("Rex: buildInitialInput( with a raw interpolation is flagged; with shellQuote it is not", () => {
-      expect(scan("const input = buildInitialInput(`cd ${dir}`);")).not.toEqual([]);
-      expect(scan("const input = buildInitialInput(`cd ${shellQuote(dir)}`);")).toEqual([]);
+    it("Rex: blockOptions( with a raw interpolation is flagged; with shellQuote it is not", () => {
+      expect(scan("const input = blockOptions(`cd ${dir}`);")).not.toEqual([]);
+      expect(scan("const input = blockOptions(`cd ${shellQuote(dir)}`);")).toEqual([]);
     });
 
     it("safe sendCommand call with shellQuote is not flagged", () => {

@@ -16,7 +16,7 @@ import { bootstrapLine, buildEnvVarsList, cleanupTrapLine, paneFileLine } from "
  * `block_ids` in; it differs from Summon's display order (`panes`) and from Ghostty's creation
  * order (`traditionalInventory`) by design. Every pane is an interactive login shell started in
  * command mode under `/usr/bin/env` so the workspace variables exist at shell startup, and the
- * setup lines plus the pane command are typed through `initial_input`.
+ * generated startup scripts reach it through argv. Only their invocations cross the terminal input queue.
  */
 
 export const TERMINAL_FLAVOR = "com.superlogical.terminal.shell";
@@ -150,28 +150,37 @@ function treeTree(node: LayoutNode, targetDir: string): Node {
 
 // --- Block construction ---
 
-/** The Ghostty workspace environment plus this launch's id, as `/usr/bin/env` arguments. */
-function envWrapper(input: SessionCreateInput, loginShell: string): string[] {
-  return ["/usr/bin/env", ...buildEnvVarsList(input.starshipConfigPath, input.envVars, input.project), `SUMMON_LAUNCH_ID=${input.launchId}`, loginShell, "-l"];
-}
-
 /**
- * Text typed into a pane once its shell starts. The root pane publishes this launch's pid,
- * active marker and its own pane file and installs the cleanup trap; every other pane publishes
- * its own pane file. Then `cd`, `clear` and the pane command. Values are quoted with
- * shellQuote; the command is a trusted shell fragment (confirmDangerousCommands) typed as is.
+ * Rex can deliver initial_input before the login shell leaves canonical tty mode. A long
+ * line can be truncated there. Send the script as one literal argv element and type only
+ * the fixed evaluator call. Discard the transport variable before invoking any pane code.
  */
-function buildInitialInput(input: SessionCreateInput, pane: Leaf, isRoot: boolean): string {
-  const lines = isRoot
-    ? [
-      // The root pane's file is the ownership token (P13): written right after the pid and active marker.
-      `${bootstrapLine(input.project, input.launchId)} && ${paneFileLine(input.project, input.launchId, pane.name)}`,
-      cleanupTrapLine(input.project, input.launchId, { onStop: input.onStop, targetDir: input.targetDir, layout: input.layoutLabel }),
-    ]
-    : [paneFileLine(input.project, input.launchId, pane.name)];
-  lines.push(`cd ${shellQuote(pane.cwd)}`, "clear");
-  if (pane.command) lines.push(pane.command);
-  return lines.map((line) => `${line}\n`).join("");
+function blockOptions(input: SessionCreateInput, pane: Leaf, isRoot: boolean, loginShell: string, environment: string[]): RexBlockOptions {
+  const fish = loginShell.endsWith("/fish");
+  const receipt = paneFileLine(input.project, input.launchId, pane.name, fish);
+  // The UUID is validated when building the receipt. A per-launch key leaves normal
+  // user environment values intact, including ones named SUMMON_REX_STARTUP.
+  let key = "SUMMON_REX_STARTUP_" + input.launchId.replaceAll("-", "_");
+  while (input.envVars && Object.hasOwn(input.envVars, key)) key += "_";
+  const lines = [(fish ? "set -e " : "unset ") + key];
+  if (isRoot) {
+    lines.push(`${bootstrapLine(input.project, input.launchId, fish)} && ${receipt}`);
+    const trap = cleanupTrapLine(input.project, input.launchId, { onStop: input.onStop, targetDir: input.targetDir, layout: input.layoutLabel, fish });
+    lines.push("eval " + shellQuote(trap, fish));
+  } else {
+    lines.push(receipt);
+  }
+  lines.push(`cd ${shellQuote(pane.cwd, fish)} && ${fish ? "begin" : "{"}`, "clear");
+  // Parse each trusted fragment separately: a syntax error must not discard the earlier
+  // receipt, and a failed cd must skip the entire command and retain its own exit status.
+  if (pane.command) lines.push("eval " + shellQuote(pane.command, fish));
+  lines.push(fish ? "end" : "}");
+  return {
+    shell: "none",
+    cwd: pane.cwd,
+    command: [...environment, key + "=" + lines.join("\n"), loginShell, "-l"],
+    initial_input: `eval "$${key}"\n`, // lint-allow-escape: key contains only the validated UUID and fixed identifier characters
+  };
 }
 
 function leavesOf(node: Node): Leaf[] {
@@ -180,7 +189,7 @@ function leavesOf(node: Node): Leaf[] {
 
 export function buildSessionCreateRequest(input: SessionCreateInput): SessionCreateBuild {
   const loginShell = input.loginShell ?? resolveLoginShell();
-  const command = envWrapper(input, loginShell);
+  const environment = ["/usr/bin/env", ...buildEnvVarsList(input.starshipConfigPath, input.envVars, input.project), `SUMMON_LAUNCH_ID=${input.launchId}`];
   const root = input.layout.kind === "traditional"
     ? traditionalTree(input.layout.plan, input.targetDir)
     : treeTree(input.layout.plan.tree, input.targetDir);
@@ -220,7 +229,7 @@ export function buildSessionCreateRequest(input: SessionCreateInput): SessionCre
         block: {
           flavor: TERMINAL_FLAVOR,
           label,
-          options: { shell: "none", command, cwd: node.cwd, initial_input: buildInitialInput(input, node, isRoot) },
+          options: blockOptions(input, node, isRoot, loginShell, environment),
         },
       };
     }

@@ -6,7 +6,7 @@ import { resolveCommand } from "../../utils.js";
 import { isDisplaySafe } from "../../ui/sanitize.js";
 import type { RexDiscovery } from "../../backend-detect.js";
 import { classifyRexFailure } from "./errors.js";
-import { rexOpTraits } from "./types.js";
+import { asRecord, isKindId, rexOpTraits } from "./types.js";
 import type { RexOp, RexRawResult, RexResult } from "./types.js";
 
 const BUNDLE_RELATIVE_CLI = join("Contents", "Helpers", "Rex Server.rex", "Contents", "MacOS", "rex");
@@ -220,6 +220,23 @@ export function createRexCli(binary: string, server: string, exec: RexExec = exe
       }, exec);
     },
   };
+}
+
+/** Resolve a full block selector to the canonical session ID on this server. Scope the lookup
+ * explicitly because recovery can run inside a different session. Rex preview.23 accepts the
+ * same block ID as the session selector. Null means Rex confirmed the block is gone. An
+ * unavailable server or an invalid response leaves the owner unknown (undefined).
+ */
+export function resolveBlockSession(cli: RexCli, blockId: string): string | null | undefined {
+  if (!isKindId(blockId, "block")) return;
+  const result = cli.call("block-inspect", ["block", "inspect", "-s", blockId, blockId, "--json"], { timeoutMs: 2000 });
+  if (!result.ok) {
+    // Older servers also return exit 3 when they reject a block as the session selector.
+    return result.kind === "not-found" && result.reason.includes("no open block has ID") ? null : undefined;
+  }
+  const inspected = asRecord(result.json);
+  const sessionId = inspected?.["session_id"];
+  if (isKindId(sessionId, "session") && asRecord(inspected?.["block"])?.["block_id"] === blockId) return sessionId;
 }
 
 export type WhoamiProbe =
