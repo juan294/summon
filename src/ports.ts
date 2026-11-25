@@ -175,7 +175,10 @@ export interface PortsReport {
 
 async function readLive(statuses: readonly ResolvedStatus[]): Promise<Pick<PortsReport, "live" | "notes" | "liveWorkspaces" | "readWorkspaces">> {
   const running = statuses.filter((status) => isLiveState(status.state));
-  if (running.length === 0) return { live: [], notes: [], liveWorkspaces: 0, readWorkspaces: 0 };
+  // A Rex workspace that could not be verified may hold ports nobody read.
+  const notes: LiveNote[] = statuses.filter((status) => status.state === "unknown" && status.backend === "rex")
+    .map((status) => ({ project: status.project, status: "unavailable", reason: status.reason ?? "could not be verified" }));
+  if (running.length === 0) return { live: [], notes, liveWorkspaces: 0, readWorkspaces: 0 };
   // Loaded only when a workspace runs: the backends are not part of a static-only read.
   const [{ workspaceBackendFor }, { createLiveBudget }] = await Promise.all([import("./backends/workspace.js"), import("./backends/live-budget.js")]);
   const readable = running.flatMap((status) => {
@@ -191,7 +194,6 @@ async function readLive(statuses: readonly ResolvedStatus[]): Promise<Pick<Ports
     }
   });
   const live: LivePortRow[] = [];
-  const notes: LiveNote[] = [];
   let readWorkspaces = 0;
   results.forEach((result, index) => {
     const { status } = readable[index]!;

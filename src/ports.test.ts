@@ -617,6 +617,16 @@ describe("live ports (plan 2026-11-19-rex-live-ports)", async () => {
     expect({ readWorkspaces, liveWorkspaces }).toEqual({ readWorkspaces: 1, liveWorkspaces: 3 });
   });
 
+  it("a Rex workspace whose state is unknown is a note: its ports were not read", async () => {
+    readAllStatuses.mockReturnValue([
+      { project: "lost", state: "unknown", backend: "rex", reason: "server did not answer" },
+      { project: "old", state: "unknown", backend: "ghostty", reason: "legacy" },
+    ]);
+    const report = await detectAllPorts();
+    expect(report.notes).toEqual([{ project: "lost", status: "unavailable", reason: "server did not answer" }]);
+    expect(report).toMatchObject({ live: [], liveWorkspaces: 0, readWorkspaces: 0 });
+  });
+
   it("a backend read that throws becomes a note, never a failed command", async () => {
     readAllStatuses.mockReturnValue([{ project: "a", state: "active", backend: "rex" }]);
     livePorts.mockRejectedValue(new Error("spawn EAGAIN"));

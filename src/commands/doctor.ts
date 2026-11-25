@@ -49,7 +49,7 @@ export interface LivePortsCheck {
  * with the projects.
  */
 export function livePortsCheck(report: PortsReport): LivePortsCheck {
-  if (report.liveWorkspaces === 0) return { counted: false, issues: 0, lines: [{ level: "INFO", text: "No running Rex workspace; live ports not checked" }] };
+  if (report.liveWorkspaces === 0 && report.notes.length === 0) return { counted: false, issues: 0, lines: [{ level: "INFO", text: "No running Rex workspace; live ports not checked" }] };
   const notes = liveNoteLines(report.notes).map((text) => ({ level: "INFO" as const, text }));
   if (report.readWorkspaces === 0) return { counted: false, issues: 0, lines: notes };
   if (report.held.length > 0) return { counted: true, issues: report.held.length, lines: [...report.held.map((held) => ({ level: "FAIL" as const, text: heldLine(held) })), ...notes] };
