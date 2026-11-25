@@ -13,7 +13,7 @@ import type { RexBlockIdentity, RexOp, RexResult } from "./types.js";
 import { PORTS_METHOD, PORTS_CALL_TIMEOUT_MS, PORTS_UNSUPPORTED, PORTS_TIMED_OUT, NO_PORTS_METHOD_RE, parsePortsReply } from "./ports-reply.js";
 import type { ParsedPorts } from "./ports-reply.js";
 
-export { PORTS_METHOD, PORTS_CALL_TIMEOUT_MS, PORTS_UNSUPPORTED, PORTS_TIMED_OUT, NO_PORTS_METHOD_RE, parsePortsReply } from "./ports-reply.js";
+export { PANE_PORTS_UNSUPPORTED, PORTS_METHOD, PORTS_CALL_TIMEOUT_MS, PORTS_UNSUPPORTED, PORTS_TIMED_OUT, NO_PORTS_METHOD_RE, parsePortsReply } from "./ports-reply.js";
 export type { ReplyPort, ParsedPorts } from "./ports-reply.js";
 
 /** The process boundary of a live read, injectable for tests (`runRexAsync` by default). */
@@ -112,7 +112,7 @@ export async function readLivePorts(target: LiveTarget, budget: LiveBudget, run:
     if (budget.expired()) return { pane, recorded: names.has(block.blockId), failed: PORTS_TIMED_OUT };
     const answer = await bounded("block-call", ["block", "call", "-s", target.sessionId, "-b", block.blockId, "ports"], target, budget, run);
     if (!answer.ok) {
-      if (NO_PORTS_METHOD_RE.test(answer.reason)) return { pane, recorded: names.has(block.blockId), parsed: { status: "unsupported", ports: [] } as ParsedPorts };
+      if (NO_PORTS_METHOD_RE.test(answer.reason)) return { pane, recorded: names.has(block.blockId), noMethod: true, parsed: { status: "unsupported", ports: [] } as ParsedPorts };
       return { pane, recorded: names.has(block.blockId), failed: describedReason(answer, budget) };
     }
     return { pane, recorded: names.has(block.blockId), parsed: parsePortsReply(answer.json) };
@@ -122,6 +122,7 @@ export async function readLivePorts(target: LiveTarget, budget: LiveBudget, run:
   const reasons = new Set<string>();
   let read = 0;
   let unsupported = 0;
+  let noMethod = 0;
   for (const reply of replies) {
     if ("failed" in reply) {
       reasons.add(reply.failed === PORTS_TIMED_OUT ? PORTS_TIMED_OUT : `pane ${reply.pane} did not answer (${reply.failed})`);
@@ -129,6 +130,7 @@ export async function readLivePorts(target: LiveTarget, budget: LiveBudget, run:
     }
     if (reply.parsed.status === "unsupported") {
       unsupported++;
+      if ("noMethod" in reply) noMethod++;
       continue;
     }
     read++;
@@ -136,7 +138,7 @@ export async function readLivePorts(target: LiveTarget, budget: LiveBudget, run:
     for (const port of reply.parsed.ports) ports.push({ ...port, pane: reply.pane, recorded: reply.recorded });
   }
   ports.sort((a, b) => a.port - b.port || a.address.localeCompare(b.address));
-  if (read === 0 && unsupported > 0 && reasons.size === 0) return { status: "unsupported", ports: [], reason: PORTS_UNSUPPORTED };
+  if (read === 0 && unsupported > 0 && noMethod === unsupported && reasons.size === 0) return { status: "unsupported", ports: [], reason: PORTS_UNSUPPORTED };
   if (unsupported > 0) reasons.add(`${unsupported} terminal pane${unsupported === 1 ? " does" : "s do"} not support live ports`);
   if (read === 0 && reasons.size > 0) return unavailable([...reasons].join("; "));
   return { status: reasons.size > 0 ? "partial" : "ok", ports, ...(reasons.size > 0 ? { reason: [...reasons].join("; ") } : {}) };

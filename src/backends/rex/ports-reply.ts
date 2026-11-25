@@ -10,6 +10,8 @@ export const PORTS_METHOD = "com.superlogical.terminal.ports";
 /** Rex's own `--timeout` for one `ports` call; a healthy server answers in about 25 ms (measured 2026-11-19). */
 export const PORTS_CALL_TIMEOUT_MS = 2000;
 export const PORTS_UNSUPPORTED = "this Rex server has no live ports (needs API 16 or later)";
+/** A server that has the method, asked about a pane that cannot answer it. */
+export const PANE_PORTS_UNSUPPORTED = "this pane does not support live ports";
 export const PORTS_TIMED_OUT = "timed out";
 const PARTIAL_PROCESSES = "some processes could not be read; a port may be missing";
 const TRUNCATED = "more ports than one reply holds; some are not shown";
@@ -70,7 +72,7 @@ export function parsePortsReply(json: unknown): ParsedPorts {
     status = "partial";
     reasons.add(TRUNCATED);
   }
-  if (status === "unsupported") return { status, ports: [], reason: PORTS_UNSUPPORTED };
+  if (status === "unsupported") return { status, ports: [], reason: PANE_PORTS_UNSUPPORTED };
   return { status, ports, ...(reasons.size > 0 ? { reason: [...reasons].join("; ") } : {}) };
 }
 

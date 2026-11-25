@@ -275,6 +275,13 @@ describe("inspectRex live ports (plan 2026-11-19-rex-live-ports)", async () => {
     expect(result).toMatchObject({ availability: "available", portsStatus: "partial", portsReason: "pane editor did not answer (rex did not answer in time)" });
   });
 
+  it("a pane that answers unsupported is named, and the other panes are still read", () => {
+    const cli = cliWith((blockId) => ({ ok: true, op: "block-call", stdout: "", json: blockId === IDENTITY.rootBlockId ? { status: "unsupported", ports: [], processes: [] } : PORTS }));
+    const result = inspectRex(cli, IDENTITY, ["editor", "shell"], "chapa", ["editor", "shell"]);
+    expect(result).toMatchObject({ availability: "available", portsStatus: "partial", portsReason: "pane editor does not support live ports" });
+    expect(result.panes.find((p) => p.name === "shell")!.ports).toHaveLength(2);
+  });
+
   it("a server without the method is unsupported and later panes are not asked", () => {
     const cli = cliWith(() => failure("block-call", "failed", 'Error: block 622fe8 has no method "ports"; methods: process, title'));
     const result = inspectRex(cli, IDENTITY, ["editor", "shell"], "chapa", ["editor", "shell"]);
