@@ -145,7 +145,7 @@ function reviewOrphan(project: string, manifest: LaunchManifest, gen: string | n
     const present = launchFileList(files).filter((file) => existsSync(file));
     const reason = root === "absent" ? "never confirmed its session"
       : root === "block-gone" ? "its root block closed before its session was recorded" : "has an unreadable pane file";
-    return withRecoveryCommand(`${where}: ${reason}; left in place as evidence.`, `rm -f ${present.map(shellQuote).join(" ")}`);
+    return withRecoveryCommand(`${where}: ${reason}; left in place as evidence.`, `rm -f ${present.map((file) => shellQuote(file)).join(" ")}`);
   }
   if (!manifest.server || !cli) return `${where}: manifest names no server; left in place.`;
   const listed = listings.of(cli);
