@@ -126,18 +126,28 @@ describe("shell fragments", () => {
     const second = cleanupTrapLine("chapa", other, { onStop: `sh -c 'echo second >> "$HOME/marks"'` });
     const run = (body: string): string[] => {
       rmSync(marks, { force: true });
-      execFileSync(shell, [shell.endsWith("zsh") ? "-fc" : "-c", body], { env: { HOME: home, PATH: "/usr/bin:/bin" } });
+      // Interactive, as in a pane: HUP does not end such a shell, and history expansion is on.
+      execFileSync(shell, shell.endsWith("zsh") ? ["-f", "-i"] : ["--norc", "-i"], { input: `${body}\n`, env: { HOME: home, PATH: "/usr/bin:/bin" }, stdio: ["pipe", "ignore", "ignore"] });
       return readFileSync(marks, "utf8").trim().split("\n");
     };
     expect(run(`${first}\nkill -HUP $$\nexit 0`)).toEqual(["first"]);
     expect(run(`${first}\nexit 0`)).toEqual(["first"]);
     expect(run(`${first}\nkill -HUP $$\n${second}\nexit 0`)).toEqual(["first", "second"]);
+    expect(run(`set -u\n${first}\nkill -HUP $$\nexit 0`)).toEqual(["first"]);
+  });
+
+  it("the once-only guard does not lengthen the typed line: Ghostty types it, and a tty in canonical mode cuts a line at 1024 bytes", () => {
+    const line = cleanupTrapLine("chapa", ID, { onStop: "docker compose down", targetDir: "/tmp/chapa", layout: "full" });
+    const body = line.slice("__summon_cleanup() { ".length);
+    // 2.2.1: `__summon_cleanup() { rm -f …; mkdir -p "$HOME/.config/summon" "$HOME/.config/summon/logs"; …; }; trap '__summon_cleanup' EXIT HUP`
+    const shipped = body.slice(body.indexOf("rm -f ")).replace('mkdir -p "$HOME/.config/summon/logs"', 'mkdir -p "$HOME/.config/summon" "$HOME/.config/summon/logs"').replace("trap __summon_cleanup", "trap '__summon_cleanup'");
+    expect(line.length).toBeLessThanOrEqual("__summon_cleanup() { ".length + shipped.length);
   });
 
   it("cleanupTrapLine removes only its own pid and active files and passes --launch to snapshot save", () => {
     const line = cleanupTrapLine("chapa", ID, { onStop: "echo bye", targetDir: "/tmp/chapa", layout: "full" });
     expect(line.startsWith("__summon_cleanup() { ")).toBe(true);
-    expect(line.endsWith("; }; trap '__summon_cleanup' EXIT HUP")).toBe(true);
+    expect(line.endsWith("; }; trap __summon_cleanup EXIT HUP")).toBe(true);
     expect(line).toContain(`echo bye </dev/null >> "$HOME/.config/summon/logs/cleanup-chapa.log" 2>&1`);
     expect(line).toContain(`summon snapshot save --dir '/tmp/chapa' --project "chapa" --layout "full" --launch '${ID}' </dev/null >/dev/null 2>&1`);
     expect(line).toContain(`rm -f "${dir}/${ID}.pid" "${dir}/${ID}.active" 2>/dev/null`);

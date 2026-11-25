@@ -248,14 +248,14 @@ export interface CleanupTrapOptions {
  */
 export function cleanupTrapLine(project: string, launchId: string, options: CleanupTrapOptions = {}): string {
   assertLaunchId(launchId);
-  // HUP does not end an interactive Bash or zsh, so its EXIT runs the function again. The guard holds the launch id:
-  // a later launch in the same shell (Ghostty splits the caller's window) cleans up for itself. fish erases its function.
-  const once = `[ "\${__summon_cleaned:-}" != '${shellLaunchId(launchId)}' ] || return 0; __summon_cleaned='${shellLaunchId(launchId)}'`;
   const parts: string[] = [
-    ...(options.fish ? [] : [once]),
+    // HUP does not end an interactive Bash or zsh, so its EXIT runs the function again: the first run replaces it (a later
+    // launch in the same shell defines its own; fish erases its function). Ghostty types this line, and a tty in canonical
+    // mode cuts a line at 1024 bytes: keep it short.
+    ...(options.fish ? [] : ["__summon_cleanup(){ :;}"]),
     `rm -f ${shellArtifact(project, launchId, "pid")} ${shellArtifact(project, launchId, "active")} 2>/dev/null`,
     // SE-L3: mode 700 restricts the log directory to the owning user, like STATUS_DIR.
-    'mkdir -p "$HOME/.config/summon" "$HOME/.config/summon/logs"',
+    'mkdir -p "$HOME/.config/summon/logs"',
     'chmod 700 "$HOME/.config/summon" "$HOME/.config/summon/logs"',
   ];
 
@@ -279,7 +279,7 @@ export function cleanupTrapLine(project: string, launchId: string, options: Clea
   if (options.fish) {
     return `function __summon_cleanup --on-event fish_exit --on-signal HUP; functions -e __summon_cleanup; ${parts.join("; ")}; end`; // lint-allow-escape: same checked cleanup commands in fish function syntax
   }
-  return `__summon_cleanup() { ${parts.join("; ")}; }; trap '__summon_cleanup' EXIT HUP`; // lint-allow-escape: composition of the individually checked parts above
+  return `__summon_cleanup() { ${parts.join("; ")}; }; trap __summon_cleanup EXIT HUP`; // lint-allow-escape: composition of the individually checked parts above
 }
 
 // --- Launch manifest (Rex only; written before session.create, P13) ---
