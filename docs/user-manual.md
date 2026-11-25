@@ -373,7 +373,7 @@ summon ports
 
 Launch multiple registered projects at once: one Ghostty tab per project, or one Rex session per project under Rex.
 
-A *session* is a named list of registered project names stored at `~/.config/summon/sessions/<name>`. The order of projects in the file defines the launch order (the tab order under Ghostty).
+A *session* is a named list of registered project names stored at `~/.config/summon/sessions/<name>`. The order of projects in the file defines the launch order (the tab order under Ghostty). The file can be a symlink, for example into a dotfiles checkout: `list`, `show` and a launch read it, and `summon session add` refuses to replace it.
 
 ```bash
 # Save a session
