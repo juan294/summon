@@ -130,7 +130,8 @@ describe("shell fragments", () => {
       rmSync(marks, { force: true });
       const child = spawn(shell, shell.endsWith("zsh") ? ["-f", "-i"] : ["--norc", "-i"], { env: { HOME: home, PATH: "/usr/bin:/bin" }, stdio: ["pipe", "ignore", "ignore"], detached: true, timeout: 10_000, killSignal: "SIGKILL" });
       child.on("error", failed);
-      child.on("close", () => {
+      child.on("close", (_code, signal) => {
+        if (signal) return failed(new Error(`${shell} was killed by ${signal}`));
         try { done(readFileSync(marks, "utf8").trim().split("\n")); } catch (error) { failed(error as Error); }
       });
       child.stdin!.end(`${body}\n`);
