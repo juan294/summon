@@ -248,7 +248,11 @@ export interface CleanupTrapOptions {
  */
 export function cleanupTrapLine(project: string, launchId: string, options: CleanupTrapOptions = {}): string {
   assertLaunchId(launchId);
+  // HUP does not end an interactive Bash or zsh, so its EXIT runs the function again. The guard holds the launch id:
+  // a later launch in the same shell (Ghostty splits the caller's window) cleans up for itself. fish erases its function.
+  const once = `[ "\${__summon_cleaned:-}" != '${shellLaunchId(launchId)}' ] || return 0; __summon_cleaned='${shellLaunchId(launchId)}'`;
   const parts: string[] = [
+    ...(options.fish ? [] : [once]),
     `rm -f ${shellArtifact(project, launchId, "pid")} ${shellArtifact(project, launchId, "active")} 2>/dev/null`,
     // SE-L3: mode 700 restricts the log directory to the owning user, like STATUS_DIR.
     'mkdir -p "$HOME/.config/summon" "$HOME/.config/summon/logs"',

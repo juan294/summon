@@ -117,6 +117,23 @@ describe("shell fragments", () => {
     expect(paneFileLine('my"proj', ID, "editor")).toContain(`my\\"proj.launches/${ID}.pane.editor`);
   });
 
+  it.each(["/bin/bash", "/bin/zsh"])("runs on-stop once when %s gets HUP and then exits, and again for a later launch in the same shell", (shell) => {
+    const home = join(TEST_STATUS_DIR, "trap-home");
+    mkdirSync(home, { recursive: true });
+    const marks = join(home, "marks");
+    const other = "1f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f";
+    const first = cleanupTrapLine("chapa", ID, { onStop: `sh -c 'echo first >> "$HOME/marks"'` });
+    const second = cleanupTrapLine("chapa", other, { onStop: `sh -c 'echo second >> "$HOME/marks"'` });
+    const run = (body: string): string[] => {
+      rmSync(marks, { force: true });
+      execFileSync(shell, [shell.endsWith("zsh") ? "-fc" : "-c", body], { env: { HOME: home, PATH: "/usr/bin:/bin" } });
+      return readFileSync(marks, "utf8").trim().split("\n");
+    };
+    expect(run(`${first}\nkill -HUP $$\nexit 0`)).toEqual(["first"]);
+    expect(run(`${first}\nexit 0`)).toEqual(["first"]);
+    expect(run(`${first}\nkill -HUP $$\n${second}\nexit 0`)).toEqual(["first", "second"]);
+  });
+
   it("cleanupTrapLine removes only its own pid and active files and passes --launch to snapshot save", () => {
     const line = cleanupTrapLine("chapa", ID, { onStop: "echo bye", targetDir: "/tmp/chapa", layout: "full" });
     expect(line.startsWith("__summon_cleanup() { ")).toBe(true);
