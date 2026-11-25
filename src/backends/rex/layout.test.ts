@@ -489,3 +489,26 @@ describe("resolveLoginShell", () => {
     expect(command[command.length - 1]).toBe("-l");
   });
 });
+
+describe("block label limit (Rex accepts 128 characters)", () => {
+  it("cuts a longer label with an ellipsis, keeps the command whole and records the cut label", () => {
+    const command = `node ${"x".repeat(200)}.js`;
+    const { request, labels } = tree("editor | worker", { editor: "vim", worker: command });
+    const [editor, worker] = blocks(request.initial_windows[0].layout);
+    expect(editor!.label).toBe("editor · vim");
+    expect([...worker!.label]).toHaveLength(128);
+    expect(worker!.label.startsWith("worker · node xxx")).toBe(true);
+    expect(worker!.label.endsWith("…")).toBe(true);
+    expect(labels["worker"]).toBe(worker!.label);
+    expect(script(worker!)).toContain(shellQuote(command));
+  });
+
+  it("counts characters, not UTF-16 units: 128 stays whole and an astral character is never split", () => {
+    const prefix = [..."worker · "].length;
+    const fits = "é".repeat(128 - prefix);
+    expect(tree("editor | worker", { editor: "vim", worker: fits }).labels["worker"]).toBe(`worker · ${fits}`);
+    const rockets = tree("editor | worker", { editor: "vim", worker: "🚀".repeat(140) }).labels["worker"]!;
+    expect([...rockets]).toHaveLength(128);
+    expect([...rockets].slice(prefix, -1).every((c) => c === "🚀")).toBe(true);
+  });
+});
