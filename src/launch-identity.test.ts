@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { join, sep } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -117,31 +117,34 @@ describe("shell fragments", () => {
     expect(paneFileLine('my"proj', ID, "editor")).toContain(`my\\"proj.launches/${ID}.pane.editor`);
   });
 
-  it.each(["/bin/bash", "/bin/zsh"])("runs on-stop once when %s gets HUP and then exits, and again for a later launch in the same shell", (shell) => {
+  it.each(["/bin/bash", "/bin/zsh"])("runs on-stop once when %s gets HUP and then exits, and again for a later launch in the same shell", async (shell) => {
     const home = join(TEST_STATUS_DIR, "trap-home");
     mkdirSync(home, { recursive: true });
     const marks = join(home, "marks");
     const other = "1f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f";
     const first = cleanupTrapLine("chapa", ID, { onStop: `sh -c 'echo first >> "$HOME/marks"'` });
     const second = cleanupTrapLine("chapa", other, { onStop: `sh -c 'echo second >> "$HOME/marks"'` });
-    const run = (body: string): string[] => {
+    // Interactive, as in a pane: HUP does not end such a shell, and history expansion is on. Detached: with a controlling
+    // terminal an interactive zsh reads /dev/tty instead of this input and waits there.
+    const run = (body: string): Promise<string[]> => new Promise((done, failed) => {
       rmSync(marks, { force: true });
-      // Interactive, as in a pane: HUP does not end such a shell, and history expansion is on.
-      execFileSync(shell, shell.endsWith("zsh") ? ["-f", "-i"] : ["--norc", "-i"], { input: `${body}\n`, env: { HOME: home, PATH: "/usr/bin:/bin" }, stdio: ["pipe", "ignore", "ignore"] });
-      return readFileSync(marks, "utf8").trim().split("\n");
-    };
-    expect(run(`${first}\nkill -HUP $$\nexit 0`)).toEqual(["first"]);
-    expect(run(`${first}\nexit 0`)).toEqual(["first"]);
-    expect(run(`${first}\nkill -HUP $$\n${second}\nexit 0`)).toEqual(["first", "second"]);
-    expect(run(`set -u\n${first}\nkill -HUP $$\nexit 0`)).toEqual(["first"]);
+      const child = spawn(shell, shell.endsWith("zsh") ? ["-f", "-i"] : ["--norc", "-i"], { env: { HOME: home, PATH: "/usr/bin:/bin" }, stdio: ["pipe", "ignore", "ignore"], detached: true, timeout: 10_000, killSignal: "SIGKILL" });
+      child.on("error", failed);
+      child.on("close", () => {
+        try { done(readFileSync(marks, "utf8").trim().split("\n")); } catch (error) { failed(error as Error); }
+      });
+      child.stdin!.end(`${body}\n`);
+    });
+    expect(await run(`${first}\nkill -HUP $$\nexit 0`)).toEqual(["first"]);
+    expect(await run(`${first}\nexit 0`)).toEqual(["first"]);
+    expect(await run(`${first}\nkill -HUP $$\n${second}\nexit 0`)).toEqual(["first", "second"]);
+    expect(await run(`set -u\n${first}\nkill -HUP $$\nexit 0`)).toEqual(["first"]);
   });
 
   it("the once-only guard does not lengthen the typed line: Ghostty types it, and a tty in canonical mode cuts a line at 1024 bytes", () => {
     const line = cleanupTrapLine("chapa", ID, { onStop: "docker compose down", targetDir: "/tmp/chapa", layout: "full" });
-    const body = line.slice("__summon_cleanup() { ".length);
-    // 2.2.1: `__summon_cleanup() { rm -f …; mkdir -p "$HOME/.config/summon" "$HOME/.config/summon/logs"; …; }; trap '__summon_cleanup' EXIT HUP`
-    const shipped = body.slice(body.indexOf("rm -f ")).replace('mkdir -p "$HOME/.config/summon/logs"', 'mkdir -p "$HOME/.config/summon" "$HOME/.config/summon/logs"').replace("trap __summon_cleanup", "trap '__summon_cleanup'");
-    expect(line.length).toBeLessThanOrEqual("__summon_cleanup() { ".length + shipped.length);
+    // 718 is the length that 2.2.1 types for these inputs.
+    expect(line.length).toBeLessThanOrEqual(718);
   });
 
   it("cleanupTrapLine removes only its own pid and active files and passes --launch to snapshot save", () => {

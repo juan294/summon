@@ -247,7 +247,8 @@ describe.skipIf(!ZSH_AVAILABLE)("typed text in an interactive zsh with history e
     registerSelfInvocation(node, shim);
     const paths = launchArtifactPaths(PROJECT, GEN_A);
 
-    const zsh = spawn("zsh", ["-f", "-i"], { env: childEnv(), stdio: ["pipe", "pipe", "pipe"] });
+    // Detached: with a controlling terminal an interactive zsh reads /dev/tty instead of this input.
+    const zsh = spawn("zsh", ["-f", "-i"], { env: childEnv(), stdio: ["pipe", "pipe", "pipe"], detached: true });
     let stderr = "";
     zsh.stderr!.on("data", (chunk: Buffer) => { stderr += chunk.toString(); });
     // The first line proves history expansion is on in this shell: it must fail with "event not found".
