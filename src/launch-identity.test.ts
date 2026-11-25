@@ -140,6 +140,10 @@ describe("shell fragments", () => {
     expect(await run(`${first}\nexit 0`)).toEqual(["first"]);
     expect(await run(`${first}\nkill -HUP $$\n${second}\nexit 0`)).toEqual(["first", "second"]);
     expect(await run(`set -u\n${first}\nkill -HUP $$\nexit 0`)).toEqual(["first"]);
+    // Rex ends the shell while its HUP cleanup still runs: the EXIT run must finish the job (measured on preview.23).
+    const cut = cleanupTrapLine("chapa", ID, { onStop: `[ -e "$HOME/cut" ] || { : > "$HOME/cut"; exit 0; }; sh -c 'echo finished >> "$HOME/marks"'` });
+    rmSync(join(home, "cut"), { force: true });
+    expect(await run(`${cut}\nkill -HUP $$\nexit 0`)).toEqual(["finished"]);
   });
 
   it("the once-only guard does not lengthen the typed line: Ghostty types it, and a tty in canonical mode cuts a line at 1024 bytes", () => {

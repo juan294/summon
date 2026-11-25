@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Under Rex, a pane whose role and command are longer than 128 characters no longer prevents the workspace from opening: its label is cut with `…`, and the pane runs the whole command.
-- In Bash and zsh, the cleanup of a launch (`on-stop` and the snapshot) runs once when the root shell gets a hangup and then exits. It ran twice.
+- In Bash and zsh, a finished cleanup of a launch (`on-stop` and the snapshot) no longer runs a second time when the root shell gets a hangup and exits later. A cleanup that the terminal cut short still runs again at the exit.
 - A path to the same checkout typed in another letter case on a case-insensitive disk is no longer refused as a different checkout.
 - The dry-run note about a recorded Rex workspace says when a real run refuses (another checkout, no session id, or a record that cannot be verified) instead of always promising a switch, and is not printed with `--new-window`.
 - `summon inspect` names a pane that does not support live ports and still reads the others; it blamed the Rex server version.

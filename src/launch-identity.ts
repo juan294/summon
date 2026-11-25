@@ -249,10 +249,6 @@ export interface CleanupTrapOptions {
 export function cleanupTrapLine(project: string, launchId: string, options: CleanupTrapOptions = {}): string {
   assertLaunchId(launchId);
   const parts: string[] = [
-    // HUP does not end an interactive Bash or zsh, so its EXIT runs the function again: the first run replaces it (a later
-    // launch in the same shell defines its own; fish erases its function). Ghostty types this line, and a tty in canonical
-    // mode cuts a line at 1024 bytes: keep it short.
-    ...(options.fish ? [] : ["__summon_cleanup(){ :;}"]),
     `rm -f ${shellArtifact(project, launchId, "pid")} ${shellArtifact(project, launchId, "active")} 2>/dev/null`,
     // SE-L3: mode 700 restricts the log directory to the owning user, like STATUS_DIR.
     'mkdir -p "$HOME/.config/summon/logs"',
@@ -275,6 +271,12 @@ export function cleanupTrapLine(project: string, launchId: string, options: Clea
       + ` </dev/null >/dev/null 2>&1`,
     );
   }
+
+  // HUP does not end an interactive Bash or zsh, so its EXIT runs the function again: a finished run replaces it (a later
+  // launch in the same shell defines its own; fish erases its function). Last, never first: Rex ends the shell while the
+  // HUP run is still going, and the EXIT run is what finishes the cleanup (18 of 20 kills on preview.23). Ghostty types
+  // this line, and a tty in canonical mode cuts a line at 1024 bytes: keep it short.
+  if (!options.fish) parts.push("__summon_cleanup(){ :;}");
 
   if (options.fish) {
     return `function __summon_cleanup --on-event fish_exit --on-signal HUP; functions -e __summon_cleanup; ${parts.join("; ")}; end`; // lint-allow-escape: same checked cleanup commands in fish function syntax
